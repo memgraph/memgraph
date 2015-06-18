@@ -1,0 +1,5 @@
+# ignore object files
+*.o
+
+# ignore the library, download your own copy via install.sh
+catch.hpp
