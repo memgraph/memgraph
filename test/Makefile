@@ -1,7 +1,8 @@
 TARGET = tests
 LIBS = -lm
 CC = c++
-CFLAGS = -g -Wall
+CFLAGS = -g -Wall -std=c++1y
+INCLUDE = "../"
 
 .PHONY: default all clean
 
@@ -12,13 +13,17 @@ OBJECTS = $(patsubst %.cpp, %.o, $(wildcard *.cpp))
 HEADERS = $(wildcard *.hpp)
 
 %.o: %.cpp $(HEADERS)
-    $(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -I $(INCLUDE) -c $< -o $@
 
 .PRECIOUS: $(TARGET) $(OBJECTS)
 
 $(TARGET): $(OBJECTS)
-    $(CC) $(OBJECTS) -Wall $(LIBS) -o $@
+	$(CC) $(OBJECTS) -Wall $(LIBS) -o $@
 
 clean:
-    -rm -f *.o
-    -rm -f $(TARGET)
+	-rm -f *.o
+	-rm -f $(TARGET)
+
+test:
+	make
+	./tests --success

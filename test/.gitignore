@@ -1,5 +1,6 @@
-# ignore object files
+# ignore object and executable files
 *.o
+tests
 
 # ignore the library, download your own copy via install.sh
 catch.hpp

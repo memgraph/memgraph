@@ -19,7 +19,7 @@ public:
     }
 
 private:
-    std::atomic_flag lock;
+    std::atomic_flag lock = ATOMIC_FLAG_INIT;
 };
 
 #endif
