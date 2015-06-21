@@ -1,11 +1,11 @@
-#ifndef JSON_ARRAY_HPP
-#define JSON_ARRAY_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_ARRAY_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_ARRAY_HPP
 
 #include <cassert>
 #include <memory>
 #include <vector>
 
-#include "../utilities/utils.hpp"
+#include "utilities/string/intercalate.hpp"
 
 #include "json.hpp"
 

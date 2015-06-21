@@ -1,5 +1,5 @@
-#ifndef JSON_NULL_HPP
-#define JSON_NULL_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_NULL_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_NULL_HPP
 
 #include "json.hpp"
 

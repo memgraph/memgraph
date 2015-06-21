@@ -1,5 +1,5 @@
-#ifndef JSON_OBJECT_HPP
-#define JSON_OBJECT_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_OBJECT_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_OBJECT_HPP
 
 #include <iostream>
 
@@ -9,7 +9,7 @@
 #include <vector>
 #include <map>
 
-#include "../utilities/utils.hpp"
+#include "utilities/string/intercalate.hpp"
 
 #include "json.hpp"
 

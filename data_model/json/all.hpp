@@ -1,5 +1,5 @@
-#ifndef JSON_ALL_HPP
-#define JSON_ALL_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_ALL_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_ALL_HPP
 
 #include "array.hpp"
 #include "bool.hpp"

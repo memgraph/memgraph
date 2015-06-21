@@ -1,5 +1,5 @@
-#ifndef JSON_JSON_HPP
-#define JSON_JSON_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_JSON_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_JSON_HPP
 
 #include <initializer_list>
 #include <string>

@@ -1,5 +1,5 @@
-#ifndef JSON_BOOL_HPP
-#define JSON_BOOL_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_BOOL_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_BOOL_HPP
 
 #include "primitive.hpp"
 

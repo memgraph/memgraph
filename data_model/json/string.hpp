@@ -1,5 +1,5 @@
-#ifndef JSON_STRING_HPP
-#define JSON_STRING_HPP
+#ifndef MEMGRAPH_DATA_MODEL_JSON_STRING_HPP
+#define MEMGRAPH_DATA_MODEL_JSON_STRING_HPP
 
 #include "primitive.hpp"
 
