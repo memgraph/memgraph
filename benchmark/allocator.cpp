@@ -1,5 +1,8 @@
 #include <iostream>
 
+#include <vector>
+#include <thread>
+
 #include "utils/memory/allocator.hpp"
 #include "utils/memory/maker.hpp"
 
@@ -26,7 +29,7 @@ void test_classic(int N)
 
 void test_fast(int N)
 {
-    TestStruct** xs = makeme<TestStruct*>(N);
+    TestStruct** xs = new TestStruct*[N];
 
     for(int i = 0; i < N; ++i)
         xs[i] = makeme<TestStruct>(i, i, i, i);
@@ -39,8 +42,17 @@ void test_fast(int N)
 
 int main(void)
 {
-    constexpr int N = 20000000;
-    test_classic(N);
-    test_fast(N);
+    constexpr int n_threads = 256;
+    constexpr int N = 80000000 / n_threads;
+
+    std::vector<std::thread> threads;
+
+    for(int i = 0; i < n_threads; ++i)
+        threads.push_back(std::thread(test_fast, N));
+
+    for(auto& thread : threads){
+        thread.join();
+    }
+
     return 0;
 }
