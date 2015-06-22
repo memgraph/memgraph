@@ -26,4 +26,4 @@ clean:
 
 test:
 	make
-	./tests --success
+	./tests

@@ -1,16 +1,17 @@
 #ifndef MEMGRAPH_DATA_MODEL_EDGE_HPP
 #define MEMGRAPH_DATA_MODEL_EDGE_HPP
 
-template <class T>
+#include "json/all.hpp"
+#include "record.hpp"
+
 struct Node;
 
-template <class T>
-struct Edge
+struct Edge : Record
 {
+    Node* from;
+    Node* to;
 
-    Node<T>* from;
-    Node<T>* to;   
-    T* data;
+    json::Object* data;
 };
 
 #endif

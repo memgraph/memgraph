@@ -3,14 +3,16 @@
 
 #include <vector>
 
+#include "json/all.hpp"
+#include "record.hpp"
 #include "edge.hpp"
 
-template <class T>
-struct Node
+struct Node : Record
 {
-    std::vector<Edge<T>*> in;
-    std::vector<Edge<T>*> out;
-    T* data;
+    std::vector<Edge*> in;
+    std::vector<Edge*> out;
+
+    json::Object* data;
 };
 
 #endif
