@@ -1,82 +1,82 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_HPP
+#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPLIST_HPP
+#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPLIST_HPP
 
 #include <algorithm>
 #include <cstdlib>
 #include <array>
 
-#include "utils/random/xorshift.hpp"
-
-size_t new_height(int max_height)
-{
-    uint64_t rand = xorshift::next();
-    size_t height = 0;
-
-    while(max_height-- && (rand >>= 1) & 1)
-        height++;
-
-    return height;
-}
-
+#include "new_height.hpp"
+#include "skipnode.hpp"
 
 template <class K, class T>
-struct SkipNode
-{
-    SkipNode(K* key, T* item)
-        : key(key), item(item) {}
-
-    K* key;
-    T* item;
-
-    SkipNode* up;
-    SkipNode* forward;
-};
-
-template <class K,
-          class T,
-          size_t height = 16>
 class SkipList
 {
     using Node = SkipNode<K, T>;
-    using Tower = std::array<Node, height>;
 
 public:
-    SkipList()
-    {
-        head.fill(nullptr);
-    }
+    SkipList(size_t max_height);
 
-    T* get(const K* const key)
-    {
-        size_t h = height;
-
-        while(h--)
-        {
-
-        }
-    }
-
-    void put(const K* key, T* item)
-    {
-        auto* node = new SkipNode<T, K>(key, item);
-
-        Tower trace;
-
-        size_t h = height - 1;
-
-        while(h--)
-        {
-            
-        }
-    }
-
-    void del(const K* const key)
-    {
-
-    }
+    T* get(const K* const key);
+    void put(const K* key, T* item);
+    void del(const K* const key);
 
 private:
-    Tower head;
+    size_t level;
+    Node* header;
 };
+
+
+template <class K, class T>
+SkipList<K, T>::SkipList(size_t level)
+    : level(level)
+{
+    header = new Node(level);
+    auto sentinel = new Node();
+
+    for(int i = 0; i < level; ++i)
+        header->forward[i] = sentinel;
+}
+
+template <class K, class T>
+T* SkipList<K, T>::get(const K* const key)
+{
+    Node* current = header;
+
+    for(int i = level - 1; i >= 0; --i)
+    {
+        Node* next = current->forward[i];
+
+        while(next->key != nullptr && *next->key < *key)
+            current = current->forward[i];
+    }
+
+    return current->item;
+}
+
+template <class K, class T>
+void SkipList<K, T>::put(const K* key, T* item)
+{
+    auto height = new_height(level);
+    auto node = new Node(key, item, height);
+
+    // needed to update higher level forward pointers
+    int trace[level];
+
+    Node* current = header;
+
+    for(int i = level - 1; i >= 0; --i)
+    {
+        Node* next = current->forward[i];
+
+        while(next->key != nullptr && *next->key < *key)
+            current = current->forward[i];
+    }
+}
+
+template <class K, class T>
+void SkipList<K, T>::del(const K* const key)
+{
+
+}
 
 #endif

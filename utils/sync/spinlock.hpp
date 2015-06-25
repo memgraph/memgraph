@@ -7,22 +7,23 @@
 class SpinLock
 {
 public:
-    void acquire();
-    void release();
+    void lock();
+    void unlock();
 
 private:
-    std::atomic_flag lock = ATOMIC_FLAG_INIT;
+    // guaranteed by standard to be lock free!
+    std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
 };
 
-void SpinLock::acquire()
+void SpinLock::lock()
 {
-    while(lock.test_and_set(std::memory_order_acquire))
+    while(lock_flag.test_and_set(std::memory_order_acquire))
         usleep(250);
 }
 
-void SpinLock::release()
+void SpinLock::unlock()
 {
-    lock.clear(std::memory_order_release);
+    lock_flag.clear(std::memory_order_release);
 }
 
 #endif
