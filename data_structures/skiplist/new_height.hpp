@@ -7,7 +7,7 @@ size_t new_height(int max_height)
 {
     // get 64 random bits (coin tosses)
     uint64_t rand = xorshift::next();
-    size_t height = 0;
+    size_t height = 1;
 
     // for every head (1) increase the tower height by one until the tail (0)
     // comes. this gives the following probabilities for tower heights:

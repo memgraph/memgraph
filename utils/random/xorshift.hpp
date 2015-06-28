@@ -22,6 +22,10 @@ namespace xorshift
 
     void init()
     {
+        // TODO
+        // not sure if this thread local means anything for other threads
+        // fix this!!!!
+
         // use a slow, more complex rnd generator to initialize a fast one
         // make sure to call this before requesting any random numbers!
         std::random_device rd;

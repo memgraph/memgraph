@@ -23,10 +23,10 @@ TEST_CASE("New height distribution must be approx. 1/2 1/4 1/8 ...")
 
     // generate a tower and put it in a box with his same-height brothers
     for(int i = 0; i < N; ++i)
-        heights[new_height(max_height)]++;
+        heights[new_height(max_height) - 1]++;
 
     // evaluate the number of towers in all of the boxes
-    for(int i = 0; i < max_height; ++i)
+    for(int i = 1; i < max_height; ++i)
     {
         // compute how much towers should be in this box
         int x = N / (2 << i);

@@ -1,17 +1,18 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <mutex>
+#include <atomic>
 
 #include "catch.hpp"
 #include "utils/sync/spinlock.hpp"
 
 TEST_CASE("a thread can acquire and release the lock", "[spinlock]")
 {
-    SpinLock lock;
-
-    lock.acquire();
-    // i have a lock
-    lock.release();
+    {
+        std::unique_lock<SpinLock> lock;
+        // I HAS A LOCK!
+    }
 
     REQUIRE(true);
 }
@@ -24,14 +25,15 @@ void test_lock()
 {
     using namespace std::literals;
 
-    lock.acquire();
-    x++;
+    {
+        std::unique_lock<SpinLock> guard(lock);
+        x++;
 
-    REQUIRE(x < 2);
-    std::this_thread::sleep_for(25ms);
+        std::this_thread::sleep_for(25ms);
     
-    x--;
-    lock.release();
+        REQUIRE(x < 2);
+        x--;
+    }
 }
 
 TEST_CASE("only one thread at a time can own the lock", "[spinlock]")
