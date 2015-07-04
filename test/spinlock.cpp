@@ -5,7 +5,7 @@
 #include <atomic>
 
 #include "catch.hpp"
-#include "utils/sync/spinlock.hpp"
+#include "sync/spinlock.hpp"
 
 TEST_CASE("a thread can acquire and release the lock", "[spinlock]")
 {
