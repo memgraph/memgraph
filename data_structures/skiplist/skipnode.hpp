@@ -5,7 +5,7 @@
 #include <atomic>
 #include <mutex>
 
-#include "utils/sync/spinlock.hpp"
+#include "sync/spinlock.hpp"
 
 // concurrent skiplist node based on the implementation described in
 // "A Provably Correct Scalable Concurrent Skip List"

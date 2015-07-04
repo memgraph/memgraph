@@ -42,3 +42,7 @@ TEST_CASE("New height distribution must be approx. 1/2 1/4 1/8 ...")
         REQUIRE(relative_error < error_margin);
     }
 }
+
+TEST_CASE("You can add an item to the skiplist")
+{
+}
