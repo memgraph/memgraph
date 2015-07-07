@@ -19,7 +19,7 @@ struct BitBlock
     // mask = 11111111 >> 6 = 00000011
     static constexpr block_t mask = (block_t)(-1) >> (bits - N);
 
-    uint8_t at(size_t n)
+    block_t at(size_t n)
     {
         assert(n < size);
 
