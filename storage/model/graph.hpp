@@ -1,13 +1,16 @@
 #ifndef MEMGRAPH_DATA_MODEL_GRAPH_HPP
 #define MEMGRAPH_DATA_MODEL_GRAPH_HPP
 
-#include <vector>
+#include <list>
 
-#include "node.hpp"
+#include "vertex.hpp"
 #include "edge.hpp"
 
-struct Graph
+class Graph
 {
-}
+
+private:
+    std::list<
+};
 
 #endif

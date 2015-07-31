@@ -5,19 +5,14 @@
 
 #include "record.hpp"
 
-template <class id_t, class lock_t>
 struct Vertex;
 
-template <class id_t,
-          class lock_t>
-struct Edge : public Record<Edge<id_t, lock_t>, id_t, lock_t>
+struct Edge : public Record<Edge>
 {
-    Edge(uint64_t id) : Record<Edge<id_t, lock_t>, id_t, lock_t>(id) {}
-
-    using vertex_t = Vertex<id_t, lock_t>;
+    Edge(uint64_t id) : Record<Edge>(id) {}
 
     // pointer to the vertex this edge points to
-    vertex_t* to;
+    Vertex* to;
 };
 
 #endif

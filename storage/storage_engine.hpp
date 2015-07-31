@@ -8,54 +8,61 @@
 #include "storage/model/record.hpp"
 #include "storage/visible.hpp"
 #include "memory/memory_engine.hpp"
+#include "utils/counters/atomic_counter.hpp"
 
-template <class id_t,
-          class lock_t>
 class StorageEngine
 {
-    template <class T>
-    using record_t = Record<T, id_t, lock_t>;
-    using memory_engine_t = MemoryEngine<id_t, lock_t>;
-
 public:
-    StorageEngine(memory_engine_t& memory) : memory(memory) {}
+    StorageEngine(MemoryEngine& memory) : vertex_counter(0), edge_counter(0),
+        memory(memory) {}
 
     template <class T>
-    bool insert(record_t<T>** record,
-                const Transaction<id_t>& t)
+    bool insert(T** record, const Transaction& t)
     {
+        auto n = next<T>();
+        *record = memory.create<T>(n);
+        
+        // set creating transaction
+        (*record)->tx.min(t.id);
 
-    }
-
-    template <class T>
-    bool update(record_t<T>* record,
-                record_t<T>** updated,
-                const Transaction<id_t>& t)
-    {
-        // put a lock on the node to prevent other writers from modifying it
-        auto guard = record->guard();
-
-        // find the newest visible version of the record about to be updated
-        auto newest = max_visible(record, t);
-
-        if(newest == nullptr)
-            return false; // another transaction just deleted it!
-
-        *updated = memory.allocate<T>();
-        *updated = *newest; // copy the data in the current node TODO memset
-
-        newest->newer(latest);
-        *updated_record = newest
-
+        // set creating command of this transaction
+        (*record)->cmd.min(t.cid);
+        
         return true;
     }
 
     template <class T>
-    bool remove(record_t<T>& record,
-                const Transaction<id_t>& t)
+    bool update(T* record,
+                T** updated,
+                const Transaction& t)
     {
         // put a lock on the node to prevent other writers from modifying it
-        auto guard = record.guard();
+        auto guard = record->guard();
+
+        // find the record visible version of the record about to be updated
+        record = record->latest(t);
+
+        if(record == nullptr)
+            return false; // another transaction just deleted it!
+
+        *updated = memory.allocate<T>();
+        **updated = *record; // copy the data in the current node TODO memset?
+
+        record->newer(*updated);
+        return true;
+    }
+
+    template <class T>
+    bool remove(T& record,
+                const Transaction& t)
+    {
+        // put a lock on the node to prevent other writers from modifying it
+        auto guard = record->guard();
+
+        auto latest = record.latest(t);
+
+        if(record == nullptr)
+            return false;
 
         // only mark the record as deleted if it isn't already deleted
         // this prevents phantom reappearance of the deleted nodes
@@ -68,23 +75,35 @@ public:
         // running and determined that the record hasn't been deleted yet
         // even though T1 already committed before T3 even started!
 
-        if(record.xmax())
-            return false; // another transaction just deleted it!        
+        if(record->xmax())
+            return false; // another transaction deleted it! 
 
-        record.xmax(t.id);
+        record->xmax(t.id);
         return true;
     }
 
 private:
-    
-    std::unique_lock<lock_t> acquire()
-    {
-        return std::unique_lock<lock_t>(lock);
-    }
 
-    memory_engine_t& memory;
+    template<class T>
+    uint64_t next();
 
-    lock_t lock;
+    AtomicCounter<uint64_t> vertex_counter;
+    AtomicCounter<uint64_t> edge_counter;
+
+    MemoryEngine& memory;
 };
+
+
+template<>
+uint64_t StorageEngine::next<Vertex>()
+{
+    return vertex_counter.next();
+}
+
+template<>
+uint64_t StorageEngine::next<Edge>()
+{
+    return edge_counter.next();
+}
 
 #endif

@@ -6,16 +6,12 @@
 #include "record.hpp"
 #include "edge.hpp"
 
-template <class id_t,
-          class lock_t>
-struct Vertex : public Record<Vertex<id_t, lock_t>, id_t, lock_t>
+struct Vertex : public Record<Vertex>
 {
-    Vertex(uint64_t id) : Record<Vertex<id_t, lock_t>, id_t, lock_t>(id) {}
-
-    using edge_t = Edge<id_t, lock_t>;
+    Vertex(uint64_t id) : Record<Vertex>(id) {}
 
     // adjacency list containing pointers to outgoing edges from this vertex
-    std::vector<edge_t*> out;
+    std::vector<Edge*> out;
 };
 
 #endif
