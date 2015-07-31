@@ -13,16 +13,8 @@
 // make this class non-dependent on the memory allocation strategy
 
 // TODO implement real recycling of vertices and edges to improve performance
-
-template <class id_t,
-          class lock_t,
 class MemoryEngine
 {
-    template <class T>
-    using record_t = Record<T, id_t, lock_t>;
-
-    using vertex_t = Vertex<id_t, lock_t>;
-    using edge_t = Edge<id_t, lock_t>;
 public:
     
     template <class T,
@@ -39,29 +31,29 @@ public:
     }
 
     template <class T>
-    void recycle(record_t<T>* record)
+    void recycle(Record<T>* record)
     {
         recycle(&record->derived());
     }
 
-    void recycle(vertex_t v)
+    void recycle(Vertex* v)
     {
         delete v;
     }
 
-    void recycle(edge_t e)
+    void recycle(Edge* e)
     {
         delete e;
     }
 
 private:
     
-    std::unique_lock<lock_t> acquire()
+    std::unique_lock<SpinLock> acquire()
     {
-        return std::unique_lock<lock_t>(lock);
+        return std::unique_lock<SpinLock>(lock);
     }
 
-    lock_t lock;
+    SpinLock lock;
 };
 
 #endif
