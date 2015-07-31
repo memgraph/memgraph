@@ -10,7 +10,7 @@ public:
 
     void lock()
     {
-        // TODO add asm pause and counter first before sleeping
+        // TODO add asm_pause and counter first before sleeping
         // might be faster, but test this and see
         while(lock_flag.test_and_set(std::memory_order_acquire))
             usleep(250);

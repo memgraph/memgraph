@@ -7,82 +7,80 @@
 #include <vector>
 #include <set>
 #include <list>
+#include <algorithm>
 
 #include "transaction.hpp"
+#include "utils/counters/simple_counter.hpp"
 
-template <class id_t, class lock_t>
-class TransactionEngine
+#include "sync/spinlock.hpp"
+#include "sync/lockable.hpp"
+
+class TransactionEngine : Lockable<SpinLock>
 {
-    using trans_t = Transaction<id_t>;
-
 public:
-    TransactionEngine(id_t n) : counter(n) {}
+    TransactionEngine(uint64_t n) : counter(n) {}
     
-    Transaction<id_t> begin()
+    Transaction begin()
     {
-        auto guard = acquire();
+        auto guard = this->acquire();
 
-        auto id = ++counter;
-        auto t = Transaction<id_t>(id, active);
+        auto id = counter.next();
+        auto t = Transaction(id, active);
 
         active.push_back(id);
 
         return t;
     }
 
-    void commit(const Transaction<id_t>& t)
+    void commit(const Transaction& t)
     {
-        auto guard = acquire();
+        auto guard = this->acquire();
 
-        finalize_transaction(t);
+        finalize(t);
     }
 
-    void rollback(const Transaction<id_t>& t)
+    void rollback(const Transaction& t)
     {
-        auto guard = acquire();
+        auto guard = this->acquire();
         // what to do here?
         
-        finalize_transaction(t);
+        finalize(t);
     }
 
     // id of the last finished transaction
-    id_t epochs_passed()
+    uint64_t last_known_active()
     {
-        auto guard = acquire();
-        return active.front() - 1;
+        auto guard = this->acquire();
+        return active.front();
     }
 
     // total number of transactions started from the beginning of time
-    id_t count()
+    uint64_t count()
     {
-        auto guard = acquire();
-        return counter;
+        auto guard = this->acquire();
+        return counter.count();
     }
 
     // the number of currently active transactions
     size_t size()
     {
-        auto guard = acquire();
+        auto guard = this->acquire();
         return active.size();
     }
 
 private:
-    void finalize_transaction(const Transaction<id_t>& t)
+    void finalize(const Transaction& t)
     {
+        auto x = t.id;
+
         // remove transaction from the active transactions list
-        auto last = std::remove(active.begin(), active.end(), t.id);
+        auto last = std::remove(active.begin(), active.end(), x);
         active.erase(last, active.end());
     }
 
-    std::unique_lock<lock_t> acquire()
-    {
-        return std::unique_lock<lock_t>(lock);
-    }
+    SimpleCounter<uint64_t> counter;
 
-    id_t counter;
-    lock_t lock;
-
-    std::vector<id_t> active;
+    std::vector<uint64_t> active;
 };
 
 #endif
