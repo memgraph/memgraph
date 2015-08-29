@@ -8,9 +8,7 @@
 
 struct Vertex : public Record<Vertex>
 {
-    Vertex(uint64_t id) : Record<Vertex>(id) {}
-
-    // adjacency list containing pointers to outgoing edges from this vertex
+    std::vector<Edge*> in;
     std::vector<Edge*> out;
 };
 

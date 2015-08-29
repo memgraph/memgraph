@@ -3,6 +3,7 @@
 
 #include "utils/random/xorshift.hpp"
 
+template <class randomizer_t>
 size_t new_height(int max_height)
 {
     // get 64 random bits (coin tosses)

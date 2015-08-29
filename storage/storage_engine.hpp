@@ -6,7 +6,6 @@
 
 #include "transaction/transaction.hpp"
 #include "storage/model/record.hpp"
-#include "storage/visible.hpp"
 #include "memory/memory_engine.hpp"
 #include "utils/counters/atomic_counter.hpp"
 

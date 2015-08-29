@@ -17,6 +17,7 @@ on a 64 bit linux kernel.
 * clang 3.5 or Gcc 4.8 (good c++11 support, especially lock free atomics)
 * boost 1.55 (or something, probably works with almost anything)
 * lexertl (2015-07-14)
+* lemon (parser generator)
 * catch (for compiling tests)
 
 ## build

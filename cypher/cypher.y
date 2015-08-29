@@ -1,0 +1,291 @@
+/*
+** This file contains memgraph's grammar for Cypher.  Process this file
+** using the lemon parser generator to generate C code that runs
+** the parser. Lemon will also generate a header file containing
+** numeric codes for all of the tokens.
+*/
+
+%token_prefix TK_
+
+%token_type {Token*}
+
+%extra_argument {ast::Ast* ast}
+
+%syntax_error
+{
+    std::cout << "syntax error near '" << TOKEN->value << "'." << std::endl;
+    throw "";
+}
+
+%stack_overflow
+{
+    std::cout << "parser stack overflow" << std::endl;
+}
+
+%name cypher_parser
+
+%include
+{
+    #include <iostream>
+    #include <cassert>
+    #include <cstdlib>
+
+    #include "token.hpp"
+    #include "ast/ast.hpp"
+    #include "ast/tree.hpp"
+
+    #define DEBUG(X) std::cout << X << std::endl
+}
+
+// define operator precedence
+%left OR.
+%left AND.
+%right NOT.
+%left IN IS_NULL IS_NOT_NULL NE EQ.
+%left GT LE LT GE.
+%left PLUS MINUS.
+%left STAR SLASH REM.
+
+start ::= read_query.
+
+read_query ::= match_clause return_clause.
+
+match_clause ::= MATCH pattern where_clause.
+
+%type pattern {ast::Pattern*}
+
+// pattern specification
+pattern ::= node rel pattern. {
+
+}
+
+pattern ::= node. {
+    
+}
+
+rel ::= MINUS rel_spec MINUS. { // unidirectional
+
+}
+
+rel ::= LT MINUS rel_spec MINUS { // left
+
+}
+
+rel(R) ::= MINUS rel_spec(S) MINUS GT { // right
+    R = ast->create<ast::Relationship>(
+}
+
+%type rel_spec {ast::RelationshipSpecs*}
+
+rel_spec(R) ::= LSP rel_idn(I) rel_type(T) properties(P) RSP. {
+   R = ast->create<ast::RelationshipSpecs>(I, T, P); 
+}
+
+rel_spec(R) ::= . {
+    R = nullptr;
+}
+
+%type rel_idn {ast::Identifier*}
+
+rel_idn(R) ::= idn(I). {
+    R = I;
+}
+
+rel_idn(R) ::= . {
+    R = nullptr;
+}
+
+%type rel_type {ast::RelationshipList*}
+
+rel_type(L) ::= COLON rel_list(R). {
+    L = R;
+}
+
+rel_type(L) ::= . {
+    L = nullptr;
+}
+
+%type rel_list {ast::RelationshipList*}
+
+rel_list(L) ::= idn(I) PIPE rel_list(R). {
+    L = ast->create<ast::RelationshipList>(I, R);
+}
+
+rel_list(L) ::= idn(I). {
+    L = ast->create<ast::RelationshipList>(I, nullptr);
+}
+
+%type node {ast::Node*}
+
+// node specification
+node(N) ::= LP node_idn(I) label_idn(L) properties(P) RP. {
+    N = ast->create<ast::Node>(I, L, P);
+}
+
+node(N) ::= idn(I). {
+    N = ast->create<ast::Node>(I, nullptr, nullptr);
+}
+
+%type node_idn {ast::Identifier*}
+
+// a node identifier can be ommitted
+node_idn(N) ::= idn(I). {
+    N = I;
+}
+
+node_idn(N) ::= . {
+    N = nullptr;
+}
+
+%type label_idn {ast::LabelList*}
+
+// a label can be ommited or there can be more of them
+label_idn(L) ::= COLON idn(I) label_idn(N). {
+    L = ast->create<ast::LabelList>(I, N);
+}
+
+label_idn(L) ::= . {
+    L = nullptr;
+}
+
+%type where_clause {ast::Expr*}
+
+// where clause
+where_clause(W) ::= WHERE expr(E). {
+    W = E;
+}
+
+where_clause(W) ::= . {
+    W = nullptr;
+}
+
+%type return_clause {ast::ReturnList*}
+
+// return clause
+return_clause(R) ::= RETURN return_list(L). {
+    R = L;
+}
+
+%type return_list {ast::ReturnList*}
+
+return_list(R) ::= idn(I) COMMA return_list(N). {
+    R = ast->create<ast::ReturnList>(I, N);
+}
+
+return_list(R) ::= idn(I). {
+    R = ast->create<ast::ReturnList>(I, nullptr);
+}
+
+%type properties {ast::PropertyList*}
+
+// '{' <property_list> '}'
+properties(P) ::= LCP property_list(L) RCP. {
+    P = L;
+}
+
+properties(P) ::= . {
+    P = nullptr;
+}
+
+%type property_list {ast::PropertyList*}
+
+// <property> [[',' <property>]]*
+property_list(L) ::= property(P) COMMA property_list(N). {
+    L = ast->create<ast::PropertyList>(P, N);
+}
+
+property_list(L) ::= property(P). {
+    L = ast->create<ast::PropertyList>(P, nullptr);
+}
+
+%type property {ast::Property*}
+
+// IDENTIFIER ':' <expression>
+property(P) ::= idn(I) COLON expr(E). {
+    P = ast->create<ast::Property>(I, E);
+}
+
+%type expr {ast::Expr*}
+
+expr(E) ::= expr(L) AND expr(R). {
+    E = ast->create<ast::And>(L, R);
+}
+
+expr(E) ::= expr(L) OR expr(R). {
+    E = ast->create<ast::Or>(L, R);
+}
+
+expr(E) ::= expr(L) LT expr(R). {
+    E = ast->create<ast::Lt>(L, R);
+}
+
+expr(E) ::= expr(L) GT expr(R). {
+    E = ast->create<ast::Gt>(L, R);
+}
+
+expr(E) ::= expr(L) GE expr(R). {
+    E = ast->create<ast::Ge>(L, R);
+}
+
+expr(E) ::= expr(L) LE expr(R). {
+    E = ast->create<ast::Le>(L, R);
+}
+
+expr(E) ::= expr(L) EQ expr(R). {
+    E = ast->create<ast::Eq>(L, R);
+}
+
+expr(E) ::= expr(L) NE expr(R). {
+    E = ast->create<ast::Ne>(L, R);
+}
+
+expr(E) ::= expr(L) PLUS expr(R). {
+    E = ast->create<ast::Plus>(L, R);
+}
+
+expr(E) ::= expr(L) MINUS expr(R). {
+    E = ast->create<ast::Minus>(L, R);
+}
+
+expr(E) ::= expr(L) STAR expr(R). {
+    E = ast->create<ast::Star>(L, R);
+}
+
+expr(E) ::= expr(L) SLASH expr(R). {
+    E = ast->create<ast::Slash>(L, R);
+}
+
+expr(E) ::= expr(L) REM expr(R). {
+    E = ast->create<ast::Rem>(L, R);
+}
+
+expr(E) ::= idn(I) DOT idn(P). {
+    E = ast->create<ast::Accessor>(I, P);
+}
+
+%type idn {ast::Identifier*}
+
+idn(I) ::= IDN(X). {
+    I = ast->create<ast::Identifier>(X->value);
+}
+
+expr(E) ::= INT(V). {
+    auto value = std::stoi(V->value);
+    E = ast->create<ast::Integer>(value);
+}
+
+expr(E) ::= FLOAT(V). {
+    auto value = std::stod(V->value);
+    E = ast->create<ast::Float>(value);
+}
+
+expr(E) ::= STR(V). {
+    auto value = V->value.substr(1, V->value.size() - 2);
+    E = ast->create<ast::String>(value);
+}
+
+expr(E) ::= BOOL(V). {
+    auto value = V->value[0] == 't' || V->value[0] == 'T' ? true : false;
+    E = ast->create<ast::Boolean>(value);
+}
+

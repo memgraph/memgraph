@@ -5,10 +5,8 @@
 // curiously recurring template pattern
 
 template <class Derived>
-class Crtp
+struct Crtp
 {
-public:
-
     Derived& derived()
     {
         return *static_cast<Derived*>(this);

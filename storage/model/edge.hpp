@@ -7,11 +7,11 @@
 
 struct Vertex;
 
+struct 
+
 struct Edge : public Record<Edge>
 {
-    Edge(uint64_t id) : Record<Edge>(id) {}
-
-    // pointer to the vertex this edge points to
+    Vertex* from;
     Vertex* to;
 };
 

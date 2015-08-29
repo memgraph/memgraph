@@ -26,8 +26,6 @@ public:
 
     size_t size() const
     {
-
-
         return data.size();
     }
 
