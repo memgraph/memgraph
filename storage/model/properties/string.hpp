@@ -3,15 +3,20 @@
 
 #include "property.hpp"
 
+namespace props
+{
+
 class String : public Value<std::string>
 {
 public:
    using Value::Value;
 
-   virtual void dump(std::string& buffer)
+   void dump(std::string& buffer) override
    {
        buffer += '"'; buffer += value; buffer += '"';
    }
 };
+
+}
 
 #endif

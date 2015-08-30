@@ -5,6 +5,9 @@
 
 #include "property.hpp"
 
+namespace props
+{
+
 class Properties
 {
     using props_t = std::map<std::string, Property::sptr>;
@@ -17,7 +20,8 @@ public:
     
     Property* at(const std::string& key)
     {
-        return props.at(key).get();
+        auto it = props.find(key);
+        return it == props.end() ? nullptr : it->second.get();
     }
 
     void put(const std::string& key, Property::sptr value)
@@ -47,5 +51,7 @@ public:
 private:
     props_t props;
 };
+
+}
 
 #endif

@@ -4,6 +4,9 @@
 #include <memory>
 #include <string>
 
+namespace props
+{
+
 class Property
 {
 public:
@@ -17,6 +20,24 @@ public:
 
     virtual ~Property() {}
     virtual void dump(std::string& buffer) = 0;
+
+    template <class T>
+    T* as()
+    {
+        // return dynamic_cast<T*>(this);
+
+        // http://stackoverflow.com/questions/579887/how-expensive-is-rtti
+        // so... typeid is 20x faster! but there are some caveats, use with
+        // caution. read CAREFULLY what those people are saying.
+        // should be ok to use in this situation because all types used by
+        // this comparison are local and compile together with this code
+        // and we're compiling it only for linux with gcc/clang and we will
+        // not use any classes from third party libraries in this function.
+        if(typeid(T*) == typeid(this))
+            return static_cast<T*>(this);
+
+        return nullptr;
+    }
 };
 
 template <class T>
@@ -26,5 +47,7 @@ public:
     Value(T value) : value(value) {}
     T value;
 };
+
+}
 
 #endif
