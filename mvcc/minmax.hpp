@@ -1,7 +1,10 @@
-#ifndef MEMGRAPH_STORAGE_MODEL_UTILS_MINMAX_HPP
-#define MEMGRAPH_STORAGE_MODEL_UTILS_MINMAX_HPP
+#ifndef MEMGRAPH_MVCC_MINMAX_HPP
+#define MEMGRAPH_MVCC_MINMAX_HPP
 
 #include <atomic>
+
+namespace mvcc
+{
 
 template <class T>
 class MinMax
@@ -34,5 +37,7 @@ public:
 private:
     std::atomic<T> min_, max_;
 };
+
+}
 
 #endif

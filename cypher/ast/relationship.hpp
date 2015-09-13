@@ -24,7 +24,13 @@ struct RelationshipSpecs : public AstNode<RelationshipSpecs>
 
 struct Relationship : public AstNode<Relationship>
 {
-    Relationship()
+    enum Direction { Left, Right, Both };
+
+    Relationship(RelationshipSpecs* specs, Direction direction)
+        : specs(specs), direction(direction) {}
+
+    RelationshipSpecs* specs;
+    Direction direction;
 };
 
 }

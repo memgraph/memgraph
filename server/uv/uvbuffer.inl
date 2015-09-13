@@ -70,7 +70,11 @@ UvBuffer& UvBuffer::append(const char* data, size_t n)
         buffer.base = static_cast<char*>(realloc(buffer.base, new_size));
     }
 
-    std::memcpy(buffer.base + size(), data, n);
+    auto ptr = buffer.base + size();
+
+    for(size_t i = 0; i < n; ++i, ++ptr, ++data)
+        *ptr = *data;
+
     buffer.len = new_size;
 
     return *this;

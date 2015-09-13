@@ -2,20 +2,18 @@
 #define MEMGRAPH_CYPHER_AST_PATTERN_HPP
 
 #include "ast_node.hpp"
+#include "relationship.hpp"
 
 namespace ast
 {
 
-template <class Derived>
-struct Direction : public AstNode<Derived> {};
-
-struct DirectionLeft : public Direction<DirectionLeft> {};
-struct DirectionRight : public Direction<DirectionLeft> {};
-struct Unidirectional : public Direction<DirectionLeft> {};
-
 struct Pattern : public AstNode<Pattern>
 {
+    Pattern(Node* node, Relationship* relationship, Pattern* next)
+        : node(node), relationship(relationship), next(next) {}
+
     Node* node;
+    Relationship* relationship;
     Pattern* next;
 };
 

@@ -3,30 +3,29 @@
 
 #include <stack>
 
-#include "utils/sync/spinlock.hpp"
+#include "threading/sync/spinlock.hpp"
+#include "threading/sync/lockable.hpp"
 
 template <class T>
-class SpinLockStack
+class SpinLockStack : Lockable<SpinLock>
 {
 public:
 
     T pop()
     {
-        lock.acquire();
+        auto guard = acquire();
 
         T elem = stack.top();
         stack.pop();
-
-        lock.release();
 
         return elem;
     }
 
     void push(const T& elem)
     {
-        lock.acquire();
+        auto guard = acquire();
+
         stack.push(elem);
-        lock.release();
     }
 
 private:

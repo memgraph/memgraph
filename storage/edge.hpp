@@ -1,13 +1,11 @@
-#ifndef MEMGRAPH_DATA_MODEL_EDGE_HPP
-#define MEMGRAPH_DATA_MODEL_EDGE_HPP
+#ifndef MEMGRAPH_STORAGE_EDGE_HPP
+#define MEMGRAPH_STORAGE_EDGE_HPP
 
 #include <vector>
 
-#include "record.hpp"
+#include "model/record.hpp"
 
 struct Vertex;
-
-struct 
 
 struct Edge : public Record<Edge>
 {

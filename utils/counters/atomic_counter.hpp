@@ -11,7 +11,7 @@ public:
 
     T next()
     {
-        return counter.fetch_add(1, std::memory_order_relaxed);
+        return counter.fetch_add(1);
     }
 
 private:

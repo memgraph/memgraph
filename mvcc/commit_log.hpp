@@ -5,8 +5,8 @@
 
 #include <boost/dynamic_bitset/dynamic_bitset.hpp>
 
-#include "sync/spinlock.hpp"
-#include "sync/lockable.hpp"
+#include "threading/sync/spinlock.hpp"
+#include "threading/sync/lockable.hpp"
 
 // optimize allocation performance by preallocating chunks in like 2MB or so
 // optimize memory by purging old transactions after vacuuming or something

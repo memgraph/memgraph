@@ -84,10 +84,8 @@ public:
                 lfound = level;
 
             preds[level] = pred;
-            succs[level] = node; // TODO what's FB doing here?
+            succs[level] = node;
         }
-
-        //std::cout << "lfound = " << lfound << std::endl;
 
         return lfound;
     }

@@ -13,7 +13,7 @@ class Ast
 public:
     Ast() {}
 
-    AstVisitable::uptr root;
+    AstVisitable* root;
 
     void traverse(AstVisitor& visitor)
     {
@@ -32,7 +32,7 @@ private:
     // basically a gc vector that destroys all ast nodes once this object is
     // destroyed. parser generator is written in c and works only with raw
     // pointers so this is what makes it leak free after the parser finishes
-    // parsing
+    // parsing without using shared pointers
     std::vector<AstVisitable::uptr> items;
 };
 

@@ -1,7 +1,10 @@
-#ifndef MEMGRAPH_STORAGE_MODEL_UTILS_VERSION_HPP
-#define MEMGRAPH_STORAGE_MODEL_UTILS_VERSION_HPP
+#ifndef MEMGRAPH_MVCC_VERSION_HPP
+#define MEMGRAPH_MVCC_VERSION_HPP
 
 #include <atomic>
+
+namespace mvcc
+{
 
 template <class T>
 class Version
@@ -30,5 +33,7 @@ private:
     // version is present, this value points to a nullptr
     std::atomic<T*> versions;
 };
+
+}
 
 #endif

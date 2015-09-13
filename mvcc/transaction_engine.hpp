@@ -1,5 +1,5 @@
-#ifndef MEMGRAPH_TRANSACTION_TRANSACTIONENGINE_HPP
-#define MEMGRAPH_TRANSACTION_TRANSACTIONENGINE_HPP
+#ifndef MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
+#define MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
 
 #include <cstdlib>
 #include <atomic>
@@ -12,8 +12,8 @@
 #include "transaction.hpp"
 #include "utils/counters/simple_counter.hpp"
 
-#include "sync/spinlock.hpp"
-#include "sync/lockable.hpp"
+#include "threading/sync/spinlock.hpp"
+#include "threading/sync/lockable.hpp"
 
 class TransactionEngine : Lockable<SpinLock>
 {
@@ -47,7 +47,6 @@ public:
         finalize(t);
     }
 
-    // id of the last finished transaction
     uint64_t last_known_active()
     {
         auto guard = this->acquire();

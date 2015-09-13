@@ -13,13 +13,12 @@
 
 %syntax_error
 {
-    std::cout << "syntax error near '" << TOKEN->value << "'." << std::endl;
-    throw "";
+    throw SyntaxError(TOKEN->value);
 }
 
 %stack_overflow
 {
-    std::cout << "parser stack overflow" << std::endl;
+    throw ParserError("Parser stack overflow");
 }
 
 %name cypher_parser
@@ -31,6 +30,7 @@
     #include <cstdlib>
 
     #include "token.hpp"
+    #include "errors.hpp"
     #include "ast/ast.hpp"
     #include "ast/tree.hpp"
 
@@ -46,33 +46,45 @@
 %left PLUS MINUS.
 %left STAR SLASH REM.
 
-start ::= read_query.
+start ::= read_query(RQ). {
+   ast->root = ast->create<ast::Start>(RQ);
+}
 
-read_query ::= match_clause return_clause.
+%type read_query {ast::ReadQuery*}
 
-match_clause ::= MATCH pattern where_clause.
+read_query(RQ) ::= match_clause(M) return_clause(R). {
+    RQ = ast->create<ast::ReadQuery>(M, R);
+}
+
+%type match_clause {ast::Match*}
+
+match_clause(M) ::= MATCH pattern(P) where_clause(W). {
+    M = ast->create<ast::Match>(P, W);
+}
 
 %type pattern {ast::Pattern*}
 
 // pattern specification
-pattern ::= node rel pattern. {
-
+pattern(P) ::= node(N) rel(R) pattern(NEXT). {
+    P = ast->create<ast::Pattern>(N, R, NEXT);
 }
 
-pattern ::= node. {
-    
+pattern(P) ::= node(N). {
+    P = ast->create<ast::Pattern>(N, nullptr, nullptr);
 }
 
-rel ::= MINUS rel_spec MINUS. { // unidirectional
+%type rel {ast::Relationship*}
 
+rel(R) ::= MINUS rel_spec(S) MINUS. { // unidirectional
+    R = ast->create<ast::Relationship>(S, ast::Relationship::Both);
 }
 
-rel ::= LT MINUS rel_spec MINUS { // left
-
+rel(R) ::= LT MINUS rel_spec(S) MINUS. { // left
+    R = ast->create<ast::Relationship>(S, ast::Relationship::Left);
 }
 
-rel(R) ::= MINUS rel_spec(S) MINUS GT { // right
-    R = ast->create<ast::Relationship>(
+rel(R) ::= MINUS rel_spec(S) MINUS GT. { // right
+    R = ast->create<ast::Relationship>(S, ast::Relationship::Right);
 }
 
 %type rel_spec {ast::RelationshipSpecs*}
@@ -148,11 +160,11 @@ label_idn(L) ::= . {
     L = nullptr;
 }
 
-%type where_clause {ast::Expr*}
+%type where_clause {ast::Where*}
 
 // where clause
 where_clause(W) ::= WHERE expr(E). {
-    W = E;
+    W = ast->create<ast::Where>(E);
 }
 
 where_clause(W) ::= . {

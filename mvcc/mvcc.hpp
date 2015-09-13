@@ -3,14 +3,15 @@
 
 #include <atomic>
 
-#include "transaction/transaction.hpp"
-#include "storage/model/utils/minmax.hpp"
-#include "storage/model/utils/version.hpp"
-
-#include "transaction/commit_log.hpp"
+#include "transaction.hpp"
+#include "minmax.hpp"
+#include "version.hpp"
 
 // the mvcc implementation used here is very much like postgresql's
 // more info: https://momjian.us/main/writings/pgsql/mvcc.pdf
+
+namespace mvcc
+{
 
 template <class T>
 class Mvcc : public Version<T>
@@ -62,7 +63,7 @@ public:
 
     // inspects the record change history and returns the record version visible
     // to the current transaction if it exists, otherwise it returns nullptr
-    T* latest(const Transaction& t)
+    T* latest_visible(const Transaction& t)
     {
         T* record = this, newer = this->newer();
         
@@ -75,6 +76,18 @@ public:
         return record;
     }
 
+    void mark_created(const Transaction& t)
+    {
+        tx.min(t.id);
+        cmd.min(t.cid);
+    }
+
+    void mark_deleted(const Transaction& t)
+    {
+        tx.max(t.id);
+        cmd.max(t.cid);
+    }
+
 protected:
     // known committed and known aborted for both xmax and xmin
     // this hints are used to quickly check the commit/abort status of the
@@ -83,5 +96,7 @@ protected:
     // more info https://wiki.postgresql.org/wiki/Hint_Bits
     std::atomic<uint8_t> hints;
 };
+
+}
 
 #endif

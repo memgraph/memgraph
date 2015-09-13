@@ -2,24 +2,27 @@
 #define MEMGRAPH_STORAGE_RECORD_HPP
 
 #include <mutex>
+#include <set>
 
 #include "utils/crtp.hpp"
 
-#include "sync/spinlock.hpp"
-#include "sync/lockable.hpp"
+#include "threading/sync/spinlock.hpp"
 
-#include "storage/model/utils/mvcc.hpp"
+#include "mvcc/mvcc.hpp"
 
 #include "properties/properties.hpp"
 
 template <class Derived>
 class Record
     : public Crtp<Derived>,
-      public Mvcc<Derived>,
-      Lockable<SpinLock>
+      public mvcc::Mvcc<Derived>
 {
 public:
-    Properties props;
+    // a record contains a key value map containing data
+    model::Properties properties;
+    
+    // each record can have one or more distinct labels. 
+    std::set<uint16_t> labels;
 };
 
 #endif

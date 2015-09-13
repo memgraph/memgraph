@@ -5,7 +5,7 @@
 
 #include "property.hpp"
 
-namespace props
+namespace model
 {
 
 class Properties

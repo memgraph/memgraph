@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-namespace props
+namespace model
 {
 
 class Property

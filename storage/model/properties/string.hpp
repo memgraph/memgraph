@@ -3,7 +3,7 @@
 
 #include "property.hpp"
 
-namespace props
+namespace model
 {
 
 class String : public Value<std::string>

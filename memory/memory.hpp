@@ -1,10 +1,9 @@
-#ifndef MEMGRAPH_MEMORY_MEMORY_ENGINE_HPP
-#define MEMGRAPH_MEMORY_MEMORY_ENGINE_HPP
+#ifndef MEMGRAPH_MEMORY_MEMORY_HPP
+#define MEMGRAPH_MEMORY_MEMORY_HPP
 
 #include <atomic>
 #include <mutex>
 
-#include "transaction/transaction.hpp"
 #include "storage/model/record.hpp"
 #include "storage/model/vertex.hpp"
 #include "storage/model/edge.hpp"

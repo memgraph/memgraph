@@ -34,18 +34,27 @@ struct Star;
 struct Slash;
 struct Rem;
 
+struct RelationshipSpecs;
 struct RelationshipList;
 struct Relationship;
 
 struct Node;
 struct LabelList;
 
+struct Pattern;
+
 struct ReturnList;
+struct Match;
+struct Where;
+struct ReadQuery;
+
+struct Start;
 
 struct AstVisitor : Visitor<Accessor, Boolean, Float, Identifier, Integer,
     String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus, Star,
     Slash, Rem, PropertyList, RelationshipList, Relationship, Node,
-    LabelList, ReturnList> {};
+    RelationshipSpecs, LabelList, ReturnList, Pattern, Match, ReadQuery,
+    Start, Where> {};
 
 }
 

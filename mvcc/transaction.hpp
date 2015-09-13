@@ -1,11 +1,11 @@
-#ifndef MEMGRAPH_TRANSACTION_TRANSACTION_HPP
-#define MEMGRAPH_TRANSACTION_TRANSACTION_HPP
+#ifndef MEMGRAPH_MVCC_TRANSACTION_HPP
+#define MEMGRAPH_MVCC_TRANSACTION_HPP
 
 #include <cstdlib>
 #include <cstdint>
 #include <vector>
 
-#include "transaction/commit_log.hpp"
+#include "commit_log.hpp"
 
 struct Transaction
 {

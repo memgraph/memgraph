@@ -9,6 +9,8 @@
 #include "memory/memory_engine.hpp"
 #include "utils/counters/atomic_counter.hpp"
 
+#include "storage/model/root.hpp"
+
 class StorageEngine
 {
 public:

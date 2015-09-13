@@ -1,7 +1,7 @@
 #include <iostream>
 #include <thread>
 
-#include "sync/spinlock.hpp"
+#include "threading/sync/spinlock.hpp"
 
 #include "transaction/transaction_engine.hpp"
 #include "memory/memory_engine.hpp"

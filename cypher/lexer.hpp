@@ -3,16 +3,21 @@
 
 #include <cstdint>
 
+// unfortunatelly, lexertl uses some stuff deprecated in c++11 so we get some
+// warnings during compile time, mainly for the auto_ptr
+// auto_ptr<lexertl::detail::basic_re_token<char, char> > is deprecated
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include "lexertl/generator.hpp"
 #include "lexertl/lookup.hpp"
+#pragma GCC diagnostic pop
 
-#include "lexical_error.hpp"
+#include "errors.hpp"
 #include "token.hpp"
 
 class Lexer
 {
 public:
-
     class Tokenizer
     {
     public:
