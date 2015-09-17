@@ -17,7 +17,7 @@ cypher.hpp: lemonfiles
 
 .PHONY: lemonfiles
 lemonfiles: cypher.y
-	lemon cypher.y -s
+	lemon/lemon cypher.y -s
 	mv cypher.c cypher.cpp
 
 .PHONY: clean
