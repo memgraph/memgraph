@@ -2,7 +2,7 @@
 
 * https://github.com/libuv/libuv
 
-```{engine='bash'}
+```
 sh autogen.sh
 ./configure
 make
@@ -12,14 +12,20 @@ make install
 
 * https://github.com/joyent/http-parser
 
-```{engine='bash'}
+```
 make
 make install -stdlib=libstdc++ -lstdc++ (OSX)
 make install
 ```
 
+* https://github.com/c9s/r3
+
+```
+brew install r3 (OSX)
+```
+
 ## Test compile
 
-```{engine='bash'}
-clang++ -std=c++11 test.cpp -o test -luv -lhttp_parser -I../
+```
+clang++ -std=c++11 test.cpp -o test.out -luv -lhttp_parser -I../
 ```
