@@ -1,4 +1,3 @@
-lexertl
 lemon
 *.o
 cypher.cpp
