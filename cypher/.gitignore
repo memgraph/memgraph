@@ -1,4 +1,3 @@
-lemon
 *.o
 cypher.cpp
 cypher.h
