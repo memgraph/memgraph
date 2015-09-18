@@ -3,7 +3,7 @@
 
 #include <map>
 
-#include "server/uv/uv.hpp"
+#include "uv/uv.hpp"
 #include "status_codes.hpp"
 
 namespace http

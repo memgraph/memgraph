@@ -4,7 +4,7 @@
 #include <iostream>
 #include <uv.h>
 
-#include "server/uv/uv.hpp"
+#include "uv/uv.hpp"
 #include "httpparsersettings.hpp"
 #include "httpconnection.hpp"
 #include "request.hpp"

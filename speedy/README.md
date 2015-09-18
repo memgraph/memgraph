@@ -23,9 +23,3 @@ make install
 ```
 brew install r3 (OSX)
 ```
-
-## Test compile
-
-```
-clang++ -std=c++11 test.cpp -o test.out -luv -lhttp_parser -I../
-```
