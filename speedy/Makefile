@@ -1,6 +1,6 @@
 CXX=clang++
 CFLAGS=-std=c++11 -Wall
-LDFLAGS=-luv -lhttp_parser
+LDFLAGS=-luv -lhttp_parser -lr3
 INC=-I../
 SOURCES=$(wildcard *.cpp)
 EXECUTABLE=test.out

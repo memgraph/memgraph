@@ -21,5 +21,11 @@ make install
 * https://github.com/c9s/r3
 
 ```
-brew install r3 (OSX)
+./autogen.sh
+./configure
+make
+sudo make install
 ```
+
+## NOTE
+r3_include.h is custom r3 header file because of compilation problem related to redefinition of bool
