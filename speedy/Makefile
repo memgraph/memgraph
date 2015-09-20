@@ -1,7 +1,7 @@
 CXX=clang++
 CFLAGS=-std=c++11 -Wall
 LDFLAGS=-luv -lhttp_parser
-INC=-I./
+INC=-I../
 SOURCES=$(wildcard *.cpp)
 EXECUTABLE=test.out
 # OBJECTS=$(SOURCES:.cpp=.o)
@@ -9,7 +9,7 @@ EXECUTABLE=test.out
 all: $(EXECUTABLE)
 	    
 $(EXECUTABLE): $(SOURCES) 
-	$(CXX) $(LDFLAGS) $(SOURCES) -o $(EXECUTABLE) $(CFLAGS)
+	$(CXX) $(LDFLAGS) $(SOURCES) -o $(EXECUTABLE) $(CFLAGS) $(INC)
 
 # .cpp.o:
 #	$(CXX) $(CFLAGS) $< -o $@ $(LDFLAGS) $(INC)

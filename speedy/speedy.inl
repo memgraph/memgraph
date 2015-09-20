@@ -6,7 +6,7 @@
 namespace speedy
 {
 
-Speedy::Speedy(const http::Ipv4& ip) : server(loop), ip(ip)
+Speedy::Speedy(uv::UvLoop& loop, const http::Ipv4& ip) : server(loop), ip(ip)
 {
 }
 
@@ -21,8 +21,6 @@ void Speedy::listen()
     });
 
     std::cout << "Server is UP" << std::endl;
-    
-    loop.run(uv::UvLoop::Mode::Default);
 }
 
 Speedy::~Speedy()

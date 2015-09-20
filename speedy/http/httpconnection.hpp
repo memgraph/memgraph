@@ -1,7 +1,7 @@
 #ifndef MEMGRAPH_SERVER_HTTP_CONNECTION_HPP
 #define MEMGRAPH_SERVER_HTTP_CONNECTION_HPP
 
-#include "uv/uv.hpp"
+#include "io/uv/uv.hpp"
 
 #include "httpparser.hpp"
 #include "request.hpp"
