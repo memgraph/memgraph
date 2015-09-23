@@ -1,7 +1,8 @@
 CXX=clang++
 CFLAGS=-std=c++11 -Wall
-LDFLAGS=-luv -lhttp_parser
-INC=-I../
+LDFLAGS=-luv -lhttp_parser -lr3
+# debug only
+INC=-I../ -g -O0 -fno-inline-functions
 SOURCES=$(wildcard *.cpp)
 EXECUTABLE=test.out
 # OBJECTS=$(SOURCES:.cpp=.o)

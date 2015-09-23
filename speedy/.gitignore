@@ -1,1 +1,4 @@
 *.out
+*.dSYM/
+*.gdb
+.gdb_history
