@@ -12,6 +12,7 @@ class LockExpiredError : public std::runtime_error
     using runtime_error::runtime_error;
 };
 
+template <size_t microseconds = 250>
 class TimedSpinLock
 {
 public:
@@ -36,7 +37,7 @@ public:
             if(clock::now() - start > expiration)
                 throw LockExpiredError("This lock has expired");
 
-            usleep(250);
+            usleep(microseconds);
         }
     }
 
