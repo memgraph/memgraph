@@ -19,7 +19,9 @@ private:
     http::Ipv4 ip;
     node *n;
     std::vector<http::request_cb_t> callbacks;
-    void store_index(int method, const std::string &path);
+    void store_callback(int method,
+        const std::string &path,
+        http::request_cb_t callback);
 public:
     Speedy(uv::UvLoop& loop, const http::Ipv4& ip);
     void get(const std::string &path, http::request_cb_t callback);
