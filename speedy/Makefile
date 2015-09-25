@@ -1,6 +1,6 @@
 CXX=clang++
 CFLAGS=-std=c++11 -Wall
-LDFLAGS=-luv -lhttp_parser -lr3
+LDFLAGS=-luv -lhttp_parser ./r3/.libs/libr3.a /usr/lib/x86_64-linux-gnu/libpcre.a
 # debug only
 INC=-I../ -g -O0 -fno-inline-functions
 SOURCES=$(wildcard *.cpp)
@@ -10,7 +10,7 @@ EXECUTABLE=test.out
 all: $(EXECUTABLE)
 	    
 $(EXECUTABLE): $(SOURCES) 
-	$(CXX) $(LDFLAGS) $(SOURCES) -o $(EXECUTABLE) $(CFLAGS) $(INC)
+	$(CXX) $(CFLAGS) $(SOURCES) -o $(EXECUTABLE) $(INC) $(LDFLAGS) 
 
 # .cpp.o:
 #	$(CXX) $(CFLAGS) $< -o $@ $(LDFLAGS) $(INC)

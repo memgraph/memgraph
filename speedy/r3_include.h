@@ -12,8 +12,8 @@
 #include <string.h>
 #include <pcre.h>
 #include <stdbool.h>
-#include <r3/str_array.h>
-#include <r3/r3_str.h>
+#include "r3/include/str_array.h"
+#include "r3/include/r3_str.h"
 
 #ifdef __cplusplus
 extern "C" {

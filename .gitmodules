@@ -1,3 +1,6 @@
 [submodule "cypher/lexertl"]
 	path = cypher/lexertl
 	url = https://github.com/BenHanson/lexertl.git
+[submodule "speedy/r3"]
+	path = speedy/r3
+	url = https://github.com/c9s/r3.git
