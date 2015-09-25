@@ -16,12 +16,14 @@ class DynamicBitset : Lockable<SpinLock>
 {
     struct Block
     {
+        Block() = default;
+
         Block(Block&) = delete;
         Block(Block&&) = delete;
 
         static constexpr size_t size = sizeof(block_t) * 8;
         
-        constexpr block_t bitmask(size_t group_size)
+        constexpr block_t bitmask(size_t group_size) const
         {
             return (block_t)(-1) >> (size - group_size);
         }
@@ -86,29 +88,39 @@ class DynamicBitset : Lockable<SpinLock>
     };
 
 public:
+    DynamicBitset() : head(new Chunk()) {}
 
-    block_t at(size_t k, size_t n = 1)
+    DynamicBitset(DynamicBitset&) = delete;
+    DynamicBitset(DynamicBitset&&) = delete;
+
+    block_t at(size_t k, size_t n)
     {
-        auto chunk = find_chunk(k);
-        chunk.at(k, n, std::memory_order_seq_cst);
+        auto& chunk = find_chunk(k);
+        return chunk.at(k, n, std::memory_order_seq_cst);
+    }
+
+    bool at(size_t k)
+    {
+        auto& chunk = find_chunk(k);
+        return chunk.at(k, 1, std::memory_order_seq_cst);
     }
 
     void set(size_t k, size_t n = 1)
     {
-        auto chunk = find_chunk(k);
-        chunk.set(k, n, std::memory_order_seq_cst);
+        auto& chunk = find_chunk(k);
+        return chunk.set(k, n, std::memory_order_seq_cst);
     }
 
     void clear(size_t k, size_t n = 1)
     {
-        auto chunk = find_chunk(k);
-        chunk.clear(k, n, std::memory_order_seq_cst);
+        auto& chunk = find_chunk(k);
+        return chunk.clear(k, n, std::memory_order_seq_cst);
     }
 
 private:
     Chunk& find_chunk(size_t& k)
     {
-        Chunk* chunk = head.load(), next = nullptr;
+        Chunk* chunk = head.load(), *next = nullptr;
 
         // while i'm not in the right chunk
         // (my index is bigger than the size of this chunk)
