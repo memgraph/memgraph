@@ -25,8 +25,11 @@ Speedy::Speedy(uv::UvLoop& loop, const http::Ipv4& ip) : server(loop), ip(ip)
     n = r3_tree_create(100);
 }
 
-void Speedy::store_index(int method, const std::string &path)
+void Speedy::store_callback(int method,
+    const std::string &path,
+    http::request_cb_t callback)
 {
+    callbacks.push_back(callback);
     void *ptr = malloc(sizeof(uint));
     *((uint *)ptr) = callbacks.size() - 1;
     r3_tree_insert_routel(n, method, path.c_str(), path.size(), ptr);
@@ -34,30 +37,27 @@ void Speedy::store_index(int method, const std::string &path)
 
 void Speedy::get(const std::string &path, http::request_cb_t callback)
 {
-    callbacks.push_back(callback);
-    store_index(METHOD_GET, path);
+    store_callback(METHOD_GET, path, callback);
 
     // TODO: something like this
     // this solution doesn't work, currenlty I don't know why
+    // callbacks.push_back(callback)
     // r3_tree_insert_pathl(n, path.c_str(), path.size(), &callbacks.back());
 }
 
 void Speedy::post(const std::string &path, http::request_cb_t callback)
 {
-    callbacks.push_back(callback);
-    store_index(METHOD_POST, path);
+    store_callback(METHOD_POST, path, callback);
 }
 
 void Speedy::put(const std::string &path, http::request_cb_t callback)
 {
-    callbacks.push_back(callback);
-    store_index(METHOD_PUT, path);
+    store_callback(METHOD_PUT, path, callback);
 }
 
 void Speedy::del(const std::string &path, http::request_cb_t callback)
 {
-    callbacks.push_back(callback);
-    store_index(METHOD_DELETE, path);
+    store_callback(METHOD_DELETE, path, callback);
 }
 
 void Speedy::listen()
