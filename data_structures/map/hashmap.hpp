@@ -10,9 +10,11 @@ namespace lockfree
 {
 
 template <class K, class V>
-class HashMap: Lockable<SpinLock> {
+class HashMap: Lockable<SpinLock> 
+{
 public:
-    V operator[](const K& key)
+
+    V at(const K& key)
     {
         auto guard = acquire();
 
