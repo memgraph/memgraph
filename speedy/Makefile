@@ -1,8 +1,8 @@
 CXX=clang++
-CFLAGS=-std=c++11 -Wall
+CFLAGS=-std=c++11 -Wall -O2
 LDFLAGS=-luv -lhttp_parser ./r3/.libs/libr3.a /usr/lib/x86_64-linux-gnu/libpcre.a
 # debug only
-INC=-I../ -g -O0 -fno-inline-functions
+INC=-I../
 SOURCES=$(wildcard *.cpp)
 EXECUTABLE=test.out
 # OBJECTS=$(SOURCES:.cpp=.o)
