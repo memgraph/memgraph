@@ -1,6 +1,6 @@
 CXX=clang++
 CFLAGS=-std=c++11 -Wall -O2
-LDFLAGS=-luv -lhttp_parser ./r3/.libs/libr3.a /usr/lib/x86_64-linux-gnu/libpcre.a
+LDFLAGS=-luv -lhttp_parser ./r3/.libs/libr3.a -L/usr/local/lib -lpcre
 # debug only
 INC=-I../
 SOURCES=$(wildcard *.cpp)

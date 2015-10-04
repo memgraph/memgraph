@@ -18,13 +18,21 @@ make install -stdlib=libstdc++ -lstdc++ (OSX)
 make install
 ```
 
-* https://github.com/c9s/r3
+* https://github.com/c9s/r3 (git submodule)
 
 ```
 ./autogen.sh
 ./configure
 make
+```
+
+* http://pcre.org/ (version 8.35, R3 dependency)
+
+```
+./configure
+make
 sudo make install
+
 ```
 
 ## NOTE

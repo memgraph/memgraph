@@ -2,3 +2,5 @@
 *.dSYM/
 *.gdb
 .gdb_history
+*.swp
+*.swo
