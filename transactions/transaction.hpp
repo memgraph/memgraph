@@ -5,7 +5,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "commit_log.hpp"
+namespace tx
+{
 
 struct Transaction
 {
@@ -26,7 +27,7 @@ struct Transaction
 
     // check weather the transaction with the xid looks committed from the
     // database snapshot given to this transaction
-    bool committed(uint64_t xid) const
+    bool looks_committed(uint64_t xid) const
     {
         // transaction xid is newer than id and therefore not visible at all
         if (xid > id)
@@ -43,5 +44,7 @@ struct Transaction
         return true;
     }
 };
+
+}
 
 #endif
