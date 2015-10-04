@@ -78,6 +78,12 @@ public:
     }
 
     template <class T>
+    void singleton(std::shared_ptr<T>&& item)
+    {
+        items.emplace(key<T>(), Holdable::uptr(new Instance<T>(item)));
+    }
+
+    template <class T>
     void factory(typename Creator<T>::func&& f)
     {
         items[key<T>()] = std::move(Holdable::uptr(
