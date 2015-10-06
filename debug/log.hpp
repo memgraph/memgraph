@@ -16,6 +16,38 @@ public:
     enum class Level : std::uint_fast8_t { Debug, Info, Warn, Error };
 
 private:
+    struct Message
+    {
+        std::chrono::system_clock::time_point time;
+        Level level;
+        std::string text;
+        std::string file;
+        std::string function;
+        size_t line;
+
+        friend std::ostream&
+            operator<<(std::ostream& stream, const Message& message)
+        {
+            using namespace std::chrono;
+
+            auto t = system_clock::to_time_t(message.time);
+            auto time_string = std::string(std::ctime(&t));
+
+            return stream << bash_color::green
+                          << "[" << to_string(message.level) << "] "
+                          << bash_color::end
+                          << message.text << std::endl
+                          << bash_color::yellow << "    on " << bash_color::end
+                          << time_string.substr(0, time_string.size() - 1)
+                          << bash_color::yellow << " in file "
+                          << bash_color::end << message.file
+                          << bash_color::yellow << " in function "
+                          << bash_color::end << message.function
+                          << bash_color::yellow << " at line "
+                          << bash_color::end << message.line;
+        }
+    };
+
     static std::array<std::string, 4> level_strings;
 
     static std::string to_string(Log::Level level)
@@ -41,37 +73,20 @@ public:
     Log(Log&) = delete;
     Log(Log&&) = delete;
 
-    static void log(Level level,
-                    std::string text,
-                    std::string file,
-                    std::string function,
-                    size_t line)
+    static void log(Level level, const std::string& text,
+                    const char* file, const char* function, size_t line)
     {
         using namespace std::chrono;
 
-        auto time_point = system_clock::now();
-        auto t = system_clock::to_time_t(time_point);
-        auto time_string = std::string(std::ctime(&t));
-
-        std::stringstream ss;
-    
-        ss << bash_color::green << "[" << to_string(level) << "] "
-           << bash_color::end << text << std::endl
-           << bash_color::yellow << "    on " << bash_color::end
-           << time_string.substr(0, time_string.size() - 1)
-           << bash_color::yellow << " in file " << bash_color::end
-           << file
-           << bash_color::yellow << " in function " << bash_color::end
-           << function
-           << bash_color::yellow << " at line " << bash_color::end
-           << line;
-
         auto& log = Log::instance();
-        log.messages.push(std::make_unique<std::string>(ss.str()));
+
+        log.messages.push(std::unique_ptr<Message>(new Message {
+            system_clock::now(), level, text, file, function, line
+        }));
     }
 
 private:
-    lockfree::MpscQueue<std::string> messages;
+    lockfree::MpscQueue<Message> messages;
     std::atomic<bool> alive;
     std::thread worker;
 
@@ -98,10 +113,7 @@ private:
 };
 
 std::array<std::string, 4> Log::level_strings {{
-    "DEBUG",
-    "INFO",
-    "WARN",
-    "ERROR"
+    "DEBUG", "INFO", "WARN", "ERROR"
 }};
 
 #define LOG(_LEVEL_, _MESSAGE_)                 \
