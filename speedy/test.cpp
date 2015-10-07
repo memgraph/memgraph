@@ -32,7 +32,7 @@ int main(void)
     // speedy init
     uv::UvLoop loop;
     http::Ipv4 ip("0.0.0.0", 3400);
-    speedy::Speedy app(loop, ip);
+    speedy::Speedy app(loop);
 
     // GET methods
     app.get(test_url_1, test_callback);
@@ -60,7 +60,7 @@ int main(void)
     test_delete(test_callback, app);
 
     // app run
-    app.listen();
+    app.listen(ip);
     loop.run(uv::UvLoop::Mode::Default);
 
     return 0;

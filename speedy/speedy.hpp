@@ -7,68 +7,61 @@
  *  @author Dominik Tomicevic (domko)
  *  @author Marko Budiselic (buda)
  */
-#ifndef MEMGRAPH_SPEEDY_HPP
-#define MEMGRAPH_SPEEDY_HPP
+#ifndef MEMGRAPH_SPEEDY_SPEEDY_HPP
+#define MEMGRAPH_SPEEDY_SPEEDY_HPP
 
-#include <vector>
 #include "io/uv/uv.hpp"
 #include "http/http.hpp"
-#include "r3_include.h"
+#include "r3.hpp"
 
 namespace speedy
 {
 
-typedef unsigned int uint;
-
 class Speedy
 {
-private:
-    /*
-     * http server instance that contains all logic related
-     * to the http protocol
-     */
-    http::HttpServer server;
-
-    /*
-     * ip address of the server
-     */
-    http::Ipv4 ip;
-
-    /*
-     * root node of r3 decision tree
-     */
-    node *n;
-
-    /*
-     * callbacks container 
-     */
-    std::vector<http::request_cb_t> callbacks;
-
-    /** @brief Store a http callback.
-     *
-     *  Every callback for now has receiving method and path (url).
-     *  So, the implementation of this method saves callback for 
-     *  the method and the path.
-     *
-     *  @param method int http defined method
-     *  @param path std::string path (url)
-     *  @param callback http::request_cb_t callback which will be called
-     *  on a http request
-     */
-    void store_callback(int method,
-        const std::string &path,
-        http::request_cb_t callback);
 public:
-    Speedy(uv::UvLoop& loop, const http::Ipv4& ip);
-    void get(const std::string &path, http::request_cb_t callback);
-    void post(const std::string &path, http::request_cb_t callback);
-    void put(const std::string &path, http::request_cb_t callback);
-    void del(const std::string &path, http::request_cb_t callback);
-    void listen();
+    Speedy(uv::UvLoop& loop) : server(loop), router(100) {}
+
+    Speedy(Speedy&) = delete;
+    Speedy(Speedy&&) = delete;
+
+    void get(const std::string& path, http::request_cb_t cb)
+    {
+        router.insert(R3::Method::GET, path, cb);
+    }
+
+    void post(const std::string& path, http::request_cb_t cb)
+    {
+        router.insert(R3::Method::POST, path, cb);
+    }
+
+    void put(const std::string& path, http::request_cb_t cb)
+    {
+        router.insert(R3::Method::PUT, path, cb);
+    }
+
+    void del(const std::string& path, http::request_cb_t cb)
+    {
+        router.insert(R3::Method::DELETE, path, cb);
+    }
+
+    void listen(const http::Ipv4& ip)
+    {
+        server.listen(ip, [this](http::Request& req, http::Response& res) {
+            auto route = router.match(R3::to_r3_method(req.method), req.url);
+            
+            if(!route.exists())
+                return res.send(http::Status::NotFound, "Resource not found");
+
+            route(req, res);
+        });
+    }
+
+private:
+    http::HttpServer server;
+    R3 router;
 };
 
 }
-
-#include "speedy.inl"
 
 #endif
