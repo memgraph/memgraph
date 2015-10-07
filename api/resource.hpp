@@ -8,10 +8,18 @@
 namespace api
 {
 
+/** @brief GET handler method for the resource
+ *  Contains the code for registering GET handler for a URL to Speedy
+ */
 struct GET
 {
-    GET() = default;
-
+    /** @brief Links ::get handler to speedy for a given path
+     *
+     *  @tparam T Class type containing the required handler
+     *  @param app Instance of speedy to register the method to
+     *  @param path URL of the resource being registered
+     *  @param resource Object containing ::get http::request_cb_t handler
+     */
     template <class T>
     void link(speedy::Speedy& app, const std::string& path, T& resource)
     {
@@ -20,10 +28,18 @@ struct GET
     }
 };
 
+/** @brief POST handler method for the resource
+ *  Contains the code for registering POST handler for a URL to Speedy
+ */
 struct POST
 {
-    POST() = default;
-
+    /** @brief Links ::post handler to speedy for a given path
+     *
+     *  @tparam T Class type containing the required handler
+     *  @param app Instance of speedy to register the method to
+     *  @param path URL of the resource being registered
+     *  @param resource Object containing ::post http::request_cb_t handler
+     */
     template <class T>
     void link(speedy::Speedy& app, const std::string& path, T& resource)
     {
@@ -35,18 +51,47 @@ struct POST
 namespace detail
 {
 
+/** @brief Registers a method for a path to speedy
+ *
+ *  @tparam T Derived class containing the handler of the method
+ *  @tparam M A method to register
+ */
 template <class T, class M>
 struct Method : public M
 {
+    /** Registers a route handler for the resource
+     *
+     *  Registers a method handler for M on the given URL
+     *
+     *  @param app instance of speedy to register the method to
+     *  @param path URL of the resource being registered
+     */
     Method(speedy::Speedy& app, const std::string& path)
     {
         M::link(app, path, static_cast<T&>(*this));
     }
 };
 
+/** @brief Generates the Method<T, M> inheritance for each M in Ms
+ * 
+ *  Implemented inheriting recursively using variadic templates
+ *
+ *  @tparam T Derived class containing handlers for each method M in Ms
+ *  @tparam Ms... Methods to register
+ */
 template <class T, class... Ms>
 struct Methods;
 
+/** @brief specialization of the struct Methods<T, Ms...>
+ *
+ *  Unrolls one method M and generates a handler for this method by inheriting
+ *  from Method<T, M> and generates the rest of the handlers recursively by
+ *  inheriting from Methods<T, Ms...> and unrolling one M each time.
+ *
+ *  @tparam T Derived class containing handlers for each method M in Ms
+ *  @tparam M Unrolled method M for which to generate a handler
+ *  @tparam Ms... The rest of the methods
+ */
 template <class T, class M, class... Ms>
 struct Methods<T, M, Ms...> : public Method<T, M>, public Methods<T, Ms...>
 {
@@ -54,6 +99,13 @@ struct Methods<T, M, Ms...> : public Method<T, M>, public Methods<T, Ms...>
         : Method<T, M>(app, path), Methods<T, Ms...>(app, path) {}
 };
 
+/** @brief specialization of the struct Methods<T, Ms...>
+ *
+ *  Specializes the recursion termination case containing only one method M
+ *
+ *  @tparam T Derived class containing handlers for method M
+ *  @tparam M Unrolled method M for which to generate a handler
+ */
 template <class T, class M>
 struct Methods<T, M> : public Method<T, M>
 {
@@ -62,6 +114,19 @@ struct Methods<T, M> : public Method<T, M>
 
 }
 
+/** @brief Represents a restful resource
+ *
+ *  Automatically registers get, put, post, del... methods inside the derived
+ *  class T. Methods are given as a template parameter to the class. Valid
+ *  template parameters are classes which implement a function
+ *
+ *  void link(speedy::Speedy&, const std::string&, T& resource)
+ *
+ *  which registers a method you want to use with speedy
+ *
+ *  @tparam T Derived class (CRTP)
+ *  @tparam Ms... HTTP methods to register for this resource (GET, POST...)
+ */
 template <class T, class... Ms>
 class Resource : public detail::Methods<T, Ms...>
 {
