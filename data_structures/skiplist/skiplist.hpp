@@ -28,7 +28,7 @@ public:
 
     ~SkipList()
     {
-        for(Node* current = header.load(std::memory_order_relaxed); current;)
+        for(Node* current = header.load(); current;)
         {
             Node* next = current->forward(0);
             Node::destroy(current);
@@ -38,7 +38,7 @@ public:
 
     size_t size() const
     {
-        return size_.load(std::memory_order_relaxed);
+        return size_.load();
     }
 
     uint8_t height() const
@@ -60,7 +60,7 @@ public:
 
     size_t increment_size(size_t delta)
     {
-        return size_.fetch_add(delta, std::memory_order_relaxed) + delta;
+        return size_.fetch_add(delta) + delta;
     }
 
     int find_path(Node* from,
@@ -92,7 +92,7 @@ public:
 
     Node* find(const K* const key)
     {
-        Node* pred = header.load(std::memory_order_consume); 
+        Node* pred = header.load(); 
         Node* node = nullptr;
 
         uint8_t level = pred->height;
@@ -150,7 +150,7 @@ public:
 
         while(true)
         {
-            auto head = header.load(std::memory_order_consume);
+            auto head = header.load();
             auto lfound = find_path(head, MAX_HEIGHT - 1, key, preds, succs);
 
             if(lfound != -1)
@@ -215,7 +215,7 @@ public:
     
         while(true)
         {
-            auto head = header.load(std::memory_order_consume);
+            auto head = header.load();
             auto lfound = find_path(head, MAX_HEIGHT - 1, key, preds, succs);
 
             if(!marked && (lfound == -1 || !ok_delete(succs[lfound], lfound)))

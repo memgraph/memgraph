@@ -12,18 +12,23 @@ class Version
 public:
     Version() : versions(nullptr) {}
 
+    ~Version()
+    {
+        delete versions.load();
+    }
+
     Version(T* value) : versions(value) {}
 
     // return a pointer to a newer version stored in this record
     T* newer()
     {
-        return versions.load(std::memory_order_relaxed);
+        return versions.load();
     }
 
     // set a newer version of this record
     void newer(T* value)
     {
-        versions.store(value, std::memory_order_relaxed);
+        versions.store(value);
     }
 
 private:

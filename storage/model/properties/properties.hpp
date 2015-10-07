@@ -4,6 +4,7 @@
 #include <map>
 
 #include "property.hpp"
+#include "string.hpp"
 
 namespace model
 {
@@ -43,9 +44,9 @@ public:
             buffer += '"'; buffer += kvp.first; buffer += "\":";
             kvp.second->dump(buffer); buffer += ',';
         }
-
-        buffer.pop_back(); // erase last comma
-        buffer += '}';
+    
+        // replace last redundant comma with }
+        buffer.back() = '}';
     }
 
 private:

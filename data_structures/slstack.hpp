@@ -29,7 +29,6 @@ public:
     }
 
 private:
-    SpinLock lock;
     std::stack<T> stack;
 };
 

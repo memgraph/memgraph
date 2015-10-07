@@ -6,42 +6,39 @@
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 
-namespace spinlock
-{
-
 template <class T>
-class Queue : Lockable<SpinLock>
+class SlQueue : Lockable<SpinLock>
 {
 public:
 
     template <class... Args>
     void emplace(Args&&... args)
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         queue.emplace(args...);
     }
 
     void push(const T& item)
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         queue.push(item);
     }
 
     T front()
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         return queue.front();
     }
 
     void pop()
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         queue.pop();
     }
 
     bool pop(T& item)
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         if(queue.empty())
             return false;
 
@@ -52,20 +49,18 @@ public:
 
     bool empty()
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         return queue.empty();
     }
 
     size_t size()
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
         return queue.size();
     }
 
 private:
     std::queue<T> queue;
 };
-
-}
 
 #endif

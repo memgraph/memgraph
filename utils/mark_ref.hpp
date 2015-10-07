@@ -33,13 +33,9 @@ struct MarkRef
     T& operator*() { return *get(); }
     T* operator->() { return get(); }
 
+    operator T*() { return get(); }
+
     uintptr_t ptr;
 };
-
-//template <class T, class... Args>
-//MarkRef<T> make_markref(Args&&... args)
-//{
-//
-//}
 
 #endif

@@ -136,7 +136,7 @@ public:
         // we only care about push_front and iterator performance so we can
         // tradeoff some remove speed for better reads and inserts. remove is
         // used exclusively by the GC thread(s) so it can be slower
-        auto guard = acquire();
+        auto guard = acquire_unique();
 
         // even though concurrent removes are synchronized, we need to worry
         // about concurrent reads (solved by using atomics) and concurrent 

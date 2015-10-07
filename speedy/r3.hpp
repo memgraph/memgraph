@@ -99,6 +99,7 @@ public:
     
     R3(R3&& other)
     {
+        this->routes = std::move(other.routes);
         this->root = other.root;
         other.root = nullptr;
     }

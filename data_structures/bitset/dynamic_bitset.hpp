@@ -2,11 +2,7 @@
 #define MEMGRAPH_DATA_STRUCTURES_BITSET_DYNAMIC_BITSET_HPP
 
 #include <cassert>
-#include <vector>
 #include <atomic>
-#include <mutex>
-#include <condition_variable>
-#include <unistd.h>
 
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
@@ -140,7 +136,7 @@ private:
             // the next chunk does not exist and we need it. take an exclusive
             // lock to prevent others that also want to create a new chunk
             // from creating it
-            auto guard = acquire();
+            auto guard = acquire_unique();
             
             // double-check locking. if the chunk exists now, some other thread
             // has just created it, continue searching for my chunk

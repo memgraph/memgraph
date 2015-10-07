@@ -20,7 +20,10 @@ namespace speedy
 class Speedy
 {
 public:
-    Speedy(uv::UvLoop& loop) : server(loop), router(100) {}
+    using sptr = std::shared_ptr<Speedy>;
+
+    Speedy(uv::UvLoop& loop, size_t capacity = 100)
+        : server(loop), router(capacity) {}
 
     Speedy(Speedy&) = delete;
     Speedy(Speedy&&) = delete;

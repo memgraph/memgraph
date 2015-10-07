@@ -12,4 +12,14 @@ struct Vertex : public Record<Vertex>
     std::vector<Edge*> out;
 };
 
+inline std::ostream& operator<<(std::ostream& stream, Vertex& record)
+{
+    std::string props;
+    record.properties.dump(props);
+
+    return stream << "Vertex" 
+                  << "(xmin = " << record.tx.min()
+                  << ", xmax = " << record.tx.max()
+                  << "): " << props;
+}
 #endif

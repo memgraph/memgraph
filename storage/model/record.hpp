@@ -1,6 +1,7 @@
 #ifndef MEMGRAPH_STORAGE_RECORD_HPP
 #define MEMGRAPH_STORAGE_RECORD_HPP
 
+#include <ostream>
 #include <mutex>
 #include <set>
 

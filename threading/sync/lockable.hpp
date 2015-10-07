@@ -7,7 +7,9 @@
 template <class lock_t = SpinLock>
 class Lockable
 {
-protected:
+public:
+    using lock_type = lock_t;
+
     std::lock_guard<lock_t> acquire_guard()
     {
         return std::lock_guard<lock_t>(lock);

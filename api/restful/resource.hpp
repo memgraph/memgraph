@@ -114,6 +114,8 @@ struct Methods<T, M> : public Method<T, M>
 
 }
 
+struct RestfulResource {};
+
 /** @brief Represents a restful resource
  *
  *  Automatically registers get, put, post, del... methods inside the derived
@@ -128,7 +130,7 @@ struct Methods<T, M> : public Method<T, M>
  *  @tparam Ms... HTTP methods to register for this resource (GET, POST...)
  */
 template <class T, class... Ms>
-class Resource : public detail::Methods<T, Ms...>
+class Resource : public detail::Methods<T, Ms...>, public RestfulResource
 {
 public:
     Resource(speedy::Speedy& app, const std::string& path)

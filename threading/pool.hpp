@@ -37,7 +37,7 @@ public:
     void run(F&& f, Args&&... args)
     {
         {
-            auto lock = acquire();
+            auto lock = acquire_unique();
 
             tasks.emplace([&f, &args...]() {
                 f(std::forward<Args>(args)...);
@@ -62,7 +62,7 @@ private:
             task_t task;
 
             {
-                auto lock = acquire();
+                auto lock = acquire_unique();
 
                 cond.wait(lock, [this] {
                     return !this->alive || !this->tasks.empty();

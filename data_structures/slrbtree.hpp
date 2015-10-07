@@ -3,15 +3,14 @@
 
 #include <map>
 
-#include "utils/sync/spinlock.hpp"
+#include "threading/sync/spinlock.hpp"
 
 template <class K, class T>
-class SlRbTree
+class SlRbTree : Lockable<SpinLock>
 {
 public:
 
 private:
-    SpinLock lock;
     std::map<K, T> tree;
 };
 

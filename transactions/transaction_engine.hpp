@@ -1,16 +1,12 @@
 #ifndef MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
 #define MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
 
-#include <cstdlib>
 #include <atomic>
-#include <mutex>
 #include <vector>
-#include <set>
-#include <list>
-#include <algorithm>
 
 #include "transaction.hpp"
 #include "transaction_cache.hpp"
+#include "commit_log.hpp"
 
 #include "utils/counters/simple_counter.hpp"
 
@@ -29,11 +25,11 @@ public:
 class TransactionEngine : Lockable<SpinLock>
 {
 public:
-    TransactionEngine(uint64_t n) : counter(n) {}
+    TransactionEngine() : counter(0) {}
     
     const Transaction& begin()
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
 
         auto id = counter.next();
         auto t = new Transaction(id, active);
@@ -46,7 +42,7 @@ public:
 
     const Transaction& advance(uint64_t id)
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
 
         auto* t = cache.get(id);
 
@@ -61,35 +57,37 @@ public:
 
     void commit(const Transaction& t)
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
+        CommitLog::get().set_committed(t.id);
 
         finalize(t);
     }
 
-    void rollback(const Transaction& t)
+    void abort(const Transaction& t)
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
+        CommitLog::get().set_aborted(t.id);
         
         finalize(t);
     }
 
     uint64_t last_known_active()
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
         return active.front();
     }
 
     // total number of transactions started from the beginning of time
     uint64_t count()
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
         return counter.count();
     }
 
     // the number of currently active transactions
     size_t size()
     {
-        auto guard = this->acquire();
+        auto guard = this->acquire_unique();
         return active.size();
     }
 

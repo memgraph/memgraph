@@ -85,7 +85,7 @@ public:
 
     template <class T>
     void factory(typename Creator<T>::func&& f)
-    {
+   {
         items[key<T>()] = std::move(Holdable::uptr(
             new Creator<T>(std::forward<typename Creator<T>::func>(f))
         ));
