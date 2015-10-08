@@ -6,6 +6,7 @@
 namespace http
 {
 
+template <class Req, class Res>
 class HttpParserSettings
 {
 public:

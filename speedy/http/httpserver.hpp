@@ -11,14 +11,17 @@
 #include "response.hpp"
 #include "ipv4.hpp"
 
+#include "utils/memory/block_allocator.hpp"
+
 namespace http
 {
-    typedef std::function<void(Request&, Response&)> request_cb_t;
 
+template <class Req, class Res>
 class HttpServer
 {
-    friend class HttpParser;
 public:
+    using request_cb_t = std::function<void(Req&, Res&)>;
+
     HttpServer(uv::UvLoop& loop);
 
     void listen(const Ipv4& ip, request_cb_t callback);
@@ -27,9 +30,14 @@ public:
     operator uv_stream_t*();
 
 private:
+    using server_t = HttpServer<Req, Res>;
+    using connection_t = HttpConnection<Req, Res>;
+
+    friend class HttpParser<Req, Res>;
+
     uv::UvLoop& loop;
     uv::TcpStream stream;
-    HttpParserSettings settings;
+    HttpParserSettings<Req, Res> settings;
 
     request_cb_t request_cb;
 
@@ -43,7 +51,7 @@ private:
                          size_t suggested_size,
                          uv_buf_t* buf);
 
-    static void respond(HttpConnection& conn);
+    static void respond(HttpConnection<Req, Res>& conn);
 };
 
 }

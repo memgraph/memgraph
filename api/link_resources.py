@@ -2,6 +2,8 @@
 import re
 import os
 
+print "generating include.hpp file"
+
 resource_path = 'resources'
 template_path = 'resources/include.hpp.template'
 include_path = 'resources/include.hpp'
@@ -16,6 +18,7 @@ class Resource(object):
 
     def __init__(self, filename):
         self.filename = filename
+        self.class_name = None
 
         with open(os.path.join(resource_path, filename)) as f:
             class_name = re.compile('\s*class\s*(\w+)\s*\:')
@@ -32,8 +35,10 @@ class Resource(object):
 
 
 def load_resources():
-    return [Resource(f) for f in os.listdir(resource_path)
-            if f.endswith('.hpp')]
+    resources = [Resource(f) for f in os.listdir(resource_path)
+                 if f.endswith('.hpp')]
+
+    return [r for r in resources if r.class_name is not None]
 
 
 def write_includes(file, resources):

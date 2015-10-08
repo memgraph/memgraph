@@ -15,19 +15,19 @@
 #include "api/restful/resource.hpp"
 #include "speedy/speedy.hpp"
 
-#include "animal.hpp"
+#include "node.hpp"
 
-static std::list<std::unique_ptr<api::RestfulResource>> resources;
+static std::list<std::unique_ptr<RestfulResource>> resources;
 
 template <class T>
-void insert(speedy::Speedy& app)
+void insert(sp::Speedy& app)
 {
-    resources.push_back(std::unique_ptr<api::RestfulResource>(new T(app)));
+    resources.push_back(std::unique_ptr<RestfulResource>(new T(app)));
 }
 
-void init(speedy::Speedy& app)
+void init(sp::Speedy& app)
 {
-    insert<Animal>(app);
+    insert<Node>(app);
 }
 
 #endif

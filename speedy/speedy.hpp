@@ -14,13 +14,17 @@
 #include "http/http.hpp"
 #include "r3.hpp"
 
-namespace speedy
+#include "request.hpp"
+#include "response.hpp"
+
+namespace sp
 {
 
 class Speedy
 {
 public:
-    using sptr = std::shared_ptr<Speedy>;
+    using server_t = http::HttpServer<Request, Response>;
+    using request_cb_t = server_t::request_cb_t;
 
     Speedy(uv::UvLoop& loop, size_t capacity = 100)
         : server(loop), router(capacity) {}
@@ -28,29 +32,33 @@ public:
     Speedy(Speedy&) = delete;
     Speedy(Speedy&&) = delete;
 
-    void get(const std::string& path, http::request_cb_t cb)
+    void get(const std::string& path, server_t::request_cb_t cb)
     {
         router.insert(R3::Method::GET, path, cb);
     }
 
-    void post(const std::string& path, http::request_cb_t cb)
+    void post(const std::string& path, server_t::request_cb_t cb)
     {
         router.insert(R3::Method::POST, path, cb);
     }
 
-    void put(const std::string& path, http::request_cb_t cb)
+    void put(const std::string& path, server_t::request_cb_t cb)
     {
         router.insert(R3::Method::PUT, path, cb);
     }
 
-    void del(const std::string& path, http::request_cb_t cb)
+    void del(const std::string& path, server_t::request_cb_t cb)
     {
         router.insert(R3::Method::DELETE, path, cb);
     }
 
     void listen(const http::Ipv4& ip)
     {
-        server.listen(ip, [this](http::Request& req, http::Response& res) {
+        router.compile();
+
+        server.listen(ip, [this](Request& req, Response& res) {
+            return res.send("Hello World");
+
             auto route = router.match(R3::to_r3_method(req.method), req.url);
             
             if(!route.exists())
@@ -61,7 +69,7 @@ public:
     }
 
 private:
-    http::HttpServer server;
+    server_t server;
     R3 router;
 };
 

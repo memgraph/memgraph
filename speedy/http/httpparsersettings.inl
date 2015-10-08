@@ -7,19 +7,21 @@
 namespace http
 {
 
-HttpParserSettings::HttpParserSettings()
+template <class Req, class Res>
+HttpParserSettings<Req, Res>::HttpParserSettings()
 {
-    settings.on_header_field = HttpParser::on_header_field;
-    settings.on_header_value = HttpParser::on_header_value;
-    settings.on_headers_complete = HttpParser::on_headers_complete;
-    settings.on_body = HttpParser::on_body;
-    settings.on_status = HttpParser::on_status_complete;
-    settings.on_message_begin = HttpParser::on_message_begin;
-    settings.on_message_complete = HttpParser::on_message_complete;
-    settings.on_url = HttpParser::on_url;
+    settings.on_header_field = HttpParser<Req, Res>::on_header_field;
+    settings.on_header_value = HttpParser<Req, Res>::on_header_value;
+    settings.on_headers_complete = HttpParser<Req, Res>::on_headers_complete;
+    settings.on_body = HttpParser<Req, Res>::on_body;
+    settings.on_status = HttpParser<Req, Res>::on_status_complete;
+    settings.on_message_begin = HttpParser<Req, Res>::on_message_begin;
+    settings.on_message_complete = HttpParser<Req, Res>::on_message_complete;
+    settings.on_url = HttpParser<Req, Res>::on_url;
 }
 
-HttpParserSettings::operator http_parser_settings*()
+template <class Req, class Res>
+HttpParserSettings<Req, Res>::operator http_parser_settings*()
 {
     return &settings;
 }

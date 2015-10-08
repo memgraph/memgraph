@@ -9,25 +9,28 @@
 namespace http
 {
 
+template <class Req, class Res>
 class HttpConnection;
 
+template <class Req, class Res>
 class Response
 {
+    using connection_t = HttpConnection<Req, Res>;
+    using response_t = Response<Req, Res>;
+
 public:
-    Response(HttpConnection& connection);
+    Response(connection_t& connection);
     
     void send(const std::string& body);
     void send(Status code, const std::string& body);
 
-    Response& status(Status code);
-
     std::map<std::string, std::string> headers;
 
-private:
-    HttpConnection& connection;
-    uv::UvBuffer buffer;
+    Status status;
 
-    Status code;
+private:
+    connection_t& connection;
+    uv::UvBuffer buffer;
 };
 
 }

@@ -9,19 +9,25 @@
 namespace http
 {
 
+template <class Req, class Res>
+class HttpConnection;
+
+template <class Req, class Res>
 class HttpParserSettings;
 
+template <class Req, class Res>
 class HttpParser
 {
-    friend class HttpParserSettings;
+    using connection_t = HttpConnection<Req, Res>;
+    using settings_t = HttpParserSettings<Req, Res>;
+
+    friend class HttpParserSettings<Req, Res>;
 public:
     HttpParser();
 
     static void init();
 
-    size_t execute(HttpParserSettings& settings,
-                   const char* data,
-                   size_t size);
+    size_t execute(settings_t& settings, const char* data, size_t size);
 
     template <typename T>
     T* data();

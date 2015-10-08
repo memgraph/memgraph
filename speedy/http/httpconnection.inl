@@ -8,17 +8,19 @@
 namespace http
 {
 
-HttpConnection::HttpConnection(uv::UvLoop& loop, HttpServer& server)
+template <class Req, class Res>
+HttpConnection<Req, Res>::HttpConnection(uv::UvLoop& loop, server_t& server)
     : server(server), client(loop), response(*this)
 {
     client.data(this);
     parser.data(this);
 }
 
-void HttpConnection::close()
+template <class Req, class Res>
+void HttpConnection<Req, Res>::close()
 {
     client.close([](uv_handle_t* client) -> void {
-        delete reinterpret_cast<HttpConnection*>(client->data);
+        delete reinterpret_cast<connection_t*>(client->data);
     });
 }
 

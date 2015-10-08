@@ -4,14 +4,24 @@
 #include <list>
 #include <cassert>
 
+#include "request.hpp"
+#include "response.hpp"
+
+#include "utils/auto_scope.hpp"
 #include "http/http.hpp"
 
 namespace r3 {
 #include "r3_include.h"
 }
 
-namespace speedy
+namespace sp
 {
+
+class R3Error : public std::runtime_error
+{
+public:
+    using runtime_error::runtime_error;
+};
 
 class R3
 {
@@ -73,11 +83,11 @@ public:
             return route != nullptr;
         }
 
-        void operator()(http::Request& req, http::Response& res)
+        void operator()(sp::Request& req, sp::Response& res)
         {
             assert(route != nullptr);
 
-            auto cb = reinterpret_cast<http::request_cb_t*>(route->data);
+            auto cb = reinterpret_cast<sp::request_cb_t*>(route->data);
             cb->operator()(req, res);
         }
 
@@ -104,7 +114,7 @@ public:
         other.root = nullptr;
     }
 
-    void insert(Method method, const std::string& path, http::request_cb_t cb)
+    void insert(Method method, const std::string& path, sp::request_cb_t cb)
     {
         routes.push_back(cb);
 
@@ -114,12 +124,41 @@ public:
 
     Route match(Method method, const std::string& path)
     {
-        auto entry = MatchEntry(method, path);
-        return Route(r3::r3_tree_match_route(root, entry));
+        auto entry_m = MatchEntry(method, path);
+        return Route(r3::r3_tree_match_route(root, entry_m));
+
+/*         if(!route.exists()) */
+/*             return route; */
+
+/*         r3::match_entry* entry = entry_m; */
+
+/*         std::cout << "Eetry Matched!" << std::endl */
+/*                   << "path = " << std::string(entry->path, entry->path_len) << std::endl */
+/*                   << "host = " << std::string(entry->host, entry->host_len) << std::endl */
+/*                   << "remote_addr = " << std::string(entry->remote_addr, entry->remote_addr_len) << std::endl */
+/*                   << "tokens_len = " << entry->vars->len << std::endl; */
+
+/*         for(int i = 0; i < entry->vars->len; ++i) */
+/*             std::cout << "token " << i << " = " << std::string(entry->vars->tokens[i]) << std::endl; */
+
+        //return route;
+    }
+
+    void compile()
+    {
+        char* error_string = nullptr;
+        bool error = r3_tree_compile(root, &error_string);
+
+        if(!error)
+            return;
+
+        Auto(free(error_string));
+
+        throw R3Error(std::string(error_string));
     }
 
 private:
-    std::list<http::request_cb_t> routes;
+    std::list<sp::request_cb_t> routes;
     r3::node* root;
 };
 

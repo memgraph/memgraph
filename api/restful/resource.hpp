@@ -5,9 +5,6 @@
 #include "speedy/speedy.hpp"
 #include "utils/crtp.hpp"
 
-namespace api
-{
-
 /** @brief GET handler method for the resource
  *  Contains the code for registering GET handler for a URL to Speedy
  */
@@ -21,7 +18,7 @@ struct GET
      *  @param resource Object containing ::get http::request_cb_t handler
      */
     template <class T>
-    void link(speedy::Speedy& app, const std::string& path, T& resource)
+    void link(sp::Speedy& app, const std::string& path, T& resource)
     {
         using namespace std::placeholders;
         app.get(path, std::bind(&T::get, resource, _1, _2));
@@ -41,10 +38,30 @@ struct POST
      *  @param resource Object containing ::post http::request_cb_t handler
      */
     template <class T>
-    void link(speedy::Speedy& app, const std::string& path, T& resource)
+    void link(sp::Speedy& app, const std::string& path, T& resource)
     {
         using namespace std::placeholders;
         app.post(path, std::bind(&T::post, resource, _1, _2));
+    }
+};
+
+struct PUT
+{
+    template <class T>
+    void link(sp::Speedy& app, const std::string& path, T& resource)
+    {
+        using namespace std::placeholders;
+        app.put(path, std::bind(&T::put, resource, _1, _2));
+    }
+};
+
+struct DELETE
+{
+    template <class T>
+    void link(sp::Speedy& app, const std::string& path, T& resource)
+    {
+        using namespace std::placeholders;
+        app.del(path, std::bind(&T::del, resource, _1, _2));
     }
 };
 
@@ -66,7 +83,7 @@ struct Method : public M
      *  @param app instance of speedy to register the method to
      *  @param path URL of the resource being registered
      */
-    Method(speedy::Speedy& app, const std::string& path)
+    Method(sp::Speedy& app, const std::string& path)
     {
         M::link(app, path, static_cast<T&>(*this));
     }
@@ -95,7 +112,7 @@ struct Methods;
 template <class T, class M, class... Ms>
 struct Methods<T, M, Ms...> : public Method<T, M>, public Methods<T, Ms...>
 {
-    Methods(speedy::Speedy& app, const std::string& path)
+    Methods(sp::Speedy& app, const std::string& path)
         : Method<T, M>(app, path), Methods<T, Ms...>(app, path) {}
 };
 
@@ -122,7 +139,7 @@ struct RestfulResource {};
  *  class T. Methods are given as a template parameter to the class. Valid
  *  template parameters are classes which implement a function
  *
- *  void link(speedy::Speedy&, const std::string&, T& resource)
+ *  void link(sp::Speedy&, const std::string&, T& resource)
  *
  *  which registers a method you want to use with speedy
  *
@@ -133,10 +150,8 @@ template <class T, class... Ms>
 class Resource : public detail::Methods<T, Ms...>, public RestfulResource
 {
 public:
-    Resource(speedy::Speedy& app, const std::string& path)
+    Resource(sp::Speedy& app, const std::string& path)
         : detail::Methods<T, Ms...>(app, path) {}
 };
-
-}
 
 #endif
