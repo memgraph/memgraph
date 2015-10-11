@@ -1,5 +1,5 @@
-#ifndef MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
-#define MEMGRAPH_MVCC_TRANSACTIONENGINE_HPP
+#ifndef MEMGRAPH_TRANSACTIONS_ENGINE_HPP
+#define MEMGRAPH_TRANSACTIONS_ENGINE_HPP
 
 #include <atomic>
 #include <vector>
@@ -22,10 +22,12 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-class TransactionEngine : Lockable<SpinLock>
+class Engine : Lockable<SpinLock>
 {
 public:
-    TransactionEngine() : counter(0) {}
+    using sptr = std::shared_ptr<Engine>;
+
+    Engine() : counter(0) {}
     
     const Transaction& begin()
     {

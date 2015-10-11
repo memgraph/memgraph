@@ -9,14 +9,11 @@
 namespace http
 {
 
-constexpr size_t buffer_size = 65536;
-
 static BlockAllocator<sizeof(uv_write_t)> write_req_allocator;
 
 template <class Req, class Res>
 Response<Req, Res>::Response(connection_t& connection)
-    : status(Status::Ok), connection(connection),
-      buffer(buffer_size) {}
+    : status(Status::Ok), connection(connection), buffer() {}
 
 template <class Req, class Res>
 void Response<Req, Res>::send(Status status, const std::string& body)
@@ -45,7 +42,7 @@ void Response<Req, Res>::send(const std::string& body)
 
     buffer << "\r\n" << body;
 
-    uv_write(write_req, connection.client, buffer, 1, 
+    uv_write(write_req, connection.client, buffer, buffer.count(), 
             [](uv_write_t* write_req, int) {
 
         connection_t& conn = *reinterpret_cast<connection_t*>(write_req->data);

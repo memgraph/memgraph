@@ -10,15 +10,17 @@ namespace model
 class Property
 {
 public:
-    // shared_ptr is being used because of MVCC - when you clone a record, you
-    // clone it's properties. when a single property is updated, a lot of
-    // memory is being wasted. this way it is shared until you need to change
-    // something and shared ptr ensures it's being properly tracked and
-    // cleaned up after no one is using it
-
     using sptr = std::shared_ptr<Property>;
 
-    virtual ~Property() {}
+    template <class T, class... Args>
+    static Property::sptr make(Args&&... args)
+    {
+        return std::shared_ptr<Property>(new T(std::forward<Args>(args)...));
+    }
+
+    Property() = default;
+    virtual ~Property() = default;
+
     virtual void dump(std::string& buffer) = 0;
 
     template <class T>

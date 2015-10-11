@@ -47,17 +47,18 @@ public:
         }
     }
 
-private:
-    class MatchEntry
+public:
+    class Route
     {
     public:
-        MatchEntry(Method method, const std::string& path)
+        Route(r3::node* node, Method method, const std::string& path)
         {
             entry = r3::match_entry_createl(path.c_str(), path.size());
             entry->request_method = method;
+            route = r3::r3_tree_match_route(node, entry);
         }
 
-        ~MatchEntry()
+        ~Route()
         {
             r3::match_entry_free(entry);
         }
@@ -67,20 +68,15 @@ private:
             return entry;
         }
 
-    private:
-        r3::match_entry* entry;
-        r3::route* route;
-    };
-
-public:
-    class Route
-    {
-    public:
-        Route(r3::route* route) : route(route) {}
-
         bool exists() const
         {
             return route != nullptr;
+        }
+
+        void populate(sp::Request& req)
+        {
+            for(int i = 0; i < entry->vars->len; ++i)
+                req.params.emplace_back(entry->vars->tokens[i]);
         }
 
         void operator()(sp::Request& req, sp::Response& res)
@@ -92,6 +88,7 @@ public:
         }
 
     private:
+        r3::match_entry* entry;
         r3::route* route;
     };
 
@@ -124,24 +121,7 @@ public:
 
     Route match(Method method, const std::string& path)
     {
-        auto entry_m = MatchEntry(method, path);
-        return Route(r3::r3_tree_match_route(root, entry_m));
-
-/*         if(!route.exists()) */
-/*             return route; */
-
-/*         r3::match_entry* entry = entry_m; */
-
-/*         std::cout << "Eetry Matched!" << std::endl */
-/*                   << "path = " << std::string(entry->path, entry->path_len) << std::endl */
-/*                   << "host = " << std::string(entry->host, entry->host_len) << std::endl */
-/*                   << "remote_addr = " << std::string(entry->remote_addr, entry->remote_addr_len) << std::endl */
-/*                   << "tokens_len = " << entry->vars->len << std::endl; */
-
-/*         for(int i = 0; i < entry->vars->len; ++i) */
-/*             std::cout << "token " << i << " = " << std::string(entry->vars->tokens[i]) << std::endl; */
-
-        //return route;
+        return Route(root, method, path);
     }
 
     void compile()

@@ -66,7 +66,6 @@ void HttpServer<Req, Res>::
         conn.close();
 
     buffer_allocator.release(buf->base);
-    //delete buf->base;
 }
 
 template <class Req, class Res>

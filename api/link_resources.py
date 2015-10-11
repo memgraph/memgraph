@@ -1,6 +1,7 @@
 # this script generates the include.hpp file for restful resources
 import re
 import os
+from itertools import chain
 
 print "generating include.hpp file"
 
@@ -16,27 +17,38 @@ if os.path.isfile(include_path):
 class Resource(object):
     """ represents a restful resource class for speedy """
 
-    def __init__(self, filename):
+    def __init__(self, filename, class_name, url):
         self.filename = filename
-        self.class_name = None
+        self.class_name = class_name
+        self.url = url
 
-        with open(os.path.join(resource_path, filename)) as f:
-            class_name = re.compile('\s*class\s*(\w+)\s*\:')
 
-            for line in f:
-                result = re.search(class_name, line)
+def scan_resources(filename):
 
-                if result is None:
-                    continue
+    with open(os.path.join(resource_path, filename)) as f:
+        url_regex = re.compile('#pragma\s+url\s+([^\s]+)\s+')
+        class_name_regex = re.compile('\s*class\s*(\w+)\s*\:')
 
-                self.class_name = result.group(1)
+        lines = f.readlines()
+        pairs = zip(lines, lines[1:])
 
-                break
+        for first, second in pairs:
+            url = re.search(url_regex, first)
+
+            if url is None:
+                continue
+
+            class_name = re.search(class_name_regex, second)
+
+            if class_name is None:
+                continue
+
+            yield Resource(filename, class_name.group(1), url.group(1))
 
 
 def load_resources():
-    resources = [Resource(f) for f in os.listdir(resource_path)
-                 if f.endswith('.hpp')]
+    resources = chain(*[scan_resources(f) for f in os.listdir(resource_path)
+                        if f.endswith('.hpp')])
 
     return [r for r in resources if r.class_name is not None]
 
@@ -48,9 +60,10 @@ def write_includes(file, resources):
 
 
 def write_inits(file, resources):
-    for class_name in [resource.class_name for resource in resources]:
-        print 'writing init for', class_name
-        file.write('    insert<{}>(app);\n'.format(class_name))
+    for class_name, url in [(r.class_name, r.url) for r in resources]:
+        print('writing init for {} -> {}'.format(class_name, url))
+        file.write('    insert<{}>(container, "{}");\n'
+                   .format(class_name, url))
 
 
 def make_include_file():

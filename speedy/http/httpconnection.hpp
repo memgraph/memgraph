@@ -7,8 +7,6 @@
 #include "request.hpp"
 #include "response.hpp"
 
-#include "utils/memory/block_allocator.hpp"
-
 namespace http
 {
 

@@ -13,6 +13,8 @@ class Pool : Lockable<std::mutex>
 {
     using task_t = std::function<void()>;
 public:
+    using sptr = std::shared_ptr<Pool>;
+
     Pool(size_t n = std::thread::hardware_concurrency()) : alive(true)
     {
         threads.reserve(n);
@@ -33,15 +35,11 @@ public:
             thread.join();
     }
 
-    template <class F, class... Args>
-    void run(F&& f, Args&&... args)
+    void run(task_t f)
     {
         {
             auto lock = acquire_unique();
-
-            tasks.emplace([&f, &args...]() {
-                f(std::forward<Args>(args)...);
-            });
+            tasks.push(f);
         }
 
         cond.notify_one();

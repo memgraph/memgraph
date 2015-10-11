@@ -12,6 +12,8 @@ namespace uv
 class UvLoop final
 {
 public:
+    using sptr = std::shared_ptr<UvLoop>;
+
     enum Mode {
         Default = UV_RUN_DEFAULT,
         Once = UV_RUN_ONCE,

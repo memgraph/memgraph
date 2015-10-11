@@ -23,33 +23,36 @@ namespace sp
 class Speedy
 {
 public:
+    using sptr = std::shared_ptr<Speedy>;
+
     using server_t = http::HttpServer<Request, Response>;
     using request_cb_t = server_t::request_cb_t;
 
-    Speedy(uv::UvLoop& loop, size_t capacity = 100)
-        : server(loop), router(capacity) {}
+    Speedy(uv::UvLoop::sptr loop, const std::string& prefix = "",
+           size_t capacity = 100)
+        : server(*loop), prefix(std::move(prefix)), router(capacity) {}
 
     Speedy(Speedy&) = delete;
     Speedy(Speedy&&) = delete;
 
     void get(const std::string& path, server_t::request_cb_t cb)
     {
-        router.insert(R3::Method::GET, path, cb);
+        router.insert(R3::Method::GET, join(prefix, path), cb);
     }
 
     void post(const std::string& path, server_t::request_cb_t cb)
     {
-        router.insert(R3::Method::POST, path, cb);
+        router.insert(R3::Method::POST, join(prefix, path), cb);
     }
 
     void put(const std::string& path, server_t::request_cb_t cb)
     {
-        router.insert(R3::Method::PUT, path, cb);
+        router.insert(R3::Method::PUT, join(prefix, path), cb);
     }
 
     void del(const std::string& path, server_t::request_cb_t cb)
     {
-        router.insert(R3::Method::DELETE, path, cb);
+        router.insert(R3::Method::DELETE, join(prefix, path), cb);
     }
 
     void listen(const http::Ipv4& ip)
@@ -57,20 +60,43 @@ public:
         router.compile();
 
         server.listen(ip, [this](Request& req, Response& res) {
-            return res.send("Hello World");
-
             auto route = router.match(R3::to_r3_method(req.method), req.url);
             
             if(!route.exists())
                 return res.send(http::Status::NotFound, "Resource not found");
 
+            route.populate(req);
             route(req, res);
         });
     }
 
 private:
     server_t server;
+    std::string prefix;
     R3 router;
+
+    std::string join(const std::string& prefix, const std::string& path)
+    {
+        // check if prefix has a trailing /
+        if(prefix.back() == '/')
+        {
+            // prefix has a / on the end so remove the / from the path
+            // if it has it too. e.g  /db/data/ + /node = /db/data/node
+            if(path.front() == '/')
+                return prefix + path.substr(1);
+
+            // there is only one / so it's ok to concat them
+            return prefix + path;
+        }
+
+        // the prefix doesn't have a slash
+        if(path.front() == '/')
+            // the path has though, so it's ok to concat them
+            return prefix + path;
+
+        // neither the prefix or the path have a / so we need to add it
+        return prefix + '/' + path;
+    }
 };
 
 }

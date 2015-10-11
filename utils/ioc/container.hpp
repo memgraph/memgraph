@@ -69,23 +69,17 @@ public:
         return item->get();
     }
 
-    template <class T, class... Args>
-    std::shared_ptr<T> singleton()
+    template <class T, class... Deps, class... Args>
+    std::shared_ptr<T> singleton(Args&&... args)
     {
-        auto item = std::make_shared<T>(resolve<Args>()...);
+        auto item = std::make_shared<T>(resolve<Deps>()..., args...);
         items.emplace(key<T>(), Holdable::uptr(new Instance<T>(item)));
         return item;
     }
 
     template <class T>
-    void singleton(std::shared_ptr<T>&& item)
-    {
-        items.emplace(key<T>(), Holdable::uptr(new Instance<T>(item)));
-    }
-
-    template <class T>
     void factory(typename Creator<T>::func&& f)
-   {
+    {
         items[key<T>()] = std::move(Holdable::uptr(
             new Creator<T>(std::forward<typename Creator<T>::func>(f))
         ));

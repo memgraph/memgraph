@@ -1,6 +1,6 @@
 CXX=clang++
-CFLAGS=-std=c++1y -Wall -O2
-LDFLAGS=-luv -lhttp_parser speedy/r3/.libs/libr3.a -L/usr/local/lib -lpcre
+CFLAGS=-std=c++1y -O2 -Wall -Wno-unknown-pragmas
+LDFLAGS=-luv -lhttp_parser speedy/r3/.libs/libr3.a -L/usr/local/lib -lpcre -pthread
 
 INC=-I./
 SOURCES=$(wildcard *.cpp)

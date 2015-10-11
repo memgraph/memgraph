@@ -9,6 +9,8 @@
 namespace http
 {
 
+static constexpr size_t buffer_size = 65536;
+
 template <class Req, class Res>
 class HttpConnection;
 
@@ -30,7 +32,7 @@ public:
 
 private:
     connection_t& connection;
-    uv::UvBuffer buffer;
+    uv::BlockBuffer<buffer_size> buffer;
 };
 
 }
