@@ -21,6 +21,11 @@
 #include "threading/task.hpp"
 #include "speedy/speedy.hpp"
 
+// for each file in this folder a script will generate an include directive if
+// this file contains any resources
+// e.g.
+// #include "node.hpp"
+// #include "relationship.hpp"
 #include "node.hpp"
 #include "node.hpp"
 
@@ -34,6 +39,13 @@ void insert(ioc::Container& container, const std::string& path)
 
 void init(ioc::Container& container)
 {
+    // for each resource in a file included above, the script will generate a
+    // linkage command call to the function above
+    // e.g.
+    // insert<CLASS>(PATH);
+    //
+    // insert<Nodes>("/node");
+    // insert<Node>("/node/{id:\\d+}");
     insert<Nodes>(container, "/node");
     insert<Node>(container, "/node/{id:\\d+}");
 }
