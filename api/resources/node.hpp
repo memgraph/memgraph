@@ -48,13 +48,14 @@ public:
         }, 
         [&req, &res](Vertex* node) {
             // make a string buffer
-            std::string buffer;
+            StringBuffer buffer;
+            JsonWriter<StringBuffer> writer(buffer);
 
             // dump properties in this buffer
-            node->properties.dump(buffer);
+            node->properties.accept(writer);
             
             // respond to the use with the buffer
-            return res.send(buffer);
+            return res.send(buffer.str());
         });
     }
 };

@@ -20,7 +20,7 @@ class Record
 {
 public:
     // a record contains a key value map containing data
-    model::Properties properties;
+    Properties properties;
     
     // each record can have one or more distinct labels. 
     std::set<uint16_t> labels;

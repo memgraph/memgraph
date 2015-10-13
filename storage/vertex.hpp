@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "model/properties/jsonwriter.hpp"
 #include "model/record.hpp"
 #include "edge.hpp"
 
@@ -14,12 +15,15 @@ struct Vertex : public Record<Vertex>
 
 inline std::ostream& operator<<(std::ostream& stream, Vertex& record)
 {
-    std::string props;
-    record.properties.dump(props);
+    StringBuffer buffer;
+    JsonWriter<StringBuffer> writer(buffer);
+
+    // dump properties in this buffer
+    record.properties.accept(writer);
 
     return stream << "Vertex" 
                   << "(xmin = " << record.tx.min()
                   << ", xmax = " << record.tx.max()
-                  << "): " << props;
+                  << "): " << buffer.str();
 }
 #endif

@@ -2,8 +2,11 @@
 #define MEMGRAPH_API_RESTFUL_RESTFUL_RESOURCE_HPP
 
 #include <memory>
+
 #include "speedy/speedy.hpp"
 #include "utils/crtp.hpp"
+
+#include "storage/model/properties/jsonwriter.hpp"
 
 /** @brief GET handler method for the resource
  *  Contains the code for registering GET handler for a URL to Speedy
