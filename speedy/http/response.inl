@@ -30,7 +30,7 @@ void Response<Req, Res>::send(const std::string& body)
 
     write_req->data = &connection;
 
-    buffer << "HTTP/1.1 " << to_string[status] << "\r\n";
+    buffer << "HTTP/1.1 " << to_string(status) << "\r\n";
 
     buffer << "Content-Length:" << std::to_string(body.size()) << "\r\n";
 

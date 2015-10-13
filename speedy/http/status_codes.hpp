@@ -72,11 +72,15 @@ enum Status
 #undef CODE
 };
 
-static std::map<Status, std::string> to_string = {
-#define CODE(a, b, c) { Status::a, #b " " #c },
-    HTTP_STATUS_CODES
+std::string to_string(Status status)
+{
+    switch(status)
+    {
+#define CODE(a, b, c) case a: return  #b " " #c;
+        HTTP_STATUS_CODES
 #undef CODE
-};
+    }
+}
 
 }
 

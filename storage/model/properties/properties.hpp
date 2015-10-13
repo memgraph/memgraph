@@ -4,10 +4,6 @@
 #include <map>
 
 #include "property.hpp"
-#include "string.hpp"
-
-namespace model
-{
 
 class Properties
 {
@@ -25,6 +21,22 @@ public:
         return it == props.end() ? nullptr : it->second.get();
     }
 
+    template <class T, class... Args>
+    void emplace(const std::string& key, Args&&... args)
+    {
+        auto value = std::make_shared<T>(std::forward<Args>(args)...);
+
+        // try to emplace the item
+        auto result = props.emplace(std::make_pair(key, std::move(value)));
+
+        // return if we succedded
+        if(result.second)
+            return;
+
+        // the key already exists, replace the value it holds
+        result.first->second = std::move(value);
+    }
+
     void put(const std::string& key, Property::sptr value)
     {
         props[key] = std::move(value);
@@ -35,24 +47,22 @@ public:
         props.erase(key);
     }
 
-    void dump(std::string& buffer)
+    template <class Handler>
+    void accept(Handler& handler)
     {
-        buffer += '{';
+        bool first = true;
 
-        for(auto& kvp : props)
+        for(auto& kv : props)
         {
-            buffer += '"'; buffer += kvp.first; buffer += "\":";
-            kvp.second->dump(buffer); buffer += ',';
+            handler.handle(kv.first, *kv.second, first);
+            
+            if(first)
+                first = false;
         }
-    
-        // replace last redundant comma with }
-        buffer.back() = '}';
     }
 
 private:
     props_t props;
 };
-
-}
 
 #endif
