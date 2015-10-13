@@ -13,6 +13,9 @@ class Request : public http::Request
 public:
     using http::Request::Request;
 
+    // todo json body insitu parsing
+    // http://rapidjson.org/md_doc_dom.html
+
     std::vector<std::string> params;
 };
 

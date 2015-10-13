@@ -17,6 +17,8 @@
 #include "request.hpp"
 #include "response.hpp"
 
+#include "middleware.hpp"
+
 namespace sp
 {
 
@@ -34,6 +36,11 @@ public:
 
     Speedy(Speedy&) = delete;
     Speedy(Speedy&&) = delete;
+
+    void use(Middlewares::middleware_cb_t cb)
+    {
+        middlewares.push_back(cb);
+    }
 
     void get(const std::string& path, server_t::request_cb_t cb)
     {
@@ -60,6 +67,13 @@ public:
         router.compile();
 
         server.listen(ip, [this](Request& req, Response& res) {
+            // run middlewares
+            auto result = middlewares.run(req, res);
+
+            // if they signaled false, stop the further execution
+            if(!result)
+                return;
+
             auto route = router.match(R3::to_r3_method(req.method), req.url);
             
             if(!route.exists())
@@ -74,6 +88,7 @@ private:
     server_t server;
     std::string prefix;
     R3 router;
+    Middlewares middlewares;
 
     std::string join(const std::string& prefix, const std::string& path)
     {

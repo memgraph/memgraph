@@ -40,6 +40,9 @@ public:
             // for(key, value in body)
             //     node->properties[key] = value;
 
+            // TODO parse json body and put into the node
+            
+
             // commit the transaction
             db->tx_engine.commit(t);
 

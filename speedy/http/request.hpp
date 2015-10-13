@@ -19,6 +19,7 @@ struct Request
 
     std::map<std::string, std::string> headers;
     
+    // todo rename this body
     std::string body;
 };
 
