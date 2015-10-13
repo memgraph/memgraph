@@ -53,6 +53,7 @@ public:
 
             // dump properties in this buffer
             node->properties.accept(writer);
+            writer.finish();
             
             // respond to the use with the buffer
             return res.send(buffer.str());

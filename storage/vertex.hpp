@@ -20,6 +20,7 @@ inline std::ostream& operator<<(std::ostream& stream, Vertex& record)
 
     // dump properties in this buffer
     record.properties.accept(writer);
+    writer.finish();
 
     return stream << "Vertex" 
                   << "(xmin = " << record.tx.min()
