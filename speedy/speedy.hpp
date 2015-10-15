@@ -35,7 +35,7 @@ public:
            size_t capacity = 100)
         : server(*loop), prefix(std::move(prefix)), router(capacity)
     {
-        middlewares.push_back(rapidjson_middleware);
+        use(rapidjson_middleware);
     }
 
     Speedy(Speedy&) = delete;
