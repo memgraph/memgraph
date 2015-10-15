@@ -2,6 +2,7 @@
 #define MEMGRAPH_SPEEDY_REQUEST_HPP
 
 #include <vector>
+#include "rapidjson/document.h"
 
 #include "http/request.hpp"
 
@@ -13,8 +14,8 @@ class Request : public http::Request
 public:
     using http::Request::Request;
 
-    // todo json body insitu parsing
     // http://rapidjson.org/md_doc_dom.html
+    rapidjson::Document json;
 
     std::vector<std::string> params;
 };

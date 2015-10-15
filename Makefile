@@ -2,7 +2,7 @@ CXX=clang++
 CFLAGS=-std=c++1y -O2 -Wall -Wno-unknown-pragmas
 LDFLAGS=-luv -lhttp_parser speedy/r3/.libs/libr3.a -L/usr/local/lib -lpcre -pthread
 
-INC=-I./
+INC=-I./ -I./speedy/rapidjson/include/
 SOURCES=memgraph.cpp
 EXECUTABLE=memgraph
 

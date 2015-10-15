@@ -14,12 +14,8 @@ struct Request
 {
     Version version;
     Method method;
-
     std::string url;
-
     std::map<std::string, std::string> headers;
-    
-    // todo rename this body
     std::string body;
 };
 

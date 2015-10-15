@@ -18,6 +18,7 @@
 #include "response.hpp"
 
 #include "middleware.hpp"
+#include "rapidjson_middleware.hpp"
 
 namespace sp
 {
@@ -32,7 +33,10 @@ public:
 
     Speedy(uv::UvLoop::sptr loop, const std::string& prefix = "",
            size_t capacity = 100)
-        : server(*loop), prefix(std::move(prefix)), router(capacity) {}
+        : server(*loop), prefix(std::move(prefix)), router(capacity)
+    {
+        middlewares.push_back(rapidjson_middleware);
+    }
 
     Speedy(Speedy&) = delete;
     Speedy(Speedy&&) = delete;
