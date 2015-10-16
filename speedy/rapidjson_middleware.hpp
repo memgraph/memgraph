@@ -14,8 +14,12 @@ namespace sp
 
 bool rapidjson_middleware(sp::Request& req, sp::Response& res)
 {
+    // the body is empty and json parsing isn't necessary
+    if (req.body.empty())
+        return true;
+
     if (req.json.Parse(req.body.c_str()).HasParseError()) {
-        const char *errorCode = rapidjson::GetParseError_En(req.json.GetParseError());
+        auto errorCode = rapidjson::GetParseError_En(req.json.GetParseError());
         std::string parseError = "JSON parse error: " + std::string(errorCode);
         res.send(http::Status::BadRequest, parseError);
         return false;

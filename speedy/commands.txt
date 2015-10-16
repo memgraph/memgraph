@@ -1,0 +1,2 @@
+# dump of all commands used in development
+clang++ -std=c++1y -g test_2.cpp -o test_2 -luv -lhttp_parser r3/.libs/libr3.a -lpcre -L/usr/local/lib -I../ -I./rapidjson/include

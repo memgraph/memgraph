@@ -33,8 +33,9 @@ public:
             //      [Atom id=k]   k {1, 2, ...}
             //
             auto node = atom->first();
-
-            // TODO read the JSON body and store the properties in the
+               
+            // the json body is parsed (req.json)
+            // TODO store the properties in the
             // first version
             //
             // for(key, value in body)
