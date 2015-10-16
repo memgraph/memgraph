@@ -4,3 +4,6 @@
 [submodule "speedy/r3"]
 	path = speedy/r3
 	url = https://github.com/c9s/r3.git
+[submodule "speedy/rapidjson"]
+	path = speedy/rapidjson
+	url = https://github.com/miloyip/rapidjson.git
