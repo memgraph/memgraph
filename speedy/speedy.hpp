@@ -34,7 +34,7 @@ public:
            size_t capacity = 100)
         : server(*loop), prefix(std::move(prefix)), router(capacity) {}
 
-    Speedy(Speedy&) = delete;
+    Speedy(const Speedy&) = delete;
     Speedy(Speedy&&) = delete;
 
     void use(Middlewares::middleware_cb_t cb)
