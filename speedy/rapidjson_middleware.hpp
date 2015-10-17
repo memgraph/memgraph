@@ -18,14 +18,18 @@ bool rapidjson_middleware(sp::Request& req, sp::Response& res)
     if (req.body.empty())
         return true;
 
-    if (req.json.Parse(req.body.c_str()).HasParseError()) {
-        auto errorCode = rapidjson::GetParseError_En(req.json.GetParseError());
-        std::string parseError = "JSON parse error: " + std::string(errorCode);
-        res.send(http::Status::BadRequest, parseError);
-        return false;
-    }
+    // the body is successfuly parsed
+    if(!req.json.Parse(req.body.c_str()).HasParseError())
+        return true;
 
-    return true;
+    // some kind of parse error occurred
+    // return the error message to the client
+    auto error_str = rapidjson::GetParseError_En(req.json.GetParseError());
+    std::string parse_error = "JSON parse error: " + std::string(error_str);
+    res.send(http::Status::BadRequest, parse_error);
+
+    // stop further execution
+    return false;
 }
 
 }

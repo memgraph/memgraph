@@ -33,16 +33,19 @@ public:
             //      [Atom id=k]   k {1, 2, ...}
             //
             auto node = atom->first();
-               
-            // the json body is parsed (req.json)
-            // TODO store the properties in the
+
+            // TODO: req.json can be empty
+            // probably there is some other place to handle
+            // emptiness of req.json
+
             // first version
             //
             // for(key, value in body)
             //     node->properties[key] = value;
-
-            // TODO parse json body and put into the node
-            
+            for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
+            {
+                node->properties.emplace<String>(it->name.GetString(), it->value.GetString());
+            }
 
             // commit the transaction
             db->tx_engine.commit(t);
