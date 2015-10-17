@@ -14,14 +14,14 @@ namespace sp
 
 bool rapidjson_middleware(sp::Request& req, sp::Response& res)
 {
-    if (req.json.Parse(req.body.c_str()).HasParseError()) {
-        const char *errorCode = rapidjson::GetParseError_En(req.json.GetParseError());
-        std::string parseError = "JSON parse error: " + std::string(errorCode);
-        res.send(http::Status::BadRequest, parseError);
-        return false;
-    }
+    if(!req.json.Parse(req.body.c_str()).HasParseError())
+        return true;
 
-    return true;
+    auto error_str = rapidjson::GetParseError_En(req.json.GetParseError());
+    std::string parse_error = "JSON parse error: " + std::string(error_str);
+
+    res.send(http::Status::BadRequest, parse_error);
+    return false;
 }
 
 }
