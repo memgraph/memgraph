@@ -34,6 +34,11 @@ public:
             //
             auto node = atom->first();
 
+            for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
+            {
+                node->properties.emplace<String>(it->name.GetString(), it->value.GetString());
+            }
+
             // TODO read the JSON body and store the properties in the
             // first version
             //

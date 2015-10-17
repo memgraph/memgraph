@@ -50,6 +50,9 @@ void Response<Req, Res>::send(const std::string& body)
         if(!conn.keep_alive)
             conn.close();
 
+        conn.request.headers.clear();
+        conn.request.body.clear();
+
         conn.response.status = Status::Ok;
         conn.response.buffer.clear();
         conn.response.headers.clear();

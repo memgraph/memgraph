@@ -71,6 +71,14 @@ public:
         router.compile();
 
         server.listen(ip, [this](Request& req, Response& res) {
+            auto route = router.match(R3::to_r3_method(req.method), req.url);
+            
+            if(!route.exists())
+                return res.send(http::Status::NotFound, "Resource not found");
+
+            // parse url params
+            route.populate(req);
+
             // run middlewares
             auto result = middlewares.run(req, res);
 
@@ -78,12 +86,6 @@ public:
             if(!result)
                 return;
 
-            auto route = router.match(R3::to_r3_method(req.method), req.url);
-            
-            if(!route.exists())
-                return res.send(http::Status::NotFound, "Resource not found");
-
-            route.populate(req);
             route(req, res);
         });
     }

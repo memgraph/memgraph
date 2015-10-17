@@ -7,6 +7,3 @@
 [submodule "speedy/rapidjson"]
 	path = speedy/rapidjson
 	url = https://github.com/miloyip/rapidjson.git
-[submodule "json/rapidjson"]
-	path = json/rapidjson
-	url = https://github.com/miloyip/rapidjson.git

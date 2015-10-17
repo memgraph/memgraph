@@ -2,6 +2,7 @@
 #define MEMGRAPH_STORAGE_MODEL_PROPERTIES_PROPERTIES_HPP
 
 #include <map>
+#include "rapidjson/document.h"
 
 #include "property.hpp"
 
