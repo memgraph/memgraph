@@ -16,26 +16,18 @@ class Response : public http::Response<Request, Response>
 public:
     using http::Response<Request, Response>::Response;
 
-    std::string json_string(const rapidjson::Document& document)
+    void json(http::Status code, const rapidjson::Document& document)
     {
         rapidjson::StringBuffer strbuf;
         rapidjson::Writer<rapidjson::StringBuffer> writer(strbuf);
         document.Accept(writer);
         // TODO: error handling
-        auto str = strbuf.GetString();
-        return str;
-    }
-
-    void json(http::Status code, const rapidjson::Document& document)
-    {
-        auto str = json_string(document);
-        this->send(code, str);
+        this->send(code, strbuf.GetString());
     }
 
     void json(const rapidjson::Document& document)
     {
-        auto str = json_string(document);
-        this->send(str);
+        this->json(http::Status::Ok, document);
     }
 };
 
