@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cassert>
 #include <unistd.h>
+#include <iostream>
 
 namespace memory
 {
@@ -44,12 +45,22 @@ public:
         // hazard pointer is cleared once reference goes out of scope
         ~reference()
         {
+            // TODO: remove
+            // std::cout << "reference destructor called: ";
+            // std::cout << this->idx;
+            // std::cout << std::endl;
+
             // check if this reference was moved during its lifetime
             if(idx < 0)
                 return;
 
             auto& hp = HP::get();
             hp.clear(*this);
+        }
+
+        reference& operator=(reference&& other)
+        {
+            return *this;
         }
 
     private:
@@ -90,6 +101,34 @@ public:
             // while we were traversing the lsit.
             usleep(250);
         }
+    }
+
+    bool find(uintptr_t hptr)
+    {
+        for (size_t i = 0; i < HP_SIZE; ++i) {
+            auto& hptr_i = ptr_list[i];
+
+            if (hptr_i != hptr)
+                continue;
+
+            if (hptr_i.load() == 1)
+                return true;
+
+            if (hptr_i.load() == 0)
+                return false;
+        }
+
+        return false;
+    }
+
+    friend std::ostream& operator<<(std::ostream& os, const HP& hp)
+    {
+        os << "Hazard pointers: ";
+        for (size_t i = 0; i < HP_SIZE; ++i) {
+            auto& hptr_i = hp.ptr_list[i];
+            os << hptr_i.load() << " ";
+        }
+        return os << std::endl;
     }
 
 private:

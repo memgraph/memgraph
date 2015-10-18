@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "threading/sync/lockable.hpp"
+#include "memory/hp.hpp"
 
 namespace lockfree
 {
@@ -23,7 +24,18 @@ public:
     class read_iterator
     {
     public:
-        read_iterator(T* curr) : curr(curr) {}
+        // constructor
+        read_iterator(T* curr) : 
+            curr(curr),
+            hazard_ref(std::move(memory::HP::get().insert(curr))) {}
+
+        // no copy constructor
+        read_iterator(read_iterator& other) = delete;
+
+        // move constructor
+        read_iterator(read_iterator&& other) :
+            curr(other.curr),
+            hazard_ref(std::move(other.hazard_ref)) {}
   
         T& operator*() { return *curr; }
         T* operator->() { return curr; }
@@ -32,8 +44,8 @@ public:
 
         read_iterator& operator++()
         {
-            // todo add curr->next to the hazard pointer list
-            // (synchronization with GC)
+            auto& hp = memory::HP::get();
+            hazard_ref = std::move(hp.insert(curr->next.load()));
 
             curr = curr->next.load();
             return *this;
@@ -46,6 +58,7 @@ public:
   
     private:
         T* curr;
+        memory::HP::reference hazard_ref;
     };
   
     class read_write_iterator
@@ -53,8 +66,20 @@ public:
         friend class List<T, sleep_time>;
 
     public:
-        read_write_iterator(T* prev, T* curr) : prev(prev), curr(curr) {}
-  
+        read_write_iterator(T* prev, T* curr) :
+            prev(prev),
+            curr(curr),
+            hazard_ref(std::move(memory::HP::get().insert(curr))) {}
+      
+         // no copy constructor
+        read_write_iterator(read_write_iterator& other) = delete;
+
+        // move constructor
+        read_write_iterator(read_write_iterator&& other) :
+            prev(other.prev),
+            curr(other.curr),
+            hazard_ref(std::move(other.hazard_ref)) {}
+ 
         T& operator*() { return *curr; }
         T* operator->() { return curr; }
 
@@ -62,8 +87,8 @@ public:
 
         read_write_iterator& operator++()
         {
-            // todo add curr->next to the hazard pointer list
-            // (synchronization with GC)
+            auto& hp = memory::HP::get();
+            hazard_ref = std::move(hp.insert(curr->next.load()));
 
             prev = curr;
             curr = curr->next.load();
@@ -76,7 +101,9 @@ public:
         }
   
     private:
-        T* prev, curr;
+        T* prev;
+        T* curr;
+        memory::HP::reference hazard_ref;
     };
 
     read_iterator begin()
@@ -149,15 +176,17 @@ public:
         // is that this node will move further down the list next time the
         // garbage collector traverses this list and therefore it will become
         // deletable
-        if(it->prev == nullptr)
+        if(it.prev == nullptr) {
+            std::cout << "prev null" << std::endl;
             return false;
+        }
 
         //  HEAD --> ... --> [i] --> [i + 1] --> [i + 2] --> ...
         //                  
         //                  prev       curr        next
 
-        auto prev = it->prev;
-        auto curr = it->curr;
+        auto prev = it.prev;
+        auto curr = it.curr;
         auto next = curr->next.load(std::memory_order_acquire);
 
         // effectively remove the curr node from the list
@@ -171,14 +200,19 @@ public:
 
         prev->next.store(next, std::memory_order_release);
 
-        // TODO curr is now removed from the list so no iterators will be able
+        // curr is now removed from the list so no iterators will be able
         // to reach it at this point, but we still need to check the hazard
         // pointers and wait until everyone who currently holds a reference to
         // it has stopped using it before we can physically delete it
-        
-        // while(hp.find(reinterpret_cast<uintptr_t>(curr)))
-        //     sleep(sleep_time);
+       
+        // TODO: test more appropriate 
+        auto& hp = memory::HP::get();
 
+        while(hp.find(reinterpret_cast<uintptr_t>(curr)))
+            sleep(sleep_time);
+        
+        delete curr;
+        
         return true;
     }
 
