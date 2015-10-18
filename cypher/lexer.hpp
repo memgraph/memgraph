@@ -24,13 +24,13 @@ public:
         Tokenizer(const Lexer& lexer, const std::string& str)
             : lexer(lexer), results(str.begin(), str.end()) {}
 
-        Token* lookup()
+        Token lookup()
         {
             lexertl::lookup(lexer.sm, results);
-            auto token = new Token {results.id, results.str()};
+            auto token = Token {results.id, results.str()};
 
             if(results.id == static_cast<decltype(results.id)>(-1))
-                throw LexicalError(*token);
+                throw LexicalError(token);
 
             return token;
         }

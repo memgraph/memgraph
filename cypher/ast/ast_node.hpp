@@ -22,7 +22,7 @@ struct AstNode : public Crtp<Derived>, public AstVisitable
 {
     using uptr = std::unique_ptr<Derived>;
 
-    virtual void accept(AstVisitor& visitor)
+    void accept(AstVisitor& visitor) override
     {
         visitor.visit(this->derived());
     }

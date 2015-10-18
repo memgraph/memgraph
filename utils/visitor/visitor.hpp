@@ -6,7 +6,7 @@ namespace detail
 
 template <typename T>
 struct VisitorBase {
-    virtual ~VisitorBase() {}
+    virtual ~VisitorBase() = default;
 
     virtual void visit(T&) {}
     virtual void post_visit(T&) {}
@@ -27,8 +27,7 @@ struct RecursiveVisitorBase<Head, Tail...>
 };
 
 template<typename T>
-struct RecursiveVisitorBase<T>
-    : public VisitorBase<T>
+struct RecursiveVisitorBase<T> : public VisitorBase<T>
 {
     using VisitorBase<T>::visit;
     using VisitorBase<T>::post_visit;
@@ -37,8 +36,7 @@ struct RecursiveVisitorBase<T>
 }
 
 template <typename... T>
-struct Visitor
-    : public detail::RecursiveVisitorBase<T...>
+struct Visitor : public detail::RecursiveVisitorBase<T...>
 {
     using detail::RecursiveVisitorBase<T...>::visit;
     using detail::RecursiveVisitorBase<T...>::post_visit;

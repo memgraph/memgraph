@@ -11,7 +11,16 @@ namespace ast
 class Ast
 {
 public:
-    Ast() {}
+    Ast() = default;
+    Ast(const Ast&) = delete;
+
+    Ast(Ast&& other)
+    {
+        this->root = other.root;
+        other.root = nullptr;
+
+        this->items = std::move(other.items);
+    }
 
     AstVisitable* root;
 

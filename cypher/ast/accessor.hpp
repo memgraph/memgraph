@@ -15,8 +15,8 @@ struct Accessor : public VisitableExpr<Accessor>
     Accessor(Identifier* entity, Identifier* prop)
         : entity(entity), prop(prop) {}
 
-    Identifier::uptr entity;
-    Identifier::uptr prop;
+    Identifier* entity;
+    Identifier* prop;
 };
 
 }
