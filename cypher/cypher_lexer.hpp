@@ -48,6 +48,7 @@ public:
         rule("(?i:MATCH)", TK_MATCH);
         rule("(?i:WHERE)", TK_WHERE);
         rule("(?i:RETURN)", TK_RETURN);
+        rule("(?i:CREATE)", TK_CREATE);
 
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);

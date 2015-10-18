@@ -34,7 +34,7 @@
     #include "ast/ast.hpp"
     #include "ast/tree.hpp"
 
-    #define DEBUG(X) std::cout << X << std::endl
+    #define DEBUG(X) std::cout << "PARSER: " << X << std::endl
 }
 
 // define operator precedence
@@ -47,9 +47,31 @@
 %left STAR SLASH REM.
 
 start ::= read_query(RQ). {
-   ast->root = ast->create<ast::Start>(RQ);
+   ast->root = ast->create<ast::Start>(RQ, nullptr);
 }
 
+start ::= write_query(WQ). {
+   ast->root = ast->create<ast::Start>(nullptr, WQ);
+}
+
+// write query structure
+%type write_query {ast::WriteQuery*}
+
+write_query(WQ) ::= create_clause(C) return_clause(R). {
+    WQ = ast->create<ast::WriteQuery>(C, R);
+}
+
+write_query(WQ) ::= create_clause(C). {
+    WQ = ast->create<ast::WriteQuery>(C, nullptr);
+}
+
+%type create_clause {ast::Create*}
+
+create_clause(C) ::= CREATE pattern(P). {
+   C = ast->create<ast::Create>(P); 
+}
+
+// read query structure
 %type read_query {ast::ReadQuery*}
 
 read_query(RQ) ::= match_clause(M) return_clause(R). {
@@ -171,16 +193,16 @@ where_clause(W) ::= . {
     W = nullptr;
 }
 
-%type return_clause {ast::ReturnList*}
+%type return_clause {ast::Return*}
 
-// return clause
+// return clause (return ORDER BY, SKIP, LIMIT)
 return_clause(R) ::= RETURN return_list(L). {
-    R = L;
+    R = ast->create<ast::Return>(L);
 }
 
 %type return_list {ast::ReturnList*}
 
-return_list(R) ::= idn(I) COMMA return_list(N). {
+return_list(R) ::= return_list(N) COMMA idn(I). {
     R = ast->create<ast::ReturnList>(I, N);
 }
 

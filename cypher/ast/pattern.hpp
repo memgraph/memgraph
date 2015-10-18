@@ -3,6 +3,7 @@
 
 #include "ast_node.hpp"
 #include "relationship.hpp"
+#include "node.hpp"
 
 namespace ast
 {
