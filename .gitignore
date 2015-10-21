@@ -4,5 +4,6 @@
 *.swp
 *.swo
 *.out
+*.so
 *.dSYM/
 memgraph
