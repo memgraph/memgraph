@@ -4,12 +4,11 @@
 #include <vector>
 #include <iterator>
 #include <cstdlib>
-#include <dlfcn.h>
 #include "example/db.hpp"
+#include "dynamic_lib.hpp"
 
-// TODO: clang++ file.cpp -o file.so -shared -fPIC
-
-using namespace std;
+using std::cout;
+using std::endl;
 
 void write(const std::string& path, const std::string& content)
 {
@@ -34,39 +33,24 @@ std::string prints(const Args&... args)
     return join(strings, " ");
 }
 
-db* database(const std::string& lib_path, const std::string& factory_method)
+// dependent on specific dynamic code
+// "configuration" of DynamicLib
+// DynamicLib<MemgraphDynamicLib>
+class MemgraphDynamicLib
 {
-    // load lib
-    void* db_lib = dlopen(lib_path.c_str(), RTLD_LAZY);
-    if (!db_lib) {
-        cerr << "Cannot load library: " << dlerror() << '\n';
-        return nullptr;
-    }
-    dlerror();
-
-    // load produce method
-    produce_t produce_db = (produce_t) dlsym(db_lib, factory_method.c_str());
-    const char* dlsym_error = dlerror();
-    if (dlsym_error) {
-        cerr << "Cannot load symbol create: " << dlsym_error << '\n';
-        return nullptr;
-    }
-
-    // load destroy method
-    // destruct_t destruct_db = (destruct_t) dlsym(db_lib, "destruct");
-    // dlsym_error = dlerror();
-    // if (dlsym_error) {
-    //     cerr << "Cannot load symbol destroy: " << dlsym_error << '\n';
-    //     return nullptr;
-    // }
-
-    db *instance = produce_db();
-
-    return instance;
-}
+public:
+    const static std::string produce_name;
+    const static std::string destruct_name;
+    typedef produce_t produce;
+    typedef destruct_t destruct;
+};
+const std::string MemgraphDynamicLib::produce_name = "produce";
+const std::string MemgraphDynamicLib::destruct_name = "destruct";
 
 int main() 
 {
+    // -- compile example
+    
     // string tmp_file_path = "tmp/tmp.cpp";
     // string tmp_so_path = "tmp/tmp.so";
     // string for_compile = "#include <iostream>\nint main() { std::cout << \"test\" << std::endl; return 0; }";
@@ -74,11 +58,27 @@ int main()
     // write(tmp_file_path, for_compile);
     // string test_command = prints("clang++", tmp_file_path, "-o", "test.out");
     // system(test_command.c_str());
+    
+    // -- end compile example
 
-    db *mysql = database("./tmp/mysql.so", "produce");
+    // -- load example
+    using db_lib = DynamicLib<MemgraphDynamicLib>;
+
+    db_lib mysql_db("./tmp/mysql.so");
+    mysql_db.load();
+    auto mysql = mysql_db.produce_method();
     if (mysql) {
         mysql->name();
     }
+    mysql_db.destruct_method(mysql);
+
+    db_lib memsql_db("./tmp/memsql.so");
+    memsql_db.load();
+    auto memsql = memsql_db.produce_method();
+    if (memsql) {
+        memsql->name();
+    }
+    memsql_db.destruct_method(memsql);
 
     return 0;
 }
