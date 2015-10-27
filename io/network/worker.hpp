@@ -16,6 +16,10 @@ class Worker : public Listener<Worker>
 public:
     Worker() = default;
 
+    Worker(Worker&& other)
+    {
+    }
+
     bool accept(Socket& socket)
     {
         auto s = socket.accept(nullptr, nullptr);

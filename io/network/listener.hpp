@@ -21,6 +21,12 @@ public:
         thread = std::thread([this]() { loop(); });
     }
 
+    Listener(Listener&& other)
+    {
+        this->thread = std::move(other.thread);
+        this->listener = std::move(other.listener);
+    }
+
     ~Listener()
     {
         alive.store(false, std::memory_order_release);

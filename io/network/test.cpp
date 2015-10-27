@@ -1,5 +1,5 @@
 #include <iostream>
-#include <array>
+#include <vector>
 
 #include "debug/log.hpp"
 
@@ -33,7 +33,11 @@ make_socket_non_blocking (int sfd)
 
 int main(void)
 {
-    std::array<io::Worker, 8> workers;
+    std::vector<io::Worker> workers;
+
+    for(size_t i = 0; i < std::thread::hardware_concurrency(); ++i)
+        workers.emplace_back();
+
     int idx = 0;
 
     auto socket = io::Socket::create("7474");
