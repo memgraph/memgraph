@@ -4,11 +4,11 @@
 #include <iostream>
 #include <stack>
 
-#include "cypher/ast/ast_visitor.hpp"
-#include "cypher/ast/ast.hpp"
+#include "cypher/visitor/traverser.hpp"
 
-class PrintVisitor : public ast::AstVisitor
+class PrintVisitor : public Traverser
 {
+public:
     class Printer
     {
     public:
@@ -80,45 +80,37 @@ class PrintVisitor : public ast::AstVisitor
         size_t level = 0;
     };
 
-public:
     PrintVisitor(std::ostream& stream)
         : printer(stream, "Printing AST") {}
 
     void visit(ast::Start& start) override
     {
         auto entry = printer.advance("Start");
-        accept(start.read_query);
-        accept(start.write_query);
+        Traverser::visit(start);
     }
     
     void visit(ast::ReadQuery& read_query) override
     {
         auto entry = printer.advance("Read Query");
-        accept(read_query.match);
-        accept(read_query.return_clause);
+        Traverser::visit(read_query);
     }
 
     void visit(ast::Match& match) override
     {
         auto entry = printer.advance("Match");
-        accept(match.pattern);
-        accept(match.where);
+        Traverser::visit(match);
     }
 
     void visit(ast::Pattern& pattern) override
     {
         auto entry = printer.advance("Pattern");
-        accept(pattern.node);
-        accept(pattern.relationship);
-        accept(pattern.next);
+        Traverser::visit(pattern);
     }
 
     void visit(ast::Node& node) override
     {
         auto entry = printer.advance("Node");
-        accept(node.idn);
-        accept(node.labels);
-        accept(node.props);
+        Traverser::visit(node);
     }
 
     void visit(ast::Identifier& idn) override
@@ -130,14 +122,13 @@ public:
     void visit(ast::Return& return_clause) override
     {
         auto entry = printer.advance("Return");
-        accept(return_clause.return_list);
+        Traverser::visit(return_clause);
     }
 
     void visit(ast::Accessor& accessor) override
     {
         auto entry = printer.advance("Accessor");
-        accept(accessor.entity);
-        accept(accessor.prop);
+        Traverser::visit(accessor);
     }
 
     void visit(ast::Boolean& boolean) override
@@ -167,172 +158,144 @@ public:
     void visit(ast::Property& property) override
     {
         auto entry = printer.advance("Property");
-        accept(property.idn);
-        accept(property.value);
+        Traverser::visit(property);
     }
 
     void visit(ast::And& and_expr) override
     {
         auto entry = printer.advance("And");
-        accept(and_expr.left);
-        accept(and_expr.right);
+        Traverser::visit(and_expr);
     }
 
     void visit(ast::Or& or_expr) override
     {
         auto entry = printer.advance("Or");
-        accept(or_expr.left);
-        accept(or_expr.right);
+        Traverser::visit(or_expr);
     }
 
     void visit(ast::Lt& lt_expr) override
     {
         auto entry = printer.advance("Less Than");
-        accept(lt_expr.left);
-        accept(lt_expr.right);
+        Traverser::visit(lt_expr);
     }
 
     void visit(ast::Gt& gt_expr) override
     {
         auto entry = printer.advance("Greater Than");
-        accept(gt_expr.left);
-        accept(gt_expr.right);
+        Traverser::visit(gt_expr);
     }
 
     void visit(ast::Ge& ge_expr) override
     {
         auto entry = printer.advance("Greater od Equal");
-        accept(ge_expr.left);
-        accept(ge_expr.right);
+        Traverser::visit(ge_expr);
     }
 
     void visit(ast::Le& le_expr) override
     {
         auto entry = printer.advance("Less or Equal");
-        accept(le_expr.left);
-        accept(le_expr.right);
+        Traverser::visit(le_expr);
     }
 
     void visit(ast::Eq& eq_expr) override
     {
         auto entry = printer.advance("Equal");
-        accept(eq_expr.left);
-        accept(eq_expr.right);
+        Traverser::visit(eq_expr);
     }
 
     void visit(ast::Ne& ne_expr) override
     {
         auto entry = printer.advance("Not Equal");
-        accept(ne_expr.left);
-        accept(ne_expr.right);
+        Traverser::visit(ne_expr);
     }
 
     void visit(ast::Plus& plus) override
     {
         auto entry = printer.advance("Plus");
-        accept(plus.left);
-        accept(plus.right);
+        Traverser::visit(plus);
     }
 
     void visit(ast::Minus& minus) override
     {
         auto entry = printer.advance("Minus");
-        accept(minus.left);
-        accept(minus.right);
+        Traverser::visit(minus);
     }
 
     void visit(ast::Star& star) override
     {
         auto entry = printer.advance("Star");
-        accept(star.left);
-        accept(star.right);
+        Traverser::visit(star);
     }
 
     void visit(ast::Slash& slash) override
     {
         auto entry = printer.advance("Slash");
-        accept(slash.left);
-        accept(slash.right);
+        Traverser::visit(slash);
     }
 
     void visit(ast::Rem& rem) override
     {
         auto entry = printer.advance("Rem (%)");
-        accept(rem.left);
-        accept(rem.right);
+        Traverser::visit(rem);
     }
 
     void visit(ast::PropertyList& prop_list) override
     {
         auto entry = printer.advance("Property List");
-        accept(prop_list.value);
-        accept(prop_list.next);
+        Traverser::visit(prop_list);
     }
 
     void visit(ast::RelationshipList& rel_list) override
     {
         auto entry = printer.advance("Relationship List");
-        accept(rel_list.value);
-        accept(rel_list.next);
+        Traverser::visit(rel_list);
     }
 
     void visit(ast::Relationship& rel) override
     {
         auto entry = printer.advance("Relationship");
         entry << " direction: " << rel.direction;
-        accept(rel.specs);
+        Traverser::visit(rel);
     }
 
     void visit(ast::RelationshipSpecs& rel_specs) override
     {
         auto entry = printer.advance("Relationship Specs");
-        accept(rel_specs.idn);
-        accept(rel_specs.types);
-        accept(rel_specs.props);
+        Traverser::visit(rel_specs);
     }
 
     void visit(ast::LabelList& labels) override
     {
         auto entry = printer.advance("Label List");
-        accept(labels.value);
-        accept(labels.next);
+        Traverser::visit(labels);
     }
 
     void visit(ast::ReturnList& return_list) override
     {
         auto entry = printer.advance("Return List");
-        accept(return_list.value);
-        accept(return_list.next);
+        Traverser::visit(return_list);
     }
 
     void visit(ast::Where& where) override
     {
         auto entry = printer.advance("Where");
-        accept(where.expr);
+        Traverser::visit(where);
     }
 
     void visit(ast::WriteQuery& write_query) override
     {
         auto entry = printer.advance("Write Query");
-        accept(write_query.create);
-        accept(write_query.return_clause);
+        Traverser::visit(write_query);
     }
 
     void visit(ast::Create& create) override
     {
         auto entry = printer.advance("Create");
-        accept(create.pattern);
+        Traverser::visit(create);
     }
 
 private:
     Printer printer;
-
-    template<class T>
-    void accept(T* node)
-    {
-        if(node != nullptr)
-            node->accept(*this);
-    }
 };
 
 #endif

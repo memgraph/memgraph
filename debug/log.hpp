@@ -35,15 +35,15 @@ private:
 
             return stream << bash_color::green
                 << "[" << to_string(message.level) << "] " << bash_color::end
-                << message.text << std::endl
-                << bash_color::yellow << "    on " << bash_color::end
-                << time_string.substr(0, time_string.size() - 1)
-                << bash_color::yellow << " in file " << bash_color::end
-                << message.file
-                << bash_color::yellow << " in function " << bash_color::end
-                << message.function
-                << bash_color::yellow << " at line " << bash_color::end
-                << message.line;
+                << message.text;
+                /* << bash_color::yellow << "    on " << bash_color::end */
+                /* << time_string.substr(0, time_string.size() - 1) */
+                /* << bash_color::yellow << " in file " << bash_color::end */
+                /* << message.file */
+                /* << bash_color::yellow << " in function " << bash_color::end */
+                /* << message.function */
+                /* << bash_color::yellow << " at line " << bash_color::end */
+                /* << message.line; */
         }
     };
 
