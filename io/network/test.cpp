@@ -68,6 +68,7 @@ int main(void)
     {
       int n, i;
 
+      LOG_DEBUG("MASTER WAITING = " << idx);
       n = epoll_wait (efd, events, MAXEVENTS, -1);
       for (i = 0; i < n; i++)
 	{
@@ -88,6 +89,7 @@ int main(void)
                  means one or more incoming connections. */
               while (true)
               {
+                  LOG_DEBUG("IDX = " << idx);
                   idx = (idx + 1) % workers.size();
 
                   auto& worker = workers[i];
