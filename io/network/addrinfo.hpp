@@ -29,7 +29,7 @@ public:
         hints.ai_flags = AI_PASSIVE;
 
         struct addrinfo* result;
-        auto status = getaddrinfo(nullptr, port, &hints, &result);
+        auto status = getaddrinfo("0.0.0.0", port, &hints, &result);
 
         if(status != 0)
             throw NetworkError(gai_strerror(status));
