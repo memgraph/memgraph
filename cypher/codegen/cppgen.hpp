@@ -11,8 +11,6 @@ class CppGen : public Traverser
         {
             
         }
-
-        void visit(ast
     };
 
 public:
@@ -24,6 +22,8 @@ public:
 
     void visit(ast::Create create) override
     {
+        auto create_gen = CreateGen();
+        create.accept(create_gen);
     };
 };
 
