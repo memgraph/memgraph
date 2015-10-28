@@ -19,7 +19,7 @@ public:
         freeaddrinfo(info);
     }
 
-    static AddrInfo get(const char* port)
+    static AddrInfo get(const char* addr, const char* port)
     {
         struct addrinfo hints;
         memset(&hints, 0, sizeof(struct addrinfo));
@@ -29,7 +29,7 @@ public:
         hints.ai_flags = AI_PASSIVE;
 
         struct addrinfo* result;
-        auto status = getaddrinfo("0.0.0.0", port, &hints, &result);
+        auto status = getaddrinfo(addr, port, &hints, &result);
 
         if(status != 0)
             throw NetworkError(gai_strerror(status));
