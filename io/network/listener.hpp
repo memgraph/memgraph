@@ -18,10 +18,9 @@ class Listener : public Crtp<Derived>
 public:
     Listener() : listener(0)
     {
-        thread = std::thread([this]() { loop(); });
     }
 
-    Listener(Listener&& other)
+    Listener(Listener&& other) : listener(0)
     {
         this->thread = std::move(other.thread);
         this->listener = std::move(other.listener);
@@ -29,8 +28,16 @@ public:
 
     ~Listener()
     {
+        LOG_DEBUG("JOIN THREAD");
         alive.store(false, std::memory_order_release);
-        thread.join();
+
+        if(thread.joinable())
+            thread.join();
+    }
+    
+    void start()
+    {
+        thread = std::thread([this]() { loop(); });
     }
 
     void add(Socket& socket, Epoll::Event& event)
@@ -38,16 +45,18 @@ public:
         listener.add(socket, &event);
     }
 
-private:
+//protected:
     void loop()
     {
+        LOG_DEBUG("Thread starting " << listener.id() << " " << hash(std::this_thread::get_id()));
+
         constexpr size_t MAX_EVENTS = 64;
 
         Epoll::Event events[MAX_EVENTS];
 
         while(alive.load(std::memory_order_acquire))
         {
-            auto n = listener.wait(events, MAX_EVENTS, -1);
+            auto n = listener.wait(events, MAX_EVENTS, 1000);
 
             for(int i = 0; i < n; ++i)
             {
@@ -78,6 +87,8 @@ private:
                 this->derived().on_read(stream);
             }
         }
+
+        LOG_DEBUG("Thread exiting");
     }
 
     std::atomic<bool> alive {true};

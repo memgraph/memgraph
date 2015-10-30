@@ -32,6 +32,11 @@ public:
         return epoll_wait(epoll_fd, events, max_events, timeout);
     }
 
+    int id() const
+    {
+        return epoll_fd;
+    }
+
 private:
     int epoll_fd;
 };

@@ -1,10 +1,31 @@
 #include <iostream>
 #include <vector>
+#include <thread>
+#include <signal.h>
+
+std::hash<std::thread::id> hash;
 
 #include "debug/log.hpp"
 
 #include "socket.hpp"
 #include "worker.hpp"
+
+std::array<io::Worker, 16> workers;
+
+void exiting()
+{
+  for(size_t i = 0; i < workers.size(); ++i)
+  {
+      auto n = workers[i].requests.load();
+      std::cout << "worker " << i << " responded to " << n << " requests" << std::endl;
+  }
+}
+
+void sigint_handler(int)
+{
+    exiting();
+    std::abort();
+}
 
 #define MAXEVENTS 64
 
@@ -33,14 +54,29 @@ make_socket_non_blocking (int sfd)
 
 int main(void)
 {
-    std::vector<io::Worker> workers;
+    std::atexit(exiting);
+    signal(SIGINT, sigint_handler);
 
-    for(size_t i = 0; i < std::thread::hardware_concurrency(); ++i)
-        workers.emplace_back();
+    for(size_t i = 0; i < workers.size(); ++i)
+    {
+        auto& w = workers[i];
+        w.start();
+    }
+
+    /* size_t WORKERS = std::thread::hardware_concurrency(); */
+
+    /* std::vector<io::Worker> workers; */
+    /* workers.resize(WORKERS); */
+
+    /* for(size_t i = 0; i < WORKERS; ++i) */
+    /* { */
+    /*     workers.push_back(std::move(io::Worker())); */
+    /*     workers.back().start(); */
+    /* } */
 
     int idx = 0;
 
-    auto socket = io::Socket::create("7474");
+    auto socket = io::Socket::create("0.0.0.0", "7474");
     socket.set_non_blocking();
     socket.listen(1024);
 
@@ -72,8 +108,9 @@ int main(void)
     {
       int n, i;
 
-      LOG_DEBUG("MASTER WAITING = " << idx);
       n = epoll_wait (efd, events, MAXEVENTS, -1);
+      LOG_DEBUG("MASTER WOKEN UP");
+
       for (i = 0; i < n; i++)
 	{
 	  if ((events[i].events & EPOLLERR) ||
@@ -93,13 +130,10 @@ int main(void)
                  means one or more incoming connections. */
               while (true)
               {
-                  LOG_DEBUG("IDX = " << idx);
-                  idx = (idx + 1) % workers.size();
-
-                  auto& worker = workers[i];
-
-                  if(!worker.accept(socket))
+                  if(!workers[idx].accept(socket))
                       break;
+
+                  idx = (idx + 1) % workers.size();
               }
                     
                   /* struct sockaddr in_addr; */
@@ -207,7 +241,6 @@ int main(void)
     }
 
   free (events);
-
 
     return 0;
 }

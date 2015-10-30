@@ -5,7 +5,7 @@
 
 namespace io
 {
-  const char* response = "HTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\n";
+  const char* response = "HTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\n";
 
   size_t len = strlen(response);
 
@@ -14,11 +14,7 @@ class Worker : public Listener<Worker>
     char buf[512];
 
 public:
-    Worker() = default;
-
-    Worker(Worker&& other)
-    {
-    }
+    using Listener::Listener;
 
     bool accept(Socket& socket)
     {
@@ -41,6 +37,8 @@ public:
     {
         delete stream;
     }
+
+    std::atomic<int> requests {0};
 
     void on_read(TcpStream* stream)
     {
@@ -78,8 +76,10 @@ public:
                 int k = write(stream->socket, resp, len - sum);
                 sum += k;
                 resp += k;
-
             }
+
+            requests.fetch_add(1, std::memory_order_relaxed);
+
           }
 
         if (done)

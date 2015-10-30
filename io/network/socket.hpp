@@ -51,9 +51,9 @@ public:
         return socket != -1;
     }
 
-    static Socket create(const char* port)
+    static Socket create(const char* addr, const char* port)
     {
-        auto info = AddrInfo::get(port);
+        auto info = AddrInfo::get(addr, port);
 
         for(struct addrinfo* it = info; it != nullptr; it = it->ai_next)
         {
@@ -64,9 +64,9 @@ public:
             if(!s.is_open())
                 continue;
 
-            /* int on = 1; */
-            /* if(setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) */
-            /*     continue; */
+            int on = 1;
+            if(setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)))
+                continue;
 
             if(s.bind(it->ai_addr, it->ai_addrlen))
                 return std::move(s);
