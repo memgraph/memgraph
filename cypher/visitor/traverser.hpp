@@ -8,6 +8,9 @@ class Traverser : public ast::AstVisitor
 {
 public:
 
+    using uptr = std::unique_ptr<Traverser>;
+    using sptr = std::shared_ptr<Traverser>;
+
     void visit(ast::Start& start) override
     {
         accept(start.read_query);

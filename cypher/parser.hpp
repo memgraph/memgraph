@@ -36,7 +36,7 @@ public:
         {
             tokens.emplace_back(tokenizer.lookup());
             auto& token = tokens.back();
-            std::cout << token << std::endl;
+            // std::cout << token << std::endl;
             cypher_parser(parser, token.id, &token, &tree);
 
         } while(tokens.back().id != 0);

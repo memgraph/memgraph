@@ -15,7 +15,7 @@ public:
         Printer(std::ostream& stream, const std::string& header)
             : stream(stream)
         {
-            stream << header;
+            // stream << header;
         }
 
         ~Printer()

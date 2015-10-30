@@ -97,7 +97,7 @@ pattern(P) ::= node(N). {
 
 %type rel {ast::Relationship*}
 
-rel(R) ::= MINUS rel_spec(S) MINUS. { // unidirectional
+rel(R) ::= MINUS rel_spec(S) MINUS. { // bidirectional
     R = ast->create<ast::Relationship>(S, ast::Relationship::Both);
 }
 
