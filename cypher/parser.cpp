@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
     // arguments parsing
     auto arguments = all_arguments(argc, argv);
     auto cypher_query = get_argument(arguments, "-q", "CREATE (n {name: 'Domko', age: 24}) return n");
-    auto traverser = get_argument(arguments, "-t", "print");
+    auto traverser = get_argument(arguments, "-t", "code");
 
     // traversers
     auto print_traverser = Traverser::sptr(new PrintVisitor(cout));
