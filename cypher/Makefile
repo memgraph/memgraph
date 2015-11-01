@@ -1,5 +1,5 @@
 CXX = clang++
-CXXFLAGS = -std=c++11
+CXXFLAGS = -std=c++1y
 INC = -I../
 
 parser: parser.o cypher.o

@@ -5,30 +5,10 @@
 #include "compiler.hpp"
 #include "debug/tree_print.hpp"
 #include "codegen/cppgen.hpp"
+#include "utils/command_line/arguments.hpp"
 
 using std::cout;
 using std::endl;
-using vector_str = std::vector<std::string>;
-
-// TODO: extract from here
-// TODO: write more safe and optimal
-vector_str all_arguments(int argc, char *argv[])
-{
-    vector_str args(argv + 1, argv + argc);
-    return args;
-}
-
-std::string get_argument(const vector_str& all,
-                         const std::string& flag,
-                         const std::string& default_value)
-{
-    auto it = std::find(all.begin(), all.end(), flag);
-    if (it == all.end()) {
-        return default_value;
-    }
-    auto pos = std::distance(all.begin(), it);
-    return all[pos + 1];
-}
 
 // * QUERY EXAMPLES *
 // "CREATE (n { name: 'Dominik', age: 24, role: 'CEO' }) return n"
