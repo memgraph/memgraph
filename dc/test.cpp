@@ -41,8 +41,8 @@ class MemgraphDynamicLib
 public:
     const static std::string produce_name;
     const static std::string destruct_name;
-    typedef produce_t produce;
-    typedef destruct_t destruct;
+    using produce = produce_t;
+    using destruct = destruct_t;
 };
 const std::string MemgraphDynamicLib::produce_name = "produce";
 const std::string MemgraphDynamicLib::destruct_name = "destruct";
