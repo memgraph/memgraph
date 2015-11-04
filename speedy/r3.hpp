@@ -75,6 +75,7 @@ public:
 
         void populate(sp::Request& req)
         {
+            req.params.clear();
             for(int i = 0; i < entry->vars->len; ++i)
                 req.params.emplace_back(entry->vars->tokens[i]);
         }

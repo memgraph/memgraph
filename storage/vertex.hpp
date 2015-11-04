@@ -27,4 +27,19 @@ inline std::ostream& operator<<(std::ostream& stream, Vertex& record)
                   << ", xmax = " << record.tx.max()
                   << "): " << buffer.str();
 }
+
+// TODO: find more appropriate place for this
+inline std::string properties_to_string(Vertex* vertex)
+{
+    // make a string buffer
+    StringBuffer buffer;
+    JsonWriter<StringBuffer> writer(buffer);
+
+    // dump properties in this buffer
+    vertex->properties.accept(writer);
+    writer.finish();
+
+    // respond to the use with the buffer
+    return std::move(buffer.str());
+}
 #endif

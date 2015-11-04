@@ -54,16 +54,7 @@ public:
             return node;
         }, 
         [&req, &res](Vertex* node) {
-            // make a string buffer
-            StringBuffer buffer;
-            JsonWriter<StringBuffer> writer(buffer);
-
-            // dump properties in this buffer
-            node->properties.accept(writer);
-            writer.finish();
-            
-            // respond to the use with the buffer
-            return res.send(buffer.str());
+            return res.send(properties_to_string(node));
         });
     }
 };
@@ -76,17 +67,43 @@ public:
         
     void get(sp::Request& req, sp::Response& res)
     {
-        return res.send(req.url);
+        task->run([this, &req]() -> Vertex* {
+            // read id param
+            uint64_t id = std::stoull(req.params[0]); 
+
+            // get atom iterator
+            auto atom_it = db->graph.vertices.begin();
+            
+            // find the right atom
+            // TODO: better implementation
+            while (true) {
+                if (id == atom_it->id) {
+                    // TODO: return latest version
+                    return atom_it->first();
+                }
+                if (!atom_it.has_next())
+                    break;
+                ++atom_it;
+            }
+
+            return nullptr;
+        },
+        [&req, &res](Vertex* node) {
+            if (node == nullptr) {
+                return res.send(http::Status::NotFound, "The node was not found");
+            }
+            return res.send(properties_to_string(node));
+        });
     }
 
     void put(sp::Request& req, sp::Response& res)
     {
-        return res.send(req.url);
+        return res.send("TODO");
     }
 
     void del(sp::Request& req, sp::Response& res)
     {
-        return res.send(req.url);
+        return res.send("TODO");
     }
 };
 

@@ -55,6 +55,13 @@ public:
         {
             return operator++();
         }
+
+        bool has_next()
+        {
+            if (curr->next == nullptr)
+                return false;
+            return true;
+        }
   
     private:
         T* curr;
