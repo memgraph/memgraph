@@ -41,22 +41,22 @@ public:
     // TODO: this should probably return mvcc::Atom<Vertex>*
     Vertex* find_vertex(uint64_t id)
     {
-            // get atom iterator
-            auto atom_it = vertices.begin();
-            
-            // find the right atom
-            // TODO: better implementation
-            while (true) {
-                if (id == atom_it->id) {
-                    // TODO: return latest version
-                    return atom_it->first();
-                }
-                if (!atom_it.has_next())
-                    break;
-                ++atom_it;
+        // get atom iterator
+        auto atom_it = vertices.begin();
+        
+        // find the right atom
+        // TODO: better implementation
+        while (true) {
+            if (id == atom_it->id) {
+                // TODO: return latest version
+                return atom_it->first();
             }
+            if (!atom_it.has_next())
+                break;
+            ++atom_it;
+        }
 
-            return nullptr;
+        return nullptr;
     }
 
     VertexStore vertices;
