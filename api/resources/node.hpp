@@ -70,23 +70,8 @@ public:
         task->run([this, &req]() -> Vertex* {
             // read id param
             uint64_t id = std::stoull(req.params[0]); 
-
-            // get atom iterator
-            auto atom_it = db->graph.vertices.begin();
-            
-            // find the right atom
-            // TODO: better implementation
-            while (true) {
-                if (id == atom_it->id) {
-                    // TODO: return latest version
-                    return atom_it->first();
-                }
-                if (!atom_it.has_next())
-                    break;
-                ++atom_it;
-            }
-
-            return nullptr;
+            // TODO: transaction?
+            return db->graph.find_vertex(id);
         },
         [&req, &res](Vertex* node) {
             if (node == nullptr) {
