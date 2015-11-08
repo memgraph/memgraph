@@ -10,17 +10,17 @@ class Lockable
 public:
     using lock_type = lock_t;
 
-    std::lock_guard<lock_t> acquire_guard()
+    std::lock_guard<lock_t> acquire_guard() const
     {
         return std::lock_guard<lock_t>(lock);
     }
 
-    std::unique_lock<lock_t> acquire_unique()
+    std::unique_lock<lock_t> acquire_unique() const
     {
         return std::unique_lock<lock_t>(lock);
     }
-    
-    lock_t lock;
+
+    mutable lock_t lock;
 };
 
 #endif
