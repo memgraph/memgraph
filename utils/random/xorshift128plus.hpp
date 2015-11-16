@@ -4,28 +4,18 @@
 #include <cstdlib>
 #include <random>
 
-namespace xorshift
+/* Xorshift algorithm (plus variant)
+ *
+ * This is the fastest generator passing BigCrush without systematic failures,
+ * but due to the relatively short period it is acceptable only for
+ * applications with a mild amount of parallelism, otherwise, use a
+ * xorshift1024* generator.
+ */
+struct Xorshift128plus
 {
-    static uint64_t s[2];
-
-    uint64_t avalance(uint64_t s)
+public:
+    Xorshift128plus()
     {
-        // MurmurHash3 finalizer
-        s ^= s >> 33;
-        s *= 0xff51afd7ed558ccd;
-        s ^= s >> 33;
-        s *= 0xc4ceb9fe1a85ec53;
-        s ^= s >> 33;
-
-        return s;
-    }
-
-    void init()
-    {
-        // TODO
-        // not sure if this thread local means anything for other threads
-        // fix this!!!!
-
         // use a slow, more complex rnd generator to initialize a fast one
         // make sure to call this before requesting any random numbers!
         std::random_device rd;
@@ -40,16 +30,31 @@ namespace xorshift
         s[1] = avalance(dist(gen));
     }
 
-    uint64_t next()
+    uint64_t operator()()
     {
         uint64_t s1 = s[0];
         const uint64_t s0 = s[1];
 
         s[0] = s0;
-        s1 ^= s1 << 23; 
+        s1 ^= s1 << 23;
 
-        return (s[1] = (s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26))) + s0; 
+        return (s[1] = (s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26))) + s0;
     }
-}
+
+private:
+    uint64_t s[2];
+
+    uint64_t avalance(uint64_t s)
+    {
+        // MurmurHash3 finalizer
+        s ^= s >> 33;
+        s *= 0xff51afd7ed558ccd;
+        s ^= s >> 33;
+        s *= 0xc4ceb9fe1a85ec53;
+        s ^= s >> 33;
+
+        return s;
+    }
+};
 
 #endif
