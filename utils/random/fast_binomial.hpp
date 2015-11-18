@@ -27,11 +27,9 @@ class FastBinomial
     // ------------------
     // 16 1111 -> 5 =====
 
-    static constexpr uint64_t mask = (1 << N) - 1;
+    static constexpr uint64_t mask = (1ULL << N) - 1;
 
 public:
-    FastBinomial() = default;
-
     unsigned operator()()
     {
         while(true)
@@ -44,7 +42,9 @@ public:
             auto x = random() & mask;
 
             // if we have all zeros, then we have an invalid case and we
-            // need to generate again
+            // need to generate again, we have this every (1/2)^N times
+            // so therefore we could say it's very unlikely to happen for
+            // large N. e.g. N = 32; p = 2.328 * 10^-10
             if(UNLIKELY(!x))
                 continue;
 
