@@ -1,8 +1,7 @@
-#ifndef MEMGRAPH_MVCC_ATOM_HPP
-#define MEMGRAPH_MVCC_ATOM_HPP
+#pragma once
 
+#include "mvcc/id.hpp"
 #include "threading/sync/lockable.hpp"
-
 #include "transactions/transaction.hpp"
 #include "version.hpp"
 
@@ -14,7 +13,7 @@ class Atom : public Version<T>,
              public Lockable<SpinLock>
 {
 public:
-    Atom(uint64_t id, T* first) : Version<T>(first), id(id)
+    Atom(const Id& id, T* first) : Version<T>(first), id(id)
     {
         // it's illegal that the first version is nullptr. there should be at
         // least one version of a record
@@ -36,11 +35,9 @@ public:
     // every record has a unique id. 2^64 = 1.8 x 10^19. that should be enough
     // for a looong time :) but keep in mind that some vacuuming would be nice
     // to reuse indices for deleted nodes.
-    uint64_t id;
+    Id id;
 
     std::atomic<Atom<T>*> next;
 };
 
 }
-
-#endif

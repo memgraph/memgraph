@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_TRANSACTIONS_ENGINE_HPP
-#define MEMGRAPH_TRANSACTIONS_ENGINE_HPP
+#pragma once
 
 #include <atomic>
 #include <vector>
@@ -33,16 +32,16 @@ public:
     {
         auto guard = this->acquire_unique();
 
-        auto id = counter.next();
+        auto id = Id(counter.next());
         auto t = new Transaction(id, active);
 
-        active.push_back(id);
+        active.insert(id);
         cache.put(id, t);
 
         return *t;
     }
 
-    const Transaction& advance(uint64_t id)
+    const Transaction& advance(const Id& id)
     {
         auto guard = this->acquire_unique();
 
@@ -73,7 +72,7 @@ public:
         finalize(t);
     }
 
-    uint64_t last_known_active()
+    Id last_known_active()
     {
         auto guard = this->acquire_unique();
         return active.front();
@@ -96,20 +95,15 @@ public:
 private:
     void finalize(const Transaction& t)
     {
-        // remove transaction from the active transactions list
-        auto last = std::remove(active.begin(), active.end(), t.id);
-        active.erase(last, active.end());
+        active.remove(t.id);
 
         // remove transaction from cache
         cache.del(t.id);
     }
 
     SimpleCounter<uint64_t> counter;
-
-    std::vector<uint64_t> active;
+    Snapshot<Id> active;
     TransactionCache<uint64_t> cache;
 };
 
 }
-
-#endif

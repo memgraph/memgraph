@@ -1,10 +1,10 @@
-#ifndef MEMGRAPH_MVCC_TRANSACTION_HPP
-#define MEMGRAPH_MVCC_TRANSACTION_HPP
+#pragma once
 
 #include <cstdlib>
 #include <cstdint>
 #include <vector>
 
+#include "mvcc/id.hpp"
 #include "snapshot.hpp"
 
 namespace tx
@@ -12,19 +12,17 @@ namespace tx
 
 struct Transaction
 {
-    Transaction(uint64_t id, Snapshot<uint64_t> snapshot)
+    Transaction(const Id& id, Snapshot<Id> snapshot)
         : id(id), cid(1), snapshot(std::move(snapshot)) {}
 
     // index of this transaction
-    uint64_t id;
+    Id id;
 
     // index of the current command in the current transaction;
     uint8_t cid;
 
     // a snapshot of currently active transactions
-    Snapshot<uint64_t> snapshot;
+    Snapshot<Id> snapshot;
 };
 
 }
-
-#endif

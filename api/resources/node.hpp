@@ -69,7 +69,7 @@ public:
     {
         task->run([this, &req]() -> Vertex* {
             // read id param
-            uint64_t id = std::stoull(req.params[0]); 
+            Id id(std::stoull(req.params[0])); 
             // TODO: transaction?
             return db->graph.find_vertex(id);
         },
