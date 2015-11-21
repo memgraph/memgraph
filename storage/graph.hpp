@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_STORAGE_GRAPH_HPP
-#define MEMGRAPH_STORAGE_GRAPH_HPP
+#pragma once
 
 #include <list>
 
@@ -39,7 +38,7 @@ public:
     }
 
     // TODO: this should probably return mvcc::Atom<Vertex>*
-    Vertex* find_vertex(uint64_t id)
+    Vertex* find_vertex(const Id& id)
     {
         // get atom iterator
         auto atom_it = vertices.begin();
@@ -62,5 +61,3 @@ public:
     VertexStore vertices;
     EdgeStore edges;
 };
-
-#endif

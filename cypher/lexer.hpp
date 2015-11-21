@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_LEXER_HPP
-#define MEMGRAPH_CYPHER_LEXER_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -59,5 +58,3 @@ protected:
     lexertl::rules rules;
     lexertl::state_machine sm;
 };
-
-#endif

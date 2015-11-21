@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_STORAGE_VERTEX_HPP
-#define MEMGRAPH_STORAGE_VERTEX_HPP
+#pragma once
 
 #include <vector>
 
@@ -42,4 +41,3 @@ inline std::string properties_to_string(Vertex* vertex)
     // respond to the use with the buffer
     return std::move(buffer.str());
 }
-#endif

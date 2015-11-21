@@ -1,11 +1,10 @@
-#ifndef MEMGRAPH_STORAGE_MODEL_UTILS_MVCC_HPP
-#define MEMGRAPH_STORAGE_MODEL_UTILS_MVCC_HPP
+#pragma once
 
 #include <atomic>
 
 #include "transactions/transaction.hpp"
 #include "transactions/commit_log.hpp"
-
+#include "mvcc/id.hpp"
 #include "minmax.hpp"
 #include "version.hpp"
 #include "hints.hpp"
@@ -26,7 +25,7 @@ public:
     // and tx.max is the id of the transaction that deleted the record
     // these values are used to determine the visibility of the record
     // to the current transaction
-    MinMax<uint64_t> tx;
+    MinMax<Id> tx;
 
     // cmd.min is the id of the command in this transaction that created the
     // record and cmd.max is the id of the command in this transaction that
@@ -94,18 +93,18 @@ public:
 protected:
     Hints hints;
 
-    bool max_committed(uint64_t id, const tx::Transaction& t)
+    bool max_committed(const Id& id, const tx::Transaction& t)
     {
         return committed(hints.max, id, t);
     }
 
-    bool min_committed(uint64_t id, const tx::Transaction& t)
+    bool min_committed(const Id& id, const tx::Transaction& t)
     {
         return committed(hints.min, id, t);
     }
 
     template <class U>
-    bool committed(U& hints, uint64_t id, const tx::Transaction& t)
+    bool committed(U& hints, const Id& id, const tx::Transaction& t)
     {
         auto hint_bits = hints.load();
 
@@ -135,5 +134,3 @@ protected:
 };
 
 }
-
-#endif

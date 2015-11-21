@@ -1,6 +1,7 @@
 #ifndef MEMGRAPH_TRANSACTIONS_COMMIT_LOG_HPP
 #define MEMGRAPH_TRANSACTIONS_COMMIT_LOG_HPP
 
+#include "mvcc/id.hpp"
 #include "data_structures/bitset/dynamic_bitset.hpp"
 
 namespace tx
@@ -53,32 +54,32 @@ public:
         return log;
     }
 
-    Info fetch_info(uint64_t id)
+    Info fetch_info(const Id& id)
     {
         return Info { log.at(2 * id, 2) };
     }
 
-    bool is_active(uint64_t id)
+    bool is_active(const Id& id)
     {
         return fetch_info(id).is_active();
     }
 
-    bool is_committed(uint64_t id)
+    bool is_committed(const Id& id)
     {
         return fetch_info(id).is_committed();
     }
 
-    void set_committed(uint64_t id)
+    void set_committed(const Id& id)
     {
         log.set(2 * id);
     }
 
-    bool is_aborted(uint64_t id)
+    bool is_aborted(const Id& id)
     {
         return fetch_info(id).is_aborted();
     }
 
-    void set_aborted(uint64_t id)
+    void set_aborted(const Id& id)
     {
         log.set(2 * id + 1);
     }
