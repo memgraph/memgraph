@@ -5,7 +5,7 @@
 
 namespace io
 {
-  const char* response = "HTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\n";
+  const char* response = "HTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\n";
 
   size_t len = strlen(response);
 
@@ -23,13 +23,8 @@ public:
         if(!s.is_open())
             return false;
 
-        s.set_non_blocking();
-    
-        auto stream = new TcpStream(std::move(s), EPOLLIN | EPOLLET);
-                
-        this->add(stream->socket, stream->event);
-    
-        LOG_DEBUG("Listening to TCP stream at" << stream->socket.id())
+        this->add(s);
+
         return true;
     }
 

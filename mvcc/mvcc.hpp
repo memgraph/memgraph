@@ -37,7 +37,7 @@ public:
     bool visible(const tx::Transaction& t)
     {
         // TODO check if the record was created by a transaction that has been
-        // aborted. one might implement this by checking the hints in mvcc 
+        // aborted. one might implement this by checking the hints in mvcc
         // anc/or consulting the commit log
 
         // Mike Olson says 17 march 1993: the tests in this routine are correct;
@@ -68,7 +68,7 @@ public:
     T* latest_visible(const tx::Transaction& t)
     {
         T* record = static_cast<T*>(this), *newer = this->newer();
-        
+
         // move down through the versions of the nodes until you find the first
         // one visible to this transaction. if no visible records are found,
         // the function returns a nullptr

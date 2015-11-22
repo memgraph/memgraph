@@ -27,7 +27,7 @@ public:
     using sptr = std::shared_ptr<Engine>;
 
     Engine() : counter(0) {}
-    
+
     const Transaction& begin()
     {
         auto guard = this->acquire_unique();
@@ -68,7 +68,7 @@ public:
     {
         auto guard = this->acquire_unique();
         CommitLog::get().set_aborted(t.id);
-        
+
         finalize(t);
     }
 

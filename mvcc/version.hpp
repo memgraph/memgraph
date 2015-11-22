@@ -36,7 +36,7 @@ private:
     // points to a newer version of this record. the newer version also has
     // this pointer which points to an even more recent version. if no newer
     // version is present, this value points to a nullptr
-    std::atomic<T*> versions;
+    std::atomic<T*> newer_version;
 };
 
 }

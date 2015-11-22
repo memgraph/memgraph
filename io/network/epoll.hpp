@@ -24,7 +24,7 @@ public:
         auto status = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket, event);
 
         if(UNLIKELY(status))
-            throw NetworkError("Can't add connection to epoll listener.");
+            throw NetworkError("Can't add an event to epoll listener.");
     }
 
     int wait(Event* events, int max_events, int timeout)

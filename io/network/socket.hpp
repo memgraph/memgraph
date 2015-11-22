@@ -21,29 +21,34 @@ namespace io
 
 class Socket
 {
-    Socket(int socket) : socket(socket) {}
-
     Socket(int family, int socket_type, int protocol)
     {
         socket = ::socket(family, socket_type, protocol);
     }
 
 public:
+    Socket(int socket = -1) : socket(socket) {}
+
     Socket(const Socket&) = delete;
-    
+
     Socket(Socket&& other)
     {
-        this->socket = other.socket;
-        other.socket = -1;
+        *this = std::forward<Socket>(other);
     }
 
     ~Socket()
     {
         if(socket == -1)
             return;
-        
-        LOG_DEBUG("CLosing Socket " << socket);
+
         close(socket);
+    }
+
+    Socket& operator=(Socket&& other)
+    {
+        this->socket = other.socket;
+        other.socket = -1;
+        return *this;
     }
 
     bool is_open()
@@ -51,14 +56,12 @@ public:
         return socket != -1;
     }
 
-    static Socket create(const char* addr, const char* port)
+    static Socket bind(const char* addr, const char* port)
     {
         auto info = AddrInfo::get(addr, port);
 
         for(struct addrinfo* it = info; it != nullptr; it = it->ai_next)
         {
-            LOG_DEBUG("Trying socket...");
-
             auto s = Socket(it->ai_family, it->ai_socktype, it->ai_protocol);
 
             if(!s.is_open())
@@ -68,17 +71,11 @@ public:
             if(setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)))
                 continue;
 
-            if(s.bind(it->ai_addr, it->ai_addrlen))
+            if(::bind(s, it->ai_addr, it->ai_addrlen) == 0)
                 return std::move(s);
         }
 
         throw NetworkError("Unable to bind to socket");
-    }
-
-    bool bind(struct sockaddr* addr, socklen_t len)
-    {
-        assert(socket != -1);
-        return ::bind(socket, addr, len) == 0;
     }
 
     void set_non_blocking()

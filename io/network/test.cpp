@@ -8,49 +8,26 @@ std::hash<std::thread::id> hash;
 #include "debug/log.hpp"
 
 #include "socket.hpp"
-#include "worker.hpp"
+#include "http/worker.hpp"
 
-std::array<io::Worker, 16> workers;
+std::array<http::Worker, 16> workers;
+std::array<std::thread, 16> threads;
+
+std::atomic<bool> alive { true };
 
 void exiting()
 {
-  for(size_t i = 0; i < workers.size(); ++i)
-  {
-      auto n = workers[i].requests.load();
-      std::cout << "worker " << i << " responded to " << n << " requests" << std::endl;
-  }
+    LOG_DEBUG("Exiting...");
 }
 
 void sigint_handler(int)
 {
+
     exiting();
     std::abort();
 }
 
 #define MAXEVENTS 64
-
-static int
-make_socket_non_blocking (int sfd)
-{
-  int flags, s;
-
-  flags = fcntl (sfd, F_GETFL, 0);
-  if (flags == -1)
-    {
-      perror ("fcntl");
-      return -1;
-    }
-
-  flags |= O_NONBLOCK;
-  s = fcntl (sfd, F_SETFL, flags);
-  if (s == -1)
-    {
-      perror ("fcntl");
-      return -1;
-    }
-
-  return 0;
-}
 
 int main(void)
 {
@@ -60,7 +37,15 @@ int main(void)
     for(size_t i = 0; i < workers.size(); ++i)
     {
         auto& w = workers[i];
-        w.start();
+
+        threads[i] = std::thread([&w]() {
+            while(alive)
+            {
+                LOG_DEBUG("Worker " << hash(std::this_thread::get_id())
+                          << " waiting... ");
+                w.wait_and_process_events();
+            }
+        });
     }
 
     /* size_t WORKERS = std::thread::hardware_concurrency(); */
@@ -76,7 +61,7 @@ int main(void)
 
     int idx = 0;
 
-    auto socket = io::Socket::create("0.0.0.0", "7474");
+    auto socket = io::Socket::bind("0.0.0.0", "7474");
     socket.set_non_blocking();
     socket.listen(1024);
 
@@ -109,7 +94,6 @@ int main(void)
       int n, i;
 
       n = epoll_wait (efd, events, MAXEVENTS, -1);
-      LOG_DEBUG("MASTER WOKEN UP");
 
       for (i = 0; i < n; i++)
 	{
@@ -130,12 +114,17 @@ int main(void)
                  means one or more incoming connections. */
               while (true)
               {
+                  LOG_DEBUG("Trying to accept... ");
                   if(!workers[idx].accept(socket))
+                  {
+                      LOG_DEBUG("Did not accept!");
                       break;
+                  }
 
                   idx = (idx + 1) % workers.size();
+                  LOG_DEBUG("Accepted a new connection!");
               }
-                    
+
                   /* struct sockaddr in_addr; */
                   /* socklen_t in_len; */
                   /* int infd; */

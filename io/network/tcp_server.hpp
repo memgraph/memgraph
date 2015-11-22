@@ -1,50 +1,49 @@
 #pragma once
 
 #include <list>
-
-#include <cstdlib>
-#include <cstdio>
-#include <unistd.h>
-#include <cstring>
-
+#include <thread>
 #include <atomic>
 
-#include "epoll.hpp"
+#include "debug/log.hpp"
+#include "tcp_listener.hpp"
 
 namespace io
 {
 
-class TcpConnection
-{
-
-};
-
-class TcpServer
+template <class T>
+class TcpServer : TcpListener<TcpServer<T>, 64, -1>
 {
 public:
-    TcpServer(const char* port)
-        : socket(Socket::create(port)), epoll(0)
+    TcpServer(const char* addr, const char* port)
+        : stream(std::move(Socket::bind(addr, port))) {}
+
+    ~TcpServer()
     {
-        socket.set_non_blocking();
-        socket.listen(128);
+        stop();
 
-        listener.data.fd = socket;
-        listener.events = EPOLLIN | EPOLLET;
-
-        epoll.add(socket, &listener);
+        for(auto& worker : workers)
+            worker.join();
     }
 
-    void start(int max_events)
+    template <class F>
+    void listen(size_t n, size_t backlog, F&& f)
     {
-        Epoll::EventBuffer events(max_events);
-
-        while(alive)
+        for(size_t i = 0; i < n; ++i)
         {
-            auto n = epoll.wait(events, events.size(), -1);
-            
-            for(int i = 0; i < n; ++i)
-                process_event(events[i]);
+            workers.emplace_back();
+            auto& w = workers.back();
+
+            threads[i] = std::thread([this, &w]() {
+                while(alive)
+                {
+                    LOG_DEBUG("Worker " << hash(std::this_thread::get_id())
+                              << " waiting... ");
+                    w.wait_and_process_events();
+                }
+            });
         }
+
+        stream.socket.listen(backlog);
     }
 
     void stop()
@@ -53,96 +52,42 @@ public:
     }
 
 private:
-    Socket socket;
-    Epoll epoll;
-    Epoll::event listener;
+    std::list<std::thread> threads;
+    std::list<T> workers;
     std::atomic<bool> alive { true };
-    std::list<Socket> sockets;
 
-    void process_event(Epoll::event& event)
+    TcpStream stream;
+    size_t idx = 0;
+
+    void on_close(TcpStream& stream)
     {
-        //if(UNLIKELY(event.events & (EPOLLERR | EPOLLHUP | EPOLLIN)))
-
-        if ((event.events & EPOLLERR) ||
-              (event.events & EPOLLHUP) ||
-              (!(event.events & EPOLLIN)))
-        {
-#ifndef NDEBUG
-            LOG_DEBUG("Epoll error!");
-#endif
-            // close the connection
-            close(event.data.fd);
-            return;
-        }
-
-        if(event.data.fd == socket)
-        {
-            while(accept_connection()) {}
-            return;
-        }
-
-        while(read_data(event)) {}
+        LOG_DEBUG("server on_close!!!!");
     }
 
-    bool accept_connection()
+    void on_error(TcpStream& stream)
     {
-#ifndef NDEBUG
-        struct sockaddr addr;
-        socklen_t len;
-        
-        auto clientt = socket.accept(&addr, &len);
-#else
-        auto clientt = socket.accept(nullptr, nullptr);
-#endif
-        if(UNLIKELY(!clientt.is_open()))
-            return false;
-
-#ifndef NDEBUG
-        char host[NI_MAXHOST], port[NI_MAXSERV];
-        auto status = getnameinfo(&addr, len,
-                                  host, sizeof host,
-                                  port, sizeof port,
-                                  NI_NUMERICHOST | NI_NUMERICSERV);
-
-        if(status)
-        {
-            LOG_DEBUG("Accepted connection on descriptor " << clientt
-                      << " (host: " << std::string(host)
-                      << ", port: " << std::string(port) << ")");
-        }
-#endif
-        sockets.emplace_back(std::move(clientt));
-        auto& client = sockets.back();
-
-        client.set_non_blocking();
-
-        auto ev = new Epoll::event;
-        ev->events = EPOLLIN | EPOLLET;
-        ev->data.fd = client;
-
-        epoll.add(client, ev);
-        return true;
+        LOG_DEBUG("server on_error!!!!");
     }
 
-    bool read_data(Epoll::event& event)
+    void on_data(TcpStream&)
     {
-        char buf[512];
-
-        auto count = read(event.data.fd, buf, sizeof buf);
-
-        if(count == -1)
-            return false;
-
-        if(!count)
+        while (true)
         {
-            close(event.data.fd);
-            return false;
+            LOG_DEBUG("Trying to accept... ");
+            if(!workers[idx].accept(socket))
+            {
+                LOG_DEBUG("Did not accept!");
+                break;
+            }
+
+            idx = (idx + 1) % workers.size();
+            LOG_DEBUG("Accepted a new connection!");
         }
+    }
 
-        const char* response = "HTTP/1.1 200 OK\r\nContent-Length:0\r\nConnection:Keep-Alive\r\n\r\n";
+    void on_wait_timeout()
+    {
 
-        write(event.data.fd, response, sizeof response);
-        return true;
     }
 };
 
