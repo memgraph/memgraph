@@ -10,16 +10,32 @@
 
 class Futex
 {
-    using futex_t = int32_t;
+    using futex_t = uint32_t;
+    using flag_t = uint8_t;
 
+    /* @brief Data structure for implementing fast mutexes
+     *
+     * This structure is 4B wide, as required for futex system call where
+     * the last two bytes are used for two flags - contended and locked,
+     * respectively. Memory layout for the structure looks like this:
+     *
+     *                 all
+     * |---------------------------------|
+     * 00000000 00000000 0000000C 0000000L
+     *                   |------| |------|
+     *                  contended  locked
+     *
+     * L marks the locked bit
+     * C marks the contended bit
+     */
     union mutex_t
     {
         std::atomic<futex_t> all {0};
 
         struct
         {
-            std::atomic<uint8_t> locked;
-            std::atomic<uint8_t> contended;
+            std::atomic<flag_t> locked;
+            std::atomic<flag_t> contended;
         } state;
     };
 
@@ -33,8 +49,8 @@ class Futex
     {
         UNLOCKED = 0x0000,
         LOCKED   = 0x0001,
-        UNLOCKED_CONTENDED = UNLOCKED | CONTENDED,
-        LOCKED_CONTENDED   = LOCKED   | CONTENDED
+        UNLOCKED_CONTENDED = UNLOCKED | CONTENDED, // 0x0100
+        LOCKED_CONTENDED   = LOCKED   | CONTENDED  // 0x0101
     };
 
     static constexpr size_t LOCK_RETRIES = 256;
@@ -49,6 +65,8 @@ public:
 
     bool try_lock()
     {
+        // we took the lock if we stored the LOCKED state and previous
+        // state was UNLOCKED
         return mutex.state.locked.exchange(LOCKED, std::memory_order_acquire)
             == UNLOCKED;
     }
@@ -58,6 +76,7 @@ public:
         // try to fast lock a few times before going to sleep
         for(size_t i = 0; i < LOCK_RETRIES; ++i)
         {
+            // try to lock and exit if we succeed
             if(try_lock())
                 return;
 
@@ -70,6 +89,7 @@ public:
         while(mutex.all.exchange(LOCKED_CONTENDED, std::memory_order_acquire)
             & LOCKED)
         {
+            // wait in the kernel for someone to wake us up when unlocking
             auto status = futex_wait(LOCKED_CONTENDED, timeout);
 
             // check if we woke up because of a timeout
@@ -97,15 +117,28 @@ public:
         // anyone because that's quite expensive
         for(size_t i = 0; i < UNLOCK_RETRIES; ++i)
         {
-            if(mutex.state.locked.load(std::memory_order_acquire) & LOCKED)
+            // if someone took the lock, we're ok
+            if(is_locked(std::memory_order_acquire))
                 return;
 
             cpu_relax();
         }
 
-        // we need to wake someone up
+        // store that we are becoming uncontended
         mutex.state.contended.store(UNCONTENDED, std::memory_order_release);
+
+        // we need to wake someone up
         futex_wake(LOCKED);
+    }
+
+    bool is_locked(std::memory_order order = std::memory_order_seq_cst) const
+    {
+        return mutex.state.locked.load(order);
+    }
+
+    bool is_contended(std::memory_order order = std::memory_order_seq_cst) const
+    {
+        return mutex.state.contended.load(order);
     }
 
 private:
