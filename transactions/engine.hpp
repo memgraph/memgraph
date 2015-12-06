@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "transaction.hpp"
-#include "transaction_cache.hpp"
+#include "transaction_store.hpp"
 #include "commit_log.hpp"
 
 #include "utils/counters/simple_counter.hpp"
@@ -26,26 +26,26 @@ class Engine : Lockable<SpinLock>
 public:
     using sptr = std::shared_ptr<Engine>;
 
-    Engine() : counter(0) {}
+    Engine() : counter(1) {}
 
-    const Transaction& begin()
+    Transaction& begin()
     {
         auto guard = this->acquire_unique();
 
         auto id = Id(counter.next());
-        auto t = new Transaction(id, active);
+        auto t = new Transaction(id, active, *this);
 
         active.insert(id);
-        cache.put(id, t);
+        store.put(id, t);
 
         return *t;
     }
 
-    const Transaction& advance(const Id& id)
+    Transaction& advance(const Id& id)
     {
         auto guard = this->acquire_unique();
 
-        auto* t = cache.get(id);
+        auto* t = store.get(id);
 
         if(t == nullptr)
             throw TransactionError("transaction does not exist");
@@ -97,13 +97,23 @@ private:
     {
         active.remove(t.id);
 
-        // remove transaction from cache
-        cache.del(t.id);
+        // remove transaction from store
+        store.del(t.id);
     }
 
     SimpleCounter<uint64_t> counter;
     Snapshot<Id> active;
-    TransactionCache<uint64_t> cache;
+    TransactionStore<uint64_t> store;
 };
+
+void Transaction::commit()
+{
+    engine.commit(*this);
+}
+
+void Transaction::abort()
+{
+    engine.abort(*this);
+}
 
 }

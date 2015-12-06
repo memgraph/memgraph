@@ -7,9 +7,12 @@
 #include <random>
 
 #include "threading/sync/futex.hpp"
-#include "debug/log.hpp"
+#include "threading/sync/spinlock.hpp"
+//#include "debug/log.hpp"
 
 Futex futex;
+//std::mutex mutex;
+//SpinLock spinlock;
 int x = 0;
 
 void test_lock(int id)
@@ -18,32 +21,34 @@ void test_lock(int id)
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 1000);
 
-    for(int i = 0; i < 100000; ++i)
+    for(int i = 0; i < 5000000; ++i)
     {
         // uncomment sleeps and LOG_DEBUGs to test high contention
 
-        LOG_DEBUG("Acquiring Futex (" << id << ")");
+        //LOG_DEBUG("Acquiring Futex (" << id << ")");
 
         {
+            //std::unique_lock<SpinLock> guard(spinlock);
             std::unique_lock<Futex> guard(futex);
+            //std::unique_lock<std::mutex> guard(mutex);
             x++;
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
 
-            LOG_DEBUG("Critical section no. " << i << " (" << id << ")");
+            //LOG_DEBUG("Critical section no. " << i << " (" << id << ")");
             assert(x == 1);
 
             x--;
         }
 
-        LOG_DEBUG("Non Critical section... (" << id << ")");
-        std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
+        //LOG_DEBUG("Non Critical section... (" << id << ")");
+        //std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
     }
 }
 
 int main(void)
 {
-    constexpr int N = 128;
+    constexpr int N = 4;
 
     std::vector<std::thread> threads;
 

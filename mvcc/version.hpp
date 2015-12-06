@@ -10,33 +10,33 @@ template <class T>
 class Version
 {
 public:
-    Version() : versions(nullptr) {}
+    Version() = default;
+    Version(T* older) : older(older) {}
 
     ~Version()
     {
-        delete versions.load();
+        delete older.load(std::memory_order_seq_cst);
     }
 
-    Version(T* value) : versions(value) {}
-
-    // return a pointer to a newer version stored in this record
-    T* newer()
+    // return a pointer to an older version stored in this record
+    T* next(std::memory_order order = std::memory_order_seq_cst)
     {
-        return versions.load();
+        return older.load(order);
     }
 
-    // set a newer version of this record
-    void newer(T* value)
+    const T* next(std::memory_order order = std::memory_order_seq_cst) const
     {
-        versions.store(value);
+        return older.load(order);
+    }
+
+    // set the older version of this record
+    void next(T* value, std::memory_order order = std::memory_order_seq_cst)
+    {
+        older.store(value, order);
     }
 
 private:
-    // this is an atomic singly-linked list of all versions. this pointer
-    // points to a newer version of this record. the newer version also has
-    // this pointer which points to an even more recent version. if no newer
-    // version is present, this value points to a nullptr
-    std::atomic<T*> newer_version;
+    std::atomic<T*> older {nullptr};
 };
 
 }

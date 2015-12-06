@@ -6,7 +6,7 @@
 #include "threading/sync/lockable.hpp"
 
 template <class Derived>
-class LazyGC : Crtp<Derived>, Lockable<SpinLock>
+class LazyGC : Crtp<Derived>
 {
 public:
     void add_ref()
@@ -24,11 +24,18 @@ public:
         if(count != 1)
             return;
 
-        auto guard = this->aacquire();
+        if(!dirty.load(std::memory_order_acquire))
+            return;
+
+        auto guard = this->derived().gc_lock_acquire();
+
+        if(!dirty.load(std::memory_order_acquire))
+            return;
 
         this->derived().vacuum();
     }
 
-private:
+protected:
     std::atomic<int> ref_count {0};
+    std::atomic<bool> dirty {false};
 };

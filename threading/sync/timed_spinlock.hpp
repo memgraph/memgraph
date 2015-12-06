@@ -28,7 +28,7 @@ public:
 
         auto start = clock::now();
 
-        while(lock_flag.test_and_set(std::memory_order_acquire))
+        while(!lock_flag.test_and_set(std::memory_order_acquire))
         {
             // how long have we been locked? if we exceeded the expiration
             // time, throw an exception and stop being blocked because this

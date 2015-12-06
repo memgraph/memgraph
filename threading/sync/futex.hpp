@@ -53,8 +53,8 @@ class Futex
         LOCKED_CONTENDED   = LOCKED   | CONTENDED  // 0x0101
     };
 
-    static constexpr size_t LOCK_RETRIES = 256;
-    static constexpr size_t UNLOCK_RETRIES = 512;
+    static constexpr size_t LOCK_RETRIES = 100;
+    static constexpr size_t UNLOCK_RETRIES = 200;
 
 public:
     Futex()
@@ -81,7 +81,7 @@ public:
                 return;
 
             // we failed, chill a bit
-            cpu_relax();
+            relax();
         }
 
         // the lock is contended, go to sleep. when someone
@@ -111,7 +111,7 @@ public:
             return;
 
         // we are contended, just release the lock
-        mutex.state.locked.store(UNLOCKED, std::memory_order_seq_cst);
+        mutex.state.locked.store(UNLOCKED, std::memory_order_release);
 
         // spin and hope someone takes a lock so we don't have to wake up
         // anyone because that's quite expensive
@@ -121,7 +121,7 @@ public:
             if(is_locked(std::memory_order_acquire))
                 return;
 
-            cpu_relax();
+            relax();
         }
 
         // store that we are becoming uncontended
@@ -153,6 +153,11 @@ private:
     void futex_wake(int value)
     {
         sys::futex(&mutex.all, FUTEX_WAKE_PRIVATE, value, nullptr, nullptr, 0);
+    }
+
+    void relax()
+    {
+        usleep(250);
     }
 };
 
