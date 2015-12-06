@@ -1,8 +1,6 @@
-#ifndef MEMGRAPH_STORAGE_MODEL_PROPERTIES_PROPERTIES_HPP
-#define MEMGRAPH_STORAGE_MODEL_PROPERTIES_PROPERTIES_HPP
+#pragma once
 
 #include <map>
-#include "rapidjson/document.h"
 
 #include "property.hpp"
 
@@ -15,7 +13,7 @@ public:
     {
         return props.find(key);
     }
-    
+
     Property* at(const std::string& key)
     {
         auto it = props.find(key);
@@ -49,14 +47,14 @@ public:
     }
 
     template <class Handler>
-    void accept(Handler& handler)
+    void accept(Handler& handler) const
     {
         bool first = true;
 
         for(auto& kv : props)
         {
             handler.handle(kv.first, *kv.second, first);
-            
+
             if(first)
                 first = false;
         }
@@ -65,5 +63,3 @@ public:
 private:
     props_t props;
 };
-
-#endif

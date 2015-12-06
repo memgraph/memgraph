@@ -1,16 +1,23 @@
-#ifndef MEMGRAPH_STORAGE_EDGE_HPP
-#define MEMGRAPH_STORAGE_EDGE_HPP
+#pragma once
 
-#include <vector>
+#include "model/properties/jsonwriter.hpp"
+#include "model/edge_model.hpp"
+#include "mvcc/record.hpp"
 
-#include "model/record.hpp"
+class Edge;
 
-struct Vertex;
-
-struct Edge : public Record<Edge>
+class Edge : public mvcc::Record<Edge>
 {
-    Vertex* from;
-    Vertex* to;
-};
+public:
+    Edge() = default;
+    Edge(const EdgeModel& data) : data(data) {}
+    Edge(EdgeModel&& data) : data(std::move(data)) {}
 
-#endif
+    Edge(const Edge&) = delete;
+    Edge(Edge&&) = delete;
+
+    Edge& operator=(const Edge&) = delete;
+    Edge& operator=(Edge&&) = delete;
+
+    EdgeModel data;
+};

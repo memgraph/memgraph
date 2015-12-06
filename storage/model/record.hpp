@@ -14,16 +14,14 @@
 #include "properties/properties.hpp"
 
 template <class Derived>
-class Record
-    : public Crtp<Derived>,
-      public mvcc::Mvcc<Derived>
+class Record : public Crtp<Derived>, public mvcc::Mvcc<Derived>
 {
 public:
     // a record contains a key value map containing data
     Properties properties;
-    
-    // each record can have one or more distinct labels. 
-    std::set<uint16_t> labels;
+
+    // each record can have one or more distinct labels.
+    // std::set<uint16_t> labels;
 };
 
 #endif

@@ -1,8 +1,6 @@
-#ifndef MEMGRAPH_STORAGE_PROPERTIES_JSONWRITER_HPP
-#define MEMGRAPH_STORAGE_PROPERTIES_JSONWRITER_HPP
+#pragma once
 
 #include "properties.hpp"
-#include "storage/model/properties/jsonwriter.hpp"
 
 template <class Buffer>
 struct JsonWriter
@@ -95,5 +93,3 @@ public:
 private:
     std::string data;
 };
-
-#endif
