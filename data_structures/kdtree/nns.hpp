@@ -1,5 +1,4 @@
-#ifndef GEOAPI_KDTREE_NNS_HPP
-#define GEOAPI_KDTREE_NNS_HPP
+#pragma once
 
 #include "math.hpp"
 #include "point.hpp"
@@ -100,5 +99,3 @@ const KdNode<T, U>* nns(const Point<T>& p, const KdNode<T, U>* root)
 }
 
 }
-
-#endif

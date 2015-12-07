@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_START_HPP
-#define MEMGRAPH_CYPHER_AST_START_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "queries.hpp"
@@ -18,5 +17,3 @@ struct Start : public AstNode<Start>
 };
 
 };
-
-#endif

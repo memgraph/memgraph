@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_PRIMITIVE_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_PRIMITIVE_HPP
+#pragma once
 
 #include "json.hpp"
 
@@ -25,5 +24,3 @@ protected:
 
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_SYNC_CASLOCK_HPP
-#define MEMGRAPH_UTILS_SYNC_CASLOCK_HPP
+#pragma once
 
 #include <atomic>
 #include <unistd.h>
@@ -33,5 +32,3 @@ public:
 private:
     std::atomic<bool> lock_flag;
 };
-
-#endif

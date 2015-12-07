@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_STORAGE_MODEL_PROPERTIES_PROPERTY_HPP
-#define MEMGRAPH_STORAGE_MODEL_PROPERTIES_PROPERTY_HPP
+#pragma once
 
 #include <memory>
 #include <string>
@@ -155,5 +154,3 @@ void Property::accept(Handler& h)
         default: return;
     }
 }
-
-#endif

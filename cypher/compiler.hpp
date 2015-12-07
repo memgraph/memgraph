@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_COMPILER_HPP
-#define MEMGRAPH_CYPHER_COMPILER_HPP
+#pragma once
 
 #include "cypher_lexer.hpp"
 #include "parser.hpp"
@@ -25,5 +24,3 @@ private:
 };
 
 }
-
-#endif

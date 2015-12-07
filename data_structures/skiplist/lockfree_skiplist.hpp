@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_LOCKFREE_SKIPLIST_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_LOCKFREE_SKIPLIST_HPP
+#pragma once
 
 #include <cstdlib>
 #include <atomic>
@@ -57,5 +56,3 @@ public:
 };
 
 }
-
-#endif

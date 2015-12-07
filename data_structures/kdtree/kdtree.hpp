@@ -1,5 +1,4 @@
-#ifndef GEOAPI_KDTREE_KDTREE_HPP
-#define GEOAPI_KDTREE_KDTREE_HPP
+#pragma once
 
 #include <vector>
 
@@ -39,5 +38,3 @@ KdTree<T, U>::KdTree(It first, It last)
 }
 
 }
-
-#endif

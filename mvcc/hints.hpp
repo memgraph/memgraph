@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MVCC_HINTS_HPP
-#define MEMGRAPH_MVCC_HINTS_HPP
+#pragma once
 
 #include <atomic>
 #include <unistd.h>
@@ -110,5 +109,3 @@ public:
 };
 
 }
-
-#endif

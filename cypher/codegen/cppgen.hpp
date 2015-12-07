@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_CODEGEN_CPPGEN_HPP
-#define MEMGRAPH_CYPHER_CODEGEN_CPPGEN_HPP
+#pragma once
 
 #include <iostream>
 #include <typeinfo>
@@ -52,5 +51,3 @@ public:
         create.accept(create_gen);
     };
 };
-
-#endif

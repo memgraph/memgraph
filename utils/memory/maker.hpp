@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_MEMORY_MAKER_HPP
-#define MEMGRAPH_UTILS_MEMORY_MAKER_HPP
+#pragma once
 
 #include <cstdlib>
 
@@ -23,5 +22,3 @@ void takeme(T* mem)
     mem->~T();
     alloc.deallocate(mem, 1);
 }
-
-#endif

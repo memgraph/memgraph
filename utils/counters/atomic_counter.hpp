@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_COUNTERS_ATOMIC_COUNTER_HPP
-#define MEMGRAPH_UTILS_COUNTERS_ATOMIC_COUNTER_HPP
+#pragma once
 
 #include <atomic>
 #include <type_traits>
@@ -24,5 +23,3 @@ public:
 private:
     std::atomic<T> counter;
 };
-
-#endif

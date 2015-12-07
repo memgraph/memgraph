@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_TREE_HPP
-#define MEMGRAPH_CYPHER_AST_TREE_HPP
+#pragma once
 
 #include <vector>
 
@@ -46,5 +45,3 @@ private:
 };
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_TREE_PRINT_HPP
-#define MEMGRAPH_CYPHER_TREE_PRINT_HPP
+#pragma once
 
 #include <iostream>
 #include <stack>
@@ -297,5 +296,3 @@ public:
 private:
     Printer printer;
 };
-
-#endif

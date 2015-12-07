@@ -7,8 +7,7 @@
  *  @author Dominik Tomicevic (domko)
  *  @author Marko Budiselic (buda)
  */
-#ifndef MEMGRAPH_SPEEDY_SPEEDY_HPP
-#define MEMGRAPH_SPEEDY_SPEEDY_HPP
+#pragma once
 
 #include "io/uv/uv.hpp"
 #include "http/http.hpp"
@@ -121,5 +120,3 @@ private:
 };
 
 }
-
-#endif

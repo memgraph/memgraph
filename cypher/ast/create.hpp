@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_CREATE_HPP
-#define MEMGRAPH_CYPHER_AST_CREATE_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "pattern.hpp"
@@ -17,5 +16,3 @@ struct Create : public AstNode<Create>
 };
 
 }
-
-#endif

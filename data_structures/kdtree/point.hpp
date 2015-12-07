@@ -1,5 +1,4 @@
-#ifndef GEOAPI_KDTREE_POINT_HPP
-#define GEOAPI_KDTREE_POINT_HPP
+#pragma once
 
 #include <ostream>
 
@@ -29,5 +28,3 @@ public:
 };
 
 }
-
-#endif

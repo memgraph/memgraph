@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_BITSET_DYNAMIC_BITSET_HPP
-#define MEMGRAPH_DATA_STRUCTURES_BITSET_DYNAMIC_BITSET_HPP
+#pragma once
 
 #include <cassert>
 #include <atomic>
@@ -152,5 +151,3 @@ private:
 
     std::atomic<Chunk*> head;
 };
-
-#endif

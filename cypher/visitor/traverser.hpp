@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_VISITOR_TRAVERSER_HPP
-#define MEMGRAPH_CYPHER_VISITOR_TRAVERSER_HPP
+#pragma once
 
 #include "cypher/ast/ast_visitor.hpp"
 #include "cypher/ast/ast.hpp"
@@ -197,5 +196,3 @@ protected:
             node->accept(*this);
     }
 };
-
-#endif

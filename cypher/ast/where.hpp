@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_WHERE_HPP
-#define MEMGRAPH_CYPHER_AST_WHERE_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "expr.hpp"
@@ -16,5 +15,3 @@ struct Where : public AstNode<Where>
 };
 
 }
-
-#endif

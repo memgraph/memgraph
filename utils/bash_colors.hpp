@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_BASH_COLORS_HPP
-#define MEMGRAPH_UTILS_BASH_COLORS_HPP
+#pragma once
 
 namespace bash_color
 {
@@ -9,5 +8,3 @@ namespace bash_color
     auto red    = "\033[91m";
     auto end    = "\033[0m";
 }
-
-#endif

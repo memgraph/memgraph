@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_IO_UV_BLOCKBUFFER_HPP
-#define MEMGRAPH_IO_UV_BLOCKBUFFER_HPP
+#pragma once
 
 #include <cstring>
 #include <uv.h>
@@ -124,5 +123,3 @@ template <size_t block_size>
 BlockAllocator<block_size> BlockBuffer<block_size>::allocator;
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SPINLOCK_STACK_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SPINLOCK_STACK_HPP
+#pragma once
 
 #include <stack>
 
@@ -31,5 +30,3 @@ public:
 private:
     std::stack<T> stack;
 };
-
-#endif

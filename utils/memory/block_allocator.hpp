@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_MEMORY_BLOCK_ALLOCATOR_HPP
-#define MEMGRAPH_UTILS_MEMORY_BLOCK_ALLOCATOR_HPP
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -50,5 +49,3 @@ public:
 private:
     std::vector<Block> blocks;
 };
-
-#endif

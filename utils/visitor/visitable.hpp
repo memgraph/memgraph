@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_VISITOR_VISITABLE_HPP
-#define MEMGRAPH_UTILS_VISITOR_VISITABLE_HPP
+#pragma once
 
 template <class T>
 struct Visitable
@@ -7,5 +6,3 @@ struct Visitable
     virtual ~Visitable() = default;
     virtual void accept(T& visitor) = 0;
 };
-
-#endif

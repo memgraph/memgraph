@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_THREADING_SYNC_SPINLOCK_HPP
-#define MEMGRAPH_THREADING_SYNC_SPINLOCK_HPP
+#pragma once
 
 #include <atomic>
 #include <unistd.h>
@@ -23,5 +22,3 @@ private:
     // guaranteed by standard to be lock free!
     std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
 };
-
-#endif

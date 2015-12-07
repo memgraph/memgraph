@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_LINEREADER_HPP
-#define MEMGRAPH_UTILS_LINEREADER_HPP
+#pragma once
 
 #include <functional>
 #include <fstream>
@@ -31,5 +30,3 @@ void linereader(const std::string& filename,
 }
 
 }
-
-#endif

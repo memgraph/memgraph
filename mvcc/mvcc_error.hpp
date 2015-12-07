@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MVCC_MVCC_ERROR_HPP
-#define MEMGRAPH_MVCC_MVCC_ERROR_HPP
+#pragma once
 
 #include <stdexcept>
 
@@ -13,5 +12,3 @@ public:
 };
 
 }
-
-#endif

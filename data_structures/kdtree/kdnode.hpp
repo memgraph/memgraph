@@ -1,5 +1,4 @@
-#ifndef GEOAPI_KDTREE_KDNODE_HPP
-#define GEOAPI_KDTREE_KDNODE_HPP
+#pragma once
 
 #include <memory>
 
@@ -43,6 +42,3 @@ KdNode<T, U>::~KdNode()
 }
 
 }
-
-
-#endif

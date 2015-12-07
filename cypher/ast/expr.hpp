@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_EXPR_HPP
-#define MEMGRAPH_CYPHER_AST_EXPR_HPP
+#pragma once
 
 #include "ast_node.hpp"
 
@@ -36,5 +35,3 @@ struct BinaryExpr : public VisitableExpr<Derived>
 };
 
 }
-
-#endif

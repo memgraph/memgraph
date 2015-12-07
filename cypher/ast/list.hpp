@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_LIST_HPP
-#define MEMGRAPH_CYPHER_AST_LIST_HPP
+#pragma once
 
 #include "ast_node.hpp"
 
@@ -17,5 +16,3 @@ struct List : public AstNode<Derived>
 };
 
 }
-
-#endif

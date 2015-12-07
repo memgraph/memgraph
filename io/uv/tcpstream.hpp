@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_TCPSTREAM_HPP
-#define MEMGRAPH_SERVER_UV_TCPSTREAM_HPP
+#pragma once
 
 #include <uv.h>
 
@@ -31,5 +30,3 @@ private:
 };
 
 }
-
-#endif

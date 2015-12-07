@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_THREADING_TASK_HPP
-#define MEMGRAPH_THREADING_TASK_HPP
+#pragma once
 
 #include <iostream>
 
@@ -79,5 +78,3 @@ private:
     uv::UvLoop::sptr loop;
     Pool::sptr pool;
 };
-
-#endif

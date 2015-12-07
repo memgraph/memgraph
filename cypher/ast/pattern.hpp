@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_PATTERN_HPP
-#define MEMGRAPH_CYPHER_AST_PATTERN_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "relationship.hpp"
@@ -19,5 +18,3 @@ struct Pattern : public AstNode<Pattern>
 };
 
 }
-
-#endif

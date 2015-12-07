@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_UVBUFFER_HPP
-#define MEMGRAPH_SERVER_UV_UVBUFFER_HPP
+#pragma once
 
 #include <string>
 #include <uv.h>
@@ -34,5 +33,3 @@ private:
 };
 
 }
-
-#endif

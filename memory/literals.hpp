@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MEMORY_LITERALS_HPP
-#define MEMGRAPH_MEMORY_LITERALS_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -25,5 +24,3 @@ constexpr unsigned long long operator"" _kB(unsigned long long kb)
 
 }
 }
-
-#endif

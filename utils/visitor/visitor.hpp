@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_VISITOR_VISITOR_HPP
-#define MEMGRAPH_UTILS_VISITOR_VISITOR_HPP
+#pragma once
 
 namespace detail
 {
@@ -41,5 +40,3 @@ struct Visitor : public detail::RecursiveVisitorBase<T...>
     using detail::RecursiveVisitorBase<T...>::visit;
     using detail::RecursiveVisitorBase<T...>::post_visit;
 };
-
-#endif

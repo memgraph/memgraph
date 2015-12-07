@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DL_DYNAMIC_LIB_HPP
-#define MEMGRAPH_DL_DYNAMIC_LIB_HPP
+#pragma once
 
 #include <string>
 #include <stdexcept>
@@ -61,5 +60,3 @@ private:
         }
     }
 };
-
-#endif

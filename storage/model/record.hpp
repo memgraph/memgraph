@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_STORAGE_RECORD_HPP
-#define MEMGRAPH_STORAGE_RECORD_HPP
+#pragma once
 
 #include <ostream>
 #include <mutex>
@@ -23,5 +22,3 @@ public:
     // each record can have one or more distinct labels.
     // std::set<uint16_t> labels;
 };
-
-#endif

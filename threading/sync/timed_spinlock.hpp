@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_THREADING_SYNC_TIMED_SPINLOCK_HPP
-#define MEMGRAPH_THREADING_SYNC_TIMED_SPINLOCK_HPP
+#pragma onces
 
 #include <atomic>
 #include <chrono>
@@ -52,5 +51,3 @@ private:
     // guaranteed by standard to be lock free!
     std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
 };
-
-#endif

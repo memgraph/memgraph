@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_LEXER_CYPHER_LEXER_HPP
-#define MEMGRAPH_CYPHER_LEXER_CYPHER_LEXER_HPP
+#pragma once
 
 #include "cypher.h"
 
@@ -69,5 +68,3 @@ public:
         build();
     }
 };
-
-#endif

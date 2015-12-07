@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_NEW_HEIGHT_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_NEW_HEIGHT_HPP
+#pragma once
 
 #include "utils/random/xorshift.hpp"
 
@@ -21,5 +20,3 @@ size_t new_height(int max_height)
 
     return height;
 }
-
-#endif

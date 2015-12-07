@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_CRTP_HPP
-#define MEMGRAPH_UTILS_CRTP_HPP
+#pragma once
 
 // a helper class for implementing static casting to a derived class using the
 // curiously recurring template pattern
@@ -12,5 +11,3 @@ struct Crtp
         return *static_cast<Derived*>(this);
     }
 };
-
-#endif

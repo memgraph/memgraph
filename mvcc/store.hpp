@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_STORAGE_MVCC_STORE_HPP
-#define MEMGRAPH_STORAGE_MVCC_STORE_HPP
+#pragma once
 
 #include "transactions/transaction.hpp"
 #include "mvcc/atom.hpp"
@@ -97,5 +96,3 @@ private:
 };
 
 }
-
-#endif

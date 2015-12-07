@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_LOCKFREE_HASHMAP_HPP
-#define MEMGRAPH_DATA_STRUCTURES_LOCKFREE_HASHMAP_HPP
+#pragma once
 
 #include <unordered_map>
 
@@ -33,5 +32,3 @@ private:
 };
 
 }
-
-#endif

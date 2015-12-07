@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPLIST_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPLIST_HPP
+#pragma once
 
 #include <algorithm>
 #include <cstdlib>
@@ -252,6 +251,3 @@ public:
     std::atomic<size_t> size_;
     std::atomic<Node*> header;
 };
-
-
-#endif

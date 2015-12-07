@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_LIST_LOCKFREE_LIST_HPP
-#define MEMGRAPH_DATA_STRUCTURES_LIST_LOCKFREE_LIST_HPP
+#pragma once
 
 #include <atomic>
 #include <unistd.h>
@@ -242,5 +241,3 @@ bool operator!=(typename List<T, sleep_time>::read_iterator& a,
 }
 
 }
-
-#endif

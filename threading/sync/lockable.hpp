@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SYNC_LOCKABLE_HPP
-#define MEMGRAPH_SYNC_LOCKABLE_HPP
+#pragma once
 
 #include <mutex>
 #include "spinlock.hpp"
@@ -22,5 +21,3 @@ public:
 
     mutable lock_t lock;
 };
-
-#endif

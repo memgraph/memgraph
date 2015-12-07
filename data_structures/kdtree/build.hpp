@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_KDTREE_BUILD_HPP
-#define MEMGRAPH_DATA_STRUCTURES_KDTREE_BUILD_HPP
+#pragma once
 
 #include <vector>
 #include <algorithm>
@@ -66,5 +65,3 @@ KdNode<T, U>* build(It first, It last)
 }
 
 }
-
-#endif

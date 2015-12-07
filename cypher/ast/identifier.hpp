@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_IDENTIFIER_HPP
-#define MEMGRAPH_CYPHER_AST_AST_IDENTIFIER_HPP
+#pragma once
 
 #include <string>
 
@@ -15,5 +14,3 @@ struct Identifier : public AstNode<Identifier>
 };
 
 }
-
-#endif

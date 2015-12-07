@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_MATCH_HPP
-#define MEMGRAPH_CYPHER_AST_MATCH_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "pattern.hpp"
@@ -18,5 +17,3 @@ struct Match : public AstNode<Match>
 };
 
 }
-
-#endif

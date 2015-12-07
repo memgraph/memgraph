@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_HASHING_FNV_FNV32_HPP
-#define MEMGRAPH_UTILS_HASHING_FNV_FNV32_HPP
+#pragma once
 
 #include <cstdlib>
 #include <string>
@@ -48,5 +47,3 @@ template<> uint32_t fnv1a32(const std::string& data)
 {
     return fnv1a32((const unsigned char*)data.c_str(), data.size());
 }
-
-#endif

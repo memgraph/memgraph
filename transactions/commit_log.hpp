@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_TRANSACTIONS_COMMIT_LOG_HPP
-#define MEMGRAPH_TRANSACTIONS_COMMIT_LOG_HPP
+#pragma once
 
 #include "mvcc/id.hpp"
 #include "data_structures/bitset/dynamic_bitset.hpp"
@@ -89,5 +88,3 @@ private:
 };
 
 }
-
-#endif

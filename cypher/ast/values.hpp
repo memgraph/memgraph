@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_VALUES_HPP
-#define MEMGRAPH_CYPHER_AST_VALUES_HPP
+#pragma once
 
 #include <string>
 
@@ -29,5 +28,3 @@ struct String : public LeafExpr<std::string, String>
 };
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_IOC_CONTAINER_HPP
-#define MEMGRAPH_UTILS_IOC_CONTAINER_HPP
+#pragma once
 
 #include <cassert>
 #include <memory>
@@ -96,5 +95,3 @@ private:
 };
 
 }
-
-#endif

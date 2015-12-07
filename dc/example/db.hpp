@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DL_EXAMPLE_DB_HPP
-#define MEMGRAPH_DL_EXAMPLE_DB_HPP
+#pragma once
 
 #include <iostream>
 
@@ -21,5 +20,3 @@ public:
 
 typedef db* (*produce_t)();
 typedef void (*destruct_t)(db*);
-
-#endif

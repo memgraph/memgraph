@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPNODE_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SKIPLIST_SKIPNODE_HPP
+#pragma once
 
 #include <cstdlib>
 #include <atomic>
@@ -134,5 +133,3 @@ private:
     // can access anything we want!
     std::atomic<Node*> forward_[0];
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MEMORY_MEMORY_HPP
-#define MEMGRAPH_MEMORY_MEMORY_HPP
+#pragma once
 
 #include <atomic>
 #include <mutex>
@@ -54,5 +53,3 @@ private:
 
     SpinLock lock;
 };
-
-#endif

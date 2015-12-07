@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_COUNTERS_SIMPLE_COUNTER_HPP
-#define MEMGRAPH_UTILS_COUNTERS_SIMPLE_COUNTER_HPP
+#pragma once
 
 template <class T>
 class SimpleCounter
@@ -20,5 +19,3 @@ public:
 private:
     T counter;
 };
-
-#endif

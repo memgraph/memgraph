@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_MEMORY_ALLOCATOR_HPP
-#define MEMGRAPH_UTILS_MEMORY_ALLOCATOR_HPP
+#pragma once
 
 #include <cstdlib>
 #include <new>
@@ -47,5 +46,3 @@ bool operator!=(const fast_allocator<T>& a, const fast_allocator<U>& b)
 {
     return !(a == b);
 }
-
-#endif

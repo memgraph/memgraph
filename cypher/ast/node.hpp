@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_NODE_HPP
-#define MEMGRAPH_CYPHER_AST_NODE_HPP
+#pragma once
 
 #include "list.hpp"
 #include "identifier.hpp"
@@ -23,5 +22,3 @@ struct Node : public AstNode<Node>
 };
 
 }
-
-#endif

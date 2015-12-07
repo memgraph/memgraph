@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_HPP
-#define MEMGRAPH_CYPHER_AST_AST_HPP
+#pragma once
 
 #include "accessor.hpp"
 #include "values.hpp"
@@ -14,5 +13,3 @@
 #include "match.hpp"
 #include "queries.hpp"
 #include "start.hpp"
-
-#endif

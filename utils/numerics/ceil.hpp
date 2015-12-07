@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_NUMERICS_COMMON_HPP
-#define MEMGRAPH_UTILS_NUMERICS_COMMON_HPP
+#pragma once
 
 #include <type_traits>
 
@@ -17,5 +16,3 @@ T iceil(T x, T y)
 }
 
 }
-
-#endif

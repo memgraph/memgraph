@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_ARRAY_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_ARRAY_HPP
+#pragma once
 
 #include <cassert>
 #include <memory>
@@ -79,6 +78,4 @@ Array::operator std::string() const
     return "[" + utils::intercalate(xs.begin(), xs.end(), ",") + "]";
 }
 
-}
-
-#endif  
+}  

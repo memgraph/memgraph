@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_OPERATORS_HPP
-#define MEMGRAPH_CYPHER_AST_OPERATORS_HPP
+#pragma once
 
 #include "expr.hpp"
 
@@ -72,5 +71,3 @@ struct Rem : public BinaryExpr<And>
 };
 
 }
-
-#endif

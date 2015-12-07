@@ -17,46 +17,13 @@ class Graph
 public:
     Graph() {}
 
-    mvcc::Atom<Edge>* connect(mvcc::Atom<Vertex>& atom_a, Vertex& a,
-                              mvcc::Atom<Vertex>& atom_b, Vertex& b,
-                              const tx::Transaction& t)
-    {
-        // try to lock A
-        auto guard_a = atom_a.acquire_unique();
-
-        if(a.tx.max())
-            throw mvcc::MvccError("can't serialize due to\
-                concurrent operation(s)");
-
-        auto guard_b = atom_b.acquire_unique();
-
-        if(b.tx.max())
-            throw mvcc::MvccError("can't serialize due to\
-                concurrent operation(s)");
-
-         return edges.insert(t);
-    }
-
-    // TODO: this should probably return mvcc::Atom<Vertex>*
-    Vertex* find_vertex(const Id& id)
-    {
-        // get atom iterator
-        auto atom_it = vertices.begin();
-        
-        // find the right atom
-        // TODO: better implementation
-        while (true) {
-            if (id == atom_it->id) {
-                // TODO: return latest version
-                return atom_it->first();
-            }
-            if (!atom_it.has_next())
-                break;
-            ++atom_it;
-        }
-
-        return nullptr;
-    }
+    // TODO: connect method
+    // procedure:
+    //     1. acquire unique over first node
+    //     2. acquire unique over second node
+    //     3. add edge
+    
+    // TODO: find vertex by Id
 
     VertexStore vertices;
     EdgeStore edges;

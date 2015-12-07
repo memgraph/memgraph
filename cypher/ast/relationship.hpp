@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_RELATIONSHIP_HPP
-#define MEMGRAPH_CYPHER_AST_RELATIONSHIP_HPP
+#pragma once
 
 #include "list.hpp"
 #include "identifier.hpp"
@@ -34,5 +33,3 @@ struct Relationship : public AstNode<Relationship>
 };
 
 }
-
-#endif

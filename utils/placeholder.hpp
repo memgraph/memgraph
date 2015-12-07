@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_PLACEHOLDER_HPP
-#define MEMGRAPH_UTILS_PLACEHOLDER_HPP
+#pragma once
 
 #include <utility>
 #include <ext/aligned_buffer.h>
@@ -41,5 +40,3 @@ private:
 	__gnu_cxx::__aligned_buffer<T> data;
     bool initialized = false;
 };
-
-#endif

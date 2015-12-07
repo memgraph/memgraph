@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SPEEDY_R3_HPP
-#define MEMGRAPH_SPEEDY_R3_HPP
+#pragma once
 
 #include <list>
 #include <cassert>
@@ -144,5 +143,3 @@ private:
 };
 
 }
-
-#endif

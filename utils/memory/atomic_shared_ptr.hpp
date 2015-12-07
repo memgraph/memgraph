@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_MEMORY_ATOMIC_SHARED_PTR_HPP
-#define MEMGRAPH_UTILS_MEMORY_ATOMIC_SHARED_PTR_HPP
+#pragma once
 
 #include <atomic>
 #include <memory>
@@ -25,5 +24,3 @@ public:
 private:
     std::shared_ptr<T> ptr;
 };
-
-#endif

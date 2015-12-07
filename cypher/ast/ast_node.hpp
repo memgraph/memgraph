@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_NODE_HPP
-#define MEMGRAPH_CYPHER_AST_AST_NODE_HPP
+#pragma once
 
 #include <memory>
 
@@ -29,5 +28,3 @@ struct AstNode : public Crtp<Derived>, public AstVisitable
 };
 
 }
-
-#endif

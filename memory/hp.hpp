@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MEMORY_HP_HPP
-#define MEMGRAPH_MEMORY_HP_HPP
+#pragma once
 
 #include <atomic>
 #include <cassert>
@@ -147,5 +146,3 @@ private:
 };
 
 }
-
-#endif

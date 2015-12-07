@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SPEEDY_RESPONSE_HPP
-#define MEMGRAPH_SPEEDY_RESPONSE_HPP
+#pragma once
 
 #include "request.hpp"
 #include "http/response.hpp"
@@ -34,5 +33,3 @@ public:
 using request_cb_t = std::function<void(Request&, Response&)>;
 
 }
-
-#endif

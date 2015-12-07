@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_PLATFORM_HPP
-#define MEMGRAPH_UTILS_PLATFORM_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -10,7 +9,4 @@
 #define MEMGRAPH64
 #else
 #error Unrecognized platform (neither 32 or 64)
-#endif
-
-
 #endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DEBUG_LOG_HPP
-#define MEMGRAPH_DEBUG_LOG_HPP
+#pragma once
 
 #include <sstream>
 #include <iostream>
@@ -130,6 +129,4 @@ std::array<std::string, 4> Log::level_strings {{
 #  define LOG_DEBUG(_) do {} while(0);
 #else
 #  define LOG_DEBUG(_MESSAGE_) LOG(Log::Level::Debug, _MESSAGE_)
-#endif
-
 #endif

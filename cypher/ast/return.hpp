@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_RETURN_HPP
-#define MEMGRAPH_CYPHER_AST_RETURN_HPP
+#pragma once
 
 #include "list.hpp"
 #include "identifier.hpp"
@@ -21,5 +20,3 @@ struct Return : public AstNode<Return>
 };
 
 };
-
-#endif

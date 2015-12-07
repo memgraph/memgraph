@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_PROPERTY_HPP
-#define MEMGRAPH_CYPHER_AST_AST_PROPERTY_HPP
+#pragma once
 
 #include "list.hpp"
 #include "identifier.hpp"
@@ -23,5 +22,3 @@ struct PropertyList : public List<Property, PropertyList>
 };
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_TCPSTREAM_INL
-#define MEMGRAPH_SERVER_UV_TCPSTREAM_INL
+#pragma once
 
 #include "tcpstream.hpp"
 
@@ -44,5 +43,3 @@ TcpStream::operator uv_handle_t*()
 }
 
 }
-
-#endif

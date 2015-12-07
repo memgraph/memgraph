@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_INTERCALATE_HPP
-#define MEMGRAPH_UTILS_INTERCALATE_HPP
+#pragma once
 
 #include <sstream>
 #include <string>
@@ -28,5 +27,3 @@ std::string intercalate(It first, It last,
 }
 
 }
-
-#endif

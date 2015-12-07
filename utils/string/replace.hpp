@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_REPLACE_HPP
-#define MEMGRAPH_UTILS_REPLACE_HPP
+#pragma once
 
 #include <string>
 
@@ -21,5 +20,3 @@ std::string replace(std::string src,
 }
 
 }
-
-#endif

@@ -4,6 +4,7 @@
 #include <random>
 
 #include "api/restful/resource.hpp"
+#include "mvcc/version_list.hpp"
 #include "debug/log.hpp"
 
 #pragma url /node
@@ -15,46 +16,33 @@ public:
     void post(sp::Request& req, sp::Response& res)
     {
         task->run([this, &req]() {
-            // start a new transaction and obtain a reference to it
-            auto t = db->tx_engine.begin();
+            // VertexRecord vertex;
+            // auto& transaction = db->tx_engine.begin();
+            // auto accessor = vertex.access(transaction);
+            // auto node = accessor.insert();
 
-            // insert a new vertex in the graph
-            auto atom = db->graph.vertices.insert(t);
+            // // TODO: req.json can be empty
+            // // probably there is some other place to handle
+            // // emptiness of req.json
 
-            // a new version was created and we got an atom along with the
-            // first version. obtain a pointer to the first version
-            //
-            //        nullptr
-            //           ^
-            //           |
-            //      [Vertex  v1]
-            //           ^
-            //           |
-            //      [Atom id=k]   k {1, 2, ...}
-            //
-            auto node = atom->first();
+            // // first version
+            // //
+            // // for(key, value in body)
+            // //     node->properties[key] = value;
+            // for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
+            // {
+            //     vertex->data.props.set<String>(it->name.GetString(), it->value.GetString());
+            // }
 
-            // TODO: req.json can be empty
-            // probably there is some other place to handle
-            // emptiness of req.json
-
-            // first version
-            //
-            // for(key, value in body)
-            //     node->properties[key] = value;
-            for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
-            {
-                node->properties.emplace<String>(it->name.GetString(), it->value.GetString());
-            }
-
-            // commit the transaction
-            db->tx_engine.commit(t);
+            // transaction.commit();
 
             // return the node we created so we can send it as a response body
-            return node;
+            //return node;
+            return nullptr;
         }, 
         [&req, &res](Vertex* node) {
-            return res.send(properties_to_string(node));
+            return res.send("TODO");
+            // return res.send(properties_to_string(node));
         });
     }
 };
@@ -68,10 +56,11 @@ public:
     void get(sp::Request& req, sp::Response& res)
     {
         task->run([this, &req]() -> Vertex* {
-            // read id param
-            Id id(std::stoull(req.params[0])); 
-            // TODO: transaction?
-            return db->graph.find_vertex(id);
+            // // read id param
+            // Id id(std::stoull(req.params[0])); 
+            // // TODO: transaction?
+            // return db->graph.find_vertex(id);
+            return nullptr;
         },
         [&req, &res](Vertex* node) {
             if (node == nullptr) {

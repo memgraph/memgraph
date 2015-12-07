@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_THREADING_POOL_HPP
-#define MEMGRAPH_THREADING_POOL_HPP
+#pragma once
 
 #include <mutex>
 #include <atomic>
@@ -77,5 +76,3 @@ private:
         }
     }
 };
-
-#endif

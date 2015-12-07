@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_QUEUE_MPSC_QUEUE_HPP
-#define MEMGRAPH_DATA_STRUCTURES_QUEUE_MPSC_QUEUE_HPP
+#pragma once
 
 #include <atomic>
 #include <memory>
@@ -148,5 +147,3 @@ private:
 };
 
 }
-
-#endif

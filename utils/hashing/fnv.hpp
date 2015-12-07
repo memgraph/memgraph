@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_HASHING_FNV_FNV_HPP
-#define MEMGRAPH_UTILS_HASHING_FNV_FNV_HPP
+#pragma once
 
 #include <cstdlib>
 #include <string>
@@ -27,8 +26,6 @@ uint32_t fnv(const T& data)
 {
     return fnv1a32<T>(data);
 }
-
-#endif
 
 #endif
  

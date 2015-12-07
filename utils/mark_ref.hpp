@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_MARK_REF_HPP
-#define MEMGRAPH_UTILS_MARK_REF_HPP
+#pragma once
 
 #include <stdint.h>
 
@@ -37,5 +36,3 @@ struct MarkRef
 
     uintptr_t ptr;
 };
-
-#endif

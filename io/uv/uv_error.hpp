@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_UV_ERROR_HPP
-#define MEMGRAPH_SERVER_UV_UV_ERROR_HPP
+#pragma once
 
 #include <stdexcept>
 #include <string>
@@ -15,5 +14,3 @@ public:
 };
 
 }
-
-#endif

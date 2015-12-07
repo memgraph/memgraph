@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATABASE_DB_HPP
-#define MEMGRAPH_DATABASE_DB_HPP
+#pragma once
 
 #include "storage/graph.hpp"
 #include "transactions/engine.hpp"
@@ -13,5 +12,3 @@ public:
     Graph graph;
     tx::Engine tx_engine;
 };
-
-#endif

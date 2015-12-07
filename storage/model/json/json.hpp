@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_JSON_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_JSON_HPP
+#pragma once
 
 #include <initializer_list>
 #include <string>
@@ -43,5 +42,3 @@ const T& Json::as() const
 }
 
 }
-
-#endif

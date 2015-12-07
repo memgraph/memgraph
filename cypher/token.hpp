@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_TOKEN_HPP
-#define MEMGRAPH_CYPHER_TOKEN_HPP
+#pragma once
 
 #include <ostream>
 
@@ -17,5 +16,3 @@ struct Token
                       << ", value = '" << token.value << "'";
     }
 };
-
-#endif

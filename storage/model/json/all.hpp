@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_ALL_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_ALL_HPP
+#pragma once
 
 #include "array.hpp"
 #include "bool.hpp"
@@ -10,5 +9,3 @@
 #include "primitive.hpp"
 #include "real.hpp"
 #include "string.hpp"
-
-#endif

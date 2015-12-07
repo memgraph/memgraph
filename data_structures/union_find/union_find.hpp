@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_UNION_FIND_UNION_FIND_HPP
-#define MEMGRAPH_DATA_STRUCTURES_UNION_FIND_UNION_FIND_HPP
+#pragma once
 
 #include <memory>
 
@@ -83,5 +82,3 @@ private:
     // array of tree indices
     uintXX_t* parent;
 };
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_OBJECT_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_OBJECT_HPP
+#pragma once
 
 #include <iostream>
 
@@ -102,5 +101,3 @@ Object::operator std::string() const
 }
 
 }
-
-#endif

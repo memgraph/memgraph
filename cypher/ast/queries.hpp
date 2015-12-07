@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_QUERIES_HPP
-#define MEMGRAPH_CYPHER_AST_QUERIES_HPP
+#pragma once
 
 #include "ast_node.hpp"
 #include "match.hpp"
@@ -28,5 +27,3 @@ struct WriteQuery : public AstNode<WriteQuery>
 };
 
 }
-
-#endif

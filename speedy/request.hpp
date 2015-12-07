@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SPEEDY_REQUEST_HPP
-#define MEMGRAPH_SPEEDY_REQUEST_HPP
+#pragma once
 
 #include <vector>
 #include "rapidjson/document.h"
@@ -21,5 +20,3 @@ public:
 };
 
 }
-
-#endif

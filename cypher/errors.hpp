@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_ERRORS_HPP
-#define MEMGRAPH_CYPHER_ERRORS_HPP
+#pragma once
 
 #include <stdexcept>
 #include "token.hpp"
@@ -22,5 +21,3 @@ class ParserError : public std::runtime_error
 {
     using runtime_error::runtime_error;
 };
-
-#endif

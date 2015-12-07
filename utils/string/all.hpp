@@ -1,9 +1,6 @@
-#ifndef MEMGRAPH_UTILS_STRING_ALL_HPP
-#define MEMGRAPH_UTILS_STRING_ALL_HPP
+#pragma once
 
 #include "intercalate.hpp"
 #include "replace.hpp"
 #include "split.hpp"
 #include "linereader.hpp"
-
-#endif

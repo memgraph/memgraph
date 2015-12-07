@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SPEEDY_MIDDLEWARE_HPP
-#define MEMGRAPH_SPEEDY_MIDDLEWARE_HPP
+#pragma once
 
 #include "request.hpp"
 #include "response.hpp"
@@ -31,5 +30,3 @@ private:
 };
 
 }
-
-#endif

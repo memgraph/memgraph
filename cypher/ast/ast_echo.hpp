@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_PRINT_TREE_HPP
-#define MEMGRAPH_CYPHER_AST_PRINT_TREE_HPP
+#pragma once
 
 #include <iostream>
 
@@ -20,5 +19,3 @@ public:
 };
 
 }
-
-#endif

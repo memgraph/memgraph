@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SLLIST_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SLLIST_HPP
+#pragma once
 
 #include <list>
 
@@ -36,5 +35,3 @@ private:
     // TODO add removed items to a list for garbage collection
     // std::list<Node*> removed;
 };
-
-#endif

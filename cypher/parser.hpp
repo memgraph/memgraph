@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_PARSER_HPP
-#define MEMGRAPH_CYPHER_PARSER_HPP
+#pragma once
 
 #include "cypher.h"
 #include "token.hpp"
@@ -49,5 +48,3 @@ private:
 };
 
 }
-
-#endif

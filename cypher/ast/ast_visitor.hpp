@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_VISITOR_HPP
-#define MEMGRAPH_CYPHER_AST_AST_VISITOR_HPP
+#pragma once
 
 #include "utils/visitor/visitor.hpp"
 
@@ -62,5 +61,3 @@ struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier,
     Start, Where, WriteQuery, Create, Return> {};
 
 }
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_COMMAND_LINE_ARGUMENTS_HPP
-#define MEMGRAPH_UTILS_COMMAND_LINE_ARGUMENTS_HPP
+#pragma once
 
 #include <string>
 #include <vector>
@@ -37,5 +36,3 @@ decltype(auto) get_argument(const vector_str& all,
 #pragma clang diagnostic pop
 
 }
-
-#endif

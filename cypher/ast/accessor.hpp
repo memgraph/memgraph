@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_CYPHER_AST_AST_ACCESSOR_HPP
-#define MEMGRAPH_CYPHER_AST_AST_ACCESSOR_HPP
+#pragma once
 
 #include <memory>
 #include <string>
@@ -20,5 +19,3 @@ struct Accessor : public VisitableExpr<Accessor>
 };
 
 }
-
-#endif

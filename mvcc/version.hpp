@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_MVCC_VERSION_HPP
-#define MEMGRAPH_MVCC_VERSION_HPP
+#pragma once
 
 #include <atomic>
 
@@ -40,5 +39,3 @@ private:
 };
 
 }
-
-#endif

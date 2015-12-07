@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_AUTO_SCOPE_HPP
-#define MEMGRAPH_UTILS_AUTO_SCOPE_HPP
+#pragma once
 
 #include <utility>
 
@@ -56,5 +55,3 @@ private:
             TOKEN_PASTE(auto_, counter)(TOKEN_PASTE(auto_func_, counter));
 
 #define Auto(Destructor) Auto_INTERNAL(Destructor, __COUNTER__)
-
-#endif

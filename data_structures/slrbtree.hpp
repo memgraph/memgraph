@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_SLRBTREE_HPP
-#define MEMGRAPH_DATA_STRUCTURES_SLRBTREE_HPP
+#pragma once
 
 #include <map>
 
@@ -13,5 +12,3 @@ public:
 private:
     std::map<K, T> tree;
 };
-
-#endif

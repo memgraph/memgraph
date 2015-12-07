@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_UVBUFFER_INL
-#define MEMGRAPH_SERVER_UV_UVBUFFER_INL
+#pragma once
 
 #include <cstdlib>
 #include <cstring>
@@ -91,5 +90,3 @@ UvBuffer::operator uv_buf_t*()
 }
 
 }
-
-#endif

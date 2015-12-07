@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_STRING_BUFFER_HPP
-#define MEMGRAPH_UTILS_STRING_BUFFER_HPP
+#pragma once
 
 #include <string>
 
@@ -43,5 +42,3 @@ private:
     size_t size_, capacity, chunk_size;
     char* data;
 };
-
-#endif

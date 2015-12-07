@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_STRUCTURES_QUEUE_SLQUEUE_HPP
-#define MEMGRAPH_DATA_STRUCTURES_QUEUE_SLQUEUE_HPP
+#pragma once
 
 #include <queue>
 
@@ -62,5 +61,3 @@ public:
 private:
     std::queue<T> queue;
 };
-
-#endif

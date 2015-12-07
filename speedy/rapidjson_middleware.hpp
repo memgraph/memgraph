@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SPEEDY_RAPIDJSON_MIDDLEWARE_HPP
-#define MEMGRAPH_SPEEDY_RAPIDJSON_MIDDLEWARE_HPP
+#pragma once
 
 #include <iostream>
 
@@ -33,5 +32,3 @@ bool rapidjson_middleware(sp::Request& req, sp::Response& res)
 }
 
 }
-
-#endif

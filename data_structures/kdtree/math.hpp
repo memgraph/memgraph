@@ -1,5 +1,4 @@
-#ifndef GEOAPI_KDTREE_MATH_HPP
-#define GEOAPI_KDTREE_MATH_HPP
+#pragma once
 
 #include <limits>
 #include <cmath>
@@ -39,5 +38,3 @@ T axial_distance(const Point<T>& a, const Point<T>& b, byte axis)
 
 }
 }
-
-#endif

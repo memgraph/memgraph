@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_UTILS_SPLIT_HPP
-#define MEMGRAPH_UTILS_SPLIT_HPP
+#pragma once
 
 #include <vector>
 #include <regex>
@@ -41,5 +40,3 @@ std::vector<std::string> regex_split(const std::string& input,
 }
 
 }
-
-#endif

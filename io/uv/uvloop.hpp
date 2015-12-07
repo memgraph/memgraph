@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_SERVER_UV_UVLOOP_HPP
-#define MEMGRAPH_SERVER_UV_UVLOOP_HPP
+#pragma once
 
 #include <memory>
 #include <uv.h>
@@ -58,5 +57,3 @@ private:
 };
 
 }
-
-#endif

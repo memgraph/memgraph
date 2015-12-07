@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_DATA_MODEL_JSON_REAL_HPP
-#define MEMGRAPH_DATA_MODEL_JSON_REAL_HPP
+#pragma once
 
 #include "primitive.hpp"
 
@@ -29,5 +28,3 @@ Real::operator std::string() const
 }
 
 }
-
-#endif
