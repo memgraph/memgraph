@@ -33,6 +33,8 @@ public:
             return;
 
         this->derived().vacuum();
+
+        dirty.store(false, std::memory_order_release);
     }
 
 protected:
