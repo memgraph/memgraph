@@ -19,9 +19,7 @@ namespace mvcc
 template <class T>
 class Record : public Version<T>
 {
-    friend class VersionList<T>;
-
-private:
+public:
     // tx.cre is the id of the transaction that created the record
     // and tx.exp is the id of the transaction that deleted the record
     // these values are used to determine the visibility of the record

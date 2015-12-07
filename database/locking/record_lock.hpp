@@ -28,10 +28,7 @@ public:
 
     void unlock()
     {
-        // INVALID flag is far more readable, but  _ /
-        // for some reason it gives linker errors  o.O
-        // owner = INVALID;                        (_)
-        owner = Id(); //                           ^ ^
+        owner = INVALID;
         mutex.unlock();
     }
 
@@ -39,3 +36,7 @@ private:
     Futex mutex;
     Id owner;
 };
+
+constexpr struct timespec RecordLock::timeout;
+constexpr Id RecordLock::INVALID;
+

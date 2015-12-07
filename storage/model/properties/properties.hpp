@@ -21,12 +21,12 @@ public:
     }
 
     template <class T, class... Args>
-    void emplace(const std::string& key, Args&&... args)
+    void set(const std::string& key, Args&&... args)
     {
         auto value = std::make_shared<T>(std::forward<Args>(args)...);
 
         // try to emplace the item
-        auto result = props.emplace(std::make_pair(key, std::move(value)));
+        auto result = props.emplace(std::make_pair(key, value));
 
         // return if we succedded
         if(result.second)
@@ -36,7 +36,7 @@ public:
         result.first->second = std::move(value);
     }
 
-    void put(const std::string& key, Property::sptr value)
+    void set(const std::string& key, Property::sptr value)
     {
         props[key] = std::move(value);
     }

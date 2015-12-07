@@ -13,13 +13,24 @@ namespace mvcc
 template <class T>
 class VersionList : LazyGC<VersionList<T>>
 {
+    friend class Accessor;
+
 public:
     class Accessor
     {
         friend class VersionList<T>;
 
         Accessor(tx::Transaction& transaction, VersionList<T>& record)
-            : transaction(transaction), record(record) {}
+            : transaction(transaction), record(record)
+        {
+            record.add_ref();
+        }
+
+        ~Accessor()
+        {
+            record.release_ref();
+        }
+
     public:
         Accessor(const Accessor&) = default;
         Accessor(Accessor&&) = default;
@@ -79,7 +90,7 @@ public:
     }
 
 private:
-    std::atomic<T*> head;
+    std::atomic<T*> head {nullptr};
     RecordLock lock;
     //static Recycler recycler;
 
@@ -106,6 +117,7 @@ private:
     T* insert(tx::Transaction& t)
     {
         assert(head == nullptr);
+
         // create a first version of the record
         // TODO replace 'new' with something better
         auto v1 = new T();
@@ -160,11 +172,11 @@ private:
 
         // if the record hasn't been deleted yet or the deleting transaction
         // has aborted, it's ok to modify it
-        if(!record->tx.exp() || record->hints.load().max.is_aborted())
+        if(!record->tx.exp() || record->hints.load().exp.is_aborted())
             return record;
 
         // if it committed, then we have a serialization conflict
-        assert(record->hints.load().max.is_committed());
+        assert(record->hints.load().exp.is_committed());
         throw SerializationError();
     }
 

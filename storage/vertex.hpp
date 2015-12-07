@@ -30,8 +30,8 @@ inline std::ostream& operator<<(std::ostream& stream, const Vertex& record)
     writer.finish();
 
     return stream << "Vertex"
-                  << "(xmin = " << record.tx.cre()
-                  << ", xmax = " << record.tx.exp()
+                  << "(cre = " << record.tx.cre()
+                  << ", exp = " << record.tx.exp()
                   << "): " << buffer.str();
 }
 
