@@ -11,11 +11,14 @@ namespace mvcc
 {
 
 template <class T>
-class VersionList : LazyGC<VersionList<T>>
+class VersionList : public LazyGC<VersionList<T>>
 {
     friend class Accessor;
 
 public:
+
+    using uptr = std::unique_ptr<VersionList<T>>;
+
     class Accessor
     {
         friend class VersionList<T>;
@@ -26,12 +29,12 @@ public:
             record.add_ref();
         }
 
+    public:
         ~Accessor()
         {
             record.release_ref();
         }
 
-    public:
         Accessor(const Accessor&) = default;
         Accessor(Accessor&&) = default;
 
@@ -87,6 +90,16 @@ public:
         }
 
         return stream;
+    }
+
+    auto gc_lock_acquire()
+    {
+        return std::unique_lock<RecordLock>(lock);
+    }
+
+    void vacuum()
+    {
+
     }
 
 private:
@@ -186,16 +199,6 @@ private:
         auto record = find(t);
         return record == nullptr ? nullptr : lock_and_validate(record, t);
     }
-
-    auto gc_lock_acquire()
-    {
-        return std::unique_lock<RecordLock>(lock);
-    }
-
-    void vacuum()
-    {
-
-    }
 };
 
 }
@@ -207,4 +210,3 @@ class Edge;
 
 using VertexRecord = mvcc::VersionList<Vertex>;
 using EdgeRecord = mvcc::VersionList<Edge>;
-

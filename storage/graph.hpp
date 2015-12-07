@@ -5,12 +5,14 @@
 #include "mvcc/atom.hpp"
 #include "mvcc/store.hpp"
 #include "mvcc/mvcc_error.hpp"
+#include "mvcc/version_list.hpp"
+#include "data_structures/skiplist/skiplist.hpp"
 
 #include "vertex.hpp"
 #include "edge.hpp"
 
-using VertexStore = mvcc::MvccStore<Vertex>;
-using EdgeStore = mvcc::MvccStore<Edge>;
+using VertexStore = SkipList<uint64_t, VertexRecord::uptr>;
+using EdgeStore = SkipList<uint64_t, EdgeRecord::uptr>;
 
 class Graph
 {

@@ -6,7 +6,7 @@
 #include "threading/sync/lockable.hpp"
 
 template <class Derived>
-class LazyGC : Crtp<Derived>
+class LazyGC : public Crtp<Derived>
 {
 public:
     void add_ref()

@@ -68,6 +68,11 @@ public:
             return create({key, item}, height);
         }
 
+        static Node* create(const K& key, T&& item, uint8_t height)
+        {
+            return create({key, std::move(item)}, height);
+        }
+
         static Node* create(data_t&& data, uint8_t height)
         {
             // [      Node      ][Node*][Node*][Node*]...[Node*]
@@ -102,8 +107,8 @@ public:
         }
 
     private:
-        Node(data_t data, uint8_t height)
-            : data(data), height(height)
+        Node(data_t&& data, uint8_t height)
+            : data(std::move(data)), height(height)
         {
             // here we assume, that the memory for N towers (N = height) has
             // been allocated right after the Node structure so we need to
@@ -234,7 +239,7 @@ public:
         Node* node {nullptr};
     };
 
-    SkipList() : header(Node::create(K(), T(), H)) {}
+    SkipList() : header(Node::create(K(), std::move(T()), H)) {}
 
     friend class Accessor;
 

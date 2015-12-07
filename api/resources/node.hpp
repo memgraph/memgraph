@@ -16,28 +16,24 @@ public:
     void post(sp::Request& req, sp::Response& res)
     {
         task->run([this, &req]() {
-            // VertexRecord vertex;
-            // auto& transaction = db->tx_engine.begin();
-            // auto accessor = vertex.access(transaction);
-            // auto node = accessor.insert();
+            auto& transaction = db->tx_engine.begin();
+            auto index_accessor = db->graph.vertices.access();
+            auto vertex_record = std::make_unique<VertexRecord>();
+            auto vertex_accessor = vertex_record->access(transaction);
+            auto vertex = vertex_accessor.insert();
 
-            // // TODO: req.json can be empty
-            // // probably there is some other place to handle
-            // // emptiness of req.json
+            // for(key, value in body)
+            //     node->properties[key] = value;
+            for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
+            {
+                 vertex->data.props.set<String>(it->name.GetString(), it->value.GetString());
+            }
 
-            // // first version
-            // //
-            // // for(key, value in body)
-            // //     node->properties[key] = value;
-            // for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
-            // {
-            //     vertex->data.props.set<String>(it->name.GetString(), it->value.GetString());
-            // }
+            auto result = index_accessor.insert_unique(0, std::move(vertex_record)); 
 
-            // transaction.commit();
+            transaction.commit();
 
-            // return the node we created so we can send it as a response body
-            //return node;
+            // return result.first;
             return nullptr;
         }, 
         [&req, &res](Vertex* node) {
