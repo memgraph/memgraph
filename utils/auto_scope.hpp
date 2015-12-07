@@ -18,7 +18,7 @@
  *  and the app is left in an inconsistent state. ideally, you would like
  *  to call resource.disable regardles of the exception being thrown.
  *  OnScopeExit makes this possible and very convenient via a 'Auto' macro
- *  
+ *
  *  void hard_worker()
  *  {
  *      resource.enable();
