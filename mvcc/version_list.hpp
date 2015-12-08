@@ -74,7 +74,7 @@ public:
      */
     VersionList(VersionList&& other)
     {
-        this->head = other.head;
+        this->head = other.head.load();
         other.head = nullptr;
     }
 

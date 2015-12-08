@@ -1,17 +1,9 @@
 #pragma once
 
-#include <list>
-
-#include "mvcc/atom.hpp"
-#include "mvcc/store.hpp"
-#include "mvcc/mvcc_error.hpp"
-#include "mvcc/version_list.hpp"
+#include "storage/vertex_store.hpp"
 #include "data_structures/skiplist/skiplist.hpp"
-
-#include "vertex.hpp"
 #include "edge.hpp"
 
-using VertexStore = SkipList<uint64_t, VertexRecord::uptr>;
 using EdgeStore = SkipList<uint64_t, EdgeRecord::uptr>;
 
 class Graph
@@ -27,6 +19,6 @@ public:
     
     // TODO: find vertex by Id
 
-    VertexStore vertices;
+    VertexStore vertex_store;
     EdgeStore edges;
 };

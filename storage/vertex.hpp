@@ -36,7 +36,7 @@ inline std::ostream& operator<<(std::ostream& stream, const Vertex& record)
 }
 
 // TODO: find more appropriate place for this
-inline std::string properties_to_string(Vertex* vertex)
+inline std::string properties_to_string(const Vertex* vertex)
 {
     // make a string buffer
     StringBuffer buffer;
