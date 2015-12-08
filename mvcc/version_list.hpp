@@ -16,7 +16,6 @@ class VersionList : public LazyGC<VersionList<T>>
     friend class Accessor;
 
 public:
-
     using uptr = std::unique_ptr<VersionList<T>>;
 
     class Accessor
@@ -67,9 +66,22 @@ public:
     };
 
     VersionList() = default;
-
     VersionList(const VersionList&) = delete;
-    VersionList(VersionList&&) = delete;
+
+    /* @brief Move constructs the version list
+     * Note: use only at the beginning of the "other's" lifecycle since this
+     * constructor doesn't move the RecordLock, but only the head pointer
+     */
+    VersionList(VersionList&& other)
+    {
+        this->head = other.head;
+        other.head = nullptr;
+    }
+
+    ~VersionList()
+    {
+        delete head.load();
+    }
 
     Accessor access(tx::Transaction& transaction)
     {

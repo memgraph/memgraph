@@ -10,18 +10,104 @@
 #include "utils/random/fast_binomial.hpp"
 #include "memory/lazy_gc.hpp"
 
-// concurrent skiplist based on the implementation described in
-// "A Provably Correct Scalable Concurrent Skip List"
-// https://www.cs.tau.ac.il/~shanir/nir-pubs-web/Papers/OPODIS2006-BA.pdf
-
+/* @brief Concurrent lock-based skiplist with fine grained locking
+ *
+ * From Wikipedia:
+ *    "A skip list is a data structure that allows fast search within an
+ *     ordered sequence of elements. Fast search is made possible by
+ *     maintaining a linked hierarchy of subsequences, each skipping over
+ *     fewer elements. Searching starts in the sparsest subsequence until
+ *     two consecutive elements have been found, one smaller and one
+ *     larger than or equal to the element searched for."
+ *
+ *  [_]---------------->[+]----------->[_]
+ *  [_]->[+]----------->[+]------>[+]->[_]
+ *  [_]->[+]------>[+]->[+]------>[+]->[_]
+ *  [_]->[+]->[+]->[+]->[+]->[+]->[+]->[_]
+ *  head  1    2    4    5    8    9   nil
+ *
+ * The logarithmic properties are maintained by randomizing the height for
+ * every new node using the binomial distribution
+ * p(k) = (1/2)^k for k in [1...H].
+ *
+ * The implementation is based on the work described in the paper
+ * "A Provably Correct Scalable Concurrent Skip List"
+ * URL: https://www.cs.tau.ac.il/~shanir/nir-pubs-web/Papers/OPODIS2006-BA.pdf
+ *
+ * The proposed implementation is in Java so the authors don't worry about
+ * garbage collection, but obviously we have to. This implementation uses
+ * lazy garbage collection. When all clients stop using the skiplist, we can
+ * be sure that all logically removed nodes are not visible to anyone so
+ * we can safely remove them. The idea of counting active clients implies
+ * the use of a intermediary structure (called Accessor) when accessing the
+ * skiplist.
+ *
+ * The implementation has an interface which closely resembles the functions
+ * with arguments and returned types frequently used by the STL.
+ *
+ * Example usage:
+ *   Skiplist<K, T> skiplist;
+ *
+ *   {
+ *       auto accessor = skiplist.access();
+ *
+ *       // inserts <key1, value1> into the skiplist and returns
+ *       // <iterator, bool> pair. iterator points to the newly created
+ *       // node and the boolean member evaluates to true denoting that the
+ *       // insertion was successful
+ *       accessor.insert_unique(key1, value1);
+ *
+ *       // nothing gets inserted because key1 already exist in the skiplist
+ *       // returned iterator points to the existing element and the return
+ *       // boolean evaluates to false denoting the failed insertion
+ *       accessor.insert_unique(key1, value1);
+ *
+ *       // returns an iterator to the element pair <key1, value1>
+ *       auto it = accessor.find(key1);
+ *
+ *       // returns an empty iterator. it == accessor.end()
+ *       auto it = accessor.find(key2);
+ *
+ *       // iterate over all key value pairs
+ *       for(auto it = accessor.begin(); it != accessor.end(); ++it)
+ *           cout << it->first << " " << it->second;
+ *
+ *       // range based for loops also work
+ *       for(auto& e : accessor)
+ *          cout << e.first << " " << e.second;
+ *
+ *       accessor.remove(key1); // returns true
+ *       accessor.remove(key1); // returns false because key1 doesn't exist
+ *   }
+ *
+ *   // accessor out of scope, garbage collection might occur
+ *
+ * For detailed operations available, please refer to the Accessor class
+ * inside the public section of the SkipList class.
+ *
+ * @tparam K Type to use as the key
+ * @tparam T Type to use as the value
+ * @tparam H Maximum node height. Determines the effective number of nodes
+ *           the skiplist can hold in order to preserve it's log2 properties
+ * @tparam lock_t Lock type used when locking is needed during the creation
+ *                and deletion of nodes.
+ */
 template <class K, class T, size_t H=32, class lock_t=SpinLock>
 class SkipList : LazyGC<SkipList<K, T, H, lock_t>>, Lockable<lock_t>
 {
 public:
+    // computes the height for the new node from the interval [1...H]
+    // with p(k) = (1/2)^k for all k from the interval
     static thread_local FastBinomial<H> rnd;
 
-    using data_t = std::pair<const K, T>;
+    using value_type = std::pair<const K, T>;
 
+    /* @brief Wrapper class for flags used in the implementation
+     *
+     * MARKED flag is used to logically delete a node.
+     * FULLY_LINKED is used to mark the node as fully inserted, i.e. linked
+     * at all layers in the skiplist up to the node height
+     */
     struct Flags
     {
         enum node_flags : uint8_t {
@@ -58,7 +144,7 @@ public:
     public:
         friend class SkipList;
 
-        data_t data;
+        value_type data;
 
         const uint8_t height;
         Flags flags;
@@ -70,10 +156,10 @@ public:
 
         static Node* create(const K& key, T&& item, uint8_t height)
         {
-            return create({key, std::move(item)}, height);
+            return create({key, std::forward<T>(item)}, height);
         }
 
-        static Node* create(data_t&& data, uint8_t height)
+        static Node* create(value_type&& data, uint8_t height)
         {
             // [      Node      ][Node*][Node*][Node*]...[Node*]
             //         |            |      |      |         |
@@ -87,7 +173,7 @@ public:
 
             // we have raw memory and we need to construct an object
             // of type Node on it
-            return new (node) Node(std::move(data), height);
+            return new (node) Node(std::forward<value_type>(data), height);
         }
 
         static void destroy(Node* node)
@@ -107,7 +193,7 @@ public:
         }
 
     private:
-        Node(data_t&& data, uint8_t height)
+        Node(value_type&& data, uint8_t height)
             : data(std::move(data)), height(height)
         {
             // here we assume, that the memory for N towers (N = height) has
@@ -144,19 +230,19 @@ public:
         IteratorBase() = default;
         IteratorBase(const IteratorBase&) = default;
 
-        data_t& operator*()
+        value_type& operator*()
         {
             assert(node != nullptr);
             return node->data;
         }
 
-        data_t* operator->()
+        value_type* operator->()
         {
             assert(node != nullptr);
             return &node->data;
         }
 
-        operator data_t&()
+        operator value_type&()
         {
             assert(node != nullptr);
             return node->data;
@@ -191,19 +277,19 @@ public:
         using IteratorBase<ConstIterator>::IteratorBase;
 
     public:
-        const data_t& operator*()
+        const value_type& operator*()
         {
             return IteratorBase<ConstIterator>::operator*();
         }
 
-        const data_t* operator->()
+        const value_type* operator->()
         {
             return IteratorBase<ConstIterator>::operator->();
         }
 
-        operator const data_t&()
+        operator const value_type&()
         {
-            return IteratorBase<ConstIterator>::operator data_t&();
+            return IteratorBase<ConstIterator>::operator value_type&();
         }
     };
 
@@ -263,7 +349,7 @@ public:
 
         std::pair<Iterator, bool> insert_unique(const K& key, T&& item)
         {
-            return skiplist.insert({key, std::move(item)}, preds, succs);
+            return skiplist.insert({key, std::forward<T>(item)}, preds, succs);
         }
 
         ConstIterator find(const K& key) const
@@ -422,7 +508,7 @@ private:
     }
 
     std::pair<Iterator, bool>
-        insert(data_t&& data, Node* preds[], Node* succs[])
+        insert(value_type&& data, Node* preds[], Node* succs[])
     {
         while(true)
         {
@@ -451,7 +537,7 @@ private:
                 continue;
 
             // you have the locks, create a new node
-            auto new_node = Node::create(std::move(data), height);
+            auto new_node = Node::create(std::forward<value_type>(data), height);
 
             // link the predecessors and successors, e.g.
             //
