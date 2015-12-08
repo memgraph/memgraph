@@ -133,67 +133,16 @@ public:
     };
 
 public:
-    class ConstIterator
+    template <class It>
+    class IteratorBase : public Crtp<It>
     {
-        friend class SkipList;
-        ConstIterator(Node* node) : node(node) {}
+    protected:
+        IteratorBase(Node* node) : node(node) {}
 
-    public:
-        ConstIterator() = default;
-        ConstIterator(const ConstIterator&) = default;
-
-        const data_t& operator*()
-        {
-            assert(node != nullptr);
-            return node->data;
-        }
-
-        const data_t* operator->()
-        {
-            assert(node != nullptr);
-            return &node->data;
-        }
-
-        operator const data_t()
-        {
-            assert(node != nullptr);
-            return node->data;
-        }
-
-        ConstIterator& operator++()
-        {
-            assert(node != nullptr);
-            node = node->forward(0);
-            return *this;
-        }
-
-        ConstIterator& operator++(int)
-        {
-            return operator++();
-        }
-
-        friend bool operator==(const ConstIterator& a, const ConstIterator& b)
-        {
-            return a.node == b.node;
-        }
-
-        friend bool operator!=(const ConstIterator& a, const ConstIterator& b)
-        {
-            return !(a == b);
-        }
-
-    private:
         Node* node {nullptr};
-    };
-
-    class Iterator
-    {
-        friend class SkipList;
-        Iterator(Node* node) : node(node) {}
-
     public:
-        Iterator() = default;
-        Iterator(const Iterator&) = default;
+        IteratorBase() = default;
+        IteratorBase(const IteratorBase&) = default;
 
         data_t& operator*()
         {
@@ -207,36 +156,61 @@ public:
             return &node->data;
         }
 
-        operator data_t()
+        operator data_t&()
         {
             assert(node != nullptr);
             return node->data;
         }
 
-        Iterator& operator++()
+        It& operator++()
         {
             assert(node != nullptr);
             node = node->forward(0);
-            return *this;
+            return this->derived();
         }
 
-        Iterator& operator++(int)
+        It& operator++(int)
         {
             return operator++();
         }
 
-        friend bool operator==(const Iterator& a, const Iterator& b)
+        friend bool operator==(const It& a, const It& b)
         {
             return a.node == b.node;
         }
 
-        friend bool operator!=(const Iterator& a, const Iterator& b)
+        friend bool operator!=(const It& a, const It& b)
         {
             return !(a == b);
         }
+    };
 
-    private:
-        Node* node {nullptr};
+    class ConstIterator : public IteratorBase<ConstIterator>
+    {
+        friend class SkipList;
+        using IteratorBase<ConstIterator>::IteratorBase;
+
+    public:
+        const data_t& operator*()
+        {
+            return IteratorBase<ConstIterator>::operator*();
+        }
+
+        const data_t* operator->()
+        {
+            return IteratorBase<ConstIterator>::operator->();
+        }
+
+        operator const data_t&()
+        {
+            return IteratorBase<ConstIterator>::operator data_t&();
+        }
+    };
+
+    class Iterator : public IteratorBase<Iterator>
+    {
+        friend class SkipList;
+        using IteratorBase<Iterator>::IteratorBase;
     };
 
     SkipList() : header(Node::create(K(), std::move(T()), H)) {}
