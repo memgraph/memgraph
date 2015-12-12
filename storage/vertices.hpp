@@ -78,4 +78,3 @@ private:
     SkipList<uint64_t, VertexRecord> vertices;
     AtomicCounter<uint64_t> counter;
 };
-
