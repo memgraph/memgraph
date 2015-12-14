@@ -11,8 +11,6 @@ struct Property
 
     enum class Flags : unsigned
     {
-        Null     = 0x1,
-
         Bool     = 0x2,
         True     = 0x4 | Bool,
         False    = 0x8 | Bool,
@@ -58,18 +56,6 @@ struct Property
     Flags flags;
 };
 
-struct Null : public Property
-{
-    static constexpr Flags type = Flags::Null;
-
-    Null() : Property(Flags::Null) {}
-
-    bool is_null()
-    {
-        return true;
-    }
-};
-
 struct Bool : public Property
 {
     static constexpr Flags type = Flags::Bool;
@@ -89,7 +75,7 @@ struct String : public Property
 {
     static constexpr Flags type = Flags::String;
 
-    String(const std::string& value) 
+    String(const std::string& value)
         : Property(Flags::String), value(value) {}
 
     String(std::string&& value)
@@ -102,7 +88,7 @@ struct Int32 : public Property
 {
     static constexpr Flags type = Flags::Int32;
 
-    Int32(int32_t value) 
+    Int32(int32_t value)
         : Property(Flags::Int32), value(value) {}
 
     int32_t value;
@@ -112,7 +98,7 @@ struct Int64 : public Property
 {
     static constexpr Flags type = Flags::Int64;
 
-    Int64(int64_t value) 
+    Int64(int64_t value)
         : Property(Flags::Int64), value(value) {}
 
     int64_t value;
@@ -122,7 +108,7 @@ struct Float : public Property
 {
     static constexpr Flags type = Flags::Float;
 
-    Float(float value) 
+    Float(float value)
         : Property(Flags::Float), value(value) {}
 
     float value;
@@ -132,7 +118,7 @@ struct Double : public Property
 {
     static constexpr Flags type = Flags::Double;
 
-    Double(double value) 
+    Double(double value)
         : Property(Flags::Double), value(value) {}
 
     double value;
@@ -143,7 +129,6 @@ void Property::accept(Handler& h)
 {
     switch(flags)
     {
-        case Flags::Null:   return h.handle(static_cast<Null&>(*this));
         case Flags::True:   return h.handle(static_cast<Bool&>(*this));
         case Flags::False:  return h.handle(static_cast<Bool&>(*this));
         case Flags::String: return h.handle(static_cast<String&>(*this));

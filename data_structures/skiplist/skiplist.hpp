@@ -110,7 +110,8 @@ public:
      */
     struct Flags
     {
-        enum node_flags : uint8_t {
+        enum node_flags : uint8_t
+        {
             MARKED       = 0x01,
             FULLY_LINKED = 0x10,
         };
@@ -274,9 +275,12 @@ public:
     class ConstIterator : public IteratorBase<ConstIterator>
     {
         friend class SkipList;
-        using IteratorBase<ConstIterator>::IteratorBase;
+        ConstIterator(Node* node) : IteratorBase<ConstIterator>(node) {}
 
     public:
+        ConstIterator() = default;
+        ConstIterator(const ConstIterator&) = default;
+
         const value_type& operator*()
         {
             return IteratorBase<ConstIterator>::operator*();
@@ -296,7 +300,11 @@ public:
     class Iterator : public IteratorBase<Iterator>
     {
         friend class SkipList;
-        using IteratorBase<Iterator>::IteratorBase;
+        Iterator(Node* node) : IteratorBase<Iterator>(node) {}
+
+    public:
+        Iterator() = default;
+        Iterator(const Iterator&) = default;
     };
 
     SkipList() : header(Node::create(K(), std::move(T()), H)) {}
@@ -307,74 +315,91 @@ public:
     {
         friend class SkipList;
 
-        Accessor(SkipList& skiplist) : skiplist(skiplist) {}
+        Accessor(SkipList* skiplist) : skiplist(skiplist)
+        {
+            assert(skiplist != nullptr);
+            // addref
+        }
+
     public:
         Accessor(const Accessor&) = delete;
-        Accessor(Accessor&&) = default;
+
+        Accessor(Accessor&& other) : skiplist(other.skiplist)
+        {
+            other.skiplist = nullptr;
+        }
+
+        ~Accessor()
+        {
+            if(skiplist == nullptr)
+                return;
+
+            // releaseref
+        }
 
         Iterator begin()
         {
-            return skiplist.begin();
+            return skiplist->begin();
         }
 
         ConstIterator begin() const
         {
-            return skiplist.cbegin();
+            return skiplist->cbegin();
         }
 
         ConstIterator cbegin() const
         {
-            return skiplist.cbegin();
+            return skiplist->cbegin();
         }
 
         Iterator end()
         {
-            return skiplist.end();
+            return skiplist->end();
         }
 
         ConstIterator end() const
         {
-            return skiplist.cend();
+            return skiplist->cend();
         }
 
         ConstIterator cend() const
         {
-            return skiplist.cend();
+            return skiplist->cend();
         }
 
         std::pair<Iterator, bool> insert_unique(const K& key, const T& item)
         {
-            return skiplist.insert({key, item}, preds, succs);
+            return skiplist->insert({key, item}, preds, succs);
         }
 
         std::pair<Iterator, bool> insert_unique(const K& key, T&& item)
         {
-            return skiplist.insert({key, std::forward<T>(item)}, preds, succs);
+            return skiplist->insert({key, std::forward<T>(item)}, preds, succs);
         }
 
         ConstIterator find(const K& key) const
         {
-            return skiplist.find(key);
+            return static_cast<const SkipList&>(*skiplist).find(key);
         }
 
         Iterator find(const K& key)
         {
-            return skiplist.find(key);
+            return skiplist->find(key);
         }
 
         bool remove(const K& key)
         {
-            return skiplist.remove(key, preds, succs);
+            return skiplist->remove(key, preds, succs);
         }
 
     private:
-        SkipList& skiplist;
+        SkipList* skiplist;
         Node* preds[H], *succs[H];
     };
 
     Accessor access()
     {
-        return Accessor(*this);
+        return Accessor(this);
     }
 
 private:
@@ -427,7 +452,7 @@ private:
 
     ConstIterator find(const K& key) const
     {
-        return find_node<ConstIterator>(key);
+        return const_cast<SkipList*>(this)->find_node<ConstIterator>(key);
     }
 
     Iterator find(const K& key)
