@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_API_RESTFUL_RESOURCE_HPP
-#define MEMGRAPH_API_RESTFUL_RESOURCE_HPP
+#pragma once
 
 #include "api/restful/restful_resource.hpp"
 
@@ -49,5 +48,3 @@ protected:
 private:
     std::once_flag once_flag;
 };
-
-#endif

@@ -1,9 +1,10 @@
 #pragma once
 
 #include "record_proxy.hpp"
-#include "vertices.hpp"
+
+class Vertices;
 
 class VertexProxy : public RecordProxy<Vertex, Vertices, VertexProxy>
 {
-    // TODO: implementation
+    using RecordProxy::RecordProxy;
 };

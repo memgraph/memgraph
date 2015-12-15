@@ -19,18 +19,21 @@ public:
             auto& transaction = db->tx_engine.begin();
 
             // insert a new vertex
-            auto vertex = db->graph.vertices.insert(transaction);
+            auto vertex_proxy = db->graph.vertices.insert(transaction);
 
             // map fields
             for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
             {
-                 vertex->data.props.set<String>(it->name.GetString(), it->value.GetString());
+                vertex_proxy.property<std::string, std::string>(
+                    it->name.GetString(),
+                    it->value.GetString()
+                );
             }
             
             // commit the transaction
             transaction.commit();
 
-            return vertex;
+            return vertex_proxy.version();
         }, 
         [&req, &res](Vertex* node) {
             return res.send(properties_to_string(node));

@@ -20,11 +20,6 @@ public:
         value.accept(*this);
     }
 
-    void handle(Null&)
-    {
-        buffer << "NULL";
-    }
-
     void handle(Bool& b)
     {
         buffer << (b.value() ? "true" : "false");

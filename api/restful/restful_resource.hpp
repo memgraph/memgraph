@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_API_RESTFUL_RESTFUL_RESOURCE_HPP
-#define MEMGRAPH_API_RESTFUL_RESTFUL_RESOURCE_HPP
+#pragma once
 
 #include <memory>
 
@@ -155,5 +154,3 @@ public:
     Restful(T& resource, sp::Speedy& app, const std::string& path)
         : detail::Methods<T, Ms...>(resource, app, path) {}
 };
-
-#endif

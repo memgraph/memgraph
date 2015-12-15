@@ -1,5 +1,4 @@
-#ifndef MEMGRAPH_API_RESOURCES_RELATIONSHIP_HPP
-#define MEMGRAPH_API_RESOURCES_RELATIONSHIP_HPP
+#pragma once
 
 #include "api/restful/resource.hpp"
 
@@ -27,5 +26,3 @@ public:
         return res.send("GET /db/data/relationship");
     }
 };
-
-#endif

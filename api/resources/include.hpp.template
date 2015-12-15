@@ -8,8 +8,7 @@
  *  well, only if you're editing the template file, that's ok :)
  */
 
-#ifndef MEMGRAPH_API_RESOURCES_INCLUDE_HPP
-#define MEMGRAPH_API_RESOURCES_INCLUDE_HPP
+#pragma once
 
 #include <list>
 #include <memory>
@@ -47,5 +46,3 @@ void init(ioc::Container& container)
     // insert<Node>("/node/{id:\\d+}");
     <INIT>
 }
-
-#endif

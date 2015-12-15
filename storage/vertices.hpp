@@ -2,6 +2,7 @@
 
 #include "vertex.hpp"
 #include "common.hpp"
+#include "vertex_proxy.hpp"
 
 class Vertices
 {
@@ -22,7 +23,7 @@ public:
         return vertex;
     }
 
-    Vertex* insert(tx::Transaction& transaction)
+    VertexProxy insert(tx::Transaction& transaction)
     {
         // get next vertex id
         auto next = counter.next(std::memory_order_acquire);
@@ -39,7 +40,9 @@ public:
         auto vertex_accessor = inserted_vertex_record->second.access(transaction);
         auto vertex = vertex_accessor.insert();
 
-        return vertex;
+        VertexProxy vertex_proxy(vertex, this, &inserted_vertex_record->second);
+
+        return vertex_proxy;
     }
 
     Vertex* update(tx::Transaction& transaction, const Id& id)
