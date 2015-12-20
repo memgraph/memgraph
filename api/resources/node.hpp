@@ -5,6 +5,7 @@
 #include "api/restful/resource.hpp"
 #include "mvcc/version_list.hpp"
 #include "debug/log.hpp"
+#include "api/response_json.hpp"
 
 #pragma url /node
 class Nodes : public Resource<Nodes, POST>
@@ -33,10 +34,10 @@ public:
             // commit the transaction
             transaction.commit();
 
-            return vertex_proxy.version();
+            return std::move(vertex_proxy);
         }, 
-        [&req, &res](Vertex* node) {
-            return res.send(properties_to_string(node));
+        [&req, &res](VertexProxy&& vertex_proxy) {
+            return res.send(http::Status::Created, vertex_create_response(vertex_proxy));
         });
     }
 };
@@ -64,11 +65,11 @@ public:
 
             return vertex;
         },
-        [&req, &res](const Vertex* node) {
-            if (node == nullptr) {
+        [&req, &res](const Vertex* vertex) {
+            if (vertex == nullptr) {
                 return res.send(http::Status::NotFound, "The node was not found");
             }
-            return res.send(properties_to_string(node));
+            return res.send(vertex_props_to_string(vertex));
         });
     }
 
@@ -98,11 +99,11 @@ public:
  
              return vertex;
         }, 
-        [&req, &res](Vertex* node) {
-            if (node == nullptr) {
+        [&req, &res](Vertex* vertex) {
+            if (vertex == nullptr) {
                 return res.send(http::Status::NotFound, "The node was not found");
             }
-            return res.send(properties_to_string(node));
+            return res.send(vertex_props_to_string(vertex));
         });
     }
 

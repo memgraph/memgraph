@@ -40,7 +40,7 @@ public:
         auto vertex_accessor = inserted_vertex_record->second.access(transaction);
         auto vertex = vertex_accessor.insert();
 
-        VertexProxy vertex_proxy(vertex, this, &inserted_vertex_record->second);
+        VertexProxy vertex_proxy(next, vertex, this, &inserted_vertex_record->second);
 
         return vertex_proxy;
     }

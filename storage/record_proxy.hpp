@@ -8,17 +8,24 @@ template <typename T, typename Store, typename Derived>
 class RecordProxy
 {
 public:
-    RecordProxy(T* record, Store *store, mvcc::VersionList<T> *version_list) :
-        record(record), store(store), version_list(version_list)
+    RecordProxy(
+        const Id& id,
+        T* version,
+        Store *store,
+        mvcc::VersionList<T> *version_list) :
+        id(id), version(version), store(store), version_list(version_list)
     {
     }
 
     RecordProxy(const RecordProxy& record_proxy) = delete;
 
     RecordProxy(RecordProxy&& other) :
-        record(other.record), store(other.store), version_list(other.version_list)
+        id(other.id), version(other.version), store(other.store),
+        version_list(other.version_list)
     {
-        other.record = nullptr;
+        other.id = 0; // TODO: not very good idea because
+        // replace with something else
+        other.version = nullptr;
         other.store = nullptr;
         other.version_list = nullptr;
     }
@@ -44,23 +51,29 @@ public:
     template<typename K>
     Property* property(const K& key) const
     {
-        return record->data.props.find(key);
+        return version->data.props.find(key);
     }
    
     template<typename K, typename V> 
     void property(const K& key, const V& value)
     {
-        record->data.props.template set<String>(key, value);
+        version->data.props.template set<String>(key, value);
         // TODO: update the index
     }
 
-    T* version()
+    Id record_id() const
     {
-        return record;
+        return id;
+    }
+
+    T* record_version() const
+    {
+        return version;
     }
 
 private:
-    T* record;
+    Id id;
+    T* version;
     Store *store;
     mvcc::VersionList<T> *version_list;
 };
