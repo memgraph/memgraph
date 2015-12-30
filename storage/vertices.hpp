@@ -20,6 +20,9 @@ public:
         auto vertex_accessor = vertex_record->second.access(transaction);
         auto vertex = vertex_accessor.find();
 
+        // TODO: here is problem to create vertex_proxy because vertex
+        // is const pointer
+
         return vertex;
     }
 
@@ -41,7 +44,6 @@ public:
         auto vertex = vertex_accessor.insert();
 
         VertexProxy vertex_proxy(next, vertex, this, &inserted_vertex_record->second);
-
         return vertex_proxy;
     }
 

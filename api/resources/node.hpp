@@ -2,17 +2,17 @@
 
 #include <random>
 
-#include "api/restful/resource.hpp"
-#include "mvcc/version_list.hpp"
 #include "debug/log.hpp"
+#include "mvcc/version_list.hpp"
 #include "api/response_json.hpp"
+#include "api/restful/resource.hpp"
 
 #pragma url /node
 class Nodes : public Resource<Nodes, POST>
 {
 public:
     using Resource::Resource;
-        
+
     void post(sp::Request& req, sp::Response& res)
     {
         task->run([this, &req]() {
@@ -22,12 +22,12 @@ public:
             // insert a new vertex
             auto vertex_proxy = db->graph.vertices.insert(transaction);
 
-            // map fields
-            for(auto it = req.json.MemberBegin(); it != req.json.MemberEnd(); ++it)
+            auto begin_it = req.json.MemberBegin();
+            auto end_it = req.json.MemberEnd();
+            for(auto it = begin_it; it != end_it; ++it)
             {
-                vertex_proxy.property<std::string, std::string>(
-                    it->name.GetString(),
-                    it->value.GetString()
+                vertex_proxy.property(
+                    it->name.GetString(), it->value.GetString()
                 );
             }
             
@@ -37,7 +37,10 @@ public:
             return std::move(vertex_proxy);
         }, 
         [&req, &res](VertexProxy&& vertex_proxy) {
-            return res.send(http::Status::Created, vertex_create_response(vertex_proxy));
+            return res.send(
+                http::Status::Created,
+                vertex_create_response(vertex_proxy)
+            );
         });
     }
 };
