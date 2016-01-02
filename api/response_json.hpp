@@ -1,7 +1,7 @@
 #pragma once
 
 #include "storage/vertex.hpp"
-#include "storage/vertex_proxy.hpp"
+#include "storage/vertex_accessor.hpp"
 #include "storage/writer/rapidjson_stringwriter.hpp"
 
 StringBuffer vertex_props_to_buffer(const Vertex* vertex)
@@ -29,7 +29,7 @@ using RJStringBuffer = rapidjson::StringBuffer;
 using RJStringWriter = rapidjson::Writer<RJStringBuffer>;
 using ptr_RJStringWriter = std::shared_ptr<RJStringWriter>;
 
-std::string vertex_create_response(const VertexProxy& vertex_proxy)
+std::string vertex_create_response(const Vertex::Accessor& vertex_accessor)
 {
     // make a string buffer
     RJStringBuffer buffer;
@@ -40,14 +40,14 @@ std::string vertex_create_response(const VertexProxy& vertex_proxy)
 
     writer->StartObject();
     writer->String("id");
-    writer->Int64(vertex_proxy.record_id());
+    writer->Int64(vertex_accessor.id());
     writer->EndObject();
 
     writer->String("data");
     writer->StartObject();
     RapidJsonStringWriter dataBuffer(writer);
-    auto vertex = vertex_proxy.record_version();
-    vertex->data.props.accept(dataBuffer);
+    auto properties = vertex_accessor.properties();
+    properties.accept(dataBuffer);
     writer->EndObject();
 
     writer->EndObject();

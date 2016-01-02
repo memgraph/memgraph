@@ -45,7 +45,7 @@ public:
             return vlist.insert(transaction);
         }
 
-        const T* find() const
+        T* find() const
         {
             return vlist.find(transaction);
         }
@@ -72,7 +72,7 @@ public:
 
         const Id& id() const
         {
-            return vlist.id;
+            return vlist.identifier;
         }
 
     private:
@@ -129,11 +129,21 @@ public:
 
     }
 
+    const Id& id() const
+    {
+        return identifier;
+    }
+
+    void id(const Id& identifier)
+    {
+        this->identifier = identifier;
+    }
+
 private:
     std::atomic<T*> head {nullptr};
     RecordLock lock;
 
-    Id id;
+    Id identifier;
 
     //static Recycler recycler;
 
@@ -157,10 +167,11 @@ private:
         return r;
     }
 
-    T* insert(tx::Transaction& t, const Id& id)
+    T* insert(tx::Transaction& t)
     {
         assert(head == nullptr);
-        this->id = id;
+
+        // this->id = id;
 
         // create a first version of the record
         // TODO replace 'new' with something better
@@ -242,3 +253,9 @@ private:
 };
 
 }
+
+class Vertex;
+class Edge;
+
+using VertexRecord = mvcc::VersionList<Vertex>;
+using EdgeRecord = mvcc::VersionList<Edge>;

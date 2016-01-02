@@ -1,10 +1,11 @@
 #pragma once
 
-#include "record_accessor.hpp"
-#include "vertex.hpp"
-#include "vertices.hpp"
+#include "storage/vertex.hpp"
+#include "storage/record_accessor.hpp"
 
-class Vertex::Accessor : public RecordAccessor<Vertex, Vertices, Accessor>
+class Vertices;
+
+class Vertex::Accessor : public RecordAccessor<Vertex, Vertices, Vertex::Accessor>
 {
 public:
     using RecordAccessor::RecordAccessor;

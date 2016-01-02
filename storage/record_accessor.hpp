@@ -3,6 +3,7 @@
 #include "transactions/transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/model/properties/property.hpp"
+#include "storage/model/properties/properties.hpp"
 
 template <class T, class Store, class Derived>
 class RecordAccessor
@@ -18,8 +19,7 @@ public:
 
     const Id& id() const
     {
-        auto accessor = vlist->access();
-        return accessor.id();
+        return vlist->id();
     }
 
     bool empty() const
@@ -31,7 +31,7 @@ public:
     {
         assert(!empty());
 
-        auto accessor = vlist->access();
+        auto accessor = vlist->access(t);
         return Derived(accessor->update(t), vlist, store);
     }
 
@@ -39,19 +39,24 @@ public:
     {
         assert(!empty());
 
-        auto accessor = vlist->access();
+        auto accessor = vlist->access(t);
         return accessor->remove(t);
     }
 
     const Property* property(const std::string& key) const
     {
-        return record->props.at(key);
+        return record->data.props.at(key);
     }
 
     template <class V, class... Args>
     void property(const std::string& key, Args&&... args)
     {
-        record->props.template set<V>(key, std::forward<Args>(args)...);
+        record->data.props.template set<V>(key, std::forward<Args>(args)...);
+    }
+
+    Properties& properties() const
+    {
+        return record->data.props;
     }
 
 protected:

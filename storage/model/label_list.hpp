@@ -24,8 +24,7 @@ public:
         return labels.count(label);
     }
 
-    size_t count() const
-    {
+    size_t count() const {
         return labels.size();
     }
 

@@ -8,7 +8,7 @@
 #include "cre_exp.hpp"
 #include "version.hpp"
 #include "hints.hpp"
-#include "database/locking/record_lock.hpp"
+#include "storage/locking/record_lock.hpp"
 
 // the mvcc implementation used here is very much like postgresql's
 // more info: https://momjian.us/main/writings/pgsql/mvcc.pdf

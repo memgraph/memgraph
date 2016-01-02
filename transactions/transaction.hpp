@@ -7,7 +7,7 @@
 #include "mvcc/id.hpp"
 #include "snapshot.hpp"
 #include "lock_store.hpp"
-#include "database/locking/record_lock.hpp"
+#include "storage/locking/record_lock.hpp"
 
 namespace tx
 {

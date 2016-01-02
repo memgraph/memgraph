@@ -3,7 +3,7 @@
 #include <vector>
 #include <cassert>
 #include <memory>
-#include "database/locking/lock_status.hpp"
+#include "storage/locking/lock_status.hpp"
 
 namespace tx
 {

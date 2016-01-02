@@ -1,34 +1,50 @@
 #pragma once
 
-#include "vertex.hpp"
 #include "common.hpp"
-#include "vertex_proxy.hpp"
+#include "storage/vertex_accessor.hpp"
 
 class Vertices
 {
 public:
-    const Vertex* find(tx::Transaction& transaction, const Id& id)
+    Vertex::Accessor find(tx::Transaction& t, const Id& id)
     {
-        // find vertex record
         auto vertices_accessor = vertices.access();
-        auto vertex_record = vertices_accessor.find(id);
+        auto vertices_iterator = vertices_accessor.find(id);
 
-        if (vertex_record == vertices_accessor.end())
-            return nullptr;
+        if (vertices_iterator == vertices_accessor.end())
+            return Vertex::Accessor();
 
         // find vertex
-        auto vertex_accessor = vertex_record->second.access(transaction);
-        auto vertex = vertex_accessor.find();
+        auto versions_accessor = vertices_iterator->second.access(t);
+        auto vertex = versions_accessor.find();
+        
+        return Vertex::Accessor(vertex, &vertices_iterator->second, this);
+    }
 
-        // TODO: here is problem to create vertex_proxy because vertex
-        // is const pointer
-
-        return vertex;
+    Vertex::Accessor insert(tx::Transaction& t)
+    {
+        // get next vertex id
+        auto next = counter.next(std::memory_order_acquire);
+        
+        // create new vertex record
+        VertexRecord vertex_record;
+        vertex_record.id(next);
+        
+        // insert the new vertex record into the vertex store
+        auto vertices_accessor = vertices.access();
+        auto result = vertices_accessor.insert_unique(next, std::move(vertex_record));
+        
+        // create new vertex
+        auto inserted_vertex_record = result.first;
+        auto vertex_accessor = inserted_vertex_record->second.access(t);
+        auto vertex = vertex_accessor.insert();
+        
+        return Vertex::Accessor(vertex, &inserted_vertex_record->second, this);
     }
 
 private:
-    Indexes indexes;
+    // Indexes indexes;
 
-    SkipList<uint64_t, VersionList<Vertex>> vertices;
+    SkipList<uint64_t, VertexRecord> vertices;
     AtomicCounter<uint64_t> counter;
 };
