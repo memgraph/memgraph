@@ -402,6 +402,11 @@ public:
         return Accessor(this);
     }
 
+    Accessor access() const
+    {
+        return Accessor(this);
+    }
+
 private:
     using guard_t = std::unique_lock<lock_t>;
 

@@ -9,12 +9,7 @@ class Properties
     using props_t = std::map<std::string, Property::sptr>;
 
 public:
-    props_t::iterator find(const std::string& key)
-    {
-        return props.find(key);
-    }
-
-    Property* at(const std::string& key)
+    const Property* at(const std::string& key) const
     {
         auto it = props.find(key);
         return it == props.end() ? nullptr : it->second.get();

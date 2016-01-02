@@ -7,29 +7,32 @@
 class Label : public TotalOrdering<Label>
 {
 public:
-    Label(const std::string& id) : id(id) {}
-    Label(std::string&& id) : id(std::move(id)) {}
+    Label(const std::string& name) : name(name) {}
+    Label(std::string&& name) : name(std::move(name)) {}
+
+    Label(const Label&) = default;
+    Label(Label&&) = default;
 
     friend bool operator<(const Label& lhs, const Label& rhs)
     {
-        return lhs.id < rhs.id;
+        return lhs.name < rhs.name;
     }
 
     friend bool operator==(const Label& lhs, const Label& rhs)
     {
-        return lhs.id == rhs.id;
+        return lhs.name == rhs.name;
     }
 
     friend std::ostream& operator<<(std::ostream& stream, const Label& label)
     {
-        return stream << label.id;
+        return stream << label.name;
     }
 
     operator const std::string&() const
     {
-        return id;
+        return name;
     }
 
 private:
-    std::string id;
+    std::string name;
 };

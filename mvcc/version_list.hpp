@@ -5,7 +5,7 @@
 
 #include "memory/lazy_gc.hpp"
 #include "mvcc/serialization_error.hpp"
-#include "database/locking/record_lock.hpp"
+#include "storage/locking/record_lock.hpp"
 
 namespace mvcc
 {
@@ -22,16 +22,16 @@ public:
     {
         friend class VersionList<T>;
 
-        Accessor(tx::Transaction& transaction, VersionList<T>& record)
-            : transaction(transaction), record(record)
+        Accessor(tx::Transaction& transaction, VersionList<T>& vlist)
+            : transaction(transaction), vlist(vlist)
         {
-            record.add_ref();
+            vlist.add_ref();
         }
 
     public:
         ~Accessor()
         {
-            record.release_ref();
+            vlist.release_ref();
         }
 
         Accessor(const Accessor&) = default;
@@ -42,27 +42,42 @@ public:
 
         T* insert()
         {
-            return record.insert(transaction);
+            return vlist.insert(transaction);
         }
 
         const T* find() const
         {
-            return record.find(transaction);
+            return vlist.find(transaction);
         }
 
         T* update()
         {
-            return record.update(transaction);
+            return vlist.update(transaction);
+        }
+
+        T* update(T* record)
+        {
+            return vlist.update(record, transaction);
         }
 
         bool remove()
         {
-            return record.remove(transaction);
+            return vlist.remove(transaction);
+        }
+
+        bool remove(T* record)
+        {
+            return vlist.remove(record, transaction);
+        }
+
+        const Id& id() const
+        {
+            return vlist.id;
         }
 
     private:
         tx::Transaction& transaction;
-        VersionList<T>& record;
+        VersionList<T>& vlist;
     };
 
     VersionList() = default;
@@ -117,6 +132,9 @@ public:
 private:
     std::atomic<T*> head {nullptr};
     RecordLock lock;
+
+    Id id;
+
     //static Recycler recycler;
 
     T* find(const tx::Transaction& t)
@@ -139,9 +157,10 @@ private:
         return r;
     }
 
-    T* insert(tx::Transaction& t)
+    T* insert(tx::Transaction& t, const Id& id)
     {
         assert(head == nullptr);
+        this->id = id;
 
         // create a first version of the record
         // TODO replace 'new' with something better
@@ -158,11 +177,19 @@ private:
     T* update(tx::Transaction& t)
     {
         assert(head != nullptr);
-        auto record = lock_and_validate(t);
+        auto record = find(t);
 
         // check if we found any visible records
         if(!record)
             return nullptr;
+
+        return update(record, t);
+    }
+
+    T* update(T* record, tx::Transaction& t)
+    {
+        assert(record != nullptr);
+        lock_and_validate(record, t);
 
         auto updated = new T();
         updated->data = record->data;
@@ -179,15 +206,23 @@ private:
     bool remove(tx::Transaction& t)
     {
         assert(head != nullptr);
-        auto record = lock_and_validate(t);
+        auto record = find(t);
 
         if(!record)
             return false;
 
-        return record->mark_deleted(t), true;
+        lock_and_validate(record, t);
+        return remove(record, t), true;
     }
 
-    T* lock_and_validate(T* record, tx::Transaction& t)
+    void remove(T* record, tx::Transaction& t)
+    {
+        assert(record != nullptr);
+        lock_and_validate(record, t);
+        record->mark_deleted(t);
+    }
+
+    void lock_and_validate(T* record, tx::Transaction& t)
     {
         assert(record != nullptr);
         assert(record == find(t));
@@ -198,27 +233,12 @@ private:
         // if the record hasn't been deleted yet or the deleting transaction
         // has aborted, it's ok to modify it
         if(!record->tx.exp() || record->hints.load().exp.is_aborted())
-            return record;
+            return;
 
         // if it committed, then we have a serialization conflict
         assert(record->hints.load().exp.is_committed());
         throw SerializationError();
     }
-
-    T* lock_and_validate(tx::Transaction& t)
-    {
-        // find the visible record version to delete
-        auto record = find(t);
-        return record == nullptr ? nullptr : lock_and_validate(record, t);
-    }
 };
 
 }
-
-// these are convenient typedefs to use in other contexes to make the code a
-// bit clearer
-class Vertex;
-class Edge;
-
-using VertexRecord = mvcc::VersionList<Vertex>;
-using EdgeRecord = mvcc::VersionList<Edge>;

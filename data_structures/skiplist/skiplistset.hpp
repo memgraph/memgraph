@@ -224,6 +224,11 @@ public:
         return Accessor(std::move(data.access()));
     }
 
+    Accessor access() const
+    {
+        return Accessor(std::move(data.access()));
+    }
+
 private:
     SkipList<Key, T> data;
 };

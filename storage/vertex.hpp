@@ -7,6 +7,8 @@
 class Vertex : public mvcc::Record<Vertex>
 {
 public:
+    class Accessor;
+
     Vertex() = default;
     Vertex(const VertexModel& data) : data(data) {}
     Vertex(VertexModel&& data) : data(std::move(data)) {}

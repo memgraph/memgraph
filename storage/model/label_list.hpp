@@ -14,11 +14,6 @@ public:
     auto end() const { return labels.end(); }
     auto cend() const { return labels.end(); }
 
-    bool add(Label&& label)
-    {
-        return labels.insert(std::move(label)).second;
-    }
-
     bool add(const Label& label)
     {
         return labels.insert(label).second;
@@ -50,5 +45,5 @@ public:
     }
 
 private:
-    std::set<Label> labels;
+    std::set<const Label&> labels;
 };
