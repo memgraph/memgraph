@@ -17,7 +17,7 @@ public:
         // find vertex
         auto versions_accessor = vertices_iterator->second.access(t);
         auto vertex = versions_accessor.find();
-        
+
         return Vertex::Accessor(vertex, &vertices_iterator->second, this);
     }
 
@@ -25,20 +25,23 @@ public:
     {
         // get next vertex id
         auto next = counter.next(std::memory_order_acquire);
-        
+
         // create new vertex record
         VertexRecord vertex_record;
         vertex_record.id(next);
-        
+
         // insert the new vertex record into the vertex store
         auto vertices_accessor = vertices.access();
-        auto result = vertices_accessor.insert_unique(next, std::move(vertex_record));
-        
+        auto result = vertices_accessor.insert_unique(
+            next,
+            std::move(vertex_record)
+        );
+
         // create new vertex
         auto inserted_vertex_record = result.first;
         auto vertex_accessor = inserted_vertex_record->second.access(t);
         auto vertex = vertex_accessor.insert();
-        
+
         return Vertex::Accessor(vertex, &inserted_vertex_record->second, this);
     }
 

@@ -6,7 +6,7 @@ import requests
 
 class VertexCrudTest(unittest.TestCase):
 
-    def check_reponse_status_code(self, r, code):
+    def check_response_status_code(self, r, code):
         '''
         Checks status code of the response and returns
         response data as json.
@@ -15,8 +15,6 @@ class VertexCrudTest(unittest.TestCase):
             response data (json)
         '''
         self.assertEqual(r.status_code, code)
-        response = r.json()
-        return response
 
     def check_metadata_and_id(self, response, id=None):
         '''
@@ -46,7 +44,8 @@ class VertexCrudTest(unittest.TestCase):
         '''
         resource_url = self.endpoint + '/%s' % resource_id
         r = requests.get(resource_url)
-        response = self.check_reponse_status_code(r, 200)
+        self.check_response_status_code(r, 200)
+        response = r.json()
         self.check_metadata_and_id(response, resource_id)
         self.check_response_data(response, valid_data)
 
@@ -63,17 +62,22 @@ class VertexCrudTest(unittest.TestCase):
 
         # 1. create
         r = requests.post(self.endpoint, json=create_payload)
-        response = self.check_reponse_status_code(r, 201)
+        self.check_response_status_code(r, 201)
+        response = r.json()
         self.resource_id = self.check_metadata_and_id(response)
         self.resource_url = self.endpoint + "/%s" % self.resource_id
+        print("Id: %s Url: %s" % (str(self.resource_id),
+                                  str(self.resource_url)))
         self.check_response_data(response, create_payload)
 
         # 2. read
         self.check_read(self.resource_id, create_payload)
 
         # 3. update
-        r = requests.put(self.resource_url, edit_payload)
-        self.check_reponse_status_code(r, 200)
+        r = requests.put(self.resource_url, json=edit_payload)
+        # TODO-buda: check this also
+        # r = requests.put(self.resource_url, {})
+        self.check_response_status_code(r, 200)
 
         # 4. read
         self.check_read(self.resource_id, edited_resource)
@@ -85,3 +89,6 @@ class VertexCrudTest(unittest.TestCase):
         # 6. read
         r = requests.get(self.resource_url)
         self.check_response_status_code(r, 404)
+
+if __name__ == '__main__':
+    unittest.main()

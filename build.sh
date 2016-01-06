@@ -1,4 +1,20 @@
 #!/bin/bash
 
+while [[ $# > 1 ]]
+do
+key="$1"
+case $key in
+    -t|--target)
+    target="$2"
+    shift
+    ;;
+esac
+shift
+done
+
+if [[ -z $target ]]; then
+    target="all"
+fi
+
 cd api && python link_resources.py && cd ..
-make clean && make
+make clean && make $target

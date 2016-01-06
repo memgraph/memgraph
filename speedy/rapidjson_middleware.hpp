@@ -13,6 +13,11 @@ namespace sp
 
 bool rapidjson_middleware(sp::Request& req, sp::Response& res)
 {
+    // TODO-buda: sometimes req.body is unvalid
+    // when python requests lib send {} as data
+    // req.body is broken and the next if is not executed
+    // as it supposed to be
+
     // the body is empty and json parsing isn't necessary
     if (req.body.empty())
         return true;

@@ -90,6 +90,7 @@ public:
     VersionList(VersionList&& other)
     {
         this->head = other.head.load();
+        this->identifier = other.id();
         other.head = nullptr;
     }
 
@@ -222,15 +223,19 @@ private:
         if(!record)
             return false;
 
+        // TODO-buda: what is this?
         lock_and_validate(record, t);
         return remove(record, t), true;
     }
 
-    void remove(T* record, tx::Transaction& t)
+    // TODO-buda: this whole part is questionable
+    bool remove(T* record, tx::Transaction& t)
     {
         assert(record != nullptr);
         lock_and_validate(record, t);
         record->mark_deleted(t);
+        // TODO-buda: is this ok, at least for now?
+        return true;
     }
 
     void lock_and_validate(T* record, tx::Transaction& t)

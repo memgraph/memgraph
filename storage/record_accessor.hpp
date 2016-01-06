@@ -32,7 +32,7 @@ public:
         assert(!empty());
 
         auto accessor = vlist->access(t);
-        return Derived(accessor->update(t), vlist, store);
+        return Derived(accessor.update(t), vlist, store);
     }
 
     bool remove(tx::Transaction& t) const
@@ -40,7 +40,7 @@ public:
         assert(!empty());
 
         auto accessor = vlist->access(t);
-        return accessor->remove(t);
+        return accessor.remove(record);
     }
 
     const Property* property(const std::string& key) const
