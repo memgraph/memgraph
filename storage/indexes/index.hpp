@@ -5,7 +5,7 @@
 
 #include "storage/cursor.hpp"
 
-template <class Key, class Cursor, class Item, class SortOrder>
+template <class Key, class Item>
 class Index
 {
     using skiplist_t = SkipList<Key, Item*>;
@@ -13,10 +13,15 @@ class Index
     using accessor_t = typename skiplist_t::Accessor;
     using K = typename Key::key_t;
 
-public:
-    Cursor insert(const K& key, Item* item, tx::Transaction& t)
-    {
+    using cursor_t = Cursor<accessor_t, iterator_t, K>;
 
+public:
+    cursor_t insert(const K& key, Item* item, tx::Transaction& t)
+    {
+        auto accessor = skiplist.access();
+        auto result = accessor.insert_unique(key, item);
+
+        // todo handle existing insert
     }
 
 

@@ -15,16 +15,22 @@ public:
     RecordAccessor() = default;
 
     RecordAccessor(T* record, vlist_t* vlist, Store* store)
-        : record(record), vlist(vlist), store(store) {}
-
-    const Id& id() const
+        : record(record), vlist(vlist), store(store)
     {
-        return vlist->id();
+        assert(record != nullptr);
+        assert(vlist != nullptr);
+        assert(store != nullptr);
     }
 
     bool empty() const
     {
         return record == nullptr;
+    }
+
+    const Id& id() const
+    {
+        assert(!empty());
+        return vlist->id();
     }
 
     Derived update(tx::Transaction& t) const
