@@ -223,18 +223,15 @@ private:
         if(!record)
             return false;
 
-        // TODO-buda: what is this?
         lock_and_validate(record, t);
         return remove(record, t), true;
     }
 
-    // TODO-buda: this whole part is questionable
     bool remove(T* record, tx::Transaction& t)
     {
         assert(record != nullptr);
         lock_and_validate(record, t);
         record->mark_deleted(t);
-        // TODO-buda: is this ok, at least for now?
         return true;
     }
 

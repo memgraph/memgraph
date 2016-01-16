@@ -20,15 +20,23 @@ decltype(auto) all_arguments(int argc, char *argv[])
     return args;
 }
 
+bool contain_argument(const vector_str& all, const string& flag)
+{
+    // TODO: optimize this implementation
+    auto it = std::find(all.begin(), all.end(), flag);
+    if (it == all.end())
+        return false;
+    return true;
+}
+
 decltype(auto) get_argument(const vector_str& all,
                             const std::string& flag,
                             const std::string& default_value)
 {
     // TODO: optimize this implementation
     auto it = std::find(all.begin(), all.end(), flag);
-    if (it == all.end()) {
+    if (it == all.end())
         return default_value;
-    }
     auto pos = std::distance(all.begin(), it);
     return all[pos + 1];
 }

@@ -25,4 +25,14 @@ public:
     {
         return res.send("GET /db/data/relationship");
     }
+
+    void put(sp::Request& req, sp::Response& res)
+    {
+        return res.send("PUT /db/data/relationship");
+    }
+
+    void del(sp::Request& req, sp::Response& res)
+    {
+        return res.send("DELETE /db/data/relationship");
+    }
 };

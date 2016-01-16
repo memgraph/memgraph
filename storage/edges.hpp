@@ -1,12 +1,20 @@
 #pragma once
 
-#include "edge.hpp"
 #include "common.hpp"
+#include "edge_accessor.hpp"
 
 class Edges
 {
 public:
-    // TODO: implementation
+    Edge::Accessor find(tx::Transaction& t, const Id& id)
+    {
+        throw std::runtime_error("not implemented");
+    }
+
+    Edge::Accessor insert(tx::Transaction& t)
+    {
+        throw std::runtime_error("not implemented");
+    }
 
 private:
     SkipList<uint64_t, EdgeRecord> edges;

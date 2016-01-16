@@ -1,14 +1,14 @@
 #pragma once
 
-#include "model/properties/jsonwriter.hpp"
-#include "model/edge_model.hpp"
 #include "mvcc/record.hpp"
-
-class Edge;
+#include "model/edge_model.hpp"
+#include "model/properties/jsonwriter.hpp"
 
 class Edge : public mvcc::Record<Edge>
 {
 public:
+    class Accessor;
+
     Edge() = default;
     Edge(const EdgeModel& data) : data(data) {}
     Edge(EdgeModel&& data) : data(std::move(data)) {}
