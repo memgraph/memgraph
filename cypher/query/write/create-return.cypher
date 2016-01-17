@@ -1,1 +1,1 @@
-CREATE (n {name: 'Domko', age: 24}) RETURN n
+CREATE (n {name: 'Domko', age: 26}) RETURN n

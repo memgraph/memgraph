@@ -23,8 +23,8 @@ int main()
     container.singleton<Db>();
 
     auto loop = container.singleton<uv::UvLoop>();
-    auto app = container.singleton<sp::Speedy, uv::UvLoop>("/db/data");
 
+    auto app = container.singleton<sp::Speedy, uv::UvLoop>("/db/data");
     container.singleton<Pool>(4);
     container.singleton<Task, uv::UvLoop, Pool>();
 

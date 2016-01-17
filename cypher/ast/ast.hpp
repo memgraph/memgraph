@@ -7,6 +7,7 @@
 #include "property.hpp"
 #include "relationship.hpp"
 #include "node.hpp"
+#include "distinct.hpp"
 #include "return.hpp"
 #include "pattern.hpp"
 #include "return.hpp"

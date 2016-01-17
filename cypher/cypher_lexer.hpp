@@ -12,7 +12,7 @@ public:
     {
         // whitespace
         rule("\\s+", sm.skip());
-        
+
         // special characters
         rule("\\.", TK_DOT);
         rule(",", TK_COMMA);
@@ -41,23 +41,24 @@ public:
 
         // constants
         rule("(?i:TRUE)", TK_BOOL);
-        rule("(?i:FALSE)", TK_BOOL); 
+        rule("(?i:FALSE)", TK_BOOL);
 
         // keywords
         rule("(?i:MATCH)", TK_MATCH);
         rule("(?i:WHERE)", TK_WHERE);
         rule("(?i:RETURN)", TK_RETURN);
         rule("(?i:CREATE)", TK_CREATE);
+        rule("(?i:DISTINCT)", TK_DISTINCT);
 
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);
 
         // string literal TODO single quote escape
         rule("'(.*?)'", TK_STR);
-        
+
         // string literal TODO double quote escape
         rule("\\\"(.*?)\\\"", TK_STR);
-        
+
         // number
         rule("\\d+", TK_INT);
         rule("\\d*[.]?\\d+", TK_FLOAT);

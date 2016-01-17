@@ -44,6 +44,7 @@ struct Pattern;
 
 struct Return;
 struct ReturnList;
+struct Distinct;
 
 struct Match;
 struct Where;
@@ -58,6 +59,6 @@ struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier,
     Integer, String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus,
     Star, Slash, Rem, PropertyList, RelationshipList, Relationship, Node,
     RelationshipSpecs, LabelList, ReturnList, Pattern, Match, ReadQuery,
-    Start, Where, WriteQuery, Create, Return> {};
+    Start, Where, WriteQuery, Create, Return, Distinct> {};
 
 }

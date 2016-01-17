@@ -13,7 +13,14 @@
 
 %syntax_error
 {
-    throw SyntaxError(TOKEN->value);
+    int n = sizeof(yyTokenName) / sizeof(yyTokenName[0]);
+    for (int i = 0; i < n; ++i) {
+            int a = yy_find_shift_action(yypParser, (YYCODETYPE)i);
+            if (a < YYNSTATE + YYNRULE) {
+                    printf("possible token: %s\n", yyTokenName[i]);
+            }
+    }
+    // throw SyntaxError(TOKEN->value);
 }
 
 %stack_overflow
@@ -68,7 +75,7 @@ write_query(WQ) ::= create_clause(C). {
 %type create_clause {ast::Create*}
 
 create_clause(C) ::= CREATE pattern(P). {
-   C = ast->create<ast::Create>(P); 
+   C = ast->create<ast::Create>(P);
 }
 
 // read query structure
@@ -112,7 +119,7 @@ rel(R) ::= MINUS rel_spec(S) MINUS GT. { // right
 %type rel_spec {ast::RelationshipSpecs*}
 
 rel_spec(R) ::= LSP rel_idn(I) rel_type(T) properties(P) RSP. {
-   R = ast->create<ast::RelationshipSpecs>(I, T, P); 
+   R = ast->create<ast::RelationshipSpecs>(I, T, P);
 }
 
 rel_spec(R) ::= . {
@@ -195,9 +202,12 @@ where_clause(W) ::= . {
 
 %type return_clause {ast::Return*}
 
-// return clause (return ORDER BY, SKIP, LIMIT)
 return_clause(R) ::= RETURN return_list(L). {
     R = ast->create<ast::Return>(L);
+}
+
+return_clause(R) ::= RETURN distinct(D). {
+    R = ast->create<ast::Return>(D);
 }
 
 %type return_list {ast::ReturnList*}
@@ -208,6 +218,12 @@ return_list(R) ::= return_list(N) COMMA idn(I). {
 
 return_list(R) ::= idn(I). {
     R = ast->create<ast::ReturnList>(I, nullptr);
+}
+
+%type distinct {ast::Distinct*}
+
+distinct(R) ::= DISTINCT idn(I). {
+    R = ast->create<ast::Distinct>(I);
 }
 
 %type properties {ast::PropertyList*}

@@ -8,13 +8,10 @@
 #include "utils/command_line/arguments.hpp"
 #include "utils/string/filereader.hpp"
 
+#include "utils/terminate_handler.hpp"
+
 using std::cout;
 using std::endl;
-
-// * QUERY EXAMPLES *
-// "CREATE (n { name: 'Dominik', age: 24, role: 'CEO' }) return n"
-// "MATCH (user:User { name: 'Dominik', age: 8 + 4})-[has:HAS|IS|CAN { duration: 'PERMANENT'}]->(item:Item)--(shop)"
-// "MATCH (user:User { name: 'Dominik', age: 24})-[has:HAS]->(item:Item) WHERE item.name = 'XPS 13' AND item.price = 11999.99 RETURN user, has, item"
 
 // * INPUT ARGUMENTS *
 // -q -> query
@@ -33,11 +30,14 @@ std::string extract_query(const vector_str& arguments)
 
 int main(int argc, char *argv[])
 {
+    std::set_terminate(&terminate_handler);
+
     // arguments parsing
     auto arguments = all_arguments(argc, argv);
 
     // query extraction
     auto cypher_query = extract_query(arguments);
+    cout << "QUERY: " << cypher_query << endl;
 
     // traversers
     auto traverser = get_argument(arguments, "-t", "code");

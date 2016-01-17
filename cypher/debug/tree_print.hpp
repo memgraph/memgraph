@@ -124,6 +124,12 @@ public:
         Traverser::visit(return_clause);
     }
 
+    void visit(ast::Distinct& distinct) override
+    {
+        auto entry = printer.advance("Distinct");
+        Traverser::visit(distinct);
+    }
+
     void visit(ast::Accessor& accessor) override
     {
         auto entry = printer.advance("Accessor");

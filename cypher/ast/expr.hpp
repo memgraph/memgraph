@@ -5,7 +5,9 @@
 namespace ast
 {
 
-struct Expr : public AstVisitable {};
+struct Expr : public AstVisitable
+{
+};
 
 template <class Derived>
 struct VisitableExpr : public Crtp<Derived>, public Expr

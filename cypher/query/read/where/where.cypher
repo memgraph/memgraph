@@ -1,1 +1,1 @@
-WHERE  n.property <> {value}
+MATCH n WHERE n.property <> "100"

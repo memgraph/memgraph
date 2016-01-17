@@ -44,7 +44,10 @@ public:
 
     void visit(ast::Return& return_clause) override
     {
-        accept(return_clause.return_list);
+        if (return_clause.return_list != nullptr)
+            accept(return_clause.return_list);
+        if (return_clause.distinct != nullptr)
+            accept(return_clause.distinct);
     }
 
     void visit(ast::Accessor& accessor) override
@@ -186,6 +189,11 @@ public:
     void visit(ast::Create& create) override
     {
         accept(create.pattern);
+    }
+
+    void visit(ast::Distinct& distinct) override
+    {
+        accept(distinct.identifier);
     }
 
 protected:
