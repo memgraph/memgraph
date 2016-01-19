@@ -316,7 +316,14 @@ expr(E) ::= idn(I) DOT idn(P). {
 %type idn {ast::Identifier*}
 
 idn(I) ::= IDN(X). {
-    I = ast->create<ast::Identifier>(X->value);
+    I = ast->create<ast::Identifier>(X->value, "");
+}
+
+/*
+not the best idea TODO: how to put AS into the grammar
+*/
+idn(I) ::= IDN(X) AS IDN(A). {
+    I = ast->create<ast::Identifier>(X->value, A->value);
 }
 
 expr(E) ::= INT(V). {

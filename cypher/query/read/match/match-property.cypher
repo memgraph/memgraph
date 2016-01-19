@@ -1,1 +1,1 @@
-MATCH (n {name:'Alice'})-->(m)
+MATCH (n {name:'Alice'})-->(m) RETURN m

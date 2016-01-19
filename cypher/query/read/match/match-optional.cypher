@@ -1,1 +1,1 @@
-OPTIONAL MATCH (n)-[r]->(m)
+OPTIONAL MATCH (n)-[r]->(m) RETURN n

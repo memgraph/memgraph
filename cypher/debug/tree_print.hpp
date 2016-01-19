@@ -116,6 +116,7 @@ public:
     {
         auto entry = printer.advance();
         entry << "Identifier '" << idn.name << "'";
+        entry << " Alias '" << idn.alias << "'";
     }
 
     void visit(ast::Return& return_clause) override

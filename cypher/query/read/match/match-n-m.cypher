@@ -1,1 +1,1 @@
-MATCH (n)-->(m)
+MATCH (n)-->(m) RETURN n
