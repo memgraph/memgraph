@@ -6,6 +6,7 @@ namespace ast
 {
 
 struct Identifier;
+struct Alias;
 
 // properties
 struct Property;
@@ -45,6 +46,7 @@ struct Pattern;
 struct Return;
 struct ReturnList;
 struct Distinct;
+struct Delete;
 
 struct Match;
 struct Where;
@@ -52,13 +54,15 @@ struct Where;
 struct Start;
 struct ReadQuery;
 struct WriteQuery;
+struct DeleteQuery;
 
 struct Create;
 
-struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier,
+struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier, Alias,
     Integer, String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus,
     Star, Slash, Rem, PropertyList, RelationshipList, Relationship, Node,
     RelationshipSpecs, LabelList, ReturnList, Pattern, Match, ReadQuery,
-    Start, Where, WriteQuery, Create, Return, Distinct> {};
+    Start, Where, WriteQuery, Create, Return, Distinct, Delete,
+    DeleteQuery> {};
 
 }

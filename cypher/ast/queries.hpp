@@ -4,6 +4,7 @@
 #include "match.hpp"
 #include "return.hpp"
 #include "create.hpp"
+#include "delete.hpp"
 
 namespace ast
 {
@@ -24,6 +25,15 @@ struct WriteQuery : public AstNode<WriteQuery>
 
     Create* create;
     Return* return_clause;
+};
+
+struct DeleteQuery : public AstNode<DeleteQuery>
+{
+    DeleteQuery(Match* match, Delete* delete_clause)
+        : match(match), delete_clause(delete_clause) {}
+
+    Match* match;
+    Delete* delete_clause;
 };
 
 }

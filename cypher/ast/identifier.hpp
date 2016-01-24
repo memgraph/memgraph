@@ -9,11 +9,10 @@ namespace ast
 
 struct Identifier : public AstNode<Identifier>
 {
-    Identifier(std::string name, std::string alias)
-        : name(name), alias(alias) {}
+    Identifier(std::string name)
+        : name(name) {}
 
     std::string name;
-    std::string alias;
 };
 
 }

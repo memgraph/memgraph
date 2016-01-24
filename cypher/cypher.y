@@ -15,12 +15,12 @@
 {
     int n = sizeof(yyTokenName) / sizeof(yyTokenName[0]);
     for (int i = 0; i < n; ++i) {
-            int a = yy_find_shift_action(yypParser, (YYCODETYPE)i);
-            if (a < YYNSTATE + YYNRULE) {
-                    printf("possible token: %s\n", yyTokenName[i]);
-            }
+        int a = yy_find_shift_action(yypParser, (YYCODETYPE)i);
+        if (a < YYNSTATE + YYNRULE) {
+            printf("possible token: %s\n", yyTokenName[i]);
+        }
     }
-    // throw SyntaxError(TOKEN->value);
+    throw SyntaxError(TOKEN->value);
 }
 
 %stack_overflow
@@ -53,15 +53,30 @@
 %left PLUS MINUS.
 %left STAR SLASH REM.
 
+// start structure
+
 start ::= read_query(RQ). {
-   ast->root = ast->create<ast::Start>(RQ, nullptr);
+    ast->root = ast->create<ast::Start>(RQ);
 }
 
 start ::= write_query(WQ). {
-   ast->root = ast->create<ast::Start>(nullptr, WQ);
+    ast->root = ast->create<ast::Start>(WQ);
+}
+
+start ::= delete_query(DQ). {
+    ast->root = ast->create<ast::Start>(DQ);
+}
+
+// read query structure
+
+%type read_query {ast::ReadQuery*}
+
+read_query(RQ) ::= match_clause(M) return_clause(R). {
+    RQ = ast->create<ast::ReadQuery>(M, R);
 }
 
 // write query structure
+
 %type write_query {ast::WriteQuery*}
 
 write_query(WQ) ::= create_clause(C) return_clause(R). {
@@ -72,17 +87,18 @@ write_query(WQ) ::= create_clause(C). {
     WQ = ast->create<ast::WriteQuery>(C, nullptr);
 }
 
+// delete query structure
+
+%type delete_query {ast::DeleteQuery*}
+
+delete_query(DQ) ::= match_clause(M) delete_clause(D). {
+    DQ = ast->create<ast::DeleteQuery>(M, D);
+}
+
 %type create_clause {ast::Create*}
 
 create_clause(C) ::= CREATE pattern(P). {
    C = ast->create<ast::Create>(P);
-}
-
-// read query structure
-%type read_query {ast::ReadQuery*}
-
-read_query(RQ) ::= match_clause(M) return_clause(R). {
-    RQ = ast->create<ast::ReadQuery>(M, R);
 }
 
 %type match_clause {ast::Match*}
@@ -91,9 +107,14 @@ match_clause(M) ::= MATCH pattern(P) where_clause(W). {
     M = ast->create<ast::Match>(P, W);
 }
 
+%type delete_clause {ast::Delete*}
+// TODO: add DETACH DELETE
+delete_clause(D) ::= DELETE idn(I). {
+    D = ast->create<ast::Delete>(I);
+}
+
 %type pattern {ast::Pattern*}
 
-// pattern specification
 pattern(P) ::= node(N) rel(R) pattern(NEXT). {
     P = ast->create<ast::Pattern>(N, R, NEXT);
 }
@@ -101,6 +122,9 @@ pattern(P) ::= node(N) rel(R) pattern(NEXT). {
 pattern(P) ::= node(N). {
     P = ast->create<ast::Pattern>(N, nullptr, nullptr);
 }
+
+// update query
+// MATCH ... WITH ... SET ... RETURN
 
 %type rel {ast::Relationship*}
 
@@ -316,15 +340,14 @@ expr(E) ::= idn(I) DOT idn(P). {
 %type idn {ast::Identifier*}
 
 idn(I) ::= IDN(X). {
-    I = ast->create<ast::Identifier>(X->value, "");
+    I = ast->create<ast::Identifier>(X->value);
 }
 
-/*
-not the best idea TODO: how to put AS into the grammar
-*/
-idn(I) ::= IDN(X) AS IDN(A). {
-    I = ast->create<ast::Identifier>(X->value, A->value);
-}
+//%type alias {ast::Alias*}
+//
+//alias(A) ::= IDN(X) AS IDN(Y). {
+//    A = ast->create<ast::Alias>(X->value, Y->value);
+//}
 
 expr(E) ::= INT(V). {
     auto value = std::stoi(V->value);

@@ -112,11 +112,16 @@ public:
         Traverser::visit(node);
     }
 
+    void visit(ast::Alias& alias) override
+    {
+        auto entry = printer.advance();
+        entry << "Alias: '" << alias.name << "' AS '" << alias.alias << "'";
+    }
+
     void visit(ast::Identifier& idn) override
     {
         auto entry = printer.advance();
         entry << "Identifier '" << idn.name << "'";
-        entry << " Alias '" << idn.alias << "'";
     }
 
     void visit(ast::Return& return_clause) override
@@ -292,6 +297,18 @@ public:
     {
         auto entry = printer.advance("Write Query");
         Traverser::visit(write_query);
+    }
+
+    void visit(ast::DeleteQuery& delete_query) override
+    {
+        auto entry = printer.advance("Delete Query");
+        Traverser::visit(delete_query);
+    }
+
+    void visit(ast::Delete& delete_clause) override
+    {
+        auto entry = printer.advance("Delete");
+        Traverser::visit(delete_clause);
     }
 
     void visit(ast::Create& create) override

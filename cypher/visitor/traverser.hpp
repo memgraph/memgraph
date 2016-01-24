@@ -12,8 +12,18 @@ public:
 
     void visit(ast::Start& start) override
     {
-        accept(start.read_query);
-        accept(start.write_query);
+        if (start.read_query != nullptr)
+            accept(start.read_query);
+        if (start.read_query != nullptr)
+            accept(start.write_query);
+        if (start.delete_query != nullptr)
+            accept(start.delete_query);
+    }
+
+    void visit(ast::DeleteQuery& delete_query) override
+    {
+        accept(delete_query.match);
+        accept(delete_query.delete_clause);
     }
     
     void visit(ast::ReadQuery& read_query) override
@@ -194,6 +204,11 @@ public:
     void visit(ast::Distinct& distinct) override
     {
         accept(distinct.identifier);
+    }
+
+    void visit(ast::Delete& delete_clause) override
+    {
+        accept(delete_clause.identifier);
     }
 
 protected:
