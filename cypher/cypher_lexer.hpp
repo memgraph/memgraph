@@ -44,12 +44,13 @@ public:
         rule("(?i:FALSE)", TK_BOOL);
 
         // keywords
+        rule("(?i:CREATE)", TK_CREATE);
         rule("(?i:MATCH)", TK_MATCH);
         rule("(?i:WHERE)", TK_WHERE);
+        rule("(?i:SET)", TK_SET);
         rule("(?i:RETURN)", TK_RETURN);
-        rule("(?i:DELETE)", TK_DELETE);
-        rule("(?i:CREATE)", TK_CREATE);
         rule("(?i:DISTINCT)", TK_DISTINCT);
+        rule("(?i:DELETE)", TK_DELETE);
 
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);

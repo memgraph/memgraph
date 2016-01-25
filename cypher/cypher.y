@@ -55,24 +55,20 @@
 
 // start structure
 
-start ::= read_query(RQ). {
-    ast->root = ast->create<ast::Start>(RQ);
-}
-
 start ::= write_query(WQ). {
     ast->root = ast->create<ast::Start>(WQ);
 }
 
-start ::= delete_query(DQ). {
-    ast->root = ast->create<ast::Start>(DQ);
+start ::= read_query(RQ). {
+    ast->root = ast->create<ast::Start>(RQ);
 }
 
-// read query structure
+start ::= update_query(UQ). {
+    ast->root = ast->create<ast::Start>(UQ);
+}
 
-%type read_query {ast::ReadQuery*}
-
-read_query(RQ) ::= match_clause(M) return_clause(R). {
-    RQ = ast->create<ast::ReadQuery>(M, R);
+start ::= delete_query(DQ). {
+    ast->root = ast->create<ast::Start>(DQ);
 }
 
 // write query structure
@@ -86,6 +82,34 @@ write_query(WQ) ::= create_clause(C) return_clause(R). {
 write_query(WQ) ::= create_clause(C). {
     WQ = ast->create<ast::WriteQuery>(C, nullptr);
 }
+
+// read query structure
+
+%type read_query {ast::ReadQuery*}
+
+read_query(RQ) ::= match_clause(M) return_clause(R). {
+    RQ = ast->create<ast::ReadQuery>(M, R);
+}
+
+// update query structure
+
+%type update_query {ast::UpdateQuery*}
+
+update_query(UQ) ::= match_clause(M) set_clause(S) return_clause(R). {
+    UQ = ast->create<ast::UpdateQuery>(M, S, R);
+}
+
+update_query(UQ) ::= match_clause(M) set_clause(S). {
+    UQ = ast->create<ast::UpdateQuery>(M, S, nullptr);
+}
+
+// set clause
+
+%type set_clause {ast::Set*}
+
+set_clause(S) ::= SET set_list(L). {
+    S = ast->create<ast::Set>(L);
+} 
 
 // delete query structure
 
@@ -250,6 +274,9 @@ distinct(R) ::= DISTINCT idn(I). {
     R = ast->create<ast::Distinct>(I);
 }
 
+// list of properties
+// e.g. { name: "wayne", surname: "rooney"}
+
 %type properties {ast::PropertyList*}
 
 // '{' <property_list> '}'
@@ -343,12 +370,6 @@ idn(I) ::= IDN(X). {
     I = ast->create<ast::Identifier>(X->value);
 }
 
-//%type alias {ast::Alias*}
-//
-//alias(A) ::= IDN(X) AS IDN(Y). {
-//    A = ast->create<ast::Alias>(X->value, Y->value);
-//}
-
 expr(E) ::= INT(V). {
     auto value = std::stoi(V->value);
     E = ast->create<ast::Integer>(value);
@@ -369,3 +390,39 @@ expr(E) ::= BOOL(V). {
     E = ast->create<ast::Boolean>(value);
 }
 
+//%type alias {ast::Alias*}
+//
+//alias(A) ::= IDN(X) AS IDN(Y). {
+//    A = ast->create<ast::Alias>(X->value, Y->value);
+//}
+
+// set list
+// e.g. MATCH (n) SET n.name = "Ryan", n.surname = "Giggs" RETURN n
+
+%type set_list {ast::SetList*}
+
+set_list(L) ::= set_element(E) COMMA set_list(N). {
+    L = ast->create<ast::SetList>(E, N);
+}
+
+set_list(L) ::= set_element(E). {
+    L = ast->create<ast::SetList>(E, nullptr);
+}
+
+%type set_element {ast::SetElement*}
+
+set_element(E) ::= accessor(A) EQ set_value(V). {
+    E = ast->create<ast::SetElement>(A, V);
+}
+
+%type accessor {ast::Accessor*}
+
+accessor(A) ::= idn(E) DOT idn(P). {
+    A = ast->create<ast::Accessor>(E, P);
+}
+
+%type set_value {ast::SetValue*}
+
+set_value(V) ::= expr(E). {
+    V = ast->create<ast::SetValue>(E);
+}

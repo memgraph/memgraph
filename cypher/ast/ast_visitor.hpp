@@ -40,29 +40,34 @@ struct Relationship;
 
 struct Node;
 struct LabelList;
-
 struct Pattern;
 
 struct Return;
 struct ReturnList;
 struct Distinct;
-struct Delete;
-
-struct Match;
-struct Where;
-
-struct Start;
-struct ReadQuery;
-struct WriteQuery;
-struct DeleteQuery;
 
 struct Create;
+struct Match;
+struct Where;
+struct Set;
+struct Delete;
+
+struct Start;
+struct WriteQuery;
+struct ReadQuery;
+struct UpdateQuery;
+struct DeleteQuery;
+
+struct SetKey;
+struct SetValue;
+struct SetElement;
+struct SetList;
 
 struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier, Alias,
     Integer, String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus,
     Star, Slash, Rem, PropertyList, RelationshipList, Relationship, Node,
     RelationshipSpecs, LabelList, ReturnList, Pattern, Match, ReadQuery,
     Start, Where, WriteQuery, Create, Return, Distinct, Delete,
-    DeleteQuery> {};
+    DeleteQuery, UpdateQuery, Set, SetKey, SetValue, SetElement, SetList> {};
 
 }

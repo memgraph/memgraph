@@ -1,7 +1,7 @@
 #pragma once
 
-#include "cypher/ast/ast_visitor.hpp"
 #include "cypher/ast/ast.hpp"
+#include "cypher/ast/ast_visitor.hpp"
 
 class Traverser : public ast::AstVisitor
 {
@@ -12,10 +12,12 @@ public:
 
     void visit(ast::Start& start) override
     {
+        if (start.write_query != nullptr)
+            accept(start.write_query);
         if (start.read_query != nullptr)
             accept(start.read_query);
-        if (start.read_query != nullptr)
-            accept(start.write_query);
+        if (start.update_query != nullptr)
+            accept(start.update_query);
         if (start.delete_query != nullptr)
             accept(start.delete_query);
     }
@@ -25,7 +27,7 @@ public:
         accept(delete_query.match);
         accept(delete_query.delete_clause);
     }
-    
+
     void visit(ast::ReadQuery& read_query) override
     {
         accept(read_query.match);
@@ -194,6 +196,37 @@ public:
     {
         accept(write_query.create);
         accept(write_query.return_clause);
+    }
+
+    void visit(ast::UpdateQuery& update_query) override
+    {
+        accept(update_query.match_clause);
+        accept(update_query.set_clause);
+        if (update_query.return_clause != nullptr)
+            accept(update_query.return_clause);
+    }
+
+    void visit(ast::Set& set_clause) override
+    {
+        accept(set_clause.set_list);
+    }
+
+    void visit(ast::SetValue& set_value) override
+    {
+        accept(set_value.value);
+    }
+
+    void visit(ast::SetElement& set_element) override
+    {
+        accept(set_element.accessor);
+        accept(set_element.set_value);
+    }
+
+    void visit(ast::SetList& set_list) override
+    {
+        accept(set_list.value);
+        if (set_list.next != nullptr)
+            accept(set_list.next);
     }
 
     void visit(ast::Create& create) override

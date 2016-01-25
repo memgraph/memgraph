@@ -317,6 +317,36 @@ public:
         Traverser::visit(create);
     }
 
+    void visit(ast::UpdateQuery& update_query) override
+    {
+        auto entry = printer.advance("Update Query");
+        Traverser::visit(update_query);
+    }
+
+    void visit(ast::Set& set_clause) override
+    {
+        auto entry = printer.advance("Set");
+        Traverser::visit(set_clause);
+    }
+
+    void visit(ast::SetValue& set_value) override
+    {
+        auto entry = printer.advance("Set Value");
+        Traverser::visit(set_value);
+    }
+
+    void visit(ast::SetElement& set_element) override
+    {
+        auto entry = printer.advance("Set Element");
+        Traverser::visit(set_element);
+    }
+
+    void visit(ast::SetList& set_list) override
+    {
+        auto entry = printer.advance("Set List");
+        Traverser::visit(set_list);
+    }
+
 private:
     Printer printer;
 };

@@ -1,13 +1,23 @@
 #pragma once
 
 #include "ast_node.hpp"
-#include "match.hpp"
-#include "return.hpp"
 #include "create.hpp"
+#include "match.hpp"
+#include "set.hpp"
 #include "delete.hpp"
+#include "return.hpp"
 
 namespace ast
 {
+
+struct WriteQuery : public AstNode<WriteQuery>
+{
+    WriteQuery(Create* create, Return* return_clause)
+        : create(create), return_clause(return_clause) {}
+
+    Create* create;
+    Return* return_clause;
+};
 
 struct ReadQuery : public AstNode<ReadQuery>
 {
@@ -18,12 +28,16 @@ struct ReadQuery : public AstNode<ReadQuery>
     Return* return_clause;
 };
 
-struct WriteQuery : public AstNode<WriteQuery>
+struct UpdateQuery : public AstNode<UpdateQuery>
 {
-    WriteQuery(Create* create, Return* return_clause)
-        : create(create), return_clause(return_clause) {}
+    UpdateQuery(Match* match_clause, Set* set_clause, Return* return_clause)
+        : match_clause(match_clause), set_clause(set_clause),
+          return_clause(return_clause)
+    {
+    }
 
-    Create* create;
+    Match* match_clause;
+    Set* set_clause;
     Return* return_clause;
 };
 
