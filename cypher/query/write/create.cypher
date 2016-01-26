@@ -1,1 +1,1 @@
-CREATE (n {name: "value"})
+CREATE (n {name: "Roy", surname: "Keane"})

@@ -6,8 +6,7 @@
 #include "debug/tree_print.hpp"
 #include "codegen/cppgen.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "utils/string/filereader.hpp"
-
+#include "cypher/common.hpp"
 #include "utils/terminate_handler.hpp"
 
 using std::cout;
@@ -17,17 +16,7 @@ using std::endl;
 // -q -> query
 // -v -> visitor
 // -f -> file
-
-std::string extract_query(const vector_str& arguments)
-{
-    if (contain_argument(arguments, "-q"))
-        return get_argument(arguments, "-q", "CREATE (n {a:1, b:2}) RETURN n");
-    auto default_file = "query/read/match/match-where.cypher";
-    auto file = get_argument(arguments, "-f", default_file);
-    // TODO: error handling
-    return read_file(file.c_str());
-}
-
+//
 int main(int argc, char *argv[])
 {
     std::set_terminate(&terminate_handler);
