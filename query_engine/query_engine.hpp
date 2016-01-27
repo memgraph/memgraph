@@ -21,11 +21,13 @@ class QueryEngine
 public:
     QueryResult execute(const std::string& query)
     {
-        cout << "execute: " << query << endl;
+        traverser.build_tree(query);
+        traverser.traverse();
         return QueryResult();
     }
 
 private:
+    // TODO: use IoC or something similar
     QueryTraverser traverser;
     CodeGenerator generator;
     CodeCompiler compiler;

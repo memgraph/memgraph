@@ -21,6 +21,18 @@ public:
         this->items = std::move(other.items);
     }
 
+    Ast& operator=(Ast&& other)
+    {
+        // TODO: write this more appropriate
+        // here is CP of above code
+        if(this != &other) {
+            this->root = other.root;
+            other.root = nullptr;
+            this->items = std::move(other.items);
+        }
+        return *this;
+    }
+
     AstVisitable* root;
 
     void traverse(AstVisitor& visitor)

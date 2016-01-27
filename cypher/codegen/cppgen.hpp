@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <typeinfo>
+#include <map>
 
 #include "cypher/visitor/traverser.hpp"
 
