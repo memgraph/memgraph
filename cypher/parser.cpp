@@ -4,7 +4,6 @@
 
 #include "compiler.hpp"
 #include "debug/tree_print.hpp"
-#include "codegen/cppgen.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "cypher/common.hpp"
 #include "utils/terminate_handler.hpp"
@@ -31,10 +30,8 @@ int main(int argc, char *argv[])
     // traversers
     auto traverser = get_argument(arguments, "-t", "code");
     auto print_traverser = Traverser::sptr(new PrintVisitor(cout));
-    auto cppgen_traverser = Traverser::sptr(new CppGen());
     std::map<std::string, Traverser::sptr> traversers = {
         {"print", print_traverser},
-        {"code", cppgen_traverser}
     };
 
     cypher::Compiler compiler;

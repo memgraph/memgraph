@@ -9,15 +9,15 @@
 using std::cout;
 using std::endl;
 
-class CppGen : public Traverser
+class NodeTraverser : public Traverser
 {
-    struct CreateGen : public Traverser
+    struct PropertiesTraverser : public Traverser
     {
-        void visit(ast::Pattern& pattern) override
-        {
-            Traverser::visit(pattern);
-        }
-        
+        PropertiesTraverser(NodeTraverser* node_traverser)
+            : node_traverser(node_traverser) {}
+
+        // friend NodeTraverser;
+
         void visit(ast::Property& property) override
         {
             name = property.idn->name;
@@ -30,25 +30,30 @@ class CppGen : public Traverser
             value = string.value;
         }
 
+        void visit(ast::Integer& integer) override
+        {
+            value = std::to_string(integer.value);
+        }
+
         void visit(ast::Node& node) override
         {
-            cout << "Node: " << node.idn->name << endl;
             Traverser::visit(node);
-            for (auto& kv : json) {
-                cout << "Key: " << kv.first << ", Value: " << kv.second << endl;
-            }
+            node_traverser->json = json;
         }
     private:
         std::string name;
         std::string value;
         std::map<std::string, std::string> json;
+        NodeTraverser* node_traverser;
     };
 
 public:
+    // TODO: replace with generic value
+    std::map<std::string, std::string> json;
 
     void visit(ast::Create& create) override
     {
-        auto create_gen = CreateGen();
-        create.accept(create_gen);
+        auto create_nodes = PropertiesTraverser(this);
+        create.accept(create_nodes);
     };
 };
