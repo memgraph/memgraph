@@ -2,9 +2,8 @@
 
 #include "cypher.h"
 #include "token.hpp"
-
-#include "cypher_lexer.hpp"
 #include "ast/tree.hpp"
+#include "tokenizer/cypher_lexer.hpp"
 
 void* cypher_parserAlloc(void* (*allocProc)(size_t));
 void  cypher_parser(void*, int, Token*, ast::Ast* ast);

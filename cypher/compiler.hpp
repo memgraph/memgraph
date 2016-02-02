@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cypher_lexer.hpp"
+#include "tokenizer/cypher_lexer.hpp"
 #include "parser.hpp"
 
 namespace cypher
