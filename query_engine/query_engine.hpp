@@ -21,6 +21,10 @@ using std::endl;
 class QueryEngine
 {
 public:
+    QueryEngine()
+    {
+    }
+
     QueryResult execute(const std::string& query)
     {
         auto stripped = stripper.strip(query);
@@ -35,7 +39,7 @@ public:
 
 private:
     // TODO: use IoC or something similar
-    QueryStripper stripper;
+    QueryStripper<int, int, int> stripper{TK_INT, TK_FLOAT, TK_STR};
     QueryTraverser traverser;
     CodeGenerator generator;
     CodeCompiler compiler;
