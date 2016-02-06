@@ -6,11 +6,10 @@
 class CypherLexer : public Lexer
 {
 public:
-
     CypherLexer()
     {
         // whitespace
-        rule("\\s+", sm.skip());
+        rule("\\s+", sm->skip());
 
         // special characters
         rule("\\.", TK_DOT);
@@ -69,4 +68,6 @@ public:
 
         build();
     }
+    CypherLexer(CypherLexer& other) = delete;
+    CypherLexer(CypherLexer&& other) = default;
 };

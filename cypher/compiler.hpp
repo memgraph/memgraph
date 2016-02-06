@@ -16,7 +16,7 @@ public:
         auto parser = cypher::Parser();
         auto tokenizer = lexer.tokenize(input);
         auto tree = parser.parse(tokenizer);
-        return std::move(tree);
+        return tree;
     }
 
 private:

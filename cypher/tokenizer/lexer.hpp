@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 // unfortunatelly, lexertl uses some stuff deprecated in c++11 so we get some
 // warnings during compile time, mainly for the auto_ptr
@@ -17,6 +18,32 @@
 class Lexer
 {
 public:
+
+    // public pointer declarations
+    using uptr = std::unique_ptr<Lexer>;
+    using sptr = std::shared_ptr<Lexer>;
+
+    // constructors
+    // default constructor creates unique pointers to object
+    // members
+    Lexer() :
+        rules(std::make_unique<lexertl::rules>()),
+        sm(std::make_unique<lexertl::state_machine>())
+    {
+    }
+    // copy constructor is deleted
+    Lexer(Lexer& other) = delete;
+    // move constructor has default implementation
+    Lexer(Lexer&& other) :
+        rules(std::move(other.rules)),
+        sm(std::move(other.sm))
+    {
+    }
+
+    //  TODO take care of concurrnecy and moving the lexer object when
+    //  some Tokenizer already uses the it (right now I'm not
+    //  sure what is going to happen)
+    //  check this ASAP
     class Tokenizer
     {
     public:
@@ -25,7 +52,7 @@ public:
 
         Token lookup()
         {
-            lexertl::lookup(lexer.sm, results);
+            lexertl::lookup(*lexer.sm, results);
             auto token = Token {results.id, results.str()};
 
             if(results.id == static_cast<decltype(results.id)>(-1))
@@ -46,15 +73,19 @@ public:
 
     void build()
     {
-        lexertl::generator::build(rules, sm);
+        lexertl::generator::build(*rules, *sm);
     }
 
     void rule(const std::string& regex, uint64_t id)
     {
-        rules.push(regex, id);
+        rules->push(regex, id);
     }
 
 protected:
-    lexertl::rules rules;
-    lexertl::state_machine sm;
+
+    using uptr_lexertl_rules = std::unique_ptr<lexertl::rules>; 
+    using uptr_lexertl_sm = std::unique_ptr<lexertl::state_machine>;
+
+    uptr_lexertl_rules rules;
+    uptr_lexertl_sm sm;
 };

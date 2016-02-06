@@ -22,11 +22,13 @@ class QueryEngine
 {
 public:
     QueryEngine()
+        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR))
     {
     }
 
     QueryResult execute(const std::string& query)
     {
+        cout << "QUERY ENGINE EXECUTE" << endl;
         auto stripped = stripper.strip(query);
         cout << "STRIPPED: " << stripped << endl;
         auto stripped_hash = fnv(stripped);
@@ -39,7 +41,7 @@ public:
 
 private:
     // TODO: use IoC or something similar
-    QueryStripper<int, int, int> stripper{TK_INT, TK_FLOAT, TK_STR};
+    QueryStripper<int, int, int> stripper;
     QueryTraverser traverser;
     CodeGenerator generator;
     CodeCompiler compiler;

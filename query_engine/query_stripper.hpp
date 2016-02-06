@@ -8,17 +8,28 @@
 #include "cypher/tokenizer/cypher_lexer.hpp"
 #include "utils/variadic/variadic.hpp"
 
+#include <iostream>
+
 template<typename ...Ts>
 class QueryStripper
 {
 public:
 
-    QueryStripper(Ts&&... strip_types)
-        : strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)) {}
-
-    std::string strip(const std::string& query)
+    QueryStripper(Ts&&... strip_types) :
+        lexer(std::make_unique<CypherLexer>()),
+        strip_types(std::make_tuple(std::forward<Ts>(strip_types)...))
     {
-        auto tokenizer = lexer.tokenize(query);
+    }
+    QueryStripper(QueryStripper& other) = delete;
+    QueryStripper(QueryStripper&& other) : 
+        strip_types(std::move(other.strip_types)),
+        lexer(std::move(other.lexer))
+    {
+    }
+
+    decltype(auto) strip(const std::string& query)
+    {
+        auto tokenizer = lexer->tokenize(query);
         std::string stripped = "";
         int counter = 0;
         constexpr auto size = std::tuple_size<decltype(strip_types)>::value;
@@ -35,7 +46,7 @@ public:
 
 private:
     std::tuple<Ts...> strip_types;
-    CypherLexer lexer;
+    CypherLexer::uptr lexer;
 
     template<typename Value, typename Tuple, std::size_t ...index>
     bool _or(Value&& value, Tuple&& tuple, std::index_sequence<index...>)
@@ -44,3 +55,8 @@ private:
                         std::get<index>(std::forward<Tuple>(tuple))...);
     }
 };
+
+template<typename ...Ts>
+decltype(auto) make_query_stripper(Ts&&... ts) {
+    return QueryStripper<Ts...>(std::forward<Ts>(ts)...);
+}
