@@ -20,7 +20,7 @@ struct Token
      * {
      * }
      */
-    operator bool() const
+    explicit operator bool() const
     {
         return id > 0;
     }
