@@ -11,4 +11,10 @@ public:
 
     Graph graph;
     tx::Engine tx_engine;
+
+    //  only for test purposes
+    std::string identifier()
+    {
+        return "memgraph";
+    }
 };

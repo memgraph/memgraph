@@ -1,49 +1,30 @@
 #pragma once
 
-#include <iostream>
-
-#include "query_stripper.hpp"
-#include "query_traverser.hpp"
-#include "code_generator.hpp"
-#include "code_compiler.hpp"
-#include "query_executor.hpp"
+#include "code_loader.hpp"
+#include "code_executor.hpp"
 #include "query_result.hpp"
-#include "utils/hashing/fnv.hpp"
-
-using std::cout;
-using std::endl;
 
 //
 // Current arhitecture:
-// query -> traverser -> [generator] -> [compiler] -> executor
+// query -> code_loader -> query_stripper -> [code_generator]
+// -> [code_compiler] -> code_executor
 //
 
 class QueryEngine
 {
 public:
     QueryEngine()
-        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR))
     {
     }
 
-    QueryResult execute(const std::string& query)
+    QueryResult* execute(const std::string& query)
     {
-        cout << "QUERY ENGINE EXECUTE" << endl;
-        auto stripped = stripper.strip(query);
-        cout << "STRIPPED: " << stripped << endl;
-        auto stripped_hash = fnv(stripped);
-        cout << "STRIPPED HASH: " << stripped_hash << endl;
+        executor.execute(loader.load_code_cpu(query));
 
-        // traverser.build_tree(query);
-        // traverser.traverse();
-        return QueryResult();
+        throw std::runtime_error("implement me");
     }
 
 private:
-    // TODO: use IoC or something similar
-    QueryStripper<int, int, int> stripper;
-    QueryTraverser traverser;
-    CodeGenerator generator;
-    CodeCompiler compiler;
-    QueryExecutor executor;
+    CodeLoader loader;
+    CodeExecutor executor;
 };

@@ -16,6 +16,15 @@ public:
     {
     }
 
+    //  TODO debug why this doesn't work
+    typename T::lib_object* instance()
+    {
+        //  TODO singleton, lazy, concurrency
+        this->load();
+        lib_object = this->produce_method();
+        return lib_object;
+    }
+
     void load()
     {
         load_lib();
@@ -23,9 +32,17 @@ public:
         load_destruct_func();
     }
 
+    ~DynamicLib()
+    {
+        if (lib_object != nullptr) {
+            destruct_method(lib_object);
+        }
+    }
+
 private:
     std::string lib_path;
     void *dynamic_lib;
+    typename T::lib_object* lib_object;
 
     void load_lib()
     {
