@@ -6,26 +6,26 @@
 using std::cout;
 using std::endl;
 
-class CreateReturn : public ICodeCPU
+class {{class_name}} : public ICodeCPU
 {
 public:
 
     std::string query() const override
     {
-        return "CRETE RETURN QUERY";
+        return {{query}};
     }
 
     void run(Db& db) const override
     {
-        cout << db.identifier() << endl;
+        {{code}}
     }
 
-    ~CreateReturn() {}
+    ~{{class_name}}() {}
 };
 
 extern "C" ICodeCPU* produce() 
 {
-    return new CreateReturn();
+    return new {{class_name}}();
 }
 
 extern "C" void destruct(ICodeCPU* p) 

@@ -9,6 +9,8 @@
 #include "code_compiler.hpp"
 #include "code_generator.hpp"
 #include "utils/hashing/fnv.hpp"
+#include "utils/log/logger.hpp"
+#include "config/config.hpp"
 
 using std::string;
 using std::cout;
@@ -27,19 +29,35 @@ public:
 
     ICodeCPU* load_code_cpu(const string& query)
     {
-        //  TODO implement me
-        //  for now returns already compiled code
-
         auto stripped = stripper.strip(query);
-        //  TODO move to logger
-        cout << "Stripped query is: " << stripped << endl;
+        log.info("stripped_query=" + stripped);
         auto stripped_hash = fnv(stripped);
-        //  TODO move to logger
-        cout << "Query hash is: " << stripped_hash << endl;
-        
-        auto code_lib = load_code_lib("./compiled/cpu/create_return.so");
+        auto hash_string = std::to_string(stripped_hash);
+        log.info("query_hash=" + hash_string);
+
+        auto code_lib_iter = code_libs.find(stripped_hash);
+
+        // code is already compiled and loaded, just return runnable
+        // instance
+        if (code_lib_iter != code_libs.end())
+            //  TODO also return extracted arguments
+            return code_lib_iter->second->instance();
+
+        // code has to be generated, compiled and loaded
+        //  TODO load output path from config
+        auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
+        auto path_cpp = base_path + hash_string + ".cpp";
+        code_generator.generate(query, path_cpp);
+       
+        //  TODO compile generated code 
+        auto path_so = base_path + hash_string + ".so";
+        code_compiler.compile(path_cpp, path_so);
+
+        // loads dynamic lib and store it
+        auto code_lib = load_code_lib(path_so);
         code_libs.insert({{stripped_hash, code_lib}});
 
+        // return instance of runnable code (ICodeCPU)
         return code_lib->instance();
     }
 
@@ -53,6 +71,7 @@ private:
 
     CodeGenerator code_generator;
     CodeCompiler code_compiler;
+    Logger log;
 
     sptr_code_lib load_code_lib(const string& path)
     {

@@ -29,6 +29,7 @@ public:
 
     decltype(auto) strip(const std::string& query)
     {
+        //  TODO return hash and arguments
         auto tokenizer = lexer->tokenize(query);
         std::string stripped = "";
         int counter = 0;

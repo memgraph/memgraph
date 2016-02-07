@@ -1,7 +1,7 @@
 #pragma once
 
 #include "utils/command_line/arguments.hpp"
-#include "utils/string/filereader.hpp"
+#include "utils/string/file.hpp"
 
 std::string extract_query(const vector_str& arguments)
 {
@@ -10,6 +10,6 @@ std::string extract_query(const vector_str& arguments)
     auto default_file = "query.cypher";
     auto file = get_argument(arguments, "-f", default_file);
     // TODO: error handling
-    return read_file(file.c_str());
+    return utils::read_file(file.c_str());
 }
 
