@@ -3,25 +3,25 @@
 
 #include "query_engine/i_code_cpu.hpp"
 
+//  TODO generate with the template engine 
+// #include "storage/model/properties/jsonwriter.hpp"
+
 using std::cout;
 using std::endl;
+
+// query: {{query}}
 
 class {{class_name}} : public ICodeCPU
 {
 public:
 
-    std::string query() const override
+    QueryResult::sptr run(Db& db) override
     {
-        return {{query}};
-    }
-
-    void run(Db& db) const override
-    {
-        {{code}}
-    }
+{{code}}    }
 
     ~{{class_name}}() {}
 };
+
 
 extern "C" ICodeCPU* produce() 
 {

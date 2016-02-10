@@ -17,6 +17,8 @@ public:
             "-I../",
             "-shared -fPIC"
         );
+
+        // synchronous call
         system(compile_command.c_str());
     }
 };

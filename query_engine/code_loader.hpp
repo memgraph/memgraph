@@ -4,17 +4,20 @@
 #include <unordered_map>
 #include <memory>
 
+// #define NOT_LOG_INFO
+
 #include "memgraph_dynamic_lib.hpp"
 #include "query_stripper.hpp"
 #include "code_compiler.hpp"
 #include "code_generator.hpp"
 #include "utils/hashing/fnv.hpp"
-#include "utils/log/logger.hpp"
 #include "config/config.hpp"
+#include "utils/log/logger.hpp"
 
 using std::string;
 using std::cout;
 using std::endl;
+
 
 class CodeLoader
 {    
@@ -30,10 +33,10 @@ public:
     ICodeCPU* load_code_cpu(const string& query)
     {
         auto stripped = stripper.strip(query);
-        log.info("stripped_query=" + stripped);
+        LOG_INFO("stripped_query=" + stripped);
         auto stripped_hash = fnv(stripped);
         auto hash_string = std::to_string(stripped_hash);
-        log.info("query_hash=" + hash_string);
+        LOG_INFO("query_hash=" + hash_string);
 
         auto code_lib_iter = code_libs.find(stripped_hash);
 
@@ -47,7 +50,7 @@ public:
         //  TODO load output path from config
         auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
         auto path_cpp = base_path + hash_string + ".cpp";
-        code_generator.generate(query, path_cpp);
+        code_generator.generate_cpp(query, stripped_hash, path_cpp);
        
         //  TODO compile generated code 
         auto path_so = base_path + hash_string + ".so";
@@ -71,7 +74,6 @@ private:
 
     CodeGenerator code_generator;
     CodeCompiler code_compiler;
-    Logger log;
 
     sptr_code_lib load_code_lib(const string& path)
     {

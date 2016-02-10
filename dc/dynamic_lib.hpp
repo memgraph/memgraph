@@ -7,9 +7,13 @@
 template<typename T>
 class DynamicLib
 {
+private:
+    using produce_t = typename T::produce;
+    using destruct_t = typename T::destruct;
+
 public:
-    typename T::produce produce_method;
-    typename T::destruct destruct_method;
+    produce_t produce_method;
+    destruct_t destruct_method;
 
     DynamicLib(const std::string& lib_path) :
         lib_path(lib_path)
@@ -20,8 +24,12 @@ public:
     typename T::lib_object* instance()
     {
         //  TODO singleton, lazy, concurrency
-        this->load();
-        lib_object = this->produce_method();
+        //  ifs are uncommented -> SEGMENTATION FAULT
+        //  TODO debug
+        // if (dynamic_lib == nullptr)
+            this->load();
+        // if (dynamic_lib == nullptr)
+            lib_object = this->produce_method();
         return lib_object;
     }
 
@@ -55,7 +63,7 @@ private:
 
     void load_produce_func()
     {
-        produce_method = (typename T::produce) dlsym(
+        produce_method = (produce_t) dlsym(
             dynamic_lib,
             T::produce_name.c_str()
         );
@@ -67,7 +75,7 @@ private:
 
     void load_destruct_func()
     {
-        destruct_method = (typename T::destruct) dlsym(
+        destruct_method = (destruct_t) dlsym(
             dynamic_lib,
             T::destruct_name.c_str()
         );

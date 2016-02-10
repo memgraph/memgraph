@@ -53,6 +53,7 @@ public:
             if(first)
                 first = false;
         }
+        handler.finish();
     }
 
 private:

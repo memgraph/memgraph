@@ -1,59 +1,49 @@
 #pragma once
 
-#include <iostream>
-#include <typeinfo>
-#include <map>
-
 #include "cypher/visitor/traverser.hpp"
+#include "storage/model/properties/properties.hpp"
 
-using std::cout;
-using std::endl;
-
-class NodeTraverser : public Traverser
+struct NodeTraverser : public Traverser
 {
-    struct PropertiesTraverser : public Traverser
+    Properties traverse(ast::Node& node)
     {
-        PropertiesTraverser(NodeTraverser* node_traverser)
-            : node_traverser(node_traverser) {}
+        Traverser::visit(node);
+        return properties;
+    }
 
-        // friend NodeTraverser;
-
-        void visit(ast::Property& property) override
-        {
-            name = property.idn->name;
-            Traverser::visit(property);
-            json[name] = value;
-        }
-
-        void visit(ast::String& string) override
-        {
-            value = string.value;
-        }
-
-        void visit(ast::Integer& integer) override
-        {
-            value = std::to_string(integer.value);
-        }
-
-        void visit(ast::Node& node) override
-        {
-            Traverser::visit(node);
-            node_traverser->json = json;
-        }
-    private:
-        std::string name;
-        std::string value;
-        std::map<std::string, std::string> json;
-        NodeTraverser* node_traverser;
-    };
-
-public:
-    // TODO: replace with generic value
-    std::map<std::string, std::string> json;
-
-    void visit(ast::Create& create) override
+    void visit(ast::Property& property) override
     {
-        auto create_nodes = PropertiesTraverser(this);
-        create.accept(create_nodes);
-    };
+        key = property.idn->name;
+        Traverser::visit(property);
+        if (flag == Property::Flags::Int32) {
+            properties.set<Int32>(key, *int_value);
+        }
+        if (flag == Property::Flags::String) {
+            properties.set<String>(key, *string_value);
+        }
+    }
+
+    void visit(ast::String& string) override
+    {
+        flag = Property::Flags::String;
+        string_value = std::make_shared<String>(string.value);
+    }
+
+    void visit(ast::Integer& integer) override
+    {
+        flag = Property::Flags::Int32;
+        int_value = std::make_shared<Int32>(integer.value);
+    }
+
+    void visit(ast::Node& node) override
+    {
+        Traverser::visit(node);
+    }
+
+private:
+    std::string key;
+    Property::Flags flag;
+    std::shared_ptr<Int32> int_value;
+    std::shared_ptr<String> string_value;
+    Properties properties;
 };

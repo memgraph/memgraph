@@ -45,8 +45,11 @@ public:
         if (0 == std::strcmp(key, "compile_cpu_path"))
             return "./compiled/cpu/";
 
-        if (std::strcmp(key, "template_cpu_path") == 0)
+        if (std::strcmp(key, "template_cpu_cpp_path") == 0)
             return "./template/template_code_cpu.cpp";
+
+        if (std::strcmp(key, "template_cpu_hpp_path") == 0)
+            return "./template/template_code_cpu.hpp";
 
         throw std::runtime_error("implement me");
 
@@ -56,3 +59,5 @@ public:
 };
 
 }
+
+#define CONFIG(_KEY_) config::Config::instance()[_KEY_]

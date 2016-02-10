@@ -8,6 +8,10 @@
 class Logger
 {
 public:
+    Logger(Logger& other) = delete;
+    Logger(Logger&& other) = delete;
+
+private:
     Logger() = default;
 
     //  TODO logger name support
@@ -16,13 +20,17 @@ public:
 
     //  TODO handlers support:
     //      * log format support
-    
-    void info(const std::string& text)
+
+    //  TODO merge with debug/log.hpp
+   
+public: 
+    static Logger& instance()
     {
-        stdout_log(text);
+        static Logger logger;
+        return logger;
     }
 
-    void debug(const std::string& text)
+    void info(const std::string& text)
     {
         stdout_log(text);
     }
@@ -35,3 +43,11 @@ private:
                   << text << std::endl; 
     }
 };
+
+#ifdef NOT_LOG_INFO
+#   define LOG_INFO(_)
+#else
+#   define LOG_INFO(_MESSAGE_) Logger::instance().info(_MESSAGE_);
+#endif
+
+
