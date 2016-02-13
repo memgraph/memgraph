@@ -3,16 +3,24 @@
 #include <map>
 
 #include "property.hpp"
+#include "null.hpp"
+#include "bool.hpp"
+#include "string.hpp"
+#include "int32.hpp"
 
 class Properties
 {
     using props_t = std::map<std::string, Property::sptr>;
 
 public:
-    const Property* at(const std::string& key) const
+    const Property& at(const std::string& key) const
     {
         auto it = props.find(key);
-        return it == props.end() ? nullptr : it->second.get();
+
+        if(it == props.end())
+            return Property::Null;
+
+        return *it->second.get();
     }
 
     template <class T, class... Args>
@@ -59,3 +67,10 @@ public:
 private:
     props_t props;
 };
+
+template<>
+void Properties::set<Null>(const std::string& key)
+{
+    clear(key);
+}
+
