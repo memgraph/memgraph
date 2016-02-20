@@ -34,5 +34,15 @@ public:
         return value == other;
     }
 
+    friend std::ostream& operator<<(std::ostream& stream, const String& prop)
+    {
+        return stream << prop.value;
+    }
+
+    std::ostream& print(std::ostream& stream) const override
+    {
+        return operator<<(stream, *this);
+    }
+
     std::string value;
 };

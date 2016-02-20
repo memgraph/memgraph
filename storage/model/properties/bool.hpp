@@ -43,5 +43,15 @@ public:
     {
         return value() == v;
     }
+
+    std::ostream& print(std::ostream& stream) const override
+    {
+        return operator<<(stream, *this);
+    }
+
+    friend std::ostream& operator<<(std::ostream& stream, const Bool& prop)
+    {
+        return stream << prop.value();
+    }
 };
 

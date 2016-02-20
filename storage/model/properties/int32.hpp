@@ -1,6 +1,7 @@
 #pragma once
 
 #include "integral.hpp"
+#include "int64.hpp"
 
 class Int32 : public Integral<Int32>
 {
@@ -9,35 +10,10 @@ public:
 
     Int32(int32_t value) : Integral(Flags::Int32), value(value) {}
 
-    /* friend constexpr bool operator==(const Int32& lhs, const Int32& rhs) */
-    /* { */
-    /*     return lhs.value == rhs.value; */
-    /* } */
-
-    /* friend constexpr bool operator<(const Int32& lhs, const Int32& rhs) */
-    /* { */
-    /*     return lhs.value < rhs.value; */
-    /* } */
-
-    /* friend constexpr bool operator==(const Int32& lhs, int32_t rhs) */
-    /* { */
-    /*     return lhs.value == rhs; */
-    /* } */
-
-    /* friend constexpr bool operator<(const Int32& lhs, int32_t rhs) */
-    /* { */
-    /*     return lhs.value < rhs; */
-    /* } */
-
-    /* friend constexpr bool operator==(int32_t lhs, const Int32& rhs) */
-    /* { */
-    /*     return lhs == rhs.value; */
-    /* } */
-
-    /* friend constexpr bool operator<(int32_t lhs, const Int32& rhs) */
-    /* { */
-    /*     return lhs < rhs.value; */
-    /* } */
+    operator Int64() const
+    {
+        return Int64(value);
+    }
 
     int32_t value;
 };

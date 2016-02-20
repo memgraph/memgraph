@@ -3,7 +3,7 @@
 #include "utils/crtp.hpp"
 
 template <class Derived>
-struct UnaryNegation : Crtp<Derived>
+struct UnaryNegation : public Crtp<Derived>
 {
     Derived operator-() const
     {

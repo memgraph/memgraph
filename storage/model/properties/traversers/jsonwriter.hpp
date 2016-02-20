@@ -1,6 +1,7 @@
 #pragma once
 
-#include "properties.hpp"
+#include "../properties.hpp"
+#include "../all.hpp"
 
 template <class Buffer>
 struct JsonWriter
@@ -11,10 +12,13 @@ public:
         buffer << '{';
     };
 
-    void handle(const std::string& key, Property& value, bool first)
+    void handle(const std::string& key, Property& value)
     {
         if(!first)
             buffer << ',';
+
+        if(first)
+            first = false;
 
         buffer << '"' << key << "\":";
         value.accept(*this);
@@ -56,6 +60,7 @@ public:
     }
 
 private:
+    bool first {true};
     Buffer& buffer;
 };
 

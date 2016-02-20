@@ -29,6 +29,16 @@ public:
         return false;
     }
 
+    friend std::ostream& operator<<(std::ostream& stream, const Null&)
+    {
+        return stream << "NULL";
+    }
+
+    std::ostream& print(std::ostream& stream) const override
+    {
+        return operator<<(stream, *this);
+    }
+
 private:
     // the constructor for null is private, it can be constructed only as a
     // value inside the Property class, Property::Null

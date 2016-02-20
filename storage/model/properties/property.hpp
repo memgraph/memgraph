@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <cassert>
+#include <ostream>
 
 #include "utils/underlying_cast.hpp"
 
@@ -61,10 +62,6 @@ public:
 
     Property(Flags flags) : flags(flags) {}
 
-    // this is giving problems with default constructors in derived classes
-    // Property(const Property&) = delete;
-    // Property(Property&&) = delete;
-
     virtual bool operator==(const Property& other) const = 0;
 
     bool operator!=(const Property& other) const
@@ -92,54 +89,16 @@ public:
         return *static_cast<const T*>(this);
     }
 
+    virtual std::ostream& print(std::ostream& stream) const = 0;
+
+    friend std::ostream& operator<<(std::ostream& stream, const Property& prop)
+    {
+        return prop.print(stream);
+    }
+
     template <class Handler>
     void accept(Handler& handler);
 
     const Flags flags;
 };
 
-/* struct Int64 : public Property */
-/* { */
-/*     static constexpr Flags type = Flags::Int64; */
-
-/*     Int64(int64_t value) */
-/*         : Property(Flags::Int64), value(value) {} */
-
-/*     int64_t value; */
-/* }; */
-
-/* struct Float : public Property */
-/* { */
-/*     static constexpr Flags type = Flags::Float; */
-
-/*     Float(float value) */
-/*         : Property(Flags::Float), value(value) {} */
-
-/*     float value; */
-/* }; */
-
-/* struct Double : public Property */
-/* { */
-/*     static constexpr Flags type = Flags::Double; */
-
-/*     Double(double value) */
-/*         : Property(Flags::Double), value(value) {} */
-
-/*     double value; */
-/* }; */
-
-template <class Handler>
-void Property::accept(Handler& h)
-{
-    /* switch(flags) */
-    /* { */
-    /*     case Flags::True:   return h.handle(static_cast<Bool&>(*this)); */
-    /*     case Flags::False:  return h.handle(static_cast<Bool&>(*this)); */
-    /*     case Flags::String: return h.handle(static_cast<String&>(*this)); */
-    /*     case Flags::Int32:  return h.handle(static_cast<Int32&>(*this)); */
-    /*     case Flags::Int64:  return h.handle(static_cast<Int64&>(*this)); */
-    /*     case Flags::Float:  return h.handle(static_cast<Float&>(*this)); */
-    /*     case Flags::Double: return h.handle(static_cast<Double&>(*this)); */
-    /*     default: return; */
-    /* } */
-}

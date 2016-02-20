@@ -3,10 +3,7 @@
 #include <map>
 
 #include "property.hpp"
-#include "null.hpp"
-#include "bool.hpp"
-#include "string.hpp"
-#include "int32.hpp"
+#include "all.hpp"
 
 class Properties
 {
@@ -52,15 +49,9 @@ public:
     template <class Handler>
     void accept(Handler& handler) const
     {
-        bool first = true;
-
         for(auto& kv : props)
-        {
-            handler.handle(kv.first, *kv.second, first);
+            handler.handle(kv.first, *kv.second);
 
-            if(first)
-                first = false;
-        }
         handler.finish();
     }
 
