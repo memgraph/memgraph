@@ -2,7 +2,7 @@
 
 #include "mvcc/record.hpp"
 #include "model/edge_model.hpp"
-#include "model/properties/jsonwriter.hpp"
+#include "model/properties/traversers/jsonwriter.hpp"
 
 class Edge : public mvcc::Record<Edge>
 {

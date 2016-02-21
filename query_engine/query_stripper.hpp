@@ -3,12 +3,21 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <unordered_map>
 
 #include "cypher/cypher.h"
 #include "cypher/tokenizer/cypher_lexer.hpp"
 #include "utils/variadic/variadic.hpp"
+#include "storage/model/properties/all.hpp"
+#include "query_stripped.hpp"
 
 #include <iostream>
+
+template<class T, class V>
+void store_query_param(code_args_t& arguments, V&& v)
+{
+    arguments.emplace_back(std::make_shared<T>(std::forward<V>(v)));
+}
 
 template<typename ...Ts>
 class QueryStripper
@@ -17,32 +26,63 @@ public:
 
     QueryStripper(Ts&&... strip_types) :
         lexer(std::make_unique<CypherLexer>()),
-        strip_types(std::make_tuple(std::forward<Ts>(strip_types)...))
-    {
-    }
+        strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)) {}
+
     QueryStripper(QueryStripper& other) = delete;
+
     QueryStripper(QueryStripper&& other) : 
         strip_types(std::move(other.strip_types)),
-        lexer(std::move(other.lexer))
-    {
-    }
+        lexer(std::move(other.lexer)) {}
 
-    decltype(auto) strip(const std::string& query)
+    auto strip(const std::string& query)
     {
-        //  TODO return hash and arguments
+        //  TODO write this more optimal (resplace string 
+        //  concatenation with something smarter)
+        //  TODO: in place substring replacement
+
         auto tokenizer = lexer->tokenize(query);
-        std::string stripped = "";
-        int counter = 0;
+
+        // TMP size of supported token types
         constexpr auto size = std::tuple_size<decltype(strip_types)>::value;
+
+        int counter = 0;
+        code_args_t stripped_arguments;
+        std::string stripped_query;
+        stripped_query.reserve(query.size());
+
         while (auto token = tokenizer.lookup())
         {
+            // TODO: better implementation
             if (_or(token.id, strip_types, std::make_index_sequence<size>{})) {
-                stripped += "@" + std::to_string(counter++);
+                auto index = counter++;
+                switch (token.id) {
+                    case TK_INT:
+                        store_query_param<Int32>(stripped_arguments,
+                                                 std::stoi(token.value));
+                        break;
+                    case TK_STR:
+                        store_query_param<String>(stripped_arguments,
+                                                  token.value);
+                        break;
+                    case TK_BOOL: {
+                        bool value = token.value[0] == 'T' ||
+                                     token.value[0] == 't';
+                        store_query_param<Bool>(stripped_arguments, value);
+                        break;
+                    }
+                    case TK_FLOAT:
+                        store_query_param<Float>(stripped_arguments,
+                                                 std::stof(token.value));
+                        break;
+                }
+                stripped_query += std::to_string(index);
             } else {
-                stripped += token.value;
+                stripped_query += token.value;
             }
         }
-        return stripped;
+
+        return QueryStripped(std::move(stripped_query),
+                             std::move(stripped_arguments));
     }
 
 private:

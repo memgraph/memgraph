@@ -4,38 +4,52 @@
 #include <typeinfo>
 #include <map>
 
-#include "storage/model/properties/properties.hpp"
-#include "storage/model/properties/jsonwriter.hpp"
 #include "cypher/visitor/traverser.hpp"
-#include "node_traverser.hpp"
+#include "query_engine/util.hpp"
 
 using std::cout;
 using std::endl;
 
 class CreateTraverser : public Traverser
 {
+private:
+    std::string key;
+    uint32_t index{0};
+
 public:
     std::string code;
-    Properties properties;
 
     void visit(ast::Create& create) override
     {
-        code = "\t\tauto& t = db.tx_engine.begin();\n"; 
-        code += "\t\tauto vertex_accessor = db.graph.vertices.insert(t);\n";
+        code += line("auto& t = db.tx_engine.begin();");
+        code += line("auto vertex_accessor = db.graph.vertices.insert(t);");
+
         Traverser::visit(create);
     };
 
-    void visit(ast::Node& node) override
+    void visit(ast::Property& property) override
     {
-        Traverser::visit(node);
+        key = property.idn->name;
+
+        Traverser::visit(property);
+
+        code += line("vertex_accessor.property(");
+        code += line("\t\"" + key + "\", args[" + std::to_string(index) + "]");
+        code += line(");");
+
+        ++index;
     }
 
     void visit(ast::Return& ret) override
     {
-        code += "\t\tauto properties = vertex_accessor.properties();\n";
-        code += "\t\tStringBuffer buffer;\n";
-        code += "\t\tJsonWriter<StringBuffer> writer(buffer);\n";
-        code += "\t\tproperties.accept(writer);\n";
-        code += "\t\treturn std::make_shared<QueryResult>(buffer.str());\n";
+        code += line("t.commit();");
+        code += line("auto &properties = vertex_accessor.properties();");
+        code += line("ResultList::data_t data = {&properties};");
+        code += line("auto result_data = "
+                     "std::make_shared<ResultList>(std::move(data));");
+        code += line("QueryResult::data_t query_data = {{\"" +
+                     ret.return_list->value->name + "\", result_data}};");
+        code += line("return std::make_shared<QueryResult>"
+                     "(std::move(query_data));");
     }
 };

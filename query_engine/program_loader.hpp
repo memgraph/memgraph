@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <memory>
 
-// #define NOT_LOG_INFO
+#define NOT_LOG_INFO
 
 #include "memgraph_dynamic_lib.hpp"
 #include "query_stripper.hpp"
@@ -13,28 +13,27 @@
 #include "utils/hashing/fnv.hpp"
 #include "config/config.hpp"
 #include "utils/log/logger.hpp"
+#include "query_program.hpp"
 
 using std::string;
 using std::cout;
 using std::endl;
 
-
-class CodeLoader
+class ProgramLoader
 {    
 public:
 
     using sptr_code_lib = std::shared_ptr<CodeLib>;
 
-    CodeLoader()
-        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR))
-    {
-    }
+    ProgramLoader()
+        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL)) {}
 
-    ICodeCPU* load_code_cpu(const string& query)
+    auto load(const string& query)
     {
         auto stripped = stripper.strip(query);
-        LOG_INFO("stripped_query=" + stripped);
-        auto stripped_hash = fnv(stripped);
+        LOG_INFO("stripped_query=" + stripped.query);
+
+        auto stripped_hash = fnv(stripped.query);
         auto hash_string = std::to_string(stripped_hash);
         LOG_INFO("query_hash=" + hash_string);
 
@@ -42,9 +41,10 @@ public:
 
         // code is already compiled and loaded, just return runnable
         // instance
-        if (code_lib_iter != code_libs.end())
-            //  TODO also return extracted arguments
-            return code_lib_iter->second->instance();
+        if (code_lib_iter != code_libs.end()) {
+            auto code = code_lib_iter->second->instance();
+            return QueryProgram(code, std::move(stripped));
+        }
 
         // code has to be generated, compiled and loaded
         //  TODO load output path from config
@@ -61,12 +61,13 @@ public:
         code_libs.insert({{stripped_hash, code_lib}});
 
         // return instance of runnable code (ICodeCPU)
-        return code_lib->instance();
+        return QueryProgram(code_lib->instance(), std::move(stripped));
     }
 
 private:
+
     //  TODO somehow remove int.. from here
-    QueryStripper<int, int, int> stripper;
+    QueryStripper<int, int, int, int> stripper;
     // TODO ifdef MEMGRAPH64 problem, how to use this kind
     // of ifdef functions?
     // uint64_t depends on fnv function

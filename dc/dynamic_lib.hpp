@@ -3,6 +3,11 @@
 #include <string>
 #include <stdexcept>
 #include <dlfcn.h>
+#include <atomic>
+
+#include <iostream>
+using std::cout;
+using std::endl;
 
 template<typename T>
 class DynamicLib
@@ -10,26 +15,25 @@ class DynamicLib
 private:
     using produce_t = typename T::produce;
     using destruct_t = typename T::destruct;
+    std::atomic<uint8_t> counter;
 
 public:
     produce_t produce_method;
     destruct_t destruct_method;
 
     DynamicLib(const std::string& lib_path) :
-        lib_path(lib_path)
+        lib_path(lib_path),
+        lib_object(nullptr)
     {
+        load();
     }
 
-    //  TODO debug why this doesn't work
     typename T::lib_object* instance()
     {
-        //  TODO singleton, lazy, concurrency
-        //  ifs are uncommented -> SEGMENTATION FAULT
-        //  TODO debug
-        // if (dynamic_lib == nullptr)
-            this->load();
-        // if (dynamic_lib == nullptr)
+        //  TODO singleton, concurrency
+        if (lib_object == nullptr) {
             lib_object = this->produce_method();
+        }
         return lib_object;
     }
 
@@ -50,7 +54,7 @@ public:
 private:
     std::string lib_path;
     void *dynamic_lib;
-    typename T::lib_object* lib_object;
+    typename T::lib_object *lib_object;
 
     void load_lib()
     {

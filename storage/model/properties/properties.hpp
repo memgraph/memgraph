@@ -7,9 +7,9 @@
 
 class Properties
 {
-    using props_t = std::map<std::string, Property::sptr>;
-
 public:
+    using sptr = std::shared_ptr<Properties>;
+
     const Property& at(const std::string& key) const
     {
         auto it = props.find(key);
@@ -56,6 +56,8 @@ public:
     }
 
 private:
+    using props_t = std::map<std::string, Property::sptr>;
+
     props_t props;
 };
 

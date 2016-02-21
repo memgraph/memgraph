@@ -2,6 +2,7 @@
 #include <string>
 
 #include "query_engine/i_code_cpu.hpp"
+#include "storage/model/properties/all.hpp"
 
 //  TODO generate with the template engine 
 // #include "storage/model/properties/jsonwriter.hpp"
@@ -15,7 +16,7 @@ class {{class_name}} : public ICodeCPU
 {
 public:
 
-    QueryResult::sptr run(Db& db) override
+    QueryResult::sptr run(Db& db, code_args_t& args) override
     {
 {{code}}    }
 

@@ -7,15 +7,17 @@
 class CodeCompiler
 {
 public:
+
     void compile(const std::string& in_file, const std::string& out_file)
     {
         auto compile_command = utils::prints(
             "clang++",
-            "-std=c++1y",
-            in_file,
-            "-o", out_file,
-            "-I../",
-            "-shared -fPIC"
+            // "-std=c++1y -O2 -DNDEBUG",     // compile flags
+            "-std=c++1y",     // compile flags
+            in_file,          // input file
+            "-o", out_file,   // ouput file
+            "-I../",          // include paths
+            "-shared -fPIC"   // shared library flags
         );
 
         // synchronous call

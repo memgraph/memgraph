@@ -60,6 +60,11 @@ public:
         record->data.props.template set<V>(key, std::forward<Args>(args)...);
     }
 
+    void property(const std::string& key, Property::sptr value)
+    {
+        record->data.props.set(key, std::move(value));
+    }
+
     Properties& properties() const
     {
         return record->data.props;
