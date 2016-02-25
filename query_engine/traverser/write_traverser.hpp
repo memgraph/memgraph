@@ -7,13 +7,10 @@
 #include "cypher/visitor/traverser.hpp"
 #include "query_engine/util.hpp"
 
-using std::cout;
-using std::endl;
 
-class CreateTraverser : public Traverser
+class WriteTraverser : public Traverser
 {
 private:
-    std::string key;
     uint32_t index{0};
 
 public:
@@ -29,9 +26,7 @@ public:
 
     void visit(ast::Property& property) override
     {
-        key = property.idn->name;
-
-        Traverser::visit(property);
+        auto key = property.idn->name;
 
         code += line("vertex_accessor.property(");
         code += line("\t\"" + key + "\", args[" + std::to_string(index) + "]");
