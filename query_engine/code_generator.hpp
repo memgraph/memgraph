@@ -12,7 +12,6 @@ using std::string;
 class CodeGenerator
 {
 public:
-
     void generate_cpp(const std::string& query, 
                       const uint64_t stripped_hash,
                       const std::string& path)
@@ -33,8 +32,7 @@ public:
                 {"class_name", "CodeCPU"},
                 {"stripped_hash", std::to_string(stripped_hash)},
                 {"query", query},
-                {"code", code_traverser.code},
-                {"return_type", "int"}
+                {"code", code_traverser.code}
             }
         );
         utils::write_file(generated, path);

@@ -3,6 +3,6 @@
 #include "code.hpp"
 #include "cypher/visitor/traverser.hpp"
 
-class ReadTraverser : public Traverser, public Code
+class DeleteTraverser : public Traverser, public Code
 {
 };

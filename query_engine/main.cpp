@@ -1,5 +1,7 @@
 #include <iostream>
 
+#define DEBUG 1
+
 #include "utils/command_line/arguments.hpp"
 #include "cypher/common.hpp"
 #include "query_engine.hpp"
