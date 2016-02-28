@@ -2,4 +2,4 @@
 
 docker stop neo4j_demo
 docker rm neo4j_demo
-docker run -d --name neo4j_demo -p 7474:7474 neo4j
+docker run -d --name neo4j_demo --net=host -p 7474:7474 neo4j
