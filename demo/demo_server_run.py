@@ -9,7 +9,7 @@ from simulation.web_server import SimulationWebServer
 
 def main():
     '''
-    The frontend run script. Environment could be configured
+    The demo server run script. Environment could be configured
     via the MEMGRAPH_DEMO environtment variable. Available environments
     are: debug, prod.
     '''

@@ -1,9 +1,8 @@
 FROM ubuntu:16.04
 
 RUN apt-get update
-RUN apt-get install -y python3.5 python3-pip
-RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN apt-get install -y git
 
-RUN pip3 install flask requests
+RUN git clone https://pullbot:JnSdamFGKOanF1@phabricator.tomicevic.com/diffusion/MG/memgraph.git
 
 CMD ["/bin/bash"]

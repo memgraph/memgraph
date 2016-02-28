@@ -1,37 +1,44 @@
 # -*- coding: utf-8 -*-
 
+import base64
+
 
 class SimulationParams(object):
     '''
+    Encapsulates the simulation params.
     '''
 
     def __init__(self):
         '''
+        Setup default params values.
         '''
         self.protocol = 'http'
         self.host = 'localhost'
         self.port = 7474
+        self.username = ''
+        self.password = ''
 
-        self.workers_number = 16
         self.period_time = 0.5
         self.workers_per_query = 1
         self.queries_per_second = 15000
-        self.recalculate_qps()
+        self.recalculate_qpp()
 
         self.tasks = []
 
     def json_data(self):
         '''
+        :returns: dict with all param values
         '''
         return {
             "protocol": self.protocol,
             "host": self.host,
             "port": self.port,
-            "workers_number": self.workers_number,
+            "username": self.username,
+            "password": self.password,
             "period_time": self.period_time,
             "workers_per_query": self.workers_per_query,
-            "queries_per_second": self.queries_per_second,
-            "queries_per_period": self.queries_per_period
+            "queries_per_period": self.queries_per_period,
+            "queries_per_second": self.queries_per_second
         }
 
     # protocol
@@ -61,14 +68,44 @@ class SimulationParams(object):
     def port(self, value):
         self._port = value
 
-    # workers number
+    # username
     @property
-    def workers_number(self):
-        return self._workers_number
+    def username(self):
+        return self._username
 
-    @workers_number.setter
-    def workers_number(self, value):
-        self._workers_number = value
+    @username.setter
+    def username(self, value):
+        self._username = value
+        self.http_basic()
+
+    # password
+    @property
+    def password(self):
+        return self._password
+
+    @password.setter
+    def password(self, value):
+        self._password = value
+        self.http_basic()
+
+    def http_basic(self):
+        '''
+        Recalculates http authorization header.
+        '''
+        try:
+            encoded = base64.b64encode(self.username + ":" + self.password)
+            self.authorization = {"Authorization": "Basic " + encoded}
+        except:
+            pass
+
+    # authorization
+    @property
+    def authorization(self):
+        return self._authorization
+
+    @authorization.setter
+    def authorization(self, value):
+        self._authorization = value
 
     # workers per query
     @property
@@ -87,8 +124,9 @@ class SimulationParams(object):
     @queries_per_second.setter
     def queries_per_second(self, value):
         self._queries_per_second = value
+        self.recalculate_qpp()
 
-    def recalculate_qps(self):
+    def recalculate_qpp(self):
         try:
             self.queries_per_period = \
                 int(self.queries_per_second * self.period_time)
@@ -103,7 +141,6 @@ class SimulationParams(object):
     @queries_per_period.setter
     def queries_per_period(self, value):
         self._queries_per_period = value
-        self.recalculate_qps()
 
     # period time
     @property
@@ -113,4 +150,4 @@ class SimulationParams(object):
     @period_time.setter
     def period_time(self, value):
         self._period_time = value
-        self.recalculate_qps()
+        self.recalculate_qpp()
