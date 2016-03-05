@@ -1,0 +1,10 @@
+FROM ubuntu:16.04
+
+RUN apt-get update
+RUN apt-get install -y git
+
+RUN mkdir /app
+WORKDIR /app
+RUN git clone --recursive https://${MEMGRAPH_PULL_USER}:${MEMGRAPH_PULL_PASS}@phabricator.tomicevic.com/diffusion/MG/memgraph.git
+
+CMD ["/bin/bash"]

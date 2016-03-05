@@ -3,7 +3,7 @@
 import time
 import logging
 import itertools
-import requests
+import urllib.request
 from concurrent.futures import ProcessPoolExecutor
 
 from .epoch_result import SimulationEpochResult
@@ -61,13 +61,16 @@ class SimulationExecutor(object):
 
         :param query: str, query string
         '''
-        requests.post('http://localhost:7474/db/data/transaction/commit',
-                      json={
-                          "statements": [
-                              {"statement": query}
-                          ]
-                      },
-                      headers={'Authorization': 'Basic bmVvNGo6cGFzcw=='})
+        # requests.post('http://localhost:7474/db/data/transaction/commit',
+        #               json={
+        #                   "statements": [
+        #                       {"statement": query}
+        #                   ]
+        #               },
+        #               headers={'Authorization': 'Basic bmVvNGo6cGFzcw=='})
+        # requests.get('http://localhost:7474/db/data/ping')
+        response = urllib.request.urlopen('http://localhost:7474/db/data/ping')
+        response.read()
 
     def iteration(self, task):
         '''
@@ -107,6 +110,8 @@ class SimulationExecutor(object):
         log.info('epoch')
 
         with self.pool() as executor:
+
+            log.info('pool iter')
 
             # execute all tasks
             futures = [executor.submit(self.iteration, task)

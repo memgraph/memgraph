@@ -1,5 +1,0 @@
-#!/bin/bash
-
-cd ..
-docker rmi memgraph_demo
-docker build -t memgraph_demo -f demo/memgraph_demo.docker .

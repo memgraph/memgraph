@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import logging
 import threading
 from flask import Flask, request, jsonify
@@ -11,7 +12,7 @@ from .task import SimulationTask
 log = logging.getLogger(__name__)
 
 
-class SimulationWebServer():
+class SimulationWebServer(object):
     '''
     Memgraph demo fontend server. For now it wraps the flask server.
     '''
@@ -20,44 +21,45 @@ class SimulationWebServer():
         '''
         Instantiates the flask web server.
         '''
-        self.server = Flask(__name__)
         self.is_simulation_running = False
         self.simulation_stats = None
         self.simulation_params = SimulationParams()
-        self.simulation_executor = \
-            SimulationExecutor().setup(self.simulation_params)
+        self.simulation_executor = SimulationExecutor()
+        self.server = Flask(__name__)
+        self.setup_routes()
+        self.server.before_first_request(self.before_first_request)
 
     def setup_routes(self):
         '''
-        Setup all available rutes:
-            GET  /ping
-            POST /tasks
-            POST /start
-            POST /stop
-            GET  /stats
-            GET  /params
-            POST /params
+        Setup all routes.
         '''
-        self.server.add_url_rule('/ping', 'ping', self.ping)
-        self.server.add_url_rule('/tasks', 'tasks', self.tasks,
-                                 methods=['POST'])
-        self.server.add_url_rule('/start', 'start', self.start,
-                                 methods=['POST'])
-        self.server.add_url_rule('/stop', 'stop', self.stop,
-                                 methods=['POST'])
-        self.server.add_url_rule('/stats', 'stats', self.stats,
-                                 methods=['GET'])
-        self.server.add_url_rule('/params', 'params_get', self.params_get,
-                                 methods=['GET'])
-        self.server.add_url_rule('/params', 'params_set', self.params_set,
-                                 methods=['POST'])
+        self.add_route('/ping', self.ping, 'GET')
+        self.add_route('/tasks', self.tasks_get, 'GET')
+        self.add_route('/tasks', self.tasks_set, 'POST')
+        self.add_route('/start', self.start, 'POST')
+        self.add_route('/stop', self.stop, 'POST')
+        self.add_route('/stats', self.stats, 'GET')
+        self.add_route('/params', self.params_get, 'GET')
+        self.add_route('/params', self.params_set, 'POST')
 
-    def run(self, host="127.0.0.1", port=8080, debug=False):
+    def before_first_request(self):
         '''
-        Runs the server. Before run, routes are initialized.
+        Initializes simulation executor before first request.
         '''
-        self.setup_routes()
-        self.server.run(host=host, port=port, debug=debug)
+        log.info('before first request')
+        self.simulation_executor.setup(self.simulation_params)
+
+    def add_route(self, route, code_method, http_method):
+        '''
+        Registers URL rule
+
+        :param route: str, route string
+        :param object_method: object method responsible for the
+                              request handling
+        :param http_method: name of http method
+        '''
+        self.server.add_url_rule(route, '%s_%s' % (route, http_method),
+                                 code_method, methods=[http_method])
 
     def ping(self):
         '''
@@ -65,7 +67,15 @@ class SimulationWebServer():
         '''
         return ('', 204)
 
-    def tasks(self):
+    def tasks_get(self):
+        '''
+        Retutns all defined tasks.
+        '''
+        return json.dumps(
+            [task.json_data() for task in self.simulation_params.tasks]
+        )
+
+    def tasks_set(self):
         '''
         Register tasks. Task is object that encapsulates single query data.
         '''

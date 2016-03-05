@@ -13,3 +13,12 @@ class SimulationTask(object):
         '''
         self.id = id
         self.query = query
+
+    def json_data(self):
+        '''
+        :returns: dict with all elements
+        '''
+        return {
+            "id": self.id,
+            "query": self.query
+        }

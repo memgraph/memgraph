@@ -45,9 +45,9 @@ std::string vertex_create_response(const Vertex::Accessor& vertex_accessor)
 
     writer->String("data");
     writer->StartObject();
-    RapidJsonStringWriter dataBuffer(writer);
-    auto properties = vertex_accessor.properties();
-    properties.accept(dataBuffer);
+    // RapidJsonStringWriter dataBuffer(writer);
+    // auto properties = vertex_accessor.properties();
+    // properties.accept(dataBuffer);
     writer->EndObject();
 
     writer->EndObject();
