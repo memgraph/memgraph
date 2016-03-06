@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import base64
+import logging
+
+log = logging.getLogger(__name__)
 
 
 class SimulationParams(object):
@@ -76,6 +79,7 @@ class SimulationParams(object):
     @username.setter
     def username(self, value):
         self._username = value
+        log.info("Username is now: %s" % self._username)
         self.http_basic()
 
     # password
@@ -86,6 +90,7 @@ class SimulationParams(object):
     @password.setter
     def password(self, value):
         self._password = value
+        log.info("Password is now: %s" % self._password)
         self.http_basic()
 
     def http_basic(self):
@@ -93,10 +98,14 @@ class SimulationParams(object):
         Recalculates http authorization header.
         '''
         try:
-            encoded = base64.b64encode(self.username + ":" + self.password)
-            self.authorization = {"Authorization": "Basic " + encoded}
-        except:
-            pass
+            encoded = base64.b64encode(
+                str.encode(self.username + ":" + self.password))
+            self.authorization = "Basic " + encoded.decode()
+            log.info("Authorization is now: %s" % self.authorization)
+        except AttributeError:
+            log.debug("Username or password isn't defined.")
+        except Exception as e:
+            log.exception(e)
 
     # authorization
     @property

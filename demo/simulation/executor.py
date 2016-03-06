@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
+import os
+import json
 import time
 import logging
 import itertools
-import urllib.request
+import http
 from concurrent.futures import ProcessPoolExecutor
 
+from .substitutor import substitute
 from .epoch_result import SimulationEpochResult
 from .group_result import SimulationGroupResult
 from .iteration_result import SimulationIterationResult
@@ -13,7 +16,7 @@ from .iteration_result import SimulationIterationResult
 log = logging.getLogger(__name__)
 
 
-def calculate_qps(results):
+def calculate_qps(results, delta_t=None):
     '''
     Calculates queris per second for the results list. The main idea
     is to scale up results to the result with the biggest execution time.
@@ -30,9 +33,10 @@ def calculate_qps(results):
     :param results: list of SimulationIterationResult objects
     :returns: queries per second result calculated on the input list
     '''
-    max_delta_t = max([result.delta_t for result in results])
-    qps = sum([result.count * (max_delta_t / result.delta_t)
-               for result in results]) / max_delta_t
+    min_start_time = min([result.start_time for result in results])
+    max_end_time = max([result.end_time for result in results])
+    delta_t = max_end_time - min_start_time
+    qps = sum([result.count for result in results]) / delta_t
     return qps
 
 
@@ -53,24 +57,22 @@ class SimulationExecutor(object):
         self.pool = ProcessPoolExecutor
         return self
 
-    def send(self, query):
+    def send(self, connection, query):
         '''
         Sends the query to the graph database.
 
-        TODO: replace random arguments
-
+        :param connection: http.client.HTTPConnection
         :param query: str, query string
         '''
-        # requests.post('http://localhost:7474/db/data/transaction/commit',
-        #               json={
-        #                   "statements": [
-        #                       {"statement": query}
-        #                   ]
-        #               },
-        #               headers={'Authorization': 'Basic bmVvNGo6cGFzcw=='})
-        # requests.get('http://localhost:7474/db/data/ping')
-        response = urllib.request.urlopen('http://localhost:7474/db/data/ping')
-        response.read()
+        body = json.dumps({'statements': [{'statement': substitute(query)}]})
+        headers = {
+            'Authorization': self.params.authorization,
+            'Content-Type': 'application/json'
+        }
+        connection.request('POST', '/db/data/transaction/commit',
+                           body=body, headers=headers)
+        response = connection.getresponse()
+        log.debug('New response: %s' % response.read())
 
     def iteration(self, task):
         '''
@@ -85,39 +87,54 @@ class SimulationExecutor(object):
         count = 0
         delta_t = 0
 
+        log.debug("New worker with PID: %s" % os.getpid())
+
+        connection = http.client.HTTPConnection(
+            self.params.host, self.params.port)
+        connection.connect()
+
+        start_time = time.time()
+
         for i in range(self.params.queries_per_period):
 
             # send the query on execution
-            start_time = time.time()
-            self.send(task.query)
-            end_time = time.time()
+            self.send(connection, task.query)
 
             # calculate delta time
-            delta_t = delta_t + (end_time - start_time)
+            end_time = time.time()
+            delta_t = end_time - start_time
 
             count = count + 1
 
             if delta_t > self.params.period_time:
                 break
 
-        return SimulationIterationResult(task.id, count, delta_t)
+        connection.close()
+
+        return SimulationIterationResult(task.id, count, start_time, end_time)
 
     def epoch(self):
         '''
         Single simulation epoc. All workers are going to execute
         their queries in the period that is period_time seconds length.
         '''
-        log.info('epoch')
+        log.debug('epoch')
 
-        with self.pool() as executor:
+        max_workers = self.params.workers_per_query * len(self.params.tasks)
 
-            log.info('pool iter')
+        with self.pool(max_workers=max_workers) as executor:
+
+            log.debug('pool iter')
 
             # execute all tasks
+            start_time = time.time()
             futures = [executor.submit(self.iteration, task)
                        for task in self.params.tasks
                        for i in range(self.params.workers_per_query)]
             results = [future.result() for future in futures]
+            end_time = time.time()
+            epoch_time = end_time - start_time
+            log.info("Total epoch time: %s" % epoch_time)
 
             # per query calculation
             grouped = itertools.groupby(results, lambda x: x.id)
@@ -126,5 +143,8 @@ class SimulationExecutor(object):
 
             # for all calculation
             for_all = calculate_qps(results)
+
+            log.info('Queries per period: %s' % sum([r.count
+                                                     for r in results]))
 
             return SimulationEpochResult(per_query, for_all)
