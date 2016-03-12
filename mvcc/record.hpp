@@ -92,6 +92,12 @@ public:
     template <class U>
     bool committed(U& hints, const Id& id, const tx::Transaction& t)
     {
+        // you certainly can't see the transaction with id greater than yours
+        // as that means it started after this transaction and if it committed,
+        // it committed after this transaction had started.
+        if(id > t.id)
+            return false;
+
         auto hint_bits = hints.load();
 
         // if hints are set, return if xid is committed

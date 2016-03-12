@@ -17,6 +17,7 @@ class VersionList : public LazyGC<VersionList<T>>
 
 public:
     using uptr = std::unique_ptr<VersionList<T>>;
+    using item_t = T;
 
     class Accessor
     {
@@ -72,7 +73,7 @@ public:
 
         const Id& id() const
         {
-            return vlist.identifier;
+            return vlist.id;
         }
 
     private:
@@ -80,14 +81,14 @@ public:
         VersionList<T>& vlist;
     };
 
-    VersionList() = default;
+    VersionList(Id id) : id(id) {}
     VersionList(const VersionList&) = delete;
 
     /* @brief Move constructs the version list
      * Note: use only at the beginning of the "other's" lifecycle since this
      * constructor doesn't move the RecordLock, but only the head pointer
      */
-    VersionList(VersionList&& other)
+    VersionList(VersionList&& other) : id(other.id)
     {
         this->head = other.head.load();
         this->identifier = other.id();
@@ -130,21 +131,11 @@ public:
 
     }
 
-    const Id& id() const
-    {
-        return identifier;
-    }
-
-    void id(const Id& identifier)
-    {
-        this->identifier = identifier;
-    }
+    const Id id;
 
 private:
     std::atomic<T*> head {nullptr};
     RecordLock lock;
-
-    Id identifier;
 
     //static Recycler recycler;
 
@@ -171,8 +162,6 @@ private:
     T* insert(tx::Transaction& t)
     {
         assert(head == nullptr);
-
-        // this->id = id;
 
         // create a first version of the record
         // TODO replace 'new' with something better
