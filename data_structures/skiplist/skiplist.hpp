@@ -307,7 +307,7 @@ public:
         Iterator(const Iterator&) = default;
     };
 
-    SkipList() : header(Node::create(K(), std::move(T()), H)) {}
+    SkipList() : header(Node::create(K(), std::move(T(0)), H)) {}
 
     friend class Accessor;
 

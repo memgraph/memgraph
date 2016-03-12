@@ -27,8 +27,8 @@ public:
         auto next = counter.next(std::memory_order_acquire);
 
         // create new vertex record
-        VertexRecord vertex_record;
-        vertex_record.id(next);
+        VertexRecord vertex_record(next);
+        // vertex_record.id(next);
 
         // insert the new vertex record into the vertex store
         auto vertices_accessor = vertices.access();

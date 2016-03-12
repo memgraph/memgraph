@@ -91,7 +91,6 @@ public:
     VersionList(VersionList&& other) : id(other.id)
     {
         this->head = other.head.load();
-        this->identifier = other.id();
         other.head = nullptr;
     }
 
