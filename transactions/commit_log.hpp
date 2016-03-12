@@ -47,12 +47,6 @@ public:
 
     CommitLog operator=(CommitLog) = delete;
 
-    static CommitLog& get()
-    {
-        static CommitLog log;
-        return log;
-    }
-
     Info fetch_info(const Id& id)
     {
         return Info { log.at(2 * id, 2) };

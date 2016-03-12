@@ -8,7 +8,6 @@
 #include "commit_log.hpp"
 
 #include "utils/counters/simple_counter.hpp"
-
 #include "threading/sync/spinlock.hpp"
 #include "threading/sync/lockable.hpp"
 
@@ -59,7 +58,7 @@ public:
     void commit(const Transaction& t)
     {
         auto guard = this->acquire_unique();
-        CommitLog::get().set_committed(t.id);
+        clog.set_committed(t.id);
 
         finalize(t);
     }
@@ -67,7 +66,7 @@ public:
     void abort(const Transaction& t)
     {
         auto guard = this->acquire_unique();
-        CommitLog::get().set_aborted(t.id);
+        clog.set_aborted(t.id);
 
         finalize(t);
     }
@@ -91,6 +90,8 @@ public:
         auto guard = this->acquire_unique();
         return active.size();
     }
+
+    CommitLog clog;
 
 private:
     void finalize(const Transaction& t)

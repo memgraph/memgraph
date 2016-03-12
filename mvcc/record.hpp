@@ -1,9 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <iostream>
 
 #include "transactions/transaction.hpp"
 #include "transactions/commit_log.hpp"
+#include "transactions/engine.hpp"
+
 #include "mvcc/id.hpp"
 #include "cre_exp.hpp"
 #include "version.hpp"
@@ -110,8 +113,7 @@ public:
             return false;
 
         // - you are the first one to check since it ended, consult commit log
-        auto& clog = tx::CommitLog::get();
-        auto info = clog.fetch_info(id);
+        auto info = t.engine.clog.fetch_info(id);
 
         if(info.is_committed())
             return hints.set_committed(), true;

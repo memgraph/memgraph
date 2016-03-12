@@ -44,8 +44,9 @@ public:
     void commit();
     void abort();
 
-private:
     Engine& engine;
+
+private:
     LockStore<RecordLock> locks;
 };
 

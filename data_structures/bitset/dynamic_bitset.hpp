@@ -17,7 +17,7 @@ class DynamicBitset : Lockable<SpinLock>
         Block(Block&&) = delete;
 
         static constexpr size_t size = sizeof(block_t) * 8;
-        
+
         constexpr block_t bitmask(size_t group_size) const
         {
             return (block_t)(-1) >> (size - group_size);
@@ -32,7 +32,7 @@ class DynamicBitset : Lockable<SpinLock>
         void set(size_t k, size_t n, std::memory_order order)
         {
             assert(k + n - 1 < size);
-            block.fetch_or(bitmask(n) << k, order); 
+            block.fetch_or(bitmask(n) << k, order);
         }
 
         void clear(size_t k, size_t n, std::memory_order order)
@@ -40,7 +40,7 @@ class DynamicBitset : Lockable<SpinLock>
             assert(k + n - 1 < size);
             block.fetch_and(~(bitmask(n) << k), order);
         }
-        
+
         std::atomic<block_t> block {0};
     };
 
@@ -136,7 +136,7 @@ private:
             // lock to prevent others that also want to create a new chunk
             // from creating it
             auto guard = acquire_unique();
-            
+
             // double-check locking. if the chunk exists now, some other thread
             // has just created it, continue searching for my chunk
             if(chunk->next.load() != nullptr)
