@@ -9,4 +9,19 @@ class Vertex::Accessor : public RecordAccessor<Vertex, Vertices, Vertex::Accesso
 {
 public:
     using RecordAccessor::RecordAccessor;
+
+    size_t out_degree() const
+    {
+        return this->record->data.out.degree();
+    }
+
+    size_t in_degree() const
+    {
+        return this->record->data.in.degree();
+    }
+    
+    size_t degree()
+    {
+        return in_degree() + out_degree();
+    }
 };

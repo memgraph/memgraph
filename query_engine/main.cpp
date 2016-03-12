@@ -35,16 +35,16 @@ int main(int argc, char** argv)
     // cout << 1000000 / (counter / 1000000000) << "create_transactions per sec" << endl;
     
     // shell
-    // std::string command;
-    // cout << "-- Memgraph query engine --" << endl;
-    // do {
-    //     cout << "> ";
-    //     std::getline(cin, command);
-    //     engine.execute(command);
-    // } while (command != "quit");
+    std::string command;
+    cout << "-- Memgraph query engine --" << endl;
+    do {
+        cout << "> ";
+        std::getline(cin, command);
+        engine.execute(command);
+    } while (command != "quit");
     
-    engine.execute("CREATE (n{id:2}) RETURN n");
-    engine.execute("MATCH (n{id:0}) RETURN n");
+    // engine.execute("CREATE (n{id:2}) RETURN n");
+    // engine.execute("MATCH (n{id:0}) RETURN n");
 
     return 0;
 }

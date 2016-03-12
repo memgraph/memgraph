@@ -18,6 +18,9 @@ public:
         auto versions_accessor = vertices_iterator->second.access(t);
         auto vertex = versions_accessor.find();
 
+        if (vertex == nullptr)
+            return Vertex::Accessor();
+
         return Vertex::Accessor(vertex, &vertices_iterator->second, this);
     }
 

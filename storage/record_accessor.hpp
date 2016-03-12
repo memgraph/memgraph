@@ -49,7 +49,7 @@ public:
         return accessor.remove(record);
     }
 
-    const Property* property(const std::string& key) const
+    const Property& property(const std::string& key) const
     {
         return record->data.props.at(key);
     }
@@ -70,7 +70,12 @@ public:
         return record->data.props;
     }
 
-protected:
+    explicit operator bool() const
+    {
+        return record != nullptr;
+    }
+
+// protected:
     T* const record {nullptr};
     vlist_t* const vlist {nullptr};
     Store* const store {nullptr};

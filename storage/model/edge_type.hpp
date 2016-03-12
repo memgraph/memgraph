@@ -7,6 +7,7 @@
 class EdgeType : public TotalOrdering<EdgeType>
 {
 public:
+    EdgeType() {}
     EdgeType(const std::string& id) : id(id) {}
     EdgeType(std::string&& id) : id(std::move(id)) {}
 

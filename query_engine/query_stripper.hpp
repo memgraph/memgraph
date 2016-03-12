@@ -5,6 +5,7 @@
 #include <utility>
 #include <unordered_map>
 
+#include "utils/string/transform.hpp"
 #include "cypher/cypher.h"
 #include "cypher/tokenizer/cypher_lexer.hpp"
 #include "utils/variadic/variadic.hpp"
@@ -77,6 +78,7 @@ public:
                 }
                 stripped_query += std::to_string(index);
             } else {
+                //  TODO: lowercase only keywords like (MATCH, CREATE, ...)
                 stripped_query += token.value;
             }
         }
