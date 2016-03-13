@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Memgraph Demo</title>
+
+  <link rel="stylesheet" href="demo.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.97.5/css/materialize.min.css">
+  <link rel="stylesheet" href="cypher/codemirror.css">
+  <link rel="stylesheet" href="cypher/neo.css">
+
+  <link rel="stylesheet" href="https://cdn.rawgit.com/novus/nvd3/v1.8.1/build/nv.d3.css">
+  <link rel="stylesheet" href="demo.css">
+</head>
+
+<body>
+  <div class="row">
+    <div class="valign-wrapper">
+      <h1 class="valign center w100">Memgraph Benchmark</h1>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col s2">
+      <div id="q1" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q2" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q3" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q4" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+    </div>
+    <div class="col s8">
+      <div class="card">
+        <div class="card-content">
+          <div id="chart" style="height: 600px;">
+            <svg></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col s2">
+      <div id="q5" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q6" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q7" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+      <div id="q8" class="card">
+        <div class="qps valign-wrapper">
+          <div class="col s6">
+            <h3 id="text" class="valign center w100">25734</h3>
+          </div>
+          <div class="col s6">
+            <canvas id="gauge" width="150" height="60"
+              class="valign center"></canvas>
+          </div>
+        </div>
+        <textarea id="query">MATCH (n:Person) RETURN n</textarea>
+      </div>
+    </div>
+  </div>
+  <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.97.5/js/materialize.min.js"></script>
+
+  <script type="text/javascript" src="http://bernii.github.io/gauge.js/dist/gauge.min.js"></script>
+  <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+  <script src="https://cdn.rawgit.com/novus/nvd3/v1.8.1/build/nv.d3.min.js"></script>
+  <script src="cypher/codemirror.js"></script>
+  <script src="cypher/cypher.js"></script>
+  <script src="demo.js"></script>
+</body>

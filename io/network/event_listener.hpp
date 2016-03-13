@@ -2,22 +2,21 @@
 
 #include "socket.hpp"
 #include "epoll.hpp"
-#include "tcp_stream.hpp"
-
 #include "utils/crtp.hpp"
 
 namespace io
 {
 
-template <class Derived, size_t max_events = 64, int wait_timeout = -1>
-class TcpListener : public Crtp<Derived>
+template <class Derived, class Stream,
+          size_t max_events = 64, int wait_timeout = -1>
+class EventListener : public Crtp<Derived>
 {
 public:
     using Crtp<Derived>::derived;
 
-    TcpListener(uint32_t flags = 0) : listener(flags) {}
+    EventListener(uint32_t flags = 0) : listener(flags) {}
 
-    void add(TcpStream& stream)
+    void add(Stream& stream)
     {
         // add the stream to the event listener
         listener.add(stream.socket, &stream.event);
@@ -30,15 +29,18 @@ public:
         // wait_timeout milliseconds. if wait_timeout is achieved, returns 0
         auto n = listener.wait(events, max_events, wait_timeout);
 
+        LOG_DEBUG("received " << n << " events");
+
         // go through all events and process them in order
         for(int i = 0; i < n; ++i)
         {
             auto& event = events[i];
-            auto& stream = *reinterpret_cast<TcpStream*>(event.data.ptr);
+            auto& stream = *reinterpret_cast<Stream*>(event.data.ptr);
 
-            // a tcp stream was closed
+            // a stream was closed
             if(UNLIKELY(event.events & EPOLLRDHUP))
             {
+                LOG_DEBUG("EPOLLRDHUP event recieved on socket " << stream.id());
                 this->derived().on_close(stream);
                 continue;
             }
@@ -47,10 +49,16 @@ public:
             if(UNLIKELY(!(event.events & EPOLLIN) ||
                           event.events & (EPOLLHUP | EPOLLERR)))
             {
+                LOG_DEBUG(">> EPOLL ERR");
+                LOG_DEBUG("EPOLLIN" << (event.events & EPOLLIN));
+                LOG_DEBUG("EPOLLHUP" << (event.events & EPOLLHUP));
+                LOG_DEBUG("EPOLLERR" << (event.events & EPOLLERR));
+
                 this->derived().on_error(stream);
                 continue;
             }
 
+            LOG_DEBUG("signalling that data exists on socket " << stream.id());
             // we have some data waiting to be read
             this->derived().on_data(stream);
         }

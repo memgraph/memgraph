@@ -36,6 +36,12 @@ int main(void)
 
     props.set<Float>("pi", z);
 
+    cout << props.at("awesome") << endl;
+    cout << props.at("lame") << endl;
+    cout << props.at("age") << endl;
+    cout << props.at("pi") << endl;
+    cout << props.at("lol") << endl;
+
     StringBuffer buffer;
     JsonWriter<StringBuffer> writer(buffer);
 

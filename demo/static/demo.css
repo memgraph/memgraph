@@ -1,0 +1,17 @@
+
+body {
+  background-color: #eee;
+}
+
+.w100 {
+  width: 100%;
+}
+
+.CodeMirror {
+  border-top: 1px solid #eee;
+  height: auto;
+}
+
+svg, text {
+  font-size: 28;
+}

@@ -11,7 +11,7 @@ namespace io
 
 class Worker : public Listener<Worker>
 {
-    char buf[512];
+    char buf[64_kB];
 
 public:
     using Listener::Listener;

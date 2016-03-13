@@ -3,15 +3,20 @@
 #include <thread>
 #include <signal.h>
 
-std::hash<std::thread::id> hash;
-
 #include "debug/log.hpp"
+
+#include "http/request.hpp"
+#include "http/response.hpp"
 
 #include "socket.hpp"
 #include "http/worker.hpp"
 
-std::array<http::Worker, 16> workers;
-std::array<std::thread, 16> threads;
+std::hash<std::thread::id> hash;
+
+constexpr unsigned K = 128;
+
+std::array<http::Parser<http::Request, http::Response>, K> workers;
+std::array<std::thread, K> threads;
 
 std::atomic<bool> alive { true };
 
@@ -24,25 +29,24 @@ void sigint_handler(int)
 {
 
     exiting();
-    std::abort();
+    std::exit(0);
 }
 
 #define MAXEVENTS 64
 
 int main(void)
 {
-    std::atexit(exiting);
+    //std::atexit(exiting);
     signal(SIGINT, sigint_handler);
 
     for(size_t i = 0; i < workers.size(); ++i)
     {
         auto& w = workers[i];
 
-        threads[i] = std::thread([&w]() {
+        threads[i] = std::thread([i, &w]() {
             while(alive)
             {
-                LOG_DEBUG("Worker " << hash(std::this_thread::get_id())
-                          << " waiting... ");
+                LOG_DEBUG("waiting for events on thread " << i);
                 w.wait_and_process_events();
             }
         });
@@ -93,7 +97,10 @@ int main(void)
     {
       int n, i;
 
+      LOG_DEBUG("acceptor waiting for events");
       n = epoll_wait (efd, events, MAXEVENTS, -1);
+
+      LOG_DEBUG("acceptor recieved " << n << " connection requests");
 
       for (i = 0; i < n; i++)
 	{
@@ -109,123 +116,20 @@ int main(void)
 	    }
 
 	  else if (socket == events[i].data.fd)
-	    {
+      {
               /* We have a notification on the listening socket, which
                  means one or more incoming connections. */
               while (true)
               {
-                  LOG_DEBUG("Trying to accept... ");
+                  LOG_DEBUG("trying to accept connection on thread " << idx);
                   if(!workers[idx].accept(socket))
-                  {
-                      LOG_DEBUG("Did not accept!");
                       break;
-                  }
 
+                  LOG_DEBUG("Accepted a new connection on thread " << idx);
                   idx = (idx + 1) % workers.size();
-                  LOG_DEBUG("Accepted a new connection!");
+                  break;
               }
-
-                  /* struct sockaddr in_addr; */
-                  /* socklen_t in_len; */
-                  /* int infd; */
-                  /* char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV]; */
-
-                  /* in_len = sizeof in_addr; */
-                  /* infd = accept (socket, &in_addr, &in_len); */
-                  /* if (infd == -1) */
-                  /*   { */
-                  /*     if ((errno == EAGAIN) || */
-                  /*         (errno == EWOULDBLOCK)) */
-                  /*       { */
-                  /*         /1* We have processed all incoming */
-                  /*            connections. *1/ */
-                  /*         break; */
-                  /*       } */
-                  /*     else */
-                  /*       { */
-                  /*         perror ("accept"); */
-                  /*         break; */
-                  /*       } */
-                  /*   } */
-
-                  /* s = getnameinfo (&in_addr, in_len, */
-                  /*                  hbuf, sizeof hbuf, */
-                  /*                  sbuf, sizeof sbuf, */
-                  /*                  NI_NUMERICHOST | NI_NUMERICSERV); */
-                  /* if (s == 0) */
-                  /*   { */
-                  /*     printf("Accepted connection on descriptor %d " */
-                  /*            "(host=%s, port=%s)\n", infd, hbuf, sbuf); */
-                  /*   } */
-
-                  /* /1* Make the incoming socket non-blocking and add it to the */
-                  /*    list of fds to monitor. *1/ */
-                  /* s = make_socket_non_blocking (infd); */
-                  /* if (s == -1) */
-                  /*   abort (); */
-
-                  /* event.data.fd = infd; */
-                  /* event.events = EPOLLIN | EPOLLET; */
-                  /* s = epoll_ctl (efd, EPOLL_CTL_ADD, infd, &event); */
-                  /* if (s == -1) */
-                  /*   { */
-                  /*     perror ("epoll_ctl"); */
-                  /*     abort (); */
-                  /*   } */
             }
-          /* else */
-          /*   { */
-          /*     /1* We have data on the fd waiting to be read. Read and */
-          /*        display it. We must read whatever data is available */
-          /*        completely, as we are running in edge-triggered mode */
-          /*        and won't get a notification again for the same */
-          /*        data. *1/ */
-          /*     int done = 0; */
-
-          /*     while (1) */
-          /*       { */
-          /*         ssize_t count; */
-          /*         char buf[512]; */
-
-          /*         count = read (events[i].data.fd, buf, sizeof buf); */
-          /*         if (count == -1) */
-          /*           { */
-          /*             /1* If errno == EAGAIN, that means we have read all */
-          /*                data. So go back to the main loop. *1/ */
-          /*             if (errno != EAGAIN) */
-          /*               { */
-          /*                 perror ("read"); */
-          /*                 done = 1; */
-          /*               } */
-          /*             break; */
-          /*           } */
-          /*         else if (count == 0) */
-          /*           { */
-          /*             /1* End of file. The remote has closed the */
-          /*                connection. *1/ */
-          /*             done = 1; */
-          /*             break; */
-          /*           } */
-
-          /*         /1* Write the buffer to standard output *1/ */
-          /*         s = write (1, buf, count); */
-          /*         if (s == -1) */
-          /*           { */
-          /*             perror ("write"); */
-          /*             abort (); */
-          /*           } */
-          /*       } */
-
-          /*     if (done) */
-          /*       { */
-          /*         printf ("Closed connection on descriptor %d\n", */
-          /*                 events[i].data.fd); */
-
-          /*         /1* Closing the descriptor will make epoll remove it */
-          /*            from the set of descriptors which are monitored. *1/ */
-          /*         close (events[i].data.fd); */
-          /*       } */
-          /*   } */
         }
     }
 

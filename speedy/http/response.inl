@@ -42,7 +42,7 @@ void Response<Req, Res>::send(const std::string& body)
 
     buffer << "\r\n" << body;
 
-    uv_write(write_req, connection.client, buffer, buffer.count(), 
+    uv_write(write_req, connection.client, buffer, buffer.count(),
             [](uv_write_t* write_req, int) {
 
         connection_t& conn = *reinterpret_cast<connection_t*>(write_req->data);

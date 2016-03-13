@@ -17,7 +17,7 @@ int main(void)
     io::TcpServer<http::Worker> server;
 
     server.bind("0.0.0.0", "7474").listen(8, 128, []() {
-            std::cout << "response!" << std::endl;
+        std::cout << "response!" << std::endl;
     });
 
     return 0;

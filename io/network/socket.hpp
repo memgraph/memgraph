@@ -56,6 +56,34 @@ public:
         return socket != -1;
     }
 
+    static Socket connect(const std::string& addr, const std::string& port)
+    {
+        return connect(addr.c_str(), port.c_str());
+    }
+
+    static Socket connect(const char* addr, const char* port)
+    {
+        auto info = AddrInfo::get(addr, port);
+
+        for(struct addrinfo* it = info; it != nullptr; it = it->ai_next)
+        {
+            auto s = Socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+
+            if(!s.is_open())
+                continue;
+
+            if(::connect(s, it->ai_addr, it->ai_addrlen) == 0)
+                return std::move(s);
+        }
+
+        throw NetworkError("Unable to connect to socket");
+    }
+
+    static Socket bind(const std::string& addr, const std::string& port)
+    {
+        return bind(addr.c_str(), port.c_str());
+    }
+
     static Socket bind(const char* addr, const char* port)
     {
         auto info = AddrInfo::get(addr, port);
@@ -111,6 +139,21 @@ public:
     int id() const
     {
         return socket;
+    }
+
+    size_t write(const std::string& str)
+    {
+        return ::write(socket, str.c_str(), str.size());
+    }
+
+    size_t write(const char* data, size_t len)
+    {
+        return ::write(socket, data, len);
+    }
+
+    size_t read(char* buffer, size_t len)
+    {
+        return ::read(socket, buffer, len);
     }
 
 private:

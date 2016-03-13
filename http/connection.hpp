@@ -1,23 +1,16 @@
 #pragma once
 
-#include "io/network/tcp_stream.hpp"
+#include "io/network/tcp/stream.hpp"
+#include "memory/literals.hpp"
 
-namespace htpp
+namespace http
 {
-using memory::literals::operator "" _kB;
+using namespace memory::literals;
 
-class Connection
+template <class Req, class Res>
+class Connection : public io::tcp::Stream
 {
-    Connection(io::Socket&& socket) : stream(std::move(socket))
-    {
-        stream.data = this;
-    }
-
-    void close()
-    {
-        delete reinterpret_cast<Connection*>(stream.data);
-    }
-
+public:
     struct Buffers
     {
         char headers[8_kB];
@@ -26,11 +19,14 @@ class Connection
         static constexpr size_t size = sizeof headers + sizeof body;
     };
 
+    Connection(io::Socket&& socket) : io::tcp::Stream(std::move(socket)),
+        response(this->socket) {}
+
     // tcp stream reads into these buffers
     Buffers buffers;
 
-    // tcp stream this connection reads from
-    io::TcpStream stream;
+    Req request;
+    Res response;
 };
 
 }

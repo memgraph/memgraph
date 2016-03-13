@@ -31,7 +31,7 @@ public:
     uv::TcpStream client;
 
     parser_t parser;
-    
+
     Req request;
     Res response;
 
