@@ -18,8 +18,8 @@ int main()
         std::string("MATCH  (n{id:3}) RETURN n"),
         std::string("MATCH  (n{id:3}) SET n.prop = \"\" RETURN n"),
         std::string("MATCH  (n{id:3}) DELETE n"),
-        std::string("MATCH  (n{id:3}),(m{id:2}) CREATE (n)-[r:TEST]->(m) RETURN r"),
-        std::string("MATCH  (n{id:3})-[r]->(m{id:2}) RETURN count(r)")
+        std::string("MATCH  (n{id:3}),(m{id:2}) CREATE (n)-[r:test]->(m) RETURN r"),
+        std::string("MATCH  (n{id:3})-[r]->(m) RETURN count(r)")
     }};
 
     auto stripper = make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL);
@@ -33,25 +33,25 @@ int main()
     }
 
     auto create_node = [&db](uint64_t id) {
-		auto& t = db.tx_engine.begin();
-		auto vertex_accessor = db.graph.vertices.insert(t);
-		vertex_accessor.property<Int64>(
-			"id", Int64(id)
-		);
-		t.commit();
+        auto& t = db.tx_engine.begin();
+        auto vertex_accessor = db.graph.vertices.insert(t);
+        vertex_accessor.property<Int64>(
+            "id", Int64(id)
+        );
+        t.commit();
         return vertex_accessor;
     };
 
     auto find_node = [&db](uint64_t id) {
         auto& t = db.tx_engine.begin();
-		auto vertex_accessor = db.graph.vertices.find(t, id);
-		t.commit();
+        auto vertex_accessor = db.graph.vertices.find(t, id);
+        t.commit();
         return vertex_accessor;
     };
 
     auto edit_node = [&db](uint64_t id, std::string prop) {
         auto& t = db.tx_engine.begin();
-		auto vertex_accessor = db.graph.vertices.find(t, id);
+        auto vertex_accessor = db.graph.vertices.find(t, id);
         if (!vertex_accessor) {
             t.commit();
             return vertex_accessor;
@@ -65,7 +65,7 @@ int main()
 
     auto delete_node = [&db](uint64_t id) {
         auto& t = db.tx_engine.begin();
-		auto vertex_accessor = db.graph.vertices.find(t, id);
+        auto vertex_accessor = db.graph.vertices.find(t, id);
         if (!vertex_accessor)
             return vertex_accessor;
         vertex_accessor.remove(t);
@@ -74,7 +74,7 @@ int main()
     };
 
     auto create_edge = [&db](uint64_t id1, uint64_t id2, std::string type) {
-		auto& t = db.tx_engine.begin();
+        auto& t = db.tx_engine.begin();
         auto v1 = db.graph.vertices.find(t, id1);
         if (!v1)
             return Edge::Accessor();
@@ -91,7 +91,7 @@ int main()
         return edge_accessor;
     };
 
-    auto count_edges = [&db](uint64_t id) {
+    auto vertex_out_degree = [&db](uint64_t id) {
         auto& t = db.tx_engine.begin();
         auto v = db.graph.vertices.find(t, id);
         t.commit();
@@ -112,7 +112,7 @@ int main()
     auto edge_accessor = create_edge(0, 1, "test");
     if (edge_accessor)
         cout << edge_accessor.record->data.edge_type << endl;
-    cout << count_edges(0) << endl;
+    cout << vertex_out_degree(0) << endl;
 
     return 0;
 }

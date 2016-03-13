@@ -30,7 +30,7 @@ public:
     const Id& id() const
     {
         assert(!empty());
-        return vlist->id();
+        return vlist->id;
     }
 
     Derived update(tx::Transaction& t) const
