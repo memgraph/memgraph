@@ -37,17 +37,20 @@ struct Result
     std::vector<uint64_t> requests;
 };
 
-Result benchmark(const std::string& host, const std::string& port,
-                 int threads, int connections,
+Result benchmark(const std::string& host,
+                 const std::string& port,
+                 int connections_per_query,
                  std::chrono::duration<double> duration,
                  const std::vector<std::string>& queries)
 {
+    auto threads = queries.size();
+
     std::vector<WorkerRunner<CypherWorker>> workers;
 
-    for(int i = 0; i < threads; ++i)
+    for(size_t i = 0; i < threads; ++i)
         workers.emplace_back(queries[i]);
 
-    for(int i = 0; i < threads * connections; ++i)
+    for(size_t i = 0; i < threads * connections_per_query; ++i)
         workers[i % threads]->connect(host, port);
 
     for(auto& worker : workers)
