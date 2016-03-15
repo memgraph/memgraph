@@ -233,7 +233,7 @@ private:
 
         // if the record hasn't been deleted yet or the deleting transaction
         // has aborted, it's ok to modify it
-        if(!record->tx.exp() || record->hints.load().exp.is_aborted())
+        if(!record->tx.exp() || !record->exp_committed(t))
             return;
 
         // if it committed, then we have a serialization conflict

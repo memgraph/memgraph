@@ -11,8 +11,8 @@ template <class W>
 class WorkerRunner
 {
 public:
-    WorkerRunner(const std::vector<std::string>& queries)
-        : worker(std::make_unique<W>(queries)) {}
+    WorkerRunner(const std::string& query)
+        : worker(std::make_unique<W>(query)) {}
 
     W* operator->() { return worker.get(); }
     const W* operator->() const { return worker.get(); }
@@ -45,9 +45,9 @@ Result benchmark(const std::string& host, const std::string& port,
     std::vector<WorkerRunner<CypherWorker>> workers;
 
     for(int i = 0; i < threads; ++i)
-        workers.emplace_back(queries);
+        workers.emplace_back(queries[i]);
 
-    for(int i = 0; i < connections; ++i)
+    for(int i = 0; i < threads * connections; ++i)
         workers[i % threads]->connect(host, port);
 
     for(auto& worker : workers)
@@ -67,11 +67,10 @@ Result benchmark(const std::string& host, const std::string& port,
     auto end = std::max_element(results.begin(), results.end(),
         [](auto a, auto b) { return a.end < b.end; })->end;
 
-    std::vector<uint64_t> qps(queries.size(), 0);
+    std::vector<uint64_t> qps;
 
     for(auto& result : results)
-        for(size_t i = 0; i < result.requests.size(); ++i)
-            qps[i] += result.requests[i];
+        qps.push_back(result.requests);
 
     return {end - start, qps};
 }

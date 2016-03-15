@@ -25,6 +25,12 @@ void Response<Req, Res>::send(Status status, const std::string& body)
 template <class Req, class Res>
 void Response<Req, Res>::send(const std::string& body)
 {
+    // terrible bug. if the client closes the connection, buffer is cleared and
+    // there is noone to respond to and you start writing to memory that isn't
+    // yours anymore
+    if(buffer.count() == 0)
+        return;
+
     uv_write_t* write_req =
         static_cast<uv_write_t*>(write_req_allocator.acquire());
 
@@ -41,9 +47,15 @@ void Response<Req, Res>::send(const std::string& body)
         buffer << it->first << ":" << it->second << "\r\n";
 
     buffer << "\r\n" << body;
+    /* std::cout << "SALJEM RESPONSE" << std::endl; */
+    /* std::cout << body << std::endl; */
+    /* std::cout << connection.request.body << std::endl; */
+    /* std::cout << "buffer count:" << buffer.count() << std::endl; */
 
     uv_write(write_req, connection.client, buffer, buffer.count(),
             [](uv_write_t* write_req, int) {
+
+        /* std::cout << "POSLAO RESPONSE" << std::endl; */
 
         connection_t& conn = *reinterpret_cast<connection_t*>(write_req->data);
 

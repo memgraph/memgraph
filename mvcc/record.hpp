@@ -87,11 +87,22 @@ public:
         return committed(hints.exp, id, t);
     }
 
+    bool exp_committed(const tx::Transaction& t)
+    {
+        return committed(hints.exp, tx.exp(), t);
+    }
+
     bool cre_committed(const Id& id, const tx::Transaction& t)
     {
         return committed(hints.cre, id, t);
     }
 
+    bool cre_committed(const tx::Transaction& t)
+    {
+        return committed(hints.cre, tx.cre(), t);
+    }
+
+protected:
     template <class U>
     bool committed(U& hints, const Id& id, const tx::Transaction& t)
     {

@@ -20,7 +20,10 @@ template <class Req, class Res>
 void HttpConnection<Req, Res>::close()
 {
     client.close([](uv_handle_t* client) -> void {
-        delete reinterpret_cast<connection_t*>(client->data);
+        // terrible bug, this can happen even though a query is running and
+        // then the query is using memory which is deallocated
+
+        //delete reinterpret_cast<connection_t*>(client->data);
     });
 }
 

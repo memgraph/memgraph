@@ -8,7 +8,7 @@
 void help()
 {
     std::cout << "error: too few arguments." << std::endl
-              << "usage: host port threads connections duration[s]"
+              << "usage: host port connections duration[s]"
               << std::endl;
 
     std::exit(0);
@@ -16,21 +16,33 @@ void help()
 
 int main(int argc, char* argv[])
 {
-    if(argc < 6)
+    if(argc < 5)
         help();
 
     auto host        = std::string(argv[1]);
     auto port        = std::string(argv[2]);
-    auto threads     = std::stoi(argv[3]);
-    auto connections = std::stoi(argv[4]);
-    auto duration    = std::stod(argv[5]);
+    auto connections = std::stoi(argv[3]);
+    auto duration    = std::stod(argv[4]);
 
+    // memgraph
     std::vector<std::string> queries {
         "CREATE (n{id:@}) RETURN n",
-        "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
-        "MATCH (n{id:#}) SET n.prop = ^ RETURN n",
-        "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
+        /* "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r", */
+        /* "MATCH (n{id:#}) SET n.prop = ^ RETURN n", */
+        /* "MATCH (n{id:#}) RETURN n", */
+        /* "MATCH (n{id:#})-[r]->(m) RETURN count(r)" */
     };
+
+    // neo4j
+    /* std::vector<std::string> queries { */
+    /*     "CREATE (n:Item{id:@}) RETURN n", */
+    /*     "MATCH (n:Item{id:#}),(m:Item{id:#}) CREATE (n)-[r:test]->(m) RETURN r", */
+    /*     "MATCH (n:Item{id:#}) SET n.prop = ^ RETURN n", */
+    /*     "MATCH (n:Item{id:#}) RETURN n", */
+    /*     "MATCH (n:Item{id:#})-[r]->(m) RETURN count(r)" */
+    /* }; */
+
+    auto threads = queries.size();
 
     std::cout << "Running queries on " << connections << " connections "
               << "using " << threads << " threads "

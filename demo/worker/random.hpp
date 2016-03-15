@@ -15,13 +15,15 @@ public:
     std::string operator()(Rg&& gen, size_t len)
     {
         auto str = std::string();
-        str.reserve(len + 2);
-        str.push_back('\'');
+        str.reserve(len + 4);
+        str.push_back('\\');
+        str.push_back('"');
 
         while(str.size() < len)
             str.push_back(charset[rnd(std::forward<Rg>(gen))]);
 
-        str.push_back('\'');
+        str.push_back('\\');
+        str.push_back('"');
         return str;
     }
 

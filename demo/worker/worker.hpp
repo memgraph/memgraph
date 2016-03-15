@@ -18,14 +18,14 @@
 struct WorkerResult
 {
     std::chrono::high_resolution_clock::time_point start, end;
-    std::vector<uint64_t> requests;
+    uint64_t requests;
 };
 
 class CypherWorker : public SimpleClient<CypherWorker, io::tcp::Stream>
 {
 public:
-    CypherWorker(const std::vector<std::string>& queries)
-        : queries(queries), requests(queries.size(), 0) {}
+    CypherWorker(const std::string& query)
+        : query(query), requests(0) {}
 
     io::tcp::Stream& on_connect(io::Socket&& socket)
     {
@@ -43,22 +43,18 @@ public:
         /* std::cout << "-----------------------------------------------" << std::endl; */
         /* std::cout << std::endl; */
 
+        requests++;
         send(stream.socket);
     }
 
     void send(io::Socket& socket)
     {
-        auto idx = random_int(mt) % queries.size();
-
-        // increase the number of requests
-        requests[idx]++;
-
         // cypherize and send the request
         //socket.write(cypher(queries[idx]));
-        auto req = cypher(queries[idx]);
+        auto req = cypher(query);
 
-        /* std::cout << "-------------------- REQUEST ------------------" << std::endl; */
-        /* std::cout << req << std::endl; */
+/*         std::cout << "-------------------- REQUEST ------------------" << std::endl; */
+/*         std::cout << req << std::endl; */
 
         socket.write(req);
     }
@@ -87,6 +83,6 @@ private:
     Cypher cypher;
 
     std::vector<std::unique_ptr<io::tcp::Stream>> streams;
-    std::vector<std::string> queries;
-    std::vector<uint64_t> requests;
+    std::string query;
+    uint64_t requests;
 };

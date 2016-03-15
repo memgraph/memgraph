@@ -157,7 +157,7 @@ private:
 
     void relax()
     {
-        usleep(250);
+        cpu_relax();
     }
 };
 

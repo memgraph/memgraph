@@ -3,6 +3,8 @@
 #include <atomic>
 #include <unistd.h>
 
+#include "utils/cpu_relax.hpp"
+
 class SpinLock
 {
 public:
@@ -10,7 +12,8 @@ public:
     void lock()
     {
         while(lock_flag.test_and_set(std::memory_order_acquire))
-            usleep(250);
+            cpu_relax();
+            ///usleep(250);
     }
 
     void unlock()

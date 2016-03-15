@@ -71,7 +71,7 @@ public:
 
         server.listen(ip, [this](Request& req, Response& res) {
             auto route = router.match(R3::to_r3_method(req.method), req.url);
-            
+
             if(!route.exists())
                 return res.send(http::Status::NotFound, "Resource not found");
 
