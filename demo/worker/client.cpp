@@ -8,7 +8,7 @@
 void help()
 {
     std::cout << "error: too few arguments." << std::endl
-              << "usage: host port connections duration[s]"
+              << "usage: host port connections_per_query duration[s]"
               << std::endl;
 
     std::exit(0);
@@ -25,27 +25,28 @@ int main(int argc, char* argv[])
     auto duration    = std::stod(argv[4]);
 
     // memgraph
-    std::vector<std::string> queries {
-        "CREATE (n{id:@}) RETURN n",
-        /* "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r", */
-        /* "MATCH (n{id:#}) SET n.prop = ^ RETURN n", */
-        /* "MATCH (n{id:#}) RETURN n", */
-        /* "MATCH (n{id:#})-[r]->(m) RETURN count(r)" */
-    };
+    //std::vector<std::string> queries {
+    //    "CREATE (n{id:@}) RETURN n",
+    //    "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
+    //    "MATCH (n{id:#}) SET n.prop = ^ RETURN n",
+    //    "MATCH (n{id:#}) RETURN n",
+    //    "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
+    //};
 
     // neo4j
-    /* std::vector<std::string> queries { */
-    /*     "CREATE (n:Item{id:@}) RETURN n", */
-    /*     "MATCH (n:Item{id:#}),(m:Item{id:#}) CREATE (n)-[r:test]->(m) RETURN r", */
-    /*     "MATCH (n:Item{id:#}) SET n.prop = ^ RETURN n", */
-    /*     "MATCH (n:Item{id:#}) RETURN n", */
-    /*     "MATCH (n:Item{id:#})-[r]->(m) RETURN count(r)" */
-    /* }; */
+    std::vector<std::string> queries {
+        "CREATE (n:Item{id:@}) RETURN n",
+        "MATCH (n:Item{id:#}),(m:Item{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
+        "MATCH (n:Item{id:#}) SET n.prop = ^ RETURN n",
+        "MATCH (n:Item{id:#}) RETURN n",
+        "MATCH (n:Item{id:#})-[r]->(m) RETURN count(r)"
+    };
 
     auto threads = queries.size();
 
-    std::cout << "Running queries on " << connections << " connections "
-              << "using " << threads << " threads "
+    std::cout << "Running " << queries.size() << " queries each on "
+              << connections << " connections "
+              << "using a total of " << connections * threads << " connections "
               << "for " << duration << " seconds." << std::endl
               << "..." << std::endl;
 

@@ -22,18 +22,16 @@ public:
         stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL))
     {
         query_f[7130961997552177283] = [db](const code_args_t& args) {
-            /* std::cout << "PRVI" << std::endl; */
             auto& t = db->tx_engine.begin();
-            /* auto vertex_accessor = db->graph.vertices.insert(t); */
-            /* vertex_accessor.property( */
-            /*     "id", args[0] */
-            /* ); */
+            auto vertex_accessor = db->graph.vertices.insert(t);
+            vertex_accessor.property(
+                "id", args[0]
+            );
             t.commit();
             return "EXECUTED: CREATE (n{id:X}) RETURN n";
         };
 
         query_f[11198568396549106428ull] = [db](const code_args_t& args) {
-            /* std::cout << "DRUGI" << std::endl; */
             auto& t = db->tx_engine.begin();
             auto id = args[0]->as<Int32>();
             auto vertex_accessor = db->graph.vertices.find(t, id.value);
@@ -42,7 +40,6 @@ public:
         };
 
         query_f[11637140396624918705ull] = [db](const code_args_t& args) {
-            /* std::cout << "TRECI" << std::endl; */
             auto& t = db->tx_engine.begin();
             auto id = args[0]->as<Int32>();
             auto vertex_accessor = db->graph.vertices.find(t, id.value);
@@ -58,7 +55,6 @@ public:
         };
 
         query_f[784140140862470291ull] = [db](const code_args_t& args) {
-            /* std::cout << "CETVRTI" << std::endl; */
             auto& t = db->tx_engine.begin();
             auto id1 = args[0]->as<Int32>();
             auto v1 = db->graph.vertices.find(t, id1.value);
@@ -90,7 +86,6 @@ public:
         };
 
         query_f[16940444920835972350ull] = [db](const code_args_t& args) {
-            /* std::cout << "PETI" << std::endl; */
             auto& t = db->tx_engine.begin();
             auto id = args[0]->as<Int32>();
             auto v = db->graph.vertices.find(t, id.value);
@@ -109,16 +104,14 @@ public:
             auto strip = stripper.strip(query);
             auto hash = fnv(strip.query);
 
-            /* std::cout << "'" << query << "'" << std::endl; */
-
             auto it = query_f.find(hash);
 
             if(it == query_f.end())
             {
-                std::cout << "NOT FOUND" << std::endl;
-                std::cout << query << std::endl;
-                std::cout << hash << std::endl;
-                return std::string("NOT FOUND");
+                std::cout << "Unrecognized query '"
+                          << query << "' with hash "
+                          << hash << "." << std::endl;
+                return std::string("Unrecognized Query");
             }
 
             return it->second(strip.arguments);
