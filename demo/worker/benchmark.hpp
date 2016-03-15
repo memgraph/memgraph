@@ -39,8 +39,8 @@ struct Result
 
 Result benchmark(const std::string& host,
                  const std::string& port,
-                 int connections_per_query,
-                 std::chrono::duration<double> duration,
+                 int connections_per_query, // duplicate workers for a query
+                 double duration, // in seconds
                  const std::vector<std::string>& queries)
 {
     auto threads = queries.size();
@@ -54,7 +54,7 @@ Result benchmark(const std::string& host,
         workers[i % threads]->connect(host, port);
 
     for(auto& worker : workers)
-        worker(duration);
+        worker(std::chrono::duration<double>(duration));
 
     std::vector<WorkerResult> results;
 
