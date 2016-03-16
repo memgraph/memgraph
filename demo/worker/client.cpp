@@ -50,8 +50,7 @@ int main(int argc, char* argv[])
               << "for " << duration << " seconds." << std::endl
               << "..." << std::endl;
 
-    auto result = benchmark(host, port, threads, connections,
-                            std::chrono::duration<double>(duration), queries);
+    auto result = benchmark(host, port, connections, duration, queries);
 
     auto& reqs = result.requests;
     auto elapsed = result.elapsed.count();

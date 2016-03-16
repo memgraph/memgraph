@@ -5,6 +5,7 @@
 #include <chrono>
 #include <future>
 
+#include "debug/log.hpp"
 #include "worker.hpp"
 
 template <class W>
@@ -76,4 +77,32 @@ Result benchmark(const std::string& host,
         qps.push_back(result.requests);
 
     return {end - start, qps};
+}
+
+std::string benchmark_json(const std::string& host,
+                           const std::string& port,
+                           int connections,
+                           double duration,
+                           const std::vector<std::string>& queries)
+{
+    auto result = benchmark(host, port, connections, duration, queries);
+
+    auto& reqs = result.requests;
+    auto elapsed = result.elapsed.count();
+
+    auto total = std::accumulate(reqs.begin(), reqs.end(), 0.0,
+        [](auto acc, auto x) { return acc + x; }
+    );
+
+    std::string json = "{\"total\":" + std::to_string(total / elapsed) + ","
+        + " \"per_query\": [";
+    for(size_t i = 0; i < queries.size(); ++i) {
+        if (i == 0) {
+            json += std::to_string(reqs[i] / elapsed);
+            continue;
+        }
+        json += ", " + std::to_string(reqs[i] / elapsed);
+    }
+    json += "]}";
+    return json;
 }
