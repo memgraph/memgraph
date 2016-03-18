@@ -96,8 +96,9 @@
     }
   }
 
+  // counters init
   let value = 0;
-  let maxQps = 5000;
+  let maxQps = 15000;
 
   let card1 = new QueryCard($('#q1')[0], maxQps);
   let card2 = new QueryCard($('#q2')[0], maxQps);
@@ -108,6 +109,7 @@
   let card7 = new QueryCard($('#q7')[0], maxQps);
   let card8 = new QueryCard($('#q8')[0], maxQps);
 
+  // counters update
   function run() {
     setTimeout(() => {
       value += 10;
@@ -127,16 +129,18 @@
       run();
     }, 20);
   }
-
   run();
 
-
+  // graph init
+  var data = [];
+  var chart;
+  var chartData;
   nv.addGraph(function() {
-    var chart = nv.models.lineChart()
-                  .useInteractiveGuideline(true)
-                  .showLegend(true)
-                  .showYAxis(true)
-                  .showXAxis(true);
+    chart = nv.models.lineChart()
+         .useInteractiveGuideline(true)
+         .showLegend(true)
+         .showYAxis(true)
+         .showXAxis(true);
 
     chart.xAxis
          .axisLabel('Time (s)')
@@ -146,41 +150,41 @@
          .axisLabel('QPS')
          .tickFormat(d3.format(',r'));
 
-    var myData = sinAndCos();
-
-    d3.select('#chart svg')
-      .datum(myData)
-      .call(chart);
+    chartData = d3.select('#chart svg')
+      .datum(data);
+    chartData.call(chart);
 
     chart.update();
     nv.utils.windowResize(function() { chart.update(); });
     return chart;
   });
 
-  function sinAndCos() {
-    var sin = [],sin2 = [],
-        cos = [];
-
-    for (var i = 0; i < 100; i++) {
-      sin.push({x: i, y: Math.sin(i/10)});
-      sin2.push({x: i, y: Math.sin(i/10) *0.25 + 0.5});
-      cos.push({x: i, y: 0.5 * Math.cos(i/10)});
-    }
-
-    return [{
-        values: sin,
-        key: 'Sine Wave',
-        color: '#ff7f0e'
+  // graph update
+  let x = 0;
+  function updateGraph() {
+    setTimeout(() => {
+      x += 1;
+      if (x > 100)
+        x = 0
+      var memgraphLine = [];
+      var neo4jLine = [];
+      for (var i = 0; i < x; i++) {
+        memgraphLine.push({x: i, y: 100 * Math.random() + 1000});
+        neo4jLine.push({x: i, y: 100 * Math.random() + 50});
+      }
+      var newData = [{
+        values: memgraphLine,
+        key: 'Memgraph',
+        color: '#ff0000'
       }, {
-        values: cos,
-        key: 'Cosine Wave',
-        color: '#2ca02c'
-      }, {
-        values: sin2,
-        key: 'Another sine wave',
-        color: '#7777ff',
-        area: true
+        values: neo4jLine,
+        key: 'Neo4j',
+        color: '#0000ff'
       }];
+      chartData.datum(newData).transition().duration(500).call(chart);
+      updateGraph();
+    }, 1000);
   }
+  updateGraph();
 
 })();

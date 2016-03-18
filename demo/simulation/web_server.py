@@ -34,6 +34,8 @@ class SimulationWebServer(object):
         Setup all routes.
         '''
         self.add_route('/ping', self.ping, 'GET')
+        self.add_route('/', self.index, 'GET')
+        self.add_route('/<path:path>', self.static, 'GET')
         self.add_route('/tasks', self.tasks_get, 'GET')
         self.add_route('/tasks', self.tasks_set, 'POST')
         self.add_route('/start', self.start, 'POST')
@@ -66,6 +68,19 @@ class SimulationWebServer(object):
         Ping endpoint. Returns 204 HTTP status code.
         '''
         return ('', 204)
+
+    def index(self):
+        '''
+        Serves demo.html on the index path.
+        '''
+        print('index')
+        return self.server.send_static_file('demo.html')
+
+    def static(self, path):
+        '''
+        Serves other static files.
+        '''
+        return self.server.send_static_file(path)
 
     def tasks_get(self):
         '''
