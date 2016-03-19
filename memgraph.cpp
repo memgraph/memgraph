@@ -14,8 +14,16 @@
 
 #include "utils/terminate_handler.hpp"
 
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc < 2)
+    {
+        std::cout << "Port not defined" << std::endl;
+        std::exit(0);
+    }
+
+    auto port = std::stoi(argv[1]);
+
     std::set_terminate(&terminate_handler);
 
     ioc::Container container;
@@ -25,12 +33,11 @@ int main()
     auto loop = container.singleton<uv::UvLoop>();
 
     auto app = container.singleton<sp::Speedy, uv::UvLoop>("/db/data");
-    container.singleton<Pool>(4);
-    container.singleton<Task, uv::UvLoop, Pool>();
+    container.singleton<Task, uv::UvLoop>();
 
     init(container);
 
-    http::Ipv4 ip("0.0.0.0", 7474);
+    http::Ipv4 ip("0.0.0.0", port);
     app->listen(ip);
 
     loop->run(uv::UvLoop::Mode::Default);

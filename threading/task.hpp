@@ -18,18 +18,15 @@ class Task
     struct Work
     {
 
-        Work(uv::UvLoop& loop, work_t<T> work, after_work_t<T> after_work)
+        Work(work_t<T> work, after_work_t<T> after_work)
             : work(std::move(work)), after_work(std::move(after_work))
         {
-            uv_async_init(loop, &this->async, async_cb);
+            req.data = static_cast<void*>(this);
         }
 
         void operator()()
         {
             result.set(std::move(work()));
-
-            async.data = static_cast<void*>(this);
-            uv_async_send(&this->async);
         }
 
         work_t<T> work;
@@ -37,28 +34,28 @@ class Task
 
         Placeholder<T> result;
 
-        uv_async_t async;
+        uv_work_t req;
 
-    private:
-        static void async_cb(uv_async_t* handle)
+        static void work_cb(uv_work_t* req)
         {
-            auto work = static_cast<Work<T>*>(handle->data);
+            auto& work = *static_cast<Work<T>*>(req->data);
+            work();
+        }
+
+        static void after_work_cb(uv_work_t* req, int)
+        {
+            auto work = static_cast<Work<T>*>(req->data);
 
             work->after_work(std::move(work->result.get()));
 
-            auto async_as_handle = reinterpret_cast<uv_handle_t*>(handle);
-
-            uv_close(async_as_handle, [](uv_handle_t* handle) {
-                auto work = static_cast<Work<T>*>(handle->data);
-                delete work;
-            });
+            delete work;
         }
     };
 
 public:
     using sptr = std::shared_ptr<Task>;
 
-    Task(uv::UvLoop::sptr loop, Pool::sptr pool) : loop(loop), pool(pool) {}
+    Task(uv::UvLoop::sptr loop) : loop(loop) {}
 
     Task(Task&) = delete;
     Task(Task&&) = delete;
@@ -68,13 +65,14 @@ public:
     {
         using T = decltype(work());
 
-        auto w = new Work<T>(*loop, std::forward<F1>(work),
+        auto w = new Work<T>(std::forward<F1>(work),
                              std::forward<F2>(after_work));
 
-        pool->run([w]() { w->operator()(); });
+        uv_queue_work(*loop, &w->req,
+                      Work<T>::work_cb,
+                      Work<T>::after_work_cb);
     }
 
 private:
     uv::UvLoop::sptr loop;
-    Pool::sptr pool;
 };
