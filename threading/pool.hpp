@@ -24,7 +24,7 @@ public:
 
     Pool(Pool&) = delete;
     Pool(Pool&&) = delete;
-    
+
     ~Pool()
     {
         alive.store(false, std::memory_order_release);
