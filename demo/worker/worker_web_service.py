@@ -2,15 +2,17 @@
 
 import logging
 import threading
+from os import path
 from flask import request, jsonify
 
-from .. import WebService
-from . import wrapped_client
+from web_service import WebService
+# from .client import wrapped_client
+from .client import subprocess_client
 
 log = logging.getLogger(__name__)
 
 
-class WorkerWebServer(WebService):
+class WorkerWebService(WebService):
     '''
     Memgraph worker web server. For now it wraps the flask server.
     '''
@@ -19,8 +21,8 @@ class WorkerWebServer(WebService):
         '''
         Instantiates the flask web server.
         '''
-        super().__init__()
-        self.params_data = None
+        super().__init__(__name__)
+        self.params_data = {}
         self.is_simulation_running = False
         self.stats_data = None
         self.setup_routes()
@@ -29,12 +31,27 @@ class WorkerWebServer(WebService):
         '''
         Setup all routes.
         '''
-        super().__init__()
+        super().setup_routes()
+        self.add_route('/', self.index, 'GET')
+        self.add_route('/<path:path>', self.static, 'GET')
         self.add_route('/start', self.start, 'POST')
         self.add_route('/stop', self.stop, 'POST')
         self.add_route('/stats', self.stats, 'GET')
         self.add_route('/params', self.params_get, 'GET')
         self.add_route('/params', self.params_set, 'POST')
+
+    def index(self):
+        '''
+        Serves demo.html on the index path.
+        '''
+        print('index')
+        return self.server.send_static_file('demo.html')
+
+    def static(self, path):
+        '''
+        Serves other static files.
+        '''
+        return self.server.send_static_file(path)
 
     def run_simulation(self):
         '''
@@ -45,10 +62,31 @@ class WorkerWebServer(WebService):
         log.info('new simulation run')
 
         while self.is_simulation_running:
-            self.stats_data = wrapped_client(*self.params_data)
+            #   cython call TODO relase the GIL
+            # params = [
+            #     self.params_data['host'].encode('utf-8'),
+            #     self.params_data['port'].encode('utf-8'),
+            #     self.params_data['connections'],
+            #     self.params_data['duration'],
+            #     list(map(lambda x: x.encode('utf-8'),
+            #              self.params_data['queries']))
+            # ]
+            # data = wrapped_client(*params)
+
+            #   subprocess call
+            params = [
+                str(self.params_data['host']),
+                str(self.params_data['port']),
+                str(self.params_data['connections']),
+                str(self.params_data['duration'])
+            ] + list(map(lambda x: str(x), self.params_data['queries']))
+            exe = path.join(path.dirname(path.abspath(__file__)),
+                            "benchmark_json.out")
+            self.stats_data = subprocess_client([exe] + params)
 
     def start(self):
         '''
+        Starts run in a separate thread.
         '''
         self.is_simulation_running = True
         t = threading.Thread(target=self.run_simulation, daemon=True)
@@ -57,13 +95,14 @@ class WorkerWebServer(WebService):
 
     def stop(self):
         '''
+        Stops the worker run.
         '''
         self.is_simulation_running = False
         return ('', 204)
 
     def stats(self):
         '''
-        Returns the simulation stats. Queries per second.
+        Returns the worker stats. Queries per second.
         '''
         if not self.stats_data:
             return ('', 204)
@@ -72,13 +111,13 @@ class WorkerWebServer(WebService):
 
     def params_get(self):
         '''
-        Returns simulation parameters.
+        Returns worker parameters.
         '''
-        return jsonify(self.simulation_params.json_data())
+        return jsonify(self.params_data)
 
     def params_set(self):
         '''
-        Sets simulation parameters.
+        Sets worker parameters.
         '''
         data = request.get_json()
 
@@ -86,6 +125,6 @@ class WorkerWebServer(WebService):
 
         for param in param_names:
             if param in data:
-                setattr(self.params_data, param, data[param])
+                self.params_data[param] = data[param]
 
         return self.params_get()

@@ -14,7 +14,6 @@ class Log
 public:
     enum class Level : std::uint_fast8_t { Debug, Info, Warn, Error };
 
-private:
     struct Message
     {
         std::chrono::system_clock::time_point time;

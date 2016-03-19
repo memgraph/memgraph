@@ -3,9 +3,9 @@
 from flask import Flask
 
 
-class WebService(Flask):
+class WebService(object):
 
-    def __init__(self):
+    def __init__(self, name):
         '''
         '''
         self.server = Flask(__name__)

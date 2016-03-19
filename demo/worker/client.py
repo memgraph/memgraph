@@ -3,7 +3,8 @@
 from os import path
 from json import loads
 from subprocess import check_output
-from benchmark import benchmark
+
+from .benchmark import benchmark
 
 
 def subprocess_client(args):
@@ -46,7 +47,7 @@ def main_wrapped():
     '''
     Example of cython call.
     '''
-    args = [b"localhost", b"7474", 16, 1,
+    args = [b"localhost", b"7474", 1, 1,
             [b"CREATE (n{id:@}) RETURN n", b"CREATE (n{id:@}) RETURN n"]]
     result = wrapped_client(*args)
     return result

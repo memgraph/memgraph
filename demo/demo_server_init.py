@@ -7,24 +7,13 @@ via the MEMGRAPH_DEMO environtment variable. Available environments
 are: debug, prod.
 '''
 
-import os
 import logging
 
+from util import get_env
 from simulation.web_server import SimulationWebServer
 
-
-def fetch_env(env_name, default=None):
-    '''
-    Fetches environment variable.
-    '''
-    if env_name in os.environ:
-        return os.environ[env_name]
-
-    return default
-
-
-environment = fetch_env('MEMGRAPH_DEMO', 'debug')
-wsgi = fetch_env('MEMGRAPH_DEMO_WSGI', 'werkzeug')
+environment = get_env('MEMGRAPH_DEMO', 'debug')
+wsgi = get_env('MEMGRAPH_DEMO_WSGI', 'werkzeug')
 
 
 def _init():

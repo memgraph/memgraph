@@ -100,6 +100,7 @@
     }
   }
 
+  // put \n on module 2 space positions
   var put_new_line_mod_2 = function(array) {
     let join_array = array.map(function(o, i) {
       if (i % 2 == 0)
@@ -115,6 +116,13 @@
     });
   };
 
+  // --  variable part  ----
+  let running = false;
+  let value = 0;
+  let maxQps = 10000;
+  let cards = [];
+  let line = [];
+  let sec = 0;
   var queries = [
     "CREATE (n{id:@}) RETURN n",
     "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
@@ -122,47 +130,86 @@
     "MATCH (n{id:#}) RETURN n",
     "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
   ];
+  var params = {
+    host: "localhost",
+    port: "7474",
+    connections: 16,
+    duration: 1,
+    queries: queries
+  };
+  // -----------------------
 
+  // server control functions
+  var start = function() {
+    $.ajax({url:'/start', type:"POST", success: function(data){}});
+  };
+  var stop = function() {
+    $.ajax({url:'/stop', type:"POST", success: function(data){}});
+  };
+  var registerParams = function() {
+    $.ajax({
+      url:'/params', type:"POST", data:JSON.stringify(params),
+      contentType:"application/json; charset=utf-8",
+      success: function(data){
+      }
+    });
+  };
+  registerParams();
+
+  // setup cards
+  queries.forEach(function(query, i) {
+    query = put_new_line_mod_2(query.split(" ")).join('');
+    cards.push(new QueryCard($('#q-0-' + i.toString())[0], maxQps));
+    cards[i].set_query(query);
+  });
+
+  // start stop button
   $("#running-button").click(function() {
     running = !running;
     if (running) {
       $(this).text('STOP');
-      run();
-      updateGraph();
+      start(); 
+      update();
     }
-    if (!running)
+    if (!running) {
       $(this).text('START');
+      stop();
+      // sec = 0;
+      // line = [];
+    }
   });
+ 
+  // update only line on the graph 
+  var updateGraph = function() {
+      let newData = [{
+        values: line,
+        key: 'QPS',
+        color: '#ff0000'
+      }];
+      chartData.datum(newData).transition().duration(500).call(chart);
+  }
 
-  // counters init
-  let running = false;
-  let value = 0;
-  let maxQps = 15000;
-
-  // cards init
-  let neo4jCards = [];
-  let memgraphCards = [];
-  queries.forEach(function(query, i) {
-    query = put_new_line_mod_2(query.split(" ")).join('');
-    neo4jCards.push(new QueryCard($('#q-0-' + i.toString())[0], maxQps));
-    neo4jCards[i].set_query(query);
-    memgraphCards.push(new QueryCard($('#q-1-' + i.toString())[0], maxQps));
-    memgraphCards[i].set_query(query);
-  });
-
-  // cards update
-  function run() {
-    if (!running)
+  // update
+  function update() {
+    if (!running) {
+      stop();
       return;
+    }
     setTimeout(() => {
-      value += 10;
-      if(value >= maxQps)
-        value = 0;
-      queries.forEach(function(query, i) {
-        neo4jCards[i].set_value(Math.round(1000 + Math.random() * 3000));
-        memgraphCards[i].set_value(Math.round(7000 + Math.random() * 7000));
+      $.ajax({
+        url:'/stats', type:"GET",
+        success: function(data){
+          if (!data || !data.total || !data.per_query)
+            return
+          sec = sec + 1;
+          line.push({x: sec, y: data.total});
+          data.per_query.forEach(function(speed, i) {
+            cards[i].set_value(Math.round(speed));
+          });
+          updateGraph();
+        }
       });
-      run();
+      update();
     }, 1000);
   }
 
@@ -193,34 +240,5 @@
     nv.utils.windowResize(function() { chart.update(); });
     return chart;
   });
-
-  // graph update
-  let x = 0;
-  function updateGraph() {
-    if (!running)
-      return;
-    setTimeout(() => {
-      x += 1;
-      if (x > 100)
-        x = 0
-      var memgraphLine = [];
-      var neo4jLine = [];
-      for (var i = 0; i < x; i++) {
-        memgraphLine.push({x: i, y: 100 * Math.random() + 1000});
-        neo4jLine.push({x: i, y: 100 * Math.random() + 50});
-      }
-      var newData = [{
-        values: memgraphLine,
-        key: 'Memgraph',
-        color: '#ff0000'
-      }, {
-        values: neo4jLine,
-        key: 'Neo4j',
-        color: '#0000ff'
-      }];
-      chartData.datum(newData).transition().duration(500).call(chart);
-      updateGraph();
-    }, 1000);
-  }
 
 })();
