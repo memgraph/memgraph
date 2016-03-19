@@ -120,9 +120,12 @@
   let running = false;
   let value = 0;
   let maxQps = 10000;
-  let cards = [];
-  let line = [];
-  let sec = 0;
+  let memgraphCards = [];
+  let neo4jCards = [];
+  let memgraphSec = 0;
+  let neo4jSec = 0;
+  let memgraphLine = [];
+  let neo4jLine = [];
   var queries = [
     "CREATE (n{id:@}) RETURN n",
     "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
@@ -146,11 +149,12 @@
   var stop = function() {
     $.ajax({url:'/stop', type:"POST", success: function(data){}});
   };
-  var registerParams = function() {
+  var registerParams = function(f) {
     $.ajax({
       url:'/params', type:"POST", data:JSON.stringify(params),
       contentType:"application/json; charset=utf-8",
       success: function(data){
+        f();
       }
     });
   };
@@ -159,38 +163,66 @@
   // setup cards
   queries.forEach(function(query, i) {
     query = put_new_line_mod_2(query.split(" ")).join('');
-    cards.push(new QueryCard($('#q-0-' + i.toString())[0], maxQps));
-    cards[i].set_query(query);
+    neo4jCards.push(new QueryCard($('#q-0-' + i.toString())[0], maxQps));
+    memgraphCards.push(new QueryCard($('#q-1-' + i.toString())[0], maxQps));
+    neo4jCards[i].set_query(query);
+    memgraphCards[i].set_query(query);
   });
 
   // start stop button
-  $("#running-button").click(function() {
+  $("#run-neo4j").click(function() {
     running = !running;
     if (running) {
-      $(this).text('STOP');
-      start(); 
-      update();
+      $(this).text('Stop Neo4j');
+      let hostname_port = $("#neo4j_url").val().split(":");
+      params.host = hostname_port[0];
+      params.port = hostname_port[1];
+      registerParams(function() {
+        start();
+        updateNeo4j();
+      });
     }
     if (!running) {
-      $(this).text('START');
+      $(this).text('Start Neo4j');
       stop();
-      // sec = 0;
-      // line = [];
     }
   });
- 
+
+   // start stop button
+  $("#run-memgraph").click(function() {
+    running = !running;
+    if (running) {
+      $(this).text('Stop Memgraph');
+      let hostname_port = $("#memgraph_url").val().split(":");
+      params.host = hostname_port[0];
+      params.port = hostname_port[1];
+      registerParams(function() {
+        start();
+        updateMemgraph();
+      });
+    }
+    if (!running) {
+      $(this).text('Start Memgraph');
+      stop();
+    }
+  });
+
   // update only line on the graph 
   var updateGraph = function() {
       let newData = [{
-        values: line,
-        key: 'QPS',
+        values: memgraphLine,
+        key: 'Memgraph',
         color: '#ff0000'
+      }, {
+        values: neo4jLine,
+        key: 'Neo4j',
+        color: '#0000ff'
       }];
       chartData.datum(newData).transition().duration(500).call(chart);
   }
 
   // update
-  function update() {
+  function updateNeo4j() {
     if (!running) {
       stop();
       return;
@@ -201,15 +233,39 @@
         success: function(data){
           if (!data || !data.total || !data.per_query)
             return
-          sec = sec + 1;
-          line.push({x: sec, y: data.total});
+          neo4jSec = neo4jSec + 1;
+          neo4jLine.push({x: neo4jSec, y: data.total});
           data.per_query.forEach(function(speed, i) {
-            cards[i].set_value(Math.round(speed));
+            neo4jCards[i].set_value(Math.round(speed));
           });
           updateGraph();
         }
       });
-      update();
+      updateNeo4j();
+    }, 1000);
+  }
+
+  // update
+  function updateMemgraph() {
+    if (!running) {
+      stop();
+      return;
+    }
+    setTimeout(() => {
+      $.ajax({
+        url:'/stats', type:"GET",
+        success: function(data){
+          if (!data || !data.total || !data.per_query)
+            return
+          memgraphSec = memgraphSec + 1;
+          memgraphLine.push({x: memgraphSec, y: data.total});
+          data.per_query.forEach(function(speed, i) {
+            memgraphCards[i].set_value(Math.round(speed));
+          });
+          updateGraph();
+        }
+      });
+      updateMemgraph();
     }, 1000);
   }
 
@@ -231,6 +287,8 @@
     chart.yAxis
          .axisLabel('QPS')
          .tickFormat(d3.format('f'));
+
+    chart.forceY([0, 50000]);
 
     chartData = d3.select('#chart svg')
       .datum(data);

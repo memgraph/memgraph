@@ -1,7 +1,35 @@
-
 body {
   font-family: GillSans, Calibri, Trebuchet, sans-serif;
   background-color: #eee;
+}
+
+/* label color inactive */
+.input-field label {
+    color: #000;
+}
+
+/* label color active */
+.input-field input[type=text]:focus + label {
+    color: #007FFF;
+}
+
+/* label bottom border color */
+.input-field input[type=text]:focus {
+    border-bottom: 1px solid #007FFF;
+    box-shadow: 0 1px 0 0 #007FFF;
+}
+
+.input-field input[type=text] {
+    border-bottom: 1px solid #007FFF;
+    box-shadow: 0 1px 0 0 #007FFF;
+}
+
+label#hostname_port {
+    font: normal 15px GillSans, Calibri, Trebuchet, sans-serif !important;
+}
+
+#hostname_port {
+    font-size: 2;
 }
 
 .w100 {
@@ -9,7 +37,7 @@ body {
 }
 
 .title {
-  width: 90%;
+  width: 80%;
   color: #007FFF;
 }
 

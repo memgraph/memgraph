@@ -19,14 +19,29 @@
   <!-- title row -->
   <div class="row">
     <div class="valign-wrapper">
-      <h1 class="valign center title">Memgraph Benchmark</h1>
-      <span>
-        <button id="running-button" 
+      <div class="input-field col s2">
+        <input value="localhost:7474" id="neo4j_url" type="text" class="validate">
+        <label id="neo4j_url" for="neo4j_url">hostname:port</label>
+      </div>
+      <div class="col s2">
+        <button id="run-neo4j" 
                 class="btn waves-effect waves-light"
                 type="submit" name="action">
-          Start
+          Start Neo4j
         </button>
-      </span>
+      </div>
+      <h1 class="valign center col s4">Graph Benchmark</h1>
+      <div class="col s2">
+        <button id="run-memgraph"  style="float:right;"
+                class="btn waves-effect waves-light right-align"
+                type="submit" name="action">
+          Start Memgraph
+        </button>
+      </div>
+      <div class="input-field col s2">
+        <input value="localhost:7475" id="memgraph_url" type="text" class="validate">
+        <label id="memgraph_url" for="memgraph_url">hostname:port</label>
+      </div>
     </div>
   </div>
 
@@ -96,7 +111,7 @@
     </div>
 
     <!-- the graph -->
-    <div class="col s10">
+    <div class="col s8">
       <div class="card">
         <div class="card-content">
           <div id="chart" style="height: 750px;">
@@ -107,7 +122,6 @@
     </div>
 
     <!-- memgraph cards -->
-    <!--
     <div class="col s2">
       <div id="q-1-0" class="card">
         <div class="qps valign-wrapper">
@@ -170,7 +184,6 @@
         <textarea id="query">MATCH (n:Person) RETURN n</textarea>
       </div>
     </div>
-    -->
   </div>
 
   <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
