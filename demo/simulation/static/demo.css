@@ -1,10 +1,16 @@
 
 body {
+  font-family: GillSans, Calibri, Trebuchet, sans-serif;
   background-color: #eee;
 }
 
 .w100 {
-  width: 100%;
+    width: 100%;
+}
+
+.title {
+  width: 90%;
+  color: #007FFF;
 }
 
 .CodeMirror {
@@ -14,4 +20,16 @@ body {
 
 svg, text {
   font-size: 28;
+}
+
+.btn {
+    background-color: #007FFF;
+}
+
+.btn:hover {
+    background-color: #007FFF;
+}
+
+.btn:focus {
+    background-color: #007FFF;
 }

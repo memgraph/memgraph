@@ -90,46 +90,81 @@
       this.gauge.set(value);
     }
 
-    set(value) {
+    set_value(value) {
       this.text.set(value);
       this.gauge.set(value);
     }
+
+    set_query(query) {
+      this.query.set(query);
+    }
   }
 
+  var put_new_line_mod_2 = function(array) {
+    let join_array = array.map(function(o, i) {
+      if (i % 2 == 0)
+        return ' ';
+      else
+        return '\n';
+    });
+    join_array.pop();
+    return array.map(function(v,i) {
+      return [v, join_array[i]]; 
+    }).reduce(function(a,b) {
+      return a.concat(b); 
+    });
+  };
+
+  var queries = [
+    "CREATE (n{id:@}) RETURN n",
+    "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
+    "MATCH (n{id:#}) SET n.prop=^ RETURN n",
+    "MATCH (n{id:#}) RETURN n",
+    "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
+  ];
+
+  $("#running-button").click(function() {
+    running = !running;
+    if (running) {
+      $(this).text('STOP');
+      run();
+      updateGraph();
+    }
+    if (!running)
+      $(this).text('START');
+  });
+
   // counters init
+  let running = false;
   let value = 0;
   let maxQps = 15000;
 
-  let card1 = new QueryCard($('#q1')[0], maxQps);
-  let card2 = new QueryCard($('#q2')[0], maxQps);
-  let card3 = new QueryCard($('#q3')[0], maxQps);
-  let card4 = new QueryCard($('#q4')[0], maxQps);
-  let card5 = new QueryCard($('#q5')[0], maxQps);
-  let card6 = new QueryCard($('#q6')[0], maxQps);
-  let card7 = new QueryCard($('#q7')[0], maxQps);
-  let card8 = new QueryCard($('#q8')[0], maxQps);
+  // cards init
+  let neo4jCards = [];
+  let memgraphCards = [];
+  queries.forEach(function(query, i) {
+    query = put_new_line_mod_2(query.split(" ")).join('');
+    neo4jCards.push(new QueryCard($('#q-0-' + i.toString())[0], maxQps));
+    neo4jCards[i].set_query(query);
+    memgraphCards.push(new QueryCard($('#q-1-' + i.toString())[0], maxQps));
+    memgraphCards[i].set_query(query);
+  });
 
-  // counters update
+  // cards update
   function run() {
+    if (!running)
+      return;
     setTimeout(() => {
       value += 10;
-
       if(value >= maxQps)
         value = 0;
-        
-      card1.set(value);
-      card2.set(value);
-      card3.set(value);
-      card4.set(value);
-      card5.set(value);
-      card6.set(value);
-      card7.set(value);
-      card8.set(value);
-
+      queries.forEach(function(query, i) {
+        neo4jCards[i].set_value(Math.round(1000 + Math.random() * 3000));
+        memgraphCards[i].set_value(Math.round(7000 + Math.random() * 7000));
+      });
       run();
-    }, 20);
+    }, 1000);
   }
-  run();
 
   // graph init
   var data = [];
@@ -148,7 +183,7 @@
 
     chart.yAxis
          .axisLabel('QPS')
-         .tickFormat(d3.format(',r'));
+         .tickFormat(d3.format('f'));
 
     chartData = d3.select('#chart svg')
       .datum(data);
@@ -162,6 +197,8 @@
   // graph update
   let x = 0;
   function updateGraph() {
+    if (!running)
+      return;
     setTimeout(() => {
       x += 1;
       if (x > 100)
@@ -185,6 +222,5 @@
       updateGraph();
     }, 1000);
   }
-  updateGraph();
 
 })();
