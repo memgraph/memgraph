@@ -212,11 +212,13 @@
       let newData = [{
         values: memgraphLine,
         key: 'Memgraph',
-        color: '#ff0000'
+        color: '#ff0000',
+        strokeWidth: 3
       }, {
         values: neo4jLine,
         key: 'Neo4j',
-        color: '#0000ff'
+        color: '#0000ff',
+        strokeWidth: 3
       }];
       chartData.datum(newData).transition().duration(500).call(chart);
   }
@@ -275,6 +277,7 @@
   var chartData;
   nv.addGraph(function() {
     chart = nv.models.lineChart()
+         .interpolate('basis')
          .useInteractiveGuideline(true)
          .showLegend(true)
          .showYAxis(true)
