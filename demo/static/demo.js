@@ -127,11 +127,11 @@
   let memgraphLine = [];
   let neo4jLine = [];
   var queries = [
-    "CREATE (n{id:@}) RETURN n",
-    "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
-    "MATCH (n{id:#}) SET n.prop=# RETURN n",
-    "MATCH (n{id:#}) RETURN n",
-    "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
+    "CREATE (n:Item{id:@}) RETURN n",
+    "MATCH (n:Item{id:#}),(m:Item{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
+    "MATCH (n:Item{id:#}) SET n.prop=# RETURN n",
+    "MATCH (n:Item{id:#}) RETURN n",
+    "MATCH (n:Item{id:#})-[r]->(m) RETURN count(r)"
   ];
   var params = {
     host: "localhost",
