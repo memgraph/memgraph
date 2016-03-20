@@ -104,6 +104,7 @@ class WorkerWebService(WebService):
         Stops the worker run.
         '''
         self.params_data = {}
+        self.stats_data = None
         self.is_simulation_running = False
         return ('', 204)
 
