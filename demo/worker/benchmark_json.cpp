@@ -10,8 +10,12 @@ int main(int argc, char* argv[])
     auto port        = std::string(argv[2]);
     auto connections = std::stoi(argv[3]);
     auto duration    = std::stod(argv[4]);
+    auto count       = std::stoi(argv[5]);
+
+    counter.store(count);
+
     std::vector<std::string> queries;
-    for (int i = 5; i <  argc; ++i) {
+    for (int i = 6; i <  argc; ++i) {
         queries.emplace_back(std::string(argv[i]));
     }
 

@@ -94,6 +94,8 @@ std::string benchmark_json(const std::string& host,
         [](auto acc, auto x) { return acc + x; }
     );
 
+    auto created_count = counter.load();
+
     std::string json = "{\"total\":" + std::to_string(total / elapsed) + ","
         + " \"per_query\": [";
     for(size_t i = 0; i < queries.size(); ++i) {
@@ -103,6 +105,6 @@ std::string benchmark_json(const std::string& host,
         }
         json += ", " + std::to_string(reqs[i] / elapsed);
     }
-    json += "]}";
+    json += "], \"counter\": " + std::to_string(created_count) + " }";
     return json;
 }
