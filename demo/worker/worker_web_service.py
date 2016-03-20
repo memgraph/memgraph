@@ -26,6 +26,7 @@ class WorkerWebService(WebService):
         self.is_simulation_running = False
         self.stats_data = None
         self.setup_routes()
+        self.counter = None
 
     def setup_routes(self):
         '''
@@ -74,20 +75,25 @@ class WorkerWebService(WebService):
             # data = wrapped_client(*params)
 
             #   subprocess call
+            if not self.counter:
+                self.counter = 0
             params = [
                 str(self.params_data['host']),
                 str(self.params_data['port']),
                 str(self.params_data['connections']),
-                str(self.params_data['duration'])
+                str(self.params_data['duration']),
+                str(self.counter)
             ] + list(map(lambda x: str(x), self.params_data['queries']))
             exe = path.join(path.dirname(path.abspath(__file__)),
                             "benchmark_json.out")
             self.stats_data = subprocess_client([exe] + params)
+            self.counter = self.stats_data['counter']
 
     def start(self):
         '''
         Starts run in a separate thread.
         '''
+        self.counter = 0
         self.is_simulation_running = True
         t = threading.Thread(target=self.run_simulation, daemon=True)
         t.start()
@@ -97,6 +103,7 @@ class WorkerWebService(WebService):
         '''
         Stops the worker run.
         '''
+        self.params_data = None
         self.is_simulation_running = False
         return ('', 204)
 
