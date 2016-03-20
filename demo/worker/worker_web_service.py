@@ -134,5 +134,5 @@ class WorkerWebService(WebService):
         for param in param_names:
             if param in data:
                 self.params_data[param] = data[param]
-        print(self.params_data)
+
         return self.params_get()

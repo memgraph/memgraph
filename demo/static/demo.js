@@ -136,7 +136,7 @@
   var params = {
     host: "localhost",
     port: "7474",
-    connections: 16,
+    connections: 1,
     duration: 1,
     queries: queries
   };
@@ -274,7 +274,6 @@
   }
 
   // graph init
-  var data = [];
   var chart;
   var chartData;
   nv.addGraph(function() {
@@ -296,7 +295,7 @@
     chart.forceY([0, 50000]);
 
     chartData = d3.select('#chart svg')
-      .datum(data);
+      .datum([]);
     chartData.call(chart);
 
     chart.update();
