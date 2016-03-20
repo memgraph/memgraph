@@ -136,7 +136,7 @@
   var params = {
     host: "localhost",
     port: "7474",
-    connections: 1,
+    connections: 2,
     duration: 1,
     queries: queries
   };
@@ -177,6 +177,7 @@
       let hostname_port = $("#neo4j_url").val().split(":");
       params.host = hostname_port[0];
       params.port = hostname_port[1];
+      params.connections = 2;
       registerParams(function() {
         start();
         updateNeo4j();
@@ -196,6 +197,7 @@
       let hostname_port = $("#memgraph_url").val().split(":");
       params.host = hostname_port[0];
       params.port = hostname_port[1];
+      params.connections = 4;
       registerParams(function() {
         start();
         updateMemgraph();
