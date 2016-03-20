@@ -15,6 +15,11 @@ public:
         this->record->data.edge_type = type;
     }
 
+    const std::string& edge_type() const
+    {
+        return this->record->data.edge_type;
+    }
+
     void from(VertexRecord* vertex_record)
     {
         this->record->data.from = vertex_record;

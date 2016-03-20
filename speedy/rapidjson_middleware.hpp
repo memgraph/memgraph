@@ -30,6 +30,10 @@ bool rapidjson_middleware(sp::Request& req, sp::Response& res)
     // return the error message to the client
     auto error_str = rapidjson::GetParseError_En(req.json.GetParseError());
     std::string parse_error = "JSON parse error: " + std::string(error_str);
+
+    std::cout << "'" << req.body << "'" << std::endl;
+    std::cout << parse_error << std::endl;
+
     res.send(http::Status::BadRequest, parse_error);
 
     // stop further execution

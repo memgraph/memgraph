@@ -26,18 +26,18 @@ class QueryStripper
 public:
 
     QueryStripper(Ts&&... strip_types) :
-        lexer(std::make_unique<CypherLexer>()),
-        strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)) {}
+        strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)),
+        lexer(std::make_unique<CypherLexer>()) {}
 
     QueryStripper(QueryStripper& other) = delete;
 
-    QueryStripper(QueryStripper&& other) : 
+    QueryStripper(QueryStripper&& other) :
         strip_types(std::move(other.strip_types)),
         lexer(std::move(other.lexer)) {}
 
     auto strip(const std::string& query)
     {
-        //  TODO write this more optimal (resplace string 
+        //  TODO write this more optimal (resplace string
         //  concatenation with something smarter)
         //  TODO: in place substring replacement
 
