@@ -103,7 +103,7 @@
   // put \n on module 2 space positions
   var put_new_line_mod_2 = function(array) {
     let join_array = array.map(function(o, i) {
-      if (i % 2 == 0)
+      if (i % 2 === 0)
         return ' ';
       else
         return '\n';
@@ -129,7 +129,7 @@
   var queries = [
     "CREATE (n{id:@}) RETURN n",
     "MATCH (n{id:#}),(m{id:#}) CREATE (n)-[r:test]->(m) RETURN r",
-    "MATCH (n{id:#}) SET n.prop=^ RETURN n",
+    "MATCH (n{id:#}) SET n.prop=# RETURN n",
     "MATCH (n{id:#}) RETURN n",
     "MATCH (n{id:#})-[r]->(m) RETURN count(r)"
   ];
@@ -219,7 +219,7 @@
         color: '#0000ff'
       }];
       chartData.datum(newData).transition().duration(500).call(chart);
-  }
+  };
 
   // update
   function updateNeo4j() {
@@ -232,7 +232,8 @@
         url:'/stats', type:"GET",
         success: function(data){
           if (!data || !data.total || !data.per_query)
-            return
+            return;
+
           neo4jSec = neo4jSec + 1;
           neo4jLine.push({x: neo4jSec, y: data.total});
           data.per_query.forEach(function(speed, i) {
@@ -256,7 +257,8 @@
         url:'/stats', type:"GET",
         success: function(data){
           if (!data || !data.total || !data.per_query)
-            return
+            return;
+
           memgraphSec = memgraphSec + 1;
           memgraphLine.push({x: memgraphSec, y: data.total});
           data.per_query.forEach(function(speed, i) {
