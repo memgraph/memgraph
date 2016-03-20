@@ -41,7 +41,6 @@ public:
         /* std::cout << "------------------- RESPONSE ------------------" << std::endl; */
         /* std::cout << std::string(buf.ptr, buf.len) << std::endl; */
         /* std::cout << "-----------------------------------------------" << std::endl; */
-        /* std::cout << std::endl; */
 
         requests++;
         send(stream.socket);
@@ -52,10 +51,6 @@ public:
         // cypherize and send the request
         //socket.write(cypher(queries[idx]));
         auto req = cypher(query);
-
-/*         std::cout << "-------------------- REQUEST ------------------" << std::endl; */
-/*         std::cout << req << std::endl; */
-
         socket.write(req);
     }
 
