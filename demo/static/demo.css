@@ -3,6 +3,10 @@ body {
   background-color: #eee;
 }
 
+.CodeMirror pre {
+    font-size: 13px;
+}
+
 /* label color inactive */
 .input-field label {
     color: #000;
