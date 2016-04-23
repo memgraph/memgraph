@@ -3,9 +3,9 @@
 #include "utils/command_line/arguments.hpp"
 #include "utils/string/file.hpp"
 
-std::string extract_query(const vector_str& arguments)
+std::string extract_query(const std::vector<std::string>& arguments)
 {
-    if (contain_argument(arguments, "-q"))
+    if (contains_argument(arguments, "-q"))
         return get_argument(arguments, "-q", "CREATE (n) RETURN n");
     auto default_file = "query.cypher";
     auto file = get_argument(arguments, "-f", default_file);
