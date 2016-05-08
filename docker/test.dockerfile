@@ -10,17 +10,12 @@ RUN apt-get update \
 
 RUN git clone https://pullbot:JnSdamFGKOanF1@phabricator.tomicevic.com/diffusion/MG/memgraph.git /memgraph
 
-# copy files from build context
-# COPY src /memgraph/src
-# COPY build.sh /memgraph/build.sh
-# COPY Makefile /memgraph/Makefile
-
 # update all submodules
 WORKDIR /memgraph
 RUN git submodule update --init
 
 # install r3
-WORKDIR /memgraph/speedy/r3
+WORKDIR /memgraph/src/speedy/r3
 RUN ./autogen.sh && ./configure && make
 
 # install libuv
@@ -38,7 +33,7 @@ RUN git checkout 4e382f96e6d3321538a78f2c7f9506d4e79b08d6
 RUN make && make install
 
 # install lexertl and compile memgraph cypher
-WORKDIR /memgraph/cypher
+WORKDIR /memgraph/src/cypher
 RUN ./init.sh
 
 # compile memgraph
