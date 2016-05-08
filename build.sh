@@ -16,5 +16,5 @@ if [[ -z $target ]]; then
     target="all"
 fi
 
-cd api && python link_resources.py && cd ..
+cd src/api && python link_resources.py && cd ../..
 make clean && make $target
