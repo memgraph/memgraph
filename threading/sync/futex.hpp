@@ -39,7 +39,7 @@ class Futex
         } state;
     };
 
-    enum Contension : futex_t
+    enum Contention : futex_t
     {
         UNCONTENDED = 0x0000,
         CONTENDED   = 0x0100
