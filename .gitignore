@@ -11,3 +11,4 @@ memgraph
 *.pyc
 *.breakpoint
 *.session.yaml
+tags
