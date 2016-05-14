@@ -16,6 +16,7 @@ RUN git submodule update --init
 
 # install r3
 WORKDIR /memgraph/src/speedy/r3
+RUN git checkout 28726b27af3cd0a9d3166033c6619a9c7227cb48
 RUN ./autogen.sh && ./configure && make
 
 # install libuv
