@@ -11,6 +11,7 @@
 #include <cstring>
 #include <string>
 #include <stdexcept>
+#include <cstdlib>
 
 namespace config
 {
@@ -27,12 +28,14 @@ private:
         //      3. ENV var                |
         //      4. program argument      \ /
         // _config = YAML::LoadFile("config.yaml");
+        
+        // env -> std::getenv("NAME")
+        // somehow inject (int argc, char* argv[])
     }
 
 public:
     static Config& instance()
     {
-        //  TODO resolve multithreading problems
         static Config config;
         return config;
     }

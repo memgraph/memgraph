@@ -28,7 +28,7 @@ public:
             Entry(Printer& printer) : printer(printer), valid(true)
             {
                 printer.level++;
-    
+
                 for(size_t i = 1; i < printer.level; ++i)
                     printer.stream << "|  ";
 
@@ -36,12 +36,12 @@ public:
             }
 
             Entry(const Entry&) = delete;
-            
+
             Entry(Entry&& other) : printer(other.printer), valid(true)
             {
                 other.valid = false;
             }
-            
+
             ~Entry()
             {
                 if(valid)
@@ -87,7 +87,7 @@ public:
         auto entry = printer.advance("Start");
         Traverser::visit(start);
     }
-    
+
     void visit(ast::ReadQuery& read_query) override
     {
         auto entry = printer.advance("Read Query");
