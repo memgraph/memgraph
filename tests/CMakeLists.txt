@@ -28,9 +28,13 @@ foreach(test_file ${test_files})
 endforeach()
 MESSAGE(STATUS "Available tests are: ${tests}")
 
+# copy test data
+file(COPY ${CMAKE_SOURCE_DIR}/tests/data DESTINATION ${CMAKE_BINARY_DIR}/tests)
+
 # build tests
 foreach(test ${tests})
     add_executable(${test} ${test}.cpp)
+    target_link_libraries(${test} stdc++fs)
     add_test(NAME ${test} COMMAND ${test})
     set_property(TARGET ${test} PROPERTY CXX_STANDARD 14)
 endforeach()
