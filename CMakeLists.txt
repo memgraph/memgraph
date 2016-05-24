@@ -8,9 +8,22 @@ string(REPLACE " " "_" ProjectId ${ProjectId})
 # set project name
 project(${ProjectId})
 
+# c++14
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
+
+# functions
+
+function(list_includes)
+    get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
+    foreach(dir ${dirs})
+          message(STATUS "dir='${dir}'")
+    endforeach()
+endfunction(list_includes)
+
 # external dependencies
 
 include(ExternalProject)
+set(src_dir "${CMAKE_SOURCE_DIR}/src")
 set(libs_dir "${CMAKE_SOURCE_DIR}/libs")
 
 # lemon
@@ -45,8 +58,8 @@ ExternalProject_Add(
     TEST_COMMAND ""
 )
 
-# build memgraph's cypher grammer
-FILE(COPY ${CMAKE_SOURCE_DIR}/src/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
+# build memgraph's cypher grammar
+FILE(COPY ${src_dir}/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
 EXECUTE_PROCESS(
     COMMAND ${lemon_dir}/lemon ${CMAKE_BINARY_DIR}/cypher.y -s
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -54,24 +67,31 @@ EXECUTE_PROCESS(
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.c ${CMAKE_BINARY_DIR}/cypher.cpp)
 
 # lexertl
+set(lexertl_dir ${libs_dir}/lexertl)
 ExternalProject_Add(
     lexertl
     GIT_REPOSITORY "https://github.com/BenHanson/lexertl.git"
     GIT_TAG "7d4d36a357027df0e817453cc9cf948f71047ca9"
     SOURCE_DIR "${libs_dir}/lexertl"
-    TEST_COMMAND ""
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
     INSTALL_COMMAND ""
+    TEST_COMMAND ""
 )
 
 # compiler options
 SET(COMPILE_OPTIONS "-O0 -g3 -Wall -Werror -fmessage-length=0")
 
 # add all cpp file recursive into sourceFiles varibale
-FILE(GLOB_RECURSE sourceFiles ${CMAKE_HOME_DIRECTORY}/src/*.cpp)
+FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
 
 # print list of source files
 # MESSAGE(STATUS "All source files are: ${sourceFiles}")
 
-INCLUDE_DIRECTORIES(${CMAKE_HOME_DIRECTORY}/src)
-ENABLE_TESTING()
-ADD_SUBDIRECTORY(tests)
+include_directories(${src_dir})
+include_directories(${lexertl_dir})
+
+add_library(cypher_lib STATIC ${src_dir}/cypher/cypher.cpp)
+
+enable_testing()
+add_subdirectory(tests)

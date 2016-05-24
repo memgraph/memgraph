@@ -8,8 +8,8 @@
 // auto_ptr<lexertl::detail::basic_re_token<char, char> > is deprecated
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#include "cypher/lexertl/lexertl/generator.hpp"
-#include "cypher/lexertl/lexertl/lookup.hpp"
+#include "lexertl/generator.hpp"
+#include "lexertl/lookup.hpp"
 #pragma GCC diagnostic pop
 
 #include "cypher/errors.hpp"

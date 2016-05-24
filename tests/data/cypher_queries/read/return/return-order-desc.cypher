@@ -1,1 +1,1 @@
-ORDER BY n.property DESC
+# ORDER BY n.property DESC

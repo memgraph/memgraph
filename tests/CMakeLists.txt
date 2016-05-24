@@ -17,6 +17,7 @@ ExternalProject_Add(
 )
 ExternalProject_Get_Property(Catch source_dir)
 set(catch_source_dir ${source_dir})
+
 include_directories(${catch_source_dir}/include)
 
 # find tests
@@ -35,6 +36,7 @@ file(COPY ${CMAKE_SOURCE_DIR}/tests/data DESTINATION ${CMAKE_BINARY_DIR}/tests)
 foreach(test ${tests})
     add_executable(${test} ${test}.cpp)
     target_link_libraries(${test} stdc++fs)
+    target_link_libraries(${test} cypher_lib)
     add_test(NAME ${test} COMMAND ${test})
     set_property(TARGET ${test} PROPERTY CXX_STANDARD 14)
 endforeach()

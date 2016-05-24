@@ -1,1 +1,1 @@
-MATCH p = (n:Person)-->(m:Dog {name: 'Bos'}) RETURN p
+# MATCH p = (n:Person)-->(m:Dog {name: 'Bos'}) RETURN p

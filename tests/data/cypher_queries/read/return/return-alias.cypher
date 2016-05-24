@@ -1,1 +1,1 @@
-MATCH (n) RETURN n AS columnName
+# MATCH (n) RETURN n AS columnName

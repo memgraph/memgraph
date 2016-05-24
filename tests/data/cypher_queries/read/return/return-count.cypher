@@ -1,1 +1,1 @@
-RETURN count(*)
+# RETURN count(*)
