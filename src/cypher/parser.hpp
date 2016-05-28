@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cypher.h"
+#include "cypher/cypher.h"
 #include "token.hpp"
 #include "ast/tree.hpp"
 #include "tokenizer/cypher_lexer.hpp"

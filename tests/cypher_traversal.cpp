@@ -16,22 +16,36 @@ namespace fs = std::experimental::filesystem;
 using std::cout;
 using std::endl;
 
-std::vector<std::string> load_queries()
+auto load_queries()
 {
     std::vector<std::string> queries;
+
     fs::path queries_path = "data/cypher_queries";
+    std::string query_file_extension = "cypher";
+
     for (auto& directory_entry :
             fs::recursive_directory_iterator(queries_path)) {
+
+        auto path = directory_entry.path().string();
+
+        // skip directories
         if (!fs::is_regular_file(directory_entry))
             continue;
-        cout << directory_entry.path() << endl;
-		std::ifstream infile(directory_entry.path().c_str());
+
+        // skip non cypher files
+        auto file_extension = path.substr(path.find_last_of(".") + 1);
+        if (file_extension != query_file_extension)
+            continue;
+
+        // load a cypher query and put the query into queries container
+		std::ifstream infile(path.c_str());
 		if (infile) {
 			std::string file_text((std::istreambuf_iterator<char>(infile)),
                                   std::istreambuf_iterator<char>());
             queries.emplace_back(file_text);
         }
     }
+
     return queries;
 }
 

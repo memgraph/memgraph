@@ -1,13 +1,14 @@
 #pragma once
 
 #include "list.hpp"
+#include "expr.hpp"
 #include "identifier.hpp"
 #include "distinct.hpp"
 
 namespace ast
 {
 
-struct ReturnList : public List<Identifier, ReturnList>
+struct ReturnList : public List<Expr, ReturnList>
 {
     using List::List;
 };

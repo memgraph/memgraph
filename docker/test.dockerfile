@@ -33,9 +33,9 @@ WORKDIR /libs/http_parser
 RUN git checkout 4e382f96e6d3321538a78f2c7f9506d4e79b08d6
 RUN make && make install
 
-# install lexertl and compile memgraph cypher
-WORKDIR /memgraph/src/cypher
-RUN ./init.sh
+WORKDIR /memgraph/build
+RUN cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ..\
+    && make && ctest
 
 # compile memgraph
 WORKDIR /memgraph

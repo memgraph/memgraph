@@ -14,7 +14,7 @@ struct Token
      * Token is "True" if it's id is bigger than zero. Because
      * lexer ids are all bigger than zero.
      *
-     * This object could be used in while loop as a condition. 
+     * This object could be used in while loop as a conditional element. 
      * E.g.:
      * while (auto token = ...)
      * {

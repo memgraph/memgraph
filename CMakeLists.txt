@@ -20,11 +20,25 @@ function(list_includes)
     endforeach()
 endfunction(list_includes)
 
+# custom targets
+
+# move test data files to a build directory
+if (UNIX)
+    set(test_data_src "${CMAKE_SOURCE_DIR}/tests/data")
+	set(test_data_dst "${CMAKE_BINARY_DIR}/tests/data")
+	add_custom_target (test_data
+		COMMAND rm -rf ${test_data_dst}
+        COMMAND cp -r ${test_data_src} ${test_data_dst}
+	)
+endif (UNIX)
+
 # external dependencies
 
 include(ExternalProject)
-set(src_dir "${CMAKE_SOURCE_DIR}/src")
-set(libs_dir "${CMAKE_SOURCE_DIR}/libs")
+
+set(build_include_dir ${CMAKE_BINARY_DIR}/include)
+set(src_dir ${CMAKE_SOURCE_DIR}/src)
+set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 
 # lemon
 set(lemon_dir "${libs_dir}/lemon")
@@ -59,12 +73,19 @@ ExternalProject_Add(
 )
 
 # build memgraph's cypher grammar
+# copy grammar file to the build directory
 FILE(COPY ${src_dir}/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
+# build cypher parser (only c file - cypher.c)
 EXECUTE_PROCESS(
     COMMAND ${lemon_dir}/lemon ${CMAKE_BINARY_DIR}/cypher.y -s
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+# change cypher parser c extension to cpp (cypher.c -> cypher.cpp)
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.c ${CMAKE_BINARY_DIR}/cypher.cpp)
+# add include file (cypher.h) to build include dir
+SET(cypher_build_include_dir ${build_include_dir}/cypher)
+FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
+FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
 
 # lexertl
 set(lexertl_dir ${libs_dir}/lexertl)
@@ -90,8 +111,10 @@ FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
 
 include_directories(${src_dir})
 include_directories(${lexertl_dir})
+include_directories(${build_include_dir})
 
-add_library(cypher_lib STATIC ${src_dir}/cypher/cypher.cpp)
+# creates build/libcypher_lib.a
+add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 
 enable_testing()
 add_subdirectory(tests)

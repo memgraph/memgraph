@@ -1,1 +1,1 @@
-CREATE (n {name: "Roy", surname: "Keane"})
+CREATE (n {name: "Roy", surname: "Keane", age: 23})

@@ -36,10 +36,10 @@
     #include <cassert>
     #include <cstdlib>
 
-    #include "token.hpp"
-    #include "errors.hpp"
-    #include "ast/ast.hpp"
-    #include "ast/tree.hpp"
+    #include "cypher/token.hpp"
+    #include "cypher/errors.hpp"
+    #include "cypher/ast/ast.hpp"
+    #include "cypher/ast/tree.hpp"
 
     #define DEBUG(X) std::cout << "PARSER: " << X << std::endl
 }
@@ -260,12 +260,12 @@ return_clause(R) ::= RETURN distinct(D). {
 
 %type return_list {ast::ReturnList*}
 
-return_list(R) ::= return_list(N) COMMA idn(I). {
-    R = ast->create<ast::ReturnList>(I, N);
+return_list(R) ::= return_list(N) COMMA expr(E). {
+    R = ast->create<ast::ReturnList>(E, N);
 }
 
-return_list(R) ::= idn(I). {
-    R = ast->create<ast::ReturnList>(I, nullptr);
+return_list(R) ::= expr(E). {
+    R = ast->create<ast::ReturnList>(E, nullptr);
 }
 
 %type distinct {ast::Distinct*}
@@ -362,6 +362,10 @@ expr(E) ::= expr(L) REM expr(R). {
 
 expr(E) ::= idn(I) DOT idn(P). {
     E = ast->create<ast::Accessor>(I, P);
+}
+
+expr(E) ::= idn(I). {
+	E = ast->create<ast::Accessor>(I, nullptr);
 }
 
 %type idn {ast::Identifier*}
