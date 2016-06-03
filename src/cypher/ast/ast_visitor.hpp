@@ -41,6 +41,7 @@ struct Relationship;
 struct Node;
 struct LabelList;
 struct Pattern;
+struct PatternExpr;
 
 struct Return;
 struct ReturnList;
@@ -66,7 +67,7 @@ struct SetList;
 struct AstVisitor : public Visitor<Accessor, Boolean, Float, Identifier, Alias,
     Integer, String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus,
     Star, Slash, Rem, PropertyList, RelationshipList, Relationship, Node,
-    RelationshipSpecs, LabelList, ReturnList, Pattern, Match, ReadQuery,
+    RelationshipSpecs, LabelList, ReturnList, Pattern, PatternExpr, Match, ReadQuery,
     Start, Where, WriteQuery, Create, Return, Distinct, Delete,
     DeleteQuery, UpdateQuery, Set, SetKey, SetValue, SetElement, SetList> {};
 

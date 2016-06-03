@@ -36,4 +36,11 @@ struct BinaryExpr : public VisitableExpr<Derived>
     Expr* right;
 };
 
+struct PatternExpr : public VisitableExpr<PatternExpr>
+{
+    PatternExpr(Pattern* pattern) : pattern(pattern) {}
+
+    Pattern* pattern;
+};
+
 }

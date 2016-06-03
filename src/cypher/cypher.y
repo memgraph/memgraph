@@ -360,13 +360,19 @@ expr(E) ::= expr(L) REM expr(R). {
     E = ast->create<ast::Rem>(L, R);
 }
 
+expr(E) ::= idn(I). {
+	E = ast->create<ast::Accessor>(I, nullptr);
+}
+
 expr(E) ::= idn(I) DOT idn(P). {
     E = ast->create<ast::Accessor>(I, P);
 }
 
-expr(E) ::= idn(I). {
-	E = ast->create<ast::Accessor>(I, nullptr);
-}
+// this production produces parser conflicts TODO: findout why
+// the intention os to add patter in the RETURN statement
+// expr(E) ::= pattern(P). {
+//     E = ast->create<ast::PatternExpr>(P);
+// }
 
 %type idn {ast::Identifier*}
 
