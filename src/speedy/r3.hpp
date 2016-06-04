@@ -103,7 +103,7 @@ public:
     }
 
     R3(R3&) = delete;
-    
+
     R3(R3&& other)
     {
         this->routes = std::move(other.routes);
