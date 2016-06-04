@@ -9,6 +9,7 @@
 
 #include "utils/random/fast_binomial.hpp"
 #include "memory/lazy_gc.hpp"
+#include "utils/placeholder.hpp"
 
 /* @brief Concurrent lock-based skiplist with fine grained locking
  *
@@ -145,10 +146,40 @@ public:
     public:
         friend class SkipList;
 
-        value_type data;
-
         const uint8_t height;
         Flags flags;
+
+        const K& key() const
+        {
+            return kv_pair().first;
+        }
+
+        T& value()
+        {
+            return kv_pair().second;
+        }
+
+        const T& value() const
+        {
+            return kv_pair().second;
+        }
+
+        value_type& kv_pair()
+        {
+            return data.get();
+        }
+
+        const value_type& kv_pair() const
+        {
+            return data.get();
+        }
+
+        static Node* sentinel(uint8_t height)
+        {
+            // we have raw memory and we need to construct an object
+            // of type Node on it
+            return new (allocate(height)) Node(height);
+        }
 
         static Node* create(const K& key, const T& item, uint8_t height)
         {
@@ -162,15 +193,7 @@ public:
 
         static Node* create(value_type&& data, uint8_t height)
         {
-            // [      Node      ][Node*][Node*][Node*]...[Node*]
-            //         |            |      |      |         |
-            //         |            0      1      2      height-1
-            // |----------------||-----------------------------|
-            //   space for Node     space for tower pointers
-            //     structure          right after the Node
-            //                             structure
-            auto size = sizeof(Node) + height * sizeof(std::atomic<Node*>);
-            auto node = static_cast<Node*>(std::malloc(size));
+            auto node = allocate(height);
 
             // we have raw memory and we need to construct an object
             // of type Node on it
@@ -194,8 +217,7 @@ public:
         }
 
     private:
-        Node(value_type&& data, uint8_t height)
-            : data(std::move(data)), height(height)
+        Node(uint8_t height) : height(height)
         {
             // here we assume, that the memory for N towers (N = height) has
             // been allocated right after the Node structure so we need to
@@ -204,11 +226,34 @@ public:
                 new (&tower[i]) std::atomic<Node*> {nullptr};
         }
 
+        Node(value_type&& data, uint8_t height) : Node(height)
+        {
+            this->data.set(std::forward<value_type>(data));
+        }
+
         ~Node()
         {
             for(auto i = 0; i < height; ++i)
                 tower[i].~atomic();
         }
+
+        static Node* allocate(uint8_t height)
+        {
+            // [      Node      ][Node*][Node*][Node*]...[Node*]
+            //         |            |      |      |         |
+            //         |            0      1      2      height-1
+            // |----------------||-----------------------------|
+            //   space for Node     space for tower pointers
+            //     structure          right after the Node
+            //                             structure
+            auto size = sizeof(Node) + height * sizeof(std::atomic<Node*>);
+            auto node = static_cast<Node*>(std::malloc(size));
+
+            return node;
+        }
+
+        Placeholder<value_type> data;
+
 
         // this creates an array of the size zero. we can't put any sensible
         // value here since we don't know what size it will be untill the
@@ -234,19 +279,19 @@ public:
         value_type& operator*()
         {
             assert(node != nullptr);
-            return node->data;
+            return node->kv_pair();
         }
 
         value_type* operator->()
         {
             assert(node != nullptr);
-            return &node->data;
+            return &node->kv_pair();
         }
 
         operator value_type&()
         {
             assert(node != nullptr);
-            return node->data;
+            return node->kv_pair();
         }
 
         It& operator++()
@@ -307,7 +352,7 @@ public:
         Iterator(const Iterator&) = default;
     };
 
-    SkipList() : header(Node::create(K(), std::move(T(0)), H)) {}
+    SkipList() : header(Node::sentinel(H)) {}
 
     friend class Accessor;
 
@@ -447,12 +492,12 @@ private:
 
     bool greater(const K& key, const Node* const node)
     {
-        return node && key > node->data.first;
+        return node && key > node->key();
     }
 
     bool less(const K& key, const Node* const node)
     {
-        return (node == nullptr) || key < node->data.first;
+        return (node == nullptr) || key < node->key();
     }
 
     ConstIterator find(const K& key) const
