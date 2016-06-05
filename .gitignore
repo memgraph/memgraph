@@ -12,3 +12,4 @@ memgraph
 *.breakpoint
 *.session.yaml
 tags
+.gdb_history

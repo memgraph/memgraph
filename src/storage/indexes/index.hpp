@@ -24,7 +24,6 @@ public:
         // todo handle existing insert
     }
 
-
 private:
     skiplist_t skiplist;
 };

@@ -16,7 +16,7 @@ private:
     Property& key;
 };
 
-template <class Orderingt>
+template <class Ordering>
 class IndexKey
 {
 public:
