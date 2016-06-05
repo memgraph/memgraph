@@ -1,4 +1,6 @@
+#define CATCH_CONFIG_MAIN
 #include "catch.hpp"
+
 #include "data_structures/map/hashmap.hpp"
 
 TEST_CASE("Lockfree HashMap basic functionality")

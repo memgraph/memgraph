@@ -4,6 +4,7 @@
 #include <memory>
 #include <chrono>
 #include <thread>
+#include <atomic>
 
 #include "utils/log/logger.hpp"
 
@@ -110,13 +111,19 @@ public:
 
     void run()
     {
+        is_running.store(true);
         run_thread = std::thread([this]() {
-            while (true) {
+            while (is_running.load()) {
                 std::this_thread::sleep_for(delta_time_type(delta_time));
                 timer_container.process();
                 LOG_INFO("timer_container.process()");
             }
         });
+    }
+
+    void stop()
+    {
+        is_running.store(false); 
     }
 
     ~TimerScheduler()
@@ -128,4 +135,5 @@ public:
 private:
     timer_container_type timer_container;
     std::thread run_thread;
+    std::atomic<bool> is_running;
 };

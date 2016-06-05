@@ -9,20 +9,20 @@ namespace lockfree
 {
 
 template <class K, class V>
-class HashMap: Lockable<SpinLock> 
+class HashMap : Lockable<SpinLock> 
 {
 public:
 
     V at(const K& key)
     {
-        auto guard = acquire();
+        auto guard = acquire_unique();
 
         return hashmap[key];
     }
 
     void put(const K& key, const K& value)
     {
-        auto quard = acquire();
+        auto guard = acquire_unique();
 
         hashmap[key] = value;
     }

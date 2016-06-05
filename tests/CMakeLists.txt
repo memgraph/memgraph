@@ -1,8 +1,9 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.1)
 
 project(memgraph_tests)
 
 # setup dependencies
+find_package(Threads REQUIRED)
 
 # Catch (C++ Automated Test Cases in Headers) dependency
 ExternalProject_Add(
@@ -35,8 +36,10 @@ file(COPY ${CMAKE_SOURCE_DIR}/tests/data DESTINATION ${CMAKE_BINARY_DIR}/tests)
 # build tests
 foreach(test ${tests})
     add_executable(${test} ${test}.cpp)
+    # TODO: separate dependencies
     target_link_libraries(${test} stdc++fs)
     target_link_libraries(${test} cypher_lib)
+    target_link_libraries(${test} Threads::Threads)
     add_test(NAME ${test} COMMAND ${test})
     set_property(TARGET ${test} PROPERTY CXX_STANDARD 14)
 endforeach()
