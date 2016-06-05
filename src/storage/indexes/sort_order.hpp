@@ -1,7 +1,7 @@
 #pragma once
 
 template <class T>
-class Ascending
+struct Ascending
 {
     constexpr bool operator()(const T& lhs, const T& rhs) const
     {
@@ -10,7 +10,7 @@ class Ascending
 };
 
 template <class T>
-class Descending
+struct Descending
 {
     constexpr bool operator()(const T& lhs, const T& rhs) const
     {

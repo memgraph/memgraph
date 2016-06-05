@@ -32,6 +32,9 @@ private:
     const K& key;
 };
 
+template <class K, class SortOrder>
+constexpr SortOrder UniqueKey<K, SortOrder>::sort_order;
+
 template <class K>
 using UniqueKeyAsc = UniqueKey<K, Ascending<K>>;
 
