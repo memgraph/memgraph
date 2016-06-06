@@ -21,25 +21,44 @@ set(catch_source_dir ${source_dir})
 
 include_directories(${catch_source_dir}/include)
 
-# find tests
-file(GLOB_RECURSE test_files ${CMAKE_HOME_DIRECTORY}/tests/*.cpp)
-set(tests "")
-foreach(test_file ${test_files})
-    get_filename_component(test_name ${test_file} NAME_WE)
-    list(APPEND tests ${test_name})
-endforeach()
-MESSAGE(STATUS "Available tests are: ${tests}")
+## UNIT TESTS
 
-# copy test data
-file(COPY ${CMAKE_SOURCE_DIR}/tests/data DESTINATION ${CMAKE_BINARY_DIR}/tests)
+# find unit tests
+file(GLOB_RECURSE unit_test_files ${CMAKE_HOME_DIRECTORY}/tests/unit/*.cpp)
+get_file_names("${unit_test_files}" file_names)
+set(unit_test_names "${file_names}")
+message(STATUS "Available unit tests are: ${unit_test_names}")
 
-# build tests
-foreach(test ${tests})
-    add_executable(${test} ${test}.cpp)
+# copy unit test data
+file(COPY ${CMAKE_SOURCE_DIR}/tests/data
+     DESTINATION ${CMAKE_BINARY_DIR}/tests)
+
+# build unit tests
+foreach(test ${unit_test_names})
+    set(test_name unit_${test})
+    add_executable(${test_name} unit/${test}.cpp)
     # TODO: separate dependencies
-    target_link_libraries(${test} stdc++fs)
-    target_link_libraries(${test} cypher_lib)
-    target_link_libraries(${test} Threads::Threads)
-    add_test(NAME ${test} COMMAND ${test})
-    set_property(TARGET ${test} PROPERTY CXX_STANDARD 14)
+    target_link_libraries(${test_name} stdc++fs)
+    target_link_libraries(${test_name} cypher_lib)
+    target_link_libraries(${test_name} Threads::Threads)
+    add_test(NAME ${test_name} COMMAND ${test_name})
+    set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
+endforeach()
+
+## CONCURRENCY TESTS
+
+# find concurrency tests
+file(GLOB_RECURSE concurrency_test_files
+     ${CMAKE_HOME_DIRECTORY}/tests/concurrent/*.cpp)
+get_file_names("${concurrency_test_files}" file_names)
+set(concurrency_test_names "${file_names}")
+message(STATUS "Available concurrency tests are: ${concurrency_test_names}")
+
+# build concurrency tests
+foreach(test ${concurrency_test_names})
+    set(test_name concurrent_${test})
+    add_executable(${test_name} concurrent/${test}.cpp)
+    target_link_libraries(${test_name} Threads::Threads)
+    add_test(NAME ${test_name} COMMAND ${test_name})
+    set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
 endforeach()

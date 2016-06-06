@@ -28,5 +28,8 @@ make
 ctest
 ctest -V
 ctest -R test_name
+ctest -R unit
+ctest -R concurrent
+ctest -R concurrent --parallel 4
 ```
 
