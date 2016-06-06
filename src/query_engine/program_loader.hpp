@@ -1,34 +1,35 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
 
 #define NOT_LOG_INFO
 
-#include "memgraph_dynamic_lib.hpp"
-#include "query_stripper.hpp"
 #include "code_compiler.hpp"
 #include "code_generator.hpp"
-#include "utils/hashing/fnv.hpp"
 #include "config/config.hpp"
-#include "utils/log/logger.hpp"
+#include "memgraph_dynamic_lib.hpp"
 #include "query_program.hpp"
+#include "query_stripper.hpp"
+#include "utils/hashing/fnv.hpp"
+#include "utils/log/logger.hpp"
 
 using std::string;
 using std::cout;
 using std::endl;
 
 class ProgramLoader
-{    
+{
 public:
-
     using sptr_code_lib = std::shared_ptr<CodeLib>;
 
     ProgramLoader()
-        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL)) {}
+        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL))
+    {
+    }
 
-    auto load(const string& query)
+    auto load(const string &query)
     {
         auto stripped = stripper.strip(query);
         LOG_INFO("stripped_query=" + stripped.query);
@@ -51,8 +52,8 @@ public:
         auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
         auto path_cpp = base_path + hash_string + ".cpp";
         code_generator.generate_cpp(query, stripped_hash, path_cpp);
-       
-        //  TODO compile generated code 
+
+        //  TODO compile generated code
         auto path_so = base_path + hash_string + ".so";
         code_compiler.compile(path_cpp, path_so);
 
@@ -65,7 +66,6 @@ public:
     }
 
 private:
-
     //  TODO somehow remove int.. from here
     QueryStripper<int, int, int, int> stripper;
     // TODO ifdef MEMGRAPH64 problem, how to use this kind
@@ -76,7 +76,7 @@ private:
     CodeGenerator code_generator;
     CodeCompiler code_compiler;
 
-    sptr_code_lib load_code_lib(const string& path)
+    sptr_code_lib load_code_lib(const string &path)
     {
         sptr_code_lib code_lib = std::make_shared<CodeLib>(path);
         code_lib->load();

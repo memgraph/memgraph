@@ -2,14 +2,14 @@
 
 #include <iostream>
 
-#include "storage/model/properties/traversers/jsonwriter.hpp"
 #include "storage/model/properties/properties.hpp"
+#include "storage/model/properties/traversers/jsonwriter.hpp"
 
 using std::cout;
 using std::endl;
 
-void print_props(const Properties& properties)
-{       
+void print_props(const Properties &properties)
+{
     StringBuffer buffer;
     JsonWriter<StringBuffer> writer(buffer);
     properties.accept(writer);
@@ -17,7 +17,7 @@ void print_props(const Properties& properties)
 }
 
 #ifdef DEBUG
-#   define PRINT_PROPS(_PROPS_) print_props(_PROPS_);
+#define PRINT_PROPS(_PROPS_) print_props(_PROPS_);
 #else
-#   define PRINT_PROPS(_)
+#define PRINT_PROPS(_)
 #endif

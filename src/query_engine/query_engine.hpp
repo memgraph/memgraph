@@ -1,7 +1,7 @@
 #pragma once
 
-#include "program_loader.hpp"
 #include "program_executor.hpp"
+#include "program_loader.hpp"
 #include "query_result.hpp"
 
 //
@@ -12,8 +12,7 @@
 class QueryEngine
 {
 public:
-
-    auto execute(const std::string& query)
+    auto execute(const std::string &query)
     {
         auto program = program_loader.load(query);
         auto result = program_executor.execute(program);

@@ -2,10 +2,10 @@
 
 #include <string>
 
-#include "query_program.hpp"
 #include "database/db.hpp"
-#include "utils/log/logger.hpp"
 #include "query_engine/debug.hpp"
+#include "query_program.hpp"
+#include "utils/log/logger.hpp"
 
 //  preparations before execution
 //  execution
@@ -14,8 +14,7 @@
 class ProgramExecutor
 {
 public:
-
-    auto execute(QueryProgram& program)
+    auto execute(QueryProgram &program)
     {
         auto result = program.code->run(db, program.stripped.arguments);
         PRINT_PROPS(*result->data["n"]->data[0]);
@@ -23,6 +22,5 @@ public:
     }
 
 public:
-
     Db db;
 };

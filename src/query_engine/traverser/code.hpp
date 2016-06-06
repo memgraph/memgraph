@@ -4,11 +4,7 @@
 
 struct Code
 {
-    void reset()
-    {
-        code = "";
-    }
+    void reset() { code = ""; }
 
     std::string code;
 };
-
