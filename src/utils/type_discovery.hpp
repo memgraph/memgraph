@@ -1,7 +1,7 @@
 #pragma once
 
 // USAGE:
-//     type_name<decltype<variable>>();
+//     type_name<decltype(variable)>();
 // current solution has been taken from http://stackoverflow.com/questions/81870/is-it-possible-to-print-a-variables-type-in-standard-c
 // TODO: create more appropriate solution
 

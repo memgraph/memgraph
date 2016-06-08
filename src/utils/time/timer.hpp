@@ -1,19 +1,21 @@
 #pragma once
 
-#include <utility>
 #include <chrono>
-
-using time_point_t = std::chrono::high_resolution_clock::time_point;
-
-#define duration(a) \
-    std::chrono::duration_cast<std::chrono::nanoseconds>(a).count()
+#include <ratio>
+#include <utility>
 
 #define time_now() std::chrono::high_resolution_clock::now()
 
-template<typename F, typename... Args>
-double timer(F func, Args&&... args)
+template <typename DurationUnit = std::chrono::nanoseconds>
+auto to_duration(const std::chrono::duration<long, std::nano> &delta)
 {
-    time_point_t start_time = time_now();
+    return std::chrono::duration_cast<DurationUnit>(delta).count();
+}
+
+template <typename DurationUnit, typename F, typename... Args>
+auto timer(F func, Args &&... args)
+{
+    auto start_time = time_now();
     func(std::forward<Args>(args)...);
-    return duration(time_now() - start_time);
+    return to_duration<DurationUnit>(time_now() - start_time);
 }
