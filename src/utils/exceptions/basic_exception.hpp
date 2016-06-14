@@ -2,7 +2,7 @@
 
 #include <stdexcept>
 
-#include <cppformat/format.h>
+#include <fmt/format.h>
 
 #include "utils/auto_scope.hpp"
 #include "utils/stacktrace.hpp"

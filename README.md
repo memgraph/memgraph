@@ -23,7 +23,7 @@ on a 64 bit linux kernel.
 ## build
 ```
 cd build
-cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ..
+cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DRUNTIME_ASSERT=OFF -DTHROW_EXCEPTION_ON_ERROR=OFF -DNDEBUG=OFF ..
 make
 ctest
 ctest -V

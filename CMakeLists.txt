@@ -113,21 +113,61 @@ ExternalProject_Add(
     TEST_COMMAND ""
 )
 
+# fmtlib
+set(fmt_dir "${libs_dir}/fmt")
+set(fmt_tag "e5e4fb370ccf327bbdcdcd782eb3e53580e11094") # version 3.0.0
+ExternalProject_Add(
+    fmt
+    GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"
+    GIT_TAG "${fmt_tag}"
+    SOURCE_DIR "${libs_dir}/fmt"
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND ""
+    TEST_COMMAND ""
+)
+ExternalProject_Get_Property(fmt source_dir)
+set(fmt_source_dir ${source_dir})
+ExternalProject_Get_Property(fmt binary_dir)
+set(fmt_binary_dir ${binary_dir})
+set(fmt_static_lib ${fmt_binary_dir}/fmt/libfmt.a)
+# message(STATUS "Fmt source dir is: ${fmt_source_dir}")
+# message(STATUS "fmt binary dir is: ${fmt_binary_dir}")
+# message(STATUS "fmt static lib is: ${fmt_static_lib}")
+
 # compiler options
 SET(COMPILE_OPTIONS "-O0 -g3 -Wall -Werror -fmessage-length=0")
 
 # add all cpp file recursive into sourceFiles varibale
 FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
-
 # print list of source files
 # MESSAGE(STATUS "All source files are: ${sourceFiles}")
 
+# defines
+option(RUNTIME_ASSERT "Enable runtime assertions" OFF)
+if(RUNTIME_ASSERT)
+    add_definitions( -DRUNTIME_ASSERT_ON )
+endif()
+
+option(THROW_EXCEPTION_ON_ERROR "Throw exception on error" OFF)
+if(THROW_EXCEPTION_ON_ERROR)
+    add_definitions( -DTHROW_EXCEPTION_ON_ERROR )
+endif()
+
+option(NDEBUG "No debug" OFF)
+if(NDEBUG)
+    add_definitions( -DNDEBUG )
+endif()
+
+# includes
 include_directories(${src_dir})
 include_directories(${lexertl_dir})
+include_directories(${fmt_source_dir})
 include_directories(${build_include_dir})
 
 # creates build/libcypher_lib.a
 add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 
+# tests
 enable_testing()
 add_subdirectory(tests)

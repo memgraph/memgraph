@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <execinfo.h>
 
-#include <cppformat/format.h>
+#include <fmt/format.h>
 #include "utils/auto_scope.hpp"
 
 class Stacktrace
