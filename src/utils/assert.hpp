@@ -14,7 +14,7 @@ void assert_error_handler(const char *file_name, unsigned line_number,
 // this is a good place to put your debug breakpoint
 // and add some other destination for error message
 #ifdef THROW_EXCEPTION_ON_ERROR
-    throw BasicException(std::string(message));
+    throw BasicException(message);
 #else
     std::cerr << message << " in file " << file_name << " #" << line_number
               << std::endl;

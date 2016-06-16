@@ -8,8 +8,8 @@
 #include "threading/sync/spinlock.hpp"
 
 #include "utils/random/fast_binomial.hpp"
-#include "memory/lazy_gc.hpp"
 #include "utils/placeholder.hpp"
+#include "skiplist_gc.hpp"
 
 /* @brief Concurrent lock-based skiplist with fine grained locking
  *
@@ -94,7 +94,7 @@
  *                and deletion of nodes.
  */
 template <class K, class T, size_t H=32, class lock_t=SpinLock>
-class SkipList : LazyGC<SkipList<K, T, H, lock_t>>, Lockable<lock_t>
+class SkipList : private Lockable<lock_t>
 {
 public:
     // computes the height for the new node from the interval [1...H]
@@ -363,7 +363,8 @@ public:
         Accessor(SkipList* skiplist) : skiplist(skiplist)
         {
             assert(skiplist != nullptr);
-            // addref
+
+            skiplist->gc.add_ref();
         }
 
     public:
@@ -379,7 +380,7 @@ public:
             if(skiplist == nullptr)
                 return;
 
-            // releaseref
+            skiplist->gc.release_ref();
         }
 
         Iterator begin()
@@ -437,6 +438,11 @@ public:
             return skiplist->remove(key, preds, succs);
         }
 
+        size_t size() const
+        {
+            return skiplist->size();
+        }
+
     private:
         SkipList* skiplist;
         Node* preds[H], *succs[H];
@@ -487,7 +493,7 @@ private:
 
     size_t size() const
     {
-        return count.load(std::memory_order_acquire);
+        return count.load();
     }
 
     bool greater(const K& key, const Node* const node)
@@ -627,7 +633,7 @@ private:
             }
 
             new_node->flags.set_fully_linked();
-            count.fetch_add(1, std::memory_order_relaxed);
+            count.fetch_add(1);
 
             return {Iterator {new_node}, true};
         }
@@ -651,8 +657,8 @@ private:
         {
             auto level = find_path(header, H - 1, key, preds, succs);
 
-            if(!marked && (level == -1 || !ok_delete(succs[level], level)))
-                    return false;
+            if(!marked && (level == -1 || !ok_delete(succs[level], level))) 
+                return false;
 
             if(!marked)
             {
@@ -664,6 +670,7 @@ private:
                     return false;
 
                 node->flags.set_marked();
+                marked = true;
             }
 
             guard_t guards[H];
@@ -674,24 +681,18 @@ private:
             for(int level = height - 1; level >= 0; --level)
                 preds[level]->forward(level, node->forward(level));
 
-            // TODO recycle(node)
-            count.fetch_sub(1, std::memory_order_relaxed);
+            // TODO: review and test
+            gc.collect(node);
+
+            count.fetch_sub(1);
             return true;
         }
     }
 
-    guard_t gc_lock_acquire()
-    {
-        return this->acquire_unique();
-    }
-
-    void vacuum()
-    {
-
-    }
-
+    // number of elements
     std::atomic<size_t> count {0};
     Node* header;
+    SkiplistGC<Node> gc;
 };
 
 template <class K, class T, size_t H, class lock_t>
