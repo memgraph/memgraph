@@ -28,10 +28,15 @@ public:
             }
         }
 
+        long long counter = 0;
+
         // destroy all elements from local_freelist
         for (auto element : local_freelist) {
+            counter++;
             if (element->flags.is_marked()) T::destroy(element);
         }
+
+        std::cout << "Destroy has been called: " << counter << std::endl;
     }
 
     void collect(T *node) { freelist.add(node); }

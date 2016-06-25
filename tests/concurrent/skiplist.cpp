@@ -5,6 +5,7 @@
 #include "data_structures/skiplist/skiplist.hpp"
 #include "data_structures/static_array.hpp"
 #include "utils/assert.hpp"
+#include "utils/sysinfo/memory.hpp"
 
 using std::cout;
 using std::endl;
@@ -18,6 +19,8 @@ int main()
 {
     ds::static_array<std::thread, THREADS_NO> threads;
     skiplist_t skiplist;
+    
+    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     // put THREADS_NO * elems_per_thread items to the skiplist
     for (size_t thread_i = 0; thread_i < THREADS_NO; ++thread_i) {
@@ -36,6 +39,8 @@ int main()
     for (auto &thread : threads) {
         thread.join();
     }
+
+    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     // get skiplist size
     {
@@ -61,6 +66,8 @@ int main()
         thread.join();
     }
 
+    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
+
     // check size
     {
         auto accessor = skiplist.access();
@@ -79,6 +86,8 @@ int main()
     }
 
     // TODO: test GC and memory
+    std::this_thread::sleep_for(5s);
+    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     return 0;
 }

@@ -33,3 +33,6 @@ ctest -R concurrent
 ctest -R concurrent --parallel 4
 ```
 
+# custom test build example
+clang++ -std=c++1y -o concurrent_skiplist ../tests/concurrent/skiplist.cpp -pg -I../src/ -I../libs/fmt -Lfmt-prefix/src/fmt-build/fmt -lfmt -lpthread
+

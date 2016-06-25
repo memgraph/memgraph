@@ -1,2 +1,4 @@
 *
 !.gitignore
+!setup.sh
+!cleanup.sh

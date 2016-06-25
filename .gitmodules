@@ -1,6 +1,0 @@
-[submodule "src/speedy/r3"]
-	path = src/speedy/r3
-	url = https://github.com/c9s/r3.git
-[submodule "src/speedy/rapidjson"]
-	path = src/speedy/rapidjson
-	url = https://github.com/miloyip/rapidjson.git

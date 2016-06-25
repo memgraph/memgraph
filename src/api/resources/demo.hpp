@@ -65,8 +65,8 @@ public:
 
             auto e = db->graph.edges.insert(t);
 
-            v1.vlist->access(t).update()->data.out.add(e.vlist);
-            v2.vlist->access(t).update()->data.in.add(e.vlist);
+            v1.vlist->update(t)->data.out.add(e.vlist);
+            v2.vlist->update(t)->data.in.add(e.vlist);
 
             e.from(v1.vlist);
             e.to(v2.vlist);

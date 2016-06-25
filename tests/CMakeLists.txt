@@ -2,23 +2,6 @@ cmake_minimum_required(VERSION 3.1)
 
 project(memgraph_tests)
 
-# setup dependencies
-find_package(Threads REQUIRED)
-
-# Catch (C++ Automated Test Cases in Headers) dependency
-ExternalProject_Add(
-    Catch
-    GIT_REPOSITORY "https://github.com/philsquared/Catch.git"
-    GIT_TAG "master"
-    SOURCE_DIR "${CMAKE_SOURCE_DIR}/libs/Catch"
-	CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    TEST_COMMAND ""
-)
-ExternalProject_Get_Property(Catch source_dir)
-set(catch_source_dir ${source_dir})
-
 include_directories(${catch_source_dir}/include)
 
 ## UNIT TESTS

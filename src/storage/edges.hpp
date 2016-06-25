@@ -14,9 +14,8 @@ public:
         if (edges_iterator == edges_accessor.end())
             return Edge::Accessor();
 
-        // find vertex
-        auto versions_accessor = edges_iterator->second.access(t);
-        auto edge = versions_accessor.find();
+        // find edge
+        auto edge = edges_iterator->second.find(t);
 
         if (edge == nullptr)
             return Edge::Accessor();
@@ -41,8 +40,7 @@ public:
 
         // create new vertex
         auto inserted_edge_record = result.first;
-        auto edge_accessor = inserted_edge_record->second.access(t);
-        auto edge = edge_accessor.insert();
+        auto edge = inserted_edge_record->second.insert(t);
 
         return Edge::Accessor(edge, &inserted_edge_record->second, this);
     }

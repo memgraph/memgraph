@@ -1,12 +1,13 @@
 cmake_minimum_required(VERSION 3.1)
 
-# set directory name as the project name
 # get directory name
 get_filename_component(ProjectId ${CMAKE_SOURCE_DIR} NAME)
 # replace whitespaces with underscores
 string(REPLACE " " "_" ProjectId ${ProjectId})
 # set project name
 project(${ProjectId})
+
+find_package(Threads REQUIRED)
 
 # c++14
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
@@ -47,43 +48,35 @@ endif (UNIX)
 
 # external dependencies
 
-include(ExternalProject)
-
 set(build_include_dir ${CMAKE_BINARY_DIR}/include)
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 
-# lemon
-set(lemon_dir "${libs_dir}/lemon")
-set(lemon_tag "f38a55106d79b7a4c063abb958517d6c47dc6ac7")
-set(lemon_url "http://www.sqlite.org/src/raw/tool/lemon.c?name=${lemon_tag}")
-ExternalProject_Add(
-    lemon
-    DOWNLOAD_COMMAND wget ${lemon_url} -O lemon.c
-    DOWNLOAD_DIR ${lemon_dir}
-    SOURCE_DIR ${lemon_dir}
-    BINARY_DIR ${lemon_dir}
-	CONFIGURE_COMMAND ""
-    BUILD_COMMAND clang lemon.c -o lemon -O2
-    INSTALL_COMMAND ""
-    TEST_COMMAND ""
-)
+# setup external dependencies
 
-# lempar
-set(lempar_dir "${libs_dir}/lemon")
-set(lempar_tag "404ea3dc27dbeed343f0e61b1d36e97b9f5f0fb6")
-set(lempar_url "http://www.sqlite.org/src/raw/tool/lempar.c?name=${lempar_tag}")
-ExternalProject_Add(
-    lempar
-    DOWNLOAD_COMMAND wget ${lempar_url} -O lempar.c
-    DOWNLOAD_DIR ${lempar_dir}
-    SOURCE_DIR ${lempar_dir}
-    BINARY_DIR ${lempar_dir}
-	CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    TEST_COMMAND ""
-)
+# !! IMPORTANT !! run ./libs/setup.sh before cmake command
+# TODO: run from execute_process
+
+# lemon & lempar
+set(lemon_dir ${libs_dir}/lemon)
+# lexertl
+set(lexertl_dir ${libs_dir}/lexertl)
+# fmt
+set(fmt_source_dir ${libs_dir}/fmt)
+set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
+# r3
+set(r3_source_dir ${libs_dir}/r3)
+set(r3_static_lib ${r3_source_dir}/.libs/libr3.a)
+# http-parser
+set(http_parser_source_dir "${libs_dir}/http-parser")
+set(http_parser_static_lib ${http_parser_source_dir}/libhttp_parser.a)
+# libuv
+set(libuv_source_dir ${libs_dir}/libuv)
+set(libuv_static_lib ${libuv_source_dir}/.libs/libuv.a)
+# rapidjson (C++ JSON encoder/decoder)
+set(rapidjson_source_dir "${libs_dir}/rapidjson")
+# Catch (C++ Automated Test Cases in Headers)
+set(catch_source_dir "${libs_dir}/Catch")
 
 # build memgraph's cypher grammar
 # copy grammar file to the build directory
@@ -100,46 +93,11 @@ SET(cypher_build_include_dir ${build_include_dir}/cypher)
 FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
 
-# lexertl
-set(lexertl_dir ${libs_dir}/lexertl)
-ExternalProject_Add(
-    lexertl
-    GIT_REPOSITORY "https://github.com/BenHanson/lexertl.git"
-    GIT_TAG "7d4d36a357027df0e817453cc9cf948f71047ca9"
-    SOURCE_DIR "${libs_dir}/lexertl"
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    TEST_COMMAND ""
-)
-
-# fmtlib
-set(fmt_dir "${libs_dir}/fmt")
-set(fmt_tag "e5e4fb370ccf327bbdcdcd782eb3e53580e11094") # version 3.0.0
-ExternalProject_Add(
-    fmt
-    GIT_REPOSITORY "https://github.com/fmtlib/fmt.git"
-    GIT_TAG "${fmt_tag}"
-    SOURCE_DIR "${libs_dir}/fmt"
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    TEST_COMMAND ""
-)
-ExternalProject_Get_Property(fmt source_dir)
-set(fmt_source_dir ${source_dir})
-ExternalProject_Get_Property(fmt binary_dir)
-set(fmt_binary_dir ${binary_dir})
-set(fmt_static_lib ${fmt_binary_dir}/fmt/libfmt.a)
-# message(STATUS "Fmt source dir is: ${fmt_source_dir}")
-# message(STATUS "fmt binary dir is: ${fmt_binary_dir}")
-# message(STATUS "fmt static lib is: ${fmt_static_lib}")
-
 # compiler options
 SET(COMPILE_OPTIONS "-O0 -g3 -Wall -Werror -fmessage-length=0")
 
 # add all cpp file recursive into sourceFiles varibale
-FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
+# FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
 # print list of source files
 # MESSAGE(STATUS "All source files are: ${sourceFiles}")
 
@@ -161,9 +119,13 @@ endif()
 
 # includes
 include_directories(${src_dir})
-include_directories(${lexertl_dir})
-include_directories(${fmt_source_dir})
 include_directories(${build_include_dir})
+include_directories(${fmt_source_dir})
+include_directories(${http_parser_source_dir})
+include_directories(${lexertl_dir})
+include_directories(${libuv_source_dir}/include)
+include_directories(${rapidjson_source_dir}/include)
+include_directories(${r3_source_dir}/include)
 
 # creates build/libcypher_lib.a
 add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
@@ -171,3 +133,18 @@ add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 # tests
 enable_testing()
 add_subdirectory(tests)
+
+EXECUTE_PROCESS(
+    COMMAND python link_resources.py
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
+)
+
+# add main executable
+add_executable(memgraph src/memgraph.cpp)
+
+# link libraries
+target_link_libraries(memgraph Threads::Threads)
+target_link_libraries(memgraph pcre)
+target_link_libraries(memgraph ${libuv_static_lib})
+target_link_libraries(memgraph ${r3_static_lib})
+target_link_libraries(memgraph ${http_parser_static_lib})

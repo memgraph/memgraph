@@ -9,7 +9,7 @@
 namespace ast
 {
 
-struct Accessor : public VisitableExpr<Accessor>
+struct Accessor : public ValueExpr<Accessor>
 {
     Accessor(Identifier* entity, Identifier* prop)
         : entity(entity), prop(prop) {}

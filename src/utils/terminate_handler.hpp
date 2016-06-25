@@ -26,7 +26,7 @@ void stacktrace(std::ostream& stream) noexcept
 // TODO: log to local file or remote database
 void terminate_handler(std::ostream& stream) noexcept
 {
-    if(auto exc = std::current_exception())
+    if (auto exc = std::current_exception())
     {
         try
         {

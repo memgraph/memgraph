@@ -12,14 +12,6 @@ public:
 
     void visit(ast::Start& start) override
     {
-        if (start.write_query != nullptr)
-            accept(start.write_query);
-        if (start.read_query != nullptr)
-            accept(start.read_query);
-        if (start.update_query != nullptr)
-            accept(start.update_query);
-        if (start.delete_query != nullptr)
-            accept(start.delete_query);
     }
 
     void visit(ast::DeleteQuery& delete_query) override

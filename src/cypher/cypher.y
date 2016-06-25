@@ -56,19 +56,19 @@
 // start structure
 
 start ::= write_query(WQ). {
-    ast->root = ast->create<ast::Start>(WQ);
+    ast->root = WQ;
 }
 
 start ::= read_query(RQ). {
-    ast->root = ast->create<ast::Start>(RQ);
+    ast->root = RQ;
 }
 
 start ::= update_query(UQ). {
-    ast->root = ast->create<ast::Start>(UQ);
+    ast->root = UQ;
 }
 
 start ::= delete_query(DQ). {
-    ast->root = ast->create<ast::Start>(DQ);
+    ast->root = DQ;
 }
 
 // write query structure
@@ -211,10 +211,6 @@ node(N) ::= LP node_idn(I) label_idn(L) properties(P) RP. {
     N = ast->create<ast::Node>(I, L, P);
 }
 
-node(N) ::= idn(I). {
-    N = ast->create<ast::Node>(I, nullptr, nullptr);
-}
-
 %type node_idn {ast::Identifier*}
 
 // a node identifier can be ommitted
@@ -302,77 +298,71 @@ property_list(L) ::= property(P). {
 %type property {ast::Property*}
 
 // IDENTIFIER ':' <expression>
-property(P) ::= idn(I) COLON expr(E). {
+property(P) ::= idn(I) COLON value_expr(E). {
     P = ast->create<ast::Property>(I, E);
 }
 
-%type expr {ast::Expr*}
+%type value_expr {ast::Expr*}
 
-expr(E) ::= expr(L) AND expr(R). {
+value_expr(E) ::= value_expr(L) AND value_expr(R). {
     E = ast->create<ast::And>(L, R);
 }
 
-expr(E) ::= expr(L) OR expr(R). {
+value_expr(E) ::= value_expr(L) OR value_expr(R). {
     E = ast->create<ast::Or>(L, R);
 }
 
-expr(E) ::= expr(L) LT expr(R). {
+value_expr(E) ::= value_expr(L) LT value_expr(R). {
     E = ast->create<ast::Lt>(L, R);
 }
 
-expr(E) ::= expr(L) GT expr(R). {
+value_expr(E) ::= value_expr(L) GT value_expr(R). {
     E = ast->create<ast::Gt>(L, R);
 }
 
-expr(E) ::= expr(L) GE expr(R). {
+value_expr(E) ::= value_expr(L) GE value_expr(R). {
     E = ast->create<ast::Ge>(L, R);
 }
 
-expr(E) ::= expr(L) LE expr(R). {
+value_expr(E) ::= value_expr(L) LE value_expr(R). {
     E = ast->create<ast::Le>(L, R);
 }
 
-expr(E) ::= expr(L) EQ expr(R). {
+value_expr(E) ::= value_expr(L) EQ value_expr(R). {
     E = ast->create<ast::Eq>(L, R);
 }
 
-expr(E) ::= expr(L) NE expr(R). {
+value_expr(E) ::= value_expr(L) NE value_expr(R). {
     E = ast->create<ast::Ne>(L, R);
 }
 
-expr(E) ::= expr(L) PLUS expr(R). {
+value_expr(E) ::= value_expr(L) PLUS value_expr(R). {
     E = ast->create<ast::Plus>(L, R);
 }
 
-expr(E) ::= expr(L) MINUS expr(R). {
+value_expr(E) ::= value_expr(L) MINUS value_expr(R). {
     E = ast->create<ast::Minus>(L, R);
 }
 
-expr(E) ::= expr(L) STAR expr(R). {
+value_expr(E) ::= value_expr(L) STAR value_expr(R). {
     E = ast->create<ast::Star>(L, R);
 }
 
-expr(E) ::= expr(L) SLASH expr(R). {
+value_expr(E) ::= value_expr(L) SLASH value_expr(R). {
     E = ast->create<ast::Slash>(L, R);
 }
 
-expr(E) ::= expr(L) REM expr(R). {
+value_expr(E) ::= value_expr(L) REM value_expr(R). {
     E = ast->create<ast::Rem>(L, R);
 }
 
-expr(E) ::= idn(I). {
+value_expr(E) ::= idn(I). {
 	E = ast->create<ast::Accessor>(I, nullptr);
 }
 
-expr(E) ::= idn(I) DOT idn(P). {
+value_expr(E) ::= idn(I) DOT idn(P). {
     E = ast->create<ast::Accessor>(I, P);
 }
-
-// this production produces parser conflicts TODO: findout why
-// the intention os to add patter in the RETURN statement
-// expr(E) ::= pattern(P). {
-//     E = ast->create<ast::PatternExpr>(P);
-// }
 
 %type idn {ast::Identifier*}
 
@@ -380,25 +370,41 @@ idn(I) ::= IDN(X). {
     I = ast->create<ast::Identifier>(X->value);
 }
 
-expr(E) ::= INT(V). {
+value_expr(E) ::= INT(V). {
     auto value = std::stoi(V->value);
     E = ast->create<ast::Integer>(value);
 }
 
-expr(E) ::= FLOAT(V). {
+value_expr(E) ::= FLOAT(V). {
     auto value = std::stod(V->value);
     E = ast->create<ast::Float>(value);
 }
 
-expr(E) ::= STR(V). {
+value_expr(E) ::= STR(V). {
     auto value = V->value.substr(1, V->value.size() - 2);
     E = ast->create<ast::String>(value);
 }
 
-expr(E) ::= BOOL(V). {
+value_expr(E) ::= BOOL(V). {
     auto value = V->value[0] == 't' || V->value[0] == 'T' ? true : false;
     E = ast->create<ast::Boolean>(value);
 }
+
+// %type pattern_expr {ast::Expr*}
+// 
+// patter_expr(E) ::= pattern(P). {
+//     E = ast->create<ast::PatternExpr>(P);
+// }
+
+%type expr {ast::Expr*}
+
+expr(E) ::= value_expr(V). {
+    E = V;
+}
+
+// expr(E) ::= patter_expr(P). {
+//     E = P;
+// }
 
 //%type alias {ast::Alias*}
 //
@@ -433,6 +439,6 @@ accessor(A) ::= idn(E) DOT idn(P). {
 
 %type set_value {ast::SetValue*}
 
-set_value(V) ::= expr(E). {
+set_value(V) ::= value_expr(E). {
     V = ast->create<ast::SetValue>(E);
 }

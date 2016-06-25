@@ -10,7 +10,7 @@ struct Expr : public AstVisitable
 };
 
 template <class Derived>
-struct VisitableExpr : public Crtp<Derived>, public Expr
+struct ValueExpr : public Crtp<Derived>, public Expr
 {
     using uptr = std::unique_ptr<Derived>;
 
@@ -21,14 +21,14 @@ struct VisitableExpr : public Crtp<Derived>, public Expr
 };
 
 template <class T, class Derived>
-struct LeafExpr : public VisitableExpr<Derived>
+struct LeafExpr : public ValueExpr<Derived>
 {
     LeafExpr(T value) : value(value) {}
     T value;
 };
 
 template <class Derived>
-struct BinaryExpr : public VisitableExpr<Derived>
+struct BinaryExpr : public ValueExpr<Derived>
 {
     BinaryExpr(Expr* left, Expr* right) : left(left), right(right) {}
 
@@ -36,9 +36,16 @@ struct BinaryExpr : public VisitableExpr<Derived>
     Expr* right;
 };
 
-struct PatternExpr : public VisitableExpr<PatternExpr>
+struct PatternExpr : public Expr
 {
+    using uptr = std::unique_ptr<PatternExpr>;
+
     PatternExpr(Pattern* pattern) : pattern(pattern) {}
+
+    virtual void accept(AstVisitor& visitor)
+    {
+        visitor.visit(*this);
+    }
 
     Pattern* pattern;
 };

@@ -37,16 +37,14 @@ public:
     {
         assert(!empty());
 
-        auto accessor = vlist->access(t);
-        return Derived(accessor.update(t), vlist, store);
+        return Derived(vlist->update(t), vlist, store);
     }
 
     bool remove(tx::Transaction& t) const
     {
         assert(!empty());
 
-        auto accessor = vlist->access(t);
-        return accessor.remove(record);
+        return vlist->remove(record, t);
     }
 
     const Property& property(const std::string& key) const

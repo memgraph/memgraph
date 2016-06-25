@@ -19,68 +19,6 @@ public:
     using uptr = std::unique_ptr<VersionList<T>>;
     using item_t = T;
 
-    class Accessor
-    {
-        friend class VersionList<T>;
-
-        Accessor(tx::Transaction& transaction, VersionList<T>& vlist)
-            : transaction(transaction), vlist(vlist)
-        {
-            vlist.add_ref();
-        }
-
-    public:
-        ~Accessor()
-        {
-            vlist.release_ref();
-        }
-
-        Accessor(const Accessor&) = default;
-        Accessor(Accessor&&) = default;
-
-        Accessor& operator=(const Accessor&) = delete;
-        Accessor& operator=(Accessor&&) = delete;
-
-        T* insert()
-        {
-            return vlist.insert(transaction);
-        }
-
-        T* find() const
-        {
-            return vlist.find(transaction);
-        }
-
-        T* update()
-        {
-            return vlist.update(transaction);
-        }
-
-        T* update(T* record)
-        {
-            return vlist.update(record, transaction);
-        }
-
-        bool remove()
-        {
-            return vlist.remove(transaction);
-        }
-
-        bool remove(T* record)
-        {
-            return vlist.remove(record, transaction);
-        }
-
-        const Id& id() const
-        {
-            return vlist.id;
-        }
-
-    private:
-        tx::Transaction& transaction;
-        VersionList<T>& vlist;
-    };
-
     VersionList(Id id) : id(id) {}
     VersionList(const VersionList&) = delete;
 
@@ -97,11 +35,6 @@ public:
     ~VersionList()
     {
         delete head.load();
-    }
-
-    Accessor access(tx::Transaction& transaction)
-    {
-        return Accessor(transaction, *this);
     }
 
     friend std::ostream& operator<<(std::ostream& stream,
@@ -129,14 +62,6 @@ public:
     {
 
     }
-
-    const Id id;
-
-private:
-    std::atomic<T*> head {nullptr};
-    RecordLock lock;
-
-    //static Recycler recycler;
 
     T* find(const tx::Transaction& t)
     {
@@ -223,6 +148,9 @@ private:
         return true;
     }
 
+    const Id id;
+
+private:
     void lock_and_validate(T* record, tx::Transaction& t)
     {
         assert(record != nullptr);
@@ -240,6 +168,9 @@ private:
         assert(record->hints.load().exp.is_committed());
         throw SerializationError();
     }
+
+    std::atomic<T*> head {nullptr};
+    RecordLock lock;
 };
 
 }

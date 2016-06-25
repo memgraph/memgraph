@@ -15,8 +15,7 @@ public:
             return Vertex::Accessor();
 
         // find vertex
-        auto versions_accessor = vertices_iterator->second.access(t);
-        auto vertex = versions_accessor.find();
+        auto vertex = vertices_iterator->second.find(t);
 
         if (vertex == nullptr)
             return Vertex::Accessor();
@@ -42,8 +41,7 @@ public:
 
         // create new vertex
         auto inserted_vertex_record = result.first;
-        auto vertex_accessor = inserted_vertex_record->second.access(t);
-        auto vertex = vertex_accessor.insert();
+        auto vertex = inserted_vertex_record->second.insert(t);
 
         return Vertex::Accessor(vertex, &inserted_vertex_record->second, this);
     }
