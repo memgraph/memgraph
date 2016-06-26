@@ -38,13 +38,13 @@ public:
     void visit(ast::Return& ret) override
     {
         code += line("t.commit();");
-        code += line("auto &properties = vertex_accessor.properties();");
-        code += line("ResultList::data_t data = {&properties};");
-        code += line("auto result_data = "
-                     "std::make_shared<ResultList>(std::move(data));");
-        code += line("QueryResult::data_t query_data = {{\"" +
-                     ret.return_list->value->name + "\", result_data}};");
-        code += line("return std::make_shared<QueryResult>"
-                     "(std::move(query_data));");
+        // code += line("auto &properties = vertex_accessor.properties();");
+        // code += line("ResultList::data_t data = {&properties};");
+        // code += line("auto result_data = "
+        //              "std::make_shared<ResultList>(std::move(data));");
+        // code += line("QueryResult::data_t query_data = {{\"" +
+        //              ret.return_list->value->name + "\", result_data}};");
+        // code += line("return std::make_shared<QueryResult>"
+        //              "(std::move(query_data));");
     }
 };

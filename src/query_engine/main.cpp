@@ -17,11 +17,10 @@ int main(int argc, char** argv)
     auto arguments = all_arguments(argc, argv);
 
     // query extraction
-    // auto cypher_query = extract_query(arguments);
-    // cout << "QUERY: " << cypher_query << endl;
-
+    auto cypher_query = extract_query(arguments);
+    cout << "QUERY: " << cypher_query << endl;
     QueryEngine engine;
-    // engine.execute(cypher_query);
+    engine.execute(cypher_query);
 
     // using std::placeholders::_1;
     // auto f = std::bind(&QueryEngine::execute, &engine, _1);

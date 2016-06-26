@@ -15,7 +15,7 @@ public:
                           "-std=c++1y",   // compile flags
                           in_file,        // input file
                           "-o", out_file, // ouput file
-                          "-I../",        // include paths
+                          "-I./include",  // include paths (TODO: parameter)
                           "-shared -fPIC" // shared library flags
                           );
 

@@ -33,6 +33,17 @@ function(get_file_names file_paths file_names)
     set(file_names "${file_names}" PARENT_SCOPE)
 endfunction()
 
+MACRO(SUBDIRLIST result curdir)
+    FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
+    SET(dirlist "")
+    FOREACH(child ${children})
+        IF(IS_DIRECTORY ${curdir}/${child})
+            LIST(APPEND dirlist ${child})
+        ENDIF()
+    ENDFOREACH()
+    SET(${result} ${dirlist})
+ENDMACRO()
+
 # custom targets
 
 # move test data data to the build directory
@@ -93,6 +104,17 @@ SET(cypher_build_include_dir ${build_include_dir}/cypher)
 FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
 
+# copy query_engine's templates file
+FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
+# create destination folder for compiled queries
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled/cpu)
+
+# TODO: filter header files, all files don't need to be copied
+SUBDIRLIST(source_folders ${src_dir})
+foreach(source_folder ${source_folders})
+    file(COPY ${src_dir}/${source_folder} DESTINATION ${build_include_dir})
+endforeach()
+
 # compiler options
 SET(COMPILE_OPTIONS "-O0 -g3 -Wall -Werror -fmessage-length=0")
 
@@ -134,18 +156,26 @@ add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 enable_testing()
 add_subdirectory(tests)
 
+# REST API preprocessor
 EXECUTE_PROCESS(
     COMMAND python link_resources.py
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
 )
 
-# add main executable
+# memgraph executable
 add_executable(memgraph src/memgraph.cpp)
 add_dependencies(memgraph cypher_lib)
-
-# link libraries
+# memgraph link libraries
 target_link_libraries(memgraph Threads::Threads)
 target_link_libraries(memgraph pcre)
 target_link_libraries(memgraph ${libuv_static_lib})
 target_link_libraries(memgraph ${r3_static_lib})
 target_link_libraries(memgraph ${http_parser_static_lib})
+
+# query_engine executable
+add_executable(query_engine src/query_engine/main.cpp)
+# query_engine link libraries
+target_link_libraries(query_engine Threads::Threads)
+target_link_libraries(query_engine dl)
+target_link_libraries(query_engine cypher_lib)
+target_link_libraries(query_engine ${fmt_static_lib})
