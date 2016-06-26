@@ -141,6 +141,7 @@ EXECUTE_PROCESS(
 
 # add main executable
 add_executable(memgraph src/memgraph.cpp)
+add_dependencies(memgraph cypher_lib)
 
 # link libraries
 target_link_libraries(memgraph Threads::Threads)

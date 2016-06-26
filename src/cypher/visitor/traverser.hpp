@@ -39,6 +39,11 @@ public:
         accept(pattern.next);
     }
 
+    void visit(ast::PatternExpr& pattern_expr) override
+    {
+        accept(pattern_expr.pattern);
+    }
+
     void visit(ast::Node& node) override
     {
         accept(node.idn);

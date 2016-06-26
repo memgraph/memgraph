@@ -390,11 +390,11 @@ value_expr(E) ::= BOOL(V). {
     E = ast->create<ast::Boolean>(value);
 }
 
-// %type pattern_expr {ast::Expr*}
-// 
-// patter_expr(E) ::= pattern(P). {
-//     E = ast->create<ast::PatternExpr>(P);
-// }
+%type pattern_expr {ast::Expr*}
+
+pattern_expr(E) ::= pattern(P). {
+    E = ast->create<ast::PatternExpr>(P);
+}
 
 %type expr {ast::Expr*}
 
@@ -402,9 +402,9 @@ expr(E) ::= value_expr(V). {
     E = V;
 }
 
-// expr(E) ::= patter_expr(P). {
-//     E = P;
-// }
+expr(E) ::= pattern_expr(P). {
+    E = P;
+}
 
 //%type alias {ast::Alias*}
 //

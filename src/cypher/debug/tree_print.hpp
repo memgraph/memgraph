@@ -106,6 +106,12 @@ public:
         Traverser::visit(pattern);
     }
 
+    void visit(ast::PatternExpr& pattern_expr) override
+    {
+        auto entry = printer.advance("Pattern Expression");
+        Traverser::visit(pattern_expr);
+    }
+
     void visit(ast::Node& node) override
     {
         auto entry = printer.advance("Node");
