@@ -23,5 +23,5 @@ public:
 
 private:
     // guaranteed by standard to be lock free!
-    std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
+    mutable std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
 };

@@ -116,7 +116,7 @@ foreach(source_folder ${source_folders})
 endforeach()
 
 # compiler options
-SET(COMPILE_OPTIONS "-O0 -g3 -Wall -Werror -fmessage-length=0")
+SET(COMPILE_OPTIONS "-O2 -Wall -Werror -fmessage-length=0")
 
 # add all cpp file recursive into sourceFiles varibale
 # FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
@@ -152,30 +152,38 @@ include_directories(${r3_source_dir}/include)
 # creates build/libcypher_lib.a
 add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 
-# tests
-enable_testing()
-add_subdirectory(tests)
-
 # REST API preprocessor
 EXECUTE_PROCESS(
     COMMAND python link_resources.py
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
 )
 
-# memgraph executable
-add_executable(memgraph src/memgraph.cpp)
-add_dependencies(memgraph cypher_lib)
-# memgraph link libraries
-target_link_libraries(memgraph Threads::Threads)
-target_link_libraries(memgraph pcre)
-target_link_libraries(memgraph ${libuv_static_lib})
-target_link_libraries(memgraph ${r3_static_lib})
-target_link_libraries(memgraph ${http_parser_static_lib})
+# # memgraph executable
+# add_executable(memgraph src/memgraph.cpp)
+# add_dependencies(memgraph cypher_lib)
+# # memgraph link libraries
+# target_link_libraries(memgraph Threads::Threads)
+# target_link_libraries(memgraph pcre)
+# target_link_libraries(memgraph ${libuv_static_lib})
+# target_link_libraries(memgraph ${r3_static_lib})
+# target_link_libraries(memgraph ${http_parser_static_lib})
 
-# query_engine executable
-add_executable(query_engine src/query_engine/main.cpp)
-# query_engine link libraries
-target_link_libraries(query_engine Threads::Threads)
-target_link_libraries(query_engine dl)
-target_link_libraries(query_engine cypher_lib)
-target_link_libraries(query_engine ${fmt_static_lib})
+# # query_engine executable
+# add_executable(query_engine src/query_engine/main_query_engine.cpp)
+# # query_engine link libraries
+# target_link_libraries(query_engine Threads::Threads)
+# target_link_libraries(query_engine dl)
+# target_link_libraries(query_engine cypher_lib)
+# target_link_libraries(query_engine ${fmt_static_lib})
+
+# # query hasher executable
+# add_executable(query_hasher src/query_engine/main_query_hasher.cpp)
+# target_link_libraries(query_hasher ${fmt_static_lib})
+# 
+# # hard coded implementation of queries
+# add_executable(queries src/query_engine/main_queries.cpp)
+# target_link_libraries(queries ${fmt_static_lib})
+
+# tests
+enable_testing()
+add_subdirectory(tests)

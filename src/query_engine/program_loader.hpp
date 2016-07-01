@@ -34,8 +34,7 @@ public:
         auto stripped = stripper.strip(query);
         LOG_INFO("stripped_query=" + stripped.query);
 
-        auto stripped_hash = fnv(stripped.query);
-        auto hash_string = std::to_string(stripped_hash);
+        auto hash_string = std::to_string(stripped.hash);
         LOG_INFO("query_hash=" + hash_string);
 
         auto code_lib_iter = code_libs.find(stripped_hash);

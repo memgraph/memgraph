@@ -20,8 +20,18 @@ public:
         return this->record->data.in.degree();
     }
     
-    size_t degree()
+    size_t degree() const
     {
         return in_degree() + out_degree();
+    }
+
+    bool add_label(const Label& label)
+    {
+        return this->record->data.labels.add(label);
+    }
+
+    bool has_label(const Label& label) const
+    {
+        return this->record->data.labels.has(label);
     }
 };

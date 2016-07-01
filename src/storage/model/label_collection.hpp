@@ -3,7 +3,7 @@
 #include <set>
 #include "label.hpp"
 
-class LabelList
+class LabelCollection
 {
 public:
     auto begin() { return labels.begin(); }
@@ -16,7 +16,7 @@ public:
 
     bool add(const Label& label)
     {
-        return labels.insert(label).second;
+        return labels.insert(std::cref(label)).second;
     }
 
     bool has(const Label& label) const
@@ -44,5 +44,5 @@ public:
     }
 
 private:
-    std::set<const Label&> labels;
+    std::set<std::reference_wrapper<const Label>> labels;
 };

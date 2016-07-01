@@ -1,14 +1,15 @@
 #pragma once
 
-#include "data_structures/skiplist/skiplist.hpp"
 #include "storage/vertices.hpp"
 #include "storage/edges.hpp"
+#include "storage/label_store.hpp"
 
 class Graph
 {
 public:
     Graph() {}
 
-    Vertices vertices;
     Edges edges;
+    Vertices vertices;
+    LabelStore label_store;
 };

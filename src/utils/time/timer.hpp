@@ -6,6 +6,9 @@
 
 #define time_now() std::chrono::high_resolution_clock::now()
 
+using ns = std::chrono::nanoseconds;
+using ms = std::chrono::milliseconds;
+
 template <typename DurationUnit = std::chrono::nanoseconds>
 auto to_duration(const std::chrono::duration<long, std::nano> &delta)
 {

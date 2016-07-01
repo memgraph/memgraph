@@ -13,6 +13,7 @@
 
 %syntax_error
 {
+#ifndef NDEBUG
     int n = sizeof(yyTokenName) / sizeof(yyTokenName[0]);
     for (int i = 0; i < n; ++i) {
         int a = yy_find_shift_action(yypParser, (YYCODETYPE)i);
@@ -21,6 +22,7 @@
         }
     }
     throw SyntaxError(TOKEN->value);
+#endif
 }
 
 %stack_overflow

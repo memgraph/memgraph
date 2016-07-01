@@ -17,8 +17,7 @@ public:
     string render(const string& form, const data& partials)
     {
         //  TODO more optimal implementation
-        //  if more optimal implementation is too expensive
-        //  use some templating engine like https://github.com/no1msd/mstch
+        //  another option is something like https://github.com/no1msd/mstch
         //  but it has to be wrapped
         string rendered = form;
         for (auto partial : partials) {

@@ -28,18 +28,24 @@ public:
             }
         }
 
-        long long counter = 0;
-
-        // destroy all elements from local_freelist
-        for (auto element : local_freelist) {
-            counter++;
-            if (element->flags.is_marked()) T::destroy(element);
+        if (local_freelist.size() > 0) {
+            std::cout << "GC started" <<  std::endl;
+            std::cout << "Local skiplist size: " <<
+                         local_freelist.size() << std::endl;
+            long long counter = 0;
+            // destroy all elements from local_freelist
+            for (auto element : local_freelist) {
+                counter++;
+                if (element->flags.is_marked()) T::destroy(element);
+            }
+            std::cout << "Number of destroyed elements " << counter << std::endl;
         }
-
-        std::cout << "Destroy has been called: " << counter << std::endl;
     }
 
-    void collect(T *node) { freelist.add(node); }
+    void collect(T *node) 
+    {
+        freelist.add(node);
+    }
 
 private:
     FreeList<T> freelist;

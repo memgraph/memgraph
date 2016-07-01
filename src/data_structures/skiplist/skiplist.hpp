@@ -453,7 +453,7 @@ public:
         return Accessor(this);
     }
 
-    Accessor access() const
+    const Accessor access() const
     {
         return Accessor(this);
     }

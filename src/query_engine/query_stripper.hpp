@@ -7,6 +7,7 @@
 
 #include "cypher/cypher.h"
 #include "cypher/tokenizer/cypher_lexer.hpp"
+#include "utils/hashing/fnv.hpp"
 #include "query_stripped.hpp"
 #include "storage/model/properties/all.hpp"
 #include "utils/string/transform.hpp"
@@ -84,6 +85,7 @@ public:
         }
 
         return QueryStripped(std::move(stripped_query),
+                             fnv(stripped_query),
                              std::move(stripped_arguments));
     }
 

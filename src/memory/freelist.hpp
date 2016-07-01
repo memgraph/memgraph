@@ -17,6 +17,11 @@ public:
         data.emplace_back(element);
     }
 
+    size_t size() const
+    {
+        return data.size();
+    }
+
 private:
     std::vector<T *> data;
 };

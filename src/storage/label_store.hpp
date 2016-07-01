@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdexcept>
+
 #include "model/label.hpp"
 #include "data_structures/skiplist/skiplistset.hpp"
 
@@ -13,11 +15,14 @@ public:
         return accessor.insert(Label(name)).first;
     }
 
-    bool contains(const std::string& name) const
+    bool contains(const std::string& name) // const
     {
         auto accessor = labels.access();
         return accessor.find(Label(name)) != accessor.end();
     }
+
+    // TODO: implement find method
+    //       return { Label, is_found }
 
 private:
     SkipListSet<Label> labels;

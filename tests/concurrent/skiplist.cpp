@@ -12,16 +12,14 @@ using std::endl;
 using skiplist_t = SkipList<int, int>;
 using namespace std::chrono_literals;
 
-#define THREADS_NO 16
-constexpr size_t elems_per_thread = 100000;
+#define THREADS_NO 1
+constexpr size_t elems_per_thread = 1000;
 
 int main()
 {
     ds::static_array<std::thread, THREADS_NO> threads;
     skiplist_t skiplist;
     
-    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
-
     // put THREADS_NO * elems_per_thread items to the skiplist
     for (size_t thread_i = 0; thread_i < THREADS_NO; ++thread_i) {
         threads[thread_i] = std::thread(
@@ -34,13 +32,10 @@ int main()
             thread_i * elems_per_thread,
             thread_i * elems_per_thread + elems_per_thread);
     }
-
     // wait all threads
     for (auto &thread : threads) {
         thread.join();
     }
-
-    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     // get skiplist size
     {
@@ -60,13 +55,10 @@ int main()
             thread_i * elems_per_thread,
             thread_i * elems_per_thread + elems_per_thread);
     }
-
     // wait all threads
     for (auto &thread : threads) {
         thread.join();
     }
-
-    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     // check size
     {
@@ -85,9 +77,9 @@ int main()
         permanent_assert(iterator_counter == 0, "deleted elements");
     }
 
+    std::this_thread::sleep_for(100s);
+
     // TODO: test GC and memory
-    std::this_thread::sleep_for(5s);
-    cout << "1. used virtual memory: " << used_virtual_memory() << endl;
 
     return 0;
 }

@@ -4,6 +4,7 @@
 #include <string>
 #include <cassert>
 #include <ostream>
+#include <vector>
 
 #include "utils/underlying_cast.hpp"
 
@@ -102,3 +103,4 @@ public:
     const Flags flags;
 };
 
+using properties_t = std::vector<Property::sptr>;
