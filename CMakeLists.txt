@@ -110,6 +110,8 @@ FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled/cpu)
 
 # TODO: filter header files, all files don't need to be copied
+# they are all copied because query engine needs header files during
+# query compilation
 SUBDIRLIST(source_folders ${src_dir})
 foreach(source_folder ${source_folders})
     file(COPY ${src_dir}/${source_folder} DESTINATION ${build_include_dir})
@@ -176,14 +178,14 @@ EXECUTE_PROCESS(
 # target_link_libraries(query_engine cypher_lib)
 # target_link_libraries(query_engine ${fmt_static_lib})
 
-# # query hasher executable
-# add_executable(query_hasher src/query_engine/main_query_hasher.cpp)
-# target_link_libraries(query_hasher ${fmt_static_lib})
-# 
+# query hasher executable
+add_executable(query_hasher src/query_engine/main_query_hasher.cpp)
+target_link_libraries(query_hasher ${fmt_static_lib})
+
 # # hard coded implementation of queries
-# add_executable(queries src/query_engine/main_queries.cpp)
-# target_link_libraries(queries ${fmt_static_lib})
+add_executable(queries src/query_engine/main_queries.cpp)
+target_link_libraries(queries ${fmt_static_lib})
 
 # tests
-enable_testing()
-add_subdirectory(tests)
+# enable_testing()
+# add_subdirectory(tests)

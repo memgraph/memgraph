@@ -36,3 +36,28 @@ ctest -R concurrent --parallel 4
 # custom test build example
 clang++ -std=c++1y -o concurrent_skiplist ../tests/concurrent/skiplist.cpp -pg -I../src/ -I../libs/fmt -Lfmt-prefix/src/fmt-build/fmt -lfmt -lpthread
 
+# TODO
+* implement basic subset of queries:
+    * create node
+    * create edge
+    * find node
+    * find edge
+    * update node
+    * update edge
+    * delete node
+    * delete edge
+
+* implement index
+    * label index
+    * type index
+    * property index
+
+* from header only approach to .hpp + .cpp
+    * query engine has to be statically linked with the rest of the code
+
+* unit test of queries that are manually implemented
+    * src/query_engine/main_queries.cpp -> tests/unit/manual_queries
+
+* unit test of query_engine
+
+* console with history

@@ -29,4 +29,14 @@ public:
     {
         this->record->data.to = vertex_record;
     }
+
+    auto from()
+    {
+        return this->record->data.from;
+    }
+
+    auto to()
+    {
+        return this->record->data.to;
+    }
 };
