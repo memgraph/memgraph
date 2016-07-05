@@ -1,48 +1,54 @@
 #pragma once
 
 #include <set>
+
 #include "label.hpp"
 
 class LabelCollection
 {
 public:
-    auto begin() { return labels.begin(); }
-    auto begin() const { return labels.begin(); }
-    auto cbegin() const { return labels.begin(); }
+    auto begin() { return _labels.begin(); }
+    auto begin() const { return _labels.begin(); }
+    auto cbegin() const { return _labels.begin(); }
 
-    auto end() { return labels.end(); }
-    auto end() const { return labels.end(); }
-    auto cend() const { return labels.end(); }
+    auto end() { return _labels.end(); }
+    auto end() const { return _labels.end(); }
+    auto cend() const { return _labels.end(); }
 
     bool add(const Label& label)
     {
-        return labels.insert(std::cref(label)).second;
+        return _labels.insert(label_ref_t(label)).second;
     }
 
     bool has(const Label& label) const
     {
-        return labels.count(label);
+        return _labels.count(label);
     }
 
     size_t count() const {
-        return labels.size();
+        return _labels.size();
     }
 
     bool remove(const Label& label)
     {
-        auto it = labels.find(label);
+        auto it = _labels.find(label);
 
-        if(it == labels.end())
+        if(it == _labels.end())
             return false;
 
-        return labels.erase(it), true;
+        return _labels.erase(it), true;
     }
 
     void clear()
     {
-        labels.clear();
+        _labels.clear();
+    }
+
+    const std::set<label_ref_t>& operator()() const
+    {
+        return _labels;
     }
 
 private:
-    std::set<std::reference_wrapper<const Label>> labels;
+    std::set<label_ref_t> _labels;
 };

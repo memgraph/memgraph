@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 #include "model/label.hpp"
-#include "data_structures/skiplist/skiplistset.hpp"
+#include "data_structures/concurrent/concurrent_set.hpp"
 
 class LabelStore
 {
@@ -25,5 +25,5 @@ public:
     //       return { Label, is_found }
 
 private:
-    SkipListSet<Label> labels;
+    ConcurrentSet<Label> labels;
 };

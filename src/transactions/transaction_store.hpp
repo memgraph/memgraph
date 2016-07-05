@@ -3,7 +3,7 @@
 #include <map>
 #include <memory>
 
-#include "transaction.hpp"
+#include "transactions/transaction.hpp"
 
 namespace tx
 {

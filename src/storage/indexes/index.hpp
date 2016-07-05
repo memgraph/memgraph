@@ -1,48 +1,45 @@
 #pragma once
 
-#include "data_structures/skiplist/skiplist.hpp"
-#include "keys/unique_key.hpp"
+#include <memory>
 
-#include "storage/cursor.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
+#include "storage/indexes/index_record.hpp"
+#include "storage/indexes/index_record_collection.hpp"
+#include "storage/model/label.hpp"
 
 template <class Key, class Item>
 class Index
 {
 public:
-    using skiplist_t = SkipList<Key, Item*>;
-    using iterator_t = typename skiplist_t::Iterator;
-    using accessor_t = typename skiplist_t::Accessor;
-    using K = typename Key::key_t;
-    using cursor_t = Cursor<accessor_t, iterator_t, K>;
+    using container_t = ConcurrentMap<Key, Item>;
 
-    // cursor_t insert(const K& key, Item* item, tx::Transaction& t)
-    auto insert(const K& key, Item* item)
+    Index() : index(std::make_unique<container_t>()) {}
+
+    auto update(const Label &label, VertexIndexRecord &&index_record)
     {
-        // Item has to be some kind of container for the real data like Vertex,
-        // the container has to be transactionally aware
-        // in other words index or something that wraps index has to be
-        // transactionally aware
+        auto accessor = index->access();
+        auto label_ref = label_ref_t(label);
 
-        auto accessor = skiplist.access();
-        auto result = accessor.insert_unique(key, item);
+        // create Index Record Collection if it doesn't exist
+        if (!accessor.contains(label_ref)) {
+            accessor.insert_unique(label_ref,
+                                   std::move(VertexIndexRecordCollection()));
+        }
 
-        // TODO: handle existing insert
-
-        return result;
+        // add Vertex Index Record to the Record Collection
+        auto &record_collection = (*accessor.find(label_ref)).second;
+        record_collection.add(std::forward<VertexIndexRecord>(index_record));
     }
 
-    auto remove(const K& key)
+    VertexIndexRecordCollection& find(const Label& label)
     {
-        auto accessor = skiplist.access();
-        return accessor.remove(key);
+        // TODO: accessor should be outside?
+        // bacause otherwise GC could delete record that has just be returned
+        auto label_ref = label_ref_t(label);
+        auto accessor = index->access();
+        return (*accessor.find(label_ref)).second;
     }
 
-    auto find(const K& key)
-    {
-        auto accessor = skiplist.access();
-        return accessor.find(key);
-    }
-    
 private:
-    skiplist_t skiplist;
+    std::unique_ptr<container_t> index;
 };

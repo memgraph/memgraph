@@ -61,14 +61,11 @@ public:
 
     static const Null Null;
 
-    Property(Flags flags) : flags(flags) {}
+    Property(Flags flags);
 
     virtual bool operator==(const Property& other) const = 0;
 
-    bool operator!=(const Property& other) const
-    {
-        return !operator==(other);
-    }
+    bool operator!=(const Property& other) const;
 
     template <class T>
     bool is() const
@@ -92,13 +89,23 @@ public:
 
     virtual std::ostream& print(std::ostream& stream) const = 0;
 
-    friend std::ostream& operator<<(std::ostream& stream, const Property& prop)
-    {
-        return prop.print(stream);
-    }
+    friend std::ostream& operator<<(std::ostream& stream, const Property& prop);
 
-    template <class Handler>
-    void accept(Handler& handler);
+//     template <class Handler>
+//     void accept(Handler& h)
+//     {
+//         switch(flags)
+//         {
+//             case Flags::True:   return h.handle(static_cast<Bool&>(*this));
+//             case Flags::False:  return h.handle(static_cast<Bool&>(*this));
+//             case Flags::String: return h.handle(static_cast<String&>(*this));
+//             case Flags::Int32:  return h.handle(static_cast<Int32&>(*this));
+//             case Flags::Int64:  return h.handle(static_cast<Int64&>(*this));
+//             case Flags::Float:  return h.handle(static_cast<Float&>(*this));
+//             case Flags::Double: return h.handle(static_cast<Double&>(*this));
+//             default: return;
+//         }
+//     }
 
     const Flags flags;
 };

@@ -142,6 +142,7 @@ if(NDEBUG)
 endif()
 
 # includes
+include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
@@ -178,12 +179,25 @@ EXECUTE_PROCESS(
 # target_link_libraries(query_engine cypher_lib)
 # target_link_libraries(query_engine ${fmt_static_lib})
 
-# query hasher executable
-add_executable(query_hasher src/query_engine/main_query_hasher.cpp)
-target_link_libraries(query_hasher ${fmt_static_lib})
+# # query hasher executable
+# add_executable(query_hasher src/query_engine/main_query_hasher.cpp)
+# target_link_libraries(query_hasher ${fmt_static_lib})
 
-# # hard coded implementation of queries
-add_executable(queries src/query_engine/main_queries.cpp)
+# hard coded implementation of queries
+add_executable(
+    queries 
+    src/query_engine/main_queries.cpp 
+    src/storage/vertices.cpp
+    src/storage/model/properties/property.cpp
+    src/storage/model/properties/null.cpp
+    src/storage/model/properties/bool.cpp
+    src/storage/model/properties/string.cpp
+    src/storage/model/properties/properties.cpp
+    src/storage/locking/record_lock.cpp
+    src/storage/vertices.cpp
+    src/storage/vertex_accessor.cpp
+    src/transactions/transaction.cpp
+)
 target_link_libraries(queries ${fmt_static_lib})
 
 # tests

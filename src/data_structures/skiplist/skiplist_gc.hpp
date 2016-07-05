@@ -1,5 +1,8 @@
 #pragma once
 
+// TODO: remove from here and from the project
+#include <iostream>
+
 #include "memory/freelist.hpp"
 #include "memory/lazy_gc.hpp"
 #include "threading/sync/spinlock.hpp"

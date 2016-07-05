@@ -1,6 +1,6 @@
 #pragma once
 
-#include "transactions/transaction.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "mvcc/version_list.hpp"
-#include "data_structures/skiplist/skiplist.hpp"
+#include "transactions/transaction.hpp"
 #include "utils/counters/atomic_counter.hpp"

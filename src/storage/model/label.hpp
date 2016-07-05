@@ -2,7 +2,9 @@
 
 #include <stdint.h>
 #include <ostream>
+
 #include "utils/total_ordering.hpp"
+#include "utils/reference_wrapper.hpp"
 
 class Label : public TotalOrdering<Label>
 {
@@ -36,3 +38,5 @@ public:
 private:
     std::string name;
 };
+
+using label_ref_t = ReferenceWrapper<const Label>;

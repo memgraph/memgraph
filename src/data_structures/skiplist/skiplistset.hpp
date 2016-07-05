@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "skiplist.hpp"
+#include "data_structures/skiplist/skiplist_map.hpp"
 #include "utils/total_ordering.hpp"
 
 template <class T, size_t H=32, class lock_t=SpinLock>
@@ -46,7 +46,7 @@ class SkipListSet
         const T* item {nullptr};
     };
 
-    using skiplist_t = SkipList<Key, T, H, lock_t>;
+    using skiplist_t = SkipListMap<Key, T, H, lock_t>;
     using iter_t = typename skiplist_t::Iterator;
     using const_iter_t = typename skiplist_t::ConstIterator;
 
@@ -230,5 +230,5 @@ public:
     }
 
 private:
-    SkipList<Key, T> data;
+    SkipListMap<Key, T> data;
 };

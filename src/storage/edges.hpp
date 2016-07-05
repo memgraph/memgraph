@@ -2,6 +2,7 @@
 
 #include "common.hpp"
 #include "edge_accessor.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 
 class Edges
 {
@@ -46,6 +47,6 @@ public:
     }
 
 private:
-    SkipList<uint64_t, EdgeRecord> edges;
+    ConcurrentMap<uint64_t, EdgeRecord> edges;
     AtomicCounter<uint64_t> counter;
 };

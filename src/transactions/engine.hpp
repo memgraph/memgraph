@@ -3,8 +3,8 @@
 #include <atomic>
 #include <vector>
 
-#include "transaction.hpp"
-#include "transaction_store.hpp"
+#include "transactions/transaction.hpp"
+#include "transactions/transaction_store.hpp"
 #include "commit_log.hpp"
 
 #include "utils/counters/simple_counter.hpp"
@@ -106,15 +106,5 @@ private:
     Snapshot<Id> active;
     TransactionStore<uint64_t> store;
 };
-
-void Transaction::commit()
-{
-    engine.commit(*this);
-}
-
-void Transaction::abort()
-{
-    engine.abort(*this);
-}
 
 }

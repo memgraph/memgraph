@@ -1,6 +1,6 @@
 #pragma once
 
-#include "properties/properties.hpp"
+#include "storage/model/properties/properties.hpp"
 
 class PropertyModel
 {

@@ -1,12 +1,12 @@
 #include <iostream>
 
-#include "data_structures/skiplist/skiplist.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "utils/assert.hpp"
 
 using std::cout;
 using std::endl;
 
-using skiplist_t = SkipList<int, int>;
+using skiplist_t = ConcurrentMap<int, int>;
 
 void print_skiplist(const skiplist_t::Accessor &skiplist)
 {
