@@ -1,6 +1,5 @@
 #pragma once
 
-#include "storage/model/properties/all.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/handler.hpp"
 

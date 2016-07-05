@@ -184,22 +184,25 @@ EXECUTE_PROCESS(
 # target_link_libraries(query_hasher ${fmt_static_lib})
 
 # hard coded implementation of queries
-add_executable(
-    queries 
-    src/query_engine/main_queries.cpp 
-    src/storage/vertices.cpp
-    src/storage/model/properties/property.cpp
-    src/storage/model/properties/null.cpp
-    src/storage/model/properties/bool.cpp
-    src/storage/model/properties/string.cpp
-    src/storage/model/properties/properties.cpp
-    src/storage/locking/record_lock.cpp
-    src/storage/vertices.cpp
-    src/storage/vertex_accessor.cpp
-    src/transactions/transaction.cpp
-)
-target_link_libraries(queries ${fmt_static_lib})
+# add_executable(
+#     queries 
+#     src/query_engine/main_queries.cpp 
+#     src/mvcc/id.cpp
+#     src/storage/label_store.cpp
+#     src/storage/vertices.cpp
+#     src/storage/model/label.cpp
+#     src/storage/model/label_collection.cpp
+#     src/storage/model/properties/property.cpp
+#     src/storage/model/properties/null.cpp
+#     src/storage/model/properties/bool.cpp
+#     src/storage/model/properties/string.cpp
+#     src/storage/model/properties/properties.cpp
+#     src/storage/locking/record_lock.cpp
+#     src/storage/vertex_accessor.cpp
+#     src/transactions/transaction.cpp
+# )
+# target_link_libraries(queries ${fmt_static_lib})
 
 # tests
-# enable_testing()
-# add_subdirectory(tests)
+enable_testing()
+add_subdirectory(tests)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -13,7 +14,6 @@
 #include "utils/string/transform.hpp"
 #include "utils/variadic/variadic.hpp"
 
-#include <iostream>
 
 template <class T, class V>
 void store_query_param(code_args_t &arguments, V &&v)

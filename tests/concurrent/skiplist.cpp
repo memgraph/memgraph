@@ -2,14 +2,14 @@
 #include <iostream>
 #include <thread>
 
-#include "data_structures/skiplist/skiplist.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/static_array.hpp"
 #include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
 
 using std::cout;
 using std::endl;
-using skiplist_t = SkipList<int, int>;
+using skiplist_t = ConcurrentMap<int, int>;
 using namespace std::chrono_literals;
 
 #define THREADS_NO 1
@@ -77,7 +77,7 @@ int main()
         permanent_assert(iterator_counter == 0, "deleted elements");
     }
 
-    std::this_thread::sleep_for(100s);
+    std::this_thread::sleep_for(1s);
 
     // TODO: test GC and memory
 

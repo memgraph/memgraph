@@ -1,11 +1,11 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <stdexcept>
 #include <dlfcn.h>
 #include <atomic>
 
-#include <iostream>
 using std::cout;
 using std::endl;
 

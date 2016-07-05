@@ -27,7 +27,7 @@ public:
 
     ~Pool()
     {
-        alive.store(false, std::memory_order_release);
+        alive.store(false, std::memory_order_seq_cst);
         cond.notify_all();
 
         for(auto& thread : threads)
