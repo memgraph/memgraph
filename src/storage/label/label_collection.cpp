@@ -1,4 +1,4 @@
-#include "storage/model/label_collection.hpp"
+#include "storage/label/label_collection.hpp"
 
 auto LabelCollection::begin() { return _labels.begin(); }
 auto LabelCollection::begin() const { return _labels.begin(); }

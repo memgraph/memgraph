@@ -181,8 +181,9 @@ int main(int argc, char **argv)
 
         e.from(v1.vlist);
         e.to(v2.vlist);
-
-        e.edge_type(EdgeType("IN"));
+        
+        auto &edge_type = db.graph.edge_type_store.find_or_create("IS");
+        e.edge_type(edge_type);
 
         t.commit();
 

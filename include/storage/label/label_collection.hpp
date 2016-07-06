@@ -2,7 +2,7 @@
 
 #include <set>
 
-#include "storage/model/label.hpp"
+#include "storage/label/label.hpp"
 
 class LabelCollection
 {

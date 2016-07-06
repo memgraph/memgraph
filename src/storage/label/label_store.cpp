@@ -1,4 +1,4 @@
-#include "storage/label_store.hpp"
+#include "storage/label/label_store.hpp"
 
 const Label& LabelStore::find_or_create(const std::string& name)
 {

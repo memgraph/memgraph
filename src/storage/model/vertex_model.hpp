@@ -1,7 +1,7 @@
 #pragma once
 
 #include "property_model.hpp"
-#include "storage/model/label_collection.hpp"
+#include "storage/label/label_collection.hpp"
 #include "edge_list.hpp"
 
 class VertexModel : public PropertyModel

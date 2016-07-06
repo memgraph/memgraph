@@ -1,14 +1,17 @@
 #pragma once
 
-#include "property_model.hpp"
-#include "edge_type.hpp"
 #include "mvcc/version_list.hpp"
+#include "property_model.hpp"
+#include "storage/edge_type/edge_type.hpp"
 
 class EdgeModel : public PropertyModel
 {
 public:
-    VertexRecord* from;
-    VertexRecord* to;
+    VertexRecord *from;
+    VertexRecord *to;
 
-    EdgeType edge_type;
+    // TODO: here should be the reference
+    //       but something that is copyable
+    //       because this model is copied all the time (mvcc)
+    const EdgeType *edge_type {nullptr};
 };

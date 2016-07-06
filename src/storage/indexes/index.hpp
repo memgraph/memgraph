@@ -5,7 +5,7 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/indexes/index_record.hpp"
 #include "storage/indexes/index_record_collection.hpp"
-#include "storage/model/label.hpp"
+#include "storage/label/label.hpp"
 
 template <class Key, class Item>
 class Index

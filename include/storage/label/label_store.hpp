@@ -2,7 +2,7 @@
 
 #include <stdexcept>
 
-#include "storage/model/label.hpp"
+#include "storage/label/label.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 
 class LabelStore

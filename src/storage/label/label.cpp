@@ -1,4 +1,4 @@
-#include "storage/model/label.hpp"
+#include "storage/label/label.hpp"
 
 Label::Label(const std::string& name) : name(name) {}
 Label::Label(std::string&& name) : name(std::move(name)) {}
