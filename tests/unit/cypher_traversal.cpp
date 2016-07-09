@@ -60,6 +60,7 @@ int main()
             cout << "Query is commented out: " << query << endl;
             continue;
         }
+        cout << "QUERY IS: " << query << endl;
         auto print_visitor = new PrintVisitor(cout);
         cypher::Compiler compiler;
         auto tree = compiler.syntax_tree(query);

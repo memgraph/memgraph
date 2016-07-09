@@ -55,22 +55,71 @@
 %left PLUS MINUS.
 %left STAR SLASH REM.
 
-// start structure
+// -- start structure
 
-start ::= write_query(WQ). {
-    ast->root = WQ;
+start ::= with_query(Q). {
+    ast->root = Q;
 }
 
-start ::= read_query(RQ). {
-    ast->root = RQ;
+start ::= write_query(Q). {
+    ast->root = Q;
 }
 
-start ::= update_query(UQ). {
-    ast->root = UQ;
+start ::= read_query(Q). {
+    ast->root = Q;
 }
 
-start ::= delete_query(DQ). {
-    ast->root = DQ;
+start ::= update_query(Q). {
+    ast->root = Q;
+}
+
+start ::= delete_query(Q). {
+    ast->root = Q;
+}
+
+start ::= read_write_query(Q). {
+    ast->root = Q;
+}
+
+// -- with query
+
+%type with_query {ast::WithQuery*}
+
+with_query(WQ) ::= with_start_clause(SQ) with_list(WL) return_clause(RC). {
+    WQ = ast->create<ast::WithQuery>(SQ, WL, RC);
+}
+
+%type with_list {ast::WithList*}
+
+with_list(L) ::= WITH with_clause(WC) with_list(N). {
+    L = ast->create<ast::WithList>(WC, N);    
+}
+
+with_list(L) ::= . {
+    L = nullptr;
+}
+
+// TODO: replace Match with something that has Match, Create, etc.
+%type with_start_clause {ast::Match*}
+
+with_start_clause(WSC) ::= match_clause(MC). {
+    WSC = MC;
+}
+
+%type with_clause {ast::WithClause*}
+
+with_clause(WC) ::= identifier_list(IL) with_match_clause(MC). {
+    WC = ast->create<ast::WithClause>(IL, MC);
+}
+
+%type with_match_clause {ast::Match*}
+
+with_match_clause(WMC) ::= match_clause(M). {
+    WMC = M;
+}
+
+with_match_clause(WMC) ::= where_clause(WC). {
+    WMC = ast->create<ast::Match>(nullptr, WC);
 }
 
 // write query structure
@@ -92,6 +141,21 @@ write_query(WQ) ::= create_clause(C). {
 read_query(RQ) ::= match_clause(M) return_clause(R). {
     RQ = ast->create<ast::ReadQuery>(M, R);
 }
+
+// -- match create query
+
+%type read_write_query {ast::ReadWriteQuery*}
+
+read_write_query(Q) ::= match_clause(M) create_clause(C) return_clause(R). {
+    Q = ast->create<ast::ReadWriteQuery>(M, C, R);
+}
+
+read_write_query(Q) ::= match_clause(M) create_clause(C). {
+    Q = ast->create<ast::ReadWriteQuery>(M, C, nullptr);
+}
+
+// ---------------------
+
 
 // update query structure
 
@@ -129,7 +193,7 @@ create_clause(C) ::= CREATE pattern(P). {
 
 %type match_clause {ast::Match*}
 
-match_clause(M) ::= MATCH pattern(P) where_clause(W). {
+match_clause(M) ::= MATCH pattern_list(P) where_clause(W). {
     M = ast->create<ast::Match>(P, W);
 }
 
@@ -138,6 +202,20 @@ match_clause(M) ::= MATCH pattern(P) where_clause(W). {
 delete_clause(D) ::= DELETE idn(I). {
     D = ast->create<ast::Delete>(I);
 }
+
+// ---- pattern list
+
+%type pattern_list {ast::PatternList*}
+
+pattern_list(L) ::= pattern(P) COMMA pattern_list(N). {
+    L = ast->create<ast::PatternList>(P, N);
+}
+
+pattern_list(L) ::= pattern(P). {
+    L = ast->create<ast::PatternList>(P, nullptr);
+}
+
+// ----
 
 %type pattern {ast::Pattern*}
 
@@ -371,6 +449,20 @@ value_expr(E) ::= idn(I) DOT idn(P). {
 idn(I) ::= IDN(X). {
     I = ast->create<ast::Identifier>(X->value);
 }
+
+// ---- identifier list
+
+%type identifier_list {ast::IdentifierList*}
+
+identifier_list(L) ::= idn(I) COMMA identifier_list(N). {
+    L = ast->create<ast::IdentifierList>(I, N);
+}
+
+identifier_list(L) ::= idn(I). {
+    L = ast->create<ast::IdentifierList>(I, nullptr);
+}
+
+// ----
 
 value_expr(E) ::= INT(V). {
     auto value = std::stoi(V->value);

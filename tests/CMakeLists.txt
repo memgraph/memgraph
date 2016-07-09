@@ -50,7 +50,7 @@ foreach(test ${concurrency_test_names})
 endforeach()
 
 # build integration tests
-message(STATUS ${memgraph_src_files})
+# message(STATUS ${memgraph_src_files})
 add_executable(integration_queries integration/queries.cpp ${memgraph_src_files})
 target_link_libraries(integration_queries ${fmt_static_lib})
 add_test(NAME integration_queries COMMAND integration_queries)

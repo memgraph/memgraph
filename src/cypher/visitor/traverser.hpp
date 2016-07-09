@@ -10,8 +10,9 @@ public:
     using uptr = std::unique_ptr<Traverser>;
     using sptr = std::shared_ptr<Traverser>;
 
-    void visit(ast::Start& start) override
+    void visit(ast::Start& start_query) override
     {
+        // DELETE
     }
 
     void visit(ast::DeleteQuery& delete_query) override
@@ -26,9 +27,19 @@ public:
         accept(read_query.return_clause);
     }
 
+    void visit(ast::ReadWriteQuery& query) override
+    {
+        accept(query.match_clause);
+
+        accept(query.create_clause);
+
+        if (query.return_clause != nullptr)
+            accept(query.return_clause);
+    }
+
     void visit(ast::Match& match) override
     {
-        accept(match.pattern);
+        accept(match.pattern_list);
         accept(match.where);
     }
 
@@ -53,10 +64,8 @@ public:
 
     void visit(ast::Return& return_clause) override
     {
-        if (return_clause.return_list != nullptr)
-            accept(return_clause.return_list);
-        if (return_clause.distinct != nullptr)
-            accept(return_clause.distinct);
+        accept(return_clause.return_list);
+        accept(return_clause.distinct);
     }
 
     void visit(ast::Accessor& accessor) override
@@ -154,10 +163,22 @@ public:
         accept(prop_list.next);
     }
 
+    void visit(ast::PatternList& pattern_list) override
+    {
+        accept(pattern_list.value);
+        accept(pattern_list.next);
+    }
+
     void visit(ast::RelationshipList& rel_list) override
     {
         accept(rel_list.value);
         accept(rel_list.next);
+    }
+
+    void visit(ast::IdentifierList& list) override
+    {
+        accept(list.value);
+        accept(list.next);
     }
 
     void visit(ast::Relationship& rel) override
@@ -199,8 +220,7 @@ public:
     {
         accept(update_query.match_clause);
         accept(update_query.set_clause);
-        if (update_query.return_clause != nullptr)
-            accept(update_query.return_clause);
+        accept(update_query.return_clause);
     }
 
     void visit(ast::Set& set_clause) override
@@ -222,8 +242,7 @@ public:
     void visit(ast::SetList& set_list) override
     {
         accept(set_list.value);
-        if (set_list.next != nullptr)
-            accept(set_list.next);
+        accept(set_list.next);
     }
 
     void visit(ast::Create& create) override
@@ -239,6 +258,25 @@ public:
     void visit(ast::Delete& delete_clause) override
     {
         accept(delete_clause.identifier);
+    }
+
+    void visit(ast::WithClause& with_clause) override
+    {
+        accept(with_clause.identifier_list);
+        accept(with_clause.match_clause);
+    }
+
+    void visit(ast::WithList& with_list) override
+    {
+        accept(with_list.value);
+        accept(with_list.next);
+    }
+
+    void visit(ast::WithQuery& with_query) override
+    {
+        accept(with_query.match_clause);
+        accept(with_query.with_list);
+        accept(with_query.return_clause);
     }
 
 protected:

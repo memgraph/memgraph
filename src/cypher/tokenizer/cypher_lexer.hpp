@@ -49,6 +49,7 @@ public:
         rule("(?i:RETURN)", TK_RETURN);
         rule("(?i:DISTINCT)", TK_DISTINCT);
         rule("(?i:DELETE)", TK_DELETE);
+        rule("(?i:WITH)", TK_WITH);
 
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);

@@ -9,10 +9,10 @@ namespace ast
 
 struct Match : public AstNode<Match>
 {
-    Match(Pattern* pattern, Where* where)
-        : pattern(pattern), where(where) {}
+    Match(PatternList* pattern_list, Where* where)
+        : pattern_list(pattern_list), where(where) {}
 
-    Pattern* pattern;
+    PatternList* pattern_list;
     Where* where;
 };
 

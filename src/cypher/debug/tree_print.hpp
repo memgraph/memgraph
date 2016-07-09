@@ -94,6 +94,12 @@ public:
         Traverser::visit(read_query);
     }
 
+    void visit(ast::ReadWriteQuery& query) override
+    {
+        auto entry = printer.advance("Read Write Query");
+        Traverser::visit(query);
+    }
+
     void visit(ast::Match& match) override
     {
         auto entry = printer.advance("Match");
@@ -112,6 +118,12 @@ public:
         Traverser::visit(pattern_expr);
     }
 
+    void visit(ast::PatternList& pattern_list) override
+    {
+        auto entry = printer.advance("Pattern List");
+        Traverser::visit(pattern_list);
+    }
+
     void visit(ast::Node& node) override
     {
         auto entry = printer.advance("Node");
@@ -128,6 +140,12 @@ public:
     {
         auto entry = printer.advance();
         entry << "Identifier '" << idn.name << "'";
+    }
+
+    void visit(ast::IdentifierList& list) override
+    {
+        auto entry = printer.advance("Identifier List");
+        Traverser::visit(list);
     }
 
     void visit(ast::Return& return_clause) override
@@ -351,6 +369,24 @@ public:
     {
         auto entry = printer.advance("Set List");
         Traverser::visit(set_list);
+    }
+
+    void visit(ast::WithClause& with_clause) override
+    {
+        auto entry = printer.advance("With Clause");
+        Traverser::visit(with_clause);
+    }
+
+    void visit(ast::WithList& with_list) override
+    {
+        auto entry = printer.advance("With List");
+        Traverser::visit(with_list);
+    }
+
+    void visit(ast::WithQuery& with_query) override
+    {
+        auto entry = printer.advance("With Query");
+        Traverser::visit(with_query);
     }
 
 private:

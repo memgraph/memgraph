@@ -17,4 +17,9 @@ struct Pattern : public AstNode<Pattern>
     Pattern* next;
 };
 
+struct PatternList : public List<Pattern, PatternList>
+{
+    using List::List;
+};
+
 }

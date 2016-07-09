@@ -202,8 +202,8 @@ set(memgraph_src_files
 )
 
 # hard coded implementation of queries
-add_executable(queries src/query_engine/main_queries.cpp ${memgraph_src_files})
-target_link_libraries(queries ${fmt_static_lib})
+# add_executable(queries src/query_engine/main_queries.cpp ${memgraph_src_files})
+# target_link_libraries(queries ${fmt_static_lib})
 
 # tests
 enable_testing()
