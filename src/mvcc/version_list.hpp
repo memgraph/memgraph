@@ -65,7 +65,7 @@ public:
 
     T* find(const tx::Transaction& t)
     {
-        auto r = head.load(std::memory_order_acquire);
+        auto r = head.load(std::memory_order_seq_cst);
 
         //    nullptr
         //       |
@@ -78,7 +78,7 @@ public:
         //   [VerList] ----+  version, or you reach the end of the list
         //
         while(r != nullptr && !r->visible(t))
-            r = r->next(std::memory_order_acquire);
+            r = r->next(std::memory_order_seq_cst);
 
         return r;
     }
@@ -94,7 +94,7 @@ public:
         // mark the record as created by the transaction t
         v1->mark_created(t);
 
-        head.store(v1, std::memory_order_release);
+        head.store(v1, std::memory_order_seq_cst);
 
         return v1;
     }
@@ -122,8 +122,8 @@ public:
         updated->mark_created(t);
         record->mark_deleted(t);
 
-        updated->next(record, std::memory_order_release);
-        head.store(updated, std::memory_order_release);
+        updated->next(record, std::memory_order_seq_cst);
+        head.store(updated, std::memory_order_seq_cst);
 
         return updated;
     }

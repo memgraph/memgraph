@@ -4,6 +4,10 @@
 #include "query_engine/i_code_cpu.hpp"
 #include "storage/model/properties/all.hpp"
 
+#ifdef DEBUG
+#include "query_engine/debug.hpp"
+#endif
+
 //  TODO generate with the template engine 
 // #include "storage/model/properties/jsonwriter.hpp"
 

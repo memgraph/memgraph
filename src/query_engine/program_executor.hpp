@@ -16,9 +16,7 @@ class ProgramExecutor
 public:
     auto execute(QueryProgram &program)
     {
-        auto result = program.code->run(db, program.stripped.arguments);
-        PRINT_PROPS(*result->data["n"]->data[0]);
-        return result;
+        return program.code->run(db, program.stripped.arguments);
     }
 
 public:

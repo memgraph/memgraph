@@ -12,22 +12,22 @@ public:
     CreExp() = default;
     CreExp(T cre, T exp) : cre_(cre), exp_(exp) {}
 
-    T cre(std::memory_order order = std::memory_order_acquire) const
+    T cre(std::memory_order order = std::memory_order_seq_cst) const
     {
         return cre_.load(order);
     }
 
-    void cre(T value, std::memory_order order = std::memory_order_release)
+    void cre(T value, std::memory_order order = std::memory_order_seq_cst)
     {
         cre_.store(value, order);
     }
 
-    T exp(std::memory_order order = std::memory_order_acquire) const
+    T exp(std::memory_order order = std::memory_order_seq_cst) const
     {
         return exp_.load(order);
     }
 
-    void exp(T value, std::memory_order order = std::memory_order_release)
+    void exp(T value, std::memory_order order = std::memory_order_seq_cst)
     {
         exp_.store(value, order);
     }

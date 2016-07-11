@@ -54,17 +54,17 @@ private:
             uint8_t bits;
         };
 
-        Value load(std::memory_order order = std::memory_order_acquire)
+        Value load(std::memory_order order = std::memory_order_seq_cst)
         {
             return Value { bits.load(order) };
         }
 
-        void set_committed(std::memory_order order = std::memory_order_release)
+        void set_committed(std::memory_order order = std::memory_order_seq_cst)
         {
             bits.fetch_or(COMMITTED, order);
         }
 
-        void set_aborted(std::memory_order order = std::memory_order_release)
+        void set_aborted(std::memory_order order = std::memory_order_seq_cst)
         {
             bits.fetch_or(ABORTED, order);
         }
@@ -97,7 +97,7 @@ public:
         Exp::Value exp;
     };
 
-    HintBits load(std::memory_order order = std::memory_order_acquire)
+    HintBits load(std::memory_order order = std::memory_order_seq_cst)
     {
         return HintBits { bits.load(order) };
     }

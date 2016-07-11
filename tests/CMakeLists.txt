@@ -49,9 +49,19 @@ foreach(test ${concurrency_test_names})
     set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
 endforeach()
 
+## INTEGRATION TESTS
+
 # build integration tests
 # message(STATUS ${memgraph_src_files})
 add_executable(integration_queries integration/queries.cpp ${memgraph_src_files})
 target_link_libraries(integration_queries ${fmt_static_lib})
 add_test(NAME integration_queries COMMAND integration_queries)
 set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
+
+## MANUAL TESTS
+
+add_executable(manual_query_engine manual/query_engine.cpp ${memgraph_src_files})
+target_link_libraries(manual_query_engine ${fmt_static_lib})
+target_link_libraries(manual_query_engine dl)
+target_link_libraries(manual_query_engine cypher_lib)
+set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)

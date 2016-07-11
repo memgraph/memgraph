@@ -37,7 +37,7 @@ public:
         auto hash_string = std::to_string(stripped.hash);
         LOG_INFO("query_hash=" + hash_string);
 
-        auto code_lib_iter = code_libs.find(stripped_hash);
+        auto code_lib_iter = code_libs.find(stripped.hash);
 
         // code is already compiled and loaded, just return runnable
         // instance
@@ -50,7 +50,7 @@ public:
         //  TODO load output path from config
         auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
         auto path_cpp = base_path + hash_string + ".cpp";
-        code_generator.generate_cpp(query, stripped_hash, path_cpp);
+        code_generator.generate_cpp(query, stripped.hash, path_cpp);
 
         //  TODO compile generated code
         auto path_so = base_path + hash_string + ".so";
@@ -58,7 +58,7 @@ public:
 
         // loads dynamic lib and store it
         auto code_lib = load_code_lib(path_so);
-        code_libs.insert({{stripped_hash, code_lib}});
+        code_libs.insert({{stripped.hash, code_lib}});
 
         // return instance of runnable code (ICodeCPU)
         return QueryProgram(code_lib->instance(), std::move(stripped));

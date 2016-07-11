@@ -59,9 +59,12 @@ endif (UNIX)
 
 # external dependencies
 
-set(build_include_dir ${CMAKE_BINARY_DIR}/include)
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
+set(include_dir ${CMAKE_SOURCE_DIR}/include)
+set(build_include_dir ${CMAKE_BINARY_DIR}/include)
+set(test_include_dir ${CMAKE_BINARY_DIR}/tests/include)
+set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
 
 # setup external dependencies
 
@@ -104,17 +107,27 @@ SET(cypher_build_include_dir ${build_include_dir}/cypher)
 FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
 
+# prepare template and destination folders for query engine (tests)
 # copy query_engine's templates file
-FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
+FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR}/tests)
 # create destination folder for compiled queries
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled/cpu)
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled/cpu)
 
 # TODO: filter header files, all files don't need to be copied
 # they are all copied because query engine needs header files during
 # query compilation
+# TODO: make a function (REMOVE copy pasted part)
 SUBDIRLIST(source_folders ${src_dir})
 foreach(source_folder ${source_folders})
     file(COPY ${src_dir}/${source_folder} DESTINATION ${build_include_dir})
+endforeach()
+SUBDIRLIST(source_folders ${src_dir})
+foreach(source_folder ${source_folders})
+    file(COPY ${src_dir}/${source_folder} DESTINATION ${test_src_dir})
+endforeach()
+SUBDIRLIST(source_folders ${include_dir})
+foreach(source_foler ${source_folders})
+    file(COPY ${include_dir}/${source_folder} DESTINATION ${test_include_dir})
 endforeach()
 
 # compiler options
@@ -199,6 +212,7 @@ set(memgraph_src_files
     ${src_dir}/storage/locking/record_lock.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/transactions/transaction.cpp
+    ${src_dir}/template_engine/engine.cpp
 )
 
 # hard coded implementation of queries
