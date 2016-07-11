@@ -184,10 +184,22 @@ public:
         entry << "Integer " << integer.value;
     }
 
+    // void visit(ast::ULong& ulong) override
+    // {
+    //     auto entry = printer.advance();
+    //     entry << "ULong " << ulong.value;
+    // }
+
     void visit(ast::String& string) override
     {
         auto entry = printer.advance();
         entry << "String " << string.value;
+    }
+
+    void visit(ast::InternalIdExpr& internal_id) override
+    {
+        auto entry = printer.advance("InternalId");
+        Traverser::visit(internal_id);
     }
 
     void visit(ast::Property& property) override

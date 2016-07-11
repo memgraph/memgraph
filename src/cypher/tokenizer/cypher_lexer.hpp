@@ -50,6 +50,10 @@ public:
         rule("(?i:DISTINCT)", TK_DISTINCT);
         rule("(?i:DELETE)", TK_DELETE);
         rule("(?i:WITH)", TK_WITH);
+        // TODO: here should be better regex
+        // problem is that id in property list isn't ID from where
+        // part
+        rule("(?-i:ID)", TK_ID);
 
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);

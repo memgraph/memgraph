@@ -30,11 +30,8 @@ public:
     void visit(ast::ReadWriteQuery& query) override
     {
         accept(query.match_clause);
-
         accept(query.create_clause);
-
-        if (query.return_clause != nullptr)
-            accept(query.return_clause);
+        accept(query.return_clause);
     }
 
     void visit(ast::Match& match) override
@@ -277,6 +274,12 @@ public:
         accept(with_query.match_clause);
         accept(with_query.with_list);
         accept(with_query.return_clause);
+    }
+
+    void visit(ast::InternalIdExpr& internal_id) override
+    {
+        accept(internal_id.identifier);
+        accept(internal_id.value);
     }
 
 protected:

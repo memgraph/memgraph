@@ -444,6 +444,11 @@ value_expr(E) ::= idn(I) DOT idn(P). {
     E = ast->create<ast::Accessor>(I, P);
 }
 
+value_expr(E) ::= ID LP idn(I) RP EQ INT(V). {
+    auto value = std::stoi(V->value);
+    E = ast->create<ast::InternalIdExpr>(I, ast->create<ast::Integer>(value));
+}
+
 %type idn {ast::Identifier*}
 
 idn(I) ::= IDN(X). {

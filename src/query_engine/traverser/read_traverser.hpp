@@ -27,6 +27,10 @@ public:
         ++index;
     }
 
+    void visit(ast::InternalIdExpr& internal_id) override
+    {
+    }
+
     void visit(ast::Return& ret) override
     {
 #ifdef DEBUG

@@ -45,6 +45,7 @@ foreach(test ${concurrency_test_names})
     set(test_name concurrent_${test})
     add_executable(${test_name} concurrent/${test}.cpp)
     target_link_libraries(${test_name} Threads::Threads)
+    target_link_libraries(${test_name} ${fmt_static_lib})
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
 endforeach()
@@ -60,8 +61,16 @@ set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
 
 ## MANUAL TESTS
 
+# query engine
 add_executable(manual_query_engine manual/query_engine.cpp ${memgraph_src_files})
 target_link_libraries(manual_query_engine ${fmt_static_lib})
 target_link_libraries(manual_query_engine dl)
 target_link_libraries(manual_query_engine cypher_lib)
 set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
+
+# ast traversal
+add_executable(cypher_ast_traverser manual/cypher_ast.cpp ${mamgraph_src_files})
+target_link_libraries(cypher_ast_traverser ${fmt_static_lib})
+target_link_libraries(cypher_ast_traverser cypher_lib)
+set_property(TARGET cypher_ast_traverser PROPERTY CXX_STANDARD 14)
+

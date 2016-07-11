@@ -71,6 +71,8 @@ struct WithList;
 struct WithClause;
 struct WithQuery;
 
+struct InternalIdExpr;
+
 struct AstVisitor
     : public Visitor<Accessor, Boolean, Float, Identifier, Alias, Integer,
                      String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus,
@@ -81,6 +83,7 @@ struct AstVisitor
                      Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
                      ReadWriteQuery, IdentifierList,
                      WithList, WithClause, WithQuery,
+                     InternalIdExpr,
                      SetValue, SetElement, SetList>
 {
 };
