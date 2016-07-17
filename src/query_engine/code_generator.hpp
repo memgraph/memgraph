@@ -30,6 +30,9 @@ public:
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
                             {"code", code_traverser.code}});
+        // TODO: ifndef
+        std::cout << generated << std::endl;
+
         utils::write_file(generated, path);
     }
 

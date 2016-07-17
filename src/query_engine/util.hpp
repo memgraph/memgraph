@@ -2,4 +2,4 @@
 
 #include <string>
 
-std::string line(std::string line) { return "\t\t" + line + "\n"; }
+std::string LINE(std::string line) { return "\t" + line + "\n"; }

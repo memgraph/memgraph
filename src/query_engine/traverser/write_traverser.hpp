@@ -3,6 +3,7 @@
 #include <iostream>
 #include <map>
 #include <typeinfo>
+#include <fmt/format.h>
 
 #include "cypher/visitor/traverser.hpp"
 #include "query_engine/util.hpp"
@@ -19,8 +20,8 @@ public:
 
     void visit(ast::Create &create) override
     {
-        code += line("auto& t = db.tx_engine.begin();");
-        code += line("auto vertex_accessor = db.graph.vertices.insert(t);");
+        code += LINE(code::transaction_begin);
+        code += LINE(code::vertex_accessor);
 
         Traverser::visit(create);
     };
@@ -34,10 +35,8 @@ public:
 
         if (collecting_labels) {
             for (auto label : labels) {
-                code += line("auto &" + label +
-                             " = db.graph.label_store.find_or_create(\"" +
-                             label + "\");");
-                code += line("vertex_accessor.add_label(" + label + ");");
+                code += LINE(fmt::format(code::create_label, label, label));
+                code += LINE(fmt::format(code::add_label, label));
             }
             labels.clear();
             collecting_labels = false;
@@ -52,22 +51,13 @@ public:
     void visit(ast::Property &property) override
     {
         auto key = property.idn->name;
-
-        code += line("vertex_accessor.property(");
-        code += line("\t\"" + key + "\", args[" + std::to_string(index) + "]");
-        code += line(");");
-
+        code += LINE(fmt::format(code::vertex_set_property, key, index));
         ++index;
     }
 
     void visit(ast::Return &ret) override
     {
-#ifdef DEBUG
-        // TODO: remove from here
-        code += line("PRINT_PROPS(vertex_accessor.properties());");
-#endif
-
-        code += line("t.commit();");
-        code += line("return std::make_shared<QueryResult>();");
+        code += LINE(code::transaction_commit);
+        code += LINE(code::return_empty_result);
     }
 };

@@ -61,6 +61,7 @@ public:
         code_libs.insert({{stripped.hash, code_lib}});
 
         // return instance of runnable code (ICodeCPU)
+        LOG_INFO("new code compiled and placed into cache");
         return QueryProgram(code_lib->instance(), std::move(stripped));
     }
 
