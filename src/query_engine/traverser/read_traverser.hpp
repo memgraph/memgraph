@@ -23,11 +23,9 @@ private:
     std::map<std::string, uint32_t> property_indices;
 
 public:
-    std::string code;
-
     void update_entities(const std::string &name)
     {
-        std::cout << name << std::endl; 
+        std::cout << name << std::endl;
         if (entities.find(name) == entities.end()) {
             csm.init_cost(name);
             property_indices[name] = index++;
@@ -49,7 +47,7 @@ public:
         auto name = identifier->name;
         update_entities(name);
 
-        if (node.labels != nullptr && node.labels->value != nullptr) 
+        if (node.labels != nullptr && node.labels->value != nullptr)
             csm.search_cost(name, search_label_index, label_cost);
     }
 

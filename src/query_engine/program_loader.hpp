@@ -32,10 +32,10 @@ public:
     auto load(const string &query)
     {
         auto stripped = stripper.strip(query);
-        LOG_INFO("stripped_query=" + stripped.query);
+        LOG_INFO("stripped_query = " + stripped.query);
 
         auto hash_string = std::to_string(stripped.hash);
-        LOG_INFO("query_hash=" + hash_string);
+        LOG_INFO("query_hash = " + hash_string);
 
         auto code_lib_iter = code_libs.find(stripped.hash);
 
@@ -52,7 +52,6 @@ public:
         auto path_cpp = base_path + hash_string + ".cpp";
         code_generator.generate_cpp(query, stripped.hash, path_cpp);
 
-        //  TODO compile generated code
         auto path_so = base_path + hash_string + ".so";
         code_compiler.compile(path_cpp, path_so);
 
@@ -60,14 +59,14 @@ public:
         auto code_lib = load_code_lib(path_so);
         code_libs.insert({{stripped.hash, code_lib}});
 
-        // return instance of runnable code (ICodeCPU)
-        LOG_INFO("new code compiled and placed into cache");
+        // return an instance of runnable code (ICodeCPU)
         return QueryProgram(code_lib->instance(), std::move(stripped));
     }
 
 private:
     //  TODO somehow remove int.. from here
     QueryStripper<int, int, int, int> stripper;
+
     // TODO ifdef MEMGRAPH64 problem, how to use this kind
     // of ifdef functions?
     // uint64_t depends on fnv function

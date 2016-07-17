@@ -11,34 +11,22 @@
 using std::cout;
 using std::endl;
 
-// * INPUT ARGUMENTS *
-// -q -> query
-// -v -> visitor
-// -f -> file
-//
 int main(int argc, char *argv[])
 {
     std::set_terminate(&terminate_handler);
 
-    // arguments parsing
+    // // arguments parsing
     auto arguments = all_arguments(argc, argv);
 
-    // query extraction
+    // // query extraction
     auto cypher_query = extract_query(arguments);
     cout << "QUERY: " << cypher_query << endl;
 
-    // traversers
-    auto traverser = get_argument(arguments, "-t", "code");
-    auto print_traverser = Traverser::sptr(new PrintVisitor(cout));
-    std::map<std::string, Traverser::sptr> traversers = {
-        {"print", print_traverser}
-    };
-
+    auto print_visitor = new PrintVisitor(cout);
     cypher::Compiler compiler;
     auto tree = compiler.syntax_tree(cypher_query);
-
-    auto t = traversers[traverser];
-    tree.root->accept(*t);
+    tree.root->accept(*print_visitor);
+    cout << endl;
 
     return 0;
 }

@@ -14,6 +14,7 @@ class QueryEngine
 public:
     auto execute(const std::string &query)
     {
+        // TODO: error handling
         auto program = program_loader.load(query);
         auto result = program_executor.execute(program);
         return result;

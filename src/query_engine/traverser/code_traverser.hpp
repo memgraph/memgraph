@@ -9,10 +9,14 @@
 #include "read_traverser.hpp"
 #include "update_traverser.hpp"
 #include "delete_traverser.hpp"
+#include "read_write_traverser.hpp"
 
 class CodeTraverser : public Traverser, public Code
 {
 public:
+
+    // TODO: remove code duplication
+
     void visit(ast::WriteQuery& write_query) override
     {
         auto write_traverser = WriteTraverser();
@@ -39,5 +43,12 @@ public:
         auto delete_traverser = DeleteTraverser();
         delete_query.accept(delete_traverser);
         code = delete_traverser.code;
+    }
+
+    void visit(ast::ReadWriteQuery& read_write_query) override
+    {
+        auto read_write_traverser = ReadWriteTraverser();
+        read_write_query.accept(read_write_traverser);
+        code = read_write_traverser.code;
     }
 };
