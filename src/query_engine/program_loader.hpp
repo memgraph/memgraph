@@ -25,7 +25,7 @@ public:
     using sptr_code_lib = std::shared_ptr<CodeLib>;
 
     ProgramLoader()
-        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL))
+        : stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL))
     {
     }
 
@@ -50,7 +50,9 @@ public:
         //  TODO load output path from config
         auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
         auto path_cpp = base_path + hash_string + ".cpp";
-        code_generator.generate_cpp(query, stripped.hash, path_cpp);
+        auto stripped_space = stripper.strip_space(query);
+        code_generator.generate_cpp(stripped_space.query, stripped.hash,
+                                    path_cpp);
 
         auto path_so = base_path + hash_string + ".so";
         code_compiler.compile(path_cpp, path_so);

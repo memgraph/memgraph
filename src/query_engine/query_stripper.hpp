@@ -8,12 +8,11 @@
 
 #include "cypher/cypher.h"
 #include "cypher/tokenizer/cypher_lexer.hpp"
-#include "utils/hashing/fnv.hpp"
 #include "query_stripped.hpp"
 #include "storage/model/properties/all.hpp"
+#include "utils/hashing/fnv.hpp"
 #include "utils/string/transform.hpp"
 #include "utils/variadic/variadic.hpp"
-
 
 template <class T, class V>
 void store_query_param(code_args_t &arguments, V &&v)
@@ -39,7 +38,13 @@ public:
     {
     }
 
-    auto strip(const std::string &query)
+    auto strip_space(const std::string &query)
+    {
+        auto stripped = strip(query, " ");
+        return QueryStripped(std::move(stripped.query), stripped.hash, std::move(stripped.arguments));
+    }
+
+    auto strip(const std::string &query, const std::string &separator = "")
     {
         //  TODO write this more optimal (resplace string
         //  concatenation with something smarter)
@@ -60,9 +65,9 @@ public:
             if (_or(token.id, strip_types, std::make_index_sequence<size>{})) {
                 auto index = counter++;
                 switch (token.id) {
-                case TK_INT:
-                    store_query_param<Int32>(stripped_arguments,
-                                             std::stoi(token.value));
+                case TK_LONG:
+                    store_query_param<Int64>(stripped_arguments,
+                                             std::stol(token.value));
                     break;
                 case TK_STR:
                     store_query_param<String>(stripped_arguments, token.value);
@@ -77,15 +82,14 @@ public:
                                              std::stof(token.value));
                     break;
                 }
-                stripped_query += std::to_string(index);
+                stripped_query += std::to_string(index) + separator;
             } else {
                 //  TODO: lowercase only keywords like (MATCH, CREATE, ...)
-                stripped_query += token.value;
+                stripped_query += token.value + separator;
             }
         }
 
-        return QueryStripped(std::move(stripped_query),
-                             fnv(stripped_query),
+        return QueryStripped(std::move(stripped_query), fnv(stripped_query),
                              std::move(stripped_arguments));
     }
 

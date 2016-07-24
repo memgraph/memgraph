@@ -5,9 +5,9 @@
 
 #include "code.hpp"
 #include "cypher/visitor/traverser.hpp"
-#include "query_engine/state_machine/cypher.hpp"
 #include "query_engine/util.hpp"
 #include "utils/underlying_cast.hpp"
+#include "query_engine/code_generator/entity_search.hpp"
 
 using namespace entity_search;
 

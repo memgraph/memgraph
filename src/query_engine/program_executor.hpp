@@ -6,7 +6,7 @@
 #include "query_engine/util.hpp"
 #include "query_program.hpp"
 #include "utils/log/logger.hpp"
-#include "query_engine/exceptions/query_engine_exception.hpp"
+#include "query_engine/exceptions/exceptions.hpp"
 
 //  preparations before execution
 //  execution

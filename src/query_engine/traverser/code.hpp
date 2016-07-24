@@ -28,11 +28,21 @@ const std::string args_id = "auto id = args[{}]->as<Int32>();";
 const std::string vertex_accessor_args_id =
     "auto vertex_accessor = db.graph.vertices.find(t, id.value);";
 
+const std::string match_vertex_by_id =
+    "auto {0} = db.graph.vertices.find(t, args[{1}]->as<Int64>().value);\n"
+    "\tif (!{0}) return t.commit(), std::make_shared<QueryResult>();";
+
+const std::string create_edge =
+    "auto {} = db.graph.edges.insert(t);";
+
 const std::string vertex_set_property =
     "vertex_accessor.property(\"{}\", args[{}]);";
 
 const std::string return_empty_result =
     "return std::make_shared<QueryResult>();";
+
+const std::string update_property =
+    "{}.property(\"{}\", args[{}]);";
 
 const std::string create_label =
     "auto &{} = db.graph.label_store.find_or_create(\"{}\");";

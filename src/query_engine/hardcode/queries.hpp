@@ -68,38 +68,39 @@ auto load_queries(Db& db)
         auto v2 = db.graph.vertices.find(t, args[1]->as<Int32>().value);
         if (!v2) return t.commit(), false;
 
-        auto e = db.graph.edges.insert(t);
+        auto edge_accessor = db.graph.edges.insert(t);
 
-        v1.vlist->update(t)->data.out.add(e.vlist);
-        v2.vlist->update(t)->data.in.add(e.vlist);
+        v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
+        v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
 
-        e.from(v1.vlist);
-        e.to(v2.vlist);
+        edge_accessor.from(v1.vlist);
+        edge_accessor.to(v2.vlist);
         
         auto &edge_type = db.graph.edge_type_store.find_or_create("IS");
-        e.edge_type(edge_type);
+        edge_accessor.edge_type(edge_type);
 
         t.commit();
 
-        cout << e.edge_type() << endl;
-        cout_properties(e.properties());
+        cout << edge_accessor.edge_type() << endl;
+
+        cout_properties(edge_accessor.properties());
 
         return true;
     };
 
     auto find_edge_by_internal_id = [&db](const properties_t &args) {
         auto &t = db.tx_engine.begin();
-        auto e = db.graph.edges.find(t, args[0]->as<Int32>().value);
-        if (!e) return t.commit(), false;
+        auto edge_accessor = db.graph.edges.find(t, args[0]->as<Int32>().value);
+        if (!edge_accessor) return t.commit(), false;
 
         // print edge type and properties
-        cout << "EDGE_TYPE: " << e.edge_type() << endl;
+        cout << "EDGE_TYPE: " << edge_accessor.edge_type() << endl;
 
-        auto from = e.from();
+        auto from = edge_accessor.from();
         cout << "FROM:" << endl;
         cout_properties(from->find(t)->data.props);
 
-        auto to = e.to();
+        auto to = edge_accessor.to();
         cout << "TO:" << endl;
         cout_properties(to->find(t)->data.props);
 
@@ -139,6 +140,7 @@ auto load_queries(Db& db)
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
     queries[7939106225150551899u] = create_edge;
+    queries[6579425155585886196u] = create_edge;
     queries[11198568396549106428u] = find_node_by_internal_id;
     queries[8320600413058284114u] = find_edge_by_internal_id;
     queries[6813335159006269041u] = update_node;

@@ -8,7 +8,7 @@ class QueryHasher
 {
 public:
     QueryHasher()
-        : stripper(make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL)) {}
+        : stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL)) {}
 
     std::string hash(std::string &query)
     {

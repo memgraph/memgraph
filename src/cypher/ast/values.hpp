@@ -39,15 +39,23 @@ struct String : public LeafExpr<std::string, String>
 
 struct InternalIdExpr : public Expr
 {
-    InternalIdExpr(Identifier *identifier, Integer *value)
-        : identifier(identifier), value(value)
+    InternalIdExpr(Identifier *entity, Long *id)
+        : entity(entity), id(id)
     {
     }
 
-    Identifier *identifier;
-    Integer *value;
+    Identifier *entity;
+    Long *id;
 
     virtual void accept(AstVisitor &visitor) { visitor.visit(*this); }
+
+    bool has_entity() const { return entity != nullptr; }
+    bool has_id() const { return id != nullptr; }
+
+    std::string entity_name() const { return entity->name; }
+    int64_t entity_id() const { return id->value; }
+
+
 };
 
 }

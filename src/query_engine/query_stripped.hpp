@@ -18,7 +18,7 @@ struct QueryStripped
     QueryStripped(QueryStripped &other) = delete;
     QueryStripped(QueryStripped &&other) = default;
 
-    code_args_t arguments;
-    uint64_t hash;
     std::string query;
+    uint64_t hash;
+    code_args_t arguments;
 };

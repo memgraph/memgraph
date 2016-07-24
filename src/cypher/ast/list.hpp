@@ -13,6 +13,9 @@ struct List : public AstNode<Derived>
 
     T* value;
     Derived* next;
+
+    bool has_value() const { return value != nullptr; }
+    bool has_next() const { return next != nullptr; }
 };
 
 }

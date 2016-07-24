@@ -19,6 +19,7 @@ struct Boolean;
 struct Float;
 struct Integer;
 struct String;
+struct Long;
 
 // operators
 struct And;
@@ -36,7 +37,7 @@ struct Slash;
 struct Rem;
 
 struct RelationshipSpecs;
-struct RelationshipList;
+struct RelationshipTypeList;
 struct Relationship;
 
 struct Node;
@@ -74,18 +75,15 @@ struct WithQuery;
 struct InternalIdExpr;
 
 struct AstVisitor
-    : public Visitor<Accessor, Boolean, Float, Identifier, Alias, Integer,
-                     String, Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus,
-                     Minus, Star, Slash, Rem, PropertyList, RelationshipList,
-                     Relationship, Node, RelationshipSpecs, LabelList,
-                     ReturnList, Pattern, PatternExpr, PatternList, Match,
-                     ReadQuery, Start, Where, WriteQuery, Create, Return,
-                     Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
-                     ReadWriteQuery, IdentifierList,
-                     WithList, WithClause, WithQuery,
-                     InternalIdExpr,
-                     SetValue, SetElement, SetList>
+    : public Visitor<
+          Accessor, Boolean, Float, Identifier, Alias, Integer, String,
+          Property, And, Or, Lt, Gt, Ge, Le, Eq, Ne, Plus, Minus, Star, Slash,
+          Rem, PropertyList, RelationshipTypeList, Relationship, Node,
+          RelationshipSpecs, LabelList, ReturnList, Pattern, PatternExpr,
+          PatternList, Match, ReadQuery, Start, Where, WriteQuery, Create,
+          Return, Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
+          ReadWriteQuery, IdentifierList, WithList, WithClause, WithQuery, Long,
+          InternalIdExpr, SetValue, SetElement, SetList>
 {
 };
-
 }

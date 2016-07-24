@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "query_hasher.hpp"
 #include "cypher/common.hpp"
-#include "query_stripper.hpp"
+#include "query_engine/query_hasher.hpp"
+#include "query_engine/query_stripper.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
 
@@ -20,7 +20,7 @@ int main(int argc, char** argv)
 
     cout << "QUERY: " << input_query << endl;
     
-    auto stripper = make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL);
+    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
     auto stripped = stripper.strip(input_query);
 
     cout << "STRIPPED QUERY: " << stripped.query << endl;

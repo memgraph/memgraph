@@ -3,10 +3,10 @@
 #include "config/config.hpp"
 #include "cypher/ast/ast.hpp"
 #include "cypher/compiler.hpp"
+#include "query_engine/exceptions/exceptions.hpp"
 #include "template_engine/engine.hpp"
-#include "traverser/code_traverser.hpp"
+#include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
-#include "query_engine/exceptions/query_engine_exception.hpp"
 
 // TODO:
 //     * logger
@@ -20,6 +20,11 @@ public:
     void generate_cpp(const std::string &query, const uint64_t stripped_hash,
                       const std::string &path)
     {
+        // TODO: optimize initialize only once -> be careful that object has
+        // a state
+        // TODO: multithread test
+        CppTraverser cpp_traverser;
+
         // get paths
         string template_path = CONFIG(config::TEMPLATE_CPU_CPP_PATH);
         string template_file = utils::read_file(template_path.c_str());
@@ -32,13 +37,14 @@ public:
             throw QueryEngineException("Syntax tree generation error");
         }
 
-        code_traverser.reset();
+        cpp_traverser.reset();
 
         // code generation
         try {
-            tree.root->accept(code_traverser);
+            tree.root->accept(cpp_traverser);
+        } catch (const SemanticException &e) {
+            throw e;
         } catch (const std::exception &e) {
-            // TODO: extract more information
             throw QueryEngineException("Code generation error");
         }
 
@@ -47,7 +53,7 @@ public:
             template_file, {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
-                            {"code", code_traverser.code}});
+                            {"code", cpp_traverser.code}});
 
         // TODO: use logger, ifndef
         std::cout << generated << std::endl;
@@ -59,5 +65,4 @@ private:
     template_engine::TemplateEngine template_engine;
     ast::Ast tree;
     cypher::Compiler compiler;
-    CodeTraverser code_traverser;
 };

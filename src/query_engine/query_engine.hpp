@@ -9,6 +9,11 @@
 // query -> code_loader -> query_stripper -> [code_generator]
 // -> [code_compiler] -> code_executor
 
+// TODO
+//     * query engine will get a pointer to currently active database
+//     * TCP server session will have pointer to dbms and currently active
+//     * database
+        
 class QueryEngine
 {
 public:

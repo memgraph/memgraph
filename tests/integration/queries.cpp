@@ -7,7 +7,7 @@ int main(void)
 
     auto query_functions = load_queries(db);
 
-    auto stripper = make_query_stripper(TK_INT, TK_FLOAT, TK_STR, TK_BOOL);
+    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
     // TODO: put all queries into a file
     std::vector<std::string> queries = {

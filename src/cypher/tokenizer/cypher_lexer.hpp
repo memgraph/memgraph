@@ -65,7 +65,7 @@ public:
         rule("\\\"(.*?)\\\"", TK_STR);
 
         // number
-        rule("\\d+", TK_INT);
+        rule("\\d+", TK_LONG);
         rule("\\d*[.]?\\d+", TK_FLOAT);
 
         // identifier

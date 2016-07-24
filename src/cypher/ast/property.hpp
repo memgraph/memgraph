@@ -14,6 +14,11 @@ struct Property : public AstNode<Property>
 
     Identifier* idn;
     Expr* value;
+
+    bool has_name() const { return idn != nullptr; }
+    bool has_value() const { return value != nullptr; }
+
+    std::string name() const { return idn->name; }
 };
 
 struct PropertyList : public List<Property, PropertyList>

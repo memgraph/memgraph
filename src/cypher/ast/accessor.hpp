@@ -16,6 +16,12 @@ struct Accessor : public ValueExpr<Accessor>
 
     Identifier* entity;
     Identifier* prop;
+
+    bool has_entity() const { return entity != nullptr; }
+    bool has_prop() const { return prop != nullptr; }
+
+    std::string entity_name() const { return entity->name; }
+    std::string entity_prop() const { return prop->name; }
 };
 
 }

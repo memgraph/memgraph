@@ -19,6 +19,11 @@ struct Node : public AstNode<Node>
     Identifier* idn;
     LabelList* labels;
     PropertyList* props;
+
+    bool has_identifier() const
+    {
+        return idn != nullptr;
+    }
 };
 
 }

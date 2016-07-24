@@ -184,6 +184,12 @@ public:
         entry << "Integer " << integer.value;
     }
 
+    void visit(ast::Long& ast_long) override
+    {
+        auto entry = printer.advance();
+        entry << "Long " << ast_long.value;
+    }
+
     // void visit(ast::ULong& ulong) override
     // {
     //     auto entry = printer.advance();
@@ -292,9 +298,9 @@ public:
         Traverser::visit(prop_list);
     }
 
-    void visit(ast::RelationshipList& rel_list) override
+    void visit(ast::RelationshipTypeList& rel_list) override
     {
-        auto entry = printer.advance("Relationship List");
+        auto entry = printer.advance("Relationship Type List");
         Traverser::visit(rel_list);
     }
 

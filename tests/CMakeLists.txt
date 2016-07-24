@@ -61,16 +61,31 @@ set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
 
 ## MANUAL TESTS
 
-# query engine
+# cypher_ast
+add_executable(manual_cypher_ast manual/cypher_ast.cpp ${memgraph_src_files})
+target_link_libraries(manual_cypher_ast ${fmt_static_lib})
+target_link_libraries(manual_cypher_ast cypher_lib)
+set_property(TARGET manual_cypher_ast PROPERTY CXX_STANDARD 14)
+
+# queries
+add_executable(manual_queries manual/queries.cpp ${memgraph_src_files})
+target_link_libraries(manual_queries ${fmt_static_lib})
+target_link_libraries(manual_queries cypher_lib)
+set_property(TARGET manual_queries PROPERTY CXX_STANDARD 14)
+
+# query_engine
 add_executable(manual_query_engine manual/query_engine.cpp ${memgraph_src_files})
 target_link_libraries(manual_query_engine ${fmt_static_lib})
 target_link_libraries(manual_query_engine dl)
 target_link_libraries(manual_query_engine cypher_lib)
 set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
 
-# ast traversal
-add_executable(cypher_ast_traverser manual/cypher_ast.cpp ${mamgraph_src_files})
-target_link_libraries(cypher_ast_traverser ${fmt_static_lib})
-target_link_libraries(cypher_ast_traverser cypher_lib)
-set_property(TARGET cypher_ast_traverser PROPERTY CXX_STANDARD 14)
+# query_hasher
+add_executable(manual_query_hasher manual/query_hasher.cpp ${memgraph_src_files})
+target_link_libraries(manual_query_hasher ${fmt_static_lib})
+set_property(TARGET manual_query_hasher PROPERTY CXX_STANDARD 14)
 
+# query_action_processor
+add_executable(manual_cpp_generator manual/cpp_generator.cpp ${memgraph_src_files})
+target_link_libraries(manual_cpp_generator ${fmt_static_lib})
+set_property(TARGET manual_cpp_generator PROPERTY CXX_STANDARD 14)

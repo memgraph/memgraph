@@ -166,7 +166,7 @@ public:
         accept(pattern_list.next);
     }
 
-    void visit(ast::RelationshipList& rel_list) override
+    void visit(ast::RelationshipTypeList& rel_list) override
     {
         accept(rel_list.value);
         accept(rel_list.next);
@@ -278,8 +278,8 @@ public:
 
     void visit(ast::InternalIdExpr& internal_id) override
     {
-        accept(internal_id.identifier);
-        accept(internal_id.value);
+        accept(internal_id.entity);
+        accept(internal_id.id);
     }
 
 protected:

@@ -264,7 +264,7 @@ rel_idn(R) ::= . {
     R = nullptr;
 }
 
-%type rel_type {ast::RelationshipList*}
+%type rel_type {ast::RelationshipTypeList*}
 
 rel_type(L) ::= COLON rel_list(R). {
     L = R;
@@ -274,14 +274,14 @@ rel_type(L) ::= . {
     L = nullptr;
 }
 
-%type rel_list {ast::RelationshipList*}
+%type rel_list {ast::RelationshipTypeList*}
 
 rel_list(L) ::= idn(I) PIPE rel_list(R). {
-    L = ast->create<ast::RelationshipList>(I, R);
+    L = ast->create<ast::RelationshipTypeList>(I, R);
 }
 
 rel_list(L) ::= idn(I). {
-    L = ast->create<ast::RelationshipList>(I, nullptr);
+    L = ast->create<ast::RelationshipTypeList>(I, nullptr);
 }
 
 %type node {ast::Node*}
@@ -444,9 +444,9 @@ value_expr(E) ::= idn(I) DOT idn(P). {
     E = ast->create<ast::Accessor>(I, P);
 }
 
-value_expr(E) ::= ID LP idn(I) RP EQ INT(V). {
-    auto value = std::stoi(V->value);
-    E = ast->create<ast::InternalIdExpr>(I, ast->create<ast::Integer>(value));
+value_expr(E) ::= ID LP idn(I) RP EQ LONG(V). {
+    auto value = std::stol(V->value);
+    E = ast->create<ast::InternalIdExpr>(I, ast->create<ast::Long>(value));
 }
 
 %type idn {ast::Identifier*}
@@ -469,9 +469,9 @@ identifier_list(L) ::= idn(I). {
 
 // ----
 
-value_expr(E) ::= INT(V). {
-    auto value = std::stoi(V->value);
-    E = ast->create<ast::Integer>(value);
+value_expr(E) ::= LONG(V). {
+    auto value = std::stol(V->value);
+    E = ast->create<ast::Long>(value);
 }
 
 value_expr(E) ::= FLOAT(V). {

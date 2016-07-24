@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "exceptions/query_engine_exception.hpp"
+#include "exceptions/exceptions.hpp"
 #include "utils/string/join.hpp"
 
 // TODO:
@@ -32,11 +32,14 @@ public:
 
         // if compilation has failed throw exception
         if (compile_status == -1) {
-            throw QueryEngineException("Code compilation error");
+            throw QueryEngineException("Code compilation error. Generated code "
+                                       "is not compilable or compilation "
+                                       "settings are wrong");
         }
 
         // TODO: use logger
         std::cout << fmt::format("SUCCESS: Query Code Compilation: {} -> {}",
-                                 in_file, out_file) << std::endl;
+                                 in_file, out_file)
+                  << std::endl;
     }
 };

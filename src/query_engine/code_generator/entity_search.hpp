@@ -116,6 +116,9 @@ public:
     entity_search::search_cost_t::SearchPlace
     min(const std::string &entity) const
     {
+        if (_search_costs.find(entity) == _search_costs.end())
+            return entity_search::search_cost_t::SearchPlace::main_storage;
+
         return _search_costs.at(entity).min();
     }
 
