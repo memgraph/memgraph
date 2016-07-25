@@ -3,7 +3,7 @@
 #include "config/config.hpp"
 #include "cypher/ast/ast.hpp"
 #include "cypher/compiler.hpp"
-#include "query_engine/exceptions/exceptions.hpp"
+#include "query_engine/exceptions/errors.hpp"
 #include "template_engine/engine.hpp"
 #include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
@@ -20,8 +20,8 @@ public:
     void generate_cpp(const std::string &query, const uint64_t stripped_hash,
                       const std::string &path)
     {
-        // TODO: optimize initialize only once -> be careful that object has
-        // a state
+        // TODO: optimize; one time initialization -> be careful that object
+        // has a state
         // TODO: multithread test
         CppTraverser cpp_traverser;
 
@@ -32,9 +32,8 @@ public:
         // syntax tree generation
         try {
             tree = compiler.syntax_tree(query);
-        } catch (const std::exception &e) {
-            // TODO: extract more information
-            throw QueryEngineException("Syntax tree generation error");
+        } catch (const std::runtime_error &e) {
+            throw QueryEngineException(std::string(e.what()));
         }
 
         cpp_traverser.reset();
@@ -42,10 +41,10 @@ public:
         // code generation
         try {
             tree.root->accept(cpp_traverser);
-        } catch (const SemanticException &e) {
+        } catch (const SemanticError &e) {
             throw e;
         } catch (const std::exception &e) {
-            throw QueryEngineException("Code generation error");
+            throw QueryEngineException("Unknown code generation error");
         }
 
         // save the code

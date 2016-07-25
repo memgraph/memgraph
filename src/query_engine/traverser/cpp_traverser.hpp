@@ -86,7 +86,20 @@ private:
         property_state.clear();
     }
 
+    // for the first release every query has to have a RETURN clause
+    // problem is where to put t.commit()
+    // TODO: remove this constraint
+    bool has_return;
+
 public:
+    void semantic_check() const
+    {
+        if (!has_return)
+            throw SemanticError("The query doesn't have RETURN clause. Next "
+                                "releases will support query without RETURN "
+                                "clause");
+    }
+
     void visit(ast::WriteQuery &write_query) override
     {
         // TODO: crate top level node (TransactionBegin can be
@@ -153,7 +166,7 @@ public:
 
     void visit(ast::Set &ast_set) override
     {
-        code += generator.generate(); 
+        code += generator.generate();
 
         generator.add_action(QueryAction::Set);
 
@@ -165,6 +178,8 @@ public:
 
     void visit(ast::Return &ast_return) override
     {
+        has_return = true;
+
         generator.add_action(QueryAction::Return);
 
         state = CypherState::Return;
@@ -178,6 +193,11 @@ public:
         code += generator.generate();
 
         generator.clear();
+    }
+
+    void visit(ast::ReturnList &ast_return_list) override
+    {
+        Traverser::visit(ast_return_list);
     }
 
     void visit(ast::PatternList &ast_pattern_list) override
@@ -232,7 +252,7 @@ public:
         if (!internal_id_expr.has_id()) return;
 
         auto name = internal_id_expr.entity_name();
-        // because entity_id will be index of value inside parameters array
+        // because entity_id will be value index inside the parameters array
         auto index = internal_id_expr.entity_id();
 
         auto &data = generator.action_data();
@@ -285,6 +305,18 @@ public:
 
     void visit(ast::RelationshipSpecs &ast_relationship_specs) override
     {
+        if (state == CypherState::Match) {
+            if (ast_relationship_specs.has_identifier()) {
+                auto name = ast_relationship_specs.name();
+                auto &cypher_data = generator.cypher_data();
+                if (!cypher_data.exist(name)) {
+                    clause_action = ClauseAction::MatchRelationship;
+                    auto &data = generator.action_data();
+                    data.actions[name] = ClauseAction::MatchRelationship;
+                }
+            }
+        }
+
         Traverser::visit(ast_relationship_specs);
     }
 
@@ -343,6 +375,16 @@ public:
     void visit(ast::Identifier &ast_identifier) override
     {
         property_state.property_name = ast_identifier.name;
+
+        if (state == CypherState::Delete) {
+            auto &action_data = generator.action_data();
+            auto name = ast_identifier.name;
+            auto &cypher_data = generator.cypher_data();
+            if (cypher_data.type(name) == EntityType::Node)
+                action_data.actions[name] = ClauseAction::DeleteNode;
+            if (cypher_data.type(name) == EntityType::Relationship)
+                action_data.actions[name] = ClauseAction::DeleteRelationship;
+        }
     }
 
     void visit(ast::Long &ast_long) override
@@ -378,8 +420,7 @@ public:
         auto entity_type = cypher_data.type(entity);
 
         if (entity_type == EntityType::NotFound)
-            throw SemanticException("Set Entity (" + entity +
-                                    ") doesn't exist");
+            throw SemanticError("Entity (" + entity + ") doesn't exist");
 
         auto &action_data = generator.action_data();
 
@@ -388,7 +429,8 @@ public:
         if (entity_type == EntityType::Relationship)
             action_data.actions[entity] = ClauseAction::UpdateRelationship;
 
-        action_data.parameter_index.emplace(ParameterIndexKey(entity, prop), index);
+        action_data.parameter_index.emplace(ParameterIndexKey(entity, prop),
+                                            index);
         action_data.add_entitiy_property(entity, prop);
 
         clear_state();
@@ -397,14 +439,43 @@ public:
     void visit(ast::Accessor &ast_accessor) override
     {
         if (!ast_accessor.has_entity()) return;
+
+        auto &action_data = generator.action_data();
+
+        if (state == CypherState::Return) {
+            auto &return_elements = action_data.return_elements;
+            auto &entity = ast_accessor.entity_name();
+            if (!ast_accessor.has_prop()) {
+                return_elements.emplace_back(ReturnElement(entity));
+            } else {
+                auto &property = ast_accessor.entity_prop();
+                return_elements.emplace_back(ReturnElement(entity, property));
+            }
+        }
+
         if (!ast_accessor.has_prop()) return;
 
-        set_element_state.set_entity = ast_accessor.entity_name();
-        set_element_state.set_prop = ast_accessor.entity_prop();
+        if (state == CypherState::Set) {
+            set_element_state.set_entity = ast_accessor.entity_name();
+            set_element_state.set_prop = ast_accessor.entity_prop();
+        }
     }
 
     void visit(ast::SetValue &ast_set_value) override
     {
         Traverser::visit(ast_set_value);
+    }
+
+    void visit(ast::Delete& ast_delete) override
+    {
+        code += generator.generate();
+
+        state = CypherState::Delete;
+
+        generator.add_action(QueryAction::Delete);
+
+        Traverser::visit(ast_delete);
+
+        code += generator.generate();
     }
 };

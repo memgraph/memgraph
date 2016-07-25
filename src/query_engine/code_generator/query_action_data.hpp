@@ -95,12 +95,29 @@ struct RelationshipData : public EntityData
     Direction direction;
 };
 
+struct ReturnElement
+{
+    ReturnElement(const std::string& entity) : entity(entity) {}
+    ReturnElement(const std::string& entity, const std::string& property) :
+        entity(entity), property(property) {};
+
+    std::string entity;
+    std::string property;
+
+    bool has_entity() const { return !entity.empty(); }
+    bool has_property() const { return !property.empty(); }
+
+    bool is_entity_only() const { return has_entity() && !has_property(); }
+    bool is_projection() const { return has_entity() && has_property(); }
+};
+
 struct QueryActionData
 {
     std::map<ParameterIndexKey, uint64_t> parameter_index;
     std::map<std::string, ClauseAction> actions;
     std::map<std::string, EntityData> entity_data;
     std::map<std::string, RelationshipData> relationship_data;
+    std::vector<ReturnElement> return_elements;
     CypherStateMachine csm;
 
     QueryActionData() = default;
@@ -129,7 +146,7 @@ struct QueryActionData
     auto get_entity_property(const std::string& entity) const
     {
         if (entity_data.find(entity) == entity_data.end())
-            throw CppGeneratorException("Entity doesn't exist");
+            throw CppGeneratorException("Entity " + entity + " doesn't exist");
 
         return entity_data.at(entity);
     }

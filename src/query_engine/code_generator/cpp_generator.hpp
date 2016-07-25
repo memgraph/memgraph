@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "query_engine/code_generator/cypher_state.hpp"
+#include "query_engine/code_generator/handlers/all.hpp"
 #include "query_engine/code_generator/query_action.hpp"
 #include "query_engine/exceptions/exceptions.hpp"
 
@@ -66,6 +67,7 @@ private:
         action_functions[QueryAction::Match] = match_query_action;
         action_functions[QueryAction::Return] = return_query_action;
         action_functions[QueryAction::Set] = set_query_action;
+        action_functions[QueryAction::Delete] = delete_query_action;
         action_functions[QueryAction::TransactionCommit] =
             transaction_commit_action;
     }
