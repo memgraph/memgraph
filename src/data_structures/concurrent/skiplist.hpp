@@ -10,7 +10,7 @@
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 
-#include "data_structures/skiplist/skiplist_gc.hpp"
+#include "data_structures/concurrent/skiplist_gc.hpp"
 
 /* @brief Concurrent lock-based skiplist with fine grained locking
  *
