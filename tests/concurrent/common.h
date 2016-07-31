@@ -18,6 +18,7 @@ using std::endl;
 using skiplist_t = ConcurrentMap<int, int>;
 using namespace std::chrono_literals;
 
+// Returns uniform random size_t generator from range [0,n>
 auto rand_gen(size_t n) {
   std::default_random_engine generator;
   std::uniform_int_distribution<size_t> distribution(0, n - 1);
@@ -30,21 +31,21 @@ auto rand_gen_bool(size_t n = 1) {
   return [=]() mutable { return gen() == 0; };
 }
 
+// Checks for all owned.second keys if there data is owned.first.
 void check_present_same(skiplist_t::Accessor &acc,
                         std::pair<size_t, std::vector<size_t>> &owned) {
-  for (auto num : owned.second) {
-    permanent_assert(acc.find(num)->second == owned.first,
-                     "My data is present and my");
-  }
+  check_present_same(acc, owned.first, owned.second);
 }
-void check_present_same(skiplist_t::Accessor &acc, size_t owner,
+// Checks for all owned keys if there data is data.
+void check_present_same(skiplist_t::Accessor &acc, size_t data,
                         std::vector<size_t> &owned) {
   for (auto num : owned) {
-    permanent_assert(acc.find(num)->second == owner,
+    permanent_assert(acc.find(num)->second == data,
                      "My data is present and my");
   }
 }
 
+// Checks if reported size and traversed size are equal to given size.
 void check_size(const skiplist_t::Accessor &acc, long long size) {
   // check size
 
@@ -63,6 +64,9 @@ void check_size(const skiplist_t::Accessor &acc, long long size) {
                                                  << acc.size());
 }
 
+// Runs given function in threads_no threads and returns vector of futures for
+// there
+// results.
 template <class R>
 std::vector<std::future<std::pair<size_t, R>>>
 run(size_t threads_no, skiplist_t &skiplist,
@@ -79,6 +83,7 @@ run(size_t threads_no, skiplist_t &skiplist,
   return futures;
 }
 
+// Collects all data from futures.
 template <class R> auto collect(std::vector<std::future<R>> &collect) {
   std::vector<R> collection;
   for (auto &fut : collect) {
@@ -87,6 +92,8 @@ template <class R> auto collect(std::vector<std::future<R>> &collect) {
   return collection;
 }
 
+// Returns object which tracs in owned which (key,data) where added and
+// downcounts.
 template <class K, class D>
 auto insert_try(skiplist_t::Accessor &acc, size_t &downcount,
                 std::vector<K> &owned) {
@@ -98,6 +105,7 @@ auto insert_try(skiplist_t::Accessor &acc, size_t &downcount,
   };
 }
 
+// Helper function.
 int parseLine(char *line) {
   // This assumes that a digit will be found and the line ends in " Kb".
   int i = strlen(line);
@@ -109,6 +117,7 @@ int parseLine(char *line) {
   return i;
 }
 
+// Returns currentlz used memory in kB.
 int currently_used_memory() { // Note: this value is in KB!
   FILE *file = fopen("/proc/self/status", "r");
   int result = -1;
@@ -124,6 +133,10 @@ int currently_used_memory() { // Note: this value is in KB!
   return result;
 }
 
+// Performs memory check to determine if memory usage before calling given
+// function
+// is aproximately equal to memory usage after function. Memory usage is thread
+// senstive so no_threads spawned in function is necessary.
 void memory_check(size_t no_threads, std::function<void()> f) {
   long long start = currently_used_memory();
   f();
