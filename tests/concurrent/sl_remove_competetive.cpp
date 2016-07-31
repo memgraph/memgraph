@@ -10,7 +10,8 @@ constexpr size_t no_insert_for_one_delete = 2;
 // Threads will try to insert and remove keys aproximetly in the same order.
 // This will force threads to compete intensly with each other.
 // Calls of remove method are interleaved with insert calls.
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

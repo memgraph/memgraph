@@ -8,7 +8,8 @@ constexpr size_t key_range = elems_per_thread * THREADS_NO * 2;
 // Threads will try to insert keys in the same order.
 // This will force threads to compete intensly with each other.
 // Test checks for missing data and changed/overwriten data.
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

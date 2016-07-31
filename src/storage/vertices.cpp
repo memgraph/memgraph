@@ -1,22 +1,22 @@
 #include "storage/vertices.hpp"
 
-const Vertex::Accessor Vertices::find(tx::Transaction &t, const Id &id) {
+const Vertex::Accessor Vertices::find(tx::Transaction &t, const Id &id)
+{
   auto vertices_accessor = vertices.access();
   auto vertices_iterator = vertices_accessor.find(id);
 
-  if (vertices_iterator == vertices_accessor.end())
-    return Vertex::Accessor();
+  if (vertices_iterator == vertices_accessor.end()) return Vertex::Accessor();
 
   // find vertex
   auto vertex = vertices_iterator->second.find(t);
 
-  if (vertex == nullptr)
-    return Vertex::Accessor();
+  if (vertex == nullptr) return Vertex::Accessor();
 
   return Vertex::Accessor(vertex, &vertices_iterator->second, this);
 }
 
-Vertex::Accessor Vertices::insert(tx::Transaction &t) {
+Vertex::Accessor Vertices::insert(tx::Transaction &t)
+{
   // get next vertex id
   auto next = counter.next();
 
@@ -36,10 +36,12 @@ Vertex::Accessor Vertices::insert(tx::Transaction &t) {
 }
 
 void Vertices::update_label_index(const Label &label,
-                                  VertexIndexRecord &&index_record) {
+                                  VertexIndexRecord &&index_record)
+{
   label_index.update(label, std::forward<VertexIndexRecord>(index_record));
 }
 
-VertexIndexRecordCollection &Vertices::find_label_index(const Label &label) {
+VertexIndexRecordCollection &Vertices::find_label_index(const Label &label)
+{
   return label_index.find(label);
 }

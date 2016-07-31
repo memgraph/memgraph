@@ -19,26 +19,30 @@ using skiplist_t = ConcurrentMap<int, int>;
 using namespace std::chrono_literals;
 
 // Returns uniform random size_t generator from range [0,n>
-auto rand_gen(size_t n) {
+auto rand_gen(size_t n)
+{
   std::default_random_engine generator;
   std::uniform_int_distribution<size_t> distribution(0, n - 1);
   return std::bind(distribution, generator);
 }
 
 // Returns random bool generator with distribution of 1 true for n false.
-auto rand_gen_bool(size_t n = 1) {
+auto rand_gen_bool(size_t n = 1)
+{
   auto gen = rand_gen(n + 1);
   return [=]() mutable { return gen() == 0; };
 }
 
 // Checks for all owned.second keys if there data is owned.first.
 void check_present_same(skiplist_t::Accessor &acc,
-                        std::pair<size_t, std::vector<size_t>> &owned) {
+                        std::pair<size_t, std::vector<size_t>> &owned)
+{
   check_present_same(acc, owned.first, owned.second);
 }
 // Checks for all owned keys if there data is data.
 void check_present_same(skiplist_t::Accessor &acc, size_t data,
-                        std::vector<size_t> &owned) {
+                        std::vector<size_t> &owned)
+{
   for (auto num : owned) {
     permanent_assert(acc.find(num)->second == data,
                      "My data is present and my");
@@ -46,7 +50,8 @@ void check_present_same(skiplist_t::Accessor &acc, size_t data,
 }
 
 // Checks if reported size and traversed size are equal to given size.
-void check_size(const skiplist_t::Accessor &acc, long long size) {
+void check_size(const skiplist_t::Accessor &acc, long long size)
+{
   // check size
 
   permanent_assert(acc.size() == size,
@@ -70,7 +75,8 @@ void check_size(const skiplist_t::Accessor &acc, long long size) {
 template <class R>
 std::vector<std::future<std::pair<size_t, R>>>
 run(size_t threads_no, skiplist_t &skiplist,
-    std::function<R(skiplist_t::Accessor, size_t)> f) {
+    std::function<R(skiplist_t::Accessor, size_t)> f)
+{
   std::vector<std::future<std::pair<size_t, R>>> futures;
 
   for (size_t thread_i = 0; thread_i < threads_no; ++thread_i) {
@@ -84,7 +90,9 @@ run(size_t threads_no, skiplist_t &skiplist,
 }
 
 // Collects all data from futures.
-template <class R> auto collect(std::vector<std::future<R>> &collect) {
+template <class R>
+auto collect(std::vector<std::future<R>> &collect)
+{
   std::vector<R> collection;
   for (auto &fut : collect) {
     collection.push_back(fut.get());
@@ -96,7 +104,8 @@ template <class R> auto collect(std::vector<std::future<R>> &collect) {
 // downcounts.
 template <class K, class D>
 auto insert_try(skiplist_t::Accessor &acc, size_t &downcount,
-                std::vector<K> &owned) {
+                std::vector<K> &owned)
+{
   return [&](K key, D data) mutable {
     if (acc.insert(key, data).second) {
       downcount--;
@@ -106,7 +115,8 @@ auto insert_try(skiplist_t::Accessor &acc, size_t &downcount,
 }
 
 // Helper function.
-int parseLine(char *line) {
+int parseLine(char *line)
+{
   // This assumes that a digit will be found and the line ends in " Kb".
   int i = strlen(line);
   const char *p = line;
@@ -118,7 +128,8 @@ int parseLine(char *line) {
 }
 
 // Returns currentlz used memory in kB.
-int currently_used_memory() { // Note: this value is in KB!
+int currently_used_memory()
+{ // Note: this value is in KB!
   FILE *file = fopen("/proc/self/status", "r");
   int result = -1;
   char line[128];
@@ -137,7 +148,8 @@ int currently_used_memory() { // Note: this value is in KB!
 // function
 // is aproximately equal to memory usage after function. Memory usage is thread
 // senstive so no_threads spawned in function is necessary.
-void memory_check(size_t no_threads, std::function<void()> f) {
+void memory_check(size_t no_threads, std::function<void()> f)
+{
   long long start = currently_used_memory();
   f();
   long long leaked =

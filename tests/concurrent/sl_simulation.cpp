@@ -12,7 +12,8 @@ constexpr size_t no_insert_for_one_delete = 1;
 // Each thread makes a series of finds interleaved with method which change.
 // Exact ratio of finds per change and insert per delete can be regulated with
 // no_find_per_change and no_insert_for_one_delete.
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

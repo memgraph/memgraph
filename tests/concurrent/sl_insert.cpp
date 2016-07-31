@@ -7,7 +7,8 @@ constexpr size_t key_range = elems_per_thread * THREADS_NO * 2;
 
 // This test checks insert_unique method under pressure.
 // Test checks for missing data and changed/overwriten data.
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

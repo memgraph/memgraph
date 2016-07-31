@@ -3,7 +3,8 @@
 #define THREADS_NO 1
 constexpr size_t elems_per_thread = 16e5;
 
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [&] {
     ds::static_array<std::thread, THREADS_NO> threads;
     skiplist_t skiplist;
@@ -33,15 +34,15 @@ int main() {
     }
 
     for (size_t thread_i = 0; thread_i < THREADS_NO; ++thread_i) {
-        threads[thread_i] = std::thread(
-            [&skiplist](size_t start, size_t end) {
-      auto accessor = skiplist.access();
-      for (size_t elem_i = 0; elem_i < elems_per_thread; ++elem_i) {
-        permanent_assert(accessor.remove(elem_i) == true, "");
-      }
-        },
-        thread_i * elems_per_thread,
-        thread_i * elems_per_thread + elems_per_thread);
+      threads[thread_i] = std::thread(
+          [&skiplist](size_t start, size_t end) {
+            auto accessor = skiplist.access();
+            for (size_t elem_i = 0; elem_i < elems_per_thread; ++elem_i) {
+              permanent_assert(accessor.remove(elem_i) == true, "");
+            }
+          },
+          thread_i * elems_per_thread,
+          thread_i * elems_per_thread + elems_per_thread);
     }
     // wait all threads
     for (auto &thread : threads) {

@@ -94,8 +94,9 @@
  *                and deletion of nodes.
  */
 template <class T, size_t H = 32, class lock_t = SpinLock>
-class SkipList : private Lockable<lock_t> {
-public:
+class SkipList : private Lockable<lock_t>
+{
+  public:
   // computes the height for the new node from the interval [1...H]
   // with p(k) = (1/2)^k for all k from the interval
   static thread_local FastBinomial<H> rnd;
@@ -106,8 +107,10 @@ public:
    * FULLY_LINKED is used to mark the node as fully inserted, i.e. linked
    * at all layers in the skiplist up to the node height
    */
-  struct Flags {
-    enum node_flags : uint8_t {
+  struct Flags
+  {
+    enum node_flags : uint8_t
+    {
       MARKED = 0x01,
       FULLY_LINKED = 0x10,
     };
@@ -120,12 +123,13 @@ public:
 
     void set_fully_linked() { flags.fetch_or(FULLY_LINKED); }
 
-  private:
+private:
     std::atomic<uint8_t> flags{0};
   };
 
-  class Node : Lockable<lock_t> {
-  public:
+  class Node : Lockable<lock_t>
+  {
+public:
     friend class SkipList;
 
     const uint8_t height;
@@ -135,17 +139,20 @@ public:
 
     const T &value() const { return data.get(); }
 
-    static Node *sentinel(uint8_t height) {
+    static Node *sentinel(uint8_t height)
+    {
       // we have raw memory and we need to construct an object
       // of type Node on it
       return new (allocate(height)) Node(height);
     }
 
-    static Node *create(const T &item, uint8_t height) {
+    static Node *create(const T &item, uint8_t height)
+    {
       return create(item, height);
     }
 
-    static Node *create(T &&item, uint8_t height) {
+    static Node *create(T &&item, uint8_t height)
+    {
       auto node = allocate(height);
 
       // we have raw memory and we need to construct an object
@@ -153,7 +160,8 @@ public:
       return new (node) Node(std::forward<T>(item), height);
     }
 
-    static void destroy(Node *node) {
+    static void destroy(Node *node)
+    {
       node->~Node();
       std::free(node);
     }
@@ -162,8 +170,9 @@ public:
 
     void forward(size_t level, Node *next) { tower[level].store(next); }
 
-  private:
-    Node(uint8_t height) : height(height) {
+private:
+    Node(uint8_t height) : height(height)
+    {
       // here we assume, that the memory for N towers (N = height) has
       // been allocated right after the Node structure so we need to
       // initialize that memory
@@ -171,16 +180,19 @@ public:
         new (&tower[i]) std::atomic<Node *>{nullptr};
     }
 
-    Node(T &&data, uint8_t height) : Node(height) {
+    Node(T &&data, uint8_t height) : Node(height)
+    {
       this->data.set(std::forward<T>(data));
     }
 
-    ~Node() {
+    ~Node()
+    {
       for (auto i = 0; i < height; ++i)
         tower[i].~atomic();
     }
 
-    static Node *allocate(uint8_t height) {
+    static Node *allocate(uint8_t height)
+    {
       // [      Node      ][Node*][Node*][Node*]...[Node*]
       //         |            |      |      |         |
       //         |            0      1      2      height-1
@@ -205,33 +217,39 @@ public:
     std::atomic<Node *> tower[0];
   };
 
-public:
-  template <class It> class IteratorBase : public Crtp<It> {
-  protected:
+  public:
+  template <class It>
+  class IteratorBase : public Crtp<It>
+  {
+protected:
     IteratorBase(Node *node) : node(node) {}
 
     Node *node{nullptr};
 
-  public:
+public:
     IteratorBase() = default;
     IteratorBase(const IteratorBase &) = default;
 
-    T &operator*() {
+    T &operator*()
+    {
       assert(node != nullptr);
       return node->value();
     }
 
-    T *operator->() {
+    T *operator->()
+    {
       assert(node != nullptr);
       return &node->value();
     }
 
-    operator T &() {
+    operator T &()
+    {
       assert(node != nullptr);
       return node->value();
     }
 
-    It &operator++() {
+    It &operator++()
+    {
       assert(node != nullptr);
       node = node->forward(0);
       return this->derived();
@@ -239,18 +257,20 @@ public:
 
     It &operator++(int) { return operator++(); }
 
-    friend bool operator==(const It &a, const It &b) {
+    friend bool operator==(const It &a, const It &b)
+    {
       return a.node == b.node;
     }
 
     friend bool operator!=(const It &a, const It &b) { return !(a == b); }
   };
 
-  class ConstIterator : public IteratorBase<ConstIterator> {
+  class ConstIterator : public IteratorBase<ConstIterator>
+  {
     friend class SkipList;
     ConstIterator(Node *node) : IteratorBase<ConstIterator>(node) {}
 
-  public:
+public:
     ConstIterator() = default;
     ConstIterator(const ConstIterator &) = default;
 
@@ -261,18 +281,20 @@ public:
     operator const T &() { return IteratorBase<ConstIterator>::operator T &(); }
   };
 
-  class Iterator : public IteratorBase<Iterator> {
+  class Iterator : public IteratorBase<Iterator>
+  {
     friend class SkipList;
     Iterator(Node *node) : IteratorBase<Iterator>(node) {}
 
-  public:
+public:
     Iterator() = default;
     Iterator(const Iterator &) = default;
   };
 
   SkipList() : header(Node::sentinel(H)) {}
 
-  ~SkipList() {
+  ~SkipList()
+  {
     // Someone could be using this map through an Accessor.
     Node *now = header;
     header = nullptr;
@@ -286,25 +308,28 @@ public:
 
   friend class Accessor;
 
-  class Accessor {
+  class Accessor
+  {
     friend class SkipList;
 
-    Accessor(SkipList *skiplist) : skiplist(skiplist) {
+    Accessor(SkipList *skiplist) : skiplist(skiplist)
+    {
       assert(skiplist != nullptr);
 
       skiplist->gc.add_ref();
     }
 
-  public:
+public:
     Accessor(const Accessor &) = delete;
 
-    Accessor(Accessor &&other) : skiplist(other.skiplist) {
+    Accessor(Accessor &&other) : skiplist(other.skiplist)
+    {
       other.skiplist = nullptr;
     }
 
-    ~Accessor() {
-      if (skiplist == nullptr)
-        return;
+    ~Accessor()
+    {
+      if (skiplist == nullptr) return;
 
       skiplist->gc.release_ref();
     }
@@ -321,33 +346,43 @@ public:
 
     ConstIterator cend() const { return skiplist->cend(); }
 
-    std::pair<Iterator, bool> insert(const T &item) {
+    std::pair<Iterator, bool> insert(const T &item)
+    {
       return skiplist->insert(item, preds, succs);
     }
 
-    std::pair<Iterator, bool> insert(T &&item) {
+    std::pair<Iterator, bool> insert(T &&item)
+    {
       return skiplist->insert(std::forward<T>(item), preds, succs);
     }
 
-    template <class K> ConstIterator find(const K &item) const {
+    template <class K>
+    ConstIterator find(const K &item) const
+    {
       return static_cast<const SkipList &>(*skiplist).find(item);
     }
 
-    template <class K> Iterator find(const K &item) {
+    template <class K>
+    Iterator find(const K &item)
+    {
       return skiplist->find(item);
     }
 
-    template <class K> bool contains(const K &item) const {
+    template <class K>
+    bool contains(const K &item) const
+    {
       return this->find(item) != this->end();
     }
 
-    template <class K> bool remove(const K &item) {
+    template <class K>
+    bool remove(const K &item)
+    {
       return skiplist->remove(item, preds, succs);
     }
 
     size_t size() const { return skiplist->size(); }
 
-  private:
+private:
     SkipList *skiplist;
     Node *preds[H], *succs[H];
   };
@@ -356,7 +391,7 @@ public:
 
   const Accessor access() const { return Accessor(this); }
 
-private:
+  private:
   using guard_t = std::unique_lock<lock_t>;
 
   Iterator begin() { return Iterator(header->forward(0)); }
@@ -373,23 +408,33 @@ private:
 
   size_t size() const { return count.load(); }
 
-  template <class K> bool greater(const K &item, const Node *const node) {
+  template <class K>
+  bool greater(const K &item, const Node *const node)
+  {
     return node && item > node->value();
   }
 
-  template <class K> bool less(const K &item, const Node *const node) {
+  template <class K>
+  bool less(const K &item, const Node *const node)
+  {
     return (node == nullptr) || item < node->value();
   }
 
-  template <class K> ConstIterator find(const K &item) const {
+  template <class K>
+  ConstIterator find(const K &item) const
+  {
     return const_cast<SkipList *>(this)->find_node<ConstIterator, K>(item);
   }
 
-  template <class K> Iterator find(const K &item) {
+  template <class K>
+  Iterator find(const K &item)
+  {
     return find_node<Iterator, K>(item);
   }
 
-  template <class It, class K> It find_node(const K &item) {
+  template <class It, class K>
+  It find_node(const K &item)
+  {
     Node *node, *pred = header;
     int h = static_cast<int>(pred->height) - 1;
 
@@ -399,8 +444,7 @@ private:
       }
 
       // if we overshoot at every layer, item doesn't exist
-      if (h < 0)
-        return It();
+      if (h < 0) return It();
 
       // the item is farther to the right, continue going right as long
       // as the key is greater than the current node's key
@@ -408,14 +452,14 @@ private:
         pred = node, node = node->forward(h);
 
       // check if we have a hit. if not, we need to descend down again
-      if (!less(item, node) && !node->flags.is_marked())
-        return It(node);
+      if (!less(item, node) && !node->flags.is_marked()) return It(node);
     }
   }
 
   template <class K>
   int find_path(Node *from, int start, const K &item, Node *preds[],
-                Node *succs[]) {
+                Node *succs[])
+  {
     int level_found = -1;
     Node *pred = from;
 
@@ -425,8 +469,7 @@ private:
       while (greater(item, node))
         pred = node, node = pred->forward(level);
 
-      if (level_found == -1 && !less(item, node))
-        level_found = level;
+      if (level_found == -1 && !less(item, node)) level_found = level;
 
       preds[level] = pred;
       succs[level] = node;
@@ -437,7 +480,8 @@ private:
 
   template <bool ADDING>
   bool lock_nodes(uint8_t height, guard_t guards[], Node *preds[],
-                  Node *succs[]) {
+                  Node *succs[])
+  {
     Node *prepred, *pred, *succ = nullptr;
     bool valid = true;
 
@@ -456,7 +500,8 @@ private:
     return valid;
   }
 
-  std::pair<Iterator, bool> insert(T &&data, Node *preds[], Node *succs[]) {
+  std::pair<Iterator, bool> insert(T &&data, Node *preds[], Node *succs[])
+  {
     while (true) {
       // TODO: before here was data.first
       auto level = find_path(header, H - 1, data, preds, succs);
@@ -464,8 +509,7 @@ private:
       if (level != -1) {
         auto found = succs[level];
 
-        if (found->flags.is_marked())
-          continue;
+        if (found->flags.is_marked()) continue;
 
         while (!found->flags.is_fully_linked())
           usleep(250);
@@ -479,8 +523,7 @@ private:
       // try to acquire the locks for predecessors up to the height of
       // the new node. release the locks and try again if someone else
       // has the locks
-      if (!lock_nodes<true>(height, guards, preds, succs))
-        continue;
+      if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
       // you have the locks, create a new node
       auto new_node = Node::create(std::forward<T>(data), height);
@@ -503,12 +546,15 @@ private:
     }
   }
 
-  bool ok_delete(Node *node, int level) {
+  bool ok_delete(Node *node, int level)
+  {
     return node->flags.is_fully_linked() && node->height - 1 == level &&
            !node->flags.is_marked();
   }
 
-  template <class K> bool remove(const K &item, Node *preds[], Node *succs[]) {
+  template <class K>
+  bool remove(const K &item, Node *preds[], Node *succs[])
+  {
     Node *node = nullptr;
     guard_t node_guard;
     bool marked = false;
@@ -525,8 +571,7 @@ private:
         height = node->height;
         node_guard = node->acquire_unique();
 
-        if (node->flags.is_marked())
-          return false;
+        if (node->flags.is_marked()) return false;
 
         node->flags.set_marked();
         marked = true;
@@ -534,8 +579,7 @@ private:
 
       guard_t guards[H];
 
-      if (!lock_nodes<false>(height, guards, preds, succs))
-        continue;
+      if (!lock_nodes<false>(height, guards, preds, succs)) continue;
 
       for (int level = height - 1; level >= 0; --level)
         preds[level]->forward(level, node->forward(level));

@@ -7,13 +7,16 @@
 #include "storage/indexes/index_record_collection.hpp"
 #include "storage/label/label.hpp"
 
-template <class Key, class Item> class Index {
-public:
+template <class Key, class Item>
+class Index
+{
+  public:
   using container_t = ConcurrentMap<Key, Item>;
 
   Index() : index(std::make_unique<container_t>()) {}
 
-  auto update(const Label &label, VertexIndexRecord &&index_record) {
+  auto update(const Label &label, VertexIndexRecord &&index_record)
+  {
     auto accessor = index->access();
     auto label_ref = label_ref_t(label);
 
@@ -27,7 +30,8 @@ public:
     record_collection.add(std::forward<VertexIndexRecord>(index_record));
   }
 
-  VertexIndexRecordCollection &find(const Label &label) {
+  VertexIndexRecordCollection &find(const Label &label)
+  {
     // TODO: accessor should be outside?
     // bacause otherwise GC could delete record that has just be returned
     auto label_ref = label_ref_t(label);
@@ -35,6 +39,6 @@ public:
     return (*accessor.find(label_ref)).second;
   }
 
-private:
+  private:
   std::unique_ptr<container_t> index;
 };

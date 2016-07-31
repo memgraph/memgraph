@@ -5,7 +5,8 @@
 constexpr size_t elements = 2e6;
 
 // Test for simple memory leaks
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

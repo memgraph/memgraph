@@ -10,7 +10,8 @@ constexpr size_t no_insert_for_one_delete = 2;
 // This test checks remove method under pressure.
 // Each thread removes random data. So removes are joint.
 // Calls of remove method are interleaved with insert calls.
-int main() {
+int main()
+{
   memory_check(THREADS_NO, [] {
     skiplist_t skiplist;
 

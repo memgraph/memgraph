@@ -13,3 +13,4 @@ memgraph
 *.session.yaml
 tags
 .gdb_history
+Testing/

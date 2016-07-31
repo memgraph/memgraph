@@ -8,8 +8,9 @@
 #include "threading/sync/spinlock.hpp"
 
 template <class T, class lock_t = SpinLock>
-class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t> {
-public:
+class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>
+{
+  public:
   // release_ref method should be called by a thread
   // when the thread finish it job over object
   // which has to be lazy cleaned
@@ -17,7 +18,8 @@ public:
   // are going to be deleted
   // the only problem with this approach is that
   // GC may never be called, but for now we can deal with that
-  void release_ref() {
+  void release_ref()
+  {
     std::vector<T *> local_freelist;
 
     // take freelist if there is no more threads
@@ -47,6 +49,6 @@ public:
 
   void collect(T *node) { freelist.add(node); }
 
-private:
+  private:
   FreeList<T> freelist;
 };

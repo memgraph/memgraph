@@ -4,25 +4,26 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "edge_accessor.hpp"
 
-class Edges {
-public:
-  Edge::Accessor find(tx::Transaction &t, const Id &id) {
+class Edges
+{
+  public:
+  Edge::Accessor find(tx::Transaction &t, const Id &id)
+  {
     auto edges_accessor = edges.access();
     auto edges_iterator = edges_accessor.find(id);
 
-    if (edges_iterator == edges_accessor.end())
-      return Edge::Accessor();
+    if (edges_iterator == edges_accessor.end()) return Edge::Accessor();
 
     // find edge
     auto edge = edges_iterator->second.find(t);
 
-    if (edge == nullptr)
-      return Edge::Accessor();
+    if (edge == nullptr) return Edge::Accessor();
 
     return Edge::Accessor(edge, &edges_iterator->second, this);
   }
 
-  Edge::Accessor insert(tx::Transaction &t) {
+  Edge::Accessor insert(tx::Transaction &t)
+  {
     // get next vertex id
     auto next = counter.next(std::memory_order_acquire);
 
@@ -40,7 +41,7 @@ public:
     return Edge::Accessor(edge, &inserted_edge_record->second, this);
   }
 
-private:
+  private:
   ConcurrentMap<uint64_t, EdgeRecord> edges;
   AtomicCounter<uint64_t> counter;
 };
