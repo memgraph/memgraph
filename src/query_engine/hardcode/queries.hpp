@@ -16,6 +16,16 @@ auto load_queries(Db& db)
 {
     std::map<uint64_t, std::function<bool(const properties_t &)>> queries;
 
+    // CREATE (n {prop: 0}) RETURN n)
+    auto create_node = [&db](const properties_t &args) {
+        auto &t = db.tx_engine.begin();
+        auto vertex_accessor = db.graph.vertices.insert(t);
+        vertex_accessor.property("prop", args[0]);
+        t.commit();
+        return true;
+    };
+    queries[11597417457737499503u] = create_node;
+
     auto create_labeled_and_named_node = [&db](const properties_t &args) {
         auto &t = db.tx_engine.begin();
         auto vertex_accessor = db.graph.vertices.insert(t);
@@ -137,6 +147,28 @@ auto load_queries(Db& db)
         return true;
     };
 
+    // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25, weight: 70}]-(n2) RETURN r]
+    auto create_edge_v2 = [&db](const properties_t &args)
+    {
+        auto& t = db.tx_engine.begin();
+        auto n1 = db.graph.vertices.find(t, args[0]->as<Int64>().value);
+        if (!n1) return t.commit(), false;
+        auto n2 = db.graph.vertices.find(t, args[1]->as<Int64>().value);
+        if (!n2) return t.commit(), false;
+        auto r = db.graph.edges.insert(t);
+        r.property("age", args[2]);
+        r.property("weight", args[3]);
+        auto &IS = db.graph.edge_type_store.find_or_create("IS");
+        r.edge_type(IS);
+        n2.vlist->update(t)->data.out.add(r.vlist);
+        n1.vlist->update(t)->data.in.add(r.vlist);
+        r.from(n2.vlist);
+        r.to(n1.vlist);
+        t.commit();
+        return true;
+    };
+    queries[15648836733456301916u] = create_edge_v2;
+
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
     queries[7939106225150551899u] = create_edge;
@@ -145,6 +177,7 @@ auto load_queries(Db& db)
     queries[8320600413058284114u] = find_edge_by_internal_id;
     queries[6813335159006269041u] = update_node;
     queries[4857652843629217005u] = find_by_label;
+
 
     return queries;
 }

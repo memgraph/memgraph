@@ -9,8 +9,11 @@ project(${ProjectId})
 
 find_package(Threads REQUIRED)
 
+# flags
 # c++14
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
+# glibcxx debug
+# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_DEBUG")
 
 # functions
 
@@ -175,14 +178,13 @@ EXECUTE_PROCESS(
 )
 
 # # memgraph executable
-# add_executable(memgraph src/memgraph.cpp)
-# add_dependencies(memgraph cypher_lib)
-# # memgraph link libraries
-# target_link_libraries(memgraph Threads::Threads)
-# target_link_libraries(memgraph pcre)
-# target_link_libraries(memgraph ${libuv_static_lib})
-# target_link_libraries(memgraph ${r3_static_lib})
-# target_link_libraries(memgraph ${http_parser_static_lib})
+# add_executable(memgraph_http src/memgraph.cpp)
+# add_dependencies(memgraph_http cypher_lib)
+# target_link_libraries(memgraph_http Threads::Threads)
+# target_link_libraries(memgraph_http pcre)
+# target_link_libraries(memgraph_http ${libuv_static_lib})
+# target_link_libraries(memgraph_http ${r3_static_lib})
+# target_link_libraries(memgraph_http ${http_parser_static_lib})
 
 # # query_engine executable
 # add_executable(query_engine src/query_engine/main_query_engine.cpp)
@@ -214,11 +216,33 @@ set(memgraph_src_files
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
 )
-
-# hard coded implementation of queries
-# add_executable(queries src/query_engine/main_queries.cpp ${memgraph_src_files})
-# target_link_libraries(queries ${fmt_static_lib})
+add_library(libmemgraph ${memgraph_src_files})
 
 # tests
 enable_testing()
 add_subdirectory(tests)
+
+# memgraph build name
+execute_process(
+    OUTPUT_VARIABLE COMMIT_NO 
+    COMMAND git rev-list --count HEAD
+)
+execute_process(
+    OUTPUT_VARIABLE COMMIT_HASH
+    COMMAND git rev-parse --short HEAD
+)
+string(STRIP ${COMMIT_HASH} COMMIT_HASH)
+string(STRIP ${COMMIT_NO} COMMIT_NO)
+set(MEMGRAPH_BUILD_NAME "memgraph_${COMMIT_HASH}_${COMMIT_NO}")
+
+# DEBUG BUILD
+add_executable(${MEMGRAPH_BUILD_NAME}_debug ${src_dir}/memgraph_bolt.cpp)
+
+# TEST BUILD
+# TODO
+
+# O-OPTIMIZED BUILD
+# TODO
+
+# RELEASE BUILD
+# TODO

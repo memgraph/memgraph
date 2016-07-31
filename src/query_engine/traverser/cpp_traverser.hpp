@@ -3,6 +3,7 @@
 #include <string>
 
 #include "cypher/visitor/traverser.hpp"
+
 #include "query_engine/code_generator/cpp_generator.hpp"
 #include "query_engine/code_generator/entity_search.hpp"
 #include "query_engine/code_generator/structures.hpp"
@@ -209,10 +210,9 @@ public:
     {
         // TODO: Is that traversal order OK for all cases? Probably NOT.
         if (ast_pattern.has_next()) {
-            Traverser::visit(*(ast_pattern.next));
-            if (ast_pattern.has_node()) Traverser::visit(*(ast_pattern.node));
-            if (ast_pattern.has_relationship())
-                Traverser::visit(*(ast_pattern.relationship));
+            visit(*ast_pattern.next);
+            visit(*ast_pattern.node);
+            visit(*ast_pattern.relationship);
         } else {
             Traverser::visit(ast_pattern);
         }
@@ -252,7 +252,7 @@ public:
         if (!internal_id_expr.has_id()) return;
 
         auto name = internal_id_expr.entity_name();
-        // because entity_id will be value index inside the parameters array
+        // because entity_id value will be index inside the parameters array
         auto index = internal_id_expr.entity_id();
 
         auto &data = generator.action_data();
@@ -275,19 +275,11 @@ public:
     void visit(ast::Relationship &ast_relationship) override
     {
         auto &cypher_data = generator.cypher_data();
+        auto &action_data = generator.action_data();
 
-        if (ast_relationship.has_name()) entity = ast_relationship.name();
-
-        // TODO: simplify somehow
-        if (state == CypherState::Create) {
-            if (ast_relationship.has_name()) {
-                auto name = ast_relationship.name();
-                if (!cypher_data.exist(name)) {
-                    clause_action = ClauseAction::CreateRelationship;
-                    create_relationship(name);
-                }
-            }
-        }
+        if (!ast_relationship.has_name()) 
+            return;
+        entity = ast_relationship.name();
 
         using ast_direction = ast::Relationship::Direction;
         using generator_direction = RelationshipData::Direction;
@@ -298,9 +290,23 @@ public:
         if (ast_relationship.direction == ast_direction::Right)
             direction = generator_direction::Right;
 
-        Traverser::visit(ast_relationship);
-
         // TODO: add suport for Direction::Both
+
+        // TODO: simplify somehow
+        if (state == CypherState::Create) {
+            if (!cypher_data.exist(entity)) {
+                clause_action = ClauseAction::CreateRelationship;
+                create_relationship(entity);
+            }
+        }
+
+        if (state == CypherState::Match) {
+            if (!cypher_data.exist(entity)) {
+                action_data.actions[entity] = ClauseAction::MatchRelationship;
+            }
+        }
+
+        Traverser::visit(ast_relationship);
     }
 
     void visit(ast::RelationshipSpecs &ast_relationship_specs) override
@@ -314,6 +320,12 @@ public:
                     auto &data = generator.action_data();
                     data.actions[name] = ClauseAction::MatchRelationship;
                 }
+            }
+        }
+
+        if (state == CypherState::Create) {
+            if (ast_relationship_specs.has_identifier()) {
+                entity = ast_relationship_specs.name();
             }
         }
 

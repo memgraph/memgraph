@@ -31,12 +31,12 @@ auto match_query_action =
         if (kv.second == ClauseAction::MatchNode) {
             auto name = kv.first;
             if (already_matched(cypher_data, name, EntityType::Node)) continue;
+            cypher_data.node_matched(name);
             auto place = action_data.csm.min(kv.first);
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
                 code +=
                     LINE(fmt::format(code::match_vertex_by_id, name, index));
-                cypher_data.node_matched(name);
             }
         }
 
@@ -45,11 +45,11 @@ auto match_query_action =
             auto name = kv.first;
             if (already_matched(cypher_data, name, EntityType::Relationship))
                 continue;
+            cypher_data.relationship_matched(name);
             auto place = action_data.csm.min(kv.first);
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
                 code += LINE(fmt::format(code::match_edge_by_id, name, index));
-                cypher_data.relationship_matched(name);
             }
         }
     }
