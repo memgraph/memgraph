@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <ostream>
 
-#include <cppformat/format.h>
+#include <fmt/format.h>
 
 #include "utils/datetime/datetime_error.hpp"
 #include "utils/total_ordering.hpp"
@@ -66,7 +66,7 @@ public:
 
     long subsec() const
     {
-        return nsec;
+        return nsec / 10000;
     }
 
     const std::string to_iso8601() const
@@ -103,5 +103,5 @@ private:
     long nsec;
 
     static constexpr auto fiso8601 =
-        "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:09d}Z";
+        "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:05d}Z";
 };

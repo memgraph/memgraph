@@ -79,7 +79,6 @@ public:
         return !(lhs == rhs);
     }
 
-
 private:
     const char* str;
     size_t len;
