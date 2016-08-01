@@ -8,6 +8,7 @@ namespace io
 namespace tcp
 {
 
+template <class Socket>
 class Stream
 {
 public:
@@ -22,11 +23,6 @@ public:
         socket = std::move(stream.socket);
         event = stream.event;
         event.data.ptr = this;
-    }
-
-    void close()
-    {
-        delete reinterpret_cast<Stream*>(event.data.ptr);
     }
 
     int id() const { return socket.id(); }

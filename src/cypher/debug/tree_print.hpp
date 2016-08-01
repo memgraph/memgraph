@@ -11,6 +11,8 @@ public:
     class Printer
     {
     public:
+        friend class Entry;
+
         Printer(std::ostream& stream, const std::string& header)
             : stream(stream)
         {
@@ -49,10 +51,10 @@ public:
             }
 
             template <class T>
-            friend Entry& operator<<(Entry& entry, const T& item)
+            Entry& operator<<(const T& item)
             {
-                entry.printer.stream << item;
-                return entry;
+                printer.stream << item;
+                return *this;
             }
 
         private:

@@ -1,13 +1,11 @@
 #pragma once
 
-#include <stdexcept>
-
 #include "utils/exceptions/basic_exception.hpp"
 
 namespace io
 {
 
-class NetworkError : public BasicException
+class TlsError : public BasicException
 {
 public:
     using BasicException::BasicException;

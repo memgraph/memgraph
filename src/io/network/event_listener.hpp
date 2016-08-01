@@ -1,14 +1,12 @@
 #pragma once
 
-#include "socket.hpp"
 #include "epoll.hpp"
 #include "utils/crtp.hpp"
 
 namespace io
 {
 
-template <class Derived, class Stream,
-          size_t max_events = 64, int wait_timeout = -1>
+template <class Derived, size_t max_events = 64, int wait_timeout = -1>
 class EventListener : public Crtp<Derived>
 {
 public:
@@ -16,32 +14,28 @@ public:
 
     EventListener(uint32_t flags = 0) : listener(flags) {}
 
-    void add(Stream& stream)
-    {
-        // add the stream to the event listener
-        listener.add(stream.socket, &stream.event);
-    }
-
     void wait_and_process_events()
     {
+        // TODO hardcoded a wait timeout because of thread joining
+        // when you shutdown the server. This should be wait_timeout of the
+        // template parameter and should almost never change from that.
+        // thread joining should be resolved using a signal that interrupts
+        // the system call.
+
         // waits for an event/multiple events and returns a maximum of
         // max_events and stores them in the events array. it waits for
         // wait_timeout milliseconds. if wait_timeout is achieved, returns 0
-        auto n = listener.wait(events, max_events, wait_timeout);
-
-        LOG_DEBUG("received " << n << " events");
+        auto n = listener.wait(events, max_events, 200);
 
         // go through all events and process them in order
         for(int i = 0; i < n; ++i)
         {
             auto& event = events[i];
-            auto& stream = *reinterpret_cast<Stream*>(event.data.ptr);
 
-            // a stream was closed
+            // hangup event
             if(UNLIKELY(event.events & EPOLLRDHUP))
             {
-                LOG_DEBUG("EPOLLRDHUP event recieved on socket " << stream.id());
-                this->derived().on_close(stream);
+                this->derived().on_close_event(event);
                 continue;
             }
 
@@ -49,18 +43,12 @@ public:
             if(UNLIKELY(!(event.events & EPOLLIN) ||
                           event.events & (EPOLLHUP | EPOLLERR)))
             {
-                LOG_DEBUG(">> EPOLL ERR");
-                LOG_DEBUG("EPOLLIN" << (event.events & EPOLLIN));
-                LOG_DEBUG("EPOLLHUP" << (event.events & EPOLLHUP));
-                LOG_DEBUG("EPOLLERR" << (event.events & EPOLLERR));
-
-                this->derived().on_error(stream);
+                this->derived().on_error_event(event);
                 continue;
             }
 
-            LOG_DEBUG("signalling that data exists on socket " << stream.id());
             // we have some data waiting to be read
-            this->derived().on_data(stream);
+            this->derived().on_data_event(event);
         }
 
         // this will be optimized out :D

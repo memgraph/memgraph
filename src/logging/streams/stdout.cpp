@@ -1,10 +1,17 @@
 #include "stdout.hpp"
 
-#include <cppformat/format.h>
+#include <iostream>
+#include <fmt/format.h>
 
 void Stdout::emit(const Log::Record& record)
 {
-    fmt::print("{} {:<5} [{}] {}\n", record.when(), record.level_str(),
-               record.where(), record.text());
+    auto s = fmt::format("{} {:<5} [{}] {}\n", static_cast<std::string>(
+                         record.when()), record.level_str(), record.where(),
+                         record.text());
+
+    std::cout << s;
+
+    /* fmt::printf("{} {:<5} [{}] {}\n", static_cast<std::string>(record.when()), */
+    /*             record.level_str(), record.where(), record.text()); */
 }
 

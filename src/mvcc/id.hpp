@@ -30,7 +30,7 @@ public:
     {
         return id;
     }
-    
+
 private:
     uint64_t id {0};
 };
