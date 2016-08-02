@@ -1,16 +1,16 @@
 #pragma once
 
 #include <algorithm>
-#include <memory>
 #include <cassert>
+#include <memory>
 
-#include "utils/random/fast_binomial.hpp"
 #include "utils/placeholder.hpp"
+#include "utils/random/fast_binomial.hpp"
 
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 
-#include "data_structures/skiplist/skiplist_gc.hpp"
+#include "data_structures/concurrent/skiplist_gc.hpp"
 
 /* @brief Concurrent lock-based skiplist with fine grained locking
  *
@@ -46,7 +46,7 @@
  *
  * The implementation has an interface which closely resembles the functions
  * with arguments and returned types frequently used by the STL.
- * 
+ *
  * Example usage:
  *   Skiplist<T> skiplist;
  *
@@ -93,7 +93,7 @@
  * @tparam lock_t Lock type used when locking is needed during the creation
  *                and deletion of nodes.
  */
-template <class T, size_t H=32, class lock_t=SpinLock>
+template <class T, size_t H = 32, class lock_t = SpinLock>
 class SkipList : private Lockable<lock_t>
 {
 public:
@@ -111,32 +111,20 @@ public:
     {
         enum node_flags : uint8_t
         {
-            MARKED       = 0x01,
+            MARKED = 0x01,
             FULLY_LINKED = 0x10,
         };
 
-        bool is_marked() const
-        {
-            return flags.load() & MARKED;
-        }
+        bool is_marked() const { return flags.load() & MARKED; }
 
-        void set_marked()
-        {
-            flags.fetch_or(MARKED);
-        }
+        void set_marked() { flags.fetch_or(MARKED); }
 
-        bool is_fully_linked() const
-        {
-            return flags.load() & FULLY_LINKED;
-        }
+        bool is_fully_linked() const { return flags.load() & FULLY_LINKED; }
 
-        void set_fully_linked()
-        {
-            flags.fetch_or(FULLY_LINKED);
-        }
+        void set_fully_linked() { flags.fetch_or(FULLY_LINKED); }
 
     private:
-        std::atomic<uint8_t> flags {0};
+        std::atomic<uint8_t> flags{0};
     };
 
     class Node : Lockable<lock_t>
@@ -147,29 +135,23 @@ public:
         const uint8_t height;
         Flags flags;
 
-        T& value()
-        {
-            return data.get();
-        }
+        T &value() { return data.get(); }
 
-        const T& value() const
-        {
-            return data.get();
-        }
+        const T &value() const { return data.get(); }
 
-        static Node* sentinel(uint8_t height)
+        static Node *sentinel(uint8_t height)
         {
             // we have raw memory and we need to construct an object
             // of type Node on it
             return new (allocate(height)) Node(height);
         }
 
-        static Node* create(const T& item, uint8_t height)
+        static Node *create(const T &item, uint8_t height)
         {
             return create(item, height);
         }
 
-        static Node* create(T&& item, uint8_t height)
+        static Node *create(T &&item, uint8_t height)
         {
             auto node = allocate(height);
 
@@ -178,21 +160,15 @@ public:
             return new (node) Node(std::forward<T>(item), height);
         }
 
-        static void destroy(Node* node)
+        static void destroy(Node *node)
         {
             node->~Node();
-            free(node);
+            std::free(node);
         }
 
-        Node* forward(size_t level) const
-        {
-            return tower[level].load();
-        }
+        Node *forward(size_t level) const { return tower[level].load(); }
 
-        void forward(size_t level, Node* next)
-        {
-            tower[level].store(next);
-        }
+        void forward(size_t level, Node *next) { tower[level].store(next); }
 
     private:
         Node(uint8_t height) : height(height)
@@ -200,22 +176,22 @@ public:
             // here we assume, that the memory for N towers (N = height) has
             // been allocated right after the Node structure so we need to
             // initialize that memory
-            for(auto i = 0; i < height; ++i)
-                new (&tower[i]) std::atomic<Node*> {nullptr};
+            for (auto i = 0; i < height; ++i)
+                new (&tower[i]) std::atomic<Node *>{nullptr};
         }
 
-        Node(T&& data, uint8_t height) : Node(height)
+        Node(T &&data, uint8_t height) : Node(height)
         {
             this->data.set(std::forward<T>(data));
         }
 
         ~Node()
         {
-            for(auto i = 0; i < height; ++i)
+            for (auto i = 0; i < height; ++i)
                 tower[i].~atomic();
         }
 
-        static Node* allocate(uint8_t height)
+        static Node *allocate(uint8_t height)
         {
             // [      Node      ][Node*][Node*][Node*]...[Node*]
             //         |            |      |      |         |
@@ -224,8 +200,8 @@ public:
             //   space for Node     space for tower pointers
             //     structure          right after the Node
             //                             structure
-            auto size = sizeof(Node) + height * sizeof(std::atomic<Node*>);
-            auto node = static_cast<Node*>(std::malloc(size));
+            auto size = sizeof(Node) + height * sizeof(std::atomic<Node *>);
+            auto node = static_cast<Node *>(std::malloc(size));
 
             return node;
         }
@@ -238,7 +214,7 @@ public:
         // have two memory allocations, one for node and one for the forward
         // list. this way we avoid expensive malloc/free calls and also cache
         // thrashing when following a pointer on the heap
-        std::atomic<Node*> tower[0];
+        std::atomic<Node *> tower[0];
     };
 
 public:
@@ -246,90 +222,246 @@ public:
     class IteratorBase : public Crtp<It>
     {
     protected:
-        IteratorBase(Node* node) : node(node) {}
+        IteratorBase(Node *node) : node(node) {}
 
-        Node* node {nullptr};
+        Node *node{nullptr};
+
     public:
         IteratorBase() = default;
-        IteratorBase(const IteratorBase&) = default;
+        IteratorBase(const IteratorBase &) = default;
 
-        T& operator*()
+        T &operator*()
         {
             assert(node != nullptr);
             return node->value();
         }
 
-        T* operator->()
+        T *operator->()
         {
             assert(node != nullptr);
             return &node->value();
         }
 
-        operator T&()
+        operator T &()
         {
             assert(node != nullptr);
             return node->value();
         }
 
-        It& operator++()
+        It &operator++()
         {
             assert(node != nullptr);
             node = node->forward(0);
             return this->derived();
         }
 
-        It& operator++(int)
+        bool has_next()
         {
-            return operator++();
+            assert(node != nullptr);
+            return node->forward(0) != nullptr;
         }
 
-        friend bool operator==(const It& a, const It& b)
+        It &operator++(int) { return operator++(); }
+
+        friend bool operator==(const It &a, const It &b)
         {
             return a.node == b.node;
         }
 
-        friend bool operator!=(const It& a, const It& b)
-        {
-            return !(a == b);
-        }
+        friend bool operator!=(const It &a, const It &b) { return !(a == b); }
     };
 
     class ConstIterator : public IteratorBase<ConstIterator>
     {
         friend class SkipList;
-        ConstIterator(Node* node) : IteratorBase<ConstIterator>(node) {}
+        ConstIterator(Node *node) : IteratorBase<ConstIterator>(node) {}
 
     public:
         ConstIterator() = default;
-        ConstIterator(const ConstIterator&) = default;
+        ConstIterator(const ConstIterator &) = default;
 
-        const T& operator*()
+        const T &operator*()
         {
             return IteratorBase<ConstIterator>::operator*();
         }
 
-        const T* operator->()
+        const T *operator->()
         {
             return IteratorBase<ConstIterator>::operator->();
         }
 
-        operator const T&()
+        operator const T &()
         {
-            return IteratorBase<ConstIterator>::operator T&();
+            return IteratorBase<ConstIterator>::operator T &();
         }
     };
 
     class Iterator : public IteratorBase<Iterator>
     {
         friend class SkipList;
-        Iterator(Node* node) : IteratorBase<Iterator>(node) {}
+        Iterator(Node *node) : IteratorBase<Iterator>(node) {}
 
     public:
         Iterator() = default;
-        Iterator(const Iterator&) = default;
+        Iterator(const Iterator &) = default;
+    };
+
+    template <class K>
+    class MultiIterator : public Crtp<MultiIterator<K>>
+    {
+        friend class SkipList;
+
+        MultiIterator(const K &data) : data(data), skiplist(nullptr)
+        {
+            succs[0] = nullptr;
+        };
+        MultiIterator(SkipList *skiplist, const K &data)
+            : data(data), skiplist(skiplist)
+        {
+            while (true) {
+                auto level = find_path(skiplist, H - 1, data, preds, succs);
+                if (level == -1) {
+                    succs[0] = nullptr;
+                } else if (succs[0] != succs[succs[0]->height - 1] ||
+                           !succs[level]->flags.is_fully_linked()) {
+                    usleep(250);
+                    continue;
+                }
+                break;
+            }
+        }
+
+    public:
+        MultiIterator(const MultiIterator &) = default;
+
+        T &operator*()
+        {
+            assert(succs[0] != nullptr);
+            return succs[0]->value();
+        }
+
+        T *operator->()
+        {
+            assert(succs[0] != nullptr);
+            return &succs[0]->value();
+        }
+
+        operator T &()
+        {
+            assert(succs[0] != nullptr);
+            return succs[0]->value();
+        }
+
+        bool has_next()
+        {
+            assert(succs[0] != nullptr);
+            return succs[0].forward(0) != nullptr;
+        }
+
+        bool has_value() { return succs[0] != nullptr; }
+
+        MultiIterator &operator++()
+        {
+            assert(succs[0] != nullptr);
+            // This whole method can be optimized if it's valid to expect height
+            // of 1 on same key elements.
+            for (int i = succs[0]->height - 1; i >= 0; i--) {
+                preds[i] = succs[i];
+                succs[i] = preds[i]->forward(i);
+            }
+            if (succs[0] != nullptr) {
+                if (succs[0]->value() != data) {
+                    succs[0] = nullptr;
+                } else {
+                    while (succs[0] != succs[succs[0]->height - 1] ||
+                           !succs[0]->flags.is_fully_linked()) {
+                        usleep(250);
+                        for (int i = succs[0]->height - 1; i >= 0; i--) {
+                            succs[i] = preds[i]->forward(i);
+                        }
+                    }
+                }
+            }
+
+            return this->derived();
+        }
+
+        MultiIterator &operator++(int) { return operator++(); }
+
+        friend bool operator==(const MultiIterator &a, const MultiIterator &b)
+        {
+            return a.succs[0] == b.succs[0];
+        }
+
+        friend bool operator!=(const MultiIterator &a, const MultiIterator &b)
+        {
+            return !(a == b);
+        }
+
+        bool is_removed()
+        {
+            assert(succs[0] != nullptr);
+            return succs[0]->flags.is_marked();
+        }
+
+        // True if this call successfuly removed value. ITERATOR IS'T ADVANCED.
+        // False may mean that data has already been removed.
+        bool remove()
+        {
+            assert(succs[0] != nullptr);
+            return skiplist->template remove<K>(
+                data, preds, succs,
+                SkipList<T>::template MultiIterator<K>::update_path);
+        }
+
+    private:
+        static int update_path(SkipList *skiplist, int start, const K &item,
+                               Node *preds[], Node *succs[])
+        {
+            // One optimization here would be to wait for is_fully_linked to be
+            // true. That way that doesnt have to be done in constructor and
+            // ++ operator.
+            int level_found = succs[0]->height - 1;
+            assert(succs[0] == succs[level_found]);
+            // for (int i = level_found; i >= 0; i--) {
+            //     // Someone has done something
+            //     if (preds[i]->forward(i) != succs[i]) {
+            for (auto it = MultiIterator<K>(skiplist, item); it.has_value();
+                 it++) {
+                if (it.succs[0] == succs[0]) { // Found it
+                    std::copy(it.preds, it.preds + H, preds);
+                    std::copy(it.succs, it.succs + H, succs);
+                    return level_found;
+                }
+            }
+            // Someone removed it
+            // assert(succs[0]->flags.is_marked());
+            return -1;
+            //     }
+            // }
+            // // Everything is fine
+            // return level_found;
+        }
+
+        const K &data;
+        SkipList *skiplist;
+        Node *preds[H], *succs[H];
     };
 
     SkipList() : header(Node::sentinel(H)) {}
+
+    ~SkipList()
+    {
+        // Someone could be using this map through an Accessor.
+        Node *now = header;
+        header = nullptr;
+
+        while (now != nullptr) {
+            Node *next = now->forward(0);
+            Node::destroy(now);
+            now = next;
+        }
+    }
 
     friend class Accessor;
 
@@ -337,7 +469,7 @@ public:
     {
         friend class SkipList;
 
-        Accessor(SkipList* skiplist) : skiplist(skiplist)
+        Accessor(SkipList *skiplist) : skiplist(skiplist)
         {
             assert(skiplist != nullptr);
 
@@ -345,200 +477,200 @@ public:
         }
 
     public:
-        Accessor(const Accessor&) = delete;
+        Accessor(const Accessor &) = delete;
 
-        Accessor(Accessor&& other) : skiplist(other.skiplist)
+        Accessor(Accessor &&other) : skiplist(other.skiplist)
         {
             other.skiplist = nullptr;
         }
 
         ~Accessor()
         {
-            if(skiplist == nullptr)
-                return;
+            if (skiplist == nullptr) return;
 
             skiplist->gc.release_ref();
         }
 
-        Iterator begin()
+        Iterator begin() { return skiplist->begin(); }
+
+        ConstIterator begin() const { return skiplist->cbegin(); }
+
+        ConstIterator cbegin() const { return skiplist->cbegin(); }
+
+        Iterator end() { return skiplist->end(); }
+
+        ConstIterator end() const { return skiplist->cend(); }
+
+        ConstIterator cend() const { return skiplist->cend(); }
+
+        template <class K>
+        MultiIterator<K> end(const K &data)
         {
-            return skiplist->begin();
+            return skiplist->mend(data);
         }
 
-        ConstIterator begin() const
+        template <class K>
+        MultiIterator<K> mend(const K &data)
         {
-            return skiplist->cbegin();
+            return skiplist->template mend<K>(data);
         }
 
-        ConstIterator cbegin() const
-        {
-            return skiplist->cbegin();
-        }
-
-        Iterator end()
-        {
-            return skiplist->end();
-        }
-
-        ConstIterator end() const
-        {
-            return skiplist->cend();
-        }
-
-        ConstIterator cend() const
-        {
-            return skiplist->cend();
-        }
-
-        std::pair<Iterator, bool> insert(const T& item)
+        std::pair<Iterator, bool> insert(const T &item)
         {
             return skiplist->insert(item, preds, succs);
         }
 
-        std::pair<Iterator, bool> insert(T&& item)
+        std::pair<Iterator, bool> insert(T &&item)
         {
             return skiplist->insert(std::forward<T>(item), preds, succs);
         }
 
-        ConstIterator find(const T& item) const
+        Iterator insert_non_unique(const T &item)
         {
-            return static_cast<const SkipList&>(*skiplist).find(item);
+            return skiplist->insert_non_unique(item, preds, succs);
         }
 
-        Iterator find(const T& item)
+        Iterator insert_non_unique(T &&item)
+        {
+            return skiplist->insert_non_unique(std::forward<T>(item), preds,
+                                               succs);
+        }
+
+        template <class K>
+        MultiIterator<K> find_multi(const K &item) const
+        {
+            return MultiIterator<K>(this->skiplist, item);
+        }
+
+        template <class K>
+        ConstIterator find(const K &item) const
+        {
+            return static_cast<const SkipList &>(*skiplist).find(item);
+        }
+
+        template <class K>
+        Iterator find(const K &item)
         {
             return skiplist->find(item);
         }
 
-        bool contains(const T& item) const
+        template <class K>
+        bool contains(const K &item) const
         {
             return this->find(item) != this->end();
         }
 
-        bool remove(const T& item)
+        template <class K>
+        bool remove(const K &item)
         {
-            return skiplist->remove(item, preds, succs);
+            return skiplist->remove(item, preds, succs,
+                                    SkipList<T>::template find_path<K>);
         }
 
-        size_t size() const
-        {
-            return skiplist->size();
-        }
+        size_t size() const { return skiplist->size(); }
 
     private:
-        SkipList* skiplist;
-        Node* preds[H], *succs[H];
+        SkipList *skiplist;
+        Node *preds[H], *succs[H];
     };
 
-    Accessor access()
-    {
-        return Accessor(this);
-    }
+    Accessor access() { return Accessor(this); }
 
-    const Accessor access() const
-    {
-        return Accessor(this);
-    }
+    const Accessor access() const { return Accessor(this); }
 
 private:
     using guard_t = std::unique_lock<lock_t>;
 
-    Iterator begin()
+    Iterator begin() { return Iterator(header->forward(0)); }
+
+    ConstIterator begin() const { return ConstIterator(header->forward(0)); }
+
+    ConstIterator cbegin() const { return ConstIterator(header->forward(0)); }
+
+    Iterator end() { return Iterator(); }
+
+    ConstIterator end() const { return ConstIterator(); }
+
+    ConstIterator cend() const { return ConstIterator(); }
+
+    template <class K>
+    MultiIterator<K> end(const K &data)
     {
-        return Iterator(header->forward(0));
+        return MultiIterator<K>(data);
     }
 
-    ConstIterator begin() const
+    template <class K>
+    MultiIterator<K> mend(const K &data)
     {
-        return ConstIterator(header->forward(0));
+        return MultiIterator<K>(data);
     }
 
-    ConstIterator cbegin() const
-    {
-        return ConstIterator(header->forward(0));
-    }
+    size_t size() const { return count.load(); }
 
-    Iterator end()
-    {
-        return Iterator();
-    }
-
-    ConstIterator end() const
-    {
-        return ConstIterator();
-    }
-
-    ConstIterator cend() const
-    {
-        return ConstIterator();
-    }
-
-    size_t size() const
-    {
-        return count.load();
-    }
-
-    bool greater(const T& item, const Node* const node)
+    template <class K>
+    static bool greater(const K &item, const Node *const node)
     {
         return node && item > node->value();
     }
 
-    bool less(const T& item, const Node* const node)
+    template <class K>
+    static bool less(const K &item, const Node *const node)
     {
         return (node == nullptr) || item < node->value();
     }
 
-    ConstIterator find(const T& item) const
+    // Returns first occurence of item if there exists one.
+    template <class K>
+    ConstIterator find(const K &item) const
     {
-        return const_cast<SkipList*>(this)->find_node<ConstIterator>(item);
+        return const_cast<SkipList *>(this)->find_node<ConstIterator, K>(item);
     }
 
-    Iterator find(const T& item)
+    // Returns first occurence of item if there exists one.
+    template <class K>
+    Iterator find(const K &item)
     {
-        return find_node<Iterator>(item);
+        return find_node<Iterator, K>(item);
     }
 
-    template <class It>
-    It find_node(const T& item)
+    template <class It, class K>
+    It find_node(const K &item)
     {
-        Node* node, *pred = header;
+        Node *node, *pred = header;
         int h = static_cast<int>(pred->height) - 1;
 
-        while(true)
-        {
+        while (true) {
             // try to descend down first the next key on this layer overshoots
-            for(; h >= 0 && less(item, node = pred->forward(h)); --h) {}
+            for (; h >= 0 && less(item, node = pred->forward(h)); --h) {
+            }
 
             // if we overshoot at every layer, item doesn't exist
-            if(h < 0)
-                return It();
+            if (h < 0) return It();
 
             // the item is farther to the right, continue going right as long
             // as the key is greater than the current node's key
-            while(greater(item, node))
+            while (greater(item, node))
                 pred = node, node = node->forward(h);
 
             // check if we have a hit. if not, we need to descend down again
-            if(!less(item, node) && !node->flags.is_marked())
-                return It(node);
+            if (!less(item, node) && !node->flags.is_marked()) return It(node);
         }
     }
 
-    int find_path(Node* from, int start, const T& item,
-                  Node* preds[], Node* succs[])
+    template <class K>
+    static int find_path(SkipList *skiplist, int start, const K &item,
+                         Node *preds[], Node *succs[])
     {
         int level_found = -1;
-        Node* pred = from;
+        Node *pred = skiplist->header;
 
-        for(int level = start; level >= 0; --level)
-        {
-            Node* node = pred->forward(level);
+        for (int level = start; level >= 0; --level) {
+            Node *node = pred->forward(level);
 
-            while(greater(item, node))
+            while (greater(item, node))
                 pred = node, node = pred->forward(level);
 
-            if(level_found == -1 && !less(item, node))
-                level_found = level;
+            if (level_found == -1 && !less(item, node)) level_found = level;
 
             preds[level] = pred;
             succs[level] = node;
@@ -548,47 +680,106 @@ private:
     }
 
     template <bool ADDING>
-    bool lock_nodes(uint8_t height, guard_t guards[],
-                    Node* preds[], Node* succs[])
+    static bool lock_nodes(uint8_t height, guard_t guards[], Node *preds[],
+                           Node *succs[])
     {
         Node *prepred, *pred, *succ = nullptr;
         bool valid = true;
 
-        for(int level = 0; valid && level < height; ++level)
-        {
+        for (int level = 0; valid && level < height; ++level) {
             pred = preds[level], succ = succs[level];
 
-            if(pred != prepred)
+            if (pred != prepred)
                 guards[level] = pred->acquire_unique(), prepred = pred;
 
             valid = !pred->flags.is_marked() && pred->forward(level) == succ;
 
-            if(ADDING)
+            if (ADDING)
                 valid = valid && (succ == nullptr || !succ->flags.is_marked());
         }
 
         return valid;
     }
 
-    std::pair<Iterator, bool>
-        insert(T&& data, Node* preds[], Node* succs[])
+    Iterator insert_non_unique(T &&data, Node *preds[], Node *succs[])
     {
-        while(true)
-        {
+        while (true) {
             // TODO: before here was data.first
-            auto level = find_path(header, H - 1, data, preds, succs);
+            auto level = find_path(this, H - 1, data, preds, succs);
 
-            if(level != -1)
-            {
+            auto height = 1;
+            if (level != -1) {
+
                 auto found = succs[level];
 
-                if(found->flags.is_marked())
-                    continue;
+                if (found->flags.is_marked()) continue;
 
-                while(!found->flags.is_fully_linked())
+                if (!found->flags.is_fully_linked()) {
+                    usleep(250);
+                    continue;
+                }
+
+                // TODO Optimization for avoiding degrading of skiplist to list.
+                // Somehow this operation is errornus.
+                // if (found->height == 1) { // To avoid linearization new
+                // element
+                //                           // will be at least 2 height and
+                //                           will
+                //                           // be added in front.
+                //     height = rnd();
+                //     //   if (height == 1) height = 2;
+                // } else {
+
+                //   Only level 0 will be used so the rest is irrelevant.
+                preds[0] = found;
+                succs[0] = found->forward(0);
+
+                // This maybe isn't necessary
+                auto next = succs[0];
+                if (next != nullptr) {
+
+                    if (next->flags.is_marked()) continue;
+
+                    if (!next->flags.is_fully_linked()) {
+                        usleep(250);
+                        continue;
+                    }
+                }
+            } else {
+                height = rnd();
+                // Optimization which doesn't add any extra locking.
+                if (height == 1)
+                    height = 2; // Same key list will be skipped more often.
+            }
+
+            guard_t guards[H];
+
+            // try to acquire the locks for predecessors up to the height of
+            // the new node. release the locks and try again if someone else
+            // has the locks
+            if (!lock_nodes<true>(height, guards, preds, succs)) continue;
+
+            return insert_here(std::forward<T>(data), preds, succs, height,
+                               guards);
+        }
+    }
+
+    // Insert unique data
+    std::pair<Iterator, bool> insert(T &&data, Node *preds[], Node *succs[])
+    {
+        while (true) {
+            // TODO: before here was data.first
+            auto level = find_path(this, H - 1, data, preds, succs);
+
+            if (level != -1) {
+                auto found = succs[level];
+
+                if (found->flags.is_marked()) continue;
+
+                while (!found->flags.is_fully_linked())
                     usleep(250);
 
-                return {Iterator {succs[level]}, false};
+                return {Iterator{succs[level]}, false};
             }
 
             auto height = rnd();
@@ -597,60 +788,69 @@ private:
             // try to acquire the locks for predecessors up to the height of
             // the new node. release the locks and try again if someone else
             // has the locks
-            if(!lock_nodes<true>(height, guards, preds, succs))
-                continue;
+            if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
-            // you have the locks, create a new node
-            auto new_node = Node::create(std::forward<T>(data), height);
-
-            // link the predecessors and successors, e.g.
-            //
-            // 4 HEAD ... P ------------------------> S ... NULL
-            // 3 HEAD ... ... P -----> NEW ---------> S ... NULL
-            // 2 HEAD ... ... P -----> NEW -----> S ... ... NULL
-            // 1 HEAD ... ... ... P -> NEW -> S ... ... ... NULL
-            for(uint8_t level = 0; level < height; ++level)
-            {
-                new_node->forward(level, succs[level]);
-                preds[level]->forward(level, new_node);
-            }
-
-            new_node->flags.set_fully_linked();
-            count.fetch_add(1);
-
-            return {Iterator {new_node}, true};
+            return {insert_here(std::forward<T>(data), preds, succs, height,
+                                guards),
+                    true};
         }
     }
 
-    bool ok_delete(Node* node, int level)
+    // Inserts data to specified locked location.
+    Iterator insert_here(T &&data, Node *preds[], Node *succs[], int height,
+                         guard_t guards[])
     {
-        return node->flags.is_fully_linked()
-            && node->height - 1 == level
-            && !node->flags.is_marked();
+        // you have the locks, create a new node
+        auto new_node = Node::create(std::forward<T>(data), height);
+
+        // link the predecessors and successors, e.g.
+        //
+        // 4 HEAD ... P ------------------------> S ... NULL
+        // 3 HEAD ... ... P -----> NEW ---------> S ... NULL
+        // 2 HEAD ... ... P -----> NEW -----> S ... ... NULL
+        // 1 HEAD ... ... ... P -> NEW -> S ... ... ... NULL
+        for (uint8_t level = 0; level < height; ++level) {
+            new_node->forward(level, succs[level]);
+            preds[level]->forward(level, new_node);
+        }
+
+        new_node->flags.set_fully_linked();
+        count.fetch_add(1);
+
+        return Iterator{new_node};
     }
 
-    bool remove(const T& item, Node* preds[], Node* succs[])
+    static bool ok_delete(Node *node, int level)
     {
-        Node* node = nullptr;
+        return node->flags.is_fully_linked() && node->height - 1 == level &&
+               !node->flags.is_marked();
+    }
+
+    // Remove item found with fp with arguments skiplist,preds and succs.
+    // fp has to fill preds and succs which reflect location of item or return
+    // -1 as in not found otherwise returns level on which the item was first
+    // found.
+    template <class K>
+    bool remove(const K &item, Node *preds[], Node *succs[],
+                int (*fp)(SkipList *, int, const K &, Node *[], Node *[]))
+    {
+        Node *node = nullptr;
         guard_t node_guard;
         bool marked = false;
         int height = 0;
 
-        while(true)
-        {
-            auto level = find_path(header, H - 1, item, preds, succs);
+        while (true) {
+            auto level = fp(this, H - 1, item, preds, succs);
 
-            if(!marked && (level == -1 || !ok_delete(succs[level], level))) 
+            if (!marked && (level == -1 || !ok_delete(succs[level], level)))
                 return false;
 
-            if(!marked)
-            {
+            if (!marked) {
                 node = succs[level];
                 height = node->height;
                 node_guard = node->acquire_unique();
 
-                if(node->flags.is_marked())
-                    return false;
+                if (node->flags.is_marked()) return false;
 
                 node->flags.set_marked();
                 marked = true;
@@ -658,10 +858,9 @@ private:
 
             guard_t guards[H];
 
-            if(!lock_nodes<false>(height, guards, preds, succs))
-                continue;
+            if (!lock_nodes<false>(height, guards, preds, succs)) continue;
 
-            for(int level = height - 1; level >= 0; --level)
+            for (int level = height - 1; level >= 0; --level)
                 preds[level]->forward(level, node->forward(level));
 
             // TODO: review and test
@@ -673,8 +872,8 @@ private:
     }
 
     // number of elements
-    std::atomic<size_t> count {0};
-    Node* header;
+    std::atomic<size_t> count{0};
+    Node *header;
     SkiplistGC<Node> gc;
 };
 

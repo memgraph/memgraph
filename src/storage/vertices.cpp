@@ -5,8 +5,7 @@ const Vertex::Accessor Vertices::find(tx::Transaction &t, const Id &id)
     auto vertices_accessor = vertices.access();
     auto vertices_iterator = vertices_accessor.find(id);
 
-    if (vertices_iterator == vertices_accessor.end())
-        return Vertex::Accessor();
+    if (vertices_iterator == vertices_accessor.end()) return Vertex::Accessor();
 
     // find vertex
     auto vertex = vertices_iterator->second.find(t);
@@ -27,8 +26,7 @@ Vertex::Accessor Vertices::insert(tx::Transaction &t)
 
     // insert the new vertex record into the vertex store
     auto vertices_accessor = vertices.access();
-    auto result =
-        vertices_accessor.insert_unique(next, std::move(vertex_record));
+    auto result = vertices_accessor.insert(next, std::move(vertex_record));
 
     // create new vertex
     auto inserted_vertex_record = result.first;
@@ -38,13 +36,12 @@ Vertex::Accessor Vertices::insert(tx::Transaction &t)
 }
 
 void Vertices::update_label_index(const Label &label,
-                        VertexIndexRecord &&index_record)
+                                  VertexIndexRecord &&index_record)
 {
-    label_index.update(label,
-                       std::forward<VertexIndexRecord>(index_record));
+    label_index.update(label, std::forward<VertexIndexRecord>(index_record));
 }
 
-VertexIndexRecordCollection& Vertices::find_label_index(const Label& label)
+VertexIndexRecordCollection &Vertices::find_label_index(const Label &label)
 {
     return label_index.find(label);
 }

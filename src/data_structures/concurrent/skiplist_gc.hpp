@@ -25,6 +25,7 @@ public:
         // take freelist if there is no more threads
         {
             auto lock = this->acquire_unique();
+            assert(this->count > 0);
             --this->count;
             if (this->count == 0) {
                 freelist.swap(local_freelist);
@@ -32,23 +33,24 @@ public:
         }
 
         if (local_freelist.size() > 0) {
-            std::cout << "GC started" <<  std::endl;
-            std::cout << "Local skiplist size: " <<
-                         local_freelist.size() << std::endl;
+            std::cout << "GC started" << std::endl;
+            std::cout << "Local list size: " << local_freelist.size()
+                      << std::endl;
             long long counter = 0;
             // destroy all elements from local_freelist
             for (auto element : local_freelist) {
-                counter++;
-                if (element->flags.is_marked()) T::destroy(element);
+
+                if (element->flags.is_marked()) {
+                    T::destroy(element);
+                    counter++;
+                }
             }
-            std::cout << "Number of destroyed elements " << counter << std::endl;
+            std::cout << "Number of destroyed elements " << counter
+                      << std::endl;
         }
     }
 
-    void collect(T *node) 
-    {
-        freelist.add(node);
-    }
+    void collect(T *node) { freelist.add(node); }
 
 private:
     FreeList<T> freelist;
