@@ -352,11 +352,13 @@ public:
             return succs[0]->value();
         }
 
-        bool has_next()
-        {
-            assert(succs[0] != nullptr);
-            return succs[0].forward(0) != nullptr;
-        }
+        // WRONG THIS CAN POSSIBLY NOT BE TRUE IF SOMEONE JUST AFTER THIS REMOVE
+        // ELEMENT AFTER THIS ONE.
+        // bool has_next()
+        // {
+        //     assert(succs[0] != nullptr);
+        //     return succs[0].forward(0) != nullptr;
+        // }
 
         bool has_value() { return succs[0] != nullptr; }
 
