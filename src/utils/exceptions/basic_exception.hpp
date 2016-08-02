@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdexcept>
-
 #include <fmt/format.h>
 
 #include "utils/auto_scope.hpp"
@@ -10,20 +9,22 @@
 class BasicException : public std::exception
 {
 public:
-    template <class... Args>
-    BasicException(Args&&... args) noexcept
-        : message(fmt::format(std::forward<Args>(args)...))
+    BasicException(const std::string& message) noexcept : message(message)
     {
 #ifndef NDEBUG
-        message += '\n';
+        this->message += '\n';
 
         Stacktrace stacktrace;
 
         for(auto& line : stacktrace)
-            message += fmt::format("  at {} ({})\n",
+            this->message += fmt::format("  at {} ({})\n",
                 line.function, line.location);
 #endif
     }
+
+    template <class... Args>
+    BasicException(const std::string& format, Args&&... args) noexcept
+        : BasicException(fmt::format(format, std::forward<Args>(args)...)) {}
 
     const char* what() const noexcept override
     {
@@ -33,5 +34,4 @@ public:
 private:
     std::string message;
 };
-
 

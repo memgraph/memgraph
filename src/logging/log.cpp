@@ -5,5 +5,5 @@
 
 Logger Log::logger(const std::string& name)
 {
-    return Logger(*this, name);
+    return Logger(this, name);
 }

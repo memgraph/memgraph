@@ -1,13 +1,11 @@
 #pragma once
 
-#include <stdexcept>
-
 #include "utils/exceptions/basic_exception.hpp"
 
-namespace io
+namespace bolt
 {
 
-class NetworkError : public BasicException
+class StreamError : BasicException
 {
 public:
     using BasicException::BasicException;

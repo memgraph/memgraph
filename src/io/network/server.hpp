@@ -5,33 +5,39 @@
 namespace io
 {
 
-template <class Derived, class Stream>
-class Server : public StreamReader<Derived, Stream>
+template <class Derived>
+class Server : public EventListener<Derived>
 {
 public:
-    bool accept(Socket& socket)
+    Server(Socket&& socket) : socket(std::forward<Socket>(socket))
     {
-        // accept a connection from a socket
-        auto s = socket.accept(nullptr, nullptr);
-        LOG_DEBUG("socket " << s.id() << " accepted");
+        event.data.fd = this->socket;
+        event.events = EPOLLIN | EPOLLET;
 
-        if(!s.is_open())
-            return false;
-
-        // make the recieved socket non blocking
-        s.set_non_blocking();
-
-        auto& stream = this->derived().on_connect(std::move(s));
-
-        // we want to listen to an incoming event which is edge triggered and
-        // we also want to listen on the hangup event
-        stream.event.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
-
-        // add the connection to the event listener
-        this->add(stream);
-
-        return true;
+        this->listener.add(this->socket, &event);
     }
+
+    void on_close_event(Epoll::Event& event)
+    {
+        ::close(event.data.fd);
+    }
+
+    void on_error_event(Epoll::Event& event)
+    {
+        ::close(event.data.fd);
+    }
+
+    void on_data_event(Epoll::Event& event)
+    {
+        if(UNLIKELY(socket != event.data.fd))
+            return;
+
+        this->derived().on_connect();
+    }
+
+protected:
+    Epoll::Event event;
+    Socket socket;
 };
 
 }

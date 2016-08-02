@@ -16,17 +16,24 @@
 #include "addrinfo.hpp"
 #include "utils/likely.hpp"
 
+#include "logging/default.hpp"
+
+#include <iostream>
+
 namespace io
 {
 
 class Socket
 {
+protected:
     Socket(int family, int socket_type, int protocol)
     {
         socket = ::socket(family, socket_type, protocol);
     }
 
 public:
+    using byte = uint8_t;
+
     Socket(int socket = -1) : socket(socket) {}
 
     Socket(const Socket&) = delete;
@@ -41,7 +48,16 @@ public:
         if(socket == -1)
             return;
 
-        close(socket);
+
+        std::cout << "DELETING SOCKET" << std::endl;
+
+        ::close(socket);
+    }
+
+    void close()
+    {
+        ::close(socket);
+        socket = -1;
     }
 
     Socket& operator=(Socket&& other)
@@ -73,7 +89,7 @@ public:
                 continue;
 
             if(::connect(s, it->ai_addr, it->ai_addrlen) == 0)
-                return std::move(s);
+                return s;
         }
 
         throw NetworkError("Unable to connect to socket");
@@ -100,7 +116,7 @@ public:
                 continue;
 
             if(::bind(s, it->ai_addr, it->ai_addrlen) == 0)
-                return std::move(s);
+                return s;
         }
 
         throw NetworkError("Unable to bind to socket");
@@ -141,22 +157,38 @@ public:
         return socket;
     }
 
-    size_t write(const std::string& str)
+    int write(const std::string& str)
     {
-        return ::write(socket, str.c_str(), str.size());
+        return write(str.c_str(), str.size());
     }
 
-    size_t write(const char* data, size_t len)
+    int write(const char* data, size_t len)
     {
+        return write(reinterpret_cast<const byte*>(data), len);
+    }
+
+    int write(const byte* data, size_t len)
+    {
+#ifndef NDEBUG
+        std::stringstream stream;
+
+        for(size_t i = 0; i < len; ++i)
+            stream << fmt::format("{:02X} ", static_cast<byte>(data[i]));
+
+        auto str = stream.str();
+
+        logging::debug("[Write {}B] {}", len, str);
+#endif
+
         return ::write(socket, data, len);
     }
 
-    size_t read(char* buffer, size_t len)
+    int read(void* buffer, size_t len)
     {
         return ::read(socket, buffer, len);
     }
 
-private:
+protected:
     int socket;
 };
 
