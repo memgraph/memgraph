@@ -1,21 +1,20 @@
 #pragma once
 
-#include "data_structures/concurrent/common.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 
 template <class T>
-class ConcurrentSet
+class ConcurrentMultiSet
 {
   typedef SkipList<T> list;
   typedef typename SkipList<T>::Iterator list_it;
   typedef typename SkipList<T>::ConstIterator list_it_con;
 
   public:
-  ConcurrentSet() {}
+  ConcurrentMultiSet() {}
 
   class Accessor : public AccessorBase<T>
   {
-    friend class ConcurrentSet;
+    friend class ConcurrentMultiSet;
 
     using AccessorBase<T>::AccessorBase;
 
@@ -23,14 +22,11 @@ private:
     using AccessorBase<T>::accessor;
 
 public:
-    std::pair<list_it, bool> insert(const T &item)
-    {
-      return accessor.insert(item);
-    }
+    list_it insert(const T &item) { return accessor.insert_non_unique(item); }
 
-    std::pair<list_it, bool> insert(T &&item)
+    list_it insert(T &&item)
     {
-      return accessor.insert(std::forward<T>(item));
+      return accessor.insert_non_unique(std::forward<T>(item));
     }
 
     list_it_con find(const T &item) const { return accessor.find(item); }

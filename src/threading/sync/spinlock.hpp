@@ -8,18 +8,14 @@
 class SpinLock
 {
 public:
-
     void lock()
-    {
-        while(lock_flag.test_and_set(std::memory_order_acquire))
+    { // Before was memorz_order_acquire
+        while (lock_flag.test_and_set(std::memory_order_seq_cst))
             cpu_relax();
-            ///usleep(250);
+        /// usleep(250);
     }
-
-    void unlock()
-    {
-        lock_flag.clear(std::memory_order_release);
-    }
+    // Before was memory_order_release
+    void unlock() { lock_flag.clear(std::memory_order_seq_cst); }
 
 private:
     // guaranteed by standard to be lock free!

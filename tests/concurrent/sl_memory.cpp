@@ -8,7 +8,7 @@ constexpr size_t elements = 2e6;
 int main()
 {
   memory_check(THREADS_NO, [] {
-    skiplist_t skiplist;
+    map_t skiplist;
 
     auto futures = run<size_t>(THREADS_NO, skiplist, [](auto acc, auto index) {
       for (size_t i = 0; i < elements; i++) {
@@ -17,6 +17,8 @@ int main()
       return index;
     });
     collect(futures);
-    check_size(skiplist.access(), elements);
+
+    auto accessor = skiplist.access();
+    check_size<map_t>(accessor, elements);
   });
 }
