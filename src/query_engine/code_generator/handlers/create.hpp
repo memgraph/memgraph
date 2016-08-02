@@ -2,23 +2,6 @@
 
 #include "query_engine/code_generator/handlers/includes.hpp"
 
-using Direction = RelationshipData::Direction;
-
-auto update_properties(const QueryActionData &action_data,
-                       const std::string &name)
-{
-    std::string code = "";
-
-    auto entity_data = action_data.get_entity_property(name);
-    for (auto &property : entity_data.properties) {
-        auto index =
-            action_data.parameter_index.at(ParameterIndexKey(name, property));
-        code += LINE(fmt::format(code::set_property, name, property, index));
-    }
-
-    return code;
-}
-
 auto create_query_action =
     [](CypherStateData &cypher_data,
        const QueryActionData &action_data) -> std::string {

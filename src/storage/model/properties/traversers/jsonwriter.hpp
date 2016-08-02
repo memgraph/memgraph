@@ -9,7 +9,7 @@ struct JsonWriter
 public:
     JsonWriter(Buffer &buffer) : buffer(buffer) { buffer << '{'; };
 
-    void handle(const std::string &key, Property &value)
+    void handle(const std::string &key, const Property &value)
     {
         if (!first) buffer << ',';
 
@@ -20,17 +20,17 @@ public:
         accept(value, *this);
     }
 
-    void handle(Bool &b) { buffer << (b.value() ? "true" : "false"); }
+    void handle(const Bool &b) { buffer << (b.value() ? "true" : "false"); }
 
-    void handle(String &s) { buffer << '"' << s.value << '"'; }
+    void handle(const String &s) { buffer << '"' << s.value << '"'; }
 
-    void handle(Int32 &int32) { buffer << std::to_string(int32.value); }
+    void handle(const Int32 &int32) { buffer << std::to_string(int32.value); }
 
-    void handle(Int64 &int64) { buffer << std::to_string(int64.value); }
+    void handle(const Int64 &int64) { buffer << std::to_string(int64.value); }
 
-    void handle(Float &f) { buffer << std::to_string(f.value); }
+    void handle(const Float &f) { buffer << std::to_string(f.value); }
 
-    void handle(Double &d) { buffer << std::to_string(d.value); }
+    void handle(const Double &d) { buffer << std::to_string(d.value); }
 
     void finish() { buffer << '}'; }
 

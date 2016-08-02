@@ -13,7 +13,7 @@ class ConsoleWriter
 public:
     ConsoleWriter() {}
 
-    void handle(const std::string &key, Property &value)
+    void handle(const std::string &key, const Property &value)
     {
         cout << "KEY: " << key << "; VALUE: ";
 
@@ -24,17 +24,17 @@ public:
         cout << endl;
     }
 
-    void handle(Bool &b) { cout << b.value(); }
+    void handle(const Bool &b) { cout << b.value(); }
 
-    void handle(String &s) { cout << s.value; }
+    void handle(const String &s) { cout << s.value; }
 
-    void handle(Int32 &int32) { cout << int32.value; }
+    void handle(const Int32 &int32) { cout << int32.value; }
 
-    void handle(Int64 &int64) { cout << int64.value; }
+    void handle(const Int64 &int64) { cout << int64.value; }
 
-    void handle(Float &f) { cout << f.value; }
+    void handle(const Float &f) { cout << f.value; }
 
-    void handle(Double &d) { cout << d.value; }
+    void handle(const Double &d) { cout << d.value; }
 
     void finish() {}
 };

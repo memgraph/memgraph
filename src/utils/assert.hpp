@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <sstream>
 
 #include "exceptions/basic_exception.hpp"

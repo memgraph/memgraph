@@ -19,10 +19,10 @@ auto return_query_action =
                 fmt::format("{} couldn't be found (RETURN clause).", entity));
         }
         if (element.is_entity_only()) {
-            code += LINE(fmt::format("// RETURN: {}", entity));
+            code += LINE(fmt::format(code::print_properties, entity));
         } else if (element.is_projection()) {
             auto &property = element.property;
-            code += LINE(fmt::format("// RETURN: {}.{}", entity, property));
+            code += LINE(fmt::format(code::print_property, entity, property));
         }
     }
     

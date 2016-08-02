@@ -4,30 +4,30 @@
 #include "storage/model/properties/all.hpp"
 
 template <class Handler>
-void accept(Property &property, Handler &h)
+void accept(const Property &property, Handler &h)
 {
     switch (property.flags) {
 
         case Property::Flags::True:
-            return h.handle(static_cast<Bool &>(property));
+            return h.handle(static_cast<const Bool &>(property));
 
         case Property::Flags::False:
-            return h.handle(static_cast<Bool &>(property));
+            return h.handle(static_cast<const Bool &>(property));
 
         case Property::Flags::String:
-            return h.handle(static_cast<String &>(property));
+            return h.handle(static_cast<const String &>(property));
 
         case Property::Flags::Int32:
-            return h.handle(static_cast<Int32 &>(property));
+            return h.handle(static_cast<const Int32 &>(property));
 
         case Property::Flags::Int64:
-            return h.handle(static_cast<Int64 &>(property));
+            return h.handle(static_cast<const Int64 &>(property));
 
         case Property::Flags::Float:
-            return h.handle(static_cast<Float &>(property));
+            return h.handle(static_cast<const Float &>(property));
 
         case Property::Flags::Double:
-            return h.handle(static_cast<Double &>(property));
+            return h.handle(static_cast<const Double &>(property));
 
         default:
             return;

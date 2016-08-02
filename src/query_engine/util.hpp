@@ -5,6 +5,7 @@
 
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/traversers/jsonwriter.hpp"
+#include "storage/model/properties/traversers/consolewriter.hpp"
 
 using std::cout;
 using std::endl;
@@ -24,3 +25,17 @@ void print_props(const Properties &properties)
 #else
 #define PRINT_PROPS(_)
 #endif
+
+void cout_properties(const Properties &properties)
+{
+    ConsoleWriter writer;
+    properties.accept(writer);
+    cout << "----" << endl;
+}
+
+void cout_property(const std::string& key, const Property& property)
+{
+    ConsoleWriter writer;
+    writer.handle(key, property);
+    cout << "----" << endl;
+}

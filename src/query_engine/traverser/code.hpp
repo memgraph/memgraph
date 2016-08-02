@@ -34,7 +34,7 @@ const std::string find_type =
     "auto &{0} = db.graph.edge_type_store.find_or_create(\"{0}\");";
 const std::string set_type = "{}.edge_type({});";
 const std::string node_out = "{}.vlist->update(t)->data.out.add({}.vlist);";
-const std::string node_in = "{}.vlist->update(t)->data.in.add({}.vlist);"; 
+const std::string node_in = "{}.vlist->update(t)->data.in.add({}.vlist);";
 const std::string edge_from = "{}.from({}.vlist);";
 const std::string edge_to = "{}.to({}.vlist);";
 
@@ -50,13 +50,17 @@ const std::string match_edge_by_id =
     "auto {0} = db.graph.edges.find(t, args[{1}]->as<Int64>().value);\n"
     "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
 
-
 const std::string return_empty_result =
     "return std::make_shared<QueryResult>();";
 
 const std::string update_property = "{}.property(\"{}\", args[{}]);";
 
 const std::string todo = "// TODO: {}";
+const std::string print_properties =
+    "cout << \"{0}\" << endl;\n"
+    "        cout_properties({0}.properties());";
+const std::string print_property =
+    "cout_property(\"{0}\", {0}.property(\"{1}\"));";
 
 std::string debug_print_vertex_labels()
 {

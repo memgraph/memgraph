@@ -3,14 +3,8 @@
 #include "database/db.hpp"
 #include "query_engine/query_stripper.hpp"
 #include "storage/model/properties/property.hpp"
-#include "storage/model/properties/traversers/consolewriter.hpp"
 #include "utils/command_line/arguments.hpp"
-
-void cout_properties(const Properties &properties)
-{
-    ConsoleWriter writer;
-    properties.accept(writer);
-}
+#include "query_engine/util.hpp"
 
 auto load_queries(Db& db)
 {
@@ -147,7 +141,7 @@ auto load_queries(Db& db)
         return true;
     };
 
-    // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25, weight: 70}]-(n2) RETURN r]
+    // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25, weight: 70}]-(n2) RETURN r
     auto create_edge_v2 = [&db](const properties_t &args)
     {
         auto& t = db.tx_engine.begin();
@@ -177,7 +171,6 @@ auto load_queries(Db& db)
     queries[8320600413058284114u] = find_edge_by_internal_id;
     queries[6813335159006269041u] = update_node;
     queries[4857652843629217005u] = find_by_label;
-
 
     return queries;
 }
