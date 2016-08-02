@@ -10,3 +10,10 @@ public:
     SemanticError(const std::string& what) :
         BasicException("Semantic error: " + what) {}
 };
+
+class CodeGenerationError : public BasicException
+{
+public:
+    CodeGenerationError(const std::string& what) :
+        BasicException("Code Generation error: " + what) {}
+};

@@ -9,6 +9,12 @@
 namespace io
 {
 
+class EpollError : BasicException
+{
+public:
+    using BasicException::BasicException;
+};
+
 class Epoll
 {
 public:
@@ -17,14 +23,18 @@ public:
     Epoll(int flags)
     {
         epoll_fd = epoll_create1(flags);
+
+        if(UNLIKELY(epoll_fd == -1))
+            throw EpollError("Can't create epoll file descriptor");
     }
 
-    void add(Socket& socket, Event* event)
+    template <class Stream>
+    void add(Stream& stream, Event* event)
     {
-        auto status = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, socket, event);
+        auto status = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, stream, event);
 
         if(UNLIKELY(status))
-            throw NetworkError("Can't add an event to epoll listener.");
+            throw EpollError("Can't add an event to epoll listener.");
     }
 
     int wait(Event* events, int max_events, int timeout)

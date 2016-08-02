@@ -2,9 +2,15 @@
 
 #include <stdexcept>
 
-class NetworkError : public std::runtime_error
+#include "utils/exceptions/basic_exception.hpp"
+
+namespace io
+{
+
+class NetworkError : public BasicException
 {
 public:
-    using std::runtime_error::runtime_error;
+    using BasicException::BasicException;
 };
 
+}

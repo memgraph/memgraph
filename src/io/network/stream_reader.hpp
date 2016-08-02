@@ -1,6 +1,6 @@
 #pragma once
 
-#include "event_listener.hpp"
+#include "stream_listener.hpp"
 #include "memory/literals.hpp"
 
 namespace io
@@ -8,7 +8,7 @@ namespace io
 using namespace memory::literals;
 
 template <class Derived, class Stream>
-class StreamReader : public EventListener<Derived, Stream>
+class StreamReader : public StreamListener<Derived, Stream>
 {
 public:
     struct Buffer
@@ -17,12 +17,41 @@ public:
         size_t len;
     };
 
-    StreamReader(uint32_t flags = 0) : EventListener<Derived, Stream>(flags) {}
+    StreamReader(uint32_t flags = 0) : StreamListener<Derived, Stream>(flags) {}
+
+    bool accept(Socket& socket)
+    {
+        // accept a connection from a socket
+        auto s = socket.accept(nullptr, nullptr);
+
+        if(!s.is_open())
+            return false;
+
+        // make the recieved socket non blocking
+        s.set_non_blocking();
+
+        auto& stream = this->derived().on_connect(std::move(s));
+
+        // we want to listen to an incoming event which is edge triggered and
+        // we also want to listen on the hangup event
+        stream.event.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
+
+        // add the connection to the event listener
+        this->add(stream);
+
+        return true;
+    }
 
     void on_data(Stream& stream)
     {
         while(true)
         {
+            if(UNLIKELY(!stream.alive()))
+            {
+                stream.close();
+                break;
+            }
+
             // allocate the buffer to fill the data
             auto buf = this->derived().on_alloc(stream);
 
@@ -35,23 +64,21 @@ public:
                 // this means we have read all available data
                 if(LIKELY(errno == EAGAIN))
                 {
-                    LOG_DEBUG("EAGAIN read all data on socket " << stream.id());
                     break;
                 }
 
                 // some other error occurred, check errno
                 this->derived().on_error(stream);
+                break;
             }
 
             // end of file, the client has closed the connection
             if(UNLIKELY(buf.len == 0))
             {
-                LOG_DEBUG("EOF stream closed on socket " << stream.id());
                 stream.close();
                 break;
             }
 
-            LOG_DEBUG("data on socket " << stream.id());
             this->derived().on_read(stream, buf);
         }
     }

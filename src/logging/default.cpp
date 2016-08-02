@@ -1,0 +1,33 @@
+#include "default.hpp"
+
+#include "logging/logs/async_log.hpp"
+#include "logging/logs/sync_log.hpp"
+
+#include "logging/streams/stdout.hpp"
+
+namespace logging
+{
+
+std::unique_ptr<Log> log;
+
+std::unique_ptr<Log> debug_log = std::make_unique<SyncLog>();
+
+Logger init_debug_logger()
+{
+    debug_log->pipe(std::make_unique<Stdout>());
+    return debug_log->logger("DEBUG");
+}
+
+Logger debug_logger = init_debug_logger();
+
+void init_async()
+{
+    log = std::make_unique<AsyncLog>();
+}
+
+void init_sync()
+{
+    log = std::make_unique<SyncLog>();
+}
+
+}

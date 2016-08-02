@@ -76,7 +76,7 @@ struct ParameterIndexKey
     }
 };
 
-struct RelationshipData : public EntityData
+struct RelationshipData
 {
     enum class Direction
     {

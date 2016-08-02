@@ -20,14 +20,23 @@ const std::string transaction_begin = "auto& t = db.tx_engine.begin();";
 
 const std::string transaction_commit = "t.commit();";
 
+const std::string set_property = "{}.property(\"{}\", args[{}]);";
+
 // create vertex e.g. CREATE (n:PERSON {name: "Test", age: 23})
-const std::string create_vertex =
-    "auto {} = db.graph.vertices.insert(t);";
-const std::string set_vertex_property =
-    "{}.property(\"{}\", args[{}]);";
+const std::string create_vertex = "auto {} = db.graph.vertices.insert(t);";
 const std::string create_label =
     "auto &{0} = db.graph.label_store.find_or_create(\"{0}\");";
 const std::string add_label = "{}.add_label({});";
+
+// create edge e.g CREATE (n1)-[r:COST {cost: 100}]->(n2)
+const std::string create_edge = "auto {} = db.graph.edges.insert(t);";
+const std::string find_type =
+    "auto &{0} = db.graph.edge_type_store.find_or_create(\"{0}\");";
+const std::string set_type = "{}.edge_type({});";
+const std::string node_out = "{}.vlist->update(t)->data.out.add({}.vlist);";
+const std::string node_in = "{}.vlist->update(t)->data.in.add({}.vlist);"; 
+const std::string edge_from = "{}.from({}.vlist);";
+const std::string edge_to = "{}.to({}.vlist);";
 
 const std::string args_id = "auto id = args[{}]->as<Int32>();";
 
@@ -36,21 +45,16 @@ const std::string vertex_accessor_args_id =
 
 const std::string match_vertex_by_id =
     "auto {0} = db.graph.vertices.find(t, args[{1}]->as<Int64>().value);\n"
-    "if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
+    "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
 const std::string match_edge_by_id =
     "auto {0} = db.graph.edges.find(t, args[{1}]->as<Int64>().value);\n"
-    "if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
-
-const std::string create_edge =
-    "auto {} = db.graph.edges.insert(t);";
+    "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
 
 
 const std::string return_empty_result =
     "return std::make_shared<QueryResult>();";
 
-const std::string update_property =
-    "{}.property(\"{}\", args[{}]);";
-
+const std::string update_property = "{}.property(\"{}\", args[{}]);";
 
 const std::string todo = "// TODO: {}";
 
