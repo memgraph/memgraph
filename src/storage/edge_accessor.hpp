@@ -34,7 +34,7 @@ public:
         this->record->data.to = vertex_record;
     }
 
-    auto from() { return this->record->data.from; }
+    auto from() const { return this->record->data.from; }
 
-    auto to() { return this->record->data.to; }
+    auto to() const { return this->record->data.to; }
 };

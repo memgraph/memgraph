@@ -3,16 +3,16 @@
 #include "storage/vertices.hpp"
 
 size_t Vertex::Accessor::out_degree() const
-{ 
-    return this->record->data.out.degree(); 
+{
+    return this->record->data.out.degree();
 }
 
-size_t Vertex::Accessor::in_degree() const 
+size_t Vertex::Accessor::in_degree() const
 {
     return this->record->data.in.degree();
 }
 
-size_t Vertex::Accessor::degree() const 
+size_t Vertex::Accessor::degree() const
 {
     return in_degree() + out_degree();
 }

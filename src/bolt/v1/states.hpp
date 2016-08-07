@@ -14,6 +14,7 @@ public:
     State::uptr handshake;
     State::uptr init;
     State::uptr executor;
+    State::uptr error;
 };
 
 }
