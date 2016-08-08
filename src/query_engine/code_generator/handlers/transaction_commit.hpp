@@ -4,5 +4,6 @@
 
 auto transaction_commit_action = [](CypherStateData &,
                                     const QueryActionData &) -> std::string {
-    return LINE(code::transaction_commit) + LINE(code::return_empty_result);
+    return code_line(code::transaction_commit) +
+           code_line(code::return_empty_result);
 };

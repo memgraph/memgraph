@@ -24,6 +24,15 @@ on a 64 bit linux kernel.
 ```
 cd build
 cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DRUNTIME_ASSERT=OFF -DTHROW_EXCEPTION_ON_ERROR=OFF -DNDEBUG=OFF ..
+
+# Flags:
+#   -DCMAKE_C_COMPILER=clang
+#   -DCMAKE_CXX_COMPILER=clang++
+#   -DRUNTIME_ASSERT=OFF
+#   -DTHROW_EXCEPTION_ON_ERROR=OFF
+#   -DCMAKE_BUILD_TYPE:STRING=Debug
+#   -DNDEBUG=ON
+
 make
 ctest
 ctest -V

@@ -70,19 +70,19 @@ int main(void)
 
     write_ff(encoder, 10);
     write_ff(encoder, 10);
-    encoder.finish();
+    encoder.flush();
 
     write_ff(encoder, 10);
     write_ff(encoder, 10);
-    encoder.finish();
+    encoder.flush();
 
     // this should be two chunks, one of size 65533 and the other of size 1467
     write_ff(encoder, 67000);
-    encoder.finish();
+    encoder.flush();
 
     for(int i = 0; i < 10000; ++i)
         write_ff(encoder, 1500);
-    encoder.finish();
+    encoder.flush();
 
     assert(stream.pop_size() == 20);
     check_ff(stream, 20);

@@ -24,6 +24,7 @@ public:
                           "-o", out_file,       // ouput file
                           "-I./include", // include paths (TODO: parameter)
                           "-I./src", "-I../../libs/fmt",
+                          "-L./ -lmemgraph_pic",
                           "-shared -fPIC" // shared library flags
                           );
 

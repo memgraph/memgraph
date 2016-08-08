@@ -11,10 +11,10 @@ auto delete_query_action =
     for (auto const &kv : action_data.actions) {
         auto entity = kv.first;
         if (kv.second == ClauseAction::DeleteNode) {
-            code += LINE(fmt::format("// DELETE Node({})", entity));
+            code += code_line("// DELETE Node({})", entity);
         }
         if (kv.second == ClauseAction::DeleteRelationship) {
-            code += LINE(fmt::format("// DELETE Relationship({})", entity));
+            code += code_line("// DELETE Relationship({})", entity);
         }
     }
 

@@ -3,14 +3,13 @@
 #include <iostream>
 #include <string>
 
+#include "fmt/format.h"
 #include "storage/model/properties/properties.hpp"
-#include "storage/model/properties/traversers/jsonwriter.hpp"
 #include "storage/model/properties/traversers/consolewriter.hpp"
+#include "storage/model/properties/traversers/jsonwriter.hpp"
 
 using std::cout;
 using std::endl;
-
-std::string LINE(std::string line) { return "\t" + line + "\n"; }
 
 void print_props(const Properties &properties)
 {
@@ -33,9 +32,25 @@ void cout_properties(const Properties &properties)
     cout << "----" << endl;
 }
 
-void cout_property(const std::string& key, const Property& property)
+void cout_property(const std::string &key, const Property &property)
 {
     ConsoleWriter writer;
     writer.handle(key, property);
     cout << "----" << endl;
 }
+
+// wrapper for fmt format
+template <typename... Args>
+std::string format(const std::string &format_str, const Args &... args)
+{
+    return fmt::format(format_str, args...);
+}
+
+// wrapper for single code line
+template <typename... Args>
+std::string code_line(const std::string &format_str, const Args &... args)
+{
+    return "\t" + format(format_str, args...) + "\n";
+}
+
+

@@ -9,7 +9,13 @@
 class Vertices
 {
 public:
+    using vertices_t = ConcurrentMap<uint64_t, VertexRecord>;
+
+    vertices_t::Accessor access();
+
     const Vertex::Accessor find(tx::Transaction &t, const Id &id);
+
+    const Vertex::Accessor first(tx::Transaction &t);
 
     Vertex::Accessor insert(tx::Transaction &t);
 
@@ -17,10 +23,9 @@ public:
                             VertexIndexRecord &&index_record);
 
     VertexIndexRecordCollection& find_label_index(const Label& label);
-
+    
 private:
+    vertices_t vertices;
     Index<label_ref_t, VertexIndexRecordCollection> label_index;
-
-    ConcurrentMap<uint64_t, VertexRecord> vertices;
     AtomicCounter<uint64_t> counter;
 };

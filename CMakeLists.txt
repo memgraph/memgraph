@@ -10,9 +10,14 @@ project(${ProjectId})
 find_package(Threads REQUIRED)
 
 # flags
+
 # c++14
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
-# glibcxx debug
+
+# glibcxx debug (useful for gdb)
+# the problem is that the query engine doesn't work as it should work if 
+# this flag is present
+# TODO: find more appropriate way to use this flag only when it is needed
 # set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_DEBUG")
 
 # functions
@@ -133,15 +138,16 @@ foreach(source_foler ${source_folders})
     file(COPY ${include_dir}/${source_folder} DESTINATION ${test_include_dir})
 endforeach()
 
-# compiler options
-SET(COMPILE_OPTIONS "-O2 -Wall -Werror -fmessage-length=0")
-
 # add all cpp file recursive into sourceFiles varibale
 # FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
 # print list of source files
 # MESSAGE(STATUS "All source files are: ${sourceFiles}")
 
-# defines
+# compiler options
+# SET(COMPILE_OPTIONS "-O2 -Wall -Werror -fmessage-length=0")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
+
+# manual defines at configure time
 option(RUNTIME_ASSERT "Enable runtime assertions" OFF)
 if(RUNTIME_ASSERT)
     add_definitions( -DRUNTIME_ASSERT_ON )
@@ -216,11 +222,20 @@ set(memgraph_src_files
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
 )
-add_library(libmemgraph ${memgraph_src_files})
+
+# STATIC library used by memgraph executables
+add_library(memgraph STATIC ${memgraph_src_files})
+
+# STATIC PIC library used by query engine
+add_library(memgraph_pic STATIC ${memgraph_src_files})
+set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
 # tests
 enable_testing()
 add_subdirectory(tests)
+
+# proof of concept
+add_subdirectory(poc)
 
 # memgraph build name
 execute_process(
@@ -234,15 +249,7 @@ execute_process(
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 string(STRIP ${COMMIT_NO} COMMIT_NO)
 set(MEMGRAPH_BUILD_NAME "memgraph_${COMMIT_HASH}_${COMMIT_NO}")
+message(STATUS ${CMAKE_BUILD_TYPE})
 
-# DEBUG BUILD
-add_executable(${MEMGRAPH_BUILD_NAME}_debug ${src_dir}/memgraph_bolt.cpp)
-
-# TEST BUILD
-# TODO
-
-# O-OPTIMIZED BUILD
-# TODO
-
-# RELEASE BUILD
-# TODO
+# memgraph main executable
+add_executable(${MEMGRAPH_BUILD_NAME}_${CMAKE_BUILD_TYPE} ${src_dir}/memgraph_bolt.cpp)

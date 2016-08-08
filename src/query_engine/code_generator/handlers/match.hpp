@@ -36,7 +36,7 @@ auto match_query_action =
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
                 code +=
-                    LINE(fmt::format(code::match_vertex_by_id, name, index));
+                    code_line(code::match_vertex_by_id, name, index);
             }
         }
 
@@ -49,7 +49,7 @@ auto match_query_action =
             auto place = action_data.csm.min(kv.first);
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
-                code += LINE(fmt::format(code::match_edge_by_id, name, index));
+                code += code_line(code::match_edge_by_id, name, index);
             }
         }
     }

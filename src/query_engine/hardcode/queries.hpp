@@ -127,20 +127,6 @@ auto load_queries(Db& db)
         return true;
     };
 
-    auto find_by_label = [&db](const properties_t &args)
-    {
-        auto &t = db.tx_engine.begin();
-        auto &label = db.graph.label_store.find_or_create("LABEL");
-        auto &index_record_collection =
-            db.graph.vertices.find_label_index(label);
-        auto accessor = index_record_collection.access();
-        cout << "VERTICES" << endl;
-        for (auto& v : accessor) {
-            cout << v.record->data.props.at("name").as<String>().value << endl;
-        }
-        return true;
-    };
-
     // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25, weight: 70}]-(n2) RETURN r
     auto create_edge_v2 = [&db](const properties_t &args)
     {
@@ -163,6 +149,49 @@ auto load_queries(Db& db)
     };
     queries[15648836733456301916u] = create_edge_v2;
 
+    // MATCH (n) RETURN n
+    auto match_all_nodes = [&db](const properties_t &args)
+    {
+        auto &t = db.tx_engine.begin();
+
+        auto vertices_accessor = db.graph.vertices.access();
+        for (auto &it : vertices_accessor) {
+            auto vertex = it.second.find(t);
+            if (vertex == nullptr) continue;
+            cout_properties(vertex->data.props);
+        }
+        
+        // TODO
+        // db.graph.vertices.filter().all(t, handler);
+
+        t.commit();
+
+        return true;
+    };
+    queries[15284086425088081497u] = match_all_nodes;
+
+    // MATCH (n:LABEL) RETURN n
+    auto find_by_label = [&db](const properties_t &args)
+    {
+        auto &t = db.tx_engine.begin();
+
+        auto &label = db.graph.label_store.find_or_create("LABEL");
+
+        auto &index_record_collection =
+            db.graph.vertices.find_label_index(label);
+        auto accessor = index_record_collection.access();
+        cout << "VERTICES" << endl;
+        for (auto& v : accessor) {
+            cout << v.record->data.props.at("name").as<String>().value << endl;
+        }
+        
+        // TODO
+        // db.graph.vertices.fileter("LABEL").all(t, handler);
+
+        return true;
+    };
+    queries[4857652843629217005u] = find_by_label;
+
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
     queries[7939106225150551899u] = create_edge;
@@ -170,7 +199,6 @@ auto load_queries(Db& db)
     queries[11198568396549106428u] = find_node_by_internal_id;
     queries[8320600413058284114u] = find_edge_by_internal_id;
     queries[6813335159006269041u] = update_node;
-    queries[4857652843629217005u] = find_by_label;
 
     return queries;
 }

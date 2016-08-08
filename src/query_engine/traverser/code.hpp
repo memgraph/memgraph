@@ -65,10 +65,10 @@ const std::string print_property =
 std::string debug_print_vertex_labels()
 {
 #ifdef DEBUG
-    return LINE("PRINT_PROPS(vertex_accessor.properties());") +
-           LINE("cout << \"LABELS:\" << endl;") +
-           LINE("for (auto label_ref : vertex_accessor.labels()) {") +
-           LINE("cout << label_ref.get() << endl;") + LINE("}");
+    return code_line("PRINT_PROPS(vertex_accessor.properties());") +
+           code_line("cout << \"LABELS:\" << endl;") +
+           code_line("for (auto label_ref : vertex_accessor.labels()) {") +
+           code_line("cout << label_ref.get() << endl;") + code_line("}");
 #else
     return "";
 #endif

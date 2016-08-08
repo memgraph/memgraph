@@ -63,7 +63,7 @@ public:
 
     }
 
-    T* find(const tx::Transaction& t)
+    T* find(const tx::Transaction& t) const
     {
         auto r = head.load(std::memory_order_seq_cst);
 

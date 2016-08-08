@@ -6,49 +6,49 @@
 template <class T>
 class ConcurrentSet
 {
-  typedef SkipList<T> list;
-  typedef typename SkipList<T>::Iterator list_it;
-  typedef typename SkipList<T>::ConstIterator list_it_con;
-
-  public:
-  ConcurrentSet() {}
-
-  class Accessor : public AccessorBase<T>
-  {
-    friend class ConcurrentSet;
-
-    using AccessorBase<T>::AccessorBase;
-
-private:
-    using AccessorBase<T>::accessor;
+    typedef SkipList<T> list;
+    typedef typename SkipList<T>::Iterator list_it;
+    typedef typename SkipList<T>::ConstIterator list_it_con;
 
 public:
-    std::pair<list_it, bool> insert(const T &item)
+    ConcurrentSet() {}
+
+    class Accessor : public AccessorBase<T>
     {
-      return accessor.insert(item);
-    }
+        friend class ConcurrentSet;
 
-    std::pair<list_it, bool> insert(T &&item)
-    {
-      return accessor.insert(std::forward<T>(item));
-    }
+        using AccessorBase<T>::AccessorBase;
 
-    list_it_con find(const T &item) const { return accessor.find(item); }
+    private:
+        using AccessorBase<T>::accessor;
 
-    list_it find(const T &item) { return accessor.find(item); }
+    public:
+        std::pair<list_it, bool> insert(const T &item)
+        {
+            return accessor.insert(item);
+        }
 
-    bool contains(const T &item) const
-    {
-      return this->find(item) != this->end();
-    }
+        std::pair<list_it, bool> insert(T &&item)
+        {
+            return accessor.insert(std::forward<T>(item));
+        }
 
-    bool remove(const T &item) { return accessor.remove(item); }
-  };
+        list_it_con find(const T &item) const { return accessor.find(item); }
 
-  Accessor access() { return Accessor(&skiplist); }
+        list_it find(const T &item) { return accessor.find(item); }
 
-  const Accessor access() const { return Accessor(&skiplist); }
+        bool contains(const T &item) const
+        {
+            return this->find(item) != this->end();
+        }
 
-  private:
-  list skiplist;
+        bool remove(const T &item) { return accessor.remove(item); }
+    };
+
+    Accessor access() { return Accessor(&skiplist); }
+
+    const Accessor access() const { return Accessor(&skiplist); }
+
+private:
+    list skiplist;
 };

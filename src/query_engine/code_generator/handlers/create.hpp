@@ -13,7 +13,7 @@ auto create_query_action =
         if (kv.second == ClauseAction::CreateNode) {
             // create node
             auto &name = kv.first;
-            code += LINE(fmt::format(code::create_vertex, name));
+            code += code_line(code::create_vertex, name);
 
             // update properties
             code += update_properties(action_data, name);
@@ -21,8 +21,8 @@ auto create_query_action =
             // update labels
             auto entity_data = action_data.get_entity_property(name);
             for (auto &label : entity_data.tags) {
-                code += LINE(fmt::format(code::create_label, label));
-                code += LINE(fmt::format(code::add_label, name, label));
+                code += code_line(code::create_label, label);
+                code += code_line(code::add_label, name, label);
             }
 
             // mark node as created
@@ -32,7 +32,7 @@ auto create_query_action =
         if (kv.second == ClauseAction::CreateRelationship) {
             // create relationship
             auto name = kv.first;
-            code += LINE(fmt::format(code::create_edge, name));
+            code += code_line(code::create_edge, name);
 
             // update properties
             code += update_properties(action_data, name);
@@ -40,8 +40,8 @@ auto create_query_action =
             // update tag
             auto entity_data = action_data.get_entity_property(name);
             for (auto &tag : entity_data.tags) {
-                code += LINE(fmt::format(code::find_type, tag));
-                code += LINE(fmt::format(code::set_type, name, tag));
+                code += code_line(code::find_type, tag);
+                code += code_line(code::set_type, name, tag);
             }
 
             // find start and end node
@@ -65,15 +65,15 @@ auto create_query_action =
 
             // define direction
             if (relationship_data.direction == Direction::Right) {
-                code += LINE(fmt::format(code::node_out, left_node, name));
-                code += LINE(fmt::format(code::node_in, right_node, name));
-                code += LINE(fmt::format(code::edge_from, name, left_node));
-                code += LINE(fmt::format(code::edge_to, name, right_node));
+                code += code_line(code::node_out, left_node, name);
+                code += code_line(code::node_in, right_node, name);
+                code += code_line(code::edge_from, name, left_node);
+                code += code_line(code::edge_to, name, right_node);
             } else if (relationship_data.direction == Direction::Left) {
-                code += LINE(fmt::format(code::node_out, right_node, name));
-                code += LINE(fmt::format(code::node_in, left_node, name));
-                code += LINE(fmt::format(code::edge_from, name, right_node));
-                code += LINE(fmt::format(code::edge_to, name, left_node));
+                code += code_line(code::node_out, right_node, name);
+                code += code_line(code::node_in, left_node, name);
+                code += code_line(code::edge_from, name, right_node);
+                code += code_line(code::edge_to, name, left_node);
             }
 
             // mark relationship as created

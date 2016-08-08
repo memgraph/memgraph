@@ -4,5 +4,5 @@
 
 auto transaction_begin_action = [](CypherStateData &,
                                    const QueryActionData &) -> std::string {
-    return LINE(code::transaction_begin);
+    return code_line(code::transaction_begin);
 };
