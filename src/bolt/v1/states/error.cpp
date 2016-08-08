@@ -13,12 +13,18 @@ State* Error::run(Session& session)
     {
         // todo reset current statement? is it even necessary?
 
+        session.encoder.message_success_empty();
+        session.encoder.flush();
+
         return session.bolt.states.executor.get();
     }
     else if(message_type == MessageCode::Reset)
     {
         // todo rollback current transaction
         // discard all records waiting to be sent
+
+        session.encoder.message_success_empty();
+        session.encoder.flush();
 
         return session.bolt.states.executor.get();
     }

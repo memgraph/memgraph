@@ -8,6 +8,8 @@
 #include "bolt/v1/transport/bolt_decoder.hpp"
 #include "bolt/v1/transport/bolt_encoder.hpp"
 
+#include "bolt/v1/serialization/socket_serializer.hpp"
+
 #include "bolt.hpp"
 #include "logging/default.hpp"
 
@@ -18,7 +20,7 @@ class Session : public io::tcp::Stream<io::Socket>
 {
 public:
     using Decoder = BoltDecoder;
-    using Encoder = BoltEncoder<io::Socket>;
+    using Encoder = SocketSerializer<io::Socket>;
 
     Session(io::Socket&& socket, Bolt& bolt);
 

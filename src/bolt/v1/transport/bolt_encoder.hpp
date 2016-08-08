@@ -1,19 +1,16 @@
 #pragma once
 
-#include "chunked_encoder.hpp"
-#include "socket_stream.hpp"
+#include <string>
 
 #include "bolt/v1/packing/codes.hpp"
 #include "bolt/v1/messaging/codes.hpp"
-
 #include "utils/types/byte.hpp"
-
 #include "utils/bswap.hpp"
 
 namespace bolt
 {
 
-template <class Socket>
+template <class Stream>
 class BoltEncoder
 {
     static constexpr int64_t plus_2_to_the_31  =  2147483648L;
@@ -25,48 +22,58 @@ class BoltEncoder
     static constexpr int64_t minus_2_to_the_31 = -2147483648L;
 
 public:
-    BoltEncoder(Socket& socket) : stream(socket) {}
+    BoltEncoder(Stream& stream) : stream(stream) {}
 
     void flush()
     {
-        encoder.flush();
+        stream.flush();
     }
 
     void write(byte value)
     {
-        encoder.write(value);
+        write_byte(value);
+    }
+
+    void write_byte(byte value)
+    {
+        stream.write(value);
     }
 
     void write(const byte* values, size_t n)
     {
-        encoder.write(values, n);
+        stream.write(values, n);
     }
 
     void write_null()
     {
-        encoder.write(pack::Null);
+        stream.write(pack::Null);
     }
 
     void write(bool value)
+    {
+        write_bool(value);
+    }
+
+    void write_bool(bool value)
     {
         if(value) write_true(); else write_false();
     }
 
     void write_true()
     {
-        encoder.write(pack::True);
+        stream.write(pack::True);
     }
 
     void write_false()
     {
-        encoder.write(pack::False);
+        stream.write(pack::False);
     }
 
     template <class T>
     void write_value(T value)
     {
         value = bswap(value);
-        encoder.write(reinterpret_cast<const byte*>(&value), sizeof(value));
+        stream.write(reinterpret_cast<const byte*>(&value), sizeof(value));
     }
 
     void write_integer(int64_t value)
@@ -98,6 +105,11 @@ public:
     }
 
     void write(double value)
+    {
+        write_double(value);
+    }
+
+    void write_double(double value)
     {
         write(pack::Float64);
         write_value(*reinterpret_cast<const int64_t*>(&value));
@@ -235,9 +247,20 @@ public:
         write_empty_list();
     }
 
+    void message_ignored()
+    {
+        write_struct_header(1);
+        write(underlying_cast(MessageCode::Ignored));
+    }
+
+    void message_ignored_empty()
+    {
+        message_ignored();
+        write_empty_map();
+    }
+
 private:
-    SocketStream stream;
-    ChunkedEncoder<SocketStream> encoder {stream};
+    Stream& stream;
 };
 
 }
