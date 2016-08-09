@@ -1,7 +1,7 @@
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 
-// HashMap with RobinHood collision resolution policy.
+// HashMultiMap with RobinHood collision resolution policy.
 // Single threaded.
 // Entrys are saved as pointers alligned to 8B.
 // Entrys must know thers key.
@@ -9,7 +9,7 @@
 // K must be comparable with ==.
 // HashMap behaves as if it isn't owner of entrys.
 template <class K, class D, size_t init_size_pow2 = 2>
-class RhHashMap
+class RhHashMultiMap
 {
 private:
     class Combined
@@ -38,8 +38,8 @@ private:
     class IteratorBase : public Crtp<It>
     {
     protected:
-        IteratorBase() : map(nullptr) { index = ~((size_t)0); }
-        IteratorBase(const RhHashMap *map) : map(map)
+        IteratorBase() : map(nullptr) { advanced = index = ~((size_t)0); }
+        IteratorBase(const RhHashMultiMap *map) : map(map)
         {
             index = 0;
             while (index < map->capacity && !map->array[index].valid()) {
@@ -47,11 +47,18 @@ private:
             }
             if (index == map->capacity) {
                 map = nullptr;
-                index = ~((size_t)0);
+                advanced = index = ~((size_t)0);
+            } else {
+                advanced = index;
             }
         }
+        IteratorBase(const RhHashMultiMap *map, size_t start)
+            : map(map), index(start), advanced(0)
+        {
+        }
 
-        const RhHashMap *map;
+        const RhHashMultiMap *map;
+        size_t advanced;
         size_t index;
 
     public:
@@ -73,17 +80,22 @@ private:
         It &operator++()
         {
             assert(index < map->capacity && map->array[index].valid());
+            auto mask = map->mask();
             do {
-                index++;
-                if (index >= map->capacity) {
+                advanced++;
+                if (advanced >= map->capacity) {
                     map = nullptr;
-                    index = ~((size_t)0);
+                    advanced = index = ~((size_t)0);
                     break;
                 }
+                index = advanced & mask;
             } while (!map->array[index].valid());
 
             return this->derived();
         }
+        //
+        // // True if value is present
+        // bool is_present() { return map != nullptr; }
 
         It &operator++(int) { return operator++(); }
 
@@ -98,8 +110,13 @@ private:
 public:
     class ConstIterator : public IteratorBase<ConstIterator>
     {
-        friend class RhHashMap;
-        ConstIterator(const RhHashMap *map) : IteratorBase<ConstIterator>(map)
+        friend class RhHashMultiMap;
+        ConstIterator(const RhHashMultiMap *map)
+            : IteratorBase<ConstIterator>(map)
+        {
+        }
+        ConstIterator(const RhHashMultiMap *map, size_t index)
+            : IteratorBase<ConstIterator>(map, index)
         {
         }
 
@@ -120,15 +137,44 @@ public:
 
     class Iterator : public IteratorBase<Iterator>
     {
-        friend class RhHashMap;
-        Iterator(const RhHashMap *map) : IteratorBase<Iterator>(map) {}
+        friend class RhHashMultiMap;
+        Iterator(const RhHashMultiMap *map) : IteratorBase<Iterator>(map) {}
+        Iterator(const RhHashMultiMap *map, size_t index)
+            : IteratorBase<Iterator>(map, index)
+        {
+        }
 
     public:
         Iterator() = default;
         Iterator(const Iterator &) = default;
     };
 
-    RhHashMap() {}
+    RhHashMultiMap() {}
+
+    RhHashMultiMap(const RhHashMultiMap &other)
+    {
+        capacity = other.capacity;
+        count = other.count;
+        if (capacity > 0) {
+            size_t bytes = sizeof(Combined) * capacity;
+            array = (Combined *)malloc(bytes);
+            memcpy(array, other.array, bytes);
+
+        } else {
+            array = nullptr;
+        }
+    }
+
+    RhHashMultiMap(RhHashMultiMap &&other)
+    {
+        capacity = other.capacity;
+        count = other.count;
+        array = other.array;
+
+        other.array = nullptr;
+        other.capacity = 0;
+        other.count = 0;
+    }
 
     Iterator begin() { return Iterator(this); }
 
@@ -166,75 +212,128 @@ public:
 
         for (int i = 0; i < old_size; i++) {
             if (a[i].valid()) {
-                insert(a[i].ptr());
+                add(a[i].ptr());
             }
         }
 
         free(a);
     }
 
-    OptionPtr<D> find(const K &key)
+    Iterator find(const K &key)
     {
         size_t mask = this->mask();
         size_t now = index(key, mask);
         size_t off = 0;
+
+        bool bef_init = false;
+        size_t before_off;
+        K before_key = key;
+
         size_t border = 8 <= capacity ? 8 : capacity;
         while (off < border) {
             Combined other = array[now];
             if (other.valid()) {
                 auto other_off = other.off();
-                if (other_off == off && key == other.ptr()->get_key()) {
-                    return OptionPtr<D>(other.ptr());
+                auto other_key = other.ptr()->get_key();
+                if (other_off == off && key == other_key) {
+                    return Iterator(this, now);
 
                 } else if (other_off < off) { // Other is rich
                     break;
-                } // Else other has equal or greater offset, so he is poor.
+
+                } else if (bef_init) { // Else other has equal or greater
+                                       // offset, so he is poor.
+                    if (before_off == other_off && before_key == other_key) {
+                        if (count == capacity) {
+                            break;
+                        }
+                        // Proceed
+                    } else {
+                        before_off = other_off;
+                        before_key = other_key;
+                        off++;
+                    }
+                } else {
+                    bef_init = true;
+                    before_off = other_off;
+                    before_key = other_key;
+                    off++;
+                }
+
             } else {
                 break;
             }
 
-            off++;
             now = (now + 1) & mask;
         }
-        return OptionPtr<D>();
+        return end();
     }
 
-    // Inserts element. Returns true if element wasn't in the map.
-    bool insert(D *data)
+    // Inserts element with the given key.
+    void add(K key, D *data)
     {
+        assert(key == data->get_key());
+
         size_t mask = this->mask();
-        auto key = data->get_key();
         size_t now = index(key, mask);
         size_t off = 0;
+
+        bool bef_init = false;
+        size_t before_off;
+        K before_key = key;
+
         size_t border = 8 <= capacity ? 8 : capacity;
         while (off < border) {
             Combined other = array[now];
             if (other.valid()) {
                 auto other_off = other.off();
-                if (other_off == off && key == other.ptr()->get_key()) {
-                    return false;
+                auto other_key = other.ptr()->get_key();
+                if (other_off == off && key == other_key) {
+                    // Proceed
 
                 } else if (other_off < off) { // Other is rich
                     array[now] = Combined(data, off);
 
                     // Hacked reusing of function
                     data = other.ptr();
-                    key = data->get_key();
+                    key = other_key;
                     off = other_off;
-                } // Else other has equal or greater offset, so he is poor.
+
+                    off++;
+                } else if (bef_init) { // Else other has equal or greater
+                                       // offset, so he is poor.
+                    if (before_off == other_off && before_key == other_key) {
+                        if (count == capacity) {
+                            break;
+                        }
+                        // Proceed
+                    } else {
+                        before_off = other_off;
+                        before_key = other_key;
+                        off++;
+                    }
+                } else {
+                    bef_init = true;
+                    before_off = other_off;
+                    before_key = other_key;
+                    off++;
+                }
+
             } else {
                 array[now] = Combined(data, off);
                 count++;
-                return true;
+                return;
             }
 
-            off++;
             now = (now + 1) & mask;
         }
 
         increase_size();
-        return insert(data);
+        add(data);
     }
+
+    // Inserts element.
+    void add(D *data) { add(data->get_key(), data); }
 
     void clear()
     {
@@ -244,13 +343,14 @@ public:
         count = 0;
     }
 
-    size_t size() { return count; }
+    size_t size() const { return count; }
 
 private:
-    size_t index(const K &key, size_t mask)
+    size_t index(const K &key, size_t mask) const
     {
         return hash(std::hash<K>()(key)) & mask;
     }
+
     size_t hash(size_t x) const
     {
         x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
@@ -259,7 +359,7 @@ private:
         return x;
     }
 
-    size_t mask() { return capacity - 1; }
+    size_t mask() const { return capacity - 1; }
 
     Combined *array = nullptr;
     size_t capacity = 0;

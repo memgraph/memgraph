@@ -1,12 +1,14 @@
 #pragma once
 
+#include "edge_list.hpp"
 #include "property_model.hpp"
 #include "storage/label/label_collection.hpp"
-#include "edge_list.hpp"
+// #include "storage/model/edge_map.hpp"
 
 class VertexModel : public PropertyModel
 {
 public:
-    EdgeList in, out;
+    EdgeList out;
+    EdgeList in;
     LabelCollection labels;
 };
