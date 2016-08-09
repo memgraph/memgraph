@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
+#include "mvcc/edge_record.hpp"
 #include "mvcc/version_list.hpp"
+#include <vector>
 
 class EdgeList
 {
@@ -14,26 +15,17 @@ public:
     auto end() const { return edges.end(); }
     auto cend() const { return edges.end(); }
 
-    void add(EdgeRecord* edge)
-    {
-        edges.push_back(edge);
-    }
+    void add(EdgeRecord *edge) { edges.push_back(edge); }
 
-    size_t degree() const
-    {
-        return edges.size();
-    }
+    size_t degree() const { return edges.size(); }
 
-    void remove(EdgeRecord* edge)
+    void remove(EdgeRecord *edge)
     {
         edges.erase(std::remove(edges.begin(), edges.end(), edge), edges.end());
     }
 
-    void clear()
-    {
-        edges.clear();
-    }
+    void clear() { edges.clear(); }
 
 private:
-    std::vector<EdgeRecord*> edges;
+    std::vector<EdgeRecord *> edges;
 };

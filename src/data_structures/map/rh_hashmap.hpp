@@ -130,6 +130,22 @@ public:
 
     RhHashMap() {}
 
+    RhHashMap(const RhHashMap &other)
+    {
+        capacity = other.capacity;
+        count = other.count;
+        if (capacity > 0) {
+            size_t bytes = sizeof(Combined) * capacity;
+            array = (Combined *)malloc(bytes);
+            memcpy(array, other.array, bytes);
+
+        } else {
+            array = nullptr;
+        }
+    }
+
+    ~RhHashMap() { this->clear(); }
+
     Iterator begin() { return Iterator(this); }
 
     ConstIterator begin() const { return ConstIterator(this); }

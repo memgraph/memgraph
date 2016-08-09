@@ -1,3 +1,5 @@
+#include <chrono>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <queue>
@@ -20,10 +22,15 @@ public:
     double cost;
     int depth = {0};
     Vertex *vertex;
+    VertexRecord *record;
 
-    Node(Vertex *va, double cost) : cost(cost), vertex(va) {}
-    Node(Vertex *va, double cost, Node *parent)
-        : cost(cost), vertex(va), parent(parent), depth(parent->depth + 1)
+    Node(Vertex *va, VertexRecord *record, double cost)
+        : cost(cost), vertex(va), record(record)
+    {
+    }
+    Node(Vertex *va, VertexRecord *record, double cost, Node *parent)
+        : cost(cost), vertex(va), parent(parent), depth(parent->depth + 1),
+          record(record)
     {
     }
 };
@@ -82,10 +89,10 @@ double calc_heuristic_cost_dummy(Edge *edge, Vertex *vertex)
     return 1 - vertex->data.props.at("score").as<Double>().value;
 }
 
-typedef bool (*EdgeFilter)(tx::Transaction &t, Edge *, Node *before);
+typedef bool (*EdgeFilter)(tx::Transaction &t, EdgeRecord *, Node *before);
 typedef bool (*VertexFilter)(tx::Transaction &t, Vertex *, Node *before);
 
-bool edge_filter_dummy(tx::Transaction &t, Edge *e, Node *before)
+bool edge_filter_dummy(tx::Transaction &t, EdgeRecord *e, Node *before)
 {
     return true;
 }
@@ -104,15 +111,27 @@ bool vertex_filter_contained_dummy(tx::Transaction &t, Vertex *v, Node *before)
         if (before == nullptr) {
             return true;
         }
-        for (auto e : before->vertex->data.out) {
-            Edge *edge = e->find(t);
-            Vertex *e_v = edge->data.to->find(t);
+        for (auto edge : before->vertex->data.out) {
+            Vertex *e_v = edge->to()->find(t);
             if (e_v == v) {
                 found = true;
                 break;
             }
         }
     } while (found);
+    return false;
+}
+
+bool vertex_filter_contained(tx::Transaction &t, Vertex *v, Node *before)
+{
+    bool found;
+    do {
+        found = false;
+        before = before->parent;
+        if (before == nullptr) {
+            return true;
+        }
+    } while (v->data.in.contains(before->record));
     return false;
 }
 
@@ -129,8 +148,8 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
     std::priority_queue<Node *, std::vector<Node *>, decltype(cmp)> queue(cmp);
 
-    Node *start =
-        new Node(db.graph.vertices.find(t, sys_id_start).vlist->find(t), 0);
+    auto start_vr = db.graph.vertices.find(t, sys_id_start).vlist;
+    Node *start = new Node(start_vr->find(t), start_vr, 0);
     queue.push(start);
     int count = 0;
     do {
@@ -145,13 +164,13 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             continue;
         }
 
-        for (auto e : now->vertex->data.out) {
-            Edge *edge = e->find(t);
+        for (auto edge : now->vertex->data.out) {
             if (e_filter[now->depth](t, edge, now)) {
-                Vertex *v = edge->data.to->find(t);
+                Vertex *v = edge->to()->find(t);
                 if (v_filter[now->depth](t, v, now)) {
                     Node *n = new Node(
-                        v, now->cost + calc_heuristic_cost(edge, v), now);
+                        v, edge->to(),
+                        now->cost + calc_heuristic_cost(edge->find(t), v), now);
                     queue.push(n);
                 }
             }
@@ -172,9 +191,14 @@ int main()
     //
     EdgeFilter e_filters[] = {&edge_filter_dummy, &edge_filter_dummy,
                               &edge_filter_dummy, &edge_filter_dummy};
-    VertexFilter f_filters[] = {&vertex_filter_dummy, &vertex_filter_dummy,
-                                &vertex_filter_dummy, &vertex_filter_dummy};
+    VertexFilter f_filters[] = {
+        &vertex_filter_contained, &vertex_filter_contained,
+        &vertex_filter_contained, &vertex_filter_contained};
+    auto begin = clock();
     a_star(db, 0, 3, e_filters, f_filters, &calc_heuristic_cost_dummy, 10);
+    clock_t end = clock();
+    double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
+    std::cout << "A-star: " << elapsed_ms << " [ms]\n";
 
     return 0;
 }
@@ -254,13 +278,10 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
 
         auto v2 = va[to - start_vertex_id];
 
-        auto edge_accessor = db.graph.edges.insert(t);
+        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
 
         v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
         v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
-
-        edge_accessor.from(v1.vlist);
-        edge_accessor.to(v2.vlist);
 
         auto &edge_type = db.graph.edge_type_store.find_or_create(type);
         edge_accessor.edge_type(edge_type);
@@ -299,13 +320,9 @@ void load_graph_dummy(Db &db)
 
         auto v2 = db.graph.vertices.find(t, va[to]);
 
-        auto edge_accessor = db.graph.edges.insert(t);
-
+        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
         v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
         v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
-
-        edge_accessor.from(v1.vlist);
-        edge_accessor.to(v2.vlist);
 
         auto &edge_type = db.graph.edge_type_store.find_or_create(type);
         edge_accessor.edge_type(edge_type);

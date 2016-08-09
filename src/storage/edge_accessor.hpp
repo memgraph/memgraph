@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mvcc/edge_record.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "utils/assert.hpp"
@@ -8,7 +9,8 @@
 class Edges;
 
 // TODO: Edge, Db, Edge::Accessor
-class Edge::Accessor : public RecordAccessor<Edge, Edges, Edge::Accessor>
+class Edge::Accessor
+    : public RecordAccessor<Edge, Edges, Edge::Accessor, EdgeRecord>
 {
 public:
     using RecordAccessor::RecordAccessor;
@@ -26,17 +28,17 @@ public:
     }
 
     // TODO: VertexAccessor
-    void from(VertexRecord *vertex_record)
-    {
-        this->record->data.from = vertex_record;
-    }
+    // void from(VertexRecord *vertex_record)
+    // {
+    //     this->record->data.from = vertex_record;
+    // }
+    //
+    // void to(VertexRecord *vertex_record)
+    // {
+    //     this->record->data.to = vertex_record;
+    // }
 
-    void to(VertexRecord *vertex_record)
-    {
-        this->record->data.to = vertex_record;
-    }
+    auto from() const { return this->vlist->from(); }
 
-    auto from() const { return this->record->data.from; }
-
-    auto to() const { return this->record->data.to; }
+    auto to() const { return this->vlist->to(); }
 };

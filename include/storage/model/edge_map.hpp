@@ -24,6 +24,8 @@ public:
         throw std::bad_function_call::bad_function_call();
     }
 
+    bool contains(VertexRecord *vr) { return edges.contains(vr); }
+
     void clear() { edges.clear(); }
 
 private:

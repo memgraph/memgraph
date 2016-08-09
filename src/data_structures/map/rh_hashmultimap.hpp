@@ -1,5 +1,6 @@
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
+#include <cstring>
 
 // HashMultiMap with RobinHood collision resolution policy.
 // Single threaded.
@@ -165,16 +166,18 @@ public:
         }
     }
 
-    RhHashMultiMap(RhHashMultiMap &&other)
-    {
-        capacity = other.capacity;
-        count = other.count;
-        array = other.array;
+    // RhHashMultiMap(RhHashMultiMap &&other)
+    // {
+    //     capacity = other.capacity;
+    //     count = other.count;
+    //     array = other.array;
+    //
+    //     other.array = nullptr;
+    //     other.capacity = 0;
+    //     other.count = 0;
+    // }
 
-        other.array = nullptr;
-        other.capacity = 0;
-        other.count = 0;
-    }
+    ~RhHashMultiMap() { this->clear(); }
 
     Iterator begin() { return Iterator(this); }
 
@@ -192,7 +195,7 @@ public:
     {
         size_t bytes = sizeof(Combined) * size;
         array = (Combined *)malloc(bytes);
-        memset(array, 0, bytes);
+        std::memset(array, 0, bytes);
         capacity = size;
     }
 
@@ -219,6 +222,8 @@ public:
         free(a);
     }
 
+    bool contains(const K &key) { return find(key) != end(); }
+
     Iterator find(const K &key)
     {
         size_t mask = this->mask();
@@ -227,7 +232,7 @@ public:
 
         bool bef_init = false;
         size_t before_off;
-        K before_key = key;
+        auto before_key = key;
 
         size_t border = 8 <= capacity ? 8 : capacity;
         while (off < border) {
@@ -270,7 +275,7 @@ public:
     }
 
     // Inserts element with the given key.
-    void add(K key, D *data)
+    void add(K &key, D *data)
     {
         assert(key == data->get_key());
 
@@ -280,7 +285,7 @@ public:
 
         bool bef_init = false;
         size_t before_off;
-        K before_key = key;
+        auto before_key = key;
 
         size_t border = 8 <= capacity ? 8 : capacity;
         while (off < border) {

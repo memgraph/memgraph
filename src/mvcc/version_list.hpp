@@ -172,4 +172,4 @@ class Vertex;
 class Edge;
 
 using VertexRecord = mvcc::VersionList<Vertex>;
-using EdgeRecord = mvcc::VersionList<Edge>;
+// using EdgeRecord = mvcc::VersionList<Edge>;

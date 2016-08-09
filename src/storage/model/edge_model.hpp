@@ -7,11 +7,8 @@
 class EdgeModel : public PropertyModel
 {
 public:
-    VertexRecord *from;
-    VertexRecord *to;
-
     // TODO: here should be the reference
     //       but something that is copyable
     //       because this model is copied all the time (mvcc)
-    const EdgeType *edge_type {nullptr};
+    const EdgeType *edge_type{nullptr};
 };

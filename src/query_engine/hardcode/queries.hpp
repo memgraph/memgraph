@@ -2,11 +2,11 @@
 
 #include "database/db.hpp"
 #include "query_engine/query_stripper.hpp"
+#include "query_engine/util.hpp"
 #include "storage/model/properties/property.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "query_engine/util.hpp"
 
-auto load_queries(Db& db)
+auto load_queries(Db &db)
 {
     std::map<uint64_t, std::function<bool(const properties_t &)>> queries;
 
@@ -72,14 +72,11 @@ auto load_queries(Db& db)
         auto v2 = db.graph.vertices.find(t, args[1]->as<Int32>().value);
         if (!v2) return t.commit(), false;
 
-        auto edge_accessor = db.graph.edges.insert(t);
+        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
 
         v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
         v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
 
-        edge_accessor.from(v1.vlist);
-        edge_accessor.to(v2.vlist);
-        
         auto &edge_type = db.graph.edge_type_store.find_or_create("IS");
         edge_accessor.edge_type(edge_type);
 
@@ -127,31 +124,28 @@ auto load_queries(Db& db)
         return true;
     };
 
-    // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25, weight: 70}]-(n2) RETURN r
-    auto create_edge_v2 = [&db](const properties_t &args)
-    {
-        auto& t = db.tx_engine.begin();
+    // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25,
+    // weight: 70}]-(n2) RETURN r
+    auto create_edge_v2 = [&db](const properties_t &args) {
+        auto &t = db.tx_engine.begin();
         auto n1 = db.graph.vertices.find(t, args[0]->as<Int64>().value);
         if (!n1) return t.commit(), false;
         auto n2 = db.graph.vertices.find(t, args[1]->as<Int64>().value);
         if (!n2) return t.commit(), false;
-        auto r = db.graph.edges.insert(t);
+        auto r = db.graph.edges.insert(t, n2.vlist, n1.vlist);
         r.property("age", args[2]);
         r.property("weight", args[3]);
         auto &IS = db.graph.edge_type_store.find_or_create("IS");
         r.edge_type(IS);
         n2.vlist->update(t)->data.out.add(r.vlist);
         n1.vlist->update(t)->data.in.add(r.vlist);
-        r.from(n2.vlist);
-        r.to(n1.vlist);
         t.commit();
         return true;
     };
     queries[15648836733456301916u] = create_edge_v2;
 
     // MATCH (n) RETURN n
-    auto match_all_nodes = [&db](const properties_t &args)
-    {
+    auto match_all_nodes = [&db](const properties_t &args) {
         auto &t = db.tx_engine.begin();
 
         auto vertices_accessor = db.graph.vertices.access();
@@ -160,7 +154,7 @@ auto load_queries(Db& db)
             if (vertex == nullptr) continue;
             cout_properties(vertex->data.props);
         }
-        
+
         // TODO
         // db.graph.vertices.filter().all(t, handler);
 
@@ -171,8 +165,7 @@ auto load_queries(Db& db)
     queries[15284086425088081497u] = match_all_nodes;
 
     // MATCH (n:LABEL) RETURN n
-    auto find_by_label = [&db](const properties_t &args)
-    {
+    auto find_by_label = [&db](const properties_t &args) {
         auto &t = db.tx_engine.begin();
 
         auto &label = db.graph.label_store.find_or_create("LABEL");
@@ -181,10 +174,10 @@ auto load_queries(Db& db)
             db.graph.vertices.find_label_index(label);
         auto accessor = index_record_collection.access();
         cout << "VERTICES" << endl;
-        for (auto& v : accessor) {
+        for (auto &v : accessor) {
             cout << v.record->data.props.at("name").as<String>().value << endl;
         }
-        
+
         // TODO
         // db.graph.vertices.fileter("LABEL").all(t, handler);
 
