@@ -20,32 +20,28 @@ public:
     using item_t = T;
 
     VersionList(Id id) : id(id) {}
-    VersionList(const VersionList&) = delete;
+    VersionList(const VersionList &) = delete;
 
     /* @brief Move constructs the version list
      * Note: use only at the beginning of the "other's" lifecycle since this
      * constructor doesn't move the RecordLock, but only the head pointer
      */
-    VersionList(VersionList&& other) : id(other.id)
+    VersionList(VersionList &&other) : id(other.id)
     {
         this->head = other.head.load();
         other.head = nullptr;
     }
 
-    ~VersionList()
-    {
-        delete head.load();
-    }
+    ~VersionList() { delete head.load(); }
 
-    friend std::ostream& operator<<(std::ostream& stream,
-                                    const VersionList<T>& vlist)
+    friend std::ostream &operator<<(std::ostream &stream,
+                                    const VersionList<T> &vlist)
     {
         stream << "VersionList" << std::endl;
 
         auto record = vlist.head.load();
 
-        while(record != nullptr)
-        {
+        while (record != nullptr) {
             stream << "-- " << *record << std::endl;
             record = record->next();
         }
@@ -53,17 +49,11 @@ public:
         return stream;
     }
 
-    auto gc_lock_acquire()
-    {
-        return std::unique_lock<RecordLock>(lock);
-    }
+    auto gc_lock_acquire() { return std::unique_lock<RecordLock>(lock); }
 
-    void vacuum()
-    {
+    void vacuum() {}
 
-    }
-
-    T* find(const tx::Transaction& t) const
+    T *find(const tx::Transaction &t) const
     {
         auto r = head.load(std::memory_order_seq_cst);
 
@@ -77,13 +67,13 @@ public:
         //       |         |  Jump backwards until you find a first visible
         //   [VerList] ----+  version, or you reach the end of the list
         //
-        while(r != nullptr && !r->visible(t))
+        while (r != nullptr && !r->visible(t))
             r = r->next(std::memory_order_seq_cst);
 
         return r;
     }
 
-    T* insert(tx::Transaction& t)
+    T *insert(tx::Transaction &t)
     {
         assert(head == nullptr);
 
@@ -99,21 +89,27 @@ public:
         return v1;
     }
 
-    T* update(tx::Transaction& t)
+    T *update(tx::Transaction &t)
     {
         assert(head != nullptr);
         auto record = find(t);
 
         // check if we found any visible records
-        if(!record)
-            return nullptr;
+        if (!record) return nullptr;
 
         return update(record, t);
     }
 
-    T* update(T* record, tx::Transaction& t)
+    T *update(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
+        // TODO: VALIDATE NEXT IF BLOCK
+        if (record->tx.cre() == t.id) {
+            // THEN ONLY THIS TRANSACTION CAN SEE THIS DATA WHICH MENS THAT IT
+            // CAN CHANGE IT.
+            return record;
+        }
+
         lock_and_validate(record, t);
 
         auto updated = new T();
@@ -128,19 +124,18 @@ public:
         return updated;
     }
 
-    bool remove(tx::Transaction& t)
+    bool remove(tx::Transaction &t)
     {
         assert(head != nullptr);
         auto record = find(t);
 
-        if(!record)
-            return false;
+        if (!record) return false;
 
         lock_and_validate(record, t);
         return remove(record, t), true;
     }
 
-    bool remove(T* record, tx::Transaction& t)
+    bool remove(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
         lock_and_validate(record, t);
@@ -151,7 +146,7 @@ public:
     const Id id;
 
 private:
-    void lock_and_validate(T* record, tx::Transaction& t)
+    void lock_and_validate(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
         assert(record == find(t));
@@ -161,18 +156,16 @@ private:
 
         // if the record hasn't been deleted yet or the deleting transaction
         // has aborted, it's ok to modify it
-        if(!record->tx.exp() || !record->exp_committed(t))
-            return;
+        if (!record->tx.exp() || !record->exp_committed(t)) return;
 
         // if it committed, then we have a serialization conflict
         assert(record->hints.load().exp.is_committed());
         throw SerializationError();
     }
 
-    std::atomic<T*> head {nullptr};
+    std::atomic<T *> head{nullptr};
     RecordLock lock;
 };
-
 }
 
 class Vertex;
