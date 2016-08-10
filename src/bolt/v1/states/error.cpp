@@ -10,9 +10,9 @@ State* Error::run(Session& session)
     if(message_type == MessageCode::AckFailure)
     {
         // TODO reset current statement? is it even necessary?
-
-        session.encoder.message_success_empty();
-        session.encoder.flush();
+        
+        session.output_stream.write_success_empty();
+        session.output_stream.flush();
 
         return session.bolt.states.executor.get();
     }
@@ -21,14 +21,15 @@ State* Error::run(Session& session)
         // TODO rollback current transaction
         // discard all records waiting to be sent
 
-        session.encoder.message_success_empty();
-        session.encoder.flush();
+        session.output_stream.write_success_empty();
+        session.output_stream.flush();
+
 
         return session.bolt.states.executor.get();
     }
 
-    session.encoder.message_ignored();
-    session.encoder.flush();
+    session.output_stream.write_ignored();
+    session.output_stream.flush();
 
     return this;
 }

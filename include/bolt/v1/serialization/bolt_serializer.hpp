@@ -18,7 +18,7 @@ class BoltSerializer
     friend class Property;
 
 public:
-    BoltSerializer() {}
+    BoltSerializer(Stream& stream) : encoder(stream) {}
 
     /* Serializes the vertex accessor into the packstream format
      *
@@ -132,7 +132,7 @@ public:
     }
 
 protected:
-    BoltEncoder<Stream> encoder;
+    Stream& encoder;
 
     template <class T>
     void handle(const T& prop)

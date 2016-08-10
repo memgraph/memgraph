@@ -45,8 +45,8 @@ State* Init::execute(Session& session, Message& message)
 {
     logger.debug("Client connected '{}'", message.client_name);
 
-    session.encoder.message_success_empty();
-    session.encoder.flush();
+    session.output_stream.write_success_empty();
+    session.output_stream.flush();
 
     return session.bolt.states.executor.get();
 }

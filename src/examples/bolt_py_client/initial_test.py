@@ -5,8 +5,9 @@ driver = GraphDatabase.driver("bolt://localhost",
                               encrypted=0)
 
 session = driver.session()
-session.run("CREATE (a:Person {age:25})")
-# result = session.run("MATCH (a:Person) RETURN a.age AS age")
+# session.run("CREATE (a:Person {age:25})")
+result = session.run("MATCH (a:Person) RETURN a.name AS name")
+
 for record in result:
-    print(record["age"])
+    print(record["name"])
     session.close()

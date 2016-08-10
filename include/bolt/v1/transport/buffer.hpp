@@ -4,14 +4,14 @@
 #include <cstdlib>
 #include <vector>
 
+#include "utils/types/byte.hpp"
+
 namespace bolt
 {
 
 class Buffer
 {
 public:
-    using byte = uint8_t;
-
     void write(const byte* data, size_t len);
 
     void clear();

@@ -6,6 +6,7 @@
 #include "bolt/v1/messaging/codes.hpp"
 #include "utils/types/byte.hpp"
 #include "utils/bswap.hpp"
+#include "logging/default.hpp"
 
 namespace bolt
 {
@@ -22,7 +23,10 @@ class BoltEncoder
     static constexpr int64_t minus_2_to_the_31 = -2147483648L;
 
 public:
-    BoltEncoder(Stream& stream) : stream(stream) {}
+    BoltEncoder(Stream& stream) : stream(stream)
+    {
+        logger = logging::log->logger("Bolt Encoder");
+    }
 
     void flush()
     {
@@ -36,6 +40,7 @@ public:
 
     void write_byte(byte value)
     {
+        logger.trace("write byte: {}", value);
         stream.write(value);
     }
 
@@ -258,6 +263,9 @@ public:
         message_ignored();
         write_empty_map();
     }
+
+protected:
+    Logger logger;
 
 private:
     Stream& stream;

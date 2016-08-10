@@ -12,6 +12,8 @@ State* Executor::run(Session& session)
     // information contained in this byte
     session.decoder.read_byte();
 
+    logger.debug("Run");
+
     auto message_type = session.decoder.read_byte();
 
     if(message_type == MessageCode::Run)
@@ -52,52 +54,28 @@ void Executor::run(Session& session, Query& query)
 {
     logger.trace("[Run] '{}'", query.statement);
 
-    auto &db = session.active_db();
-    logger.info("[ActiveDB] '{}'", db.name());
-
-    query_engine.execute(query.statement, db);
-
-    session.encoder.message_success();
-    session.encoder.write_map_header(1);
-
-    session.encoder.write_string("fields");
-    session.encoder.write_list_header(1);
-    session.encoder.write_string("name");
-
-    session.encoder.flush();
+    // auto &db = session.active_db();
+    // logger.info("[ActiveDB] '{}'", db.name());
+    // query_engine.execute(query.statement, db);
+    
+    session.output_stream._write_test();
 }
 
 void Executor::pull_all(Session& session)
 {
     logger.trace("[PullAll]");
 
-    session.encoder.message_record();
-    session.encoder.write_list_header(1);
-    session.encoder.write_string(session.active_db().name());
-
-    session.encoder.message_record();
-    session.encoder.write_list_header(1);
-    session.encoder.write_string("buda");
-
-    session.encoder.message_record();
-    session.encoder.write_list_header(1);
-    session.encoder.write_string("domko");
-
-    session.encoder.message_record();
-    session.encoder.write_list_header(1);
-    session.encoder.write_string("max");
-
-    session.encoder.message_success_empty();
-
-    session.encoder.flush();
+    session.output_stream.flush();
 }
 
 void Executor::discard_all(Session& session)
 {
     logger.trace("[DiscardAll]");
 
-    session.encoder.message_success();
-    session.encoder.flush();
+    // TODO: discard state
+
+    session.output_stream.write_success();
+    session.output_stream.flush();
 }
 
 }

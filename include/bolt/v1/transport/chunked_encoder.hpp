@@ -5,6 +5,8 @@
 #include <functional>
 
 #include "utils/likely.hpp"
+#include "bolt/v1/config.hpp"
+#include "logging/default.hpp"
 
 namespace bolt
 {
@@ -12,13 +14,16 @@ namespace bolt
 template <class Stream>
 class ChunkedEncoder
 {
-    static constexpr size_t N = 65535;
-    static constexpr size_t C = N + 2 /* end mark */;
+    static constexpr size_t N = bolt::config::N;
+    static constexpr size_t C = bolt::config::C;
 
 public:
     using byte = unsigned char;
 
-    ChunkedEncoder(Stream& stream) : stream(stream) {}
+    ChunkedEncoder(Stream& stream) : stream(stream)
+    {
+        logger = logging::log->logger("Chunked Encoder");
+    }
 
     static constexpr size_t chunk_size = N - 2;
 
@@ -32,6 +37,8 @@ public:
 
     void write(const byte* values, size_t n)
     {
+        logger.trace("write {} bytes", n);
+
         while(n > 0)
         {
             auto size = n < N - pos ? n : N - pos;
@@ -58,6 +65,7 @@ public:
     }
 
 private:
+    Logger logger;
     std::reference_wrapper<Stream> stream;
 
     std::array<byte, C> chunk;
@@ -65,7 +73,9 @@ private:
 
     void end_chunk()
     {
-        write_chunk_header();
+        // TODO: this call is unnecessary bacause the same method is called
+        // inside the flush method
+        // write_chunk_header();
         flush();
     }
 

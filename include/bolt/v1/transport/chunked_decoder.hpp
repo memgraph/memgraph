@@ -1,13 +1,13 @@
 #pragma once
 
+#include <cassert>
 #include <cstring>
 #include <functional>
-#include <cassert>
-
-#include "utils/exceptions/basic_exception.hpp"
-#include "utils/likely.hpp"
 
 #include "logging/default.hpp"
+#include "utils/exceptions/basic_exception.hpp"
+#include "utils/likely.hpp"
+#include "utils/types/byte.hpp"
 
 namespace bolt
 {
@@ -22,8 +22,6 @@ public:
         using BasicException::BasicException;
     };
 
-    using byte = unsigned char;
-
     ChunkedDecoder(Stream& stream) : stream(stream) {}
 
     /* Decode chunked data
@@ -33,14 +31,14 @@ public:
      * |Header|     Data     ||Header|    Data      || ... || End |
      * |  2B  |  size bytes  ||  2B  |  size bytes  || ... ||00 00|
      */
-    bool decode(const byte*& chunk, size_t n)
+    bool decode(const byte *&chunk, size_t n)
     {
-        while(n > 0)
+        while (n > 0)
         {
             // get size from first two bytes in the chunk
             auto size = get_size(chunk);
 
-            if(UNLIKELY(size + 2 > n))
+            if (UNLIKELY(size + 2 > n))
                 throw DecoderError("Chunk size larger than available data.");
 
             // advance chunk to pass those two bytes
@@ -48,8 +46,7 @@ public:
             n -= 2;
 
             // if chunk size is 0, we're done!
-            if(size == 0)
-                return true;
+            if (size == 0) return true;
 
             stream.get().write(chunk, size);
 
@@ -60,18 +57,14 @@ public:
         return false;
     }
 
-    bool operator()(const byte*& chunk, size_t n)
-    {
-        return decode(chunk, n);
-    }
+    bool operator()(const byte *&chunk, size_t n) { return decode(chunk, n); }
 
 private:
     std::reference_wrapper<Stream> stream;
 
-    size_t get_size(const byte* chunk)
+    size_t get_size(const byte *chunk)
     {
         return size_t(chunk[0]) << 8 | chunk[1];
     }
 };
-
 }
