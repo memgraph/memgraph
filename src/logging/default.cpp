@@ -1,4 +1,4 @@
-#include "default.hpp"
+#include "logging/default.hpp"
 
 #include "logging/logs/async_log.hpp"
 #include "logging/logs/sync_log.hpp"

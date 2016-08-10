@@ -1,4 +1,4 @@
-#include "stdout.hpp"
+#include "logging/streams/stdout.hpp"
 
 #include <iostream>
 #include <fmt/format.h>

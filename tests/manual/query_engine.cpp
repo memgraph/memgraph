@@ -16,6 +16,7 @@ int main(void)
 {   
     std::set_terminate(&terminate_handler);
 
+    Db db;
     QueryEngine engine;
 
     cout << "-- Memgraph query engine --" << endl;
@@ -30,7 +31,7 @@ int main(void)
         
         // execute command
         try {
-            engine.execute(command);
+            engine.execute(command, db);
         } catch (const std::exception& e) {
             cout << e.what() << endl;
         } catch (const QueryEngineException& e) {

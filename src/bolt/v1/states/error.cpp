@@ -1,6 +1,4 @@
-#include "error.hpp"
-
-#include "bolt/v1/session.hpp"
+#include "bolt/v1/states/error.hpp"
 
 namespace bolt
 {
@@ -11,7 +9,7 @@ State* Error::run(Session& session)
 
     if(message_type == MessageCode::AckFailure)
     {
-        // todo reset current statement? is it even necessary?
+        // TODO reset current statement? is it even necessary?
 
         session.encoder.message_success_empty();
         session.encoder.flush();
@@ -20,7 +18,7 @@ State* Error::run(Session& session)
     }
     else if(message_type == MessageCode::Reset)
     {
-        // todo rollback current transaction
+        // TODO rollback current transaction
         // discard all records waiting to be sent
 
         session.encoder.message_success_empty();

@@ -1,4 +1,4 @@
-#include "init.hpp"
+#include "bolt/v1/states/init.hpp"
 
 #include "bolt/v1/session.hpp"
 #include "bolt/v1/messaging/codes.hpp"

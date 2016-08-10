@@ -1,6 +1,5 @@
 #include "mvcc/id.hpp"
 
-
 Id::Id(uint64_t id) : id(id) {}
 
 bool operator<(const Id& a, const Id& b)

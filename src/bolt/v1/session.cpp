@@ -1,4 +1,4 @@
-#include "session.hpp"
+#include "bolt/v1/session.hpp"
 
 namespace bolt
 {
@@ -49,6 +49,11 @@ void Session::close()
 {
     logger.debug("Closing session");
     bolt.close(this);
+}
+
+Db& Session::active_db()
+{
+    return bolt.dbms.active();
 }
 
 }

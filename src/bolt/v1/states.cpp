@@ -1,10 +1,9 @@
-#include "states.hpp"
+#include "bolt/v1/states.hpp"
 
-#include "states/handshake.hpp"
-#include "states/init.hpp"
-#include "states/error.hpp"
-
-#include "states/executor.hpp"
+#include "bolt/v1/states/handshake.hpp"
+#include "bolt/v1/states/init.hpp"
+#include "bolt/v1/states/error.hpp"
+#include "bolt/v1/states/executor.hpp"
 
 namespace bolt
 {

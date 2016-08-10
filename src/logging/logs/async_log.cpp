@@ -1,4 +1,4 @@
-#include "async_log.hpp"
+#include "logging/logs/async_log.hpp"
 
 AsyncLog::~AsyncLog()
 {

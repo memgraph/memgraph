@@ -9,12 +9,18 @@ class Db
 public:
     using sptr = std::shared_ptr<Db>;
 
+    Db() = default;
+    Db(const std::string& name) : name_(name) {}
+    Db(const Db& db) = delete;
+
     Graph graph;
     tx::Engine tx_engine;
 
-    //  only for test purposes
-    std::string identifier()
+    std::string& name()
     {
-        return "memgraph";
+        return name_;
     }
+
+private:
+    std::string name_;
 };

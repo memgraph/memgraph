@@ -1,4 +1,4 @@
-#include "buffer.hpp"
+#include "bolt/v1/transport/buffer.hpp"
 
 namespace bolt
 {

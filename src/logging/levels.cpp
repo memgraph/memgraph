@@ -1,4 +1,4 @@
-#include "levels.hpp"
+#include "logging/levels.hpp"
 
 std::string Trace::text = "TRACE";
 std::string Debug::text = "DEBUG";

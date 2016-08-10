@@ -1,4 +1,4 @@
-#include "sync_log.hpp"
+#include "logging/logs/sync_log.hpp"
 
 void SyncLog::emit(Record::uptr record)
 {

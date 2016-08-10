@@ -1,5 +1,4 @@
-#include "executor.hpp"
-
+#include "bolt/v1/states/executor.hpp"
 #include "bolt/v1/messaging/codes.hpp"
 
 namespace bolt
@@ -53,6 +52,11 @@ void Executor::run(Session& session, Query& query)
 {
     logger.trace("[Run] '{}'", query.statement);
 
+    auto &db = session.active_db();
+    logger.info("[ActiveDB] '{}'", db.name());
+
+    query_engine.execute(query.statement, db);
+
     session.encoder.message_success();
     session.encoder.write_map_header(1);
 
@@ -66,6 +70,10 @@ void Executor::run(Session& session, Query& query)
 void Executor::pull_all(Session& session)
 {
     logger.trace("[PullAll]");
+
+    session.encoder.message_record();
+    session.encoder.write_list_header(1);
+    session.encoder.write_string(session.active_db().name());
 
     session.encoder.message_record();
     session.encoder.write_list_header(1);

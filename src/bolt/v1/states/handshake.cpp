@@ -1,4 +1,4 @@
-#include "handshake.hpp"
+#include "bolt/v1/states/handshake.hpp"
 
 #include "bolt/v1/session.hpp"
 
