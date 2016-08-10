@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "data_structures/map/rh_hashmap.hpp"
 #include "database/db.hpp"
 
 using namespace std;
@@ -33,6 +34,8 @@ public:
           record(record)
     {
     }
+
+    VertexRecord *&get_key() { return record; }
 };
 
 // class Iterator : public Crtp<Iterator>
@@ -144,6 +147,7 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             int limit)
 {
     auto &t = db.tx_engine.begin();
+    RhHashMap<VertexRecord *, Node> visited;
 
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
     std::priority_queue<Node *, std::vector<Node *>, decltype(cmp)> queue(cmp);
@@ -155,6 +159,11 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
     do {
         auto now = queue.top();
         queue.pop();
+
+        // if(!visited.insert(now)){
+        //     continue;
+        // }
+
         if (max_depth <= now->depth) {
             found_result(now);
             count++;
@@ -176,8 +185,8 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             }
         }
     } while (!queue.empty());
-
-    // GUBI SE MEMORIJA JER SE NODOVI NEBRISU
+    std::cout << "Found: " << count << " resoults\n";
+    // TODO: GUBI SE MEMORIJA JER SE NODOVI NEBRISU
 
     t.commit();
 }

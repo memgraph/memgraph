@@ -13,8 +13,14 @@ private:
 public:
     Data(int key) : key(key) {}
 
-    int &get_key() { return key; }
+    const int &get_key() { return key; }
 };
+
+void cross_validate(RhHashMultiMap<int, Data> &map,
+                    std::multimap<int, Data *> &s_map);
+
+void cross_validate_weak(RhHashMultiMap<int, Data> &map,
+                         std::multimap<int, Data *> &s_map);
 
 TEST_CASE("Robin hood hashmultimap basic functionality")
 {
@@ -35,6 +41,19 @@ TEST_CASE("Robin hood hashmultimap insert/get check")
     REQUIRE(map.find(0) != map.end());
     REQUIRE(*map.find(0) == ptr0);
 }
+
+// TEST_CASE("Robin hood hasmultihmap remove functionality")
+// {
+//     RhHashMultiMap<int, Data> map;
+//
+//     REQUIRE(map.find(0) == map.end());
+//     auto ptr0 = new Data(0);
+//     map.add(ptr0);
+//     REQUIRE(map.find(0) != map.end());
+//     REQUIRE(*map.find(0) == ptr0);
+//     REQUIRE(map.remove(0).get() == ptr0);
+//     REQUIRE(map.find(0) == map.end());
+// }
 
 TEST_CASE("Robin hood hashmultimap double insert")
 {
@@ -107,6 +126,61 @@ TEST_CASE("Robin hood hashmultimap checked")
         map.add(data);
         s_map.insert(std::pair<int, Data *>(key, data));
     }
+    cross_validate(map, s_map);
+}
+
+TEST_CASE("Robin hood hashmultimap checked rand")
+{
+    RhHashMultiMap<int, Data> map;
+    std::multimap<int, Data *> s_map;
+    std::srand(std::time(0));
+    for (int i = 0; i < 164308; i++) {
+        int key = (std::rand() % 10000) << 3;
+
+        auto data = new Data(key);
+        map.add(data);
+        s_map.insert(std::pair<int, Data *>(key, data));
+    }
+    cross_validate(map, s_map);
+}
+
+// TEST_CASE("Robin hood hashmultimap with remove checked")
+// {
+//     RhHashMultiMap<int, Data> map;
+//     std::multimap<int, Data *> s_map;
+//
+//     for (int i = 0; i < 2638; i++) {
+//         int key = (std::rand() % 100) << 3;
+//         if ((std::rand() % 3) == 0) {
+//             std::cout << "Remove: " << key << "\n";
+//             auto removed = map.remove(key);
+//             // auto it = s_map.find(key);
+//             if (removed.is_present()) {
+//                 // while (it != s_map.end() && it->second != removed.get()) {
+//                 //     it++;
+//                 // }
+//                 // REQUIRE(it != s_map.end());
+//                 // s_map.erase(it);
+//                 // cross_validate(map, s_map);
+//
+//             } else {
+//                 // REQUIRE(it == s_map.end());
+//             }
+//         } else {
+//             std::cout << "Insert: " << key << "\n";
+//             auto data = new Data(key);
+//             map.add(data);
+//             s_map.insert(std::pair<int, Data *>(key, data));
+//             cross_validate(map, s_map);
+//         }
+//     }
+//
+//     cross_validate_weak(map, s_map);
+// }
+
+void cross_validate(RhHashMultiMap<int, Data> &map,
+                    std::multimap<int, Data *> &s_map)
+{
 
     for (auto e : map) {
         auto it = s_map.find(e->get_key());
@@ -114,15 +188,72 @@ TEST_CASE("Robin hood hashmultimap checked")
         while (it != s_map.end() && it->second != e) {
             it++;
         }
-        REQUIRE(it->second == e);
+        REQUIRE(it != s_map.end());
     }
 
     for (auto e : s_map) {
         auto it = map.find(e.first);
+        // std::cout << "s_map: " << e.first << "\n";
 
         while (it != map.end() && *it != e.second) {
             it++;
         }
-        REQUIRE(e.second == *it);
+        REQUIRE(it != map.end());
+    }
+}
+
+void cross_validate_weak(RhHashMultiMap<int, Data> &map,
+                         std::multimap<int, Data *> &s_map)
+{
+    int count = 0;
+    int key = 0;
+    for (auto e : map) {
+        if (e->get_key() == key) {
+            count++;
+        } else {
+            auto it = s_map.find(key);
+
+            while (it != s_map.end() && it->first == key) {
+                it++;
+                count--;
+            }
+            REQUIRE(count == 0);
+            key = e->get_key();
+            count = 1;
+        }
+    }
+    {
+        auto it = s_map.find(key);
+
+        while (it != s_map.end() && it->first == key) {
+            it++;
+            count--;
+        }
+        REQUIRE(count == 0);
+    }
+
+    for (auto e : s_map) {
+        if (e.first == key) {
+            count++;
+        } else {
+            auto it = map.find(key);
+
+            while (it != map.end() && it->get_key() == key) {
+                it++;
+                count--;
+            }
+            REQUIRE(count == 0);
+            key = e.first;
+            count = 1;
+        }
+    }
+    {
+        auto it = map.find(key);
+
+        while (it != map.end() && it->get_key() == key) {
+            it++;
+            count--;
+        }
+        REQUIRE(count == 0);
     }
 }

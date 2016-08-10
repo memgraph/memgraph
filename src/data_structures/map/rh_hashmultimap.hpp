@@ -1,10 +1,11 @@
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 #include <cstring>
+#include <functional>
 
 // HashMultiMap with RobinHood collision resolution policy.
 // Single threaded.
-// Entrys are saved as pointers alligned to 8B.
+// Entrys are POINTERS alligned to 8B.
 // Entrys must know thers key.
 // D must have method K& get_key()
 // K must be comparable with ==.
@@ -28,6 +29,17 @@ private:
         bool valid() { return data != 0; }
 
         size_t off() { return data & 0x7; }
+
+        void decrement_off() { data--; }
+
+        bool increment_off()
+        {
+            if (off() < 7) {
+                data++;
+                return true;
+            }
+            return false;
+        }
 
         D *ptr() { return (D *)(data & (~(0x7))); }
 
@@ -89,7 +101,7 @@ private:
                     advanced = index = ~((size_t)0);
                     break;
                 }
-                index = advanced & mask;
+                index = (index + 1) & mask;
             } while (!map->array[index].valid());
 
             return this->derived();
@@ -224,121 +236,359 @@ public:
 
     bool contains(const K &key) { return find(key) != end(); }
 
-    Iterator find(const K &key)
+    Iterator find(const K &key_in)
     {
-        size_t mask = this->mask();
-        size_t now = index(key, mask);
-        size_t off = 0;
-
-        bool bef_init = false;
-        size_t before_off;
-        auto before_key = key;
-
-        size_t border = 8 <= capacity ? 8 : capacity;
-        while (off < border) {
+        if (count > 0) {
+            auto key = std::ref(key_in);
+            size_t mask = this->mask();
+            size_t now = index(key, mask);
+            size_t off = 0;
+            size_t checked = 0;
+            size_t border = 8 <= capacity ? 8 : capacity;
             Combined other = array[now];
-            if (other.valid()) {
+            while (other.valid() && off < border) {
                 auto other_off = other.off();
-                auto other_key = other.ptr()->get_key();
-                if (other_off == off && key == other_key) {
+                if (other_off == off && key == other.ptr()->get_key()) {
                     return Iterator(this, now);
 
                 } else if (other_off < off) { // Other is rich
                     break;
 
-                } else if (bef_init) { // Else other has equal or greater
-                                       // offset, so he is poor.
-                    if (before_off == other_off && before_key == other_key) {
-                        if (count == capacity) {
+                } else { // Else other has equal or greater
+                         // offset, so he is poor.
+                    auto other_key = other.ptr()->get_key();
+                    do {
+                        now = (now + 1) & mask;
+                        other = array[now];
+                        checked++;
+                        if (checked >= count) { // Reason is possibility of map
+                                                // full of same values.
                             break;
                         }
-                        // Proceed
-                    } else {
-                        before_off = other_off;
-                        before_key = other_key;
-                        off++;
-                    }
-                } else {
-                    bef_init = true;
-                    before_off = other_off;
-                    before_key = other_key;
+                    } while (other.valid() && other.off() == other_off &&
+                             other.ptr()->get_key() == other_key);
                     off++;
                 }
-
-            } else {
-                break;
             }
-
-            now = (now + 1) & mask;
         }
+
         return end();
     }
 
     // Inserts element with the given key.
-    void add(K &key, D *data)
+    void add(const K &key_in, D *data)
     {
-        assert(key == data->get_key());
+        assert(key_in == data->get_key());
 
-        size_t mask = this->mask();
-        size_t now = index(key, mask);
-        size_t off = 0;
+        if (count < capacity) {
+            auto key = std::ref(key_in);
+            size_t mask = this->mask();
+            size_t now = index(key, mask);
+            size_t start = now;
+            size_t off = 0;
+            size_t border = 8 <= capacity ? 8 : capacity;
+            bool multi = false;
 
-        bool bef_init = false;
-        size_t before_off;
-        auto before_key = key;
-
-        size_t border = 8 <= capacity ? 8 : capacity;
-        while (off < border) {
             Combined other = array[now];
-            if (other.valid()) {
-                auto other_off = other.off();
-                auto other_key = other.ptr()->get_key();
-                if (other_off == off && key == other_key) {
-                    // Proceed
+            while (off < border) {
+                if (other.valid()) {
+                    auto other_off = other.off();
+                    if (other_off == off &&
+                        other.ptr()->get_key() == key) { // Found the
+                        do {                             // same
+                            now = (now + 1) & mask;
+                            other = array[now];
+                            if (!other.valid()) {
+                                set(now, data, off);
+                                return;
+                            }
+                            other_off = other.off();
+                        } while (other_off == off &&
+                                 other.ptr()->get_key() == key);
+                        multi = true;
+                    } else if (other_off > off ||
+                               other_poor(other, mask, start,
+                                          now)) { // Other is poor or the same
+                        auto other_key = other.ptr()->get_key();
 
-                } else if (other_off < off) { // Other is rich
-                    array[now] = Combined(data, off);
-
-                    // Hacked reusing of function
-                    data = other.ptr();
-                    key = other_key;
-                    off = other_off;
-
-                    off++;
-                } else if (bef_init) { // Else other has equal or greater
-                                       // offset, so he is poor.
-                    if (before_off == other_off && before_key == other_key) {
-                        if (count == capacity) {
-                            break;
-                        }
-                        // Proceed
-                    } else {
-                        before_off = other_off;
-                        before_key = other_key;
+                        do {
+                            now = (now + 1) & mask;
+                            other = array[now];
+                        } while (other.valid() && other.off() == other_off &&
+                                 other.ptr()->get_key() == other_key);
                         off++;
+                        continue;
                     }
+
+                    array[now] = Combined(data, off);
+                    auto start = now;
+                    while (adjust_off(other, mask, start, now, multi)) {
+                        now = (now + 1) & mask;
+                        auto tmp = array[now];
+                        array[now] = other;
+                        other = tmp;
+                        if (!other.valid()) {
+                            count++;
+                            return;
+                        }
+                    }
+                    data = other.ptr();
+                    break; // Cant insert removed element
                 } else {
-                    bef_init = true;
-                    before_off = other_off;
-                    before_key = other_key;
-                    off++;
+                    set(now, data, off);
+                    return;
                 }
-
-            } else {
-                array[now] = Combined(data, off);
-                count++;
-                return;
             }
-
-            now = (now + 1) & mask;
         }
 
         increase_size();
         add(data);
     }
 
+private:
+    void set(size_t now, D *data, size_t off)
+    {
+        array[now] = Combined(data, off);
+        count++;
+    }
+
+    bool adjust_off(Combined &com, size_t mask, size_t start, size_t now,
+                    bool multi)
+    {
+        if (com.off() == 0) {
+            com.increment_off();
+            return true;
+        }
+        size_t cin = index(com.ptr()->get_key(), mask);
+        if ((start <= now && (cin < start || cin > now)) ||
+            (now < start && cin < start && cin > now)) {
+            return multi || com.increment_off();
+        }
+        auto a = array[cin];
+        auto b = array[(cin + 1) & mask];
+        return (a.off() == b.off() &&
+                a.ptr()->get_key() == b.ptr()->get_key()) ||
+               com.increment_off();
+    }
+
+    bool other_poor(Combined other, size_t mask, size_t start, size_t now)
+    {
+        auto cin = index(other.ptr()->get_key(), mask);
+        return (start <= now && (cin <= start || cin > now)) ||
+               (now < start && cin <= start && cin > now);
+    }
+    //     void skip(size_t &now, size_t mask)
+    //     {
+    //         Combined start = array[now];
+    //         size_t end = now;
+    //         auto off = start.off();
+    //         auto key = start.ptr()->get_key();
+    //         do {
+    //             now = (now + 1) & mask;
+    //             start = array[now];
+    //         } while (start.valid() && start.off() == off &&
+    //                  start.ptr()->get_key() == key && now != end);
+    //     }
+    //
+    //     void _insert(size_t now, Combined com)
+    //     {
+    //         Combined other = array[now];
+    //         array[now] = com;
+    //         if (other.valid()) {
+    //             _add(now, other.off(), other.ptr());
+    //         } else {
+    //             count++;
+    //         }
+    //     }
+    //
+    //     void _add(size_t now, size_t off, Data *data) {
+    //         size_t mask = this->mask();
+    //         auto key = std::ref(data->get_key());
+    //         size_t border = 8 <= capacity ? 8 : capacity;
+    //
+    //         skip()
+    //
+    //         while(off<border){
+    //             Combined other = array[now];
+    //             if (other.valid()) {
+    //                 _add(now, other.off(), other.ptr());
+    //             } else {
+    //                 _insert(now, RhHashMultiMap::Combined com)
+    //             }
+    //         }
+    //
+    //         increase_size();
+    //         add(data);
+    //     }
+
+public:
+    // // Inserts element with the given key.
+    // void add(const K &key_in, D *data)
+    // {
+    //     assert(key_in == data->get_key());
+    //
+    //     if (count < capacity) {
+    //         auto key = std::ref(key_in);
+    //         size_t mask = this->mask();
+    //         size_t now = index(key, mask);
+    //         size_t off = 0;
+    //
+    //         bool bef_init = false;
+    //         size_t before_off;
+    //         auto before_key = std::ref(key);
+    //         bool found_it = false;
+    //
+    //         size_t border = 8 <= capacity ? 8 : capacity;
+    //         while (off < border) {
+    //             Combined other = array[now];
+    //             if (other.valid()) {
+    //                 auto other_off = other.off();
+    //                 auto other_key = std::ref<const
+    //                 K>(other.ptr()->get_key());
+    //                 if (other_off == off && key == other_key) {
+    //                     found_it = true;
+    //                     // Proceed
+    //
+    //                 } else if (other_off < off || found_it) { // Other is
+    //                 rich
+    //                                                           // or after
+    //                                                           list
+    //                                                           // of my keys
+    //                     assert(other_off <= off);
+    //
+    //                     array[now] = Combined(data, off);
+    //                     // add(other.ptr()->get_key(), other.ptr());
+    //                     // return;
+    //
+    //                     // Hacked reusing of function
+    //                     before_off = off;
+    //                     before_key = key;
+    //                     data = other.ptr();
+    //                     key = other_key;
+    //                     off = other_off;
+    //
+    //                     if (found_it) { // Offset isn't increased
+    //                         found_it = false;
+    //                     } else {
+    //                         off++;
+    //                     }
+    //                 } else if (bef_init) { // Else other has equal or greater
+    //                                        // offset, so he is poor.
+    //                     if (before_off == other_off &&
+    //                         before_key == other_key) {
+    //                         if (count == capacity) {
+    //                             break;
+    //                         }
+    //                         // Proceed
+    //                     } else {
+    //                         before_off = other_off;
+    //                         before_key = other_key;
+    //                         off++;
+    //                     }
+    //                 } else {
+    //                     bef_init = true;
+    //                     before_off = other_off;
+    //                     before_key = other_key;
+    //                     off++;
+    //                 }
+    //
+    //             } else {
+    //                 array[now] = Combined(data, off);
+    //                 count++;
+    //                 return;
+    //             }
+    //
+    //             now = (now + 1) & mask;
+    //         }
+    //     }
+    //
+    //     increase_size();
+    //     add(data);
+    // }
+
     // Inserts element.
     void add(D *data) { add(data->get_key(), data); }
+
+    // Removes element. Returns removed element if it existed. It doesn't
+    // specify which element from same key group will be removed.
+    OptionPtr<D> remove(const K &key_in)
+    {
+        // auto key = std::ref(key_in);
+        // size_t mask = this->mask();
+        // size_t now = index(key, mask);
+        // size_t off = 0;
+        //
+        // bool bef_init = false;
+        // size_t before_off;
+        // auto before_key = key;
+        // bool found_it = false;
+        //
+        // size_t border = 8 <= capacity ? 8 : capacity;
+        // while (off < border) {
+        //     Combined other = array[now];
+        //     if (other.valid()) {
+        //         auto other_off = other.off();
+        //         auto other_ptr = other.ptr();
+        //         auto other_key = std::ref<const K>(other_ptr->get_key());
+        //         if (other_off == off && key == other_key) { // Found it
+        //             found_it = true;
+        //
+        //         } else if (found_it) { // Found first element after last
+        //         element
+        //             // for remove.
+        //             auto before = before_index(now, mask);
+        //             auto ret = OptionPtr<D>(array[before].ptr());
+        //             std::cout << "<-" << ret.get()->get_key() << "\n";
+        //             while (other.valid() && other.off() > 0) {
+        //                 std::cout << "<>" << other.ptr()->get_key() << "\n";
+        //                 other.decrement_off();
+        //                 array[before] = other;
+        //                 before = now;
+        //                 now = (now + 1) & mask;
+        //                 other = array[now];
+        //             }
+        //
+        //             array[before] = Combined();
+        //             count--;
+        //             return ret;
+        //         } else if (other_off < off) { // Other is rich
+        //             break;
+        //
+        //         } else if (bef_init) { // Else other has equal or greater
+        //                                // offset, so he is poor.
+        //             if (before_off == other_off && before_key == other_key) {
+        //                 if (count == capacity) { // I am stuck.
+        //                     break;
+        //                 }
+        //                 // Proceed
+        //             } else {
+        //                 before_off = other_off;
+        //                 before_key = other_key;
+        //                 off++;
+        //             }
+        //         } else {
+        //             bef_init = true;
+        //             before_off = other_off;
+        //             before_key = other_key;
+        //             off++;
+        //         }
+        //
+        //     } else if (found_it) { // Found empty space after last element
+        //     for
+        //                            // remove.
+        //         auto before = before_index(now, mask);
+        //         auto ret = OptionPtr<D>(array[before].ptr());
+        //         array[before] = Combined();
+        //
+        //         return ret;
+        //     } else {
+        //         break;
+        //     }
+        //
+        //     now = (now + 1) & mask;
+        // }
+        return OptionPtr<D>();
+    }
 
     void clear()
     {
@@ -351,6 +601,11 @@ public:
     size_t size() const { return count; }
 
 private:
+    size_t before_index(size_t now, size_t mask)
+    {
+        return (now - 1) & mask; // THIS IS VALID
+    }
+
     size_t index(const K &key, size_t mask) const
     {
         return hash(std::hash<K>()(key)) & mask;

@@ -27,17 +27,6 @@ public:
         return edge_type_ref_t(*this->record->data.edge_type);
     }
 
-    // TODO: VertexAccessor
-    // void from(VertexRecord *vertex_record)
-    // {
-    //     this->record->data.from = vertex_record;
-    // }
-    //
-    // void to(VertexRecord *vertex_record)
-    // {
-    //     this->record->data.to = vertex_record;
-    // }
-
     auto from() const { return this->vlist->from(); }
 
     auto to() const { return this->vlist->to(); }

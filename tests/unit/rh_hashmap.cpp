@@ -13,8 +13,10 @@ private:
 public:
     Data(int key) : key(key) {}
 
-    int &get_key() { return key; }
+    const int &get_key() const { return key; }
 };
+
+void cross_validate(RhHashMap<int, Data> &map, std::map<int, Data *> &s_map);
 
 TEST_CASE("Robin hood hashmap basic functionality")
 {
@@ -23,6 +25,16 @@ TEST_CASE("Robin hood hashmap basic functionality")
     REQUIRE(map.size() == 0);
     REQUIRE(map.insert(new Data(0)));
     REQUIRE(map.size() == 1);
+}
+
+TEST_CASE("Robin hood hashmap remove functionality")
+{
+    RhHashMap<int, Data> map;
+
+    REQUIRE(map.insert(new Data(0)));
+    REQUIRE(map.remove(0).is_present());
+    REQUIRE(map.size() == 0);
+    REQUIRE(!map.find(0).is_present());
 }
 
 TEST_CASE("Robin hood hashmap insert/get check")
@@ -97,6 +109,33 @@ TEST_CASE("Robin hood hashmap checked")
         }
     }
 
+    cross_validate(map, s_map);
+}
+
+TEST_CASE("Robin hood hashmap checked with remove")
+{
+    RhHashMap<int, Data> map;
+    std::map<int, Data *> s_map;
+
+    for (int i = 0; i < 1280; i++) {
+        int key = std::rand() % 100;
+        auto data = new Data(key);
+        if (map.insert(data)) {
+            REQUIRE(s_map.find(key) == s_map.end());
+            s_map[key] = data;
+            cross_validate(map, s_map);
+        } else {
+            REQUIRE(map.remove(key).is_present());
+            REQUIRE(s_map.erase(key) == 1);
+            cross_validate(map, s_map);
+        }
+    }
+
+    cross_validate(map, s_map);
+}
+
+void cross_validate(RhHashMap<int, Data> &map, std::map<int, Data *> &s_map)
+{
     for (auto e : map) {
         REQUIRE(s_map.find(e->get_key()) != s_map.end());
     }

@@ -21,7 +21,7 @@ public:
     {
     }
 
-    VertexRecord *&get_key() { return from_v; }
+    VertexRecord *&get_key() { return this->from_v; }
 
     auto from() const { return this->from_v; }
 

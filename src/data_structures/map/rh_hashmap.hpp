@@ -1,11 +1,12 @@
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
+#include <functional>
 
 // HashMap with RobinHood collision resolution policy.
 // Single threaded.
 // Entrys are saved as pointers alligned to 8B.
 // Entrys must know thers key.
-// D must have method K& get_key()
+// D must have method const K & get_key()
 // K must be comparable with ==.
 // HashMap behaves as if it isn't owner of entrys.
 template <class K, class D, size_t init_size_pow2 = 2>
@@ -20,13 +21,24 @@ private:
 
         Combined(D *data, size_t off)
         {
-            assert((data & 0x7) == 0 && off < 8);
+            // assert(((((size_t)(data)) & 0x7) == 0) && off < 8);
             this->data = ((size_t)data) | off;
         }
 
         bool valid() { return data != 0; }
 
         size_t off() { return data & 0x7; }
+
+        void decrement_off() { data--; }
+
+        bool increment_off()
+        {
+            if (off() < 7) {
+                data++;
+                return true;
+            }
+            return false;
+        }
 
         D *ptr() { return (D *)(data & (~(0x7))); }
 
@@ -169,7 +181,7 @@ public:
     void increase_size()
     {
         if (capacity == 0) {
-            assert(array == nullptr && count == 0);
+            // assert(array == nullptr && count == 0);
             size_t new_size = 1 << init_size_pow2;
             init_array(new_size);
             return;
@@ -189,7 +201,9 @@ public:
         free(a);
     }
 
-    OptionPtr<D> find(const K &key)
+    bool contains(const K &key) { return find(key).is_present(); }
+
+    OptionPtr<D> find(const K key)
     {
         size_t mask = this->mask();
         size_t now = index(key, mask);
@@ -218,8 +232,54 @@ public:
     // Inserts element. Returns true if element wasn't in the map.
     bool insert(D *data)
     {
+        if (count < capacity) {
+            size_t mask = this->mask();
+            auto key = std::ref(data->get_key());
+            size_t now = index(key, mask);
+            size_t off = 0;
+            size_t border = 8 <= capacity ? 8 : capacity;
+            while (off < border) {
+                Combined other = array[now];
+                if (other.valid()) {
+                    auto other_off = other.off();
+                    if (other_off == off && key == other.ptr()->get_key()) {
+                        return false;
+
+                    } else if (other_off < off) { // Other is rich
+                        array[now] = Combined(data, off);
+
+                        while (other.increment_off()) {
+                            now = (now + 1) & mask;
+                            auto tmp = array[now];
+                            array[now] = other;
+                            other = tmp;
+                            if (!other.valid()) {
+                                count++;
+                                return true;
+                            }
+                        }
+                        data = other.ptr();
+                        break; // Cant insert removed element
+                    } // Else other has equal or greater offset, so he is poor.
+                } else {
+                    array[now] = Combined(data, off);
+                    count++;
+                    return true;
+                }
+
+                off++;
+                now = (now + 1) & mask;
+            }
+        }
+
+        increase_size();
+        return insert(data);
+    }
+
+    // Removes element. Returns removed element if it existed.
+    OptionPtr<D> remove(const K &key)
+    {
         size_t mask = this->mask();
-        auto key = data->get_key();
         size_t now = index(key, mask);
         size_t off = 0;
         size_t border = 8 <= capacity ? 8 : capacity;
@@ -227,29 +287,36 @@ public:
             Combined other = array[now];
             if (other.valid()) {
                 auto other_off = other.off();
-                if (other_off == off && key == other.ptr()->get_key()) {
-                    return false;
+                auto other_ptr = other.ptr();
+                if (other_off == off &&
+                    key == other_ptr->get_key()) { // Found it
+
+                    auto before = now;
+                    do {
+                        other.decrement_off(); // This is alright even for off=0
+                                               // on found element because it
+                                               // wont be seen.
+                        array[before] = other;
+                        before = now;
+                        now = (now + 1) & mask;
+                        other = array[now];
+                    } while (other.valid() && other.off() > 0);
+
+                    array[before] = Combined();
+                    count--;
+                    return OptionPtr<D>(other_ptr);
 
                 } else if (other_off < off) { // Other is rich
-                    array[now] = Combined(data, off);
-
-                    // Hacked reusing of function
-                    data = other.ptr();
-                    key = data->get_key();
-                    off = other_off;
+                    break;
                 } // Else other has equal or greater offset, so he is poor.
             } else {
-                array[now] = Combined(data, off);
-                count++;
-                return true;
+                break;
             }
 
             off++;
             now = (now + 1) & mask;
         }
-
-        increase_size();
-        return insert(data);
+        return OptionPtr<D>();
     }
 
     void clear()
