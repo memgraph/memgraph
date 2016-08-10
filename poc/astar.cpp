@@ -191,6 +191,19 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
     t.commit();
 }
 
+// class Data
+// {
+//
+// private:
+//     size_t data = 0;
+//     int key;
+//
+// public:
+//     Data(int key) : key(key) {}
+//
+//     const int &get_key() { return key; }
+// };
+
 int main()
 {
     Db db;
@@ -208,6 +221,24 @@ int main()
     clock_t end = clock();
     double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
     std::cout << "A-star: " << elapsed_ms << " [ms]\n";
+
+    // RhHashMultiMap benchmark
+    // const int n_pow2 = 20;
+    // int n = 1 << n_pow2;
+    // RhHashMultiMap<int, Data, n_pow2 + 1> map;
+    // std::srand(time(0));
+    // auto data = std::vector<Data *>();
+    // for (int i = 0; i < n; i++) {
+    //     data.push_back(new Data(std::rand()));
+    // }
+    //
+    // begin = clock();
+    // for (auto e : data) {
+    //     map.add(e);
+    // }
+    // end = clock();
+    // elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
+    // std::cout << "Map: " << elapsed_ms << " [ms]\n";
 
     return 0;
 }
