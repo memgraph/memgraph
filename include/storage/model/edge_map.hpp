@@ -20,8 +20,7 @@ public:
 
     void remove(EdgeRecord *edge)
     {
-        // TODO
-        throw std::bad_function_call::bad_function_call();
+        edges.remove(edge); // Currently the return is ignored
     }
 
     bool contains(VertexRecord *vr) { return edges.contains(vr); }
