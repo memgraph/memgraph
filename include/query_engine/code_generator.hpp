@@ -7,16 +7,15 @@
 #include "template_engine/engine.hpp"
 #include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
-
-// TODO:
-//     * logger
-#include <iostream>
+#include "logging/default.hpp"
 
 using std::string;
 
 class CodeGenerator
 {
 public:
+    CodeGenerator() : logger(logging::log->logger("CodeGenerator")) {}
+
     void generate_cpp(const std::string &query, const uint64_t stripped_hash,
                       const std::string &path)
     {
@@ -33,6 +32,7 @@ public:
         try {
             tree = compiler.syntax_tree(query);
         } catch (const std::runtime_error &e) {
+            logger.error("Syntax error: {}", query);
             throw QueryEngineException(std::string(e.what()));
         }
 
@@ -44,6 +44,7 @@ public:
         } catch (const SemanticError &e) {
             throw e;
         } catch (const std::exception &e) {
+            logger.error("AST traversal error: {}", std::string(e.what()));
             throw QueryEngineException("Unknown code generation error");
         }
 
@@ -54,11 +55,13 @@ public:
                             {"query", query},
                             {"code", cpp_traverser.code}});
 
-        // TODO: use logger, ifndef
-        std::cout << generated << std::endl;
+        logger.trace("generated code: {}", generated);
 
         utils::write_file(generated, path);
     }
+
+protected:
+    Logger logger;
 
 private:
     template_engine::TemplateEngine template_engine;

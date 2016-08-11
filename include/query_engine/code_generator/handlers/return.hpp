@@ -19,10 +19,11 @@ auto return_query_action =
                 fmt::format("{} couldn't be found (RETURN clause).", entity));
         }
         if (element.is_entity_only()) {
-            code += code_line(code::print_properties, entity);
+            code += code_line(code::write_entity, entity);
         } else if (element.is_projection()) {
-            auto &property = element.property;
-            code += code_line(code::print_property, entity, property);
+            code += code_line("// TODO: implement projection");
+            // auto &property = element.property;
+            // code += code_line(code::print_property, entity, property);
         }
     }
     

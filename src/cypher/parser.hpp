@@ -4,6 +4,7 @@
 #include "token.hpp"
 #include "ast/tree.hpp"
 #include "tokenizer/cypher_lexer.hpp"
+#include "logging/default.hpp"
 
 void* cypher_parserAlloc(void* (*allocProc)(size_t));
 void  cypher_parser(void*, int, Token*, ast::Ast* ast);
@@ -15,7 +16,7 @@ namespace cypher
 class Parser
 {
 public:
-    Parser()
+    Parser() : logger(logging::log->logger("LexicalParser"))
     {
         parser = cypher_parserAlloc(malloc);
     }
@@ -34,13 +35,17 @@ public:
         {
             tokens.emplace_back(tokenizer.lookup());
             auto& token = tokens.back();
-            std::cout << token << std::endl;
+            // TODO: resolve fmt error with {
+            // logger.debug(token.repr());
             cypher_parser(parser, token.id, &token, &tree);
 
         } while(tokens.back().id != 0);
 
         return std::move(tree);
     }
+
+protected:
+    Logger logger;
 
 private:
     void* parser;

@@ -1,13 +1,14 @@
 #pragma once
 
+#include "communication/communication.hpp"
 #include "database/db.hpp"
-#include "query_engine/query_result.hpp"
 #include "query_engine/query_stripped.hpp"
 
 class ICodeCPU
 {
 public:
-    virtual QueryResult::sptr run(Db &db, code_args_t &args) = 0;
+    virtual bool run(Db &db, code_args_t &args,
+                     communication::OutputStream &stream) = 0;
     virtual ~ICodeCPU() {}
 };
 

@@ -1,7 +1,7 @@
 #include <iostream>
 #include <chrono>
 
-#include "utils/log/logger.hpp"
+#include "logging/default.cpp"
 #include "utils/timer/timer.hpp"
 
 using namespace std::chrono_literals;
@@ -9,7 +9,7 @@ using namespace std::chrono_literals;
 Timer::sptr create_test_timer(int64_t counter)
 {
     return std::make_shared<Timer>(
-        counter, [](){ LOG_INFO("Timer timeout"); }
+        counter, [](){ logging::info("Timer timeout"); }
     );
 }
 

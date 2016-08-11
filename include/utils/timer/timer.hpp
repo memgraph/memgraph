@@ -6,7 +6,7 @@
 #include <thread>
 #include <atomic>
 
-#include "utils/log/logger.hpp"
+#include "logging/default.hpp"
 
 /** @class Timer
  *  @brief The timer contains counter and handler.
@@ -116,7 +116,7 @@ public:
             while (is_running.load()) {
                 std::this_thread::sleep_for(delta_time_type(delta_time));
                 timer_container.process();
-                LOG_INFO("timer_container.process()");
+                logging::info("timer_container.process()");
             }
         });
     }

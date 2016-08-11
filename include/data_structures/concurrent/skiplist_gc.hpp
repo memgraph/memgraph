@@ -6,11 +6,14 @@
 #include "memory/freelist.hpp"
 #include "memory/lazy_gc.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "logging/default.hpp"
 
 template <class T, class lock_t = SpinLock>
 class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>
 {
 public:
+    SkiplistGC() : logger(logging::log->logger("SkiplistGC")) {}
+
     // release_ref method should be called by a thread
     // when the thread finish it job over object
     // which has to be lazy cleaned
@@ -33,9 +36,8 @@ public:
         }
 
         if (local_freelist.size() > 0) {
-            std::cout << "GC started" << std::endl;
-            std::cout << "Local list size: " << local_freelist.size()
-                      << std::endl;
+            logger.trace("GC started");
+            logger.trace("Local list size: {}", local_freelist.size());
             long long counter = 0;
             // destroy all elements from local_freelist
             for (auto element : local_freelist) {
@@ -45,12 +47,14 @@ public:
                     counter++;
                 }
             }
-            std::cout << "Number of destroyed elements " << counter
-                      << std::endl;
+            logger.trace("Number of destroyed elements: {}", counter);
         }
     }
 
     void collect(T *node) { freelist.add(node); }
+
+protected:
+    Logger logger;
 
 private:
     FreeList<T> freelist;

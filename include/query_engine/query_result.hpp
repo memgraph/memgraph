@@ -1,5 +1,8 @@
 #pragma once
 
+// !! DEPRICATED !!
+// TODO: DELETE
+
 #include <memory>
 #include <string>
 #include <unordered_map>

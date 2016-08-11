@@ -16,6 +16,14 @@ void debug(Args&&... args)
     debug_logger.debug(std::forward<Args>(args)...);
 }
 
+extern Logger info_logger;
+
+template <class... Args>
+void info(Args&&... args)
+{
+    info_logger.info(std::forward<Args>(args)...);
+}
+
 void init_async();
 void init_sync();
 

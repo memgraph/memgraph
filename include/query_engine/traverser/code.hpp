@@ -50,8 +50,13 @@ const std::string match_edge_by_id =
     "auto {0} = db.graph.edges.find(t, args[{1}]->as<Int64>().value);\n"
     "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
 
-const std::string return_empty_result =
-    "return std::make_shared<QueryResult>();";
+const std::string write_entity =
+    "stream.write_field(\"{0}\");\n"
+    "        stream.write_record();\n"
+    "        stream.write({0});\n"
+    "        stream.write_success_empty();\n";
+
+const std::string return_true = "return true;";
 
 const std::string update_property = "{}.property(\"{}\", args[{}]);";
 

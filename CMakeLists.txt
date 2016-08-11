@@ -231,6 +231,7 @@ FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_in
 FILE(COPY ${include_dir}/storage/indexes/index_record_collection.hpp DESTINATION ${build_include_dir}/storage/indexes)
 
 FILE(COPY ${include_dir}/utils/sys.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/bswap.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/stacktrace.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/auto_scope.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/assert.hpp DESTINATION ${build_include_dir}/utils)
@@ -246,6 +247,31 @@ FILE(COPY ${include_dir}/utils/counters/simple_counter.hpp DESTINATION ${build_i
 FILE(COPY ${include_dir}/utils/random/fast_binomial.hpp DESTINATION ${build_include_dir}/utils/random)
 FILE(COPY ${include_dir}/utils/random/xorshift128plus.hpp DESTINATION ${build_include_dir}/utils/random)
 FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${build_include_dir}/utils/exceptions)
+FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
+FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
+FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
+
+FILE(COPY ${include_dir}/communication/communication.hpp DESTINATION ${build_include_dir}/communication)
+FILE(COPY ${include_dir}/communication/bolt/v1/config.hpp DESTINATION ${build_include_dir}/communication/bolt/v1)
+FILE(COPY ${include_dir}/communication/bolt/v1/serialization/record_stream.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/serialization)
+FILE(COPY ${include_dir}/communication/bolt/v1/serialization/bolt_serializer.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/serialization)
+FILE(COPY ${include_dir}/communication/bolt/v1/transport/bolt_encoder.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
+FILE(COPY ${include_dir}/communication/bolt/v1/transport/chunked_buffer.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
+FILE(COPY ${include_dir}/communication/bolt/v1/transport/chunked_encoder.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
+FILE(COPY ${include_dir}/communication/bolt/v1/transport/socket_stream.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
+FILE(COPY ${include_dir}/communication/bolt/v1/transport/stream_error.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
+FILE(COPY ${include_dir}/communication/bolt/v1/packing/codes.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/packing)
+FILE(COPY ${include_dir}/communication/bolt/v1/messaging/codes.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/messaging)
+
+FILE(COPY ${include_dir}/io/network/socket.hpp DESTINATION ${build_include_dir}/io/network)
+FILE(COPY ${include_dir}/io/network/addrinfo.hpp DESTINATION ${build_include_dir}/io/network)
+FILE(COPY ${include_dir}/io/network/network_error.hpp DESTINATION ${build_include_dir}/io/network)
+FILE(COPY ${include_dir}/io/network/socket.hpp DESTINATION ${build_include_dir}/io/network)
+
+FILE(COPY ${include_dir}/logging/default.hpp DESTINATION ${build_include_dir}/logging)
+FILE(COPY ${include_dir}/logging/log.hpp DESTINATION ${build_include_dir}/logging)
+FILE(COPY ${include_dir}/logging/logger.hpp DESTINATION ${build_include_dir}/logging)
+FILE(COPY ${include_dir}/logging/levels.hpp DESTINATION ${build_include_dir}/logging)
 # -----------------------------------------------------------------------------
 
 # add all cpp file recursive into sourceFiles varibale
@@ -264,25 +290,67 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE
     "${CMAKE_CXX_FLAGS_RELEASE} -march=native -Wall -Werror")
 
-# -- configure time variables -------------------------------------------------
-option(RUNTIME_ASSERT "Enable runtime assertions" OFF)
+# -- configure defines -- default is ON | true | enabled ----------------------
+# -- logging ------------------------------------------------------------------
+option(LOG_NO_TRACE "Disable trace logging" OFF)
+message(STATUS "LOG_NO_TRACE: ${LOG_NO_TRACE}")
+if (LOG_NO_TRACE)
+    add_definitions(-DLOG_NO_TRACE)
+endif()
+
+option(LOG_NO_DEBUG "Disable debug logging" OFF)
+message(STATUS "LOG_NO_DEBUG: ${LOG_NO_DEBUG}")
+if (LOG_NO_DEBUG)
+    add_definitions(-DLOG_NO_DEBUG)
+endif()
+
+option(LOG_NO_INFO "Disable info logging" OFF)
+message(STATUS "LOG_NO_INFO: ${LOG_NO_INFO}")
+if (LOG_NO_INFO)
+    add_definitions(-DLOG_NO_INFO)
+endif()
+
+option(LOG_NO_WARN "Disable warn logging" OFF)
+message(STATUS "LOG_NO_WARN: ${LOG_NO_WARN}")
+if (LOG_NO_WARN)
+    add_definitions(-DLOG_NO_WARN)
+endif()
+
+option(LOG_NO_ERROR "Disable error logging" OFF)
+message(STATUS "LOG_NO_ERROR: ${LOG_NO_ERROR}")
+if (LOG_NO_ERROR)
+    add_definitions(-DLOG_NO_ERROR)
+endif()
+# -- logging ------------------------------------------------------------------
+# -- assert -------------------------------------------------------------------
+option(RUNTIME_ASSERT "Enable runtime assertions" ON)
+message(STATUS "RUNTIME_ASSERT: ${RUNTIME_ASSERT}")
 if(RUNTIME_ASSERT)
-    add_definitions( -DRUNTIME_ASSERT_ON )
+    add_definitions(-DRUNTIME_ASSERT_ON)
 endif()
 
-option(THROW_EXCEPTION_ON_ERROR "Throw exception on error" OFF)
+option(THROW_EXCEPTION_ON_ERROR "Throw exception on error" ON)
+message(STATUS "THROW_EXCEPTION_ON_ERROR: ${THROW_EXCEPTION_ON_ERROR}")
 if(THROW_EXCEPTION_ON_ERROR)
-    add_definitions( -DTHROW_EXCEPTION_ON_ERROR )
+    add_definitions(-DTHROW_EXCEPTION_ON_ERROR)
 endif()
-
+# -- assert -------------------------------------------------------------------
+# -- ndebug -------------------------------------------------------------------
 option(NDEBUG "No debug" OFF)
+message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also append this flag)")
 if(NDEBUG)
     add_definitions( -DNDEBUG )
 endif()
-
+# -- ndebug -------------------------------------------------------------------
+# -- binaries -----------------------------------------------------------------
 option(MEMGRAPH "Build memgraph binary" ON)
+message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 option(POC "Build proof of concept binaries" ON)
+message(STATUS "POC binaries: ${POC}")
 option(TESTS "Build test binaries" ON)
+message(STATUS "TESTS binaries: ${TESTS}")
+# -- binaries -----------------------------------------------------------------
+# -- configure defines --------------------------------------------------------
 
 # -- includes -----------------------------------------------------------------
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -311,15 +379,15 @@ set(memgraph_src_files
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
     ${src_dir}/query_engine/util.cpp
-    ${src_dir}/bolt/v1/bolt.cpp
-    ${src_dir}/bolt/v1/states.cpp
-    ${src_dir}/bolt/v1/session.cpp
-    ${src_dir}/bolt/v1/states/error.cpp
-    ${src_dir}/bolt/v1/states/executor.cpp
-    ${src_dir}/bolt/v1/states/init.cpp
-    ${src_dir}/bolt/v1/states/handshake.cpp
-    ${src_dir}/bolt/v1/transport/bolt_decoder.cpp
-    ${src_dir}/bolt/v1/transport/buffer.cpp
+    ${src_dir}/communication/bolt/v1/bolt.cpp
+    ${src_dir}/communication/bolt/v1/states.cpp
+    ${src_dir}/communication/bolt/v1/session.cpp
+    ${src_dir}/communication/bolt/v1/states/error.cpp
+    ${src_dir}/communication/bolt/v1/states/executor.cpp
+    ${src_dir}/communication/bolt/v1/states/init.cpp
+    ${src_dir}/communication/bolt/v1/states/handshake.cpp
+    ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
+    ${src_dir}/communication/bolt/v1/transport/buffer.cpp
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp

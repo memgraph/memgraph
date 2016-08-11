@@ -1,8 +1,8 @@
 #include <iostream>
 #include <signal.h>
 
-#include "bolt/v1/server/server.hpp"
-#include "bolt/v1/server/worker.hpp"
+#include "communication/bolt/v1/server/server.hpp"
+#include "communication/bolt/v1/server/worker.hpp"
 
 #include "io/network/socket.hpp"
 
@@ -34,7 +34,7 @@ int main(void)
     // that are configured below
     std::set_terminate(&terminate_handler);
 
-    logging::init_sync();
+    logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
     logger = logging::log->logger("Main");
 

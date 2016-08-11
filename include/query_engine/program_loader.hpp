@@ -4,8 +4,6 @@
 #include <string>
 #include <unordered_map>
 
-#define NOT_LOG_INFO
-
 #include "config/config.hpp"
 #include "query_engine/code_compiler.hpp"
 #include "query_engine/code_generator.hpp"
@@ -13,29 +11,28 @@
 #include "query_engine/query_program.hpp"
 #include "query_engine/query_stripper.hpp"
 #include "utils/hashing/fnv.hpp"
-#include "utils/log/logger.hpp"
+#include "logging/default.hpp"
 
 using std::string;
-using std::cout;
-using std::endl;
 
 class ProgramLoader
 {
 public:
     using sptr_code_lib = std::shared_ptr<CodeLib>;
 
-    ProgramLoader()
-        : stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL))
+    ProgramLoader() :
+        stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL)),
+        logger(logging::log->logger("ProgramLoader"))
     {
     }
 
     auto load(const string &query)
     {
         auto stripped = stripper.strip(query);
-        LOG_INFO("stripped_query = " + stripped.query);
+        logger.debug("stripped_query = {}", stripped.query);
 
         auto hash_string = std::to_string(stripped.hash);
-        LOG_INFO("query_hash = " + hash_string);
+        logger.debug("query_hash = {}", hash_string);
 
         auto code_lib_iter = code_libs.find(stripped.hash);
 
@@ -64,6 +61,9 @@ public:
         // return an instance of runnable code (ICodeCPU)
         return QueryProgram(code_lib->instance(), std::move(stripped));
     }
+
+protected:
+    Logger logger;
 
 private:
     //  TODO somehow remove int.. from here

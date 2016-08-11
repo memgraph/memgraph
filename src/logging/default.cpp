@@ -20,6 +20,16 @@ Logger init_debug_logger()
 
 Logger debug_logger = init_debug_logger();
 
+std::unique_ptr<Log> info_log = std::make_unique<SyncLog>();
+
+Logger init_info_logger()
+{
+    info_log->pipe(std::make_unique<Stdout>());
+    return info_log->logger("INFO");
+}
+
+Logger info_logger = init_info_logger();
+
 void init_async()
 {
     log = std::make_unique<AsyncLog>();
