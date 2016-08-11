@@ -3,7 +3,7 @@
 #include <cassert>
 #include <vector>
 
-#include "bolt/v1/transport/chunked_encoder.hpp"
+#include "communication/bolt/v1/transport/chunked_encoder.hpp"
 
 using byte = unsigned char;
 

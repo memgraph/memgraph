@@ -1,9 +1,10 @@
 #pragma once
 
+#include <iostream>
 #include <ostream>
-
 #include <cstdint>
 #include <string>
+#include <fmt/format.h>
 
 struct Token
 {
@@ -26,13 +27,22 @@ struct Token
     }
 
     /*
+     * String representation.
+     */
+    std::string repr() const
+    {
+        // TODO: wrap fmt format
+        // return fmt::format("TOKEN id = {}, value = {}", id, value);
+        return "";
+    }
+
+    /*
      * Ostream operator
      *
      * Prints token id and value in single line.
      */
     friend std::ostream& operator<<(std::ostream& stream, const Token& token)
     {
-        return stream << "TOKEN id = " << token.id
-                      << ", value = '" << token.value << "'";
+        return stream << token.repr();
     }
 };

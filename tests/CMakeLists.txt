@@ -63,19 +63,20 @@ endforeach()
 # test hard coded queries
 add_executable(integration_queries integration/queries.cpp)
 target_link_libraries(integration_queries memgraph)
+target_link_libraries(integration_queries Threads::Threads)
 target_link_libraries(integration_queries ${fmt_static_lib})
 add_test(NAME integration_queries COMMAND integration_queries)
 set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
 
 # test query engine
 add_executable(integration_query_engine integration/query_engine.cpp)
-# target_link_libraries()
+target_link_libraries(integration_query_engine Threads::Threads)
 add_test(NAME integration_query_engine COMMAND integration_query_engine)
 set_property(TARGET integration_query_engine PROPERTY CXX_STANDARD 14)
 
 # test memgraph with bolt protocol
 add_executable(integration_memgraph_bolt integration/memgraph_bolt.cpp)
-# target_link_libraries()
+target_link_libraries(integration_memgraph_bolt Threads::Threads)
 add_test(NAME integration_memgraph_bolt COMMAND integration_memgraph_bolt)
 set_property(TARGET integration_memgraph_bolt PROPERTY CXX_STANDARD 14)
 
@@ -84,6 +85,7 @@ set_property(TARGET integration_memgraph_bolt PROPERTY CXX_STANDARD 14)
 # cypher_ast
 add_executable(manual_cypher_ast manual/cypher_ast.cpp)
 target_link_libraries(manual_cypher_ast memgraph)
+target_link_libraries(manual_cypher_ast Threads::Threads)
 target_link_libraries(manual_cypher_ast ${fmt_static_lib})
 target_link_libraries(manual_cypher_ast cypher_lib)
 set_property(TARGET manual_cypher_ast PROPERTY CXX_STANDARD 14)
@@ -91,6 +93,7 @@ set_property(TARGET manual_cypher_ast PROPERTY CXX_STANDARD 14)
 # queries
 add_executable(manual_queries manual/queries.cpp)
 target_link_libraries(manual_queries memgraph)
+target_link_libraries(manual_queries Threads::Threads)
 target_link_libraries(manual_queries ${fmt_static_lib})
 target_link_libraries(manual_queries cypher_lib)
 set_property(TARGET manual_queries PROPERTY CXX_STANDARD 14)
@@ -101,6 +104,7 @@ target_link_libraries(manual_query_engine memgraph)
 target_link_libraries(manual_query_engine ${fmt_static_lib})
 target_link_libraries(manual_query_engine dl)
 target_link_libraries(manual_query_engine cypher_lib)
+target_link_libraries(manual_query_engine Threads::Threads)
 set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
 
 # query_hasher

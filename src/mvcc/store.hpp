@@ -10,6 +10,8 @@
 // some interesting concepts described there, keep in mind for the future
 // Serializable Isolation for Snapshot Databases, J. Cahill, et al.
 
+// TODO: remove if not in use !! DEPRICATED !!
+
 namespace mvcc
 {
 

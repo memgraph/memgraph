@@ -20,6 +20,10 @@ on a 64 bit linux kernel.
 * lemon (parser generator)
 * catch (for compiling tests)
 
+### Bolt
+
+sudo apt-get install libssl-dev
+
 ## build
 ```
 cd build
@@ -30,8 +34,9 @@ cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DRUNTIME_ASSERT=OFF
 #   -DCMAKE_CXX_COMPILER=clang++
 #   -DRUNTIME_ASSERT=OFF
 #   -DTHROW_EXCEPTION_ON_ERROR=OFF
-#   -DCMAKE_BUILD_TYPE:STRING=Debug
 #   -DNDEBUG=ON
+#   -DCMAKE_BUILD_TYPE:STRING=debug
+#   -DCMAKE_BUILD_TYPE:STRING=release
 
 make
 ctest

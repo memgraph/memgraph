@@ -1,7 +1,7 @@
 #include <iostream>
 
-#include "log.hpp"
-#include "logger.hpp"
+#include "logging/log.hpp"
+#include "logging/logger.hpp"
 
 Logger Log::logger(const std::string& name)
 {
