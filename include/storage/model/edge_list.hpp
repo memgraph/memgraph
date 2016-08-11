@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "mvcc/version_list.hpp"
+#include "storage/edge_record.hpp"
 
 class EdgeList
 {

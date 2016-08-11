@@ -15,13 +15,14 @@ Edge::Accessor Edges::find(tx::Transaction &t, const Id &id)
     return Edge::Accessor(edge, &edges_iterator->second, this);
 }
 
-Edge::Accessor Edges::insert(tx::Transaction &t)
+Edge::Accessor Edges::insert(tx::Transaction &t, VertexRecord *from,
+                             VertexRecord *to)
 {
     // get next vertex id
     auto next = counter.next(std::memory_order_acquire);
 
     // create new vertex record
-    EdgeRecord edge_record(next);
+    EdgeRecord edge_record(next, from, to);
 
     // insert the new vertex record into the vertex store
     auto edges_accessor = edges.access();

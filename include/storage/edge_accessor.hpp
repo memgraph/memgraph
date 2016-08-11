@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mvcc/edge_record.hpp"
 #include "storage/edge.hpp"
+#include "storage/edge_record.hpp"
 #include "storage/record_accessor.hpp"
 #include "utils/assert.hpp"
 #include "utils/reference_wrapper.hpp"
