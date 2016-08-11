@@ -42,6 +42,36 @@ TEST_CASE("Robin hood hashmultimap insert/get check")
     REQUIRE(*map.find(0) == ptr0);
 }
 
+TEST_CASE("Robin hood hashmultimap extreme same key valus full")
+{
+    RhHashMultiMap<int, Data> map;
+
+    for (int i = 0; i < 128; i++) {
+        map.add(new Data(7));
+    }
+    REQUIRE(map.size() == 128);
+    REQUIRE(map.find(7) != map.end());
+    REQUIRE(map.find(0) == map.end());
+    auto ptr0 = new Data(0);
+    map.add(ptr0);
+    REQUIRE(map.find(0) != map.end());
+    REQUIRE(*map.find(0) == ptr0);
+}
+
+TEST_CASE("Robin hood hashmultimap extreme same key valus full with remove")
+{
+    RhHashMultiMap<int, Data> map;
+
+    for (int i = 0; i < 127; i++) {
+        map.add(new Data(7));
+    }
+    auto ptr = new Data(7);
+    map.add(ptr);
+    REQUIRE(map.size() == 128);
+    REQUIRE(!map.remove(new Data(0)));
+    REQUIRE(map.remove(ptr));
+}
+
 TEST_CASE("Robin hood hasmultihmap remove functionality")
 {
     RhHashMultiMap<int, Data> map;
@@ -51,7 +81,7 @@ TEST_CASE("Robin hood hasmultihmap remove functionality")
     map.add(ptr0);
     REQUIRE(map.find(0) != map.end());
     REQUIRE(*map.find(0) == ptr0);
-    REQUIRE(map.remove(0).get() == ptr0);
+    REQUIRE(map.remove(ptr0));
     REQUIRE(map.find(0) == map.end());
 }
 
@@ -141,37 +171,6 @@ TEST_CASE("Robin hood hashmultimap checked rand")
         map.add(data);
         s_map.insert(std::pair<int, Data *>(key, data));
     }
-    cross_validate(map, s_map);
-}
-
-TEST_CASE("Robin hood hashmultimap with remove checked")
-{
-    RhHashMultiMap<int, Data> map;
-    std::multimap<int, Data *> s_map;
-
-    std::srand(std::time(0));
-    for (int i = 0; i < 162638; i++) {
-        int key = (std::rand() % 10000) << 3;
-        if ((std::rand() % 3) == 0) {
-            auto removed = map.remove(key);
-            auto it = s_map.find(key);
-            if (removed.is_present()) {
-                while (it != s_map.end() && it->second != removed.get()) {
-                    it++;
-                }
-                REQUIRE(it != s_map.end());
-                s_map.erase(it);
-
-            } else {
-                REQUIRE(it == s_map.end());
-            }
-        } else {
-            auto data = new Data(key);
-            map.add(data);
-            s_map.insert(std::pair<int, Data *>(key, data));
-        }
-    }
-
     cross_validate(map, s_map);
 }
 

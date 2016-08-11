@@ -1,3 +1,4 @@
+#include "rh_common.hpp"
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 #include <functional>
@@ -10,196 +11,32 @@
 // K must be comparable with ==.
 // HashMap behaves as if it isn't owner of entrys.
 template <class K, class D, size_t init_size_pow2 = 2>
-class RhHashMap
+class RhHashMap : public RhBase<K, D, init_size_pow2>
 {
-private:
-    class Combined
-    {
-
-    public:
-        Combined() : data(0) {}
-
-        Combined(D *data, size_t off)
-        {
-            // assert(((((size_t)(data)) & 0x7) == 0) && off < 8);
-            this->data = ((size_t)data) | off;
-        }
-
-        bool valid() { return data != 0; }
-
-        size_t off() { return data & 0x7; }
-
-        void decrement_off() { data--; }
-
-        bool increment_off()
-        {
-            if (off() < 7) {
-                data++;
-                return true;
-            }
-            return false;
-        }
-
-        D *ptr() { return (D *)(data & (~(0x7))); }
-
-    private:
-        size_t data;
-    };
-
-    template <class It>
-    class IteratorBase : public Crtp<It>
-    {
-    protected:
-        IteratorBase() : map(nullptr) { index = ~((size_t)0); }
-        IteratorBase(const RhHashMap *map) : map(map)
-        {
-            index = 0;
-            while (index < map->capacity && !map->array[index].valid()) {
-                index++;
-            }
-            if (index == map->capacity) {
-                map = nullptr;
-                index = ~((size_t)0);
-            }
-        }
-
-        const RhHashMap *map;
-        size_t index;
-
-    public:
-        IteratorBase(const IteratorBase &) = default;
-        IteratorBase(IteratorBase &&) = default;
-
-        D *operator*()
-        {
-            assert(index < map->capacity && map->array[index].valid());
-            return map->array[index].ptr();
-        }
-
-        D *operator->()
-        {
-            assert(index < map->capacity && map->array[index].valid());
-            return map->array[index].ptr();
-        }
-
-        It &operator++()
-        {
-            assert(index < map->capacity && map->array[index].valid());
-            do {
-                index++;
-                if (index >= map->capacity) {
-                    map = nullptr;
-                    index = ~((size_t)0);
-                    break;
-                }
-            } while (!map->array[index].valid());
-
-            return this->derived();
-        }
-
-        It &operator++(int) { return operator++(); }
-
-        friend bool operator==(const It &a, const It &b)
-        {
-            return a.index == b.index && a.map == b.map;
-        }
-
-        friend bool operator!=(const It &a, const It &b) { return !(a == b); }
-    };
-
-public:
-    class ConstIterator : public IteratorBase<ConstIterator>
-    {
-        friend class RhHashMap;
-        ConstIterator(const RhHashMap *map) : IteratorBase<ConstIterator>(map)
-        {
-        }
-
-    public:
-        ConstIterator() = default;
-        ConstIterator(const ConstIterator &) = default;
-
-        const D *operator->()
-        {
-            return IteratorBase<ConstIterator>::operator->();
-        }
-
-        const D *operator*()
-        {
-            return IteratorBase<ConstIterator>::operator*();
-        }
-    };
-
-    class Iterator : public IteratorBase<Iterator>
-    {
-        friend class RhHashMap;
-        Iterator(const RhHashMap *map) : IteratorBase<Iterator>(map) {}
-
-    public:
-        Iterator() = default;
-        Iterator(const Iterator &) = default;
-    };
-
-    RhHashMap() {}
-
-    RhHashMap(const RhHashMap &other)
-    {
-        capacity = other.capacity;
-        count = other.count;
-        if (capacity > 0) {
-            size_t bytes = sizeof(Combined) * capacity;
-            array = (Combined *)malloc(bytes);
-            memcpy(array, other.array, bytes);
-
-        } else {
-            array = nullptr;
-        }
-    }
-
-    ~RhHashMap() { this->clear(); }
-
-    Iterator begin() { return Iterator(this); }
-
-    ConstIterator begin() const { return ConstIterator(this); }
-
-    ConstIterator cbegin() const { return ConstIterator(this); }
-
-    Iterator end() { return Iterator(); }
-
-    ConstIterator end() const { return ConstIterator(); }
-
-    ConstIterator cend() const { return ConstIterator(); }
-
-    void init_array(size_t size)
-    {
-        size_t bytes = sizeof(Combined) * size;
-        array = (Combined *)malloc(bytes);
-        memset(array, 0, bytes);
-        capacity = size;
-    }
+    typedef RhBase<K, D, init_size_pow2> base;
+    using base::array;
+    using base::index;
+    using base::capacity;
+    using base::count;
+    using typename base::Combined;
 
     void increase_size()
     {
-        if (capacity == 0) {
-            // assert(array == nullptr && count == 0);
-            size_t new_size = 1 << init_size_pow2;
-            init_array(new_size);
-            return;
-        }
-        size_t new_size = capacity * 2;
         size_t old_size = capacity;
         auto a = array;
-        init_array(new_size);
-        count = 0;
-
-        for (int i = 0; i < old_size; i++) {
-            if (a[i].valid()) {
-                insert(a[i].ptr());
+        if (base::increase_size()) {
+            for (int i = 0; i < old_size; i++) {
+                if (a[i].valid()) {
+                    insert(a[i].ptr());
+                }
             }
         }
 
         free(a);
     }
+
+public:
+    using base::RhBase;
 
     bool contains(const K &key) { return find(key).is_present(); }
 
@@ -293,9 +130,10 @@ public:
 
                     auto before = now;
                     do {
-                        other.decrement_off(); // This is alright even for off=0
-                                               // on found element because it
-                                               // wont be seen.
+                        // This is alright even for off=0 on found element
+                        // because it wont be seen.
+                        other.decrement_off_unsafe();
+
                         array[before] = other;
                         before = now;
                         now = (now + 1) & mask;
@@ -318,36 +156,4 @@ public:
         }
         return OptionPtr<D>();
     }
-
-    void clear()
-    {
-        free(array);
-        array = nullptr;
-        capacity = 0;
-        count = 0;
-    }
-
-    size_t size() { return count; }
-
-private:
-    size_t index(const K &key, size_t mask)
-    {
-        return hash(std::hash<K>()(key)) & mask;
-    }
-    size_t hash(size_t x) const
-    {
-        x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
-        x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
-        x = x ^ (x >> 31);
-        return x;
-    }
-
-    size_t mask() { return capacity - 1; }
-
-    Combined *array = nullptr;
-    size_t capacity = 0;
-    size_t count = 0;
-
-    friend class IteratorBase<Iterator>;
-    friend class IteratorBase<ConstIterator>;
 };
