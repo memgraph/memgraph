@@ -14,9 +14,11 @@ class {{class_name}} : public ICodeCPU
 {
 public:
 
-    QueryResult::sptr run(Db& db, code_args_t& args) override
+    bool run(Db& db, code_args_t& args,
+             communication::OutputStream& stream) override
     {
-{{code}}    }
+{{code}}
+    }
 
     ~{{class_name}}() {}
 };

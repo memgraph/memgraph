@@ -5,7 +5,7 @@
 #include <array>
 #include <vector>
 
-#include "bolt/v1/transport/chunked_decoder.hpp"
+#include "communication/bolt/v1/transport/chunked_decoder.hpp"
 
 using byte = unsigned char;
 

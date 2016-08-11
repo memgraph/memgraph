@@ -7,6 +7,7 @@
 #include "query_engine/query_engine.hpp"
 #include "utils/time/timer.hpp"
 #include "utils/terminate_handler.hpp"
+#include "communication/communication.hpp"
 
 using std::cout;
 using std::endl;
@@ -16,7 +17,11 @@ int main(void)
 {   
     std::set_terminate(&terminate_handler);
 
+    Db db;
     QueryEngine engine;
+    // TODO: write dummy socket that is going to execute test
+    io::Socket socket;
+    communication::OutputStream stream(socket);
 
     cout << "-- Memgraph query engine --" << endl;
 
@@ -30,7 +35,7 @@ int main(void)
         
         // execute command
         try {
-            engine.execute(command);
+            engine.execute(command, db, stream);
         } catch (const std::exception& e) {
             cout << e.what() << endl;
         } catch (const QueryEngineException& e) {
