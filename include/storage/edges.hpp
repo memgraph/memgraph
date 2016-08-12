@@ -8,8 +8,8 @@
 class Edges
 {
 public:
-    Edge::Accessor find(tx::Transaction &t, const Id &id);
-    Edge::Accessor insert(tx::Transaction &t, VertexRecord *from,
+    Edge::Accessor find(DbTransaction &t, const Id &id);
+    Edge::Accessor insert(DbTransaction &t, VertexRecord *from,
                           VertexRecord *to);
 
 private:

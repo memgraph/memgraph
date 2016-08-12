@@ -1,23 +1,29 @@
 #pragma once
 
+#include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/property.hpp"
 #include "transactions/transaction.hpp"
 
-template <class T, class Store, class Derived,
-          class vlist_t = mvcc::VersionList<T>>
+template <class T, class Derived, class vlist_t = mvcc::VersionList<T>>
 class RecordAccessor
 {
 public:
-    RecordAccessor() = default;
+    RecordAccessor(DbTransaction &db) : db(db){};
 
-    RecordAccessor(T *record, vlist_t *vlist, Store *store)
-        : record(record), vlist(vlist), store(store)
+    RecordAccessor(T *t, vlist_t *vlist, DbTransaction &db)
+        : record(t), vlist(vlist), db(db)
     {
         assert(record != nullptr);
         assert(vlist != nullptr);
-        assert(store != nullptr);
+    }
+
+    RecordAccessor(vlist_t *vlist, DbTransaction &db)
+        : record(vlist->find(db.trans)), vlist(vlist), db(db)
+    {
+        assert(record != nullptr);
+        assert(vlist != nullptr);
     }
 
     bool empty() const { return record == nullptr; }
@@ -28,18 +34,18 @@ public:
         return vlist->id;
     }
 
-    Derived update(tx::Transaction &t) const
+    Derived update() const
     {
         assert(!empty());
 
-        return Derived(vlist->update(t), vlist, store);
+        return Derived(vlist->update(db.trans), vlist, db);
     }
 
-    bool remove(tx::Transaction &t) const
+    bool remove() const
     {
         assert(!empty());
 
-        return vlist->remove(record, t);
+        return vlist->remove(record, db.trans);
     }
 
     const Property &property(const std::string &key) const
@@ -65,5 +71,5 @@ public:
     // protected:
     T *const record{nullptr};
     vlist_t *const vlist{nullptr};
-    Store *const store{nullptr};
+    DbTransaction &db;
 };
