@@ -5,8 +5,7 @@
 
 class Vertices;
 
-class Vertex::Accessor
-    : public RecordAccessor<Vertex, Vertices, Vertex::Accessor>
+class Vertex::Accessor : public RecordAccessor<Vertex, Vertex::Accessor>
 {
 public:
     using RecordAccessor::RecordAccessor;
@@ -21,5 +20,5 @@ public:
 
     bool has_label(const Label &label) const;
 
-    const std::set<label_ref_t>& labels() const;
+    const std::set<label_ref_t> &labels() const;
 };
