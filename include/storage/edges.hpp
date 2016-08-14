@@ -4,12 +4,15 @@
 #include "mvcc/version_list.hpp"
 #include "storage/common.hpp"
 #include "storage/edge_accessor.hpp"
+#include "utils/option.hpp"
 
 class Edges
 {
 public:
-    Edge::Accessor find(tx::Transaction &t, const Id &id);
-    Edge::Accessor insert(tx::Transaction &t, VertexRecord *from,
+    Option<const Edge::Accessor> find(DbTransaction &t, const Id &id);
+
+    // Creates new Edge and returns filled Edge::Accessor.
+    Edge::Accessor insert(DbTransaction &t, VertexRecord *from,
                           VertexRecord *to);
 
 private:

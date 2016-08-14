@@ -9,6 +9,7 @@ constexpr size_t key_range = elems_per_thread * THREADS_NO * 2;
 // Test checks for missing data and changed/overwriten data.
 int main()
 {
+    init_log();
     memory_check(THREADS_NO, [] {
         map_t skiplist;
 

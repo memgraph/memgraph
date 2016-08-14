@@ -1,9 +1,10 @@
+#include <cstring>
+#include <functional>
 #include "rh_common.hpp"
 #include "utils/crtp.hpp"
 #include "utils/likely.hpp"
+#include "utils/option.hpp"
 #include "utils/option_ptr.hpp"
-#include <cstring>
-#include <functional>
 
 // HashMultiMap with RobinHood collision resolution policy.
 // Single threaded.
@@ -45,9 +46,30 @@ public:
     using typename base::ConstIterator;
     using typename base::Iterator;
 
-    bool contains(const K &key) { return find(key) != end(); }
+    bool contains(const K &key) const { return find_index(key).is_present(); }
 
     Iterator find(const K &key_in)
+    {
+        auto index = find_index(key_in);
+        if (index) {
+            return create_it(index.get());
+        } else {
+            return end();
+        }
+    }
+
+    ConstIterator find(const K &key_in) const
+    {
+        auto index = find_index(key_in);
+        if (index) {
+            return create_it(index.get());
+        } else {
+            return end();
+        }
+    }
+
+private:
+    Option<size_t> find_index(const K &key_in) const
     {
         if (count > 0) {
             auto key = std::ref(key_in);
@@ -59,7 +81,7 @@ public:
             while (other.valid() && off < border) {
                 auto other_off = other.off();
                 if (other_off == off && key == other.ptr()->get_key()) {
-                    return create_it(now);
+                    return Option<size_t>(now);
 
                 } else if (other_off < off) { // Other is rich
                     break;
@@ -73,9 +95,10 @@ public:
             }
         }
 
-        return end();
+        return Option<size_t>();
     }
 
+public:
     // Inserts element.
     void add(D *data) { add(data->get_key(), data); }
 
@@ -211,7 +234,7 @@ public:
 private:
     // Skips same key valus as other. true if whole map is full of same key
     // values.
-    bool skip(size_t &now, Combined &other, size_t other_off, size_t mask)
+    bool skip(size_t &now, Combined &other, size_t other_off, size_t mask) const
     {
         auto other_key = other.ptr()->get_key();
         size_t start = now;

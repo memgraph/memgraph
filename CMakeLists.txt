@@ -15,7 +15,7 @@ find_package(Threads REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 
 # glibcxx debug (useful for gdb)
-# the problem is that the query engine doesn't work as it should work if 
+# the problem is that the query engine doesn't work as it should work if
 # this flag is present
 # TODO: find more appropriate way to use this flag only when it is needed
 # set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_DEBUG")
@@ -288,7 +288,7 @@ endif()
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE
-    "${CMAKE_CXX_FLAGS_RELEASE} -march=native -Wall -Werror")
+    "${CMAKE_CXX_FLAGS_RELEASE} -march=native -Wall")
 
 # -- configure defines -- default is ON | true | enabled ----------------------
 # -- logging ------------------------------------------------------------------
@@ -412,6 +412,10 @@ set(memgraph_src_files
     ${src_dir}/logging/default.cpp
     ${src_dir}/logging/log.cpp
     ${src_dir}/io/network/tls.cpp
+    ${src_dir}/database/db.cpp
+    ${src_dir}/database/db_accessor.cpp
+    ${src_dir}/database/db_transaction.cpp
+    ${src_dir}/storage/edge_accessor.cpp
 )
 
 # STATIC library used by memgraph executables
@@ -434,7 +438,7 @@ endif()
 
 # memgraph build name
 execute_process(
-    OUTPUT_VARIABLE COMMIT_NO 
+    OUTPUT_VARIABLE COMMIT_NO
     COMMAND git rev-list --count HEAD
 )
 execute_process(

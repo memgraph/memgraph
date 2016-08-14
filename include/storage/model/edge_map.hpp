@@ -23,7 +23,7 @@ public:
         edges.remove(edge); // Currently the return is ignored
     }
 
-    bool contains(VertexRecord *vr) { return edges.contains(vr); }
+    bool contains(VertexRecord *vr) const { return edges.contains(vr); }
 
     void clear() { edges.clear(); }
 

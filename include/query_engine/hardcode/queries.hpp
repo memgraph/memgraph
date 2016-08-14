@@ -1,6 +1,8 @@
 #pragma once
 
 #include "database/db.hpp"
+#include "database/db_accessor.cpp"
+#include "database/db_accessor.hpp"
 #include "query_engine/query_stripper.hpp"
 #include "query_engine/util.hpp"
 #include "storage/model/properties/property.hpp"
@@ -12,8 +14,8 @@ auto load_queries(Db &db)
 
     // CREATE (n {prop: 0}) RETURN n)
     auto create_node = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
-        auto vertex_accessor = db.graph.vertices.insert(t);
+        DbAccessor t(db);
+        auto vertex_accessor = t.vertex_insert();
         vertex_accessor.property("prop", args[0]);
         t.commit();
         return true;
@@ -21,10 +23,10 @@ auto load_queries(Db &db)
     queries[11597417457737499503u] = create_node;
 
     auto create_labeled_and_named_node = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
-        auto vertex_accessor = db.graph.vertices.insert(t);
+        DbAccessor t(db);
+        auto vertex_accessor = t.vertex_insert();
         vertex_accessor.property("name", args[0]);
-        auto &label = db.graph.label_store.find_or_create("LABEL");
+        auto &label = t.label_find_or_create("LABEL");
         vertex_accessor.add_label(label);
         cout_properties(vertex_accessor.properties());
         t.commit();
@@ -32,13 +34,13 @@ auto load_queries(Db &db)
     };
 
     auto create_account = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
-        auto vertex_accessor = db.graph.vertices.insert(t);
+        DbAccessor t(db);
+        auto vertex_accessor = t.vertex_insert();
         vertex_accessor.property("id", args[0]);
         vertex_accessor.property("name", args[1]);
         vertex_accessor.property("country", args[2]);
         vertex_accessor.property("created_at", args[3]);
-        auto &label = db.graph.label_store.find_or_create("ACCOUNT");
+        auto &label = t.label_find_or_create("ACCOUNT");
         vertex_accessor.add_label(label);
         cout_properties(vertex_accessor.properties());
         t.commit();
@@ -46,14 +48,15 @@ auto load_queries(Db &db)
     };
 
     auto find_node_by_internal_id = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
+        DbAccessor t(db);
         auto id = static_cast<Int32 &>(*args[0]);
-        auto vertex_accessor = db.graph.vertices.find(t, Id(id.value));
-        if (!vertex_accessor) {
+        auto maybe_va = t.vertex_find(Id(id.value));
+        if (!option_fill(maybe_va)) {
             cout << "vertex doesn't exist" << endl;
             t.commit();
             return false;
         }
+        auto vertex_accessor = maybe_va.get();
         cout_properties(vertex_accessor.properties());
         cout << "LABELS:" << endl;
         for (auto label_ref : vertex_accessor.labels()) {
@@ -64,20 +67,17 @@ auto load_queries(Db &db)
     };
 
     auto create_edge = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
+        DbAccessor t(db);
 
-        auto v1 = db.graph.vertices.find(t, args[0]->as<Int32>().value);
-        if (!v1) return t.commit(), false;
+        auto v1 = t.vertex_find(args[0]->as<Int32>().value);
+        if (!option_fill(v1)) return t.commit(), false;
 
-        auto v2 = db.graph.vertices.find(t, args[1]->as<Int32>().value);
-        if (!v2) return t.commit(), false;
+        auto v2 = t.vertex_find(args[1]->as<Int32>().value);
+        if (!option_fill(v2)) return t.commit(), false;
 
-        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
+        auto edge_accessor = t.edge_insert(v1.get(), v2.get());
 
-        v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
-        v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
-
-        auto &edge_type = db.graph.edge_type_store.find_or_create("IS");
+        auto &edge_type = t.type_find_or_create("IS");
         edge_accessor.edge_type(edge_type);
 
         t.commit();
@@ -90,20 +90,25 @@ auto load_queries(Db &db)
     };
 
     auto find_edge_by_internal_id = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
-        auto edge_accessor = db.graph.edges.find(t, args[0]->as<Int32>().value);
-        if (!edge_accessor) return t.commit(), false;
+        DbAccessor t(db);
+        auto maybe_ea = t.edge_find(args[0]->as<Int32>().value);
+        if (!option_fill(maybe_ea)) return t.commit(), false;
+        auto edge_accessor = maybe_ea.get();
 
         // print edge type and properties
         cout << "EDGE_TYPE: " << edge_accessor.edge_type() << endl;
 
         auto from = edge_accessor.from();
+        if (!from.fill()) return t.commit(), false;
+
         cout << "FROM:" << endl;
-        cout_properties(from->find(t)->data.props);
+        cout_properties(from->data.props);
 
         auto to = edge_accessor.to();
+        if (!to.fill()) return t.commit(), false;
+
         cout << "TO:" << endl;
-        cout_properties(to->find(t)->data.props);
+        cout_properties(to->data.props);
 
         t.commit();
 
@@ -111,10 +116,11 @@ auto load_queries(Db &db)
     };
 
     auto update_node = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
+        DbAccessor t(db);
 
-        auto v = db.graph.vertices.find(t, args[0]->as<Int32>().value);
-        if (!v) return t.commit(), false;
+        auto maybe_v = t.vertex_find(args[0]->as<Int32>().value);
+        if (!option_fill(maybe_v)) return t.commit(), false;
+        auto v = maybe_v.get();
 
         v.property("name", args[1]);
         cout_properties(v.properties());
@@ -127,18 +133,17 @@ auto load_queries(Db &db)
     // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25,
     // weight: 70}]-(n2) RETURN r
     auto create_edge_v2 = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
-        auto n1 = db.graph.vertices.find(t, args[0]->as<Int64>().value);
-        if (!n1) return t.commit(), false;
-        auto n2 = db.graph.vertices.find(t, args[1]->as<Int64>().value);
-        if (!n2) return t.commit(), false;
-        auto r = db.graph.edges.insert(t, n2.vlist, n1.vlist);
+        DbAccessor t(db);
+        auto n1 = t.vertex_find(args[0]->as<Int64>().value);
+        if (!option_fill(n1)) return t.commit(), false;
+        auto n2 = t.vertex_find(args[1]->as<Int64>().value);
+        if (!option_fill(n2)) return t.commit(), false;
+        auto r = t.edge_insert(n2.get(), n1.get());
         r.property("age", args[2]);
         r.property("weight", args[3]);
-        auto &IS = db.graph.edge_type_store.find_or_create("IS");
+        auto &IS = t.type_find_or_create("IS");
         r.edge_type(IS);
-        n2.vlist->update(t)->data.out.add(r.vlist);
-        n1.vlist->update(t)->data.in.add(r.vlist);
+
         t.commit();
         return true;
     };
@@ -146,14 +151,13 @@ auto load_queries(Db &db)
 
     // MATCH (n) RETURN n
     auto match_all_nodes = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
+        DbAccessor t(db);
 
-        auto vertices_accessor = db.graph.vertices.access();
-        for (auto &it : vertices_accessor) {
-            auto vertex = it.second.find(t);
-            if (vertex == nullptr) continue;
-            cout_properties(vertex->data.props);
-        }
+        iter::for_all(t.vertex_access(), [&](auto vertex) {
+            if (vertex.fill()) {
+                cout_properties(vertex->data.props);
+            }
+        });
 
         // TODO
         // db.graph.vertices.filter().all(t, handler);
@@ -166,12 +170,11 @@ auto load_queries(Db &db)
 
     // MATCH (n:LABEL) RETURN n
     auto find_by_label = [&db](const properties_t &args) {
-        auto &t = db.tx_engine.begin();
+        DbAccessor t(db);
 
-        auto &label = db.graph.label_store.find_or_create("LABEL");
+        auto &label = t.label_find_or_create("LABEL");
 
-        auto &index_record_collection =
-            db.graph.vertices.find_label_index(label);
+        auto &index_record_collection = t.label_find_index(label);
         auto accessor = index_record_collection.access();
         cout << "VERTICES" << endl;
         for (auto &v : accessor) {

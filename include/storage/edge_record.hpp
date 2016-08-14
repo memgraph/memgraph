@@ -27,7 +27,7 @@ public:
 
     auto to() const { return this->to_v; }
 
-private:
+protected:
     VertexRecord *from_v;
     VertexRecord *to_v;
 };

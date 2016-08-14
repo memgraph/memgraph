@@ -15,6 +15,7 @@ constexpr size_t no_insert_for_one_delete = 2;
 // succeed.
 int main()
 {
+    init_log();
     memory_check(THREADS_NO, [] {
         multimap_t skiplist;
 

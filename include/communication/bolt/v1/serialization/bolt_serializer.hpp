@@ -1,13 +1,13 @@
 #pragma once
 
-#include "communication/bolt/v1/transport/bolt_encoder.hpp"
 #include "communication/bolt/v1/packing/codes.hpp"
+#include "communication/bolt/v1/transport/bolt_encoder.hpp"
 
-#include "storage/vertex_accessor.hpp"
 #include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 
-#include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/all.hpp"
+#include "storage/model/properties/properties.hpp"
 
 namespace bolt
 {
@@ -22,7 +22,7 @@ class BoltSerializer
     // friend void accept(const Property &property, Handler &h);
 
 public:
-    BoltSerializer(Stream& stream) : encoder(stream) {}
+    BoltSerializer(Stream &stream) : encoder(stream) {}
 
     /* Serializes the vertex accessor into the packstream format
      *
@@ -33,7 +33,7 @@ public:
      * }
      *
      */
-    void write(const Vertex::Accessor& vertex)
+    void write(const Vertex::Accessor &vertex)
     {
         // write signatures for the node struct and node data type
         encoder.write_struct_header(3);
@@ -47,7 +47,7 @@ public:
 
         encoder.write_list_header(labels.size());
 
-        for(auto& label : labels)
+        for (auto &label : labels)
             encoder.write_string(label.get());
 
         // write the property map
@@ -55,7 +55,7 @@ public:
 
         encoder.write_map_header(props.size());
 
-        for(auto& prop : props) {
+        for (auto &prop : props) {
             write(prop.first);
             write(*prop.second);
         }
@@ -72,7 +72,7 @@ public:
      * }
      *
      */
-    void write(const Edge::Accessor& edge)
+    void write(const Edge::Accessor &edge)
     {
         // write signatures for the edge struct and edge data type
         encoder.write_struct_header(5);
@@ -82,8 +82,8 @@ public:
         encoder.write_integer(edge.id());
 
         // TODO refactor when from() and to() start returning Accessors
-        encoder.write_integer(edge.from()->id);
-        encoder.write_integer(edge.to()->id);
+        encoder.write_integer(edge.from().id());
+        encoder.write_integer(edge.to().id());
 
         // write the type of the edge
         encoder.write_string(edge.edge_type());
@@ -93,65 +93,37 @@ public:
 
         encoder.write_map_header(props.size());
 
-        for(auto& prop : props) {
+        for (auto &prop : props) {
             write(prop.first);
             write(*prop.second);
         }
     }
 
-    void write(const Property& prop)
-    {
-        accept(prop, *this);
-    }
+    void write(const Property &prop) { accept(prop, *this); }
 
-    void write_null()
-    {
-        encoder.write_null();
-    }
+    void write_null() { encoder.write_null(); }
 
-    void write(const Bool& prop)
-    {
-        encoder.write_bool(prop.value());
-    }
+    void write(const Bool &prop) { encoder.write_bool(prop.value()); }
 
-    void write(const Float& prop)
-    {
-        encoder.write_double(prop.value);
-    }
+    void write(const Float &prop) { encoder.write_double(prop.value); }
 
-    void write(const Double& prop)
-    {
-        encoder.write_double(prop.value);
-    }
+    void write(const Double &prop) { encoder.write_double(prop.value); }
 
-    void write(const Int32& prop)
-    {
-        encoder.write_integer(prop.value);
-    }
+    void write(const Int32 &prop) { encoder.write_integer(prop.value); }
 
-    void write(const Int64& prop)
-    {
-        encoder.write_integer(prop.value);
-    }
+    void write(const Int64 &prop) { encoder.write_integer(prop.value); }
 
-    void write(const std::string& value)
-    {
-        encoder.write_string(value);
-    }
+    void write(const std::string &value) { encoder.write_string(value); }
 
-    void write(const String& prop)
-    {
-        encoder.write_string(prop.value);
-    }
+    void write(const String &prop) { encoder.write_string(prop.value); }
 
     template <class T>
-    void handle(const T& prop)
+    void handle(const T &prop)
     {
         write(prop);
     }
 
 protected:
-    Stream& encoder;
+    Stream &encoder;
 };
-
 }

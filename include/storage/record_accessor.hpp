@@ -1,26 +1,41 @@
 #pragma once
 
+#include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/property.hpp"
 #include "transactions/transaction.hpp"
 
-template <class T, class Store, class Derived,
-          class vlist_t = mvcc::VersionList<T>>
+template <class T, class Derived, class vlist_t = mvcc::VersionList<T>>
 class RecordAccessor
 {
-public:
-    RecordAccessor() = default;
+    friend DbAccessor;
 
-    RecordAccessor(T *record, vlist_t *vlist, Store *store)
-        : record(record), vlist(vlist), store(store)
+public:
+    RecordAccessor(vlist_t *vlist, DbTransaction &db) : vlist(vlist), db(db)
+    {
+        assert(vlist != nullptr);
+    }
+
+    RecordAccessor(T *t, vlist_t *vlist, DbTransaction &db)
+        : record(t), vlist(vlist), db(db)
     {
         assert(record != nullptr);
         assert(vlist != nullptr);
-        assert(store != nullptr);
     }
 
+    RecordAccessor(RecordAccessor const &other) = default;
+    RecordAccessor(RecordAccessor &&other) = default;
+
     bool empty() const { return record == nullptr; }
+
+    // Fills accessor and returns true if there is valid data for current
+    // transaction false otherwise.
+    bool fill() const
+    {
+        const_cast<RecordAccessor *>(this)->record = vlist->find(db.trans);
+        return record != nullptr;
+    }
 
     const Id &id() const
     {
@@ -28,18 +43,18 @@ public:
         return vlist->id;
     }
 
-    Derived update(tx::Transaction &t) const
+    Derived update() const
     {
         assert(!empty());
 
-        return Derived(vlist->update(t), vlist, store);
+        return Derived(vlist->update(db.trans), vlist, db);
     }
 
-    bool remove(tx::Transaction &t) const
+    bool remove() const
     {
         assert(!empty());
 
-        return vlist->remove(record, t);
+        return vlist->remove(record, db.trans);
     }
 
     const Property &property(const std::string &key) const
@@ -62,8 +77,23 @@ public:
 
     explicit operator bool() const { return record != nullptr; }
 
-    // protected:
-    T *const record{nullptr};
-    vlist_t *const vlist{nullptr};
-    Store *const store{nullptr};
+    T const *operator->() const { return record; }
+    T *operator->() { return record; }
+
+    // Assumes same transaction
+    friend bool operator==(const RecordAccessor &a, const RecordAccessor &b)
+    {
+        return a.vlist == b.vlist;
+    }
+
+    // Assumes same transaction
+    friend bool operator!=(const RecordAccessor &a, const RecordAccessor &b)
+    {
+        return !(a == b);
+    }
+
+protected:
+    T *record{nullptr};
+    vlist_t *const vlist;
+    DbTransaction &db;
 };

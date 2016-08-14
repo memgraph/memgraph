@@ -10,9 +10,12 @@
 
 #include "data_structures/map/rh_hashmap.hpp"
 #include "database/db.hpp"
+#include "database/db_accessor.hpp"
+#include "storage/vertex_accessor.cpp"
+#include "storage/vertex_accessor.hpp"
 
 using namespace std;
-
+typedef Vertex::Accessor VertexAccessor;
 void load_graph_dummy(Db &db);
 void load_csv(Db &db, char *file_path, char *edge_file_path);
 
@@ -22,20 +25,13 @@ public:
     Node *parent = {nullptr};
     double cost;
     int depth = {0};
-    Vertex *vertex;
-    VertexRecord *record;
+    VertexAccessor vacc;
 
-    Node(Vertex *va, VertexRecord *record, double cost)
-        : cost(cost), vertex(va), record(record)
+    Node(VertexAccessor vacc, double cost) : cost(cost), vacc(vacc) {}
+    Node(VertexAccessor vacc, double cost, Node *parent)
+        : cost(cost), vacc(vacc), parent(parent), depth(parent->depth + 1)
     {
     }
-    Node(Vertex *va, VertexRecord *record, double cost, Node *parent)
-        : cost(cost), vertex(va), parent(parent), depth(parent->depth + 1),
-          record(record)
-    {
-    }
-
-    VertexRecord *&get_key() { return record; }
 };
 
 // class Iterator : public Crtp<Iterator>
@@ -82,59 +78,66 @@ void found_result(Node *bef)
 {
     std::cout << "{score: " << bef->cost << endl;
     while (bef != nullptr) {
-        std::cout << "   " << *(bef->vertex) << endl;
+        std::cout << "   " << *(bef->vacc.operator->()) << endl;
         bef = bef->parent;
     }
 }
 
-double calc_heuristic_cost_dummy(Edge *edge, Vertex *vertex)
+double calc_heuristic_cost_dummy(Edge::Accessor &edge, Vertex::Accessor &vertex)
 {
+    assert(!vertex.empty());
     return 1 - vertex->data.props.at("score").as<Double>().value;
 }
 
-typedef bool (*EdgeFilter)(tx::Transaction &t, EdgeRecord *, Node *before);
-typedef bool (*VertexFilter)(tx::Transaction &t, Vertex *, Node *before);
+typedef bool (*EdgeFilter)(DbAccessor &t, Edge::Accessor &, Node *before);
+typedef bool (*VertexFilter)(DbAccessor &t, Vertex::Accessor &, Node *before);
 
-bool edge_filter_dummy(tx::Transaction &t, EdgeRecord *e, Node *before)
+bool edge_filter_dummy(DbAccessor &t, Edge::Accessor &e, Node *before)
 {
     return true;
 }
 
-bool vertex_filter_dummy(tx::Transaction &t, Vertex *v, Node *before)
+bool vertex_filter_dummy(DbAccessor &t, Vertex::Accessor &va, Node *before)
 {
-    return true;
+    return va.fill();
 }
 
-bool vertex_filter_contained_dummy(tx::Transaction &t, Vertex *v, Node *before)
+bool vertex_filter_contained_dummy(DbAccessor &t, Vertex::Accessor &v,
+                                   Node *before)
 {
-    bool found;
-    do {
-        found = false;
-        before = before->parent;
-        if (before == nullptr) {
-            return true;
-        }
-        for (auto edge : before->vertex->data.out) {
-            Vertex *e_v = edge->to()->find(t);
-            if (e_v == v) {
-                found = true;
-                break;
+    if (v.fill()) {
+        bool found;
+        do {
+            found = false;
+            before = before->parent;
+            if (before == nullptr) {
+                return true;
             }
-        }
-    } while (found);
+            auto it = before->vacc.out();
+            for (auto e = it.next(); e.is_present(); e = it.next()) {
+                VertexAccessor va = e.get().to();
+                if (va == v) {
+                    found = true;
+                    break;
+                }
+            }
+        } while (found);
+    }
     return false;
 }
 
-bool vertex_filter_contained(tx::Transaction &t, Vertex *v, Node *before)
+bool vertex_filter_contained(DbAccessor &t, Vertex::Accessor &v, Node *before)
 {
-    bool found;
-    do {
-        found = false;
-        before = before->parent;
-        if (before == nullptr) {
-            return true;
-        }
-    } while (v->data.in.contains(before->record));
+    if (v.fill()) {
+        bool found;
+        do {
+            found = false;
+            before = before->parent;
+            if (before == nullptr) {
+                return true;
+            }
+        } while (v.in_contains(before->vacc));
+    }
     return false;
 }
 
@@ -143,23 +146,24 @@ bool vertex_filter_contained(tx::Transaction &t, Vertex *v, Node *before)
 // Filtri vracaju true ako element zadovoljava uvjete.
 void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             VertexFilter v_filter[],
-            double (*calc_heuristic_cost)(Edge *edge, Vertex *vertex),
+            double (*calc_heuristic_cost)(Edge::Accessor &edge,
+                                          Vertex::Accessor &vertex),
             int limit)
 {
-    auto &t = db.tx_engine.begin();
-    RhHashMap<VertexRecord *, Node> visited;
+    DbAccessor t(db);
 
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
     std::priority_queue<Node *, std::vector<Node *>, decltype(cmp)> queue(cmp);
 
-    auto start_vr = db.graph.vertices.find(t, sys_id_start).vlist;
-    Node *start = new Node(start_vr->find(t), start_vr, 0);
+    auto start_vr = t.vertex_find(sys_id_start);
+    assert(start_vr);
+    start_vr.get().fill();
+    Node *start = new Node(start_vr.take(), 0);
     queue.push(start);
     int count = 0;
     do {
         auto now = queue.top();
         queue.pop();
-
         // if(!visited.insert(now)){
         //     continue;
         // }
@@ -173,17 +177,16 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             continue;
         }
 
-        for (auto edge : now->vertex->data.out) {
+        iter::for_all(now->vacc.out(), [&](auto edge) {
             if (e_filter[now->depth](t, edge, now)) {
-                Vertex *v = edge->to()->find(t);
-                if (v_filter[now->depth](t, v, now)) {
-                    Node *n = new Node(
-                        v, edge->to(),
-                        now->cost + calc_heuristic_cost(edge->find(t), v), now);
+                VertexAccessor va = edge.to();
+                if (v_filter[now->depth](t, va, now)) {
+                    auto cost = calc_heuristic_cost(edge, va);
+                    Node *n = new Node(va, now->cost + cost, now);
                     queue.push(n);
                 }
             }
-        }
+        });
     } while (!queue.empty());
     std::cout << "Found: " << count << " resoults\n";
     // TODO: GUBI SE MEMORIJA JER SE NODOVI NEBRISU
@@ -266,7 +269,7 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
 
     std::string line;
 
-    auto &t = db.tx_engine.begin();
+    DbAccessor t(db);
     int max_score = 1000000;
 
     // VERTEX import
@@ -276,7 +279,7 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
             start_vertex_id = id;
         }
 
-        auto vertex_accessor = db.graph.vertices.insert(t);
+        auto vertex_accessor = t.vertex_insert();
         vertex_accessor.property("id", std::make_shared<Int32>(id));
         vertex_accessor.property("garment_id", std::make_shared<Int32>(gar_id));
         vertex_accessor.property("garment_category_id",
@@ -286,10 +289,11 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
             "score", std::make_shared<Double>((std::rand() % max_score) /
                                               (max_score + 0.0)));
         for (auto l_name : labels) {
-            auto &label = db.graph.label_store.find_or_create(l_name);
+            auto &label = t.label_find_or_create(l_name);
             vertex_accessor.add_label(label);
         }
-        return vertex_accessor.id();
+
+        return vertex_accessor;
     };
 
     std::getline(file, line);
@@ -305,11 +309,12 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
         auto splited = split(line, ',');
         vector<string> labels(splited.begin() + 1,
                               splited.begin() + splited.size() - 2);
-        auto id = v(stoi(splited[0]), labels, stoi(splited[splited.size() - 2]),
-                    stoi(splited[splited.size() - 1]));
+        auto vacs =
+            v(stoi(splited[0]), labels, stoi(splited[splited.size() - 2]),
+              stoi(splited[splited.size() - 1]));
 
-        assert(va.size() == (uint64_t)id);
-        va.push_back(db.graph.vertices.find(t, id));
+        assert(va.size() == (uint64_t)vacs.id());
+        va.push_back(vacs);
     }
 
     // EDGE IMPORT
@@ -318,12 +323,9 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
 
         auto v2 = va[to - start_vertex_id];
 
-        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
+        auto edge_accessor = t.edge_insert(v1, v2);
 
-        v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
-        v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
-
-        auto &edge_type = db.graph.edge_type_store.find_or_create(type);
+        auto &edge_type = t.type_find_or_create(type);
         edge_accessor.edge_type(edge_type);
     };
 
@@ -343,9 +345,9 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
 
 void load_graph_dummy(Db &db)
 {
-    auto &t = db.tx_engine.begin();
+    DbAccessor t(db);
     auto v = [&](auto id, auto score) {
-        auto vertex_accessor = db.graph.vertices.insert(t);
+        auto vertex_accessor = t.vertex_insert();
         vertex_accessor.property("id", std::make_shared<Int32>(id));
         vertex_accessor.property("score", std::make_shared<Double>(score));
         return vertex_accessor.id();
@@ -356,15 +358,13 @@ void load_graph_dummy(Db &db)
     };
 
     auto e = [&](auto from, auto type, auto to) {
-        auto v1 = db.graph.vertices.find(t, va[from]);
+        auto v1 = t.vertex_find(va[from]);
 
-        auto v2 = db.graph.vertices.find(t, va[to]);
+        auto v2 = t.vertex_find(va[to]);
 
-        auto edge_accessor = db.graph.edges.insert(t, v1.vlist, v2.vlist);
-        v1.vlist->update(t)->data.out.add(edge_accessor.vlist);
-        v2.vlist->update(t)->data.in.add(edge_accessor.vlist);
+        auto edge_accessor = t.edge_insert(v1.get(), v2.get());
 
-        auto &edge_type = db.graph.edge_type_store.find_or_create(type);
+        auto &edge_type = t.type_find_or_create(type);
         edge_accessor.edge_type(edge_type);
     };
 

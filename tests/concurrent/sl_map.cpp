@@ -5,6 +5,7 @@ constexpr size_t elems_per_thread = 1e5;
 
 int main()
 {
+    init_log();
     memory_check(THREADS_NO, [&] {
         ds::static_array<std::thread, THREADS_NO> threads;
         map_t skiplist;

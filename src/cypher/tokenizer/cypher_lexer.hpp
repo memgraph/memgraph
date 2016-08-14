@@ -73,6 +73,6 @@ public:
 
         build();
     }
-    CypherLexer(CypherLexer& other) = delete;
-    CypherLexer(CypherLexer&& other) = default;
+    CypherLexer(CypherLexer &other) = delete;
+    CypherLexer(CypherLexer &&other) = default;
 };

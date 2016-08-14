@@ -1,8 +1,9 @@
 #pragma once
-#include "utils/crtp.hpp"
-#include "utils/option_ptr.hpp"
+#include <cassert>
 #include <cstring>
 #include <functional>
+#include "utils/crtp.hpp"
+#include "utils/option_ptr.hpp"
 
 // RobinHood base.
 // Entrys are POINTERS alligned to 8B.
@@ -240,6 +241,10 @@ protected:
     }
 
     Iterator create_it(size_t index) { return Iterator(this, index); }
+    ConstIterator create_it(size_t index) const
+    {
+        return ConstIterator(this, index);
+    }
 
 public:
     void clear()

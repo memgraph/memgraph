@@ -1,7 +1,7 @@
 #pragma once
 
-#include <utility>
 #include <ext/aligned_buffer.h>
+#include <utility>
 
 template <class T>
 class Placeholder
@@ -9,40 +9,41 @@ class Placeholder
 public:
     Placeholder() = default;
 
-    Placeholder(Placeholder&) = delete;
-    Placeholder(Placeholder&&) = delete;
+    Placeholder(Placeholder &) = delete;
+    Placeholder(Placeholder &&) = delete;
 
     ~Placeholder()
     {
-        if(initialized)
-            get().~T();
+        if (initialized) get().~T();
     };
 
-    T& get() noexcept
+    bool is_initialized() { return initialized; }
+
+    T &get() noexcept
     {
         assert(initialized);
         return *data._M_ptr();
     }
 
-    const T& get() const noexcept
+    const T &get() const noexcept
     {
         assert(initialized);
         return *data._M_ptr();
     }
 
-    void set(const T& item)
+    void set(const T &item)
     {
         new (data._M_addr()) T(item);
         initialized = true;
     }
 
-    void set(T&& item)
+    void set(T &&item)
     {
         new (data._M_addr()) T(std::move(item));
         initialized = true;
     }
 
 private:
-	__gnu_cxx::__aligned_buffer<T> data;
+    __gnu_cxx::__aligned_buffer<T> data;
     bool initialized = false;
 };
