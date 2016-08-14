@@ -111,4 +111,3 @@ private:
     Log* log;
     std::string name;
 };
-
