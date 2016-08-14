@@ -1,7 +1,8 @@
-#include "rh_common.hpp"
-#include "utils/crtp.hpp"
-#include "utils/option_ptr.hpp"
 #include <functional>
+
+#include "utils/crtp.hpp"
+#include "data_structures/map/rh_common.hpp"
+#include "utils/option_ptr.hpp"
 
 // HashMap with RobinHood collision resolution policy.
 // Single threaded.

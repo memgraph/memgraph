@@ -145,10 +145,12 @@ endforeach()
 # COPY header files required by query engine (query compiler)
 # TODO: somehow automate (in destination dir should be only required include files)
 FILE(COPY ${include_dir}/database/db.hpp DESTINATION ${build_include_dir}/database)
+FILE(COPY ${include_dir}/database/db_transaction.hpp DESTINATION ${build_include_dir}/database)
 
 FILE(COPY ${include_dir}/storage/common.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/graph.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edge.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/edge_record.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edge_accessor.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edges.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/vertices.hpp DESTINATION ${build_include_dir}/storage)
@@ -160,6 +162,7 @@ FILE(COPY ${include_dir}/storage/locking/lock_status.hpp DESTINATION ${build_inc
 FILE(COPY ${include_dir}/storage/edge_type/edge_type_store.hpp DESTINATION ${build_include_dir}/storage/edge_type)
 FILE(COPY ${include_dir}/storage/edge_type/edge_type.hpp DESTINATION ${build_include_dir}/storage/edge_type)
 FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
+FILE(COPY ${include_dir}/storage/model/edge_map.hpp DESTINATION ${build_include_dir}/storage/model)
 
 FILE(COPY ${include_dir}/query_engine/util.hpp DESTINATION ${build_include_dir}/query_engine)
 FILE(COPY ${include_dir}/query_engine/i_code_cpu.hpp DESTINATION ${build_include_dir}/query_engine)
@@ -171,6 +174,8 @@ FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_set.hpp DESTINATI
 FILE(COPY ${include_dir}/data_structures/concurrent/common.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/skiplist.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/skiplist_gc.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
+FILE(COPY ${include_dir}/data_structures/map/rh_hashmultimap.hpp DESTINATION ${build_include_dir}/data_structures/map)
+FILE(COPY ${include_dir}/data_structures/map/rh_common.hpp DESTINATION ${build_include_dir}/data_structures/map)
 
 FILE(COPY ${include_dir}/data_structures/bitset/dynamic_bitset.hpp DESTINATION ${build_include_dir}/data_structures/bitset)
 
@@ -250,6 +255,7 @@ FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${buil
 FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
+FILE(COPY ${include_dir}/utils/option_ptr.hpp DESTINATION ${build_include_dir}/utils)
 
 FILE(COPY ${include_dir}/communication/communication.hpp DESTINATION ${build_include_dir}/communication)
 FILE(COPY ${include_dir}/communication/bolt/v1/config.hpp DESTINATION ${build_include_dir}/communication/bolt/v1)
