@@ -434,17 +434,22 @@ endif()
 
 # memgraph build name
 execute_process(
-    OUTPUT_VARIABLE COMMIT_NO 
-    COMMAND git rev-list --count HEAD
+    OUTPUT_VARIABLE COMMIT_BRANCH
+    COMMAND git rev-parse --abbrev-ref HEAD
 )
 execute_process(
     OUTPUT_VARIABLE COMMIT_HASH
     COMMAND git rev-parse --short HEAD
 )
-string(STRIP ${COMMIT_HASH} COMMIT_HASH)
+execute_process(
+    OUTPUT_VARIABLE COMMIT_NO 
+    COMMAND git rev-list --count HEAD
+)
+string(STRIP ${COMMIT_BRANCH} COMMIT_BRANCH)
 string(STRIP ${COMMIT_NO} COMMIT_NO)
+string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
-    "memgraph_${COMMIT_HASH}_${COMMIT_NO}_${CMAKE_BUILD_TYPE}")
+    "memgraph_${COMMIT_BRANCH}_${COMMIT_HASH}_${COMMIT_NO}_${CMAKE_BUILD_TYPE}")
 
 # memgraph main executable
 if (MEMGRAPH)

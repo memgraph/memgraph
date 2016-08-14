@@ -56,6 +56,7 @@ public:
         encoder.write_map_header(props.size());
 
         for(auto& prop : props) {
+            // std::cout << prop.first << " " << *prop.second << std::endl;
             write(prop.first);
             write(*prop.second);
         }

@@ -45,14 +45,15 @@ const std::string vertex_accessor_args_id =
 
 const std::string match_vertex_by_id =
     "auto {0} = db.graph.vertices.find(t, args[{1}]->as<Int64>().value);\n"
-    "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
+    "        if (!{0}) return t.commit(), false;";
 const std::string match_edge_by_id =
     "auto {0} = db.graph.edges.find(t, args[{1}]->as<Int64>().value);\n"
-    "        if (!{0}) return t.commit(), std::make_shared<QueryResult>();";
+    "        if (!{0}) return t.commit(), false;";
 
 const std::string write_entity =
     "stream.write_field(\"{0}\");\n"
     "        stream.write_record();\n"
+    "        stream.write_list_header(1);\n"
     "        stream.write({0});\n"
     "        stream.write_success_empty();\n";
 

@@ -15,3 +15,5 @@ tags
 .gdb_history
 Testing/
 ve/
+release/memgraph_*
+release/libs/
