@@ -7,23 +7,25 @@ class String : public Property
 public:
     static constexpr Flags type = Flags::String;
 
-    String(const String&) = default;
-    String(String&&) = default;
+    String(const String &) = default;
+    String(String &&) = default;
 
-    String(const std::string& value);
-    String(std::string&& value);
+    String(const std::string &value);
+    String(std::string &&value);
 
-    operator const std::string&() const;
+    operator const std::string &() const;
 
-    bool operator==(const Property& other) const override;
+    bool operator==(const Property &other) const override;
 
-    bool operator==(const String& other) const;
+    bool operator==(const String &other) const;
 
-    bool operator==(const std::string& other) const;
+    bool operator==(const std::string &other) const;
 
-    friend std::ostream& operator<<(std::ostream& stream, const String& prop);
+    friend std::ostream &operator<<(std::ostream &stream, const String &prop);
 
-    std::ostream& print(std::ostream& stream) const override;
+    std::ostream &print(std::ostream &stream) const override;
+
+    std::string const &value_ref() const { return value; }
 
     std::string value;
 };

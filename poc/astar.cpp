@@ -17,7 +17,7 @@
 using namespace std;
 typedef Vertex::Accessor VertexAccessor;
 void load_graph_dummy(Db &db);
-void load_csv(Db &db, char *file_path, char *edge_file_path);
+int load_csv(Db &db, char *file_path, char *edge_file_path);
 
 class Node
 {
@@ -32,6 +32,25 @@ public:
         : cost(cost), vacc(vacc), parent(parent), depth(parent->depth + 1)
     {
     }
+
+    double sum_vertex_score()
+    {
+        auto now = this;
+        double sum = 0;
+        do {
+            sum += now->vacc.at<Double>("score");
+            now = now->parent;
+        } while (now != nullptr);
+        return sum;
+    }
+};
+
+class Score
+{
+public:
+    Score() : value(std::numeric_limits<double>::max()) {}
+    Score(double v) : value(v) {}
+    double value;
 };
 
 // class Iterator : public Crtp<Iterator>
@@ -74,9 +93,12 @@ public:
 //     Node *head;
 // };
 
-void found_result(Node *bef)
+void found_result(Node *res)
 {
-    std::cout << "{score: " << bef->cost << endl;
+    double sum = res->sum_vertex_score();
+
+    std::cout << "{score: " << sum << endl;
+    auto bef = res;
     while (bef != nullptr) {
         std::cout << "   " << *(bef->vacc.operator->()) << endl;
         bef = bef->parent;
@@ -86,7 +108,7 @@ void found_result(Node *bef)
 double calc_heuristic_cost_dummy(Edge::Accessor &edge, Vertex::Accessor &vertex)
 {
     assert(!vertex.empty());
-    return 1 - vertex->data.props.at("score").as<Double>().value;
+    return 1 - vertex.at<Double>("score");
 }
 
 typedef bool (*EdgeFilter)(DbAccessor &t, Edge::Accessor &, Node *before);
@@ -144,14 +166,16 @@ bool vertex_filter_contained(DbAccessor &t, Vertex::Accessor &v, Node *before)
 // Vertex filter ima max_depth funkcija te edge filter ima max_depth funkcija.
 // Jedan za svaku dubinu.
 // Filtri vracaju true ako element zadovoljava uvjete.
-void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
+auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             VertexFilter v_filter[],
             double (*calc_heuristic_cost)(Edge::Accessor &edge,
                                           Vertex::Accessor &vertex),
             int limit)
 {
     DbAccessor t(db);
+    auto best_found = new std::map<Id, Score>[max_depth];
 
+    std::vector<Node *> best;
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
     std::priority_queue<Node *, std::vector<Node *>, decltype(cmp)> queue(cmp);
 
@@ -169,13 +193,21 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
         // }
 
         if (max_depth <= now->depth) {
-            found_result(now);
+            best.push_back(now);
             count++;
             if (count >= limit) {
-                return;
+                return best;
             }
             continue;
         }
+
+        // { // FOUND FILTER
+        //     Score &bef = best_found[now->depth][now->vacc.id()];
+        //     if (bef.value <= now->cost) {
+        //         continue;
+        //     }
+        //     bef.value = now->cost;
+        // }
 
         iter::for_all(now->vacc.out(), [&](auto edge) {
             if (e_filter[now->depth](t, edge, now)) {
@@ -188,10 +220,11 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             }
         });
     } while (!queue.empty());
-    std::cout << "Found: " << count << " resoults\n";
+    // std::cout << "Found: " << count << " resoults\n";
     // TODO: GUBI SE MEMORIJA JER SE NODOVI NEBRISU
 
     t.commit();
+    return best;
 }
 
 // class Data
@@ -207,23 +240,66 @@ void a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
 //     const int &get_key() { return key; }
 // };
 
-int main()
+int main(int argc, char **argv)
 {
+    if (argc < 3) {
+        std::cout << "Not enough input values\n";
+        return 0;
+    } else if (argc > 4) {
+        std::cout << "To much input values\n";
+        return 0;
+    }
+
     Db db;
-    load_csv(db, "neo4j_nodes_export_2000.csv", "neo4j_edges_export_2000.csv");
-    //
-    // load_graph_dummy(db);
-    //
+    auto vertex_no = load_csv(db, argv[argc - 2], argv[argc - 1]);
+
     EdgeFilter e_filters[] = {&edge_filter_dummy, &edge_filter_dummy,
                               &edge_filter_dummy, &edge_filter_dummy};
     VertexFilter f_filters[] = {
         &vertex_filter_contained, &vertex_filter_contained,
         &vertex_filter_contained, &vertex_filter_contained};
-    auto begin = clock();
-    a_star(db, 0, 3, e_filters, f_filters, &calc_heuristic_cost_dummy, 10);
-    clock_t end = clock();
-    double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
-    std::cout << "A-star: " << elapsed_ms << " [ms]\n";
+
+    // CONF
+    std::srand(time(0));
+    auto best_n = 10;
+    auto bench_n = 1000;
+    auto best_print_n = 10;
+    bool pick_best_found = argc > 3 ? true : false;
+
+    double sum = 0;
+    std::vector<Node *> best;
+    for (int i = 0; i < bench_n; i++) {
+        auto start_vertex_index = std::rand() % vertex_no;
+
+        auto begin = clock();
+        auto found = a_star(db, start_vertex_index, 3, e_filters, f_filters,
+                            &calc_heuristic_cost_dummy, best_n);
+        clock_t end = clock();
+
+        double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
+        sum += elapsed_ms;
+
+        if ((best.size() < best_print_n && found.size() > best.size()) ||
+            (pick_best_found && found.size() > 0 &&
+             found.front()->sum_vertex_score() >
+                 best.front()->sum_vertex_score())) {
+            best = found;
+        }
+
+        // Just to be safe
+        if (i + 1 == bench_n && best.size() == 0) {
+            bench_n++;
+        }
+    }
+
+    std::cout << "\nSearch for best " << best_n
+              << " results has runing time of:\n    avg: " << sum / bench_n
+              << " [ms]\n";
+    std::cout << "\nExample of best result:\n";
+    for (int i = 0; i < best_print_n && best.size() > 0; i++) {
+        found_result(best.front());
+        best.erase(best.begin());
+    }
 
     // RhHashMultiMap benchmark
     // const int n_pow2 = 20;
@@ -262,7 +338,7 @@ vector<string> split(const string &s, char delim)
     return elems;
 }
 
-void load_csv(Db &db, char *file_path, char *edge_file_path)
+int load_csv(Db &db, char *file_path, char *edge_file_path)
 {
     std::fstream file(file_path);
     std::fstream e_file(edge_file_path);
@@ -341,6 +417,7 @@ void load_csv(Db &db, char *file_path, char *edge_file_path)
          << endl;
 
     t.commit();
+    return v_count;
 }
 
 void load_graph_dummy(Db &db)

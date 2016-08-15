@@ -75,6 +75,12 @@ public:
 
     Properties &properties() const { return record->data.props; }
 
+    template <class V>
+    auto at(const std::string &key) const
+    {
+        return properties().at(key).template as<V>().value_ref();
+    }
+
     explicit operator bool() const { return record != nullptr; }
 
     T const *operator->() const { return record; }
