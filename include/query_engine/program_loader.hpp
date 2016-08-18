@@ -21,8 +21,8 @@ public:
     using sptr_code_lib = std::shared_ptr<CodeLib>;
 
     ProgramLoader() :
-        stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL)),
-        logger(logging::log->logger("ProgramLoader"))
+        logger(logging::log->logger("ProgramLoader")),
+        stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL))
     {
     }
 

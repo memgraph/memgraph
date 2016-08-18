@@ -35,6 +35,7 @@ int main(void)
     std::set_terminate(&terminate_handler);
 
     logging::init_sync();
+    // logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
     logger = logging::log->logger("Main");
 

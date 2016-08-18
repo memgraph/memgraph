@@ -56,7 +56,6 @@ public:
         encoder.write_map_header(props.size());
 
         for(auto& prop : props) {
-            // std::cout << prop.first << " " << *prop.second << std::endl;
             write(prop.first);
             write(*prop.second);
         }
@@ -87,7 +86,7 @@ public:
         encoder.write_integer(edge.to()->id);
 
         // write the type of the edge
-        encoder.write_string(edge.edge_type());
+        encoder.write_string(edge.edge_type().get());
 
         // write the property map
         auto props = edge.properties();

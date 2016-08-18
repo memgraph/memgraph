@@ -17,9 +17,31 @@ public:
 
     void compile(const std::string &in_file, const std::string &out_file)
     {
+        std::string flags;
+
+        // TODO: sync this with cmake configuration
+#ifdef NDEBUG
+        flags += " -DNDEBUG -O2";
+#endif
+#ifdef LOG_NO_TRACE
+        flags += " -DLOG_NO_TRACE";
+#endif
+#ifdef LOG_NO_DEBUG
+        flags += " -DLOG_NO_DEBUG";
+#endif
+#ifdef LOG_NO_INFO
+        flags += " -DLOG_NO_INFO";
+#endif
+#ifdef LOG_NO_WARN
+        flags += " -DLOG_NO_WARN";
+#endif
+#ifdef LOG_NO_ERROR
+        flags += " -DLOG_NO_ERROR";
+#endif
+
         // generate compile command
         auto compile_command = utils::prints(
-            "clang++",
+            "clang++" + flags,
             // "-std=c++1y -O2 -DNDEBUG",     // compile flags
             "-std=c++1y",    // compile flags // TODO: load from config file
             in_file,         // input file
@@ -29,6 +51,8 @@ public:
             "-L./ -lmemgraph_pic",
             "-shared -fPIC" // shared library flags
             );
+
+        logger.debug("compile command -> {}", compile_command);
 
         // synchronous call
         auto compile_status = system(compile_command.c_str());
