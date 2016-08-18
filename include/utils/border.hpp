@@ -26,14 +26,14 @@ public:
     Border &operator=(Border &&other) = default;
     Border &operator=(Border &other) = default;
 
-    // true if no border or this>key or this>=key depends on border type.
+    // true if no border or this > key or this >= key depends on border type.
     bool operator>(const T &other) const
     {
         return !key.is_present() || key.get() > other ||
                (type == Including && key.get() == other);
     }
 
-    // true if no border or this<key or this<=key depends on border type.
+    // true if no border or this < key or this <= key depends on border type.
     bool operator<(const T &other) const
     {
         return !key.is_present() || key.get() < other ||

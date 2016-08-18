@@ -3,10 +3,7 @@
 #include <memory>
 #include <string>
 #include "data_structures/concurrent/concurrent_map.hpp"
-// #include "database/db_transaction.hpp"
 #include "storage/common.hpp"
-// #include "storage/indexes/index.hpp"
-// #include "storage/indexes/index_record_collection.hpp"
 #include "storage/model/properties/property_family.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/option.hpp"
@@ -33,7 +30,7 @@ public:
 
 private:
     vertices_t vertices;
-    // TODO: Because familys wont be removed this could be done with more
+    // TODO: Because families wont be removed this could be done with more
     // efficent
     // data structure.
     prop_familys_t prop_familys;

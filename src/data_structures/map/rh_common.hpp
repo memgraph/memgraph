@@ -6,8 +6,8 @@
 #include "utils/option_ptr.hpp"
 
 // RobinHood base.
-// Entrys are POINTERS alligned to 8B.
-// Entrys must know thers key.
+// Entries are POINTERS alligned to 8B.
+// Entries must know thers key.
 // D must have method K& get_key()
 // K must be comparable with ==.
 template <class K, class D, size_t init_size_pow2 = 2>

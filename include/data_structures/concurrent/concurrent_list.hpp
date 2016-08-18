@@ -7,7 +7,7 @@
 template <class T>
 class List
 {
-
+private:
     template <class V>
     static V load(std::atomic<V> &atomic)
     {
@@ -33,7 +33,6 @@ class List
         return atomic.exchange(desired, std::memory_order_seq_cst);
     }
 
-private:
     class Node
     {
     public:

@@ -103,8 +103,13 @@ public:
     }
 
 protected:
+    IndexRecord<T, std::nullptr_t> create_index_record()
+    {
+        return create_index_record(std::nullptr_t());
+    }
+
     template <class K>
-    IndexRecord<T, K> create_ir(K &&key)
+    IndexRecord<T, K> create_index_record(K &&key)
     {
         return IndexRecord<T, K>(std::move(key), record, vlist);
     }

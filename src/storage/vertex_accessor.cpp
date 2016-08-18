@@ -19,7 +19,7 @@ bool Vertex::Accessor::add_label(const Label &label)
 {
     // update vertex
     if (this->record->data.labels.add(label)) {
-        label.index->insert(create_ir(std::nullptr_t()));
+        label.index->insert(create_index_record());
         return true;
     }
     return false;
