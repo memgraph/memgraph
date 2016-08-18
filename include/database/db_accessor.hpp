@@ -1,14 +1,19 @@
 #pragma once
 
-#include "database/db.hpp"
-#include "database/db_accessor.hpp"
-#include "storage/record_accessor.hpp"
-#include "storage/vertex.hpp"
+#include "database/db_transaction.hpp"
+// #include "storage/record_accessor.hpp"
+// #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "storage/vertices.hpp"
-#include "transactions/transaction.hpp"
-#include "utils/iterator/iterator.hpp"
+// #include "storage/vertices.hpp"
+// #include "transactions/transaction.hpp"
+// #include "utils/iterator/iterator.hpp"
+#include "utils/border.hpp"
 #include "utils/option.hpp"
+
+namespace tx
+{
+class Transaction;
+}
 
 /*
 * DbAccessor
@@ -65,13 +70,20 @@ public:
 
     bool label_contains(const std::string &name);
 
-    VertexIndexRecordCollection &label_find_index(const Label &label);
-
     //********************TYPE METHODS
 
     const EdgeType &type_find_or_create(const std::string &name);
 
     bool type_contains(const std::string &name);
+
+    //********************PROPERTY METHODS
+    // Vertices::prop_familys_t::Accessor vertex_property_family_access();
+    //
+    // auto edge_property_family_access();
+
+    PropertyFamily &vertex_property_family_get(const std::string &name);
+
+    PropertyFamily &edge_property_family_get(const std::string &name);
 
     //********************TRANSACTION METHODS
 
@@ -79,7 +91,10 @@ public:
     void abort();
 
 private:
-    DbTransaction db;
+    template <class T, class K>
+    friend class NonUniqueUnorderedIndex;
+
+    DbTransaction db_transaction;
 };
 
 //**********************CONVENIENT FUNCTIONS

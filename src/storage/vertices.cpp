@@ -1,4 +1,5 @@
 #include "storage/vertices.hpp"
+#include "utils/iterator/iterator.hpp"
 
 Vertices::vertices_t::Accessor Vertices::access() { return vertices.access(); }
 
@@ -33,13 +34,21 @@ Vertex::Accessor Vertices::insert(DbTransaction &t)
     return Vertex::Accessor(vertex, &inserted_vertex_record->second, t);
 }
 
-void Vertices::update_label_index(const Label &label,
-                                  VertexIndexRecord &&index_record)
-{
-    label_index.update(label, std::forward<VertexIndexRecord>(index_record));
-}
+//
+// Vertices::prop_familys_t::Accessor Vertices::property_family_access()
+// {
+//     return prop_familys.access();
+// }
 
-VertexIndexRecordCollection &Vertices::find_label_index(const Label &label)
+PropertyFamily &
+Vertices::property_family_find_or_create(const std::string &name)
 {
-    return label_index.find(label);
+    auto acc = prop_familys.access();
+    auto it = acc.find(name);
+    if (it == acc.end()) {
+        auto family = std::unique_ptr<PropertyFamily>(new PropertyFamily(name));
+        auto res = acc.insert(name, std::move(family));
+        it = res.first;
+    }
+    return *(it->second);
 }

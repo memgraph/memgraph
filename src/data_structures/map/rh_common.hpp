@@ -187,21 +187,25 @@ public:
 
     RhBase() {}
 
-    RhBase(const RhBase &other)
-    {
-        capacity = other.capacity;
-        count = other.count;
-        if (capacity > 0) {
-            size_t bytes = sizeof(Combined) * capacity;
-            array = (Combined *)malloc(bytes);
-            memcpy(array, other.array, bytes);
+    RhBase(const RhBase &other) { copy_from(other); }
 
-        } else {
-            array = nullptr;
-        }
-    }
+    RhBase(RhBase &&other) { take_from(std::move(other)); }
 
     ~RhBase() { this->clear(); }
+
+    RhBase &operator=(const RhBase &other)
+    {
+        clear();
+        copy_from(other);
+        return *this;
+    }
+
+    RhBase &operator=(RhBase &&other)
+    {
+        clear();
+        take_from(std::move(other));
+        return *this;
+    }
 
     Iterator begin() { return Iterator(this); }
 
@@ -216,6 +220,30 @@ public:
     ConstIterator cend() const { return ConstIterator(); }
 
 protected:
+    void copy_from(const RhBase &other)
+    {
+        capacity = other.capacity;
+        count = other.count;
+        if (capacity > 0) {
+            size_t bytes = sizeof(Combined) * capacity;
+            array = (Combined *)malloc(bytes);
+            memcpy(array, other.array, bytes);
+
+        } else {
+            array = nullptr;
+        }
+    }
+
+    void take_from(RhBase &&other)
+    {
+        capacity = other.capacity;
+        count = other.count;
+        array = other.array;
+        other.array = nullptr;
+        other.count = 0;
+        other.capacity = 0;
+    }
+
     void init_array(size_t size)
     {
         size_t bytes = sizeof(Combined) * size;

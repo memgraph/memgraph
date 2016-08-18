@@ -15,7 +15,7 @@ void cout_properties(const Properties &properties)
     cout << "----" << endl;
 }
 
-void cout_property(const std::string &key, const Property &property)
+void cout_property(const prop_key_t &key, const Property &property)
 {
     ConsoleWriter writer;
     writer.handle(key, property);

@@ -213,9 +213,11 @@ FILE(COPY ${include_dir}/storage/model/properties/string.hpp DESTINATION ${build
 FILE(COPY ${include_dir}/storage/model/properties/floating.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/number.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/integral.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/model/properties/property_family.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/utils/math_operations.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
 FILE(COPY ${include_dir}/storage/model/properties/utils/unary_negation.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
 FILE(COPY ${include_dir}/storage/model/properties/utils/modulo.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
+
 
 FILE(COPY ${include_dir}/storage/model/edge_model.hpp DESTINATION ${build_include_dir}/storage/model)
 FILE(COPY ${include_dir}/storage/model/property_model.hpp DESTINATION ${build_include_dir}/storage/model)
@@ -401,6 +403,8 @@ set(memgraph_src_files
     ${src_dir}/storage/model/properties/bool.cpp
     ${src_dir}/storage/model/properties/string.cpp
     ${src_dir}/storage/model/properties/properties.cpp
+    ${src_dir}/storage/model/properties/property_family.cpp
+    ${src_dir}/storage/indexes/impl/nonunique_unordered_index.cpp
     ${src_dir}/storage/locking/record_lock.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/transactions/transaction.cpp
@@ -416,6 +420,8 @@ set(memgraph_src_files
     ${src_dir}/database/db_accessor.cpp
     ${src_dir}/database/db_transaction.cpp
     ${src_dir}/storage/edge_accessor.cpp
+    ${src_dir}/storage/record_accessor.cpp
+
 )
 
 # STATIC library used by memgraph executables

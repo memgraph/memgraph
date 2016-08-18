@@ -5,8 +5,11 @@
 #include "database/db_accessor.hpp"
 #include "query_engine/query_stripper.hpp"
 #include "query_engine/util.hpp"
+#include "storage/indexes/impl/nonunique_unordered_index.cpp"
 #include "storage/model/properties/property.hpp"
+#include "storage/model/properties/property_family.hpp"
 #include "utils/command_line/arguments.hpp"
+#include "utils/iterator/iterator.hpp"
 
 auto load_queries(Db &db)
 {
@@ -15,8 +18,12 @@ auto load_queries(Db &db)
     // CREATE (n {prop: 0}) RETURN n)
     auto create_node = [&db](const properties_t &args) {
         DbAccessor t(db);
+        auto prop_key = t.vertex_property_family_get("prop")
+                            .get(args[0]->flags)
+                            .family_key();
+
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.property("prop", args[0]);
+        vertex_accessor.set(prop_key, args[0]);
         t.commit();
         return true;
     };
@@ -24,8 +31,12 @@ auto load_queries(Db &db)
 
     auto create_labeled_and_named_node = [&db](const properties_t &args) {
         DbAccessor t(db);
+        auto prop_key = t.vertex_property_family_get("name")
+                            .get(args[0]->flags)
+                            .family_key();
+
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.property("name", args[0]);
+        vertex_accessor.set(prop_key, args[0]);
         auto &label = t.label_find_or_create("LABEL");
         vertex_accessor.add_label(label);
         cout_properties(vertex_accessor.properties());
@@ -35,11 +46,23 @@ auto load_queries(Db &db)
 
     auto create_account = [&db](const properties_t &args) {
         DbAccessor t(db);
+        auto prop_id =
+            t.vertex_property_family_get("id").get(args[0]->flags).family_key();
+        auto prop_name = t.vertex_property_family_get("name")
+                             .get(args[1]->flags)
+                             .family_key();
+        auto prop_country = t.vertex_property_family_get("country")
+                                .get(args[2]->flags)
+                                .family_key();
+        auto prop_created = t.vertex_property_family_get("created_at")
+                                .get(args[3]->flags)
+                                .family_key();
+
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.property("id", args[0]);
-        vertex_accessor.property("name", args[1]);
-        vertex_accessor.property("country", args[2]);
-        vertex_accessor.property("created_at", args[3]);
+        vertex_accessor.set(prop_id, args[0]);
+        vertex_accessor.set(prop_name, args[1]);
+        vertex_accessor.set(prop_country, args[2]);
+        vertex_accessor.set(prop_created, args[3]);
         auto &label = t.label_find_or_create("ACCOUNT");
         vertex_accessor.add_label(label);
         cout_properties(vertex_accessor.properties());
@@ -49,8 +72,7 @@ auto load_queries(Db &db)
 
     auto find_node_by_internal_id = [&db](const properties_t &args) {
         DbAccessor t(db);
-        auto id = static_cast<Int32 &>(*args[0]);
-        auto maybe_va = t.vertex_find(Id(id.value));
+        auto maybe_va = t.vertex_find(Id(args[0]->as<Int32>().value));
         if (!option_fill(maybe_va)) {
             cout << "vertex doesn't exist" << endl;
             t.commit();
@@ -117,12 +139,15 @@ auto load_queries(Db &db)
 
     auto update_node = [&db](const properties_t &args) {
         DbAccessor t(db);
+        auto prop_name = t.vertex_property_family_get("name")
+                             .get(args[1]->flags)
+                             .family_key();
 
         auto maybe_v = t.vertex_find(args[0]->as<Int32>().value);
         if (!option_fill(maybe_v)) return t.commit(), false;
         auto v = maybe_v.get();
 
-        v.property("name", args[1]);
+        v.set(prop_name, args[1]);
         cout_properties(v.properties());
 
         t.commit();
@@ -134,13 +159,19 @@ auto load_queries(Db &db)
     // weight: 70}]-(n2) RETURN r
     auto create_edge_v2 = [&db](const properties_t &args) {
         DbAccessor t(db);
+        auto prop_age =
+            t.edge_property_family_get("age").get(args[2]->flags).family_key();
+        auto prop_weight = t.edge_property_family_get("weight")
+                               .get(args[3]->flags)
+                               .family_key();
+
         auto n1 = t.vertex_find(args[0]->as<Int64>().value);
         if (!option_fill(n1)) return t.commit(), false;
         auto n2 = t.vertex_find(args[1]->as<Int64>().value);
         if (!option_fill(n2)) return t.commit(), false;
         auto r = t.edge_insert(n2.get(), n1.get());
-        r.property("age", args[2]);
-        r.property("weight", args[3]);
+        r.set(prop_age, args[2]);
+        r.set(prop_weight, args[3]);
         auto &IS = t.type_find_or_create("IS");
         r.edge_type(IS);
 
@@ -173,13 +204,12 @@ auto load_queries(Db &db)
         DbAccessor t(db);
 
         auto &label = t.label_find_or_create("LABEL");
+        auto prop_key =
+            t.vertex_property_family_get("name").get(Type::String).family_key();
 
-        auto &index_record_collection = t.label_find_index(label);
-        auto accessor = index_record_collection.access();
         cout << "VERTICES" << endl;
-        for (auto &v : accessor) {
-            cout << v.record->data.props.at("name").as<String>().value << endl;
-        }
+        iter::for_all(label.index->for_range_exact(t),
+                      [&](auto a) { cout << a.at(prop_key) << endl; });
 
         // TODO
         // db.graph.vertices.fileter("LABEL").all(t, handler);

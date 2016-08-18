@@ -1,46 +1,67 @@
 #pragma once
 
+#include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "utils/total_ordering.hpp"
 
-template <class T>
-class IndexRecord : TotalOrdering<IndexRecord<T>>
+// class DbTransaction;
+// namespace tx
+// {
+// class Transaction;
+// }
+
+// T type of record.
+// K key on which record is ordered.
+template <class T, class K>
+class IndexRecord : public TotalOrdering<IndexRecord<T, K>>
 {
 public:
     using vlist_t = mvcc::VersionList<T>;
 
     IndexRecord() = default;
 
-    IndexRecord(T *record, vlist_t *vlist) : record(record), vlist(vlist)
+    IndexRecord(K key, T *record, vlist_t *vlist)
+        : key(std::move(key)), record(record), vlist(vlist)
     {
         assert(record != nullptr);
         assert(vlist != nullptr);
     }
 
-    friend bool operator<(const IndexRecord& lhs, const IndexRecord& rhs)
+    friend bool operator<(const IndexRecord &lhs, const IndexRecord &rhs)
     {
-        return lhs.record < rhs.record;
+        return lhs.key < rhs.key ||
+               (lhs.key == rhs.key && lhs.vlist == rhs.vlist &&
+                lhs.record < rhs.record);
     }
 
-    friend bool operator==(const IndexRecord& lhs, const IndexRecord& rhs)
+    friend bool operator==(const IndexRecord &lhs, const IndexRecord &rhs)
     {
-        return lhs.record == rhs.record;
+        return lhs.key == rhs.key &&
+               (lhs.vlist != rhs.vlist || lhs.record == rhs.record);
     }
 
     bool empty() const { return record == nullptr; }
 
-    // const typename T::Accessor get()
-    // {
-    //     // TODO: if somebody wants to read T content
-    //     // const T::Accessor has to be returned from here
-    //     // the problem is that here we don't have pointer to store
-    //     // TODO: figure it out
-    // }
+    bool is_valid(tx::Transaction &t) const
+    {
+        assert(!empty());
+        return record == vlist->find(t);
+    }
 
-// private:
+    const auto access(DbTransaction &db) const
+    {
+        return T::Accessor::create(record, vlist, db);
+    }
+
+    const K key;
+
+private:
     T *const record{nullptr};
     vlist_t *const vlist{nullptr};
 };
 
-using VertexIndexRecord = IndexRecord<Vertex>;
-using EdgeIndexRecord = IndexRecord<Edge>;
+template <class K>
+using VertexIndexRecord = IndexRecord<Vertex, K>;
+
+template <class K>
+using EdgeIndexRecord = IndexRecord<Edge, K>;

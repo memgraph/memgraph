@@ -11,8 +11,15 @@
 #include "data_structures/map/rh_hashmap.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
+#include "storage/edges.cpp"
+#include "storage/edges.hpp"
+#include "storage/indexes/impl/nonunique_unordered_index.cpp"
+#include "storage/model/properties/properties.cpp"
+#include "storage/record_accessor.cpp"
 #include "storage/vertex_accessor.cpp"
 #include "storage/vertex_accessor.hpp"
+#include "storage/vertices.cpp"
+#include "storage/vertices.hpp"
 
 using namespace std;
 typedef Vertex::Accessor VertexAccessor;
@@ -23,13 +30,19 @@ class Node
 {
 public:
     Node *parent = {nullptr};
+    type_key_t<Double> tkey;
     double cost;
     int depth = {0};
     VertexAccessor vacc;
 
-    Node(VertexAccessor vacc, double cost) : cost(cost), vacc(vacc) {}
-    Node(VertexAccessor vacc, double cost, Node *parent)
-        : cost(cost), vacc(vacc), parent(parent), depth(parent->depth + 1)
+    Node(VertexAccessor vacc, double cost, type_key_t<Double> tkey)
+        : cost(cost), vacc(vacc), tkey(tkey)
+    {
+    }
+    Node(VertexAccessor vacc, double cost, Node *parent,
+         type_key_t<Double> tkey)
+        : cost(cost), vacc(vacc), parent(parent), depth(parent->depth + 1),
+          tkey(tkey)
     {
     }
 
@@ -38,7 +51,7 @@ public:
         auto now = this;
         double sum = 0;
         do {
-            sum += now->vacc.at<Double>("score");
+            sum += *(now->vacc.at(tkey).get());
             now = now->parent;
         } while (now != nullptr);
         return sum;
@@ -105,10 +118,11 @@ void found_result(Node *res)
     }
 }
 
-double calc_heuristic_cost_dummy(Edge::Accessor &edge, Vertex::Accessor &vertex)
+double calc_heuristic_cost_dummy(type_key_t<Double> tkey, Edge::Accessor &edge,
+                                 Vertex::Accessor &vertex)
 {
     assert(!vertex.empty());
-    return 1 - vertex.at<Double>("score");
+    return 1 - *vertex.at(tkey).get();
 }
 
 typedef bool (*EdgeFilter)(DbAccessor &t, Edge::Accessor &, Node *before);
@@ -168,11 +182,16 @@ bool vertex_filter_contained(DbAccessor &t, Vertex::Accessor &v, Node *before)
 // Filtri vracaju true ako element zadovoljava uvjete.
 auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             VertexFilter v_filter[],
-            double (*calc_heuristic_cost)(Edge::Accessor &edge,
+            double (*calc_heuristic_cost)(type_key_t<Double> tkey,
+                                          Edge::Accessor &edge,
                                           Vertex::Accessor &vertex),
             int limit)
 {
     DbAccessor t(db);
+    type_key_t<Double> tkey = t.vertex_property_family_get("score")
+                                  .get(Type::Double)
+                                  .type_key<Double>();
+
     auto best_found = new std::map<Id, Score>[max_depth];
 
     std::vector<Node *> best;
@@ -182,7 +201,7 @@ auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
     auto start_vr = t.vertex_find(sys_id_start);
     assert(start_vr);
     start_vr.get().fill();
-    Node *start = new Node(start_vr.take(), 0);
+    Node *start = new Node(start_vr.take(), 0, tkey);
     queue.push(start);
     int count = 0;
     do {
@@ -213,8 +232,8 @@ auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
             if (e_filter[now->depth](t, edge, now)) {
                 VertexAccessor va = edge.to();
                 if (v_filter[now->depth](t, va, now)) {
-                    auto cost = calc_heuristic_cost(edge, va);
-                    Node *n = new Node(va, now->cost + cost, now);
+                    auto cost = calc_heuristic_cost(tkey, edge, va);
+                    Node *n = new Node(va, now->cost + cost, now, tkey);
                     queue.push(n);
                 }
             }
@@ -346,6 +365,18 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
     std::string line;
 
     DbAccessor t(db);
+    auto key_id =
+        t.vertex_property_family_get("id").get(Type::Int32).family_key();
+    auto key_garment_id = t.vertex_property_family_get("garment_id")
+                              .get(Type::Int32)
+                              .family_key();
+    auto key_garment_category_id =
+        t.vertex_property_family_get("garment_category_id")
+            .get(Type::Int32)
+            .family_key();
+    auto key_score =
+        t.vertex_property_family_get("score").get(Type::Double).family_key();
+
     int max_score = 1000000;
 
     // VERTEX import
@@ -356,14 +387,15 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
         }
 
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.property("id", std::make_shared<Int32>(id));
-        vertex_accessor.property("garment_id", std::make_shared<Int32>(gar_id));
-        vertex_accessor.property("garment_category_id",
-                                 std::make_shared<Int32>(cat_id));
+        vertex_accessor.set(key_id, std::make_shared<Int32>(id));
+        vertex_accessor.set(key_garment_id, std::make_shared<Int32>(gar_id));
+        vertex_accessor.set(key_garment_category_id,
+                            std::make_shared<Int32>(cat_id));
         std::srand(id ^ 0x7482616);
-        vertex_accessor.property(
-            "score", std::make_shared<Double>((std::rand() % max_score) /
-                                              (max_score + 0.0)));
+        vertex_accessor.set(key_score,
+                            std::make_shared<Double>((std::rand() % max_score) /
+                                                     (max_score + 0.0)));
+
         for (auto l_name : labels) {
             auto &label = t.label_find_or_create(l_name);
             vertex_accessor.add_label(label);
@@ -372,6 +404,7 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
         return vertex_accessor;
     };
 
+    // Skip header
     std::getline(file, line);
 
     vector<Vertex::Accessor> va;
@@ -423,39 +456,39 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
 void load_graph_dummy(Db &db)
 {
     DbAccessor t(db);
-    auto v = [&](auto id, auto score) {
-        auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.property("id", std::make_shared<Int32>(id));
-        vertex_accessor.property("score", std::make_shared<Double>(score));
-        return vertex_accessor.id();
-    };
-
-    Id va[] = {
-        v(0, 0.5), v(1, 1), v(2, 0.3), v(3, 0.15), v(4, 0.8), v(5, 0.8),
-    };
-
-    auto e = [&](auto from, auto type, auto to) {
-        auto v1 = t.vertex_find(va[from]);
-
-        auto v2 = t.vertex_find(va[to]);
-
-        auto edge_accessor = t.edge_insert(v1.get(), v2.get());
-
-        auto &edge_type = t.type_find_or_create(type);
-        edge_accessor.edge_type(edge_type);
-    };
-
-    e(0, "ok", 3);
-    e(0, "ok", 2);
-    e(0, "ok", 4);
-    e(1, "ok", 3);
-    e(2, "ok", 1);
-    e(2, "ok", 4);
-    e(3, "ok", 4);
-    e(3, "ok", 5);
-    e(4, "ok", 0);
-    e(4, "ok", 1);
-    e(5, "ok", 2);
+    // auto v = [&](auto id, auto score) {
+    //     auto vertex_accessor = t.vertex_insert();
+    //     vertex_accessor.property("id", std::make_shared<Int32>(id));
+    //     vertex_accessor.property("score", std::make_shared<Double>(score));
+    //     return vertex_accessor.id();
+    // };
+    //
+    // Id va[] = {
+    //     v(0, 0.5), v(1, 1), v(2, 0.3), v(3, 0.15), v(4, 0.8), v(5, 0.8),
+    // };
+    //
+    // auto e = [&](auto from, auto type, auto to) {
+    //     auto v1 = t.vertex_find(va[from]);
+    //
+    //     auto v2 = t.vertex_find(va[to]);
+    //
+    //     auto edge_accessor = t.edge_insert(v1.get(), v2.get());
+    //
+    //     auto &edge_type = t.type_find_or_create(type);
+    //     edge_accessor.edge_type(edge_type);
+    // };
+    //
+    // e(0, "ok", 3);
+    // e(0, "ok", 2);
+    // e(0, "ok", 4);
+    // e(1, "ok", 3);
+    // e(2, "ok", 1);
+    // e(2, "ok", 4);
+    // e(3, "ok", 4);
+    // e(3, "ok", 5);
+    // e(4, "ok", 0);
+    // e(4, "ok", 1);
+    // e(5, "ok", 2);
 
     t.commit();
 }

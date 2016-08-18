@@ -2,8 +2,8 @@
 
 #include <iostream>
 
-#include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/handler.hpp"
+#include "storage/model/properties/properties.hpp"
 
 using std::cout;
 using std::endl;
@@ -13,12 +13,12 @@ class ConsoleWriter
 public:
     ConsoleWriter() {}
 
-    void handle(const std::string &key, const Property &value)
+    void handle(const prop_key_t &key, const Property &value)
     {
-        cout << "KEY: " << key << "; VALUE: ";
+        cout << "KEY: " << key.family_name() << "; VALUE: ";
 
         accept(value, *this);
-    
+
         // value.accept(*this);
 
         cout << endl;

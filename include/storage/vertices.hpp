@@ -1,17 +1,24 @@
 #pragma once
 
+#include <memory>
+#include <string>
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/db_transaction.hpp"
+// #include "database/db_transaction.hpp"
 #include "storage/common.hpp"
-#include "storage/indexes/index.hpp"
-#include "storage/indexes/index_record_collection.hpp"
+// #include "storage/indexes/index.hpp"
+// #include "storage/indexes/index_record_collection.hpp"
+#include "storage/model/properties/property_family.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/option.hpp"
+
+class DbTransaction;
 
 class Vertices
 {
 public:
     using vertices_t = ConcurrentMap<uint64_t, VertexRecord>;
+    using prop_familys_t =
+        ConcurrentMap<std::string, std::unique_ptr<PropertyFamily>>;
 
     vertices_t::Accessor access();
 
@@ -20,13 +27,15 @@ public:
     // Creates new Vertex and returns filled Vertex::Accessor.
     Vertex::Accessor insert(DbTransaction &t);
 
-    void update_label_index(const Label &label,
-                            VertexIndexRecord &&index_record);
+    PropertyFamily &property_family_find_or_create(const std::string &name);
 
-    VertexIndexRecordCollection &find_label_index(const Label &label);
+    // prop_familys_t::Accessor property_family_access();
 
 private:
     vertices_t vertices;
-    Index<label_ref_t, VertexIndexRecordCollection> label_index;
+    // TODO: Because familys wont be removed this could be done with more
+    // efficent
+    // data structure.
+    prop_familys_t prop_familys;
     AtomicCounter<uint64_t> counter;
 };

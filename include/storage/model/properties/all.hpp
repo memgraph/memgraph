@@ -6,4 +6,3 @@
 #include "storage/model/properties/int32.hpp"
 #include "storage/model/properties/int64.hpp"
 #include "storage/model/properties/string.hpp"
-

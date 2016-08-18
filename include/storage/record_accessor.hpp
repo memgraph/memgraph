@@ -2,8 +2,10 @@
 
 #include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/indexes/index_record.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/property.hpp"
+#include "storage/model/properties/property_family.hpp"
 #include "transactions/transaction.hpp"
 
 template <class T, class Derived, class vlist_t = mvcc::VersionList<T>>
@@ -57,29 +59,31 @@ public:
         return vlist->remove(record, db.trans);
     }
 
-    const Property &property(const std::string &key) const
-    {
-        return record->data.props.at(key);
-    }
+    const Property &at(prop_key_t &key) const { return properties().at(key); }
+
+    template <class V>
+    auto at(type_key_t<V> &key) const;
 
     template <class V, class... Args>
-    void property(const std::string &key, Args &&... args)
+    void set(type_key_t<V> &key, Args &&... args)
     {
-        record->data.props.template set<V>(key, std::forward<Args>(args)...);
+        properties().template set<V>(key, std::forward<Args>(args)...);
     }
 
-    void property(const std::string &key, Property::sptr value)
+    void set(prop_key_t &key, Property::sptr value)
     {
-        record->data.props.set(key, std::move(value));
+        properties().set(key, std::move(value));
+    }
+
+    void clear(prop_key_t &key) { properties().clear(key); }
+
+    template <class Handler>
+    void accept(Handler &handler) const
+    {
+        properties().template accept<Handler>(handler);
     }
 
     Properties &properties() const { return record->data.props; }
-
-    template <class V>
-    auto at(const std::string &key) const
-    {
-        return properties().at(key).template as<V>().value_ref();
-    }
 
     explicit operator bool() const { return record != nullptr; }
 
@@ -99,6 +103,12 @@ public:
     }
 
 protected:
+    template <class K>
+    IndexRecord<T, K> create_ir(K &&key)
+    {
+        return IndexRecord<T, K>(std::move(key), record, vlist);
+    }
+
     T *record{nullptr};
     vlist_t *const vlist;
     DbTransaction &db;

@@ -1,4 +1,6 @@
 #include "storage/edges.hpp"
+#include "storage/model/properties/property_family.hpp"
+#include "utils/iterator/iterator.hpp"
 
 Option<const Edge::Accessor> Edges::find(DbTransaction &t, const Id &id)
 {
@@ -29,4 +31,26 @@ Edge::Accessor Edges::insert(DbTransaction &t, VertexRecord *from,
     auto edge = inserted_edge_record->second.insert(t.trans);
 
     return Edge::Accessor(edge, &inserted_edge_record->second, t);
+}
+
+// auto Edges::property_family_access()
+// { // Returnig access directly would allow extern code to remove elements.
+// Which
+//     // would be BAD, VERY BAD.
+//     return iter::make_iter(prop_familys.access());
+// }
+
+PropertyFamily &Edges::property_family_find_or_create(const std::string &name)
+{
+    auto acc = prop_familys.access();
+    auto it = acc.find(name);
+    if (it == acc.end()) {
+        PropertyFamily *family = new PropertyFamily(name);
+        auto res = acc.insert(name, family);
+        if (!res.second) {
+            delete family;
+        }
+        it = res.first;
+    }
+    return *(it->second);
 }

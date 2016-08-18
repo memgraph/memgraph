@@ -15,14 +15,20 @@ size_t Vertex::Accessor::in_degree() const
 
 size_t Vertex::Accessor::degree() const { return in_degree() + out_degree(); }
 
-void Vertex::Accessor::add_label(const Label &label)
+bool Vertex::Accessor::add_label(const Label &label)
 {
     // update vertex
-    this->record->data.labels.add(label);
+    if (this->record->data.labels.add(label)) {
+        label.index->insert(create_ir(std::nullptr_t()));
+        return true;
+    }
+    return false;
+}
 
-    // update index
-    this->db.update_label_index(label,
-                                VertexIndexRecord(this->record, this->vlist));
+bool Vertex::Accessor::remove_label(const Label &label)
+{
+    // update vertex
+    return this->record->data.labels.remove(label);
 }
 
 bool Vertex::Accessor::has_label(const Label &label) const
