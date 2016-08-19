@@ -55,8 +55,6 @@ class DynamicBitset : Lockable<SpinLock>
         Chunk(Chunk &) = delete;
         Chunk(Chunk &&) = delete;
 
-        ~Chunk() { delete next; }
-
         static constexpr size_t size = chunk_size * Block::size;
         static constexpr size_t n_blocks = chunk_size / sizeof(block_t);
 

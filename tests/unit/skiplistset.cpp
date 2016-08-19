@@ -1,6 +1,8 @@
 #include <iostream>
 
 #include "data_structures/concurrent/concurrent_set.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 
 using std::cout;
 using std::endl;
@@ -17,6 +19,9 @@ void print_skiplist(const ConcurrentSet<int>::Accessor &skiplist)
 
 int main(void)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     ConcurrentSet<int> set;
     auto accessor = set.access();
 
