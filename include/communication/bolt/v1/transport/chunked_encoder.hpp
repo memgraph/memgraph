@@ -23,7 +23,6 @@ public:
     ChunkedEncoder(Stream &stream)
         : logger(logging::log->logger("Chunked Encoder")), stream(stream)
     {
-        // logger = logging::log->logger("Chunked Encoder");
     }
 
     static constexpr size_t chunk_size = N - 2;
@@ -71,9 +70,6 @@ private:
 
     void end_chunk()
     {
-        // TODO: this call is unnecessary bacause the same method is called
-        // inside the flush method
-        // write_chunk_header();
         flush();
     }
 

@@ -322,6 +322,13 @@ if (LOG_NO_ERROR)
     add_definitions(-DLOG_NO_ERROR)
 endif()
 # -- logging ------------------------------------------------------------------
+# -- logger -------------------------------------------------------------------
+option(SYNC_LOGGER "" OFF)
+message(STATUS "SYNC LOGGER: ${SYNC_LOGGER}")
+if (SYNC_LOGGER)
+    add_definitions(-DSYNC_LOGGER)
+endif()
+# -- logger -------------------------------------------------------------------
 # -- assert -------------------------------------------------------------------
 option(RUNTIME_ASSERT "Enable runtime assertions" ON)
 message(STATUS "RUNTIME_ASSERT: ${RUNTIME_ASSERT}")

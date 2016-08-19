@@ -34,10 +34,17 @@ int main(void)
     // that are configured below
     std::set_terminate(&terminate_handler);
 
+    // logger init
+#ifdef SYNC_LOGGER
     logging::init_sync();
-    // logging::init_async();
+#else
+    logging::init_async();
+#endif
     logging::log->pipe(std::make_unique<Stdout>());
+
+    // get Main logger
     logger = logging::log->logger("Main");
+    logger.info("{}", logging::log->type());
 
     signal(SIGINT, sigint_handler);
     signal(SIGABRT, sigint_handler);
@@ -64,7 +71,7 @@ int main(void)
     bolt::Server<bolt::Worker> server(std::move(socket));
     serverptr = &server;
 
-    constexpr size_t N = 1;
+    auto N = std::thread::hardware_concurrency();
 
     logger.info("Starting {} workers", N);
     server.start(N);
