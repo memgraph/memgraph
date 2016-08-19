@@ -11,6 +11,11 @@ void AsyncLog::emit(Record::uptr record)
     records.push(std::move(record));
 }
 
+std::string AsyncLog::type()
+{
+    return "AsyncLog";
+}
+
 void AsyncLog::work()
 {
     using namespace std::chrono_literals;

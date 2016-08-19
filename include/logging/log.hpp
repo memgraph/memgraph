@@ -49,6 +49,8 @@ public:
         streams.emplace_back(std::forward<Stream::uptr>(stream));
     }
 
+    virtual std::string type() = 0;
+
 protected:
     friend class Logger;
 

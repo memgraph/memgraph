@@ -8,4 +8,5 @@ class SyncLog : public Log, Lockable<Futex>
 {
 protected:
     void emit(Record::uptr) override;
+    std::string type() override;
 };

@@ -41,7 +41,7 @@ public:
 
         } while(tokens.back().id != 0);
 
-        return std::move(tree);
+        return tree;
     }
 
 protected:

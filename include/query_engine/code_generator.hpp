@@ -55,7 +55,7 @@ public:
                             {"query", query},
                             {"code", cpp_traverser.code}});
 
-        logger.trace("generated code: {}", generated);
+        // logger.trace("generated code: {}", generated);
 
         utils::write_file(generated, path);
     }

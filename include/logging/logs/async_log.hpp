@@ -12,6 +12,7 @@ public:
 
 protected:
     void emit(Record::uptr) override;
+    std::string type() override;
 
 private:
     lockfree::MpscQueue<Record> records;

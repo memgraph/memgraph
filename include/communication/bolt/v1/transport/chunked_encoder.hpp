@@ -4,9 +4,9 @@
 #include <cstring>
 #include <functional>
 
-#include "utils/likely.hpp"
 #include "communication/bolt/v1/config.hpp"
 #include "logging/default.hpp"
+#include "utils/likely.hpp"
 
 namespace bolt
 {
@@ -20,27 +20,25 @@ class ChunkedEncoder
 public:
     using byte = unsigned char;
 
-    ChunkedEncoder(Stream& stream) : stream(stream)
+    ChunkedEncoder(Stream &stream)
+        : logger(logging::log->logger("Chunked Encoder")), stream(stream)
     {
-        logger = logging::log->logger("Chunked Encoder");
     }
 
     static constexpr size_t chunk_size = N - 2;
 
     void write(byte value)
     {
-        if(UNLIKELY(pos == N))
-            end_chunk();
+        if (UNLIKELY(pos == N)) end_chunk();
 
         chunk[pos++] = value;
     }
 
-    void write(const byte* values, size_t n)
+    void write(const byte *values, size_t n)
     {
         logger.trace("write {} bytes", n);
 
-        while(n > 0)
-        {
+        while (n > 0) {
             auto size = n < N - pos ? n : N - pos;
 
             std::memcpy(chunk.data() + pos, values, size);
@@ -48,8 +46,7 @@ public:
             pos += size;
             n -= size;
 
-            if(pos == N)
-                end_chunk();
+            if (pos == N) end_chunk();
         }
     }
 
@@ -69,13 +66,10 @@ private:
     std::reference_wrapper<Stream> stream;
 
     std::array<byte, C> chunk;
-    size_t pos {2};
+    size_t pos{2};
 
     void end_chunk()
     {
-        // TODO: this call is unnecessary bacause the same method is called
-        // inside the flush method
-        // write_chunk_header();
         flush();
     }
 
@@ -98,5 +92,4 @@ private:
         pos = 2;
     }
 };
-
 }
