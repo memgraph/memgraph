@@ -7,6 +7,7 @@
 #include <random>
 #include <thread>
 
+#include "data_structures/bitset/dynamic_bitset.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_multimap.hpp"
 #include "data_structures/concurrent/concurrent_multiset.hpp"
@@ -106,6 +107,14 @@ void check_zero(size_t key_range, long array[], const char *str)
     }
 }
 
+void check_set(DynamicBitset<> &db, std::vector<bool> &set)
+{
+    for (int i = 0; i < set.size(); i++) {
+        permanent_assert(!(set[i] ^ db.at(i)),
+                         "Set constraints aren't fullfilled.");
+    }
+}
+
 // Checks multiIterator and iterator guarantees
 void check_multi_iterator(multimap_t::Accessor &accessor, size_t key_range,
                           long set[])
@@ -164,6 +173,25 @@ run(size_t threads_no, S &skiplist,
     return futures;
 }
 
+// Runs given function in threads_no threads and returns vector of futures for
+// there
+// results.
+template <class R>
+std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
+                                                   std::function<R(size_t)> f)
+{
+    std::vector<std::future<std::pair<size_t, R>>> futures;
+
+    for (size_t thread_i = 0; thread_i < threads_no; ++thread_i) {
+        std::packaged_task<std::pair<size_t, R>()> task([f, thread_i]() {
+            return std::pair<size_t, R>(thread_i, f(thread_i));
+        });                                   // wrap the function
+        futures.push_back(task.get_future()); // get a future
+        std::thread(std::move(task)).detach();
+    }
+    return futures;
+}
+
 // Collects all data from futures.
 template <class R>
 auto collect(std::vector<std::future<R>> &collect)
@@ -173,6 +201,19 @@ auto collect(std::vector<std::future<R>> &collect)
         collection.push_back(fut.get());
     }
     return collection;
+}
+
+std::vector<bool> collect_set(
+    std::vector<std::future<std::pair<size_t, std::vector<bool>>>> &&futures)
+{
+    std::vector<bool> set;
+    for (auto &data : collect(futures)) {
+        set.resize(data.second.size());
+        for (int i = 0; i < data.second.size(); i++) {
+            set[i] = set[i] | data.second[i];
+        }
+    }
+    return set;
 }
 
 // Returns object which tracs in owned which (key,data) where added and
