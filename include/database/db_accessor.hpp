@@ -77,6 +77,13 @@ public:
 
     PropertyFamily &edge_property_family_get(const std::string &name);
 
+    // ******************** PROPERTY HELPER METHODS
+    PropertyFamily::PropertyType::PropertyFamilyKey
+    vertex_property_key(const std::string &name, Type type);
+
+    PropertyFamily::PropertyType::PropertyFamilyKey
+    edge_property_key(const std::string &name, Type type);
+
     // ******************** TRANSACTION METHODS
 
     void commit();

@@ -146,6 +146,7 @@ endforeach()
 # TODO: somehow automate (in destination dir should be only required include files)
 FILE(COPY ${include_dir}/database/db.hpp DESTINATION ${build_include_dir}/database)
 FILE(COPY ${include_dir}/database/db_transaction.hpp DESTINATION ${build_include_dir}/database)
+FILE(COPY ${include_dir}/database/db_accessor.hpp DESTINATION ${build_include_dir}/database)
 
 FILE(COPY ${include_dir}/storage/common.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/graph.hpp DESTINATION ${build_include_dir}/storage)
@@ -163,6 +164,7 @@ FILE(COPY ${include_dir}/storage/edge_type/edge_type_store.hpp DESTINATION ${bui
 FILE(COPY ${include_dir}/storage/edge_type/edge_type.hpp DESTINATION ${build_include_dir}/storage/edge_type)
 FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
 FILE(COPY ${include_dir}/storage/model/edge_map.hpp DESTINATION ${build_include_dir}/storage/model)
+FILE(COPY ${include_dir}/storage/model/properties/flags.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 
 FILE(COPY ${include_dir}/query_engine/util.hpp DESTINATION ${build_include_dir}/query_engine)
 FILE(COPY ${include_dir}/query_engine/i_code_cpu.hpp DESTINATION ${build_include_dir}/query_engine)
@@ -171,6 +173,7 @@ FILE(COPY ${include_dir}/query_engine/query_stripped.hpp DESTINATION ${build_inc
 
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_map.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_set.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
+FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_list.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/common.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/skiplist.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/skiplist_gc.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
@@ -236,6 +239,8 @@ FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_inclu
 FILE(COPY ${include_dir}/storage/indexes/index.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_record_collection.hpp DESTINATION ${build_include_dir}/storage/indexes)
+FILE(COPY ${include_dir}/storage/indexes/index_base.hpp DESTINATION ${build_include_dir}/storage/indexes)
+FILE(COPY ${include_dir}/storage/indexes/impl/nonunique_unordered_index.hpp DESTINATION ${build_include_dir}/storage/indexes/impl)
 
 FILE(COPY ${include_dir}/utils/sys.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/bswap.hpp DESTINATION ${build_include_dir}/utils)
@@ -257,7 +262,10 @@ FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${buil
 FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
+FILE(COPY ${include_dir}/utils/iterator/iterator_base.hpp DESTINATION ${build_include_dir}/utils/iterator)
 FILE(COPY ${include_dir}/utils/option_ptr.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/option.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/border.hpp DESTINATION ${build_include_dir}/utils)
 
 FILE(COPY ${include_dir}/communication/communication.hpp DESTINATION ${build_include_dir}/communication)
 FILE(COPY ${include_dir}/communication/bolt/v1/config.hpp DESTINATION ${build_include_dir}/communication/bolt/v1)
@@ -463,7 +471,7 @@ execute_process(
     COMMAND git rev-parse --short HEAD
 )
 execute_process(
-    OUTPUT_VARIABLE COMMIT_NO 
+    OUTPUT_VARIABLE COMMIT_NO
     COMMAND git rev-list --count HEAD
 )
 string(STRIP ${COMMIT_BRANCH} COMMIT_BRANCH)

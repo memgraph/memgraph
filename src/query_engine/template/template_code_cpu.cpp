@@ -24,12 +24,12 @@ public:
 };
 
 
-extern "C" ICodeCPU* produce() 
+extern "C" ICodeCPU* produce()
 {
     return new {{class_name}}();
 }
 
-extern "C" void destruct(ICodeCPU* p) 
+extern "C" void destruct(ICodeCPU* p)
 {
     delete p;
 }

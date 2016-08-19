@@ -39,11 +39,7 @@ public:
         return record != nullptr;
     }
 
-    const Id &id() const
-    {
-        assert(!empty());
-        return vlist->id;
-    }
+    const Id &id() const { return vlist->id; }
 
     Derived update() const
     {
@@ -57,6 +53,11 @@ public:
         assert(!empty());
 
         return vlist->remove(record, db.trans);
+    }
+
+    const Property &at(PropertyFamily &key) const
+    {
+        return properties().at(key);
     }
 
     const Property &at(prop_key_t &key) const { return properties().at(key); }
@@ -76,6 +77,8 @@ public:
     }
 
     void clear(prop_key_t &key) { properties().clear(key); }
+
+    void clear(PropertyFamily &key) { properties().clear(key); }
 
     template <class Handler>
     void accept(Handler &handler) const

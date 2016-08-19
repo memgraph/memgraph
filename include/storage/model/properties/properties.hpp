@@ -24,6 +24,8 @@ public:
 
     size_t size() const { return props.size(); }
 
+    const Property &at(PropertyFamily &key) const;
+
     const Property &at(prop_key_t &key) const;
 
     template <class T>
@@ -35,6 +37,8 @@ public:
     void set(prop_key_t &key, Property::sptr value);
 
     void clear(prop_key_t &key);
+
+    void clear(PropertyFamily &key);
 
     template <class Handler>
     void accept(Handler &handler) const

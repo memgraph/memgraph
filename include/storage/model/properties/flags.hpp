@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cassert>
+#include "utils/total_ordering.hpp"
+#include "utils/underlying_cast.hpp"
+
 enum class Flags : unsigned
 {
     // Type       | Mask
@@ -42,4 +46,64 @@ enum class Flags : unsigned
     Array = 0x1000,
 
     type_mask = 0xFFF
+
+};
+
+// Mask to turn flags into type. It passes all bits except 0x2 and 0x4 which
+// correspond
+// to True and False.
+const unsigned flags_equal_mask = 0xFF9;
+
+class Type : public TotalOrdering<Type>
+{
+public:
+    Type(Flags f) : value(underlying_cast(f) & flags_equal_mask)
+    {
+        Flags o = Flags(value);
+        assert(o == Flags::Null || o == Flags::Bool || o == Flags::String ||
+               o == Flags::Int32 || o == Flags::Int64 || o == Flags::Float ||
+               o == Flags::Double || o == Flags::Array);
+    }
+
+    const std::string to_str()
+    {
+        switch (Flags(value)) {
+        case Flags::Null:
+            return "null";
+        case Flags::Bool:
+            return "bool";
+        case Flags::String:
+            return "str";
+        case Flags::Int32:
+            return "int32";
+        case Flags::Int64:
+            return "int64";
+        case Flags::Float:
+            return "float";
+        case Flags::Double:
+            return "double";
+        case Flags::Array:
+            return "array";
+        default:
+            assert(false);
+            return "err_unknown_type_" + std::to_string(value);
+        }
+    }
+
+    bool operator==(Flags other) const { return *this == Type(other); }
+
+    bool operator!=(Flags other) const { return *this != Type(other); }
+
+    friend bool operator<(const Type &lhs, const Type &rhs)
+    {
+        return lhs.value < rhs.value;
+    }
+
+    friend bool operator==(const Type &lhs, const Type &rhs)
+    {
+        return lhs.value == rhs.value;
+    }
+
+private:
+    const unsigned value;
 };

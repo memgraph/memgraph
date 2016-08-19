@@ -189,7 +189,7 @@ auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
 {
     DbAccessor t(db);
     type_key_t<Double> tkey = t.vertex_property_family_get("score")
-                                  .get(Type::Double)
+                                  .get(Flags::Double)
                                   .type_key<Double>();
 
     auto best_found = new std::map<Id, Score>[max_depth];
@@ -366,16 +366,16 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
 
     DbAccessor t(db);
     auto key_id =
-        t.vertex_property_family_get("id").get(Type::Int32).family_key();
+        t.vertex_property_family_get("id").get(Flags::Int32).family_key();
     auto key_garment_id = t.vertex_property_family_get("garment_id")
-                              .get(Type::Int32)
+                              .get(Flags::Int32)
                               .family_key();
     auto key_garment_category_id =
         t.vertex_property_family_get("garment_category_id")
-            .get(Type::Int32)
+            .get(Flags::Int32)
             .family_key();
     auto key_score =
-        t.vertex_property_family_get("score").get(Type::Double).family_key();
+        t.vertex_property_family_get("score").get(Flags::Double).family_key();
 
     int max_score = 1000000;
 
@@ -457,7 +457,7 @@ int load_csv(Db &db, char *file_path, char *edge_file_path)
 void load_graph_dummy(Db &db)
 {
     DbAccessor t(db);
-    
+
     // TODO: update code
     // auto v = [&](auto id, auto score) {
     //     auto vertex_accessor = t.vertex_insert();

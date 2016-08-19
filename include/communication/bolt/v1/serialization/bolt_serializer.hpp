@@ -56,7 +56,7 @@ public:
         encoder.write_map_header(props.size());
 
         for (auto &prop : props) {
-            write(prop.first);
+            write(prop.first.family_name());
             write(*prop.second);
         }
     }
@@ -93,7 +93,7 @@ public:
         encoder.write_map_header(props.size());
 
         for (auto &prop : props) {
-            write(prop.first);
+            write(prop.first.family_name());
             write(*prop.second);
         }
     }

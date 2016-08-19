@@ -20,7 +20,6 @@ auto fetch_internal_index(const QueryActionData &action_data,
 {
     return action_data.parameter_index.at(ParameterIndexKey(InternalId, name));
 }
-
 }
 
 auto match_query_action =
@@ -40,8 +39,7 @@ auto match_query_action =
             auto place = action_data.csm.min(kv.first);
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
-                code +=
-                    code_line(code::match_vertex_by_id, name, index);
+                code += code_line(code::match_vertex_by_id, name, index);
             }
         }
 

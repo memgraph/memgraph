@@ -4,6 +4,9 @@
 #include <map>
 #include <string>
 
+#include "query_engine/code_generator/namer.hpp"
+#include "storage/model/properties/flags.hpp"
+
 // main states that are used while ast is traversed
 // in order to generate ActionSequence
 enum class CypherState : uint8_t
@@ -36,10 +39,11 @@ class CypherStateData
 private:
     std::map<std::string, EntityStatus> entity_status;
     std::map<std::string, EntityType> entity_type;
+
     // TODO: container that keeps track about c++ variable names
 
 public:
-    bool exist(const std::string& name) const
+    bool exist(const std::string &name) const
     {
         return entity_status.find(name) != entity_status.end();
     }
@@ -52,12 +56,17 @@ public:
         return entity_status.at(name);
     }
 
-    EntityType type(const std::string &name)
+    EntityType type(const std::string &name) const
     {
         if (entity_type.find(name) == entity_type.end())
             return EntityType::NotFound;
 
         return entity_type.at(name);
+    }
+
+    const std::map<std::string, EntityType> &all_typed_enteties()
+    {
+        return entity_type;
     }
 
     void node_matched(const std::string &name)

@@ -8,8 +8,6 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/reference_wrapper.hpp"
 #include "utils/total_ordering.hpp"
-#include "utils/void.hpp"
-
 using LabelIndexRecord = VertexIndexRecord<std::nullptr_t>;
 
 class Label : public TotalOrdering<Label>

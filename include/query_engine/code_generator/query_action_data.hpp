@@ -4,9 +4,9 @@
 #include <map>
 #include <vector>
 
-#include "query_engine/exceptions/exceptions.hpp"
 #include "query_engine/code_generator/clause_action.hpp"
 #include "query_engine/code_generator/entity_search.hpp"
+#include "query_engine/exceptions/exceptions.hpp"
 #include "storage/model/properties/all.hpp"
 #include "utils/assert.hpp"
 #include "utils/underlying_cast.hpp"
@@ -97,9 +97,9 @@ struct RelationshipData
 
 struct ReturnElement
 {
-    ReturnElement(const std::string& entity) : entity(entity) {}
-    ReturnElement(const std::string& entity, const std::string& property) :
-        entity(entity), property(property) {};
+    ReturnElement(const std::string &entity) : entity(entity) {}
+    ReturnElement(const std::string &entity, const std::string &property)
+        : entity(entity), property(property){};
 
     std::string entity;
     std::string property;
@@ -143,7 +143,7 @@ struct QueryActionData
     }
 
     // TODO: refactor name
-    auto get_entity_property(const std::string& entity) const
+    auto get_entity_property(const std::string &entity) const
     {
         if (entity_data.find(entity) == entity_data.end())
             throw CppGeneratorException("Entity " + entity + " doesn't exist");

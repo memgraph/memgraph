@@ -1,5 +1,5 @@
-#include "database/db_accessor.hpp"
 #include "database/db.hpp"
+#include "database/db_accessor.hpp"
 #include "utils/iterator/iterator.hpp"
 
 DbAccessor::DbAccessor(Db &db)
@@ -70,6 +70,7 @@ bool DbAccessor::type_contains(const std::string &name)
         std::forward<const std::string &>(name));
 }
 
+// PROPERTY METHODS
 PropertyFamily &DbAccessor::vertex_property_family_get(const std::string &name)
 {
     return db_transaction.db.graph.vertices.property_family_find_or_create(
@@ -79,6 +80,19 @@ PropertyFamily &DbAccessor::vertex_property_family_get(const std::string &name)
 PropertyFamily &DbAccessor::edge_property_family_get(const std::string &name)
 {
     return db_transaction.db.graph.edges.property_family_find_or_create(name);
+}
+
+// PROPERTY HELPER METHODS
+PropertyFamily::PropertyType::PropertyFamilyKey
+DbAccessor::vertex_property_key(const std::string &name, Type type)
+{
+    return vertex_property_family_get(name).get(type).family_key();
+}
+
+PropertyFamily::PropertyType::PropertyFamilyKey
+DbAccessor::edge_property_key(const std::string &name, Type type)
+{
+    return edge_property_family_get(name).get(type).family_key();
 }
 
 // TRANSACTION METHODS

@@ -3,9 +3,11 @@
 PropertyFamily::PropertyFamily(std::string const &name_v)
     : name_v(std::forward<const std::string>(name_v))
 {
+    null_type = &get(Flags::Null);
 }
 PropertyFamily::PropertyFamily(std::string &&name_v) : name_v(std::move(name_v))
 {
+    null_type = &get(Flags::Null);
 }
 
 std::string const &PropertyFamily::name() const { return name_v; }

@@ -7,8 +7,6 @@
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
-typedef Flags Type;
-
 // Family of properties with the same name but different types.
 // Ordered on name.
 class PropertyFamily : public TotalOrdering<PropertyFamily>
@@ -28,7 +26,10 @@ public:
 
     public:
         // Ordered on POINTERS to PropertyFamily
-        class PropertyFamilyKey : public TotalOrdering<PropertyFamilyKey>
+        class PropertyFamilyKey
+            : public TotalOrdering<PropertyFamilyKey>,
+              public TotalOrdering<PropertyFamilyKey, PropertyFamily>,
+              public TotalOrdering<PropertyFamily, PropertyFamilyKey>
         {
             friend class PropertyType;
             friend class PropertyTypeKey;
@@ -48,6 +49,30 @@ public:
                 return &(lhs.type->family) < &(rhs.type->family);
             }
 
+            friend bool operator==(const PropertyFamilyKey &lhs,
+                                   const PropertyFamily &rhs)
+            {
+                return &(lhs.type->family) == &(rhs);
+            }
+
+            friend bool operator<(const PropertyFamilyKey &lhs,
+                                  const PropertyFamily &rhs)
+            {
+                return &(lhs.type->family) < &(rhs);
+            }
+
+            friend bool operator==(const PropertyFamily &lhs,
+                                   const PropertyFamilyKey &rhs)
+            {
+                return &(lhs) == &(rhs.type->family);
+            }
+
+            friend bool operator<(const PropertyFamily &lhs,
+                                  const PropertyFamilyKey &rhs)
+            {
+                return &(lhs) < &(rhs.type->family);
+            }
+
             Type prop_type() const { return type->type; }
 
             std::string const &family_name() const
@@ -62,10 +87,7 @@ public:
         // Ordered on POINTERS to PropertyType.
         // When compared with PropertyFamilyKey behaves as PropertyFamilyKey.
         template <class T>
-        class PropertyTypeKey
-            : public TotalOrdering<PropertyTypeKey<T>>,
-              public TotalOrdering<PropertyFamilyKey, PropertyTypeKey<T>>,
-              public TotalOrdering<PropertyTypeKey<T>, PropertyFamilyKey>
+        class PropertyTypeKey : public TotalOrdering<PropertyTypeKey<T>>
         {
             friend class PropertyType;
 
@@ -87,30 +109,6 @@ public:
                 return &(lhs.type) < &(rhs.type);
             }
 
-            friend bool operator==(const PropertyFamilyKey &lhs,
-                                   const PropertyTypeKey &rhs)
-            {
-                return &(lhs.type->family) == &(rhs.type.family);
-            }
-
-            friend bool operator<(const PropertyFamilyKey &lhs,
-                                  const PropertyTypeKey &rhs)
-            {
-                return &(lhs.type->family) < &(rhs.type.family);
-            }
-
-            friend bool operator==(const PropertyTypeKey &lhs,
-                                   const PropertyFamilyKey &rhs)
-            {
-                return &(lhs.type.family) == &(rhs.type->family);
-            }
-
-            friend bool operator<(const PropertyTypeKey &lhs,
-                                  const PropertyFamilyKey &rhs)
-            {
-                return &(lhs.type.family) < &(rhs.type->family);
-            }
-
         private:
             const PropertyType &type;
         };
@@ -124,7 +122,7 @@ public:
         template <class T>
         bool is() const
         {
-            return underlying_cast(type) & underlying_cast(T::type);
+            return type == T::type;
         }
 
         bool is(Type &t) const;
@@ -167,6 +165,9 @@ public:
     // Returns type if it exists otherwise creates it.
     PropertyType &get(Type type);
 
+    // Return pointer for NULL type. Extremly fast.
+    PropertyType &getNull() { return *null_type; }
+
     friend bool operator<(const PropertyFamily &lhs, const PropertyFamily &rhs);
 
     friend bool operator==(const PropertyFamily &lhs,
@@ -174,7 +175,8 @@ public:
 
 private:
     const std::string name_v;
-
+    // This is exclusivly for getNull method.
+    PropertyType *null_type{nullptr};
     // TODO: Because types wont be removed this could be done with more efficent
     // data structure.
     ConcurrentMap<Type, std::unique_ptr<PropertyType>> types;

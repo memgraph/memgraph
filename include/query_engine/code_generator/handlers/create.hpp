@@ -16,7 +16,7 @@ auto create_query_action =
             code += code_line(code::create_vertex, name);
 
             // update properties
-            code += update_properties(action_data, name);
+            code += update_properties(cypher_data, action_data, name);
 
             // update labels
             auto entity_data = action_data.get_entity_property(name);
@@ -30,19 +30,7 @@ auto create_query_action =
         }
 
         if (kv.second == ClauseAction::CreateRelationship) {
-            // create relationship
             auto name = kv.first;
-            code += code_line(code::create_edge, name);
-
-            // update properties
-            code += update_properties(action_data, name);
-
-            // update tag
-            auto entity_data = action_data.get_entity_property(name);
-            for (auto &tag : entity_data.tags) {
-                code += code_line(code::find_type, tag);
-                code += code_line(code::set_type, name, tag);
-            }
 
             // find start and end node
             auto &relationships_data = action_data.relationship_data;
@@ -63,18 +51,31 @@ auto create_query_action =
                                     " can't be found");
             }
 
-            // define direction
-            if (relationship_data.direction == Direction::Right) {
-                code += code_line(code::node_out, left_node, name);
-                code += code_line(code::node_in, right_node, name);
-                code += code_line(code::edge_from, name, left_node);
-                code += code_line(code::edge_to, name, right_node);
-            } else if (relationship_data.direction == Direction::Left) {
-                code += code_line(code::node_out, right_node, name);
-                code += code_line(code::node_in, left_node, name);
-                code += code_line(code::edge_from, name, right_node);
-                code += code_line(code::edge_to, name, left_node);
+            // create relationship
+            code += code_line(code::create_edge, name, left_node, right_node);
+
+            // update properties
+            code += update_properties(cypher_data, action_data, name);
+
+            // update tag
+            auto entity_data = action_data.get_entity_property(name);
+            for (auto &tag : entity_data.tags) {
+                code += code_line(code::find_type, tag);
+                code += code_line(code::set_type, name, tag);
             }
+
+            // define direction
+            // if (relationship_data.direction == Direction::Right) {
+            //     code += code_line(code::node_out, left_node, name);
+            //     code += code_line(code::node_in, right_node, name);
+            //     code += code_line(code::edge_from, name, left_node);
+            //     code += code_line(code::edge_to, name, right_node);
+            // } else if (relationship_data.direction == Direction::Left) {
+            //     code += code_line(code::node_out, right_node, name);
+            //     code += code_line(code::node_in, left_node, name);
+            //     code += code_line(code::edge_from, name, right_node);
+            //     code += code_line(code::edge_to, name, left_node);
+            // }
 
             // mark relationship as created
             cypher_data.relationship_created(name);

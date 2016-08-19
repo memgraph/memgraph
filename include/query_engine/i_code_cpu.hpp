@@ -2,6 +2,7 @@
 
 #include "communication/communication.hpp"
 #include "database/db.hpp"
+#include "database/db_accessor.hpp"
 #include "query_engine/query_stripped.hpp"
 
 class ICodeCPU

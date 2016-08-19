@@ -4,11 +4,26 @@
 #include "storage/model/properties/property_family.hpp"
 #include "utils/option.hpp"
 
+const Property &Properties::at(PropertyFamily &fam) const
+{
+    // It doesn't matter whit which type
+    // find is called, thats why getNull
+    // method is here to give fast access
+    // to such key.
+    auto key = fam.getNull().family_key();
+    auto it = props.find(key);
+
+    if (it == props.end()) return Property::Null;
+
+    return *it->second.get();
+}
+
 const Property &Properties::at(prop_key_t &key) const
 {
     auto it = props.find(key);
 
-    if (it == props.end()) return Property::Null;
+    if (it == props.end() || it->first.prop_type() != key.prop_type())
+        return Property::Null;
 
     return *it->second.get();
 }
@@ -59,14 +74,15 @@ void Properties::set(prop_key_t &key, Property::sptr value)
 
 void Properties::clear(prop_key_t &key) { props.erase(key); }
 
-// template <class Handler>
-// void Properties::accept(Handler& handler) const
-// {
-//     for(auto& kv : props)
-//         handler.handle(kv.first, *kv.second);
-//
-//     handler.finish();
-// }
+void Properties::clear(PropertyFamily &fam)
+{
+    // It doesn't matter whit which type
+    // find is called, thats why getNull
+    // method is here to give fast access
+    // to such key.
+    auto key = fam.getNull().family_key();
+    props.erase(key);
+}
 
 template <>
 inline void Properties::set<Null>(type_key_t<Null> &key)

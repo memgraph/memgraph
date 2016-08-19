@@ -12,7 +12,7 @@ auto return_query_action =
     code += code_line("// number of elements {}", elements.size());
 
     // TODO: call bolt serialization
-    for (const auto& element : elements) {
+    for (const auto &element : elements) {
         auto &entity = element.entity;
         if (!cypher_data.exist(entity)) {
             throw SemanticError(
@@ -26,6 +26,6 @@ auto return_query_action =
             // code += code_line(code::print_property, entity, property);
         }
     }
-    
+
     return code;
 };

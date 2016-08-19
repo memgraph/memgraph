@@ -16,50 +16,48 @@ namespace code
 
 // TODO: UNIT tests
 
-const std::string transaction_begin = "auto& t = db.tx_engine.begin();";
+const std::string transaction_begin = "DbAccessor t(db);";
 
 const std::string transaction_commit = "t.commit();";
 
-const std::string set_property = "{}.property(\"{}\", args[{}]);";
+const std::string set_property = "{}.set({}, args[{}]);";
 
 // create vertex e.g. CREATE (n:PERSON {name: "Test", age: 23})
-const std::string create_vertex = "auto {} = db.graph.vertices.insert(t);";
-const std::string create_label =
-    "auto &{0} = db.graph.label_store.find_or_create(\"{0}\");";
+const std::string create_vertex = "auto {} = t.vertex_insert();";
+const std::string create_label = "auto &{0} = t.label_find_or_create(\"{0}\");";
 const std::string add_label = "{}.add_label({});";
 
+const std::string vertex_property_key =
+    "auto {}=t.vertex_property_key(\"{}\",args[{}]->flags);";
+const std::string edge_property_key =
+    "auto {}=t.edge_property_key(\"{}\",args[{}]->flags);";
+
 // create edge e.g CREATE (n1)-[r:COST {cost: 100}]->(n2)
-const std::string create_edge = "auto {} = db.graph.edges.insert(t);";
-const std::string find_type =
-    "auto &{0} = db.graph.edge_type_store.find_or_create(\"{0}\");";
+const std::string create_edge = "auto {} = t.edge_insert({},{});";
+const std::string find_type = "auto &{0} = t.type_find_or_create(\"{0}\");";
 const std::string set_type = "{}.edge_type({});";
-const std::string node_out = "{}.vlist->update(t)->data.out.add({}.vlist);";
-const std::string node_in = "{}.vlist->update(t)->data.in.add({}.vlist);";
-const std::string edge_from = "{}.from({}.vlist);";
-const std::string edge_to = "{}.to({}.vlist);";
 
 const std::string args_id = "auto id = args[{}]->as<Int32>();";
 
 const std::string vertex_accessor_args_id =
-    "auto vertex_accessor = db.graph.vertices.find(t, id.value);";
+    "auto vertex_accessor = t.vertex_find(id.value);";
 
 const std::string match_vertex_by_id =
-    "auto {0} = db.graph.vertices.find(t, args[{1}]->as<Int64>().value);\n"
-    "        if (!{0}) return t.commit(), false;";
+    "auto option_{0} = t.vertex_find(args[{1}]->as<Int64>().value);\n"
+    "        if (!option_fill(option_{0})) return t.commit(), false;\n"
+    "        auto {0}=option_{0}.take();";
 const std::string match_edge_by_id =
-    "auto {0} = db.graph.edges.find(t, args[{1}]->as<Int64>().value);\n"
-    "        if (!{0}) return t.commit(), false;";
+    "auto option_{0} = t.edge_find(args[{1}]->as<Int64>().value);\n"
+    "        if (!option_fill(option_{0})) return t.commit(), false;\n"
+    "        auto {0}=option_{0}.take();";
 
-const std::string write_entity =
-    "stream.write_field(\"{0}\");\n"
-    "        stream.write_record();\n"
-    "        stream.write_list_header(1);\n"
-    "        stream.write({0});\n"
-    "        stream.write_success_empty();\n";
+const std::string write_entity = "stream.write_field(\"{0}\");\n"
+                                 "        stream.write_record();\n"
+                                 "        stream.write_list_header(1);\n"
+                                 "        stream.write({0});\n"
+                                 "        stream.write_success_empty();\n";
 
 const std::string return_true = "return true;";
-
-const std::string update_property = "{}.property(\"{}\", args[{}]);";
 
 const std::string todo = "// TODO: {}";
 const std::string print_properties =
@@ -67,5 +65,4 @@ const std::string print_properties =
     "        cout_properties({0}.properties());";
 const std::string print_property =
     "cout_property(\"{0}\", {0}.property(\"{1}\"));";
-
 }
