@@ -81,9 +81,8 @@ public:
         // write the identifier for the node
         encoder.write_integer(edge.id());
 
-        // TODO refactor when from() and to() start returning Accessors
-        encoder.write_integer(edge.from_record()->id);
-        encoder.write_integer(edge.to_record()->id);
+        encoder.write_integer(edge.from().id());
+        encoder.write_integer(edge.to().id());
 
         // write the type of the edge
         encoder.write_string(edge.edge_type());

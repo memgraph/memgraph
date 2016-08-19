@@ -8,6 +8,7 @@ struct Double : public Floating<Double>
 
     Double(double value) : Floating(Flags::Double), value(value) {}
 
+    double const &value_ref() const { return value; }
+
     double value;
 };
-

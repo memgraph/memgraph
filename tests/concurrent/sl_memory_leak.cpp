@@ -6,6 +6,7 @@ constexpr size_t elems_per_thread = 16e5;
 // Known memory leak at 1,600,000 elements.
 int main()
 {
+    init_log();
     memory_check(THREADS_NO, [&] {
         ds::static_array<std::thread, THREADS_NO> threads;
         map_t skiplist;

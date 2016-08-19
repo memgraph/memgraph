@@ -40,5 +40,4 @@ std::string code_line(const std::string &format_str, const Args &... args)
 {
     return "\t" + format(format_str, args...) + "\n";
 }
-
 }

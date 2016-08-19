@@ -9,7 +9,6 @@
 
 class Edges;
 
-// TODO: Edge, Db, Edge::Accessor
 class Edge::Accessor : public RecordAccessor<Edge, Edge::Accessor, EdgeRecord>
 {
 public:
@@ -22,8 +21,4 @@ public:
     Vertex::Accessor from() const;
 
     Vertex::Accessor to() const;
-
-    VertexRecord *from_record() const;
-
-    VertexRecord *to_record() const;
 };

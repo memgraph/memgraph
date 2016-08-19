@@ -1,7 +1,6 @@
 #pragma once
 
 #include "storage/graph.hpp"
-// #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 
 class Db

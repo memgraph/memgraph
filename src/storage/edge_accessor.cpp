@@ -20,10 +20,3 @@ Vertex::Accessor Edge::Accessor::to() const
 {
     return Vertex::Accessor(this->vlist->to(), this->db);
 }
-
-VertexRecord *Edge::Accessor::from_record() const
-{
-    return this->vlist->from();
-}
-
-VertexRecord *Edge::Accessor::to_record() const { return this->vlist->to(); }

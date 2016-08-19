@@ -9,6 +9,7 @@ public:
 
     Int64(int64_t value) : Integral(Flags::Int64), value(value) {}
 
+    int64_t const &value_ref() const { return value; }
+
     int64_t value;
 };
-

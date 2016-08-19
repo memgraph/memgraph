@@ -1,21 +1,20 @@
-#include <iostream>
-#include <deque>
 #include <cassert>
+#include <deque>
+#include <iostream>
 #include <vector>
 
 #include "communication/bolt/v1/transport/chunked_encoder.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 
 using byte = unsigned char;
 
-void print_hex(byte x)
-{
-    printf("%02X ", static_cast<byte>(x));
-}
+void print_hex(byte x) { printf("%02X ", static_cast<byte>(x)); }
 
 class DummyStream
 {
 public:
-    void write(const byte* values, size_t n)
+    void write(const byte *values, size_t n)
     {
         num_calls++;
         data.insert(data.end(), values, values + n);
@@ -28,36 +27,33 @@ public:
         return c;
     }
 
-    size_t pop_size()
-    {
-        return ((size_t)pop() << 8) | pop();
-    }
+    size_t pop_size() { return ((size_t)pop() << 8) | pop(); }
 
     void print()
     {
-        for(size_t i = 0; i < data.size(); ++i)
+        for (size_t i = 0; i < data.size(); ++i)
             print_hex(data[i]);
     }
 
     std::deque<byte> data;
-    size_t num_calls {0};
+    size_t num_calls{0};
 };
 
 using Encoder = bolt::ChunkedEncoder<DummyStream>;
 
-void write_ff(Encoder& encoder, size_t n)
+void write_ff(Encoder &encoder, size_t n)
 {
     std::vector<byte> v;
 
-    for(size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i)
         v.push_back('\xFF');
 
     encoder.write(v.data(), v.size());
 }
 
-void check_ff(DummyStream& stream, size_t n)
+void check_ff(DummyStream &stream, size_t n)
 {
-    for(size_t i = 0; i < n; ++i)
+    for (size_t i = 0; i < n; ++i)
         assert(stream.pop() == byte('\xFF'));
 
     (void)stream;
@@ -65,6 +61,8 @@ void check_ff(DummyStream& stream, size_t n)
 
 int main(void)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
     DummyStream stream;
     bolt::ChunkedEncoder<DummyStream> encoder(stream);
 
@@ -80,7 +78,7 @@ int main(void)
     write_ff(encoder, 67000);
     encoder.flush();
 
-    for(int i = 0; i < 10000; ++i)
+    for (int i = 0; i < 10000; ++i)
         write_ff(encoder, 1500);
     encoder.flush();
 
@@ -100,8 +98,7 @@ int main(void)
 
     size_t k = 10000 * 1500;
 
-    while(k > 0)
-    {
+    while (k > 0) {
         auto size = k > encoder.chunk_size ? encoder.chunk_size : k;
         assert(stream.pop_size() == size);
         check_ff(stream, size);

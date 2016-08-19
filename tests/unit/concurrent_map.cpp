@@ -3,6 +3,8 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
 using std::cout;

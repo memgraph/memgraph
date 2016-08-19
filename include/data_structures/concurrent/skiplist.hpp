@@ -157,7 +157,7 @@ public:
 
             // we have raw memory and we need to construct an object
             // of type Node on it
-            return new (node) Node(std::forward<T>(item), height);
+            return new (node) Node(std::move(item), height);
         }
 
         static void destroy(Node *node)
@@ -182,7 +182,7 @@ public:
 
         Node(T &&data, uint8_t height) : Node(height)
         {
-            this->data.set(std::forward<T>(data));
+            this->data.set(std::move(data));
         }
 
         ~Node()
@@ -522,7 +522,7 @@ public:
 
         std::pair<Iterator, bool> insert(T &&item)
         {
-            return skiplist->insert(std::forward<T>(item), preds, succs);
+            return skiplist->insert(std::move(item), preds, succs);
         }
 
         Iterator insert_non_unique(const T &item)
@@ -683,7 +683,7 @@ private:
     static bool lock_nodes(uint8_t height, guard_t guards[], Node *preds[],
                            Node *succs[])
     {
-        Node *prepred, *pred, *succ = nullptr;
+        Node *prepred = nullptr, *pred = nullptr, *succ = nullptr;
         bool valid = true;
 
         for (int level = 0; valid && level < height; ++level) {
@@ -790,8 +790,7 @@ private:
             // has the locks
             if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
-            return {insert_here(std::forward<T>(data), preds, succs, height,
-                                guards),
+            return {insert_here(std::move(data), preds, succs, height, guards),
                     true};
         }
     }
@@ -801,7 +800,7 @@ private:
                          guard_t guards[])
     {
         // you have the locks, create a new node
-        auto new_node = Node::create(std::forward<T>(data), height);
+        auto new_node = Node::create(std::move(data), height);
 
         // link the predecessors and successors, e.g.
         //

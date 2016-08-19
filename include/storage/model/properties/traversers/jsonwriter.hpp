@@ -1,7 +1,7 @@
 #pragma once
 
-#include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/handler.hpp"
+#include "storage/model/properties/properties.hpp"
 
 template <class Buffer>
 struct JsonWriter
@@ -9,13 +9,13 @@ struct JsonWriter
 public:
     JsonWriter(Buffer &buffer) : buffer(buffer) { buffer << '{'; };
 
-    void handle(const std::string &key, const Property &value)
+    void handle(const prop_key_t &key, const Property &value)
     {
         if (!first) buffer << ',';
 
         if (first) first = false;
 
-        buffer << '"' << key << "\":";
+        buffer << '"' << key.family_name() << "\":";
         // value.accept(*this);
         accept(value, *this);
     }

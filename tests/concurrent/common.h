@@ -14,6 +14,8 @@
 #include "data_structures/concurrent/skiplist.hpp"
 #include "data_structures/static_array.hpp"
 #include "utils/assert.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "utils/sysinfo/memory.hpp"
 
 using std::cout;
@@ -230,4 +232,10 @@ void memory_check(size_t no_threads, std::function<void()> f)
         no_threads * 73732; // OS sensitive, 73732 size allocated for thread
     std::cout << "leaked: " << leaked << "\n";
     permanent_assert(leaked <= 0, "Memory leak check");
+}
+
+//Initializes loging faccilityes
+void init_log(){
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
 }

@@ -1,50 +1,98 @@
 #pragma once
 
-#include "database/db.hpp"
-#include "database/db_accessor.hpp"
-#include "storage/record_accessor.hpp"
-#include "storage/vertex.hpp"
+#include "database/db_transaction.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "storage/vertices.hpp"
-#include "transactions/transaction.hpp"
+#include "utils/border.hpp"
+#include "utils/option.hpp"
 
+namespace tx
+{
+class Transaction;
+}
+
+/*
+* DbAccessor
+* -Guarantees that access to Vertex and Edge is possible only through
+* Vertex::Accessor and Edge::Accessor.
+* -Guarantees that changing Vertex and Edge is possible only using
+* Vertex::Accessor returned by vertex_insert() method and
+* Edge::Accessor returned by edge_insert() method.
+* -Offers CRUD for Vertex and Edge except iterating over all edges.
+*
+* Vertex::Accessor
+* By default Vertex::accessor is empty. Caller has to call fill() method
+* to fetch valid data and check it's return value. fill() method returns
+* true if there is valid data for current transaction false otherwise.
+* Only exception to this rule is vertex_insert() method in DbAccessor
+* which returns by default filled Vertex::Accessor.
+*
+* Edge::Accessor
+* By default Edge::accessor is empty. Caller has to call fill() method
+* to
+* fetch valid data and check it's return value. fill() method returns
+* true
+* if there is valid data for current transaction false otherwise.
+* Only exception to this rule is edge_insert() method in DbAccessor
+* which
+* returns by default filled Edge::Accessor.
+*/
 class DbAccessor
 {
+
 public:
     DbAccessor(Db &db);
 
-    // VERTEX METHODS
-    Vertices::vertices_t::Accessor vertex_access();
+    //*******************VERTEX METHODS
 
-    const Vertex::Accessor vertex_find(const Id &id);
+    auto vertex_access();
 
-    const Vertex::Accessor vertex_first();
+    Option<const Vertex::Accessor> vertex_find(const Id &id);
 
+    // Creates new Vertex and returns filled Vertex::Accessor.
     Vertex::Accessor vertex_insert();
 
-    // EDGE METHODS
-    Edge::Accessor edge_find(const Id &id);
+    // ******************* EDGE METHODS
 
-    Edge::Accessor edge_insert(VertexRecord *from, VertexRecord *to);
+    Option<const Edge::Accessor> edge_find(const Id &id);
 
-    // LABEL METHODS
+    // Creates new Edge and returns filled Edge::Accessor.
+    Edge::Accessor edge_insert(Vertex::Accessor const &from,
+                               Vertex::Accessor const &to);
+
+    // ******************* LABEL METHODS
+
     const Label &label_find_or_create(const std::string &name);
 
     bool label_contains(const std::string &name);
 
-    VertexIndexRecordCollection &label_find_index(const Label &label);
+    // ******************** TYPE METHODS
 
-    // TYPE METHODS
     const EdgeType &type_find_or_create(const std::string &name);
 
     bool type_contains(const std::string &name);
 
-    // TRANSACTION METHODS
+    // ******************** PROPERTY METHODS
+
+    PropertyFamily &vertex_property_family_get(const std::string &name);
+
+    PropertyFamily &edge_property_family_get(const std::string &name);
+
+    // ******************** TRANSACTION METHODS
+
     void commit();
     void abort();
 
-    // EASE OF USE METHODS
-    tx::Transaction &operator*();
+private:
+    template <class T, class K>
+    friend class NonUniqueUnorderedIndex;
 
-    DbTransaction db;
+    DbTransaction db_transaction;
 };
+
+// ********************** CONVENIENT FUNCTIONS
+
+template <class R>
+bool option_fill(Option<R> &o)
+{
+    return o.is_present() && o.get().fill();
+}

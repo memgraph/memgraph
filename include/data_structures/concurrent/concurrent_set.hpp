@@ -30,7 +30,7 @@ public:
 
         std::pair<list_it, bool> insert(T &&item)
         {
-            return accessor.insert(std::forward<T>(item));
+            return accessor.insert(std::move(item));
         }
 
         list_it_con find(const T &item) const { return accessor.find(item); }

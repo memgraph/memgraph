@@ -8,20 +8,21 @@ public:
     static constexpr Flags type = Flags::Bool;
 
     Bool(bool value);
-    Bool(const Bool& other) = default;
+    Bool(const Bool &other) = default;
 
     bool value() const;
 
+    bool const &value_ref() const;
+
     explicit operator bool() const;
 
-    bool operator==(const Property& other) const override;
+    bool operator==(const Property &other) const override;
 
-    bool operator==(const Bool& other) const;
+    bool operator==(const Bool &other) const;
 
     bool operator==(bool v) const;
 
-    std::ostream& print(std::ostream& stream) const override;
+    std::ostream &print(std::ostream &stream) const override;
 
-    friend std::ostream& operator<<(std::ostream& stream, const Bool& prop);
+    friend std::ostream &operator<<(std::ostream &stream, const Bool &prop);
 };
-

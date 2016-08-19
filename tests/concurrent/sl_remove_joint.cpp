@@ -12,6 +12,7 @@ constexpr size_t no_insert_for_one_delete = 2;
 // Calls of remove method are interleaved with insert calls.
 int main()
 {
+    init_log();
     memory_check(THREADS_NO, [] {
         map_t skiplist;
 

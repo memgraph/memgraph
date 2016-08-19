@@ -1,6 +1,10 @@
 #include <iostream>
 
 #include "query_engine/hardcode/queries.hpp"
+#include "storage/edges.cpp"
+#include "storage/edges.hpp"
+#include "storage/vertices.cpp"
+#include "storage/vertices.hpp"
 
 using namespace std;
 

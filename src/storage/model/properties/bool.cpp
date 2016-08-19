@@ -1,5 +1,8 @@
 #include "storage/model/properties/bool.hpp"
 
+const bool TRUE = true;
+const bool FALSE = false;
+
 Bool::Bool(bool value) : Property(value ? Flags::True : Flags::False) {}
 
 bool Bool::value() const
@@ -15,32 +18,25 @@ bool Bool::value() const
     return (underlying_cast(flags) - underlying_cast(Flags::True)) == 0;
 }
 
-Bool::operator bool() const
-{
-    return value();
-}
+bool const &Bool::value_ref() const { return value() ? TRUE : FALSE; }
 
-bool Bool::operator==(const Property& other) const
+Bool::operator bool() const { return value(); }
+
+bool Bool::operator==(const Property &other) const
 {
     return other.is<Bool>() && operator==(other.as<Bool>());
 }
 
-bool Bool::operator==(const Bool& other) const
-{
-    return other.flags == flags;
-}
+bool Bool::operator==(const Bool &other) const { return other.flags == flags; }
 
-bool Bool::operator==(bool v) const
-{
-    return value() == v;
-}
+bool Bool::operator==(bool v) const { return value() == v; }
 
-std::ostream& Bool::print(std::ostream& stream) const
+std::ostream &Bool::print(std::ostream &stream) const
 {
     return operator<<(stream, *this);
 }
 
-std::ostream& operator<<(std::ostream& stream, const Bool& prop)
+std::ostream &operator<<(std::ostream &stream, const Bool &prop)
 {
     return stream << prop.value();
 }

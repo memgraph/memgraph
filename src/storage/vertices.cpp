@@ -1,37 +1,17 @@
 #include "storage/vertices.hpp"
+#include "utils/iterator/iterator.hpp"
 
 Vertices::vertices_t::Accessor Vertices::access() { return vertices.access(); }
 
-const Vertex::Accessor Vertices::find(DbTransaction &t, const Id &id)
+Option<const Vertex::Accessor> Vertices::find(DbTransaction &t, const Id &id)
 {
     auto vertices_accessor = vertices.access();
     auto vertices_iterator = vertices_accessor.find(id);
 
     if (vertices_iterator == vertices_accessor.end())
-        return Vertex::Accessor(t);
+        return make_option<const Vertex::Accessor>();
 
-    // find vertex
-    auto vertex = vertices_iterator->second.find(t.trans);
-
-    if (vertex == nullptr) return Vertex::Accessor(t);
-
-    return Vertex::Accessor(vertex, &vertices_iterator->second, t);
-}
-
-// TODO
-const Vertex::Accessor Vertices::first(DbTransaction &t)
-{
-    auto vertices_accessor = vertices.access();
-    auto vertices_iterator = vertices_accessor.begin();
-
-    if (vertices_iterator == vertices_accessor.end())
-        return Vertex::Accessor(t);
-
-    auto vertex = vertices_iterator->second.find(t.trans);
-
-    if (vertex == nullptr) return Vertex::Accessor(t);
-
-    return Vertex::Accessor(vertex, &vertices_iterator->second, t);
+    return make_option_const(Vertex::Accessor(&vertices_iterator->second, t));
 }
 
 Vertex::Accessor Vertices::insert(DbTransaction &t)
@@ -54,13 +34,15 @@ Vertex::Accessor Vertices::insert(DbTransaction &t)
     return Vertex::Accessor(vertex, &inserted_vertex_record->second, t);
 }
 
-void Vertices::update_label_index(const Label &label,
-                                  VertexIndexRecord &&index_record)
+PropertyFamily &
+Vertices::property_family_find_or_create(const std::string &name)
 {
-    label_index.update(label, std::forward<VertexIndexRecord>(index_record));
-}
-
-VertexIndexRecordCollection &Vertices::find_label_index(const Label &label)
-{
-    return label_index.find(label);
+    auto acc = prop_familys.access();
+    auto it = acc.find(name);
+    if (it == acc.end()) {
+        auto family = std::unique_ptr<PropertyFamily>(new PropertyFamily(name));
+        auto res = acc.insert(name, std::move(family));
+        it = res.first;
+    }
+    return *(it->second);
 }

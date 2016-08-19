@@ -3,7 +3,7 @@
 template <class T>
 struct Ascending
 {
-    constexpr bool operator()(const T& lhs, const T& rhs) const
+    constexpr bool operator()(const T &lhs, const T &rhs) const
     {
         return lhs < rhs;
     }
@@ -12,7 +12,7 @@ struct Ascending
 template <class T>
 struct Descending
 {
-    constexpr bool operator()(const T& lhs, const T& rhs) const
+    constexpr bool operator()(const T &lhs, const T &rhs) const
     {
         return lhs > rhs;
     }
