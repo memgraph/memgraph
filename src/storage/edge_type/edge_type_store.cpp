@@ -1,13 +1,19 @@
 #include "storage/edge_type/edge_type_store.hpp"
 
-const EdgeType& EdgeTypeStore::find_or_create(const std::string& name)
+const EdgeType &EdgeTypeStore::find_or_create(const char *name)
 {
     auto accessor = edge_types.access();
-    return accessor.insert(EdgeType(name)).first;
+    auto it = accessor.find(CharStr(name));
+    if (it == accessor.end()) {
+        auto l = std::make_unique<EdgeType>(name);
+        auto k = l->char_str();
+        it = accessor.insert(k, std::move(l)).first;
+    }
+    return *(it->second);
 }
 
-bool EdgeTypeStore::contains(const std::string& name) // const
+bool EdgeTypeStore::contains(const char *name) // const
 {
     auto accessor = edge_types.access();
-    return accessor.find(EdgeType(name)) != accessor.end();
+    return accessor.find(CharStr(name)) != accessor.end();
 }

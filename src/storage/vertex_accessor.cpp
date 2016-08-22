@@ -54,9 +54,8 @@ auto Vertex::Accessor::out() const
 auto Vertex::Accessor::in() const
 {
     DbTransaction &t = this->db;
-    return iter::make_one_time_accessor(
-        iter::make_map(iter::make_iter_ref(record->data.in),
-                       [&](auto e) -> auto { return Edge::Accessor(e, t); }));
+    return iter::make_map(iter::make_iter_ref(record->data.in),
+                          [&](auto e) -> auto { return Edge::Accessor(e, t); });
 }
 
 bool Vertex::Accessor::in_contains(Vertex::Accessor const &other) const

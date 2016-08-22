@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage/model/properties/array.hpp"
 #include "storage/model/properties/bool.hpp"
 #include "storage/model/properties/double.hpp"
 #include "storage/model/properties/float.hpp"

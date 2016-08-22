@@ -3,6 +3,7 @@
 #include "database/db_transaction.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/border.hpp"
+// #include "utils/iterator/iterator.hpp"
 #include "utils/option.hpp"
 
 namespace tx
@@ -61,15 +62,15 @@ public:
 
     // ******************* LABEL METHODS
 
-    const Label &label_find_or_create(const std::string &name);
+    const Label &label_find_or_create(const char *name);
 
-    bool label_contains(const std::string &name);
+    bool label_contains(const char *name);
 
     // ******************** TYPE METHODS
 
-    const EdgeType &type_find_or_create(const std::string &name);
+    const EdgeType &type_find_or_create(const char *name);
 
-    bool type_contains(const std::string &name);
+    bool type_contains(const char *name);
 
     // ******************** PROPERTY METHODS
 

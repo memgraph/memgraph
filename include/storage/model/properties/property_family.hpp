@@ -80,6 +80,8 @@ public:
                 return type->family.name();
             }
 
+            const PropertyFamily &get_family() const { return type->family; }
+
         private:
             const PropertyType *type;
         };
@@ -180,4 +182,16 @@ private:
     // TODO: Because types wont be removed this could be done with more efficent
     // data structure.
     ConcurrentMap<Type, std::unique_ptr<PropertyType>> types;
+};
+
+class PropertyHash
+{
+public:
+    size_t
+    operator()(PropertyFamily::PropertyType::PropertyFamilyKey const &key) const
+    {
+        return (std::hash<const void *>()((const void *)(&(key.get_family()))) +
+                7) *
+               UINT64_C(0xbf58476d1ce4e5b9);
+    }
 };

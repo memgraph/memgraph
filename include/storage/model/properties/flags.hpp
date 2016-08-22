@@ -29,6 +29,8 @@ enum class Flags : unsigned
 
     Null = 0x0,
     Bool = 0x1,
+
+    // TODO remove this two values
     True = 0x2 | Bool,
     False = 0x4 | Bool,
 
@@ -44,6 +46,12 @@ enum class Flags : unsigned
     Double = 0x400 | Floating,
 
     Array = 0x1000,
+    ArrayBool = (Bool << 13) | Array,
+    ArrayString = (String << 13) | Array,
+    ArrayInt32 = (Int32 << 13) | Array,
+    ArrayInt64 = (Int64 << 13) | Array,
+    ArrayFloat = (Float << 13) | Array,
+    ArrayDouble = (Double << 13) | Array,
 
     type_mask = 0xFFF
 

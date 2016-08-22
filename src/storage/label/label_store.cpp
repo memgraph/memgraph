@@ -1,13 +1,19 @@
 #include "storage/label/label_store.hpp"
 
-const Label& LabelStore::find_or_create(const std::string& name)
+const Label &LabelStore::find_or_create(const char *name)
 {
     auto accessor = labels.access();
-    return accessor.insert(Label(name)).first;
+    auto it = accessor.find(CharStr(name));
+    if (it == accessor.end()) {
+        auto l = std::make_unique<Label>(name);
+        auto k = l->char_str();
+        it = accessor.insert(k, std::move(l)).first;
+    }
+    return *(it->second);
 }
 
-bool LabelStore::contains(const std::string& name) // const
+bool LabelStore::contains(const char *name) // const
 {
     auto accessor = labels.access();
-    return accessor.find(Label(name)) != accessor.end();
+    return accessor.find(CharStr(name)) != accessor.end();
 }

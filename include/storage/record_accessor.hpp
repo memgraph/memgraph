@@ -26,8 +26,14 @@ public:
         assert(vlist != nullptr);
     }
 
-    RecordAccessor(RecordAccessor const &other) = default;
-    RecordAccessor(RecordAccessor &&other) = default;
+    RecordAccessor(RecordAccessor const &other)
+        : record(other.record), vlist(other.vlist), db(other.db)
+    {
+    }
+    RecordAccessor(RecordAccessor &&other)
+        : record(other.record), vlist(other.vlist), db(other.db)
+    {
+    }
 
     bool empty() const { return record == nullptr; }
 
@@ -92,6 +98,22 @@ public:
 
     T const *operator->() const { return record; }
     T *operator->() { return record; }
+
+    RecordAccessor &operator=(const RecordAccessor &other)
+    {
+        record = other.record;
+        vlist_t *&vl = const_cast<vlist_t *&>(vlist);
+        vl = other.vlist;
+        return *this;
+    }
+
+    RecordAccessor &operator=(RecordAccessor &&other)
+    {
+        record = other.record;
+        vlist_t *&vl = const_cast<vlist_t *&>(vlist);
+        vl = other.vlist;
+        return *this;
+    }
 
     // Assumes same transaction
     friend bool operator==(const RecordAccessor &a, const RecordAccessor &b)

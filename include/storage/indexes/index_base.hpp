@@ -37,7 +37,7 @@ public:
     // nonunique => always succeds.
     virtual bool insert(IndexRecord<T, K> &&value) = 0;
 
-    // Returns iterator which returns valid records in range.
+    // Returns iterator which returns valid filled records in range.
     // order==noe => doesn't guarantee any order of returned records.
     // order==Ascending => guarantees order of returnd records will be from
     // smallest to largest.

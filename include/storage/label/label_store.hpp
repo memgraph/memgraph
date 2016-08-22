@@ -2,20 +2,20 @@
 
 #include <stdexcept>
 
-#include "storage/label/label.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
+#include "storage/label/label.hpp"
+#include "utils/char_str.hpp"
 
 class LabelStore
 {
 public:
+    const Label &find_or_create(const char *name);
 
-    const Label& find_or_create(const std::string& name);
-
-    bool contains(const std::string& name); // TODO: const
+    bool contains(const char *name); // TODO: const
 
     // TODO: implement find method
     //       return { Label, is_found }
 
 private:
-    ConcurrentSet<Label> labels;
+    ConcurrentMap<CharStr, std::unique_ptr<Label>> labels;
 };

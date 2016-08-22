@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstring>
 #include <ext/aligned_buffer.h>
 #include <utility>
 
@@ -8,7 +9,7 @@ template <class T>
 class Option
 {
 public:
-    Option() {}
+    Option() { std::memset(data._M_addr(), 0, sizeof(T)); }
     //
     // Option(T item)
     // {
@@ -28,25 +29,51 @@ public:
         initialized = true;
     }
 
-    Option(Option &other) = default;
+    Option(const Option &other)
+    {
+        if (other.initialized) {
+            new (data._M_addr()) T(other.get());
+            initialized = true;
+        } else {
+            std::memset(data._M_addr(), 0, sizeof(T));
+        }
+    }
     // Containers from std which have strong exception guarantees wont use move
     // constructors and operators wihtout noexcept. "Optimized C++,2016 , Kurt
     // Guntheroth, page: 142, title: Moving instances into std::vector"
     Option(Option &&other) noexcept
     {
+
         if (other.initialized) {
-            data = std::move(other.data);
+            new (data._M_addr()) T(std::move(other.get()));
             other.initialized = false;
             initialized = true;
+        } else {
+            std::memset(data._M_addr(), 0, sizeof(T));
         }
     }
 
     ~Option()
     {
-        if (initialized) get().~T();
+        if (initialized) {
+            get().~T();
+            initialized = false;
+        }
     }
 
-    Option &operator=(Option &other) = default;
+    Option &operator=(const Option &other)
+    {
+        if (initialized) {
+            get().~T();
+            initialized = false;
+        }
+        if (other.initialized) {
+            new (data._M_addr()) T(other.get());
+            initialized = true;
+        }
+
+        return *this;
+    }
     Option &operator=(Option &&other)
     {
         if (initialized) {
@@ -55,7 +82,7 @@ public:
         }
 
         if (other.initialized) {
-            data = std::move(other.data);
+            new (data._M_addr()) T(std::move(other.get()));
             other.initialized = false;
             initialized = true;
         }

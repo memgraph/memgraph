@@ -1,6 +1,6 @@
 #pragma once
 
-#include <map>
+#include <unordered_map>
 
 #include "storage/model/properties/property.hpp"
 #include "storage/model/properties/property_family.hpp"
@@ -49,7 +49,15 @@ public:
         handler.finish();
     }
 
+    template <class Handler>
+    void for_all(Handler handler) const
+    {
+        for (auto &kv : props)
+            handler(kv.first, kv.second);
+    }
+
 private:
-    using props_t = std::map<prop_key_t, Property::sptr>;
+    using props_t =
+        std::unordered_map<prop_key_t, Property::sptr, PropertyHash>;
     props_t props;
 };

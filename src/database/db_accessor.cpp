@@ -45,29 +45,25 @@ Edge::Accessor DbAccessor::edge_insert(Vertex::Accessor const &from,
 }
 
 // LABEL METHODS
-const Label &DbAccessor::label_find_or_create(const std::string &name)
+const Label &DbAccessor::label_find_or_create(const char *name)
 {
-    return db_transaction.db.graph.label_store.find_or_create(
-        std::forward<const std::string &>(name));
+    return db_transaction.db.graph.label_store.find_or_create(name);
 }
 
-bool DbAccessor::label_contains(const std::string &name)
+bool DbAccessor::label_contains(const char *name)
 {
-    return db_transaction.db.graph.label_store.contains(
-        std::forward<const std::string &>(name));
+    return db_transaction.db.graph.label_store.contains(name);
 }
 
 // TYPE METHODS
-const EdgeType &DbAccessor::type_find_or_create(const std::string &name)
+const EdgeType &DbAccessor::type_find_or_create(const char *name)
 {
-    return db_transaction.db.graph.edge_type_store.find_or_create(
-        std::forward<const std::string &>(name));
+    return db_transaction.db.graph.edge_type_store.find_or_create(name);
 }
 
-bool DbAccessor::type_contains(const std::string &name)
+bool DbAccessor::type_contains(const char *name)
 {
-    return db_transaction.db.graph.edge_type_store.contains(
-        std::forward<const std::string &>(name));
+    return db_transaction.db.graph.edge_type_store.contains(name);
 }
 
 // PROPERTY METHODS

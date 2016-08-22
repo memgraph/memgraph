@@ -218,6 +218,7 @@ FILE(COPY ${include_dir}/storage/model/properties/double.hpp DESTINATION ${build
 FILE(COPY ${include_dir}/storage/model/properties/int32.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/int64.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/string.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/model/properties/array.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/floating.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/number.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/integral.hpp DESTINATION ${build_include_dir}/storage/model/properties)
@@ -370,6 +371,8 @@ option(MEMGRAPH "Build memgraph binary" ON)
 message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
+option(TOOLS "Build tool executables" ON)
+message(STATUS "TOOLS binaries: ${TOOLS}")
 option(TESTS "Build test binaries" ON)
 message(STATUS "TESTS binaries: ${TESTS}")
 # -- binaries -----------------------------------------------------------------
@@ -423,6 +426,7 @@ set(memgraph_src_files
     ${src_dir}/storage/model/properties/null.cpp
     ${src_dir}/storage/model/properties/bool.cpp
     ${src_dir}/storage/model/properties/string.cpp
+    ${src_dir}/storage/model/properties/array.cpp
     ${src_dir}/storage/model/properties/properties.cpp
     ${src_dir}/storage/model/properties/property_family.cpp
     ${src_dir}/storage/indexes/impl/nonunique_unordered_index.cpp
@@ -459,6 +463,11 @@ endif()
 # proof of concepts
 if (POC)
     add_subdirectory(poc)
+endif()
+
+# proof of concepts
+if (TOOLS)
+    add_subdirectory(tools)
 endif()
 
 # memgraph build name

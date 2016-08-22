@@ -77,16 +77,17 @@ protected:
     {
     protected:
         IteratorBase() : map(nullptr) { advanced = index = ~((size_t)0); }
-        IteratorBase(const RhBase *map) : map(map)
+        IteratorBase(const RhBase *map)
         {
             index = 0;
             while (index < map->capacity && !map->array[index].valid()) {
                 index++;
             }
-            if (index == map->capacity) {
-                map = nullptr;
+            if (index >= map->capacity) {
+                this->map = nullptr;
                 advanced = index = ~((size_t)0);
             } else {
+                this->map = map;
                 advanced = index;
             }
         }
