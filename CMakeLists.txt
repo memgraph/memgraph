@@ -465,10 +465,6 @@ if (POC)
     add_subdirectory(poc)
 endif()
 
-# proof of concepts
-if (TOOLS)
-    add_subdirectory(tools)
-endif()
 
 # memgraph build name
 execute_process(

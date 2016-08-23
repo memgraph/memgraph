@@ -31,6 +31,7 @@
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/flags.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/command_line/arguments.hpp"
 #include "utils/option.hpp"
 
 using namespace std;
@@ -208,7 +209,8 @@ private:
                     : new IdFiller(make_option(prop_key(name, Flags::Int64))));
             return make_option(std::move(f));
 
-        } else if (equal_str(type, "start_id") || equal_str(type, "from_id")) {
+        } else if (equal_str(type, "start_id") || equal_str(type, "from_id") ||
+                   equal_str(type, "from") || equal_str(type, "source")) {
             std::unique_ptr<Filler> f(new FromFiller(*this));
             return make_option(std::move(f));
 
@@ -216,7 +218,8 @@ private:
             std::unique_ptr<Filler> f(new LabelFiller(*this));
             return make_option(std::move(f));
 
-        } else if (equal_str(type, "end_id") || equal_str(type, "to_id")) {
+        } else if (equal_str(type, "end_id") || equal_str(type, "to_id") ||
+                   equal_str(type, "to") || equal_str(type, "target")) {
             std::unique_ptr<Filler> f(new ToFiller(*this));
             return make_option(std::move(f));
 
@@ -311,3 +314,68 @@ private:
         }
     }
 };
+
+// Imports all -v "vertex_file_path.csv" vertices and -e "edge_file_path.csv"
+// edges from specified files. Also defines arguments -d, -ad, -w, -err, -info.
+// -d delimiter => sets delimiter for parsing .csv files. Default is ,
+// -ad delimiter => sets delimiter for parsing arrays in .csv. Default is ,
+// -w bool => turns on/off output of warnings. Default on.
+// -err bool => turns on/off output of errors. Default on.
+// -info bool => turns on/off output of info. Default on.
+// Returns (no loaded vertices,no loaded edges)
+std::pair<size_t, size_t>
+import_csv_from_arguments(Db &db, std::vector<std::string> &para)
+{
+    DbAccessor t(db);
+    CSVImporter imp(t, cerr);
+
+    imp.parts_mark = get_argument(para, "-d", ",")[0];
+    imp.parts_array_mark = get_argument(para, "-ad", ",")[0];
+    imp.warning = strcmp(get_argument(para, "-w", "true").c_str(), "true") == 0;
+    imp.error = strcmp(get_argument(para, "-err", "true").c_str(), "true") == 0;
+    bool info =
+        strcmp(get_argument(para, "-info", "true").c_str(), "true") == 0;
+
+    // IMPORT VERTICES
+    size_t l_v = 0;
+    auto o = take_argument(para, "-v");
+    while (o.is_present()) {
+        std::fstream file(o.get());
+
+        if (info)
+            std::cout << "Importing vertices from file: " << o.get()
+                      << std::endl;
+
+        auto n = imp.import_vertices(file);
+        l_v = +n;
+
+        if (info)
+            std::cout << "Loaded " << n << " vertices from " << o.get()
+                      << std::endl;
+
+        o = take_argument(para, "-v");
+    }
+
+    // IMPORT EDGES
+    size_t l_e = 0;
+    o = take_argument(para, "-e");
+    while (o.is_present()) {
+        std::fstream file(o.get());
+
+        if (info)
+            std::cout << "Importing edges from file: " << o.get() << std::endl;
+
+        auto n = imp.import_edges(file);
+        l_e = +n;
+
+        if (info)
+            std::cout << "Loaded " << n << " edges from " << o.get()
+                      << std::endl;
+
+        o = take_argument(para, "-e");
+    }
+
+    t.commit();
+
+    return std::make_pair(l_v, l_e);
+}

@@ -16,6 +16,9 @@
 
 using namespace std;
 
+// TODO: Turn next template, expand on it, standardize it, and use it for query
+// generation.
+
 template <class C>
 void fill_to_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
 {
@@ -139,39 +142,6 @@ void find_fill(I iter, C &&consumer)
         e = iter.next();
     }
 }
-}
-
-void load(DbAccessor &t, vector<string> &para)
-{
-    // DbAccessor t(db);
-    CSVImporter imp(t, cerr);
-
-    imp.parts_mark = get_argument(para, "-d", ",")[0];
-    imp.parts_array_mark = get_argument(para, "-ad", ",")[0];
-    imp.warning =
-        strcasecmp(get_argument(para, "-w", "true").c_str(), "true") == 0;
-    imp.error =
-        strcasecmp(get_argument(para, "-err", "true").c_str(), "true") == 0;
-
-    // IMPORT VERTICES
-    auto o = take_argument(para, "-v");
-    while (o.is_present()) {
-        std::fstream file(o.get());
-        // cout << "Importing vertices from file: " << o.get() << endl;
-        auto n = imp.import_vertices(file);
-        cout << "Loaded " << n << " vertices from " << o.get() << endl;
-        o = take_argument(para, "-v");
-    }
-
-    // IMPORT EDGES
-    o = take_argument(para, "-e");
-    while (o.is_present()) {
-        std::fstream file(o.get());
-        // cout << "Importing edges from file: " << o.get() << endl;
-        auto n = imp.import_edges(file);
-        cout << "Loaded " << n << " edges from " << o.get() << endl;
-        o = take_argument(para, "-e");
-    }
 }
 
 void fill_with_bt(unordered_map<string, double> &values, Vertex::Accessor &com,
@@ -385,29 +355,18 @@ int main(int argc, char **argv)
 {
     auto para = all_arguments(argc, argv);
     Db db;
-    {
-        DbAccessor t(db);
 
-        load(t, para);
-
-        t.commit();
-    }
+    import_csv_from_arguments(db, para);
 
     {
         DbAccessor t(db);
-
-        // for (int i = 0; i < 100; i++)
-        //     make_transactions(db);
-
-        // string line;
-        // while(std::getline(file, line))
 
         int n = 300 * 1000;
         vector<pair<Vertex::Accessor, unordered_map<string, double>>> coll;
 
+        // QUERY BENCHMARK
         auto begin = clock();
         int i = 0;
-
         iter::for_all_fill(
             t.label_find_or_create("Company").index->for_range_exact(t),
             [&](auto v) {
@@ -430,7 +389,7 @@ int main(int argc, char **argv)
              << endl;
         cout << "Throughput: " << 1 / (elapsed_s / n) << " [query/sec]" << endl;
 
-        auto res = coll.back(); // query(t, fid.get());
+        auto res = coll.back();
         while (res.second.empty()) {
             coll.pop_back();
             res = coll.back();
