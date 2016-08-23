@@ -13,6 +13,7 @@
 #include "storage/record_accessor.cpp"
 #include "storage/vertex_accessor.cpp"
 #include "utils/command_line/arguments.hpp"
+#include "utils/iterator/query.hpp"
 
 using namespace std;
 
@@ -164,7 +165,7 @@ void oportunity_employe_company(
     const EdgeType &type_created, const EdgeType &type_works_in,
     const Label &label_company)
 {
-    iter::for_all_fill(va.in(), [&](auto opp_e) {
+    iter::for_all(va.in().fill(), [&](auto opp_e) {
         // cout << "                       oec.in()" << endl;
         from_fill(opp_e, type_created, [&](auto creator) {
             // cout << "                           type_created" << endl;

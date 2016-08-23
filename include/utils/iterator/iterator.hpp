@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/iterator/accessor.hpp"
+#include "utils/iterator/filter.hpp"
 #include "utils/iterator/for_all.hpp"
 #include "utils/iterator/iterator_accessor.hpp"
 #include "utils/iterator/iterator_base.hpp"
