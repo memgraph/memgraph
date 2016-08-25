@@ -373,6 +373,7 @@ int main(int argc, char **argv)
             [&](auto v) {
                 coll.push_back(make_pair(v, query(t, v.id())));
                 i++;
+                return false;
             });
         n = i;
         clock_t end = clock();
