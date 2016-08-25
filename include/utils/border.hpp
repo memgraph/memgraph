@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/option.hpp"
+#include "utils/total_ordering.hpp"
 
 // Defines Including as [ and Excluding < for ranges.
 enum BorderType
@@ -9,6 +10,7 @@ enum BorderType
     Excluding = 1,
 };
 
+// If key is not present he is both the largest and the smallest of the keys.
 template <class T>
 class Border
 {
@@ -26,22 +28,60 @@ public:
     Border &operator=(Border &&other) = default;
     Border &operator=(Border &other) = default;
 
-    // true if no border or this > key or this >= key depends on border type.
-    bool operator>(const T &other) const
+    friend bool operator<(const Border<T> &a, const T &other)
     {
-        return !key.is_present() || key.get() > other ||
-               (type == Including && key.get() == other);
+        return !a.key.is_present() ||
+               (a.type == Excluding && a.key.get() <= other) ||
+               (a.type == Including && a.key.get() < other);
     }
 
-    // true if no border or this < key or this <= key depends on border type.
-    bool operator<(const T &other) const
+    friend bool operator==(const Border<T> &a, const T &other)
     {
-        return !key.is_present() || key.get() < other ||
-               (type == Including && key.get() == other);
+        return a.type == Including && a.key.is_present() &&
+               a.key.get() == other;
     }
+
+    friend bool operator>(const Border<T> &a, const T &other)
+    {
+        return !a.key.is_present() ||
+               (a.type == Excluding && a.key.get() >= other) ||
+               (a.type == Including && a.key.get() > other);
+    }
+
+    friend bool operator!=(const Border<T> &a, const T &b) { return !(a == b); }
+
+    friend bool operator<=(const Border<T> &a, const T &b)
+    {
+        return a < b || a == b;
+    }
+
+    friend bool operator>=(const Border<T> &a, const T &b)
+    {
+        return a > b || a == b;
+    }
+
+    // // true if no border or this > key or this >= key depends on border type.
+    // bool operator>(const T &other) const
+    // {
+    //     return !key.is_present() || key.get() > other ||
+    //            (type == Including && key.get() == other);
+    // }
+    //
+    // // true if this border is inclusive and key is present and key == other.
+    // bool operator==(const T &other) const
+    // {
+    //     return type == Including && key.is_present() && key.get() == other;
+    // }
+    //
+    // // true if no border or this < key or this <= key depends on border type.
+    // bool operator<(const T &other) const
+    // {
+    //     return !key.is_present() || key.get() < other ||
+    //            (type == Including && key.get() == other);
+    // }
 
     Option<T> key;
-    const BorderType type;
+    BorderType type;
 };
 
 template <class T>

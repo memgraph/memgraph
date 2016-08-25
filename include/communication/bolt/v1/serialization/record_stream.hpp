@@ -78,8 +78,8 @@ public:
     }
     // -- BOLT SPECIFIC METHODS -----------------------------------------------
 
-    void write(const Vertex::Accessor &vertex) { serializer.write(vertex); }
-    void write(const Edge::Accessor &edge) { serializer.write(edge); }
+    void write(const VertexAccessor &vertex) { serializer.write(vertex); }
+    void write(const EdgeAccessor &edge) { serializer.write(edge); }
 
     void write(const Property &prop) { serializer.write(prop); }
     void write(const Bool& prop) { serializer.write(prop); }

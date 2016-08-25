@@ -33,7 +33,7 @@ public:
      * }
      *
      */
-    void write(const Vertex::Accessor &vertex)
+    void write(const VertexAccessor &vertex)
     {
         // write signatures for the node struct and node data type
         encoder.write_struct_header(3);
@@ -72,7 +72,7 @@ public:
      * }
      *
      */
-    void write(const Edge::Accessor &edge)
+    void write(const EdgeAccessor &edge)
     {
         // write signatures for the edge struct and edge data type
         encoder.write_struct_header(5);

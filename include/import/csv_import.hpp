@@ -50,18 +50,18 @@ public:
     // Loads data from stream and returns number of loaded vertexes.
     size_t import_vertices(std::fstream &file)
     {
-        return import(file, create_vertex, true);
+        return import<TypeGroupVertex>(file, create_vertex, true);
     }
 
     // Loads data from stream and returns number of loaded edges.
     size_t import_edges(std::fstream &file)
     {
-        return import(file, create_edge, false);
+        return import<TypeGroupEdge>(file, create_edge, false);
     }
 
 private:
     // Loads data from file and returns number of loaded name.
-    template <class F>
+    template <class TG, class F>
     size_t import(std::fstream &file, F f, bool vertex)
     {
         string line;
@@ -81,7 +81,7 @@ private:
         }
 
         for (auto p : sub_str) {
-            auto o = get_filler(p, tmp, vertex);
+            auto o = get_filler<TG>(p, tmp, vertex);
             if (o.is_present()) {
                 fillers.push_back(o.take());
             } else {
@@ -132,8 +132,7 @@ private:
         if (id.is_present()) {
 
             if (im->vertices.size() <= id.get()) {
-                Option<Vertex::Accessor> empty =
-                    make_option<Vertex::Accessor>();
+                Option<VertexAccessor> empty = make_option<VertexAccessor>();
                 im->vertices.insert(im->vertices.end(),
                                     id.get() - im->vertices.size() + 1, empty);
             }
@@ -166,7 +165,31 @@ private:
         }
     }
 
+    // template <typename F>
+    // Option<unique_ptr<Filler>> make_filler_property(bool vertex,
+    //                                                 const char name, Flags
+    //                                                 type)
+    // {
+    //     if (vertex) {
+    //         std::unique_ptr<Filler> f(
+    //             F(db.vertex_property_key(name, Type(type))));
+    //         return make_option(std::move(f));
+    //     } else {
+    //         std::unique_ptr<Filler> f(
+    //             F(db.edge_property_key(name, Type(type))));
+    //         return make_option(std::move(f));
+    //     }
+    // }
+
+    template <class TG>
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey
+    prop_key(const char *name, Flags type)
+    {
+        assert(false);
+    }
+
     // Returns filler for name:type in header_part. None if error occured.
+    template <class TG>
     Option<unique_ptr<Filler>> get_filler(char *header_part,
                                           vector<char *> &tmp_vec, bool vertex)
     {
@@ -193,20 +216,20 @@ private:
 
         // cout << name << " # " << type << endl;
 
-        auto prop_key = [&](auto name, auto type) -> auto
-        {
-            if (vertex) {
-                return db.vertex_property_key(name, Type(type));
-            } else {
-                return db.edge_property_key(name, Type(type));
-            }
-        };
+        // auto prop_key = [&](auto name, auto type) -> auto
+        // {
+        //     if (vertex) {
+        //         return db.vertex_property_key(name, Type(type));
+        //     } else {
+        //         return db.edge_property_key(name, Type(type));
+        //     }
+        // };
 
         if (equal_str(type, "id")) {
             std::unique_ptr<Filler> f(
-                name[0] == '\0'
-                    ? new IdFiller()
-                    : new IdFiller(make_option(prop_key(name, Flags::Int64))));
+                name[0] == '\0' ? new IdFiller<TG>()
+                                : new IdFiller<TG>(make_option(
+                                      prop_key<TG>(name, Flags::Int64))));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "start_id") || equal_str(type, "from_id") ||
@@ -234,63 +257,69 @@ private:
 
             // *********************** PROPERTIES
         } else if (equal_str(type, "bool")) {
+            // return make_filler_property<BoolFiller>(vertex, name,
+            // Flags::Bool);
             std::unique_ptr<Filler> f(
-                new BoolFiller(prop_key(name, Flags::Bool)));
+                new BoolFiller<TG>(prop_key<TG>(name, Flags::Bool)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "double")) {
             std::unique_ptr<Filler> f(
-                new DoubleFiller(prop_key(name, Flags::Double)));
+                new DoubleFiller<TG>(prop_key<TG>(name, Flags::Double)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "float")) {
             std::unique_ptr<Filler> f(
-                new FloatFiller(prop_key(name, Flags::Float)));
+                new FloatFiller<TG>(prop_key<TG>(name, Flags::Float)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int")) {
             std::unique_ptr<Filler> f(
-                new Int32Filler(prop_key(name, Flags::Int32)));
+                new Int32Filler<TG>(prop_key<TG>(name, Flags::Int32)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "long")) {
             std::unique_ptr<Filler> f(
-                new Int64Filler(prop_key(name, Flags::Int64)));
+                new Int64Filler<TG>(prop_key<TG>(name, Flags::Int64)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string")) {
             std::unique_ptr<Filler> f(
-                new StringFiller(prop_key(name, Flags::String)));
+                new StringFiller<TG>(prop_key<TG>(name, Flags::String)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "bool[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<bool, ArrayBool>(
-                *this, prop_key(name, Flags::ArrayBool), to_bool));
+            std::unique_ptr<Filler> f(make_array_filler<TG, bool, ArrayBool>(
+                *this, prop_key<TG>(name, Flags::ArrayBool), to_bool));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "float[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<float, ArrayFloat>(
-                *this, prop_key(name, Flags::ArrayFloat), to_float));
+            std::unique_ptr<Filler> f(make_array_filler<TG, float, ArrayFloat>(
+                *this, prop_key<TG>(name, Flags::ArrayFloat), to_float));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "double[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<double, ArrayDouble>(
-                *this, prop_key(name, Flags::ArrayDouble), to_double));
+            std::unique_ptr<Filler> f(
+                make_array_filler<TG, double, ArrayDouble>(
+                    *this, prop_key<TG>(name, Flags::ArrayDouble), to_double));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<int32_t, ArrayInt32>(
-                *this, prop_key(name, Flags::ArrayInt32), to_int32));
+            std::unique_ptr<Filler> f(
+                make_array_filler<TG, int32_t, ArrayInt32>(
+                    *this, prop_key<TG>(name, Flags::ArrayInt32), to_int32));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "long[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<int64_t, ArrayInt64>(
-                *this, prop_key(name, Flags::ArrayInt64), to_int64));
+            std::unique_ptr<Filler> f(
+                make_array_filler<TG, int64_t, ArrayInt64>(
+                    *this, prop_key<TG>(name, Flags::ArrayInt64), to_int64));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string[]")) {
-            std::unique_ptr<Filler> f(make_array_filler<string, ArrayString>(
-                *this, prop_key(name, Flags::ArrayString), to_string));
+            std::unique_ptr<Filler> f(
+                make_array_filler<TG, string, ArrayString>(
+                    *this, prop_key<TG>(name, Flags::ArrayString), to_string));
             return make_option(std::move(f));
 
         } else {
@@ -314,6 +343,20 @@ private:
         }
     }
 };
+
+template <>
+PropertyFamily<TypeGroupVertex>::PropertyType::PropertyFamilyKey
+CSVImporter::prop_key<TypeGroupVertex>(const char *name, Flags type)
+{
+    return db.vertex_property_key(name, Type(type));
+}
+
+template <>
+PropertyFamily<TypeGroupEdge>::PropertyType::PropertyFamilyKey
+CSVImporter::prop_key<TypeGroupEdge>(const char *name, Flags type)
+{
+    return db.edge_property_key(name, Type(type));
+}
 
 // Imports all -v "vertex_file_path.csv" vertices and -e "edge_file_path.csv"
 // edges from specified files. Also defines arguments -d, -ad, -w, -err, -info.

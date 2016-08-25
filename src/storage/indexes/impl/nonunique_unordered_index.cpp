@@ -2,11 +2,25 @@
 
 #include "database/db_accessor.hpp"
 #include "database/db_transaction.hpp"
+#include "storage/edge_accessor.hpp"
+#include "storage/edge_record.hpp"
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
+#include "storage/vertex_accessor.hpp"
+#include "storage/vertex_record.hpp"
 #include "utils/iterator/iterator.hpp"
+
+#include "storage/indexes/index_record.cpp"
 
 template <class T, class K>
 NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex()
     : IndexBase<T, K>(false, None)
+{
+}
+
+template <class T, class K>
+NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(tx::Transaction const &t)
+    : IndexBase<T, K>(false, None, t)
 {
 }
 
@@ -18,7 +32,7 @@ bool NonUniqueUnorderedIndex<T, K>::insert(IndexRecord<T, K> &&value)
 }
 
 template <class T, class K>
-std::unique_ptr<IteratorBase<const typename T::Accessor>>
+std::unique_ptr<IteratorBase<const typename T::accessor_t>>
 NonUniqueUnorderedIndex<T, K>::for_range(DbAccessor &t, Border<K> from,
                                          Border<K> to)
 {
@@ -39,14 +53,14 @@ auto NonUniqueUnorderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
             const IndexRecord<T, K> &r = *it;
             if (from < r.key && to > r.key &&
                 r.is_valid(t.db_transaction.trans)) {
-                const typename T::Accessor acc = r.access(t.db_transaction);
+                const typename T::accessor_t acc = r.access(t.db_transaction);
                 it++;
                 return make_option(std::move(acc));
             }
             it++;
         }
 
-        return Option<const typename T::Accessor>();
+        return Option<const typename T::accessor_t>();
     });
 }
 
@@ -56,6 +70,5 @@ void NonUniqueUnorderedIndex<T, K>::clean(DbTransaction &)
     // TODO: Actual cleaning
 }
 
-#include "storage/vertex.hpp"
-// #include "utils/singleton.hpp"
-template class NonUniqueUnorderedIndex<Vertex, std::nullptr_t>;
+template class NonUniqueUnorderedIndex<TypeGroupEdge, std::nullptr_t>;
+template class NonUniqueUnorderedIndex<TypeGroupVertex, std::nullptr_t>;

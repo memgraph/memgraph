@@ -6,10 +6,12 @@
 #include "query_engine/query_stripper.hpp"
 #include "query_engine/util.hpp"
 #include "storage/indexes/impl/nonunique_unordered_index.cpp"
+// #include "storage/model/properties/properties.cpp"
 #include "storage/model/properties/property.hpp"
 #include "storage/model/properties/property_family.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/iterator/iterator.hpp"
+// #include "utils/utils.cpp"
 
 auto load_queries(Db &db)
 {

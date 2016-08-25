@@ -1,37 +1,32 @@
 #pragma once
 
-#include "database/db_transaction.hpp"
-#include "mvcc/version_list.hpp"
+#include "utils/border.hpp"
 #include "utils/total_ordering.hpp"
 
-// class DbTransaction;
-// namespace tx
-// {
-// class Transaction;
-// }
+namespace tx
+{
+class Transaction;
+}
+class DbTransaction;
 
-// T type of record.
+// TG type group
 // K key on which record is ordered.
-template <class T, class K>
-class IndexRecord : public TotalOrdering<IndexRecord<T, K>>
+template <class TG, class K>
+class IndexRecord : public TotalOrdering<IndexRecord<TG, K>>,
+                    public TotalOrdering<Border<K>, IndexRecord<TG, K>>
 {
 public:
-    using vlist_t = mvcc::VersionList<T>;
-
     IndexRecord() = default;
 
-    IndexRecord(K key, T *record, vlist_t *vlist)
-        : key(std::move(key)), record(record), vlist(vlist)
-    {
-        assert(record != nullptr);
-        assert(vlist != nullptr);
-    }
+    IndexRecord(K key, typename TG::record_t *record,
+                typename TG::vlist_t *vlist);
 
     friend bool operator<(const IndexRecord &lhs, const IndexRecord &rhs)
     {
-        return lhs.key < rhs.key ||
-               (lhs.key == rhs.key && lhs.vlist == rhs.vlist &&
-                lhs.record < rhs.record);
+        return (lhs.key < rhs.key ||
+                (lhs.key == rhs.key && lhs.vlist == rhs.vlist &&
+                 lhs.record < rhs.record)) ^
+               lhs.descending;
     }
 
     friend bool operator==(const IndexRecord &lhs, const IndexRecord &rhs)
@@ -40,28 +35,29 @@ public:
                (lhs.vlist != rhs.vlist || lhs.record == rhs.record);
     }
 
-    bool empty() const { return record == nullptr; }
-
-    bool is_valid(tx::Transaction &t) const
+    friend bool operator<(const Border<K> &lhs, const IndexRecord &rhs)
     {
-        assert(!empty());
-        return record == vlist->find(t);
+        return lhs < rhs.key;
     }
 
-    const auto access(DbTransaction &db) const
+    friend bool operator==(const Border<K> &lhs, const IndexRecord &rhs)
     {
-        return T::Accessor::create(record, vlist, db);
+        return lhs == rhs.key;
     }
+
+    // Will change ordering of record to descending.
+    void set_descending();
+
+    bool empty() const;
+
+    bool is_valid(tx::Transaction &t) const;
+
+    const auto access(DbTransaction &db) const;
 
     const K key;
 
 private:
-    T *const record{nullptr};
-    vlist_t *const vlist{nullptr};
+    bool descending = false;
+    typename TG::record_t *const record{nullptr};
+    typename TG::vlist_t *const vlist{nullptr};
 };
-
-template <class K>
-using VertexIndexRecord = IndexRecord<Vertex, K>;
-
-template <class K>
-using EdgeIndexRecord = IndexRecord<Edge, K>;

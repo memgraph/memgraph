@@ -1,26 +1,29 @@
 #pragma once
 
 #include "storage/indexes/index_base.hpp"
-#include "storage/indexes/index_record.hpp"
+// #include "storage/indexes/index_record.hpp"
 
 #include "data_structures/concurrent/concurrent_list.hpp"
 
-template <class T, class K>
-class NonUniqueUnorderedIndex : public IndexBase<T, K>
+template <class TG, class K>
+class NonUniqueUnorderedIndex : public IndexBase<TG, K>
 {
 public:
-    typedef T value_type;
-    typedef K key_type;
+    // typedef T value_type;
+    // typedef K key_type;
 
+    // Created with the database
     NonUniqueUnorderedIndex();
+
+    NonUniqueUnorderedIndex(tx::Transaction const &t);
 
     // Insert's value.
     // nonunique => always succeds.
-    bool insert(IndexRecord<T, K> &&value) final;
+    bool insert(IndexRecord<TG, K> &&value) final;
 
     // Returns iterator which returns valid records in range.
     // ordered==None => doesn't guarantee any order of submitting records.
-    std::unique_ptr<IteratorBase<const typename T::Accessor>>
+    std::unique_ptr<IteratorBase<const typename TG::accessor_t>>
     for_range(DbAccessor &t, Border<K> from = Border<K>(),
               Border<K> to = Border<K>()) final;
 
@@ -34,5 +37,5 @@ public:
     void clean(DbTransaction &) final;
 
 private:
-    List<IndexRecord<T, K>> list;
+    List<IndexRecord<TG, K>> list;
 };

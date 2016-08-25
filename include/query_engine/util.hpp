@@ -11,7 +11,8 @@
 using std::cout;
 using std::endl;
 
-void print_props(const Properties &properties);
+template <class T>
+void print_props(const Properties<T> &properties);
 
 #ifdef NDEBUG
 #define PRINT_PROPS(_)
@@ -19,7 +20,8 @@ void print_props(const Properties &properties);
 #define PRINT_PROPS(_PROPS_) print_props(_PROPS_);
 #endif
 
-void cout_properties(const Properties &properties);
+template <class T>
+void cout_properties(const Properties<T> &properties);
 
 void cout_property(const std::string &key, const Property &property);
 

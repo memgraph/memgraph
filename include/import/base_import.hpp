@@ -20,7 +20,7 @@
 
 using namespace std;
 
-static Option<Vertex::Accessor> empty_op_vacc;
+static Option<VertexAccessor> empty_op_vacc;
 
 // Base importer with common facilities.
 class BaseImporter
@@ -186,7 +186,7 @@ public:
         // }
     }
 
-    Option<Vertex::Accessor> const &get_vertex(size_t id)
+    Option<VertexAccessor> const &get_vertex(size_t id)
     {
         if (vertices.size() > id) {
             return vertices[id];
@@ -214,5 +214,5 @@ protected:
     ostream &err_stream;
 
     // All created vertices which have import local id
-    vector<Option<Vertex::Accessor>> vertices;
+    vector<Option<VertexAccessor>> vertices;
 };

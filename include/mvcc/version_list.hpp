@@ -103,13 +103,6 @@ public:
     T *update(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
-        // TODO: VALIDATE NEXT IF BLOCK
-        if (record->tx.cre() == t.id) {
-            // THEN ONLY THIS TRANSACTION CAN SEE THIS DATA WHICH MENS THAT IT
-            // CAN CHANGE IT.
-            return record;
-        }
-
         lock_and_validate(record, t);
 
         auto updated = new T();
@@ -149,7 +142,6 @@ private:
     void lock_and_validate(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
-        assert(record == find(t));
 
         // take a lock on this node
         t.take_lock(lock);
@@ -167,9 +159,3 @@ private:
     RecordLock lock;
 };
 }
-
-class Vertex;
-class Edge;
-
-using VertexRecord = mvcc::VersionList<Vertex>;
-// using EdgeRecord = mvcc::VersionList<Edge>;

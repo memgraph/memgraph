@@ -3,6 +3,8 @@
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 
+class VertexRecord;
+
 class EdgeRecord : public mvcc::VersionList<Edge>
 {
 public:

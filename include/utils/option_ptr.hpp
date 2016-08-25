@@ -18,3 +18,9 @@ public:
 private:
     T *ptr = nullptr;
 };
+
+template <class T>
+auto make_option_ptr(T *t)
+{
+    return OptionPtr<T>(t);
+}

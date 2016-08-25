@@ -7,18 +7,23 @@
 #include "utils/assert.hpp"
 #include "utils/reference_wrapper.hpp"
 
+class EdgeType;
+using edge_type_ref_t = ReferenceWrapper<const EdgeType>;
+
 class Edges;
 
-class Edge::Accessor : public RecordAccessor<Edge, Edge::Accessor, EdgeRecord>
+class EdgeAccessor : public RecordAccessor<TypeGroupEdge, EdgeAccessor>
 {
 public:
     using RecordAccessor::RecordAccessor;
+    typedef Edge record_t;
+    typedef EdgeRecord record_list_t;
 
     void edge_type(edge_type_ref_t edge_type);
 
     edge_type_ref_t edge_type() const;
 
-    Vertex::Accessor from() const;
+    VertexAccessor from() const;
 
-    Vertex::Accessor to() const;
+    VertexAccessor to() const;
 };

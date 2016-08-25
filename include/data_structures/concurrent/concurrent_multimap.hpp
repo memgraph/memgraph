@@ -53,6 +53,16 @@ public:
 
         list_it find(const K &key) { return accessor.find(key); }
 
+        list_it_con find_or_larger(const T &item) const
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        list_it find_or_larger(const T &item)
+        {
+            return accessor.find_or_larger(item);
+        }
+
         bool contains(const K &key) const
         {
             return this->find(key) != this->end();

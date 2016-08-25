@@ -48,6 +48,9 @@ public:
     void set_aborted(const Id &id) { log.set(2 * id + 1); }
 
 private:
+    // TODO: Searching the log will take more and more time the more and more
+    // transactoins are done. This could be awerted if DynamicBitset is changed
+    // to point to largest chunk instead of the smallest.
     DynamicBitset<uint8_t, 32768> log;
 };
 }

@@ -557,6 +557,19 @@ public:
         }
 
         template <class K>
+        ConstIterator find_or_larger(const K &item) const
+        {
+            return static_cast<const SkipList &>(*skiplist).find_or_larger(
+                item);
+        }
+
+        template <class It, class K>
+        It find_or_larger(const K &item)
+        {
+            return skiplist->find_or_larger<It, K>(item);
+        }
+
+        template <class K>
         bool contains(const K &item) const
         {
             return this->find(item) != this->end();
@@ -638,6 +651,18 @@ private:
     template <class It, class K>
     It find_node(const K &item)
     {
+        auto it = find_or_larger<It, K>(item);
+        if (it.node == nullptr || item == *it) {
+            return std::move(it);
+        } else {
+            return It();
+        }
+    }
+
+    // Returns iterator on searched element or the first larger element.
+    template <class It, class K>
+    It find_or_larger(const K &item)
+    {
         Node *node, *pred = header;
         int h = static_cast<int>(pred->height) - 1;
 
@@ -647,7 +672,7 @@ private:
             }
 
             // if we overshoot at every layer, item doesn't exist
-            if (h < 0) return It();
+            if (h < 0) return It(node);
 
             // the item is farther to the right, continue going right as long
             // as the key is greater than the current node's key

@@ -1,20 +1,21 @@
 #include "storage/edges.hpp"
-#include "storage/model/properties/property_family.hpp"
+
+#include "storage/edge_accessor.hpp"
 #include "utils/iterator/iterator.hpp"
 
-Option<const Edge::Accessor> Edges::find(DbTransaction &t, const Id &id)
+Option<const EdgeAccessor> Edges::find(DbTransaction &t, const Id &id)
 {
     auto edges_accessor = edges.access();
     auto edges_iterator = edges_accessor.find(id);
 
     if (edges_iterator == edges_accessor.end())
-        return make_option<const Edge::Accessor>();
+        return make_option<const EdgeAccessor>();
 
-    return make_option_const(Edge::Accessor(&edges_iterator->second, t));
+    return make_option_const(EdgeAccessor(&edges_iterator->second, t));
 }
 
-Edge::Accessor Edges::insert(DbTransaction &t, VertexRecord *from,
-                             VertexRecord *to)
+EdgeAccessor Edges::insert(DbTransaction &t, VertexRecord *from,
+                           VertexRecord *to)
 {
     // get next vertex id
     auto next = counter.next(std::memory_order_acquire);
@@ -29,16 +30,18 @@ Edge::Accessor Edges::insert(DbTransaction &t, VertexRecord *from,
     // create new vertex
     auto inserted_edge_record = result.first;
     auto edge = inserted_edge_record->second.insert(t.trans);
+    t.to_update_index<TypeGroupEdge>(&inserted_edge_record->second, edge);
 
-    return Edge::Accessor(edge, &inserted_edge_record->second, t);
+    return EdgeAccessor(edge, &inserted_edge_record->second, t);
 }
 
-PropertyFamily &Edges::property_family_find_or_create(const std::string &name)
+EdgePropertyFamily &
+Edges::property_family_find_or_create(const std::string &name)
 {
     auto acc = prop_familys.access();
     auto it = acc.find(name);
     if (it == acc.end()) {
-        PropertyFamily *family = new PropertyFamily(name);
+        EdgePropertyFamily *family = new EdgePropertyFamily(name);
         auto res = acc.insert(name, family);
         if (!res.second) {
             delete family;

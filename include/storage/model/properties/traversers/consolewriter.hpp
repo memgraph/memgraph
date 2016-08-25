@@ -4,6 +4,8 @@
 
 #include "storage/model/properties/handler.hpp"
 #include "storage/model/properties/properties.hpp"
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
 
 using std::cout;
 using std::endl;
@@ -13,7 +15,24 @@ class ConsoleWriter
 public:
     ConsoleWriter() {}
 
-    void handle(const prop_key_t &key, const Property &value)
+    void handle(const typename PropertyFamily<
+                    TypeGroupEdge>::PropertyType::PropertyFamilyKey &key,
+                const Property &value)
+    {
+        handle<TypeGroupEdge>(key, value);
+    }
+
+    void handle(const typename PropertyFamily<
+                    TypeGroupVertex>::PropertyType::PropertyFamilyKey &key,
+                const Property &value)
+    {
+        handle<TypeGroupVertex>(key, value);
+    }
+
+    template <class T>
+    void handle(
+        const typename PropertyFamily<T>::PropertyType::PropertyFamilyKey &key,
+        const Property &value)
     {
         cout << "KEY: " << key.family_name() << "; VALUE: ";
 

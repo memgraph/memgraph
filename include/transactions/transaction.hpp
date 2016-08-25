@@ -28,8 +28,13 @@ public:
     // index of the current command in the current transaction;
     uint8_t cid;
     // a snapshot of currently active transactions
-    const Snapshot<Id> snapshot;
 
+    // Blocks until all transactions from snapshot finish. After this method,
+    // snapshot will be empty.
+    void wait_for_active();
+
+    // True if id is in snapshot.
+    bool is_active(const Id &id) const;
     void take_lock(RecordLock &lock);
     void commit();
     void abort();
@@ -37,6 +42,7 @@ public:
     Engine &engine;
 
 private:
+    Snapshot<Id> snapshot;
     LockStore<RecordLock> locks;
 };
 }

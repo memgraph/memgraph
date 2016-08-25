@@ -2,8 +2,9 @@
 
 #include "storage/model/properties/properties.hpp"
 
+template <class TG>
 class PropertyModel
 {
 public:
-    Properties props;
+    Properties<TG> props;
 };

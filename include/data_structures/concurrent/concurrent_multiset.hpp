@@ -5,46 +5,59 @@
 template <class T>
 class ConcurrentMultiSet
 {
-  typedef SkipList<T> list;
-  typedef typename SkipList<T>::Iterator list_it;
-  typedef typename SkipList<T>::ConstIterator list_it_con;
-
-  public:
-  ConcurrentMultiSet() {}
-
-  class Accessor : public AccessorBase<T>
-  {
-    friend class ConcurrentMultiSet;
-
-    using AccessorBase<T>::AccessorBase;
-
-private:
-    using AccessorBase<T>::accessor;
+    typedef SkipList<T> list;
+    typedef typename SkipList<T>::Iterator list_it;
+    typedef typename SkipList<T>::ConstIterator list_it_con;
 
 public:
-    list_it insert(const T &item) { return accessor.insert_non_unique(item); }
+    ConcurrentMultiSet() {}
 
-    list_it insert(T &&item)
+    class Accessor : public AccessorBase<T>
     {
-      return accessor.insert_non_unique(std::forward<T>(item));
-    }
+        friend class ConcurrentMultiSet;
 
-    list_it_con find(const T &item) const { return accessor.find(item); }
+        using AccessorBase<T>::AccessorBase;
 
-    list_it find(const T &item) { return accessor.find(item); }
+    private:
+        using AccessorBase<T>::accessor;
 
-    bool contains(const T &item) const
-    {
-      return this->find(item) != this->end();
-    }
+    public:
+        list_it insert(const T &item)
+        {
+            return accessor.insert_non_unique(item);
+        }
 
-    bool remove(const T &item) { return accessor.remove(item); }
-  };
+        list_it insert(T &&item)
+        {
+            return accessor.insert_non_unique(std::forward<T>(item));
+        }
 
-  Accessor access() { return Accessor(&skiplist); }
+        list_it_con find(const T &item) const { return accessor.find(item); }
 
-  const Accessor access() const { return Accessor(&skiplist); }
+        list_it find(const T &item) { return accessor.find(item); }
 
-  private:
-  list skiplist;
+        list_it_con find_or_larger(const T &item) const
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        list_it find_or_larger(const T &item)
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        bool contains(const T &item) const
+        {
+            return this->find(item) != this->end();
+        }
+
+        bool remove(const T &item) { return accessor.remove(item); }
+    };
+
+    Accessor access() { return Accessor(&skiplist); }
+
+    const Accessor access() const { return Accessor(&skiplist); }
+
+private:
+    list skiplist;
 };

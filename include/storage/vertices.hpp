@@ -1,31 +1,35 @@
 #pragma once
 
-#include <memory>
 #include <string>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/db_transaction.hpp"
-#include "storage/common.hpp"
-#include "storage/model/properties/property_family.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "utils/counters/atomic_counter.hpp"
 #include "utils/option.hpp"
 
+#include "storage/model/properties/property_family.hpp"
+#include "storage/vertex_record.hpp"
+
 class DbTransaction;
+class VertexAccessor;
+
+using VertexPropertyFamily = PropertyFamily<TypeGroupVertex>;
 
 class Vertices
 {
 public:
     using vertices_t = ConcurrentMap<uint64_t, VertexRecord>;
     using prop_familys_t =
-        ConcurrentMap<std::string, std::unique_ptr<PropertyFamily>>;
+        ConcurrentMap<std::string, std::unique_ptr<VertexPropertyFamily>>;
 
     vertices_t::Accessor access();
 
-    Option<const Vertex::Accessor> find(DbTransaction &t, const Id &id);
+    Option<const VertexAccessor> find(DbTransaction &t, const Id &id);
 
-    // Creates new Vertex and returns filled Vertex::Accessor.
-    Vertex::Accessor insert(DbTransaction &t);
+    // Creates new Vertex and returns filled VertexAccessor.
+    VertexAccessor insert(DbTransaction &t);
 
-    PropertyFamily &property_family_find_or_create(const std::string &name);
+    VertexPropertyFamily &
+    property_family_find_or_create(const std::string &name);
 
 private:
     vertices_t vertices;

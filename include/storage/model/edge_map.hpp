@@ -1,7 +1,8 @@
 #pragma once
 
 #include "data_structures/map/rh_hashmultimap.hpp"
-#include "mvcc/version_list.hpp"
+#include "storage/edge_record.hpp"
+// #include "storage/vertex_record.hpp"
 
 class EdgeMap
 {

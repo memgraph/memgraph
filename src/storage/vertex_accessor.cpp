@@ -1,64 +1,61 @@
-#include "database/db.hpp"
 #include "storage/vertex_accessor.hpp"
+
+#include "database/db.hpp"
+#include "storage/vertex_record.hpp"
 #include "storage/vertices.hpp"
 #include "utils/iterator/iterator.hpp"
 
-size_t Vertex::Accessor::out_degree() const
+size_t VertexAccessor::out_degree() const
 {
     return this->record->data.out.degree();
 }
 
-size_t Vertex::Accessor::in_degree() const
+size_t VertexAccessor::in_degree() const
 {
     return this->record->data.in.degree();
 }
 
-size_t Vertex::Accessor::degree() const { return in_degree() + out_degree(); }
+size_t VertexAccessor::degree() const { return in_degree() + out_degree(); }
 
-bool Vertex::Accessor::add_label(const Label &label)
+bool VertexAccessor::add_label(const Label &label)
 {
     // update vertex
-    if (this->record->data.labels.add(label)) {
-        label.index->insert(create_index_record());
-        return true;
-    }
-    return false;
+    return this->record->data.labels.add(label);
 }
 
-bool Vertex::Accessor::remove_label(const Label &label)
+bool VertexAccessor::remove_label(const Label &label)
 {
     // update vertex
     return this->record->data.labels.remove(label);
 }
 
-bool Vertex::Accessor::has_label(const Label &label) const
+bool VertexAccessor::has_label(const Label &label) const
 {
     return this->record->data.labels.has(label);
 }
 
-const std::set<label_ref_t> &Vertex::Accessor::labels() const
+const std::set<label_ref_t> &VertexAccessor::labels() const
 {
     return this->record->data.labels();
 }
 
 // Returns unfilled accessors
-auto Vertex::Accessor::out() const
+auto VertexAccessor::out() const
 {
     DbTransaction &t = this->db;
-    return iter::make_map(
-        iter::make_iter_ref(record->data.out),
-        [&](auto e) -> auto { return Edge::Accessor(*e, t); });
+    return iter::make_map(iter::make_iter_ref(record->data.out),
+                          [&](auto e) -> auto { return EdgeAccessor(*e, t); });
 }
 
 // Returns unfilled accessors
-auto Vertex::Accessor::in() const
+auto VertexAccessor::in() const
 {
     DbTransaction &t = this->db;
     return iter::make_map(iter::make_iter_ref(record->data.in),
-                          [&](auto e) -> auto { return Edge::Accessor(e, t); });
+                          [&](auto e) -> auto { return EdgeAccessor(e, t); });
 }
 
-bool Vertex::Accessor::in_contains(Vertex::Accessor const &other) const
+bool VertexAccessor::in_contains(VertexAccessor const &other) const
 {
     return record->data.in.contains(other.vlist);
 }

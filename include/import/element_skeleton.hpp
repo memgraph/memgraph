@@ -14,20 +14,36 @@ class ElementSkeleton
     {
 
     public:
-        Prop(PropertyFamily::PropertyType::PropertyFamilyKey key,
+        Prop(VertexPropertyFamily::PropertyType::PropertyFamilyKey key,
              Option<std::shared_ptr<Property>> &&prop)
-            : key(key), prop(std::move(prop))
+            : key_v(key), prop(std::move(prop))
         {
         }
 
-        PropertyFamily::PropertyType::PropertyFamilyKey key;
+        Prop(EdgePropertyFamily::PropertyType::PropertyFamilyKey key,
+             Option<std::shared_ptr<Property>> &&prop)
+            : key_e(key), prop(std::move(prop))
+        {
+        }
+
+        union
+        {
+            VertexPropertyFamily::PropertyType::PropertyFamilyKey key_v;
+            EdgePropertyFamily::PropertyType::PropertyFamilyKey key_e;
+        };
         Option<std::shared_ptr<Property>> prop;
     };
 
 public:
     ElementSkeleton(DbAccessor &db) : db(db){};
 
-    void add_property(PropertyFamily::PropertyType::PropertyFamilyKey key,
+    void add_property(VertexPropertyFamily::PropertyType::PropertyFamilyKey key,
+                      std::shared_ptr<Property> &&prop)
+    {
+        properties.push_back(Prop(key, make_option(std::move(prop))));
+    }
+
+    void add_property(EdgePropertyFamily::PropertyType::PropertyFamilyKey key,
                       std::shared_ptr<Property> &&prop)
     {
         properties.push_back(Prop(key, make_option(std::move(prop))));
@@ -42,17 +58,17 @@ public:
 
     void set_type(EdgeType const &type) { this->type = make_option(&type); }
 
-    void set_from(Vertex::Accessor &&va)
+    void set_from(VertexAccessor &&va)
     {
-        from_va = make_option<Vertex::Accessor>(std::move(va));
+        from_va = make_option<VertexAccessor>(std::move(va));
     }
 
-    void set_to(Vertex::Accessor &&va)
+    void set_to(VertexAccessor &&va)
     {
-        to_va = make_option<Vertex::Accessor>(std::move(va));
+        to_va = make_option<VertexAccessor>(std::move(va));
     }
 
-    Vertex::Accessor add_vertex()
+    VertexAccessor add_vertex()
     {
         auto va = db.vertex_insert();
 
@@ -60,7 +76,11 @@ public:
             // std::cout << *l << std::endl;
             va.add_label(*l);
         }
-        add_propreties(va);
+
+        for (auto prop : properties) {
+            assert(prop.prop.is_present());
+            va.set(prop.key_v, prop.prop.take());
+        }
 
         return va;
     }
@@ -79,7 +99,11 @@ public:
         if (type.is_present()) {
             ve.edge_type(*type.get());
         }
-        add_propreties(ve);
+
+        for (auto prop : properties) {
+            assert(prop.prop.is_present());
+            ve.set(prop.key_e, prop.prop.take());
+        }
 
         return make_option<std::string>();
     }
@@ -87,8 +111,8 @@ public:
     void clear()
     {
         el_id = make_option<size_t>();
-        to_va = make_option<Vertex::Accessor>();
-        from_va = make_option<Vertex::Accessor>();
+        to_va = make_option<VertexAccessor>();
+        from_va = make_option<VertexAccessor>();
         type = make_option<EdgeType const *>();
         labels.clear();
         properties.clear();
@@ -98,20 +122,20 @@ public:
     Option<size_t> element_id() { return el_id; }
 
 private:
-    template <class A>
-    void add_propreties(A &ra)
-    {
-        for (auto prop : properties) {
-            assert(prop.prop.is_present());
-            ra.set(prop.key, prop.prop.take());
-        }
-    }
+    // template <class A>
+    // void add_propreties(A &ra)
+    // {
+    //     for (auto prop : properties) {
+    //         assert(prop.prop.is_present());
+    //         ra.set(prop.key, prop.prop.take());
+    //     }
+    // }
 
     DbAccessor &db;
 
     Option<size_t> el_id;
-    Option<Vertex::Accessor> to_va;
-    Option<Vertex::Accessor> from_va;
+    Option<VertexAccessor> to_va;
+    Option<VertexAccessor> from_va;
     Option<EdgeType const *> type;
     std::vector<Label const *> labels;
     std::vector<Prop> properties;

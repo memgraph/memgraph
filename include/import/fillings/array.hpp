@@ -4,14 +4,15 @@
 #include "import/fillings/common.hpp"
 #include "import/fillings/filler.hpp"
 
-template <class T, class A>
+template <class TG, class T, class A>
 class ArrayFiller : public Filler
 {
 
 public:
-    ArrayFiller(BaseImporter &db,
-                PropertyFamily::PropertyType::PropertyFamilyKey key,
-                T (*f)(const char *))
+    ArrayFiller(
+        BaseImporter &db,
+        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key,
+        T (*f)(const char *))
         : bim(db), key(key), f(f)
     {
     }
@@ -36,15 +37,16 @@ public:
 
 private:
     BaseImporter &bim;
-    PropertyFamily::PropertyType::PropertyFamilyKey key;
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
     vector<char *> sub_str;
     T (*f)(const char *);
 };
 
-template <class T, class A>
-auto make_array_filler(BaseImporter &db,
-                       PropertyFamily::PropertyType::PropertyFamilyKey key,
-                       T (*f)(const char *))
+template <class TG, class T, class A>
+auto make_array_filler(
+    BaseImporter &db,
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key,
+    T (*f)(const char *))
 {
-    return new ArrayFiller<T, A>(db, key, f);
+    return new ArrayFiller<TG, T, A>(db, key, f);
 }
