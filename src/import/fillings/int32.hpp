@@ -6,11 +6,14 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+template <class TG>
 class Int32Filler : public Filler
 {
 
 public:
-    Int32Filler(PropertyFamily::PropertyType::PropertyFamilyKey key) : key(key)
+    Int32Filler(
+        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key)
+        : key(key)
     {
     }
 
@@ -26,5 +29,5 @@ public:
     }
 
 private:
-    PropertyFamily::PropertyType::PropertyFamilyKey key;
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
 };

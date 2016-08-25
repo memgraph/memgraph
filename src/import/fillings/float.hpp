@@ -6,11 +6,14 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+template <class TG>
 class FloatFiller : public Filler
 {
 
 public:
-    FloatFiller(PropertyFamily::PropertyType::PropertyFamilyKey key) : key(key)
+    FloatFiller(
+        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key)
+        : key(key)
     {
     }
     // Fills skeleton with data from str. Returns error description if
@@ -25,5 +28,5 @@ public:
     }
 
 private:
-    PropertyFamily::PropertyType::PropertyFamilyKey key;
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
 };

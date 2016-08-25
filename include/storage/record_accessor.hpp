@@ -3,15 +3,18 @@
 #include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/indexes/index_record.hpp"
+#include "storage/indexes/index_update.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/property.hpp"
 #include "storage/model/properties/property_family.hpp"
 #include "transactions/transaction.hpp"
 
-template <class T, class Derived, class vlist_t = mvcc::VersionList<T>>
+template <class TG, class Derived>
 class RecordAccessor
 {
     friend DbAccessor;
+    using vlist_t = typename TG::vlist_t;
+    using T = typename TG::record_t;
 
 public:
     RecordAccessor(vlist_t *vlist, DbTransaction &db) : vlist(vlist), db(db)
@@ -47,11 +50,27 @@ public:
 
     const Id &id() const { return vlist->id; }
 
+    // TODO: Test this
     Derived update() const
     {
         assert(!empty());
 
-        return Derived(vlist->update(db.trans), vlist, db);
+        if (record->is_visible_write(db.trans)) {
+            // TODO: VALIDATE THIS BRANCH. THEN ONLY THIS TRANSACTION CAN SEE
+            // THIS DATA WHICH MEENS THAT IT CAN CHANGE IT.
+            return Derived(record, vlist, db);
+
+        } else {
+            auto new_record = vlist->update(db.trans);
+
+            // TODO: Validate that update of record in this accessor is correct.
+            const_cast<RecordAccessor *>(this)->record = new_record;
+
+            // Add record to update index.
+            db.to_update_index<TG>(vlist, new_record);
+
+            return Derived(new_record, vlist, db);
+        }
     }
 
     bool remove() const
@@ -61,30 +80,36 @@ public:
         return vlist->remove(record, db.trans);
     }
 
-    const Property &at(PropertyFamily &key) const
+    const Property &at(PropertyFamily<TG> &key) const
     {
         return properties().at(key);
     }
 
-    const Property &at(prop_key_t &key) const { return properties().at(key); }
+    const Property &at(prop_key_t<TG> &key) const
+    {
+        return properties().at(key);
+    }
 
     template <class V>
-    auto at(type_key_t<V> &key) const;
+    auto at(type_key_t<TG, V> &key) const
+    {
+        return properties().template at<V>(key);
+    }
 
     template <class V, class... Args>
-    void set(type_key_t<V> &key, Args &&... args)
+    void set(type_key_t<TG, V> &key, Args &&... args)
     {
         properties().template set<V>(key, std::forward<Args>(args)...);
     }
 
-    void set(prop_key_t &key, Property::sptr value)
+    void set(prop_key_t<TG> &key, Property::sptr value)
     {
         properties().set(key, std::move(value));
     }
 
-    void clear(prop_key_t &key) { properties().clear(key); }
+    void clear(prop_key_t<TG> &key) { properties().clear(key); }
 
-    void clear(PropertyFamily &key) { properties().clear(key); }
+    void clear(PropertyFamily<TG> &key) { properties().clear(key); }
 
     template <class Handler>
     void accept(Handler &handler) const
@@ -92,7 +117,7 @@ public:
         properties().template accept<Handler>(handler);
     }
 
-    Properties &properties() const { return record->data.props; }
+    Properties<TG> &properties() const { return record->data.props; }
 
     explicit operator bool() const { return record != nullptr; }
 
@@ -125,18 +150,6 @@ public:
     friend bool operator!=(const RecordAccessor &a, const RecordAccessor &b)
     {
         return !(a == b);
-    }
-
-protected:
-    IndexRecord<T, std::nullptr_t> create_index_record()
-    {
-        return create_index_record(std::nullptr_t());
-    }
-
-    template <class K>
-    IndexRecord<T, K> create_index_record(K &&key)
-    {
-        return IndexRecord<T, K>(std::move(key), record, vlist);
     }
 
     T *record{nullptr};

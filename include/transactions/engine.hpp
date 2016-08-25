@@ -26,7 +26,10 @@ public:
 
     Engine() : counter(1) {}
 
-    Transaction &begin()
+    // Begins transaction and runs given functions in same atomic step.
+    // Functions will be given Transaction&
+    template <class... F>
+    Transaction &begin(F... fun)
     {
         auto guard = this->acquire_unique();
 
@@ -35,6 +38,8 @@ public:
 
         active.insert(id);
         store.put(id, t);
+
+        call(*t, fun...);
 
         return *t;
     }
@@ -51,6 +56,14 @@ public:
         t->cid++;
 
         return *t;
+    }
+
+    // Returns copy of current snapshot
+    Snapshot<Id> snapshot()
+    {
+        auto guard = this->acquire_unique();
+
+        return active;
     }
 
     void commit(const Transaction &t)
@@ -92,6 +105,21 @@ public:
     CommitLog clog;
 
 private:
+    template <class T, class... F>
+    void call(Transaction &t, T fun, F... funs)
+    {
+        call(t, fun);
+        call(t, funs...);
+    }
+
+    template <class T>
+    void call(Transaction &t, T fun)
+    {
+        fun(t);
+    }
+
+    void call(Transaction &t) {}
+
     void finalize(const Transaction &t)
     {
         active.remove(t.id);

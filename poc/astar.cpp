@@ -28,7 +28,7 @@
 const int max_score = 1000000;
 
 using namespace std;
-typedef Vertex::Accessor VertexAccessor;
+typedef VertexAccessor VertexAccessor;
 
 void add_scores(Db &db);
 
@@ -36,17 +36,18 @@ class Node
 {
 public:
     Node *parent = {nullptr};
-    type_key_t<Double> tkey;
+    type_key_t<TypeGroupVertex, Double> tkey;
     double cost;
     int depth = {0};
     VertexAccessor vacc;
 
-    Node(VertexAccessor vacc, double cost, type_key_t<Double> tkey)
+    Node(VertexAccessor vacc, double cost,
+         type_key_t<TypeGroupVertex, Double> tkey)
         : cost(cost), vacc(vacc), tkey(tkey)
     {
     }
     Node(VertexAccessor vacc, double cost, Node *parent,
-         type_key_t<Double> tkey)
+         type_key_t<TypeGroupVertex, Double> tkey)
         : cost(cost), vacc(vacc), parent(parent), depth(parent->depth + 1),
           tkey(tkey)
     {
@@ -84,27 +85,27 @@ void found_result(Node *res)
     }
 }
 
-double calc_heuristic_cost_dummy(type_key_t<Double> tkey, Edge::Accessor &edge,
-                                 Vertex::Accessor &vertex)
+double calc_heuristic_cost_dummy(type_key_t<TypeGroupVertex, Double> tkey,
+                                 EdgeAccessor &edge, VertexAccessor &vertex)
 {
     assert(!vertex.empty());
     return 1 - *vertex.at(tkey).get();
 }
 
-typedef bool (*EdgeFilter)(DbAccessor &t, Edge::Accessor &, Node *before);
-typedef bool (*VertexFilter)(DbAccessor &t, Vertex::Accessor &, Node *before);
+typedef bool (*EdgeFilter)(DbAccessor &t, EdgeAccessor &, Node *before);
+typedef bool (*VertexFilter)(DbAccessor &t, VertexAccessor &, Node *before);
 
-bool edge_filter_dummy(DbAccessor &t, Edge::Accessor &e, Node *before)
+bool edge_filter_dummy(DbAccessor &t, EdgeAccessor &e, Node *before)
 {
     return true;
 }
 
-bool vertex_filter_dummy(DbAccessor &t, Vertex::Accessor &va, Node *before)
+bool vertex_filter_dummy(DbAccessor &t, VertexAccessor &va, Node *before)
 {
     return va.fill();
 }
 
-bool vertex_filter_contained_dummy(DbAccessor &t, Vertex::Accessor &v,
+bool vertex_filter_contained_dummy(DbAccessor &t, VertexAccessor &v,
                                    Node *before)
 {
     if (v.fill()) {
@@ -128,7 +129,7 @@ bool vertex_filter_contained_dummy(DbAccessor &t, Vertex::Accessor &v,
     return false;
 }
 
-bool vertex_filter_contained(DbAccessor &t, Vertex::Accessor &v, Node *before)
+bool vertex_filter_contained(DbAccessor &t, VertexAccessor &v, Node *before)
 {
     if (v.fill()) {
         bool found;
@@ -146,17 +147,18 @@ bool vertex_filter_contained(DbAccessor &t, Vertex::Accessor &v, Node *before)
 // Vertex filter ima max_depth funkcija te edge filter ima max_depth funkcija.
 // Jedan za svaku dubinu.
 // Filtri vracaju true ako element zadovoljava uvjete.
-auto a_star(Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
-            VertexFilter v_filter[],
-            double (*calc_heuristic_cost)(type_key_t<Double> tkey,
-                                          Edge::Accessor &edge,
-                                          Vertex::Accessor &vertex),
-            int limit)
+auto a_star(
+    Db &db, int64_t sys_id_start, uint max_depth, EdgeFilter e_filter[],
+    VertexFilter v_filter[],
+    double (*calc_heuristic_cost)(type_key_t<TypeGroupVertex, Double> tkey,
+                                  EdgeAccessor &edge, VertexAccessor &vertex),
+    int limit)
 {
     DbAccessor t(db);
-    type_key_t<Double> tkey = t.vertex_property_family_get("score")
-                                  .get(Flags::Double)
-                                  .type_key<Double>();
+    type_key_t<TypeGroupVertex, Double> tkey =
+        t.vertex_property_family_get("score")
+            .get(Flags::Double)
+            .type_key<Double>();
 
     auto best_found = new std::map<Id, Score>[max_depth];
 

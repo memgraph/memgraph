@@ -2,6 +2,8 @@
 
 #include "storage/model/properties/handler.hpp"
 #include "storage/model/properties/properties.hpp"
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
 
 template <class Buffer>
 struct JsonWriter
@@ -9,7 +11,24 @@ struct JsonWriter
 public:
     JsonWriter(Buffer &buffer) : buffer(buffer) { buffer << '{'; };
 
-    void handle(const prop_key_t &key, const Property &value)
+    void handle(const typename PropertyFamily<
+                    TypeGroupEdge>::PropertyType::PropertyFamilyKey &key,
+                const Property &value)
+    {
+        handle<TypeGroupEdge>(key, value);
+    }
+
+    void handle(const typename PropertyFamily<
+                    TypeGroupVertex>::PropertyType::PropertyFamilyKey &key,
+                const Property &value)
+    {
+        handle<TypeGroupVertex>(key, value);
+    }
+
+    template <class T>
+    void handle(
+        const typename PropertyFamily<T>::PropertyType::PropertyFamilyKey &key,
+        const Property &value)
     {
         if (!first) buffer << ',';
 

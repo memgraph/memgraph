@@ -7,35 +7,40 @@ DbAccessor::DbAccessor(Db &db)
 {
 }
 
+DbAccessor::DbAccessor(Db &db, tx::Transaction &t)
+    : db_transaction(DbTransaction(db, t))
+{
+}
+
 // VERTEX METHODS
 auto DbAccessor::vertex_access()
 {
     return iter::make_map(
         iter::make_iter(this->db_transaction.db.graph.vertices.access()),
         [&](auto e) -> auto {
-            return Vertex::Accessor(&(e->second), db_transaction);
+            return VertexAccessor(&(e->second), db_transaction);
         });
 }
 
-Option<const Vertex::Accessor> DbAccessor::vertex_find(const Id &id)
+Option<const VertexAccessor> DbAccessor::vertex_find(const Id &id)
 {
     return this->db_transaction.db.graph.vertices.find(db_transaction, id);
 }
 
-Vertex::Accessor DbAccessor::vertex_insert()
+VertexAccessor DbAccessor::vertex_insert()
 {
     return this->db_transaction.db.graph.vertices.insert(db_transaction);
 }
 
 // EDGE METHODS
 
-Option<const Edge::Accessor> DbAccessor::edge_find(const Id &id)
+Option<const EdgeAccessor> DbAccessor::edge_find(const Id &id)
 {
     return db_transaction.db.graph.edges.find(db_transaction, id);
 }
 
-Edge::Accessor DbAccessor::edge_insert(Vertex::Accessor const &from,
-                                       Vertex::Accessor const &to)
+EdgeAccessor DbAccessor::edge_insert(VertexAccessor const &from,
+                                     VertexAccessor const &to)
 {
     auto edge_accessor = db_transaction.db.graph.edges.insert(
         db_transaction, from.vlist, to.vlist);
@@ -67,30 +72,55 @@ bool DbAccessor::type_contains(const char *name)
 }
 
 // PROPERTY METHODS
-PropertyFamily &DbAccessor::vertex_property_family_get(const std::string &name)
+VertexPropertyFamily &
+DbAccessor::vertex_property_family_get(const std::string &name)
 {
     return db_transaction.db.graph.vertices.property_family_find_or_create(
         name);
 }
 
-PropertyFamily &DbAccessor::edge_property_family_get(const std::string &name)
+EdgePropertyFamily &
+DbAccessor::edge_property_family_get(const std::string &name)
 {
     return db_transaction.db.graph.edges.property_family_find_or_create(name);
 }
 
 // PROPERTY HELPER METHODS
-PropertyFamily::PropertyType::PropertyFamilyKey
+VertexPropertyFamily::PropertyType::PropertyFamilyKey
 DbAccessor::vertex_property_key(const std::string &name, Type type)
 {
     return vertex_property_family_get(name).get(type).family_key();
 }
 
-PropertyFamily::PropertyType::PropertyFamilyKey
+EdgePropertyFamily::PropertyType::PropertyFamilyKey
 DbAccessor::edge_property_key(const std::string &name, Type type)
 {
     return edge_property_family_get(name).get(type).family_key();
 }
 
+template <class T>
+VertexPropertyFamily::PropertyType::PropertyTypeKey<T>
+DbAccessor::vertex_property_key(const std::string &name)
+{
+    return vertex_property_family_get(name).get(T::type).template type_key<T>();
+}
+
+template <class T>
+EdgePropertyFamily::PropertyType::PropertyTypeKey<T>
+DbAccessor::edge_property_key(const std::string &name)
+{
+    return edge_property_family_get(name).get(T::type).template type_key<T>();
+}
+
 // TRANSACTION METHODS
-void DbAccessor::commit() { db_transaction.trans.commit(); }
+bool DbAccessor::commit()
+{
+    if (db_transaction.update_indexes()) {
+        db_transaction.trans.commit();
+        return true;
+    } else {
+        db_transaction.trans.abort();
+        return false;
+    }
+}
 void DbAccessor::abort() { db_transaction.trans.abort(); }

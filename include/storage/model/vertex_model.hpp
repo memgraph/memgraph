@@ -5,7 +5,7 @@
 #include "storage/model/edge_map.hpp"
 #include "storage/model/property_model.hpp"
 
-class VertexModel : public PropertyModel
+class VertexModel : public PropertyModel<TypeGroupVertex>
 {
 public:
     EdgeList out;

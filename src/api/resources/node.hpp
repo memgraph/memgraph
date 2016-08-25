@@ -37,7 +37,7 @@ public:
 
             return std::move(vertex_accessor);
         },
-        [&req, &res](Vertex::Accessor&& vertex_accessor) {
+        [&req, &res](VertexAccessor&& vertex_accessor) {
             return res.send(
                 http::Status::Created,
                 vertex_create_response(vertex_accessor)
@@ -69,7 +69,7 @@ public:
 
             return std::move(vertex_accessor);
         },
-        [&req, &res](Vertex::Accessor&& vertex_accessor) {
+        [&req, &res](VertexAccessor&& vertex_accessor) {
             if (vertex_accessor.empty()) {
                 return res.send(
                     http::Status::NotFound,
@@ -111,7 +111,7 @@ public:
 
             return std::move(vertex_accessor);
         },
-        [&req, &res](Vertex::Accessor&& vertex_accessor) {
+        [&req, &res](VertexAccessor&& vertex_accessor) {
             if (vertex_accessor.empty()) {
                 return res.send(
                     http::Status::NotFound,

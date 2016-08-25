@@ -9,13 +9,16 @@
 #include "utils/char_str.hpp"
 #include "utils/reference_wrapper.hpp"
 #include "utils/total_ordering.hpp"
+// #include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
 
-using LabelIndexRecord = VertexIndexRecord<std::nullptr_t>;
+using LabelIndexRecord = IndexRecord<TypeGroupVertex, std::nullptr_t>;
 
 class Label : public TotalOrdering<Label>, TotalOrdering<CharStr, Label>
 {
 public:
-    using label_index_t = NonUniqueUnorderedIndex<Vertex, std::nullptr_t>;
+    using label_index_t =
+        NonUniqueUnorderedIndex<TypeGroupVertex, std::nullptr_t>;
 
     Label() = delete;
 
@@ -36,9 +39,9 @@ public:
 
     operator const std::string &() const;
 
-    std::unique_ptr<label_index_t> index;
-
     CharStr char_str() const { return CharStr(name.c_str()); }
+
+    std::unique_ptr<label_index_t> index;
 
 private:
     std::string name;

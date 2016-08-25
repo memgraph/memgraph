@@ -20,7 +20,7 @@ using namespace std;
 // generation.
 
 template <class C>
-void fill_to_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
+void fill_to_fill(EdgeAccessor &e, const EdgeType &type, C &&consumer)
 {
     if (e.fill() && e.edge_type() == type) {
         auto to = e.to();
@@ -31,7 +31,7 @@ void fill_to_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
 }
 
 template <class C>
-void fill_from_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
+void fill_from_fill(EdgeAccessor &e, const EdgeType &type, C &&consumer)
 {
     if (e.fill() && e.edge_type() == type) {
         auto from = e.from();
@@ -42,7 +42,7 @@ void fill_from_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
 }
 
 template <class C>
-void fill_to_fill(Edge::Accessor &e, C &&consumer)
+void fill_to_fill(EdgeAccessor &e, C &&consumer)
 {
     if (e.fill()) {
         auto to = e.to();
@@ -53,7 +53,7 @@ void fill_to_fill(Edge::Accessor &e, C &&consumer)
 }
 
 template <class C>
-void to_fill(Edge::Accessor &e, C &&consumer)
+void to_fill(EdgeAccessor &e, C &&consumer)
 {
     auto to = e.to();
     if (to.fill()) {
@@ -62,7 +62,7 @@ void to_fill(Edge::Accessor &e, C &&consumer)
 }
 
 template <class C>
-void to_fill(Edge::Accessor &e, const Label &label, C &&consumer)
+void to_fill(EdgeAccessor &e, const Label &label, C &&consumer)
 {
     auto to = e.to();
     if (to.fill() && to.has_label(label)) {
@@ -71,7 +71,7 @@ void to_fill(Edge::Accessor &e, const Label &label, C &&consumer)
 }
 
 template <class C>
-void to_fill(Edge::Accessor &e, const EdgeType &type, const Label &label,
+void to_fill(EdgeAccessor &e, const EdgeType &type, const Label &label,
              C &&consumer)
 {
     if (e.edge_type() == type) {
@@ -83,7 +83,7 @@ void to_fill(Edge::Accessor &e, const EdgeType &type, const Label &label,
 }
 
 template <class C>
-void from_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
+void from_fill(EdgeAccessor &e, const EdgeType &type, C &&consumer)
 {
     if (e.edge_type() == type) {
         auto from = e.from();
@@ -94,7 +94,7 @@ void from_fill(Edge::Accessor &e, const EdgeType &type, C &&consumer)
 }
 
 template <class C>
-void fill_from_fill(Edge::Accessor &e, C &&consumer)
+void fill_from_fill(EdgeAccessor &e, C &&consumer)
 {
     if (e.fill()) {
         auto from = e.from();
@@ -144,10 +144,10 @@ void find_fill(I iter, C &&consumer)
 }
 }
 
-void fill_with_bt(unordered_map<string, double> &values, Vertex::Accessor &com,
-                  double weight,
-                  PropertyFamily::PropertyType::PropertyTypeKey<ArrayString>
-                      &prop_vertex_business_types)
+void fill_with_bt(
+    unordered_map<string, double> &values, VertexAccessor &com, double weight,
+    VertexPropertyFamily::PropertyType::PropertyTypeKey<ArrayString>
+        &prop_vertex_business_types)
 {
     auto bus_t = com.at(prop_vertex_business_types);
     if (bus_t.is_present()) {
@@ -158,8 +158,8 @@ void fill_with_bt(unordered_map<string, double> &values, Vertex::Accessor &com,
 }
 
 void oportunity_employe_company(
-    Vertex::Accessor &va, unordered_map<string, double> &values, double weight,
-    PropertyFamily::PropertyType::PropertyTypeKey<ArrayString>
+    VertexAccessor &va, unordered_map<string, double> &values, double weight,
+    VertexPropertyFamily::PropertyType::PropertyTypeKey<ArrayString>
         &prop_vertex_business_types,
     const EdgeType &type_created, const EdgeType &type_works_in,
     const Label &label_company)
@@ -192,16 +192,17 @@ auto query(DbAccessor &t, const Id &start_id)
     const Label &label_company = t.label_find_or_create("Company");
     const Label &label_opportunuty = t.label_find_or_create("Opportunity");
 
-    auto type_works_in = t.type_find_or_create("Works_In");
-    auto type_reached_to = t.type_find_or_create("Reached_To");
-    auto type_partnered_with = t.type_find_or_create("Partnered_With");
-    auto type_interested_in = t.type_find_or_create("Interested_In");
-    auto type_viewed = t.type_find_or_create("Viewed");
-    auto type_has_match = t.type_find_or_create("Has_Match");
-    auto type_searched_and_clicked =
+    const EdgeType &type_works_in = t.type_find_or_create("Works_In");
+    const EdgeType &type_reached_to = t.type_find_or_create("Reached_To");
+    const EdgeType &type_partnered_with =
+        t.type_find_or_create("Partnered_With");
+    const EdgeType &type_interested_in = t.type_find_or_create("Interested_In");
+    const EdgeType &type_viewed = t.type_find_or_create("Viewed");
+    const EdgeType &type_has_match = t.type_find_or_create("Has_Match");
+    const EdgeType &type_searched_and_clicked =
         t.type_find_or_create("Searched_And_Clicked");
-    auto type_is_employee = t.type_find_or_create("Is_Employee");
-    auto type_created = t.type_find_or_create("Created");
+    const EdgeType &type_is_employee = t.type_find_or_create("Is_Employee");
+    const EdgeType &type_created = t.type_find_or_create("Created");
 
     auto prop_edge_status = t.edge_property_family_get("status")
                                 .get(Flags::String)
@@ -362,18 +363,21 @@ int main(int argc, char **argv)
         DbAccessor t(db);
 
         int n = 300 * 1000;
-        vector<pair<Vertex::Accessor, unordered_map<string, double>>> coll;
+        vector<pair<VertexAccessor, unordered_map<string, double>>> coll;
 
         // QUERY BENCHMARK
         auto begin = clock();
         int i = 0;
-        iter::for_all_fill(
+        iter::find_fill(
             t.label_find_or_create("Company").index->for_range_exact(t),
             [&](auto v) {
                 if (i < n) {
                     coll.push_back(make_pair(v, query(t, v.id())));
+                    i++;
+                    return false;
+                } else {
+                    return true;
                 }
-                i++;
             });
         n = i;
         clock_t end = clock();

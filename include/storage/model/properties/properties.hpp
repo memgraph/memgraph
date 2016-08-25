@@ -6,15 +6,25 @@
 #include "storage/model/properties/property_family.hpp"
 #include "utils/option.hpp"
 
-using prop_key_t = PropertyFamily::PropertyType::PropertyFamilyKey;
+template <class TG>
+using prop_key_t = typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey;
 
-template <class T>
-using type_key_t = PropertyFamily::PropertyType::PropertyTypeKey<T>;
+template <class TG, class T>
+using type_key_t =
+    typename PropertyFamily<TG>::PropertyType::template PropertyTypeKey<T>;
 
+template <class TG>
 class Properties
 {
 public:
     using sptr = std::shared_ptr<Properties>;
+
+    using prop_key_t =
+        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey;
+
+    template <class T>
+    using type_key_t =
+        typename PropertyFamily<TG>::PropertyType::template PropertyTypeKey<T>;
 
     auto begin() const { return props.begin(); }
     auto cbegin() const { return props.cbegin(); }
@@ -24,7 +34,7 @@ public:
 
     size_t size() const { return props.size(); }
 
-    const Property &at(PropertyFamily &key) const;
+    const Property &at(PropertyFamily<TG> &key) const;
 
     const Property &at(prop_key_t &key) const;
 
@@ -38,7 +48,7 @@ public:
 
     void clear(prop_key_t &key);
 
-    void clear(PropertyFamily &key);
+    void clear(PropertyFamily<TG> &key);
 
     template <class Handler>
     void accept(Handler &handler) const
@@ -58,6 +68,6 @@ public:
 
 private:
     using props_t =
-        std::unordered_map<prop_key_t, Property::sptr, PropertyHash>;
+        std::unordered_map<prop_key_t, Property::sptr, PropertyHash<TG>>;
     props_t props;
 };

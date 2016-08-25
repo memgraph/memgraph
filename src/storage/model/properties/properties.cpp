@@ -4,7 +4,11 @@
 #include "storage/model/properties/property_family.hpp"
 #include "utils/option.hpp"
 
-const Property &Properties::at(PropertyFamily &fam) const
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
+
+template <class TG>
+const Property &Properties<TG>::at(PropertyFamily<TG> &fam) const
 {
     // It doesn't matter whit which type
     // find is called, thats why getNull
@@ -18,7 +22,8 @@ const Property &Properties::at(PropertyFamily &fam) const
     return *it->second.get();
 }
 
-const Property &Properties::at(prop_key_t &key) const
+template <class TG>
+const Property &Properties<TG>::at(prop_key_t &key) const
 {
     auto it = props.find(key);
 
@@ -28,8 +33,9 @@ const Property &Properties::at(prop_key_t &key) const
     return *it->second.get();
 }
 
+template <class TG>
 template <class T>
-auto Properties::at(type_key_t<T> &key) const
+auto Properties<TG>::at(type_key_t<T> &key) const
 {
     auto f_key = key.family_key();
     auto it = props.find(f_key);
@@ -41,8 +47,9 @@ auto Properties::at(type_key_t<T> &key) const
     return make_option(&(it->second.get()->template as<T>().value_ref()));
 }
 
+template <class TG>
 template <class T, class... Args>
-void Properties::set(type_key_t<T> &key, Args &&... args)
+void Properties<TG>::set(type_key_t<T> &key, Args &&... args)
 {
     auto value = std::make_shared<T>(std::forward<Args>(args)...);
 
@@ -59,7 +66,8 @@ void Properties::set(type_key_t<T> &key, Args &&... args)
     }
 }
 
-void Properties::set(prop_key_t &key, Property::sptr value)
+template <class TG>
+void Properties<TG>::set(prop_key_t &key, Property::sptr value)
 {
     // TODO: There is uneccesary copying of value here.
     auto result = props.insert(make_pair(key, value));
@@ -72,9 +80,14 @@ void Properties::set(prop_key_t &key, Property::sptr value)
     }
 }
 
-void Properties::clear(prop_key_t &key) { props.erase(key); }
+template <class TG>
+void Properties<TG>::clear(prop_key_t &key)
+{
+    props.erase(key);
+}
 
-void Properties::clear(PropertyFamily &fam)
+template <class TG>
+void Properties<TG>::clear(PropertyFamily<TG> &fam)
 {
     // It doesn't matter whit which type
     // find is called, thats why getNull
@@ -84,9 +97,6 @@ void Properties::clear(PropertyFamily &fam)
     props.erase(key);
 }
 
-template <>
-inline void Properties::set<Null>(type_key_t<Null> &key)
-{
-    auto fk = key.family_key();
-    clear(fk);
-}
+template class Properties<TypeGroupEdge>;
+
+template class Properties<TypeGroupVertex>;

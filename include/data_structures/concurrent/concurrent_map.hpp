@@ -8,53 +8,66 @@ using std::pair;
 template <typename K, typename T>
 class ConcurrentMap
 {
-  typedef Item<K, T> item_t;
-  typedef SkipList<item_t> list;
-  typedef typename SkipList<item_t>::Iterator list_it;
-  typedef typename SkipList<item_t>::ConstIterator list_it_con;
-
-  public:
-  ConcurrentMap() {}
-
-  class Accessor : public AccessorBase<item_t>
-  {
-    friend class ConcurrentMap;
-
-    using AccessorBase<item_t>::AccessorBase;
-
-private:
-    using AccessorBase<item_t>::accessor;
+    typedef Item<K, T> item_t;
+    typedef SkipList<item_t> list;
+    typedef typename SkipList<item_t>::Iterator list_it;
+    typedef typename SkipList<item_t>::ConstIterator list_it_con;
 
 public:
-    std::pair<list_it, bool> insert(const K &key, const T &data)
+    ConcurrentMap() {}
+
+    class Accessor : public AccessorBase<item_t>
     {
-      return accessor.insert(item_t(key, data));
-    }
+        friend class ConcurrentMap;
 
-    std::pair<list_it, bool> insert(const K &key, T &&data)
-    {
-      return accessor.insert(item_t(key, std::forward<T>(data)));
-    }
+        using AccessorBase<item_t>::AccessorBase;
 
-    std::pair<list_it, bool> insert(K &&key, T &&data)
-    {
-      return accessor.insert(
-          item_t(std::forward<K>(key), std::forward<T>(data)));
-    }
+    private:
+        using AccessorBase<item_t>::accessor;
 
-    list_it_con find(const K &key) const { return accessor.find(key); }
+    public:
+        std::pair<list_it, bool> insert(const K &key, const T &data)
+        {
+            return accessor.insert(item_t(key, data));
+        }
 
-    list_it find(const K &key) { return accessor.find(key); }
+        std::pair<list_it, bool> insert(const K &key, T &&data)
+        {
+            return accessor.insert(item_t(key, std::forward<T>(data)));
+        }
 
-    bool contains(const K &key) const { return this->find(key) != this->end(); }
+        std::pair<list_it, bool> insert(K &&key, T &&data)
+        {
+            return accessor.insert(
+                item_t(std::forward<K>(key), std::forward<T>(data)));
+        }
 
-    bool remove(const K &key) { return accessor.remove(key); }
-  };
+        list_it_con find(const K &key) const { return accessor.find(key); }
 
-  Accessor access() { return Accessor(&skiplist); }
+        list_it find(const K &key) { return accessor.find(key); }
 
-  const Accessor access() const { return Accessor(&skiplist); }
+        list_it_con find_or_larger(const T &item) const
+        {
+            return accessor.find_or_larger(item);
+        }
 
-  private:
-  list skiplist;
+        list_it find_or_larger(const T &item)
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        bool contains(const K &key) const
+        {
+            return this->find(key) != this->end();
+        }
+
+        bool remove(const K &key) { return accessor.remove(key); }
+    };
+
+    Accessor access() { return Accessor(&skiplist); }
+
+    const Accessor access() const { return Accessor(&skiplist); }
+
+private:
+    list skiplist;
 };

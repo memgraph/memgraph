@@ -18,9 +18,9 @@ public:
     {
         if (str[0] != '\0') {
             auto id = atol(str);
-            Option<Vertex::Accessor> const &oav = bim.get_vertex(id);
+            Option<VertexAccessor> const &oav = bim.get_vertex(id);
             if (oav.is_present()) {
-                data.set_from(Vertex::Accessor(oav.get()));
+                data.set_from(VertexAccessor(oav.get()));
                 return make_option<std::string>();
             } else {
                 return make_option(

@@ -29,7 +29,7 @@ using RJStringBuffer = rapidjson::StringBuffer;
 using RJStringWriter = rapidjson::Writer<RJStringBuffer>;
 using ptr_RJStringWriter = std::shared_ptr<RJStringWriter>;
 
-std::string vertex_create_response(const Vertex::Accessor& vertex_accessor)
+std::string vertex_create_response(const VertexAccessor& vertex_accessor)
 {
     // make a string buffer
     RJStringBuffer buffer;

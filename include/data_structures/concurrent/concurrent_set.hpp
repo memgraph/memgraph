@@ -37,6 +37,24 @@ public:
 
         list_it find(const T &item) { return accessor.find(item); }
 
+        template <class K>
+        list_it_con find_or_larger(const K &item) const
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        template <class K>
+        list_it find_or_larger(const K &item)
+        {
+            return accessor.find_or_larger(item);
+        }
+
+        template <class K>
+        list_it_con cfind_or_larger(const K &item)
+        {
+            return accessor.template find_or_larger<list_it_con, K>(item);
+        }
+
         bool contains(const T &item) const
         {
             return this->find(item) != this->end();

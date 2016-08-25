@@ -6,11 +6,13 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+template <class TG>
 class BoolFiller : public Filler
 {
 
 public:
-    BoolFiller(PropertyFamily::PropertyType::PropertyFamilyKey key) : key(key)
+    BoolFiller(typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key)
+        : key(key)
     {
     }
 
@@ -26,5 +28,5 @@ public:
     }
 
 private:
-    PropertyFamily::PropertyType::PropertyFamilyKey key;
+    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
 };

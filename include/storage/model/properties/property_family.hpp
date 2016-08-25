@@ -1,15 +1,21 @@
 #pragma once
 
 #include <memory>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "storage/indexes/index_holder.hpp"
 #include "storage/model/properties/flags.hpp"
 #include "utils/option.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
+// #include "storage/indexes/index_base.hpp"
+
 // Family of properties with the same name but different types.
 // Ordered on name.
-class PropertyFamily : public TotalOrdering<PropertyFamily>
+// TG - group of types Edge/Vertex
+template <class TG>
+class PropertyFamily : public TotalOrdering<PropertyFamily<TG>>
 {
     friend class PropertyType;
     friend class PropertyFamilyKey;
@@ -175,6 +181,8 @@ public:
     friend bool operator==(const PropertyFamily &lhs,
                            const PropertyFamily &rhs);
 
+    IndexHolder<TG, std::nullptr_t> index;
+
 private:
     const std::string name_v;
     // This is exclusivly for getNull method.
@@ -184,11 +192,13 @@ private:
     ConcurrentMap<Type, std::unique_ptr<PropertyType>> types;
 };
 
+template <class TG>
 class PropertyHash
 {
 public:
-    size_t
-    operator()(PropertyFamily::PropertyType::PropertyFamilyKey const &key) const
+    size_t operator()(
+        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey const &key)
+        const
     {
         return (std::hash<const void *>()((const void *)(&(key.get_family()))) +
                 7) *

@@ -1,19 +1,31 @@
 #include "storage/model/properties/property_family.hpp"
 
-PropertyFamily::PropertyFamily(std::string const &name_v)
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
+
+template <class T>
+PropertyFamily<T>::PropertyFamily(std::string const &name_v)
     : name_v(std::forward<const std::string>(name_v))
 {
     null_type = &get(Flags::Null);
 }
-PropertyFamily::PropertyFamily(std::string &&name_v) : name_v(std::move(name_v))
+
+template <class T>
+PropertyFamily<T>::PropertyFamily(std::string &&name_v)
+    : name_v(std::move(name_v))
 {
     null_type = &get(Flags::Null);
 }
 
-std::string const &PropertyFamily::name() const { return name_v; }
+template <class T>
+std::string const &PropertyFamily<T>::name() const
+{
+    return name_v;
+}
 
 // Returns type if it exists otherwise creates it.
-PropertyFamily::PropertyType &PropertyFamily::get(Type type)
+template <class T>
+typename PropertyFamily<T>::PropertyType &PropertyFamily<T>::get(Type type)
 {
     auto acc = types.access();
     auto it = acc.find(type);
@@ -26,16 +38,25 @@ PropertyFamily::PropertyType &PropertyFamily::get(Type type)
     return *(it->second);
 }
 
-PropertyFamily::PropertyType::PropertyType(PropertyFamily &family, Type type)
+template <class T>
+PropertyFamily<T>::PropertyType::PropertyType(PropertyFamily &family, Type type)
     : family(family), type(std::move(type))
 {
 }
 
-bool PropertyFamily::PropertyType::is(Type &t) const { return type == t; }
+template <class T>
+bool PropertyFamily<T>::PropertyType::is(Type &t) const
+{
+    return type == t;
+}
 
 // Returns key ordered on POINTERS to PropertyFamily
-PropertyFamily::PropertyType::PropertyFamilyKey
-PropertyFamily::PropertyType::family_key()
+template <class T>
+typename PropertyFamily<T>::PropertyType::PropertyFamilyKey
+PropertyFamily<T>::PropertyType::family_key()
 {
     return PropertyFamilyKey(*this);
 }
+
+template class PropertyFamily<TypeGroupEdge>;
+template class PropertyFamily<TypeGroupVertex>;

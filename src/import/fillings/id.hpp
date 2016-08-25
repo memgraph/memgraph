@@ -2,16 +2,20 @@
 
 #include "import/fillings/filler.hpp"
 
+template <class TG>
 class IdFiller : public Filler
 {
 
 public:
     IdFiller()
-        : key(make_option<PropertyFamily::PropertyType::PropertyFamilyKey>())
+        : key(make_option<
+              typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey>())
     {
     }
 
-    IdFiller(Option<PropertyFamily::PropertyType::PropertyFamilyKey> key)
+    IdFiller(
+        Option<typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey>
+            key)
         : key(key)
     {
         assert(!key.is_present() ||
@@ -34,5 +38,5 @@ public:
     }
 
 private:
-    Option<PropertyFamily::PropertyType::PropertyFamilyKey> key;
+    Option<typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey> key;
 };

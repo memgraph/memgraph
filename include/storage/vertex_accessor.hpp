@@ -5,16 +5,12 @@
 
 class Vertices;
 
-class Vertex::Accessor : public RecordAccessor<Vertex, Vertex::Accessor>
+class VertexAccessor : public RecordAccessor<TypeGroupVertex, VertexAccessor>
 {
 public:
     using RecordAccessor::RecordAccessor;
-
-    static Vertex::Accessor create(Vertex *t, mvcc::VersionList<Vertex> *vlist,
-                                   DbTransaction &db)
-    {
-        return Vertex::Accessor(t, vlist, db);
-    }
+    typedef Vertex record_t;
+    typedef VertexRecord record_list_t;
 
     size_t out_degree() const;
 
@@ -37,5 +33,5 @@ public:
     auto in() const;
 
     // True if there exists edge other->this
-    bool in_contains(Vertex::Accessor const &other) const;
+    bool in_contains(VertexAccessor const &other) const;
 };

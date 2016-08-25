@@ -429,8 +429,14 @@ set(memgraph_src_files
     ${src_dir}/storage/model/properties/array.cpp
     ${src_dir}/storage/model/properties/properties.cpp
     ${src_dir}/storage/model/properties/property_family.cpp
+    ${src_dir}/storage/indexes/index_base.cpp
+    ${src_dir}/storage/indexes/index_record.cpp
+    ${src_dir}/storage/indexes/index_update.cpp
+    ${src_dir}/storage/indexes/index_holder.cpp
+    ${src_dir}/storage/indexes/impl/unique_ordered_index.cpp
     ${src_dir}/storage/indexes/impl/nonunique_unordered_index.cpp
     ${src_dir}/storage/locking/record_lock.cpp
+    ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
@@ -442,6 +448,7 @@ set(memgraph_src_files
     ${src_dir}/logging/log.cpp
     ${src_dir}/io/network/tls.cpp
     ${src_dir}/database/db.cpp
+    ${src_dir}/database/db_transaction.cpp
     ${src_dir}/database/db_accessor.cpp
     ${src_dir}/storage/edge_accessor.cpp
     ${src_dir}/storage/record_accessor.cpp

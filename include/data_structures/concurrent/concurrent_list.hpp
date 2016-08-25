@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <utility>
 #include "utils/crtp.hpp"
 
 template <class T>
