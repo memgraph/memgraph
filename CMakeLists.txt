@@ -305,7 +305,7 @@ endif()
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE
-    "${CMAKE_CXX_FLAGS_RELEASE} -march=native -Wall")
+    "${CMAKE_CXX_FLAGS_RELEASE}  -Wall")
 
 # -- configure defines -- default is ON | true | enabled ----------------------
 # -- logging ------------------------------------------------------------------

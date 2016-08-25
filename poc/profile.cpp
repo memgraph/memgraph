@@ -370,9 +370,9 @@ int main(int argc, char **argv)
         iter::for_all_fill(
             t.label_find_or_create("Company").index->for_range_exact(t),
             [&](auto v) {
-                if (i < n) {
-                    coll.push_back(make_pair(v, query(t, v.id())));
-                }
+                // if (i < n) {
+                coll.push_back(make_pair(v, query(t, v.id())));
+                // }
                 i++;
             });
         n = i;
