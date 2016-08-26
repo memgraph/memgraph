@@ -11,3 +11,8 @@ add_executable(profile profile.cpp)
 target_link_libraries(profile memgraph)
 target_link_libraries(profile Threads::Threads)
 target_link_libraries(profile ${fmt_static_lib})
+
+include_directories(${CMAKE_SOURCE_DIR}/poc)
+
+add_executable(isolation isolation.cpp isolation/header.cpp)
+target_link_libraries(isolation ${fmt_static_lib})
