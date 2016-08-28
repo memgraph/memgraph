@@ -7,11 +7,13 @@
 #include "isolation/db.hpp"
 #include "isolation/header.hpp"
 
-using namespace base;
+// using namespace base;
 
 int main()
 {
     std::cout << sizeof(Accessor) << " : " << alignof(Accessor) << "\n";
+    std::cout << sizeof(sha::Accessor) << " : " << alignof(sha::Accessor)
+              << "\n";
 
     Db db;
     db.data = 207;

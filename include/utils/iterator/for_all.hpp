@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <memory>
 #include "utils/option.hpp"
 
 namespace iter

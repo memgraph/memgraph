@@ -1,3 +1,5 @@
+#pragma once
+
 #include "storage/vertex_accessor.hpp"
 
 #include "database/db.hpp"
@@ -34,7 +36,7 @@ bool VertexAccessor::has_label(const Label &label) const
     return this->record->data.labels.has(label);
 }
 
-const std::set<label_ref_t> &VertexAccessor::labels() const
+const std::vector<label_ref_t> &VertexAccessor::labels() const
 {
     return this->record->data.labels();
 }

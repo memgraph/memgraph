@@ -104,6 +104,26 @@ public:
         return *data._M_ptr();
     }
 
+    template <class U>
+    Option<U> map()
+    {
+        if (is_present()) {
+            return Option<U>(U(take()));
+        } else {
+            return Option<U>();
+        }
+    }
+
+    template <class U, class F>
+    Option<U> map(F f)
+    {
+        if (is_present()) {
+            return Option<U>(f(take()));
+        } else {
+            return Option<U>();
+        }
+    }
+
     T take()
     {
         assert(initialized);

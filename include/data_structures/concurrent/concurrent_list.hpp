@@ -69,6 +69,7 @@ private:
         {
             other.list = nullptr;
             other.curr = nullptr;
+            other.prev = nullptr;
         }
 
         ~IteratorBase()
@@ -94,6 +95,9 @@ private:
                 } while (now != nullptr);
             }
         }
+
+        IteratorBase &operator=(IteratorBase const &other) = delete;
+        IteratorBase &operator=(IteratorBase &&other) = delete;
 
         T &operator*() const
         {

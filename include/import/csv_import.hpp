@@ -36,6 +36,8 @@
 
 using namespace std;
 
+constexpr char *_string = "string";
+
 bool equal_str(const char *a, const char *b) { return strcasecmp(a, b) == 0; }
 
 // CSV importer for importing multiple files regarding same graph.
@@ -203,7 +205,7 @@ private:
                 warn(
                     "Column ", tmp_vec[0],
                     " doesn't have specified type so string type will be used");
-                tmp_vec.push_back("string");
+                tmp_vec.push_back(_string);
             } else {
                 warn("Empty colum definition, skiping column.");
                 std::unique_ptr<Filler> f(new SkipFiller());

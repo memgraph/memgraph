@@ -1,3 +1,5 @@
+#pragma once
+
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "utils/iterator/iterator.hpp"
@@ -13,14 +15,7 @@ DbAccessor::DbAccessor(Db &db, tx::Transaction &t)
 }
 
 // VERTEX METHODS
-auto DbAccessor::vertex_access()
-{
-    return iter::make_map(
-        iter::make_iter(this->db_transaction.db.graph.vertices.access()),
-        [&](auto e) -> auto {
-            return VertexAccessor(&(e->second), db_transaction);
-        });
-}
+// auto DbAccessor::vertex_access()
 
 Option<const VertexAccessor> DbAccessor::vertex_find(const Id &id)
 {
@@ -96,20 +91,6 @@ EdgePropertyFamily::PropertyType::PropertyFamilyKey
 DbAccessor::edge_property_key(const std::string &name, Type type)
 {
     return edge_property_family_get(name).get(type).family_key();
-}
-
-template <class T>
-VertexPropertyFamily::PropertyType::PropertyTypeKey<T>
-DbAccessor::vertex_property_key(const std::string &name)
-{
-    return vertex_property_family_get(name).get(T::type).template type_key<T>();
-}
-
-template <class T>
-EdgePropertyFamily::PropertyType::PropertyTypeKey<T>
-DbAccessor::edge_property_key(const std::string &name)
-{
-    return edge_property_family_get(name).get(T::type).template type_key<T>();
 }
 
 // TRANSACTION METHODS

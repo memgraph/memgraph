@@ -13,6 +13,10 @@ class LambdaIterator : public IteratorBase<T>
 public:
     LambdaIterator(F &&f) : func(std::move(f)) {}
 
+    LambdaIterator(LambdaIterator &&other) : func(std::move(other.func)) {}
+
+    ~LambdaIterator() final {}
+
     Option<T> next() final { return func(); }
 
 private:

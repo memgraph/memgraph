@@ -13,6 +13,8 @@ class EdgeAccessor;
 class DbTransaction;
 
 using EdgePropertyFamily = PropertyFamily<TypeGroupEdge>;
+template <class K>
+using EdgeIndexBase = IndexBase<TypeGroupEdge, K>;
 
 class Edges
 {

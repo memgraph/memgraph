@@ -1,6 +1,11 @@
 #include <iostream>
 
 #include "query_engine/hardcode/queries.hpp"
+
+#include "barrier/barrier.cpp"
+
+#include "database/db.hpp"
+#include "query_engine/query_stripper.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
 #include "storage/vertices.cpp"
@@ -11,7 +16,7 @@ using namespace std;
 int main(int argc, char **argv)
 {
     Db db;
-    auto queries = load_queries(db);
+    auto queries = load_queries(barrier::trans(db));
 
     // auto arguments = all_arguments(argc, argv);
     // auto input_query = extract_query(arguments);

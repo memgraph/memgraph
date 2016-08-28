@@ -20,6 +20,14 @@ public:
         : begin(std::move(acc.begin())), acc(std::forward<A>(acc))
     {
     }
+
+    IteratorAccessor(IteratorAccessor &&other)
+        : begin(std::move(other.begin)), acc(std::forward<A>(other.acc))
+    {
+    }
+
+    ~IteratorAccessor() final {}
+
     // Iter(const Iter &other) = delete;
     // Iter(Iter &&other) :
     // begin(std::move(other.begin)),end(std::move(other.end)) {};

@@ -39,10 +39,35 @@ public:
     const Property &at(prop_key_t &key) const;
 
     template <class T>
-    auto at(type_key_t<T> &key) const;
+    OptionPtr<T> at(type_key_t<T> &key) const
+    {
+        auto f_key = key.family_key();
+        auto it = props.find(f_key);
+
+        if (it == props.end() || it->first.prop_type() != key.prop_type())
+            return OptionPtr<T>();
+
+        return OptionPtr<T>(&(it->second.get()->template as<T>()));
+    }
 
     template <class T, class... Args>
-    void set(type_key_t<T> &key, Args &&... args);
+    void set(type_key_t<T> &key, Args &&... args)
+    {
+        auto value = std::make_shared<T>(std::forward<Args>(args)...);
+
+        // try to emplace the item
+        // TODO: There is uneccesary copying of value here.
+        auto result = props.emplace(std::make_pair(key, value));
+
+        if (!result.second) {
+            // It is necessary to change key because the types from before and
+            // now
+            // could be different.
+            prop_key_t &key_ref = const_cast<prop_key_t &>(result.first->first);
+            key_ref = key;
+            result.first->second = std::move(value);
+        }
+    }
 
     void set(prop_key_t &key, Property::sptr value);
 

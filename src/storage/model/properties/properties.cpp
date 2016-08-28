@@ -34,39 +34,6 @@ const Property &Properties<TG>::at(prop_key_t &key) const
 }
 
 template <class TG>
-template <class T>
-auto Properties<TG>::at(type_key_t<T> &key) const
-{
-    auto f_key = key.family_key();
-    auto it = props.find(f_key);
-
-    if (it == props.end() || it->first.prop_type() != key.prop_type())
-        return Option<decltype(
-            &(it->second.get()->template as<T>().value_ref()))>();
-
-    return make_option(&(it->second.get()->template as<T>().value_ref()));
-}
-
-template <class TG>
-template <class T, class... Args>
-void Properties<TG>::set(type_key_t<T> &key, Args &&... args)
-{
-    auto value = std::make_shared<T>(std::forward<Args>(args)...);
-
-    // try to emplace the item
-    // TODO: There is uneccesary copying of value here.
-    auto result = props.emplace(std::make_pair(key, value));
-
-    if (!result.second) {
-        // It is necessary to change key because the types from before and now
-        // could be different.
-        prop_key_t &key_ref = const_cast<prop_key_t &>(result.first->first);
-        key_ref = key;
-        result.first->second = std::move(value);
-    }
-}
-
-template <class TG>
 void Properties<TG>::set(prop_key_t &key, Property::sptr value)
 {
     // TODO: There is uneccesary copying of value here.

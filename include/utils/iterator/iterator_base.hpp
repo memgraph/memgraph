@@ -8,5 +8,7 @@ template <class T>
 class IteratorBase
 {
 public:
+    virtual ~IteratorBase(){};
+
     virtual Option<T> next() = 0;
 };

@@ -37,10 +37,11 @@ public:
 
     CharStr char_str() { return CharStr(&id[0]); }
 
-    std::unique_ptr<type_index_t> index;
+    type_index_t &index() const;
 
 private:
     std::string id;
+    std::unique_ptr<type_index_t> index_v;
 };
 
 using edge_type_ref_t = ReferenceWrapper<const EdgeType>;

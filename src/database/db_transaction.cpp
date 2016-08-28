@@ -38,7 +38,7 @@ bool DbTransaction::update_indexes()
 
             // TODO: This could be done in batch
             // NOTE: This assumes that type index is created with the database.
-            TRY(e.record->data.edge_type->index->insert(
+            TRY(e.record->data.edge_type->index().insert(
                 EdgeTypeIndexRecord(std::nullptr_t(), e.record, e.vlist)));
 
             TRY(update_property_indexes<TypeGroupEdge>(e, trans));
@@ -50,7 +50,7 @@ bool DbTransaction::update_indexes()
                 // TODO: This could be done in batch
                 // NOTE: This assumes that label index is created with the
                 // database.
-                TRY(l.get().index->insert(
+                TRY(l.get().index().insert(
                     LabelIndexRecord(std::nullptr_t(), v.record, v.vlist)));
             }
 

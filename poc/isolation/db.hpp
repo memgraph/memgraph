@@ -1,7 +1,5 @@
 #include <string>
 
-namespace base
-{
 class Accessor
 {
 public:
@@ -25,4 +23,3 @@ public:
     int data = 0;
     Name name = {"name"};
 };
-}

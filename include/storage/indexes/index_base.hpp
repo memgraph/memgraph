@@ -36,6 +36,8 @@ public:
 
     IndexBase(bool unique, Order order, const tx::Transaction &t);
 
+    virtual ~IndexBase(){};
+
     // Insert's value.
     // unique => returns false if there is already valid equal value.
     // nonunique => always succeds.
@@ -66,12 +68,15 @@ public:
     // True if transaction is obliged to insert T into index.
     bool is_obliged_to_insert(const tx::Transaction &t);
 
-    // Are the records unique
-    const bool unique;
-    // Ordering of the records.
-    const Order order;
+    bool unique() { return _unique; }
+
+    Order order() { return _order; }
 
 private:
+    // Are the records unique
+    const bool _unique;
+    // Ordering of the records.
+    const Order _order;
     // Id of transaction which created this index.
     const Id created;
     // Active state

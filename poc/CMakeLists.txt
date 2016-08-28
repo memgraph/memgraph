@@ -16,3 +16,8 @@ include_directories(${CMAKE_SOURCE_DIR}/poc)
 
 add_executable(isolation isolation.cpp isolation/header.cpp)
 target_link_libraries(isolation ${fmt_static_lib})
+
+add_executable(size_aligment size_aligment.cpp)
+target_link_libraries(size_aligment memgraph)
+target_link_libraries(size_aligment Threads::Threads)
+target_link_libraries(size_aligment ${fmt_static_lib})

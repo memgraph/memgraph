@@ -13,6 +13,8 @@ class DbTransaction;
 class VertexAccessor;
 
 using VertexPropertyFamily = PropertyFamily<TypeGroupVertex>;
+template <class K>
+using VertexIndexBase = IndexBase<TypeGroupVertex, K>;
 
 class Vertices
 {

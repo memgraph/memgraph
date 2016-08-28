@@ -1,18 +1,25 @@
 #pragma once
 
-#include "database/db.hpp"
-#include "database/db_accessor.cpp"
-#include "database/db_accessor.hpp"
-#include "query_engine/query_stripper.hpp"
-#include "query_engine/util.hpp"
-#include "storage/indexes/impl/nonunique_unordered_index.cpp"
-// #include "storage/model/properties/properties.cpp"
-#include "storage/model/properties/property.hpp"
-#include "storage/model/properties/property_family.hpp"
-#include "utils/command_line/arguments.hpp"
-#include "utils/iterator/iterator.hpp"
-// #include "utils/utils.cpp"
+#include <iostream>
+#include <map>
 
+// #include "database/db.hpp"
+// #include "database/db_accessor.cpp"
+// #include "database/db_accessor.hpp"
+// #include "query_engine/query_stripper.hpp"
+// #include "query_engine/util.hpp"
+// #include "storage/indexes/impl/nonunique_unordered_index.cpp"
+// #include "storage/model/properties/property.hpp"
+// #include "storage/model/properties/property_family.hpp"
+// #include "utils/command_line/arguments.hpp"
+// #include "utils/iterator/iterator.hpp"
+
+#include "barrier/barrier.hpp"
+
+using namespace std;
+
+namespace barrier
+{
 auto load_queries(Db &db)
 {
     std::map<uint64_t, std::function<bool(const properties_t &)>> queries;
@@ -37,7 +44,7 @@ auto load_queries(Db &db)
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(prop_key, args[0]);
         vertex_accessor.add_label(label);
-        cout_properties(vertex_accessor.properties());
+        // cout_properties(vertex_accessor.properties());
         t.commit();
         return true;
     };
@@ -56,7 +63,7 @@ auto load_queries(Db &db)
         vertex_accessor.set(prop_country, args[2]);
         vertex_accessor.set(prop_created, args[3]);
         vertex_accessor.add_label(label);
-        cout_properties(vertex_accessor.properties());
+        // cout_properties(vertex_accessor.properties());
         t.commit();
         return true;
     };
@@ -70,10 +77,10 @@ auto load_queries(Db &db)
             return false;
         }
         auto vertex_accessor = maybe_va.get();
-        cout_properties(vertex_accessor.properties());
+        // cout_properties(vertex_accessor.properties());
         cout << "LABELS:" << endl;
         for (auto label_ref : vertex_accessor.labels()) {
-            cout << label_ref.get() << endl;
+            // cout << label_ref.get() << endl;
         }
         t.commit();
         return true;
@@ -95,9 +102,9 @@ auto load_queries(Db &db)
 
         t.commit();
 
-        cout << edge_accessor.edge_type() << endl;
+        // cout << edge_accessor.edge_type() << endl;
 
-        cout_properties(edge_accessor.properties());
+        // cout_properties(edge_accessor.properties());
 
         return true;
     };
@@ -109,19 +116,19 @@ auto load_queries(Db &db)
         auto edge_accessor = maybe_ea.get();
 
         // print edge type and properties
-        cout << "EDGE_TYPE: " << edge_accessor.edge_type() << endl;
+        // cout << "EDGE_TYPE: " << edge_accessor.edge_type() << endl;
 
         auto from = edge_accessor.from();
         if (!from.fill()) return t.commit(), false;
 
         cout << "FROM:" << endl;
-        cout_properties(from->data.props);
+        // cout_properties(from->data.props);
 
         auto to = edge_accessor.to();
         if (!to.fill()) return t.commit(), false;
 
         cout << "TO:" << endl;
-        cout_properties(to->data.props);
+        // cout_properties(to->data.props);
 
         t.commit();
 
@@ -137,7 +144,7 @@ auto load_queries(Db &db)
         auto v = maybe_v.get();
 
         v.set(prop_name, args[1]);
-        cout_properties(v.properties());
+        // cout_properties(v.properties());
 
         t.commit();
 
@@ -173,7 +180,7 @@ auto load_queries(Db &db)
 
         iter::for_all(t.vertex_access(), [&](auto vertex) {
             if (vertex.fill()) {
-                cout_properties(vertex->data.props);
+                // cout_properties(vertex->data.props);
             }
         });
 
@@ -191,7 +198,7 @@ auto load_queries(Db &db)
         auto prop_key = t.vertex_property_key("name", Flags::String);
 
         cout << "VERTICES" << endl;
-        iter::for_all(label.index->for_range_exact(t),
+        iter::for_all(label.index().for_range(t),
                       [&](auto a) { cout << a.at(prop_key) << endl; });
 
         return true;
@@ -207,4 +214,5 @@ auto load_queries(Db &db)
     queries[6813335159006269041u] = update_node;
 
     return queries;
+}
 }

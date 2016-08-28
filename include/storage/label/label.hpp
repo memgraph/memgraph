@@ -41,9 +41,10 @@ public:
 
     CharStr char_str() const { return CharStr(name.c_str()); }
 
-    std::unique_ptr<label_index_t> index;
+    label_index_t &index() const;
 
 private:
+    std::unique_ptr<label_index_t> index_v;
     std::string name;
 };
 

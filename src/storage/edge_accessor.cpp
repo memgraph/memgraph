@@ -1,22 +1,22 @@
 #include "storage/edge_accessor.hpp"
 
-void EdgeAccessor::edge_type(edge_type_ref_t edge_type)
+void EdgeAccessor::edge_type(const EdgeType &edge_type)
 {
-    this->record->data.edge_type = &edge_type.get();
+    this->record->data.edge_type = &edge_type;
 }
 
-edge_type_ref_t EdgeAccessor::edge_type() const
+const EdgeType &EdgeAccessor::edge_type() const
 {
     runtime_assert(this->record->data.edge_type != nullptr, "EdgeType is null");
-    return edge_type_ref_t(*this->record->data.edge_type);
+    return *this->record->data.edge_type;
 }
 
-VertexAccessor EdgeAccessor::from() const
+const VertexAccessor EdgeAccessor::from() const
 {
     return VertexAccessor(this->vlist->from(), this->db);
 }
 
-VertexAccessor EdgeAccessor::to() const
+const VertexAccessor EdgeAccessor::to() const
 {
     return VertexAccessor(this->vlist->to(), this->db);
 }

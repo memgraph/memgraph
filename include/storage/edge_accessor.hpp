@@ -19,11 +19,11 @@ public:
     typedef Edge record_t;
     typedef EdgeRecord record_list_t;
 
-    void edge_type(edge_type_ref_t edge_type);
+    void edge_type(EdgeType const &edge_type);
 
-    edge_type_ref_t edge_type() const;
+    const EdgeType &edge_type() const;
 
-    VertexAccessor from() const;
+    const VertexAccessor from() const;
 
-    VertexAccessor to() const;
+    const VertexAccessor to() const;
 };

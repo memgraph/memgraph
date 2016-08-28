@@ -401,6 +401,7 @@ EXECUTE_PROCESS(
 
 # TODO: create separate static library from bolt code
 set(memgraph_src_files
+    ${src_dir}/barrier/barrier.cpp
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp

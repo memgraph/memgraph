@@ -1,4 +1,9 @@
 #include "query_engine/hardcode/queries.hpp"
+
+#include "barrier/barrier.cpp"
+
+#include "database/db.hpp"
+#include "query_engine/query_stripper.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
 #include "storage/vertices.cpp"
@@ -9,7 +14,7 @@ int main(void)
 {
     Db db;
 
-    auto query_functions = load_queries(db);
+    auto query_functions = load_queries(barrier::trans(db));
 
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 

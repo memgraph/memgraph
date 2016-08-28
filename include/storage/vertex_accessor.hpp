@@ -1,7 +1,9 @@
 #pragma once
 
+// #include "storage/edge_accessor.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
+// #include "utils/iterator/iterator.hpp"
 
 class Vertices;
 
@@ -26,7 +28,7 @@ public:
 
     bool has_label(const Label &label) const;
 
-    const std::set<label_ref_t> &labels() const;
+    const std::vector<label_ref_t> &labels() const;
 
     auto out() const;
 

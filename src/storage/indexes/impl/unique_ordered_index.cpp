@@ -1,5 +1,7 @@
 #include "storage/indexes/impl/unique_ordered_index.hpp"
 
+#include "database/db.hpp"
+
 #include "database/db_accessor.hpp"
 #include "database/db_transaction.hpp"
 #include "storage/edge_accessor.hpp"
@@ -30,7 +32,7 @@ UniqueOrderedIndex<T, K>::UniqueOrderedIndex(Order order,
 template <class T, class K>
 bool UniqueOrderedIndex<T, K>::insert(IndexRecord<T, K> &&value)
 {
-    if (this->order == Descending) {
+    if (this->order() == Descending) {
         value.set_descending();
     }
     return set.access().insert(std::move(value)).second;
@@ -54,13 +56,13 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
     auto end = to_v;
 
     // Sorted order must be checked
-    if (this->order == Ascending && from_v.key.is_present()) {
+    if (this->order() == Ascending && from_v.key.is_present()) {
         begin = acc.cfind_or_larger(from_v);
-    } else if (this->order == Descending && to_v.key.is_present()) {
+    } else if (this->order() == Descending && to_v.key.is_present()) {
         begin = acc.cfind_or_larger(to_v);
         end = from_v;
     } else {
-        assert(this->order != None);
+        assert(this->order() != None);
     }
 
     return iter::make_iterator([

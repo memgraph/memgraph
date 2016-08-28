@@ -8,30 +8,32 @@ TO &ref_as(FROM &ref)
     return (*reinterpret_cast<TO *>(&ref));
 }
 
-template <class TO, class FROM>
-TO value_as(FROM &&ref)
+// template <class TO, class FROM>
+// TO value_as(FROM &&ref)
+// {
+//     return std::move((*reinterpret_cast<TO *>(&ref)));
+// }
+
+sha::Accessor::Accessor(const sha::Accessor &other)
+    : Sized(sizeof(::Accessor), alignof(::Accessor))
 {
-    return std::move((*reinterpret_cast<TO *>(&ref)));
+    as<::Accessor>() = other.as<::Accessor>();
 }
 
-sha::Accessor::Accessor(const sha::Accessor::Accessor &other)
-    : Sized(sizeof(base::Accessor), alignof(base::Accessor))
+sha::Accessor::Accessor(sha::Accessor &&other)
+    : Sized(sizeof(::Accessor), alignof(::Accessor))
 {
-    as<base::Accessor>() = other.as<base::Accessor>();
+    as<::Accessor>() = value_as<::Accessor>(other);
 }
 
-sha::Accessor::Accessor(sha::Accessor::Accessor &&other)
-    : Sized(sizeof(base::Accessor), alignof(base::Accessor))
-{
-    as<base::Accessor>() = value_as<base::Accessor>(other);
-}
+sha::Accessor::~Accessor() { as<::Accessor>().~Accessor(); }
 
-sha::Accessor &sha::Accessor::operator=(const sha::Accessor::Accessor &other)
+sha::Accessor &sha::Accessor::operator=(const sha::Accessor &other)
 {
     // TODO
     return *this;
 }
-sha::Accessor &sha::Accessor::operator=(sha::Accessor::Accessor &&other)
+sha::Accessor &sha::Accessor::operator=(sha::Accessor &&other)
 {
     // TODO
     return *this;
@@ -39,21 +41,21 @@ sha::Accessor &sha::Accessor::operator=(sha::Accessor::Accessor &&other)
 
 int sha::Accessor::get_prop(sha::Name &name)
 {
-    return as<base::Accessor>().data;
+    return as<::Accessor>().data;
 }
 
 sha::Accessor sha::Db::access()
 {
-    auto &db = as<base::Db>();
+    auto &db = as<::Db>();
     db.accessed++;
-    base::Accessor acc;
+    ::Accessor acc;
     acc.data = db.data;
-    return sha::Accessor(value_as<sha::Accessor>(acc));
+    return sha::Accessor(std::move(acc));
 }
 
 sha::Name &sha::Db::get_name(const char *str)
 {
-    auto &db = as<base::Db>();
+    auto &db = as<::Db>();
     db.accessed++;
     return ref_as<sha::Name>(db.name);
 }

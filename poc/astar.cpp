@@ -58,7 +58,7 @@ public:
         auto now = this;
         double sum = 0;
         do {
-            sum += *(now->vacc.at(tkey).get());
+            sum += (now->vacc.at(tkey).get())->value;
             now = now->parent;
         } while (now != nullptr);
         return sum;
@@ -89,7 +89,7 @@ double calc_heuristic_cost_dummy(type_key_t<TypeGroupVertex, Double> tkey,
                                  EdgeAccessor &edge, VertexAccessor &vertex)
 {
     assert(!vertex.empty());
-    return 1 - *vertex.at(tkey).get();
+    return 1 - vertex.at(tkey).get()->value;
 }
 
 typedef bool (*EdgeFilter)(DbAccessor &t, EdgeAccessor &, Node *before);

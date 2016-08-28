@@ -3,7 +3,7 @@
 
 Label::Label(const char *name)
     : name(std::string(name)),
-      index(std::unique_ptr<label_index_t>(new label_index_t()))
+      index_v(std::unique_ptr<label_index_t>(new label_index_t()))
 {
 }
 
@@ -33,3 +33,5 @@ std::ostream &operator<<(std::ostream &stream, const Label &label)
 }
 
 Label::operator const std::string &() const { return name; }
+
+Label::label_index_t &Label::index() const { return *index_v.get(); }

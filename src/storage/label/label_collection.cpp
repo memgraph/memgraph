@@ -12,28 +12,43 @@ auto LabelCollection::cend() const { return _labels.end(); }
 
 bool LabelCollection::add(const Label &label)
 {
-    return _labels.insert(label_ref_t(label)).second;
+    if (has(label)) {
+        return false;
+    } else {
+        _labels.push_back(label_ref_t(label));
+        return true;
+    }
+    // return _labels.(label_ref_t(label)).second;
 }
 
 bool LabelCollection::has(const Label &label) const
 {
-    return _labels.count(label);
+    for (auto l : _labels) {
+        if (l == label) {
+            return true;
+        }
+    }
+    return false;
 }
 
 size_t LabelCollection::count() const { return _labels.size(); }
 
 bool LabelCollection::remove(const Label &label)
 {
-    auto it = _labels.find(label);
+    auto end = _labels.end();
+    for (auto it = _labels.begin(); it != end; it++) {
+        if (*it == label) {
+            _labels.erase(it);
+            return true;
+        }
+    }
 
-    if (it == _labels.end()) return false;
-
-    return _labels.erase(it), true;
+    return false;
 }
 
 void LabelCollection::clear() { _labels.clear(); }
 
-const std::set<label_ref_t> &LabelCollection::operator()() const
+const std::vector<label_ref_t> &LabelCollection::operator()() const
 {
     return _labels;
 }

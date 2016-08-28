@@ -151,7 +151,7 @@ void fill_with_bt(
 {
     auto bus_t = com.at(prop_vertex_business_types);
     if (bus_t.is_present()) {
-        for (auto &bt : *bus_t.get()) {
+        for (auto &bt : bus_t.get()->value) {
             values[bt] += weight;
         }
     }
@@ -240,7 +240,7 @@ auto query(DbAccessor &t, const Id &start_id)
             // cout << "   type_works_in" << endl;
             iter::for_all_fill(employ.out(), [&](auto employ_edge) {
                 // cout << "       employ.out()" << endl;
-                auto ee_type = employ_edge.edge_type();
+                auto &ee_type = employ_edge.edge_type();
                 // cout << "       ee_type: " << ee_type << endl;
 
                 if (ee_type == type_interested_in) {
@@ -263,7 +263,7 @@ auto query(DbAccessor &t, const Id &start_id)
                                 return;
                             }
 
-                            auto str = feedback.get()->c_str();
+                            auto str = feedback.get()->value.c_str();
                             double weight = 0;
                             if (strcasecmp(str, "like") == 0) {
                                 weight = 1;
@@ -289,7 +289,7 @@ auto query(DbAccessor &t, const Id &start_id)
                         if (!os.is_present()) {
                             return;
                         }
-                        auto str = os.get()->c_str();
+                        auto str = os.get()->value.c_str();
 
                         if (strcasecmp(str, "pending") == 0) {
                             weight = 0.5;
@@ -306,7 +306,7 @@ auto query(DbAccessor &t, const Id &start_id)
                                ee_type == type_searched_and_clicked) {
                         auto count = employ_edge.at(prop_edge_count);
                         if (count.is_present()) {
-                            weight = 0.01 * (*count.get());
+                            weight = 0.01 * (count.get()->value);
                         }
                     }
 
@@ -336,7 +336,7 @@ Option<Id> find_company(DbAccessor &t, int64_t cid)
                                       .type_key<Int64>();
     const Label &label_company = t.label_find_or_create("Company");
 
-    iter::find_fill(label_company.index->for_range_exact(t), [&](auto v) {
+    iter::find_fill(label_company.index().for_range_exact(t), [&](auto v) {
         if (v.has_label(label_company)) {
             auto id = v.at(prop_vertex_company_id);
             if (id.is_present()) {
@@ -369,7 +369,7 @@ int main(int argc, char **argv)
         auto begin = clock();
         int i = 0;
         iter::find_fill(
-            t.label_find_or_create("Company").index->for_range_exact(t),
+            t.label_find_or_create("Company").index().for_range_exact(t),
             [&](auto v) {
                 coll.push_back(make_pair(v, query(t, v.id())));
                 i++;

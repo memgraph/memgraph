@@ -1,6 +1,6 @@
 #pragma once
 
-#include <set>
+#include <vector>
 
 // #include "storage/label/label.hpp"
 #include "utils/reference_wrapper.hpp"
@@ -24,8 +24,8 @@ public:
     size_t count() const;
     bool remove(const Label &label);
     void clear();
-    const std::set<label_ref_t> &operator()() const;
+    const std::vector<label_ref_t> &operator()() const;
 
 private:
-    std::set<label_ref_t> _labels;
+    std::vector<label_ref_t> _labels;
 };

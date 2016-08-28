@@ -4,9 +4,16 @@
 
 #include <cassert>
 #include <type_traits>
+#include <utility>
 
 namespace sha
 {
+
+template <class TO, class FROM>
+TO value_as(FROM &&ref)
+{
+    return std::move((*reinterpret_cast<TO *>(&ref)));
+}
 
 // Sized
 class Name;
@@ -62,6 +69,20 @@ public:
         assert(alignment_B == _alignment_B);
     }
 
+    // This constructr also serves as a check for correctness of size and
+    // aligment.
+    template <class T>
+    Sized(T &&d)
+        : data(value_as<
+               typename std::aligned_storage<size_B, alignment_B>::type>(
+              std::move(d)))
+    {
+
+        static_assert(size_B == sizeof(T), "Border class size mismatch");
+        static_assert(alignment_B == alignof(T),
+                      "Border class aligment mismatch");
+    }
+
 protected:
     template <class T>
     T &as()
@@ -88,17 +109,28 @@ private:
     // above:
     // assert(sizeof(Accessor)==sizeof(std::set<int>));
     // assert(alignof(Accessor)==alignof(std::set<int>));
-    std::aligned_storage<size_B, alignment_B> data;
+    typename std::aligned_storage<size_B, alignment_B>::type data;
 };
 
 // Type which will be passed by value so it's real size matters.
 class Accessor : private Sized<16, 8>
 {
+    // The only border classes which can create this class.
+    friend Db;
+
+private:
+    // The only valid concstructor for original class
+    template <class T>
+    Accessor(T &&d) : Sized(std::move(d))
+    {
+    }
+
 public:
     // If the underlying type can't be copyed or moved this two constructors
     // would be deleted.
     Accessor(const Accessor &other);
     Accessor(Accessor &&other);
+    ~Accessor();
 
     // If the underlying type can't be copyed or moved this two operators
     // would be deleted.
@@ -114,7 +146,7 @@ class Name : private Unsized
 };
 
 // Type which will be passed by ref/pointer only so it's size doesnt matter.
-class Db : public Unsized
+class Db : private Unsized
 {
 public:
     Accessor access();

@@ -6,13 +6,13 @@
 
 template <class TG, class K>
 IndexBase<TG, K>::IndexBase(bool unique, Order order)
-    : unique(unique), order(order), created(Id(0)), active(true)
+    : _unique(unique), _order(order), created(Id(0)), active(true)
 {
 }
 
 template <class TG, class K>
 IndexBase<TG, K>::IndexBase(bool unique, Order order, const tx::Transaction &t)
-    : unique(unique), order(order), created(t.id)
+    : _unique(unique), _order(order), created(t.id)
 {
 }
 

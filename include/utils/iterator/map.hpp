@@ -23,6 +23,10 @@ public:
     // std::move is a optimization for it.
     Map(I &&iter, OP &&op) : iter(std::move(iter)), op(std::move(op)) {}
 
+    Map(Map &&m) : iter(std::move(m.iter)), op(std::move(m.op)) {}
+
+    ~Map() final {}
+
     Option<T> next() final
     {
         auto item = iter.next();

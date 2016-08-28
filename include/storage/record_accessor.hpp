@@ -91,7 +91,7 @@ public:
     }
 
     template <class V>
-    auto at(type_key_t<TG, V> &key) const
+    OptionPtr<V> at(type_key_t<TG, V> &key) const
     {
         return properties().template at<V>(key);
     }
@@ -152,6 +152,7 @@ public:
         return !(a == b);
     }
 
+protected:
     T *record{nullptr};
     vlist_t *const vlist;
     DbTransaction &db;
