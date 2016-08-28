@@ -3,17 +3,6 @@
 #include <iostream>
 #include <map>
 
-// #include "database/db.hpp"
-// #include "database/db_accessor.cpp"
-// #include "database/db_accessor.hpp"
-// #include "query_engine/query_stripper.hpp"
-// #include "query_engine/util.hpp"
-// #include "storage/indexes/impl/nonunique_unordered_index.cpp"
-// #include "storage/model/properties/property.hpp"
-// #include "storage/model/properties/property_family.hpp"
-// #include "utils/command_line/arguments.hpp"
-// #include "utils/iterator/iterator.hpp"
-
 #include "barrier/barrier.hpp"
 
 using namespace std;

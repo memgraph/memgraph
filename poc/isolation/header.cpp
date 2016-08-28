@@ -39,10 +39,7 @@ sha::Accessor &sha::Accessor::operator=(sha::Accessor &&other)
     return *this;
 }
 
-int sha::Accessor::get_prop(sha::Name &name)
-{
-    return as<::Accessor>().data;
-}
+int sha::Accessor::get_prop(sha::Name &name) { return as<::Accessor>().data; }
 
 sha::Accessor sha::Db::access()
 {

@@ -14,6 +14,8 @@ namespace barrier
 // barrier class defined here.
 
 // ************ Here should be forward declarations of Sized barrier classes
+class DbAccessor; // DONE // .cpp
+
 class VertexAccessor; // DONE // .cpp
 class EdgeAccessor;   // DONE // .cpp
 
@@ -40,8 +42,7 @@ class BoltSerializer; // DONE // .cpp
 class Label;    // DONE // .cpp
 class EdgeType; // DONE // .cpp
 
-class Db;
-class DbAccessor; // DONE // .cpp
+class Db; // DONE // .cpp
 
 class VertexPropertyFamily; // DONE // .cpp
 class EdgePropertyFamily;   // DONE // .cpp

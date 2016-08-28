@@ -102,11 +102,8 @@ protected:
     // with T which it holds where T is original class from memgraph.
     template <class T>
     Sized(T &&d)
-        : data(value_as<
-               typename std::aligned_storage<size_B, alignment_B>::type>(
-              std::move(d)))
     {
-
+        new (ptr_as<T>(&data)) T(std::move(d));
         static_assert(size_B == sizeof(T), "Border class size mismatch");
         static_assert(alignment_B == alignof(T),
                       "Border class aligment mismatch");
@@ -117,11 +114,8 @@ protected:
     // with T which it holds where T is original class from memgraph.
     template <class T>
     Sized(const T &&d)
-        : data(value_as<
-               const typename std::aligned_storage<size_B, alignment_B>::type>(
-              std::move(d)))
     {
-
+        new (ptr_as<T>(&data)) T(std::move(d));
         static_assert(size_B == sizeof(T), "Border class size mismatch");
         static_assert(alignment_B == alignof(T),
                       "Border class aligment mismatch");
