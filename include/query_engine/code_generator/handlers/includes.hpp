@@ -30,6 +30,7 @@ auto update_properties(const CypherStateData &cypher_state,
         auto index =
             action_data.parameter_index.at(ParameterIndexKey(name, property));
         auto tmp_name = name::unique();
+        // TODO: ERROR! why
         code += code_line((cypher_state.type(name) == EntityType::Node
                                ? code::vertex_property_key
                                : code::edge_property_key),

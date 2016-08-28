@@ -15,10 +15,13 @@
 
 using std::string;
 
+template <typename Stream>
 class ProgramLoader
 {
 public:
-    using sptr_code_lib = std::shared_ptr<CodeLib>;
+    using code_lib_t = CodeLib<Stream>;
+    using sptr_code_lib = std::shared_ptr<code_lib_t>;
+    using query_program_t = QueryProgram<Stream>;
 
     ProgramLoader() :
         logger(logging::log->logger("ProgramLoader")),
@@ -40,7 +43,7 @@ public:
         // instance
         if (code_lib_iter != code_libs.end()) {
             auto code = code_lib_iter->second->instance();
-            return QueryProgram(code, std::move(stripped));
+            return query_program_t(code, std::move(stripped));
         }
 
         // code has to be generated, compiled and loaded
@@ -59,7 +62,7 @@ public:
         code_libs.insert({{stripped.hash, code_lib}});
 
         // return an instance of runnable code (ICodeCPU)
-        return QueryProgram(code_lib->instance(), std::move(stripped));
+        return query_program_t(code_lib->instance(), std::move(stripped));
     }
 
 protected:
@@ -74,12 +77,12 @@ private:
     // uint64_t depends on fnv function
     std::unordered_map<uint64_t, sptr_code_lib> code_libs;
 
-    CodeGenerator code_generator;
+    CodeGenerator<Stream> code_generator;
     CodeCompiler code_compiler;
 
     sptr_code_lib load_code_lib(const string &path)
     {
-        sptr_code_lib code_lib = std::make_shared<CodeLib>(path);
+        sptr_code_lib code_lib = std::make_shared<CodeLib<Stream>>(path);
         code_lib->load();
         return code_lib;
     }

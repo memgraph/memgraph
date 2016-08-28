@@ -65,7 +65,7 @@ void Executor::pull_all(Session& session)
 {
     logger.trace("[PullAll]");
 
-    session.output_stream.flush();
+    session.output_stream.send();
 }
 
 void Executor::discard_all(Session& session)
@@ -75,7 +75,8 @@ void Executor::discard_all(Session& session)
     // TODO: discard state
 
     session.output_stream.write_success();
-    session.output_stream.flush();
+    session.output_stream.chunk();
+    session.output_stream.send();
 }
 
 }

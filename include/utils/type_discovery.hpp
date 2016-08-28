@@ -69,6 +69,11 @@ public:
     {
         return n < sz_ ? p_[n] : throw std::out_of_range("static_string");
     }
+
+    std::string to_string()
+    {
+        return std::string(p_, sz_);
+    }
 };
 
 inline

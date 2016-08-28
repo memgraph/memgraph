@@ -12,7 +12,8 @@ State* Error::run(Session& session)
         // TODO reset current statement? is it even necessary?
         
         session.output_stream.write_success_empty();
-        session.output_stream.flush();
+        session.output_stream.chunk();
+        session.output_stream.send();
 
         return session.bolt.states.executor.get();
     }
@@ -22,14 +23,16 @@ State* Error::run(Session& session)
         // discard all records waiting to be sent
 
         session.output_stream.write_success_empty();
-        session.output_stream.flush();
-
+        session.output_stream.chunk();
+        session.output_stream.send();
 
         return session.bolt.states.executor.get();
     }
 
+    // TODO: write this as single call
     session.output_stream.write_ignored();
-    session.output_stream.flush();
+    session.output_stream.chunk();
+    session.output_stream.send();
 
     return this;
 }

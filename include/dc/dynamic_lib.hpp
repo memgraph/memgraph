@@ -13,9 +13,11 @@ template<typename T>
 class DynamicLib
 {
 private:
+    // IMPORTANT: all dynamic libraries must have produce and destruct methods!
+    const std::string produce_name = "produce";
+    const std::string destruct_name = "destruct";
     using produce_t = typename T::produce;
     using destruct_t = typename T::destruct;
-    std::atomic<uint8_t> counter;
 
 public:
     produce_t produce_method;
@@ -69,7 +71,7 @@ private:
     {
         produce_method = (produce_t) dlsym(
             dynamic_lib,
-            T::produce_name.c_str()
+            produce_name.c_str()
         );
         const char* dlsym_error = dlerror();
         if (dlsym_error) {
@@ -81,7 +83,7 @@ private:
     {
         destruct_method = (destruct_t) dlsym(
             dynamic_lib,
-            T::destruct_name.c_str()
+            destruct_name.c_str()
         );
         const char *dlsym_error = dlerror();
         if (dlsym_error) {

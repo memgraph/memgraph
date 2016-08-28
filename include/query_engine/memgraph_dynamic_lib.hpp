@@ -6,18 +6,16 @@
 namespace
 {
 
+template <typename Stream>
 class MemgraphDynamicLib
 {
 public:
-    const static std::string produce_name;
-    const static std::string destruct_name;
-    using produce = produce_t;
-    using destruct = destruct_t;
-    using lib_object = ICodeCPU;
+    using produce = produce_t<Stream>;
+    using destruct = destruct_t<Stream>;
+    using lib_object = ICodeCPU<Stream>;
 };
-const std::string MemgraphDynamicLib::produce_name = "produce";
-const std::string MemgraphDynamicLib::destruct_name = "destruct";
 
-using CodeLib = DynamicLib<MemgraphDynamicLib>;
+template <typename Stream>
+using CodeLib = DynamicLib<MemgraphDynamicLib<Stream>>;
 
 }

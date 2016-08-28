@@ -8,6 +8,8 @@
 #include "utils/time/timer.hpp"
 #include "utils/terminate_handler.hpp"
 #include "communication/communication.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 
 using std::cout;
 using std::endl;
@@ -17,11 +19,15 @@ int main(void)
 {   
     std::set_terminate(&terminate_handler);
 
+    logging::init_sync();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     Db db;
-    QueryEngine engine;
     // TODO: write dummy socket that is going to execute test
-    io::Socket socket;
-    communication::OutputStream stream(socket);
+    using stream_t = bolt::RecordStream<CoutSocket>;
+    CoutSocket socket;
+    stream_t stream(socket);
+    QueryEngine<stream_t> engine;
 
     cout << "-- Memgraph query engine --" << endl;
 

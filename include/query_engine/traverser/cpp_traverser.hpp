@@ -254,6 +254,10 @@ public:
         }
 
         Traverser::visit(ast_node);
+
+        if (state == CypherState::Create) {
+            cypher_data.node_created(name);
+        }
     }
 
     void visit(ast::And &ast_and) override { Traverser::visit(ast_and); }

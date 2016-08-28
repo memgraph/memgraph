@@ -54,7 +54,7 @@ public:
             bolt_encoder.write_string(name);
         }
 
-        flush();
+        chunk();
     }
 
     void write_field(const std::string& field)
@@ -64,7 +64,7 @@ public:
         bolt_encoder.write_string("fields");
         write_list_header(1);
         bolt_encoder.write_string(field);
-        flush();
+        chunk();
     }
 
     void write_list_header(size_t size)
@@ -76,6 +76,20 @@ public:
     {
         bolt_encoder.message_record();
     }
+
+    // writes metadata at the end of the message
+    // TODO: write whole implementation (currently, only type is supported)
+    // { "stats": { "nodes created": 1, "properties set": 1},
+    //   "type": "r" | "rw" | ...
+    void write_meta(const std::string& type)
+    {
+        bolt_encoder.message_success();
+        bolt_encoder.write_map_header(1);
+        bolt_encoder.write_string("type");
+        bolt_encoder.write_string(type);
+        chunk();
+    }
+
     // -- BOLT SPECIFIC METHODS -----------------------------------------------
 
     void write(const Vertex::Accessor &vertex) { serializer.write(vertex); }
@@ -89,10 +103,14 @@ public:
     void write(const Double& prop) { serializer.write(prop); }
     void write(const String& prop) { serializer.write(prop); }
 
-    void flush()
+    void send()
     {
-        chunked_encoder.flush();
         chunked_buffer.flush();
+    }
+
+    void chunk()
+    {
+        chunked_encoder.write_chunk();
     }
 
     void _write_test()
@@ -116,15 +134,17 @@ protected:
     Logger logger;
 
 private:
-    using buffer_t = ChunkedBuffer<SocketStream>;
+    using socket_t = SocketStream<Socket>;
+    using buffer_t = ChunkedBuffer<socket_t>;
     using chunked_encoder_t = ChunkedEncoder<buffer_t>;
     using bolt_encoder_t = BoltEncoder<chunked_encoder_t>;
     using bolt_serializer_t = BoltSerializer<bolt_encoder_t>;
 
-    SocketStream socket;
+    socket_t socket;
     buffer_t chunked_buffer{socket};
     chunked_encoder_t chunked_encoder{chunked_buffer};
     bolt_encoder_t bolt_encoder{chunked_encoder};
     bolt_serializer_t serializer{bolt_encoder};
+
 };
 }

@@ -2,11 +2,14 @@
 
 #include <iostream>
 #include <string>
+#include <sstream>
 
 #include "fmt/format.h"
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/traversers/consolewriter.hpp"
 #include "storage/model/properties/traversers/jsonwriter.hpp"
+#include "utils/types/byte.hpp"
+#include "logging/default.hpp"
 
 using std::cout;
 using std::endl;
@@ -41,3 +44,36 @@ std::string code_line(const std::string &format_str, const Args &... args)
     return "\t" + format(format_str, args...) + "\n";
 }
 }
+
+class CoutSocket
+{
+public:
+    CoutSocket() : logger(logging::log->logger("Cout Socket")) {}
+
+    int write(const std::string& str)
+    {
+        logger.info(str);
+        return str.size();
+    }
+
+    int write(const char* data, size_t len)
+    {
+        logger.info(std::string(data, len));
+        return len;
+    }
+
+    int write(const byte* data, size_t len)
+    {
+        std::stringstream ss;
+        for (int i = 0; i < len; i++) {
+            ss << data[i];
+        }
+        std::string output(ss.str());
+        cout << output << endl;
+        logger.info(output);
+        return len;
+    }
+
+private:
+    Logger logger;
+};

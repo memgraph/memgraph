@@ -163,7 +163,6 @@ auto load_queries(Db &db)
         t.commit();
         return true;
     };
-    queries[15648836733456301916u] = create_edge_v2;
 
     // MATCH (n) RETURN n
     auto match_all_nodes = [&db](const properties_t &args) {
@@ -171,18 +170,15 @@ auto load_queries(Db &db)
 
         iter::for_all(t.vertex_access(), [&](auto vertex) {
             if (vertex.fill()) {
-                cout_properties(vertex->data.props);
+                cout << vertex.id() << endl;
             }
         });
 
-        t.commit();
-
-        return true;
+        return t.commit(), true;
     };
-    queries[15284086425088081497u] = match_all_nodes;
 
     // MATCH (n:LABEL) RETURN n
-    auto find_by_label = [&db](const properties_t &args) {
+    auto match_by_label = [&db](const properties_t &args) {
         DbAccessor t(db);
 
         auto &label = t.label_find_or_create("LABEL");
@@ -192,10 +188,12 @@ auto load_queries(Db &db)
         iter::for_all(label.index->for_range_exact(t),
                       [&](auto a) { cout << a.at(prop_key) << endl; });
 
-        return true;
+        return t.commit(), true;
     };
 
-    queries[4857652843629217005u] = find_by_label;
+    queries[15284086425088081497u] = match_all_nodes;
+    queries[4857652843629217005u] = match_by_label;
+    queries[15648836733456301916u] = create_edge_v2;
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
     queries[7939106225150551899u] = create_edge;

@@ -11,11 +11,14 @@
 //  execution
 //  postprocess the results
 
+template <typename Stream>
 class ProgramExecutor
 {
 public:
-    auto execute(QueryProgram &program, Db &db,
-                 communication::OutputStream &stream)
+    // QueryProgram has to know about the Stream
+    // Stream has to be passed in this function for every execution
+    auto execute(QueryProgram<Stream> &program, Db &db,
+                 Stream &stream)
     {
         try {
             // TODO: return result of query/code exection

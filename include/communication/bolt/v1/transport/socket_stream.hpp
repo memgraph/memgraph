@@ -10,12 +10,13 @@
 namespace bolt
 {
 
+template <typename Stream>
 class SocketStream
 {
 public:
     using byte = uint8_t;
 
-    SocketStream(io::Socket& socket) : socket(socket) {}
+    SocketStream(Stream& socket) : socket(socket) {}
 
     void write(const byte* data, size_t n)
     {
@@ -32,7 +33,7 @@ public:
     }
 
 private:
-    std::reference_wrapper<io::Socket> socket;
+    std::reference_wrapper<Stream> socket;
 };
 
 }

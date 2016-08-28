@@ -8,9 +8,11 @@
 #include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
 #include "logging/default.hpp"
+#include "utils/type_discovery.hpp"
 
 using std::string;
 
+template <typename Stream>
 class CodeGenerator
 {
 public:
@@ -53,6 +55,7 @@ public:
             template_file, {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
+                            {"stream", type_name<Stream>().to_string()},
                             {"code", cpp_traverser.code}});
 
         // logger.trace("generated code: {}", generated);
