@@ -5,12 +5,12 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
-const auto EdgeAccessor::from() const
+auto EdgeAccessor::from() const
 {
     return VertexAccessor(this->vlist->from(), this->db);
 }
 
-const auto EdgeAccessor::to() const
+auto EdgeAccessor::to() const
 {
     return VertexAccessor(this->vlist->to(), this->db);
 }

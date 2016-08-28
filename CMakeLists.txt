@@ -414,6 +414,7 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/states/handshake.cpp
     ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
     ${src_dir}/communication/bolt/v1/transport/buffer.cpp
+    ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp

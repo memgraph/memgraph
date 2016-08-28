@@ -23,7 +23,7 @@ public:
 
     const EdgeType &edge_type() const;
 
-    const auto from() const;
+    auto from() const;
 
-    const auto to() const;
+    auto to() const;
 };

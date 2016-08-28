@@ -6,6 +6,7 @@
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "storage/edge_type/edge_type.hpp"
+#include "storage/edge_x_vertex.hpp"
 #include "storage/label/label.hpp"
 
 // **************************** HELPER DEFINES *******************************//
