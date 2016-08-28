@@ -8,21 +8,10 @@
 #include "storage/edge_type/edge_type.hpp"
 #include "storage/label/label.hpp"
 
-// This is the place for imports from memgraph .cpp
-// #include "database/db_accessor.cpp"
-#include "storage/vertex_accessor.cpp"
-
-// TODO: Extract trans functions to other hpp for easy including into other
-// code.
-
 // **************************** HELPER DEFINES *******************************//
-// returns transformed pointer
-#define THIS (trans(this))
-// Performs call x on transformed border class.
-#define HALF_CALL(x) (THIS->x)
-// Performs call x on transformed border class and returns transformed output.
-#define CALL(x) trans(HALF_CALL(x))
-
+// Creates 8 functions for transformation of refereces between types x and y.
+// Where x is a border type.
+// DANGEROUS
 #define TRANSFORM_REF(x, y)                                                    \
     x &trans(y &l) { return ref_as<x>(l); }                                    \
     x const &trans(y const &l) { return ref_as<x const>(l); }                  \
@@ -33,6 +22,9 @@
     y *trans(x *l) { return ptr_as<y>(l); }                                    \
     y const *trans(x const *l) { return ptr_as<y const>(l); }
 
+// Creates 8 functions for transformation of refereces between types x and y.
+// Where both x and y are templates over T. Where x is a border type.
+// DANGEROUS
 #define TRANSFORM_REF_TEMPLATED(x, y)                                          \
     x &trans(y &l) { return ref_as<x>(l); }                                    \
     template <class T>                                                         \
@@ -70,71 +62,60 @@
     {                                                                          \
         return ptr_as<const y>(l);                                             \
     }
-#define DESTRUCTOR(x, y)                                                       \
-    x::~x() { HALF_CALL(~y()); }
-#define COPY_CONSTRUCTOR_MUT(x, y)                                             \
-    x::x(x &other) : Sized(y(trans(other))) {}
-#define COPY_CONSTRUCTOR(x, y)                                                 \
-    x::x(const x &other) : Sized(y(trans(other))) {}
-#define MOVE_CONSTRUCTOR(x)                                                    \
-    x::x(x &&other) : Sized(trans(std::move(other))) {}
-#define MOVE_CONST_CONSTRUCTOR(x)                                              \
-    x::x(x const &&other) : Sized(trans(std::move(other))) {}
 
 // For certain classes trans evaluates into ref which doesnt work for Sized
-// constructor. This Move forces type.
+// constructor. This Move forces type y.
+// DANGEROUS
 #define MOVE_CONSTRUCTOR_FORCED(x, y)                                          \
     x::x(x &&other) : Sized(value_as<y>(std::move(other))) {}
 
-#define COPY_OPERATOR(x)                                                       \
-    x &x::operator=(const x &other)                                            \
-    {                                                                          \
-        HALF_CALL(operator=(trans(other)));                                    \
-        return *this;                                                          \
-    }
-#define MOVE_OPERATOR(x)                                                       \
-    x &x::operator=(x &&other)                                                 \
-    {                                                                          \
-        HALF_CALL(operator=(trans(std::move(other))));                         \
-        return *this;                                                          \
-    }
-
+// Creates constructor x(y) where x is border type and y shpuld be his original
+// type.
+// DANGEROUS
 #define VALID_CONSTRUCTION(x, y)                                               \
     template <>                                                                \
     barrier::x::x(y &&d) : Sized(std::move(d))                                 \
     {                                                                          \
     }
 
+// Creates const constructor x(y) where x is border type and y shpuld be his
+// original type.
+// DANGEROUS
 #define VALID_CONSTRUCTION_CONST(x, y)                                         \
     template <>                                                                \
     barrier::x::x(y const &&d) : Sized(std::move(d))                           \
     {                                                                          \
     }
 
-// Generates transformation function from original class to border class.
+// Creates value transformation function from original type y to border type x.
+// DANGEROUS
 #define TRANSFORM_VALUE_ONE_RAW(x, y)                                          \
     x trans(y &&d) { return x(std::move(d)); }
 
-// Generates transformation function from original class to border class.
+// Creates value transformation function and constructor from original type y to
+// border type x.
+// DANGEROUS
 #define TRANSFORM_VALUE_ONE(x, y)                                              \
     VALID_CONSTRUCTION(x, y)                                                   \
     x trans(y &&d) { return x(std::move(d)); }
 
-// Generates transformation functions between border class x and original class
-// y by value. Only mutable values.
+// Creates value transformation functions and constructor between border type x
+// and original type y. Only mutable values.
+// DANGEROUS
 #define TRANSFORM_VALUE_MUT(x, y)                                              \
     TRANSFORM_VALUE_ONE(x, y)                                                  \
     y trans(x &&d) { return value_as<y>(std::move(d)); }
 
-// Generates transformation functions between border class x and original class
-// y by value.
+// Creates value transformation functions and constructors between border type x
+// and original type y.
+// DANGEROUS
 #define TRANSFORM_VALUE(x, y)                                                  \
     TRANSFORM_VALUE_MUT(x, y)                                                  \
     VALID_CONSTRUCTION_CONST(x, y)                                             \
     const x trans(const y &&d) { return x(std::move(d)); }                     \
     const y trans(const x &&d) { return value_as<const y>(std::move(d)); }
 
-// Duplicates given first name to call second given with name and ::name
+// Duplicates given x to call y with x and ::x
 #define DUP(x, y) y(x, ::x)
 
 // ********************** TYPES OF AUTO
@@ -146,17 +127,6 @@ using out_edge_iterator_t =
 
 using in_edge_iterator_t =
     decltype(((::VertexAccessor *)(std::nullptr_t()))->in());
-
-// This file should contain all implementations of methods from barrier classes
-// defined in barrier.hpp.
-// Implementations should follow the form:
-// border_return_type border_class::method_name(arguments){
-//      return
-//      CALL(method_name(trans(arguments)))/HALF_CALL(method_name(trans(arguments)));
-// }
-
-// ********************** ALL VALID CONVERSIONS ***************************** //
-// Implementations must use exclusivly trans functions to cast between types.
 
 // ******************** OVERLOADED trans FUNCTIONS.
 // This enclosure is the only dangerous part of barrier except of Sized class in
@@ -240,7 +210,7 @@ TRANSFORM_VALUE_ONE_RAW(EdgePropertyType<T>,
 template <class T>
 TRANSFORM_VALUE_ONE_RAW(BoltSerializer<T>, ::bolt::BoltSerializer<T>)
 
-// ********************* SPECIAL SIZED CONSTRUCTORS
+// ********************* SPECIAL CONSTRUCTORS
 #define VertexPropertyType_constructor(x)                                      \
     template <>                                                                \
     template <>                                                                \

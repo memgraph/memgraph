@@ -4,6 +4,7 @@
 #include "communication/bolt/v1/transport/bolt_encoder.hpp"
 
 #include "storage/edge_accessor.hpp"
+#include "storage/edge_x_vertex.hpp"
 #include "storage/vertex_accessor.hpp"
 
 #include "storage/model/properties/all.hpp"

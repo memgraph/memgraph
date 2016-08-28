@@ -8,10 +8,11 @@
 #include <unordered_map>
 #include "database/db_accessor.cpp"
 #include "import/csv_import.hpp"
+#include "storage/edge_x_vertex.hpp"
 #include "storage/indexes/impl/nonunique_unordered_index.cpp"
 #include "storage/model/properties/properties.cpp"
-#include "storage/record_accessor.cpp"
-#include "storage/vertex_accessor.cpp"
+// #include "storage/record_accessor.cpp"
+// #include "storage/vertex_accessor.cpp"
 #include "utils/command_line/arguments.hpp"
 
 using namespace std;

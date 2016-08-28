@@ -454,8 +454,6 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
 )
 
-set(barrier_src_files
-    ${src_dir}/barrier/barrier.cpp)
 
 # STATIC library used by memgraph executables
 add_library(memgraph STATIC ${memgraph_src_files})
@@ -464,7 +462,6 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
-add_library(barrier STATIC ${barrier_src_files})
 
 # tests
 if (TESTS)

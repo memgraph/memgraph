@@ -1,12 +1,12 @@
 #pragma once
 
-// #include "storage/edge_accessor.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
-// #include "utils/iterator/iterator.hpp"
+#include "utils/iterator/iterator.hpp"
 
 class Vertices;
 
+// There exists circular dependecy with EdgeAccessor.
 class VertexAccessor : public RecordAccessor<TypeGroupVertex, VertexAccessor>
 {
 public:

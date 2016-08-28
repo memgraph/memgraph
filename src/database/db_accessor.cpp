@@ -1,5 +1,3 @@
-#pragma once
-
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "utils/iterator/iterator.hpp"

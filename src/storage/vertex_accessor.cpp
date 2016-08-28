@@ -1,5 +1,3 @@
-#pragma once
-
 #include "storage/vertex_accessor.hpp"
 
 #include "database/db.hpp"
@@ -39,22 +37,6 @@ bool VertexAccessor::has_label(const Label &label) const
 const std::vector<label_ref_t> &VertexAccessor::labels() const
 {
     return this->record->data.labels();
-}
-
-// Returns unfilled accessors
-auto VertexAccessor::out() const
-{
-    DbTransaction &t = this->db;
-    return iter::make_map(iter::make_iter_ref(record->data.out),
-                          [&](auto e) -> auto { return EdgeAccessor(*e, t); });
-}
-
-// Returns unfilled accessors
-auto VertexAccessor::in() const
-{
-    DbTransaction &t = this->db;
-    return iter::make_map(iter::make_iter_ref(record->data.in),
-                          [&](auto e) -> auto { return EdgeAccessor(e, t); });
 }
 
 bool VertexAccessor::in_contains(VertexAccessor const &other) const

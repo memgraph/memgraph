@@ -14,44 +14,47 @@ namespace barrier
 // barrier class defined here.
 
 // ************ Here should be forward declarations of Sized barrier classes
-class DbAccessor; // DONE // .cpp
+// ACCESSORS
+class DbAccessor;
+class VertexAccessor;
+class EdgeAccessor;
 
-class VertexAccessor; // DONE // .cpp
-class EdgeAccessor;   // DONE // .cpp
+// GENERIC ITERATORS
+class VertexIterator;
+class EdgeIterator;
 
-class VertexIterator; // DONE // .cpp
-class EdgeIterator;   // DONE // .cpp
+// TYPED ITERATORS
+class VertexAccessIterator;
+class OutEdgesIterator;
+class InEdgesIterator;
 
-class VertexAccessIterator; // DONE // .cpp
-class OutEdgesIterator;     // DONE // .cpp
-class InEdgesIterator;      // DONE // .cpp
-
-class VertexPropertyKey; // DONE // .cpp
-class EdgePropertyKey;   // DONE // .cpp
-
+// PROPERTY
+class VertexPropertyKey;
+class EdgePropertyKey;
 template <class T>
-class VertexPropertyType; // DONE // .cpp
-
+class VertexPropertyType;
 template <class T>
-class EdgePropertyType; // DONE // .cpp
+class EdgePropertyType;
 
+// BOLT
 template <class Stream>
-class BoltSerializer; // DONE // .cpp
+class BoltSerializer;
 
 // ************ Here should be forward declarations of Unsized barrier classes
-class Label;    // DONE // .cpp
-class EdgeType; // DONE // .cpp
+// COMMON
+class Db;
+class Label;
+class EdgeType;
 
-class Db; // DONE // .cpp
-
-class VertexPropertyFamily; // DONE // .cpp
-class EdgePropertyFamily;   // DONE // .cpp
-
+// GENERIC INDEXES
 template <class K>
-class VertexIndex; // DONE // .cpp
-
+class VertexIndex;
 template <class K>
-class EdgeIndex; // DONE  // .cpp
+class EdgeIndex;
+
+// PROPERTY
+class VertexPropertyFamily;
+class EdgePropertyFamily;
 
 // ************* Here should be defined usings
 using label_ref_t = ReferenceWrapper<const Label>;
@@ -64,7 +67,6 @@ using label_ref_t = ReferenceWrapper<const Label>;
 //      class class_name: Sized<size_of_t,aligment_of_t>
 // --Sized template arguments must be hardcoded numbers equal to sizeof(T) and
 //   alignof(T) where T is original class.
-// --It should have friends barrier classes which are permitted to construct it.
 // --It should have undefined public constructor which is specialized in .cpp
 //   Blueprint:
 //   public:
@@ -78,28 +80,11 @@ using label_ref_t = ReferenceWrapper<const Label>;
 //      class_name &operator=(const class_name &other);
 //      class_name &operator=(class_name &&other);
 // --It should specify public methods which can be called on the original class.
-// An example of such Sized barrier class:
-//
-// class Accessor : private Sized<16, 8>
-// {
-// public://
-//     template <class T>
-//     Accessor(T &&d);
-//
-//     Accessor(const Accessor &other);
-//     Accessor(Accessor &&other);
-//     ~Accessor();
-//
-//     Accessor &operator=(const Accessor &other);
-//     Accessor &operator=(Accessor &&other);
-//
-//     int get_prop(Name &name);
-// };
 //
 // Blueprint:
 // class class_name : private Sized<,>
 // {
-// public://
+// public:
 //     template <class T>
 //     class_name(T &&d);
 //
@@ -476,14 +461,6 @@ public:
 // --Inherit Unsized class from common.hpp as protected. Blueprint:
 //      class class_name: protected Unsized
 // --It should specify public methods which can be called on the original class.
-// An example of such Unsized barrier class:
-//
-// class Db : protected Unsized
-// {
-// public:
-//     Accessor access();
-//     Name &get_name(const char *str);
-// };
 //
 // Blueprint:
 // class class_name : protected Unsized

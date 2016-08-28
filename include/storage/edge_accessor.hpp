@@ -3,7 +3,6 @@
 #include "storage/edge.hpp"
 #include "storage/edge_record.hpp"
 #include "storage/record_accessor.hpp"
-#include "storage/vertex_accessor.hpp"
 #include "utils/assert.hpp"
 #include "utils/reference_wrapper.hpp"
 
@@ -12,6 +11,7 @@ using edge_type_ref_t = ReferenceWrapper<const EdgeType>;
 
 class Edges;
 
+// There exists circular dependecy with VertexAccessor.
 class EdgeAccessor : public RecordAccessor<TypeGroupEdge, EdgeAccessor>
 {
 public:
@@ -23,7 +23,7 @@ public:
 
     const EdgeType &edge_type() const;
 
-    const VertexAccessor from() const;
+    const auto from() const;
 
-    const VertexAccessor to() const;
+    const auto to() const;
 };

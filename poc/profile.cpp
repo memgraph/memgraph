@@ -11,14 +11,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include "import/csv_import.hpp"
-// #include "storage/indexes/impl/nonunique_unordered_index.cpp"
-// #include "storage/model/properties/properties.cpp"
-// #include "storage/record_accessor.cpp"
-// #include "storage/vertex_accessor.cpp"
 #include "utils/command_line/arguments.hpp"
-
-// #include "barrier/trans.hpp"
-// #include "barrier/barrier.cpp"
 
 using namespace std;
 

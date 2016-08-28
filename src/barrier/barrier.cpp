@@ -2,6 +2,60 @@
 #include "barrier/trans.hpp"
 
 // ************************* Implementations
+// This file should contain all implementations of methods from barrier classes
+// defined in barrier.hpp.
+// Implementations should follow the form:
+// border_return_type border_class::method_name(arguments){
+//      return
+//      CALL(method_name(trans(arguments)))/HALF_CALL(method_name(trans(arguments)));
+// }
+
+// **************************** HELPER DEFINES *******************************//
+// returns transformed pointer
+#define THIS (trans(this))
+// Performs call x on transformed border class.
+#define HALF_CALL(x) (THIS->x)
+// Performs call x on transformed border class and returns transformed output.
+#define CALL(x) trans(HALF_CALL(x))
+
+// Creates destructor for border type x which is original type y.
+#define DESTRUCTOR(x, y)                                                       \
+    x::~x() { HALF_CALL(~y()); }
+
+// Creates copy constructor for mutable ref to border class x which is original
+// class y.
+#define COPY_CONSTRUCTOR_MUT(x, y)                                             \
+    x::x(x &other) : Sized(y(trans(other))) {}
+
+// Creates copy constructor for const ref to border class x which is original
+// class y.
+#define COPY_CONSTRUCTOR(x, y)                                                 \
+    x::x(const x &other) : Sized(y(trans(other))) {}
+
+// Creates move constructor for mutable border type x.
+#define MOVE_CONSTRUCTOR(x)                                                    \
+    x::x(x &&other) : Sized(trans(std::move(other))) {}
+
+// Creates move constructor for const border type x.
+#define MOVE_CONST_CONSTRUCTOR(x)                                              \
+    x::x(x const &&other) : Sized(trans(std::move(other))) {}
+
+// Creates copy operator for border type x.
+#define COPY_OPERATOR(x)                                                       \
+    x &x::operator=(const x &other)                                            \
+    {                                                                          \
+        HALF_CALL(operator=(trans(other)));                                    \
+        return *this;                                                          \
+    }
+
+// Creates move operator for border type x.
+#define MOVE_OPERATOR(x)                                                       \
+    x &x::operator=(x &&other)                                                 \
+    {                                                                          \
+        HALF_CALL(operator=(trans(std::move(other))));                         \
+        return *this;                                                          \
+    }
+
 namespace barrier
 {
 
@@ -549,9 +603,4 @@ const>(barrier::VertexAccessor const&&)'
 description:
 Move constructor VertexAccessor<VertexAccessor const>(VertexAccessor const&&)
 isn't defined.
-
-
-
-
-
 */
