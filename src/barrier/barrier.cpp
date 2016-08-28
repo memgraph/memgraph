@@ -24,13 +24,13 @@
 
 #define TRANSFORM_REF(x, y)                                                    \
     x &trans(y &l) { return ref_as<x>(l); }                                    \
-    const x &trans(const y &l) { return ref_as<const x>(l); }                  \
+    x const &trans(y const &l) { return ref_as<x const>(l); }                  \
     y &trans(x &l) { return ref_as<y>(l); }                                    \
-    const y &trans(const x &l) { return ref_as<const y>(l); }                  \
+    y const &trans(x const &l) { return ref_as<y const>(l); }                  \
     x *trans(y *l) { return ptr_as<x>(l); }                                    \
-    const x *trans(const y *l) { return ptr_as<const x>(l); }                  \
+    x const *trans(y const *l) { return ptr_as<x const>(l); }                  \
     y *trans(x *l) { return ptr_as<y>(l); }                                    \
-    const y *trans(const x *l) { return ptr_as<const y>(l); }
+    y const *trans(x const *l) { return ptr_as<y const>(l); }
 
 #define TRANSFORM_REF_TEMPLATED(x, y)                                          \
     x &trans(y &l) { return ref_as<x>(l); }                                    \
@@ -70,17 +70,17 @@
         return ptr_as<const y>(l);                                             \
     }
 
-// #define VALID_CONSTRUCTION(x, y)                                               \
-//     template <>                                                                \
-//     barrier::x::x(y &&d) : Sized(std::move(d))                                 \
-//     {                                                                          \
-//     }
-//
-// #define VALID_CONSTRUCTION_CONST(x, y)                                         \
-//     template <>                                                                \
-//     barrier::x::x(y const &&d) : Sized(std::move(d))                           \
-//     {                                                                          \
-//     }
+#define VALID_CONSTRUCTION(x, y)                                               \
+    template <>                                                                \
+    barrier::x::x(y &&d) : Sized(std::move(d))                                 \
+    {                                                                          \
+    }
+
+#define VALID_CONSTRUCTION_CONST(x, y)                                         \
+    template <>                                                                \
+    barrier::x::x(y const &&d) : Sized(std::move(d))                           \
+    {                                                                          \
+    }
 
 // Generates transformation function from original class to border class.
 #define TRANSFORM_VALUE_ONE_RAW(x, y)                                          \
@@ -88,7 +88,8 @@
 
 // Generates transformation function from original class to border class.
 #define TRANSFORM_VALUE_ONE(x, y)                                              \
-    x trans(y &&d) { return value_as<x>(std::move(d)); }
+    VALID_CONSTRUCTION(x, y)                                                   \
+    x trans(y &&d) { return x(std::move(d)); }
 
 // Generates transformation functions between border class x and original class
 // y by value. Only mutable values.
@@ -101,7 +102,7 @@
 #define TRANSFORM_VALUE(x, y)                                                  \
     TRANSFORM_VALUE_MUT(x, y)                                                  \
     VALID_CONSTRUCTION_CONST(x, y)                                             \
-    const x trans(const y &&d) { return value_as<const x>(std::move(d)); }     \
+    const x trans(const y &&d) { return x(std::move(d)); }                     \
     const y trans(const x &&d) { return value_as<const y>(std::move(d)); }
 
 // Duplicates given first name to call second given with name and ::name
@@ -151,8 +152,7 @@ TRANSFORM_REF(VertexPropertyKey,
               ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_REF(EdgePropertyKey,
               ::EdgePropertyFamily::PropertyType::PropertyFamilyKey);
-TRANSFORM_REF(VertexIterator,
-              std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
+TRANSFORM_REF(VertexIterator, IteratorBase<const ::VertexAccessor> *);
 TRANSFORM_REF(EdgeIterator,
               std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
 TRANSFORM_REF(VertexAccessIterator, vertex_access_iterator_t);
@@ -187,8 +187,7 @@ TRANSFORM_VALUE(VertexPropertyKey,
 TRANSFORM_VALUE_ONE(VertexAccessIterator, vertex_access_iterator_t);
 TRANSFORM_VALUE_ONE(OutEdgesIterator, out_edge_iterator_t);
 TRANSFORM_VALUE_ONE(InEdgesIterator, in_edge_iterator_t);
-TRANSFORM_VALUE_ONE(VertexIterator,
-                    std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
+TRANSFORM_VALUE_ONE(VertexIterator, IteratorBase<const ::VertexAccessor> *);
 
 template <class T>
 TRANSFORM_VALUE_ONE_RAW(
@@ -263,9 +262,8 @@ template <class K>
 VertexIterator VertexIndex<K>::for_range(DbAccessor &t, Border<K> from,
                                          Border<K> to)
 {
-    auto ret = THIS->for_range(trans(t), std::move(from), std::move(to));
-    VertexIterator it(std::move(ret));
-    return it;
+    // auto ret = THIS->for_range(trans(t), std::move(from), std::move(to));
+    return CALL(for_range(trans(t), std::move(from), std::move(to)).release());
 }
 
 template <class K>
@@ -399,12 +397,11 @@ VertexAccessor::VertexAccessor(const VertexAccessor &other)
     : Sized(::VertexAccessor(trans(other)))
 {
 }
-VertexAccessor::VertexAccessor(VertexAccessor &&other)
-    : Sized(trans(std::move(other)))
+VertexAccessor::VertexAccessor(VertexAccessor &&other) : Sized(std::move(other))
 {
 }
 VertexAccessor::VertexAccessor(VertexAccessor const &&other)
-    : Sized(trans(std::move(other)))
+    : Sized(std::move(other))
 {
 }
 VertexAccessor::~VertexAccessor() { HALF_CALL(~VertexAccessor()); }
@@ -530,12 +527,8 @@ EdgeAccessor::EdgeAccessor(const EdgeAccessor &other)
     : Sized(::EdgeAccessor(trans(other)))
 {
 }
-EdgeAccessor::EdgeAccessor(EdgeAccessor &&other)
-    : Sized(trans(std::move(other)))
-{
-}
-EdgeAccessor::EdgeAccessor(EdgeAccessor const &&other)
-    : Sized(trans(std::move(other)))
+EdgeAccessor::EdgeAccessor(EdgeAccessor &&other) : Sized(std::move(other)) {}
+EdgeAccessor::EdgeAccessor(EdgeAccessor const &&other) : Sized(std::move(other))
 {
 }
 EdgeAccessor::~EdgeAccessor() { HALF_CALL(~EdgeAccessor()); }
@@ -630,28 +623,23 @@ bool operator!=(const EdgeAccessor &a, const EdgeAccessor &b)
 }
 
 // ************************* VertexIterator
-VertexIterator::VertexIterator(VertexIterator &&other)
-    : Sized(std::unique_ptr<IteratorBase<const ::VertexAccessor>>(nullptr))
+VertexIterator::VertexIterator(VertexIterator &&other) : Sized(std::move(other))
 {
-    *THIS = value_as<std::unique_ptr<IteratorBase<const ::VertexAccessor>>>(
-        std::move(other));
+    trans(other) = nullptr;
 }
 
-VertexIterator::~VertexIterator() { HALF_CALL(~unique_ptr()); }
+VertexIterator::~VertexIterator()
+{
+    if (*THIS != nullptr) delete (*THIS);
+}
 
 Option<const VertexAccessor> VertexIterator::next()
 {
-    return HALF_CALL(get()->next()).map<const VertexAccessor>();
+    return ((*THIS)->next()).map<const VertexAccessor>();
 }
 
 // ************************* EdgeIterator
-// TODO : change
-EdgeIterator::EdgeIterator(EdgeIterator &&other)
-    : Sized(std::unique_ptr<IteratorBase<const ::EdgeAccessor>>(nullptr))
-{
-    *THIS = value_as<std::unique_ptr<IteratorBase<const ::EdgeAccessor>>>(
-        std::move(other));
-}
+EdgeIterator::EdgeIterator(EdgeIterator &&other) : Sized(std::move(other)) {}
 
 EdgeIterator::~EdgeIterator() { HALF_CALL(~unique_ptr()); }
 
@@ -662,7 +650,7 @@ Option<const EdgeAccessor> EdgeIterator::next()
 
 // ************************* OutEdgesIterator
 OutEdgesIterator::OutEdgesIterator(OutEdgesIterator &&other)
-    : Sized(trans(std::move(other)))
+    : Sized(std::move(other))
 {
 }
 
@@ -675,7 +663,7 @@ Option<const EdgeAccessor> OutEdgesIterator::next()
 
 // ************************* InEdgesIterator
 InEdgesIterator::InEdgesIterator(InEdgesIterator &&other)
-    : Sized(trans(std::move(other)))
+    : Sized(std::move(other))
 {
 }
 
@@ -688,7 +676,7 @@ Option<const EdgeAccessor> InEdgesIterator::next()
 
 // ************************* VertexAccessIterator
 VertexAccessIterator::VertexAccessIterator(VertexAccessIterator &&other)
-    : Sized(trans(std::move(other)))
+    : Sized(std::move(other))
 {
 }
 

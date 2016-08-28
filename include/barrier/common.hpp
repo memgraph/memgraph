@@ -51,21 +51,21 @@ TO const *ptr_as(FROM const *ref)
 }
 
 template <class TO, class FROM>
-TO value_as(FROM &&ref)
+TO &&value_as(FROM &&ref)
 {
-    static_assert(sizeof(FROM) == sizeof(FROM), "Border class size mismatch");
+    static_assert(sizeof(TO) == sizeof(FROM), "Border class size mismatch");
     static_assert(alignof(TO) == alignof(FROM),
                   "Border class aligment mismatch");
-    return std::move((*reinterpret_cast<TO *>(&ref)));
+    return (reinterpret_cast<TO &&>(std::move(ref)));
 }
 
 template <class TO, class FROM>
-const TO value_as(const FROM &&ref)
+const TO &&value_as(const FROM &&ref)
 {
-    static_assert(sizeof(FROM) == sizeof(FROM), "Border class size mismatch");
+    static_assert(sizeof(TO) == sizeof(FROM), "Border class size mismatch");
     static_assert(alignof(TO) == alignof(FROM),
                   "Border class aligment mismatch");
-    return std::move((*reinterpret_cast<TO const *>(&ref)));
+    return (reinterpret_cast<TO const &&>(std::move(ref)));
 }
 
 // Barrier classes which will be used only through reference/pointer should
@@ -96,57 +96,36 @@ protected:
     // This way side outside the barrier can't "accidentaly" create this/derived
     // type because that would be erroneous.
     Sized() = delete;
-    //
-    // // This constructor serves as a check for correctness of size_B and
-    // // alignment_B template parametars. Derived class MUST call this
-    // constructor
-    // // with T which it holds where T is original class from memgraph.
-    // template <class T>
-    // Sized(T &&d)
-    // // : data(value_as<
-    // //        typename std::aligned_storage<size_B, alignment_B>::type>(
-    // //       std::move(d)))
-    // {
-    //     new (&ref_as<T>(data)) T(std::move(d));
-    //     static_assert(size_B == sizeof(T), "Border class size mismatch");
-    //     static_assert(alignment_B == alignof(T),
-    //                   "Border class aligment mismatch");
-    // }
-    //
-    // // This constructor serves as a check for correctness of size_B and
-    // // alignment_B template parametars. Derived class MUST call this
-    // constructor
-    // // with T which it holds where T is original class from memgraph.
-    // template <class T>
-    // Sized(const T &&d)
-    // // : data(value_as<
-    // //        const typename std::aligned_storage<size_B,
-    // alignment_B>::type>(
-    // //   std::move(d)))
-    // {
-    //     new (&ref_as<T>(data)) T(std::move(d));
-    //     static_assert(size_B == sizeof(T), "Border class size mismatch");
-    //     static_assert(alignment_B == alignof(T),
-    //                   "Border class aligment mismatch");
-    // }
 
-    // // This constructor serves as a check for correctness of size_B and
-    // // alignment_B template parametars. Derived class MUST call this
-    // constructor
-    // // with T which it holds where T is original class from memgraph.
-    // template <class T>
-    // Sized(std::unique_ptr<T> &&d)
-    //     : data(value_as<
-    //            const typename std::aligned_storage<size_B,
-    //            alignment_B>::type>(
-    //           std::unique_ptr<T>(nullptr)))
-    // {
-    //     ref_as<std::unique_ptr<T>>(data) = std::move(d);
-    //
-    //     static_assert(size_B == sizeof(T), "Border class size mismatch");
-    //     static_assert(alignment_B == alignof(T),
-    //                   "Border class aligment mismatch");
-    // }
+    // This constructor serves as a check for correctness of size_B and
+    // alignment_B template parametars. Derived class MUST call this constructor
+    // with T which it holds where T is original class from memgraph.
+    template <class T>
+    Sized(T &&d)
+        : data(value_as<
+               typename std::aligned_storage<size_B, alignment_B>::type>(
+              std::move(d)))
+    {
+
+        static_assert(size_B == sizeof(T), "Border class size mismatch");
+        static_assert(alignment_B == alignof(T),
+                      "Border class aligment mismatch");
+    }
+
+    // This constructor serves as a check for correctness of size_B and
+    // alignment_B template parametars. Derived class MUST call this constructor
+    // with T which it holds where T is original class from memgraph.
+    template <class T>
+    Sized(const T &&d)
+        : data(value_as<
+               const typename std::aligned_storage<size_B, alignment_B>::type>(
+              std::move(d)))
+    {
+
+        static_assert(size_B == sizeof(T), "Border class size mismatch");
+        static_assert(alignment_B == alignof(T),
+                      "Border class aligment mismatch");
+    }
 
 private:
     // Here is the aligned storage which imitates size and aligment of object of
