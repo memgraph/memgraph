@@ -5,6 +5,8 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/indexes/index_holder.hpp"
 #include "storage/model/properties/flags.hpp"
+#include "storage/type_group_edge.hpp"
+#include "storage/type_group_vertex.hpp"
 #include "utils/option.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
@@ -191,6 +193,17 @@ private:
     // data structure.
     ConcurrentMap<Type, std::unique_ptr<PropertyType>> types;
 };
+
+using VertexPropertyKey =
+    PropertyFamily<TypeGroupVertex>::PropertyType::PropertyFamilyKey;
+using EdgePropertyKey =
+    PropertyFamily<TypeGroupEdge>::PropertyType::PropertyFamilyKey;
+template <class T>
+using VertexPropertyType =
+    PropertyFamily<TypeGroupVertex>::PropertyType::PropertyTypeKey<T>;
+template <class T>
+using EdgePropertyType =
+    PropertyFamily<TypeGroupEdge>::PropertyType::PropertyTypeKey<T>;
 
 template <class TG>
 class PropertyHash

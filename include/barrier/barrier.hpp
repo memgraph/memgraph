@@ -120,6 +120,7 @@ public:
     template <class T>
     VertexAccessor(T &&d);
 
+    VertexAccessor(VertexAccessor &other);
     VertexAccessor(const VertexAccessor &other);
     VertexAccessor(VertexAccessor &&other);
     VertexAccessor(VertexAccessor const &&other);
@@ -190,6 +191,7 @@ public:
     template <class T>
     EdgeAccessor(T &&d);
 
+    EdgeAccessor(EdgeAccessor &other);
     EdgeAccessor(const EdgeAccessor &other);
     EdgeAccessor(EdgeAccessor &&other);
     EdgeAccessor(EdgeAccessor const &&other);
@@ -404,7 +406,7 @@ public:
 
     VertexPropertyType(const VertexPropertyType &other) = default;
     VertexPropertyType(VertexPropertyType &&other) = default;
-    ~VertexPropertyType();
+    ~VertexPropertyType(){};
 
     VertexPropertyType &operator=(const VertexPropertyType &other) = default;
     VertexPropertyType &operator=(VertexPropertyType &&other) = default;
@@ -419,7 +421,7 @@ public:
 
     EdgePropertyType(const EdgePropertyType &other) = default;
     EdgePropertyType(EdgePropertyType &&other) = default;
-    ~EdgePropertyType();
+    ~EdgePropertyType(){};
 
     EdgePropertyType &operator=(const EdgePropertyType &other) = default;
     EdgePropertyType &operator=(EdgePropertyType &&other) = default;
@@ -511,6 +513,10 @@ public:
 class EdgeType : protected Unsized
 {
 public:
+    friend bool operator<(const EdgeType &lhs, const EdgeType &rhs);
+
+    friend bool operator==(const EdgeType &lhs, const EdgeType &rhs);
+
     EdgeIndex<std::nullptr_t> &index() const;
 };
 

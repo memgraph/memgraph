@@ -401,7 +401,6 @@ EXECUTE_PROCESS(
 
 # TODO: create separate static library from bolt code
 set(memgraph_src_files
-    ${src_dir}/barrier/barrier.cpp
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
@@ -455,12 +454,17 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
 )
 
+set(barrier_src_files
+    ${src_dir}/barrier/barrier.cpp)
+
 # STATIC library used by memgraph executables
 add_library(memgraph STATIC ${memgraph_src_files})
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+
+add_library(barrier STATIC ${barrier_src_files})
 
 # tests
 if (TESTS)
