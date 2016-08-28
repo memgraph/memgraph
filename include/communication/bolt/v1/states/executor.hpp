@@ -38,7 +38,7 @@ protected:
     void discard_all(Session& session);
 
 private:
-    QueryEngine query_engine;
+    QueryEngine<communication::OutputStream> query_engine;
 
 };
 

@@ -12,13 +12,16 @@
  * -> [code_compiler] -> code_executor
  */
 
+// query engine has to be aware of the Stream because Stream
+// is passed to the dynamic shared library
+template <typename Stream>
 class QueryEngine
 {
 public:
     QueryEngine() : logger(logging::log->logger("QueryEngine")) {}
 
     auto execute(const std::string &query, Db &db,
-                 communication::OutputStream &stream)
+                 Stream &stream)
     {
         try {
             auto program = program_loader.load(query);
@@ -41,6 +44,6 @@ protected:
     Logger logger;
 
 private:
-    ProgramExecutor program_executor;
-    ProgramLoader program_loader;
+    ProgramExecutor<Stream> program_executor;
+    ProgramLoader<Stream> program_loader;
 };

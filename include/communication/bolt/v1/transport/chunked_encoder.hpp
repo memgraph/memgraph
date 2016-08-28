@@ -29,7 +29,7 @@ public:
 
     void write(byte value)
     {
-        if (UNLIKELY(pos == N)) end_chunk();
+        if (UNLIKELY(pos == N)) write_chunk();
 
         chunk[pos++] = value;
     }
@@ -46,11 +46,13 @@ public:
             pos += size;
             n -= size;
 
-            if (pos == N) end_chunk();
+            // TODO: see how bolt splits message over more TCP packets,
+            // test for more TCP packets
+            if (pos == N) write_chunk();
         }
     }
 
-    void flush()
+    void write_chunk()
     {
         write_chunk_header();
 
@@ -58,7 +60,7 @@ public:
         chunk[pos++] = 0x00;
         chunk[pos++] = 0x00;
 
-        flush_stream();
+        flush();
     }
 
 private:
@@ -67,11 +69,6 @@ private:
 
     std::array<byte, C> chunk;
     size_t pos{2};
-
-    void end_chunk()
-    {
-        flush();
-    }
 
     void write_chunk_header()
     {
@@ -85,7 +82,7 @@ private:
         chunk[1] = size & 0xFF;
     }
 
-    void flush_stream()
+    void flush()
     {
         // write chunk to the stream
         stream.get().write(chunk.data(), pos);

@@ -24,51 +24,42 @@ public:
 
     void write(const byte *values, size_t n)
     {
-        // TODO: think about shared pointer
-        // TODO: this is naive implementation, it can be implemented much better
+        logger.trace("Write {} bytes", n);
 
-        logger.trace("write {} bytes", n);
-       
-        byte *chunk = chunk = (byte *)std::malloc(n * sizeof(byte));
-        last_size = n;
+        // total size of the buffer is now bigger for n
+        size += n;
 
-        std::memcpy(chunk, values, n);
+        // reserve enough spece for the new data
+        buffer.reserve(size);
 
-        buffer.push_back(chunk);
+        // copy new data
+        std::copy(values, values + n, std::back_inserter(buffer));
     }
 
     void flush()
     {
-        logger.trace("Flush");
+        stream.get().write(&buffer.front(), size);
 
-        for (size_t i = 0; i < buffer.size(); ++i) {
-            if (i == buffer.size() - 1)
-                stream.get().write(buffer[i], last_size);
-            else
-                stream.get().write(buffer[i], C);
-        }
+        logger.trace("Flushed {} bytes", size);
 
-        destroy();
+        // GC
+        // TODO: impelement a better strategy
+        buffer.clear();
+
+        // reset size
+        size = 0;
     }
 
     ~ChunkedBuffer()
     {
-        destroy(); 
     }
 
 private:
     Logger logger;
+    // every new stream.write creates new TCP package
     std::reference_wrapper<Stream> stream;
-    std::vector<byte *> buffer;
-    size_t last_size {0}; // last chunk size (it is going to be less than C)
-
-    void destroy()
-    {
-        for (size_t i = 0; i < buffer.size(); ++i) {
-            std::free(buffer[i]);
-        }
-        buffer.clear();
-    }
+    std::vector<byte> buffer;
+    size_t size {0};
 };
 
 }

@@ -10,12 +10,12 @@ using std::endl;
 
 // query: {{query}}
 
-class {{class_name}} : public ICodeCPU
+class {{class_name}} : public ICodeCPU<{{stream}}>
 {
 public:
 
-    bool run(Db& db, code_args_t& args,
-             communication::OutputStream& stream) override
+    bool run(Db &db, code_args_t &args,
+             {{stream}} &stream) override
     {
 {{code}}
     }
@@ -24,12 +24,12 @@ public:
 };
 
 
-extern "C" ICodeCPU* produce()
+extern "C" ICodeCPU<{{stream}}>* produce()
 {
     return new {{class_name}}();
 }
 
-extern "C" void destruct(ICodeCPU* p)
+extern "C" void destruct(ICodeCPU<{{stream}}>* p)
 {
     delete p;
 }

@@ -55,7 +55,8 @@ const std::string write_entity = "stream.write_field(\"{0}\");\n"
                                  "        stream.write_record();\n"
                                  "        stream.write_list_header(1);\n"
                                  "        stream.write({0});\n"
-                                 "        stream.write_success_empty();\n";
+                                 "        stream.chunk();"
+                                 "        stream.write_meta(\"rw\");\n";
 
 const std::string return_true = "return true;";
 

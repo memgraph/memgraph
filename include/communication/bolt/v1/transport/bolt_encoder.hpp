@@ -28,11 +28,6 @@ public:
         logger = logging::log->logger("Bolt Encoder");
     }
 
-    void flush()
-    {
-        stream.flush();
-    }
-
     void write(byte value)
     {
         write_byte(value);

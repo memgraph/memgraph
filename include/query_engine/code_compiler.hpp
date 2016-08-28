@@ -47,8 +47,11 @@ public:
             in_file,         // input file
             "-o", out_file,  // ouput file
             "-I./include",   // include paths (TODO: parameter)
+            "-I../include",
             "-I../libs/fmt", // TODO: load from config
-            "-L./ -lmemgraph_pic",
+            "-I../../libs/fmt",
+            "-L./ -L../",
+            "-lmemgraph_pic",
             "-shared -fPIC" // shared library flags
             );
 
