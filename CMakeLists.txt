@@ -144,6 +144,7 @@ endforeach()
 # -----------------------------------------------------------------------------
 # COPY header files required by query engine (query compiler)
 # TODO: somehow automate (in destination dir should be only required include files)
+FILE(COPY ${include_dir}/barrier/barrier.hpp DESTINATION ${build_include_dir}/barrier)
 FILE(COPY ${include_dir}/database/db.hpp DESTINATION ${build_include_dir}/database)
 FILE(COPY ${include_dir}/database/db_transaction.hpp DESTINATION ${build_include_dir}/database)
 FILE(COPY ${include_dir}/database/db_accessor.hpp DESTINATION ${build_include_dir}/database)
@@ -455,7 +456,6 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
 )
 
-
 # STATIC library used by memgraph executables
 add_library(memgraph STATIC ${memgraph_src_files})
 
@@ -463,6 +463,10 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
+add_library(barrier STATIC ${memgraph_src_files})
+
+add_library(barrier_pic STATIC ${memgraph_src_files})
+set_property(TARGET barrier_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
 # tests
 if (TESTS)
@@ -498,7 +502,7 @@ set(MEMGRAPH_BUILD_NAME
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} barrier)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
     if (UNIX)
@@ -508,12 +512,3 @@ if (MEMGRAPH)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
     endif (UNIX)
 endif()
-
-# # memgraph executable HTTP TODO: DEPRICATED
-# add_executable(memgraph_http src/memgraph.cpp)
-# add_dependencies(memgraph_http cypher_lib)
-# target_link_libraries(memgraph_http Threads::Threads)
-# target_link_libraries(memgraph_http pcre)
-# target_link_libraries(memgraph_http ${libuv_static_lib})
-# target_link_libraries(memgraph_http ${r3_static_lib})
-# target_link_libraries(memgraph_http ${http_parser_static_lib})

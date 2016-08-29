@@ -38,7 +38,7 @@ class EdgePropertyType;
 
 // BOLT
 template <class Stream>
-class BoltSerializer;
+class RecordStream;
 
 // ************ Here should be forward declarations of Unsized barrier classes
 // COMMON
@@ -413,43 +413,41 @@ public:
 };
 
 template <class Stream>
-class BoltSerializer : private Sized<8, 8>
+class RecordStream : private Sized<8, 8>
 {
 public:
     template <class T>
-    BoltSerializer(T &&d);
+    RecordStream(T &&d);
 
-    BoltSerializer(const BoltSerializer &other) = default;
-    BoltSerializer(BoltSerializer &&other) = default;
-    ~BoltSerializer();
+    RecordStream(const RecordStream &other) = default;
+    RecordStream(RecordStream &&other) = default;
+    ~RecordStream();
 
-    BoltSerializer &operator=(const BoltSerializer &other) = default;
-    BoltSerializer &operator=(BoltSerializer &&other) = default;
+    RecordStream &operator=(const RecordStream &other) = default;
+    RecordStream &operator=(RecordStream &&other) = default;
 
     void write(const VertexAccessor &vertex);
-
     void write(const EdgeAccessor &edge);
-
     void write(const Property &prop);
-
     void write_null();
-
     void write(const Bool &prop);
-
     void write(const Float &prop);
-
     void write(const Double &prop);
-
     void write(const Int32 &prop);
-
     void write(const Int64 &prop);
-
     void write(const std::string &value);
-
     void write(const String &prop);
 
-    template <class T>
-    void handle(const T &prop);
+    void write_success();
+    void write_success_empty();
+    void write_ignored();
+    void write_fields(const std::vector<std::string> &fields);
+    void write_field(const std::string& field);
+    void write_list_header(size_t size);
+    void write_record();
+    void write_meta(const std::string& type);
+    void send();
+    void chunk();
 };
 
 // ************ Here should be definitions of Unsized barrier classes

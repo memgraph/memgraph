@@ -1,6 +1,9 @@
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 
+// BARRIER! TODO: ATTENTION: HACK!!!!!
+#include "barrier/barrier.cpp"
+
 namespace bolt
 {
 

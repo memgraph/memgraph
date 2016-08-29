@@ -52,6 +52,7 @@ public:
             "-I../../libs/fmt",
             "-L./ -L../",
             "-lmemgraph_pic",
+            "-lbarrier_pic",
             "-shared -fPIC" // shared library flags
             );
 

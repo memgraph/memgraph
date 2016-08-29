@@ -22,6 +22,8 @@ public:
         logger = logging::log->logger("Record Stream");
     }
 
+    ~RecordStream() = default;
+
     // TODO: create apstract methods that are not bolt specific ---------------
     void write_success()
     {

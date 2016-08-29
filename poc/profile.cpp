@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include "import/csv_import.hpp"
 #include "utils/command_line/arguments.hpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 using namespace std;
 

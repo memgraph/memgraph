@@ -55,7 +55,8 @@ public:
             template_file, {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
-                            {"stream", type_name<Stream>().to_string()},
+                            // {"stream", type_name<Stream>().to_string()},
+                            {"stream", "RecordStream<io::Socket>"},
                             {"code", cpp_traverser.code}});
 
         // logger.trace("generated code: {}", generated);

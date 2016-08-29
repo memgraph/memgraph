@@ -10,6 +10,7 @@
 #include "storage/edges.hpp"
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 using namespace std;
 

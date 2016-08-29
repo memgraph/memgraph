@@ -11,6 +11,12 @@
 //  execution
 //  postprocess the results
 
+// BARRIER!
+namespace barrier
+{
+    Db& trans(::Db& ref);
+}
+
 template <typename Stream>
 class ProgramExecutor
 {
@@ -22,7 +28,7 @@ public:
     {
         try {
             // TODO: return result of query/code exection
-            return program.code->run(db, program.stripped.arguments, stream);
+            return program.code->run(barrier::trans(db), program.stripped.arguments, stream);
         } catch (...) {
             // TODO: return more information about the error
             throw QueryEngineException("code execution error");

@@ -10,6 +10,10 @@ using std::endl;
 
 // query: {{query}}
 
+// BARRIER!
+namespace barrier
+{
+
 class {{class_name}} : public ICodeCPU<{{stream}}>
 {
 public:
@@ -23,13 +27,16 @@ public:
     ~{{class_name}}() {}
 };
 
-
-extern "C" ICodeCPU<{{stream}}>* produce()
-{
-    return new {{class_name}}();
 }
 
-extern "C" void destruct(ICodeCPU<{{stream}}>* p)
+
+extern "C" ICodeCPU<barrier::{{stream}}>* produce()
+{
+    // BARRIER!
+    return new barrier::{{class_name}}();
+}
+
+extern "C" void destruct(ICodeCPU<barrier::{{stream}}>* p)
 {
     delete p;
 }

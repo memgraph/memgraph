@@ -499,83 +499,140 @@ OptionPtr<EdgeIndex<std::nullptr_t>> EdgePropertyFamily::index()
 
 // ************************* BOLT SERIALIZER
 template <class Stream>
-BoltSerializer<Stream>::~BoltSerializer()
+RecordStream<Stream>::~RecordStream()
 {
-    THIS->~BoltSerializer();
+    // TODO: solve this
+    // THIS->~RecordStream();
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const VertexAccessor &vertex)
+void RecordStream<Stream>::write(const VertexAccessor &vertex)
 {
     HALF_CALL(write(trans(vertex)));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const EdgeAccessor &edge)
+void RecordStream<Stream>::write(const EdgeAccessor &edge)
 {
     HALF_CALL(write(trans(edge)));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const Property &prop)
+void RecordStream<Stream>::write(const Property &prop)
+{
+    HALF_CALL(write(prop));
+}
+
+// template <class Stream>
+// void RecordStream<Stream>::write_null()
+// {
+//     HALF_CALL(write_null());
+// }
+
+template <class Stream>
+void RecordStream<Stream>::write(const Bool &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write_null()
-{
-    HALF_CALL(write_null());
-}
-
-template <class Stream>
-void BoltSerializer<Stream>::write(const Bool &prop)
+void RecordStream<Stream>::write(const Float &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const Float &prop)
+void RecordStream<Stream>::write(const Double &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const Double &prop)
+void RecordStream<Stream>::write(const Int32 &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const Int32 &prop)
+void RecordStream<Stream>::write(const Int64 &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const Int64 &prop)
-{
-    HALF_CALL(write(prop));
-}
-
-template <class Stream>
-void BoltSerializer<Stream>::write(const std::string &value)
+void RecordStream<Stream>::write(const std::string &value)
 {
     HALF_CALL(write(value));
 }
 
 template <class Stream>
-void BoltSerializer<Stream>::write(const String &prop)
+void RecordStream<Stream>::write(const String &prop)
 {
     HALF_CALL(write(prop));
 }
 
 template <class Stream>
-template <class T>
-void BoltSerializer<Stream>::handle(const T &prop)
+void RecordStream<Stream>::write_success()
 {
-    HALF_CALL(template handle<T>(prop));
+    HALF_CALL(write_success());
 }
+
+template <class Stream>
+void RecordStream<Stream>::write_success_empty()
+{
+    HALF_CALL(write_success_empty());
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_ignored()
+{
+    HALF_CALL(write_ignored());
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_fields(const std::vector<std::string> &fields)
+{
+    HALF_CALL(write_fields(fields));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_field(const std::string& field)
+{
+    HALF_CALL(write_field(field));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_list_header(size_t size)
+{
+    HALF_CALL(write_list_header(size));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_record()
+{
+    HALF_CALL(write_record());
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_meta(const std::string& type)
+{
+    HALF_CALL(write_meta(type));
+}
+
+template <class Stream>
+void RecordStream<Stream>::send()
+{
+    HALF_CALL(send());
+}
+
+template <class Stream>
+void RecordStream<Stream>::chunk()
+{
+    HALF_CALL(chunk());
+}
+
+template class RecordStream<io::Socket>;
+
 }
 
 // **************************** ERROR EXAMPLES ****************************** //
