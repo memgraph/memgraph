@@ -402,6 +402,8 @@ EXECUTE_PROCESS(
 
 # TODO: create separate static library from bolt code
 set(memgraph_src_files
+    ${src_dir}/dbms/dbms.cpp
+    ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
@@ -416,6 +418,7 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
     ${src_dir}/communication/bolt/v1/transport/buffer.cpp
     ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
+    ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp

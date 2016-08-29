@@ -19,17 +19,22 @@ using EdgeIndexBase = IndexBase<TypeGroupEdge, K>;
 class Edges
 {
     using prop_familys_t = ConcurrentMap<std::string, EdgePropertyFamily *>;
+    using store_t = ConcurrentMap<uint64_t, EdgeRecord>;
 
 public:
+    store_t::Accessor access();
+
     Option<const EdgeAccessor> find(DbTransaction &t, const Id &id);
 
     // Creates new Edge and returns filled EdgeAccessor.
     EdgeAccessor insert(DbTransaction &t, VertexRecord *from, VertexRecord *to);
 
+    prop_familys_t::Accessor property_family_access();
+
     EdgePropertyFamily &property_family_find_or_create(const std::string &name);
 
 private:
-    ConcurrentMap<uint64_t, EdgeRecord> edges;
+    store_t edges;
     // TODO: Because familys wont be removed this could be done with more
     // efficent
     // data structure.

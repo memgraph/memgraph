@@ -17,12 +17,21 @@ class DbTransaction
     friend DbAccessor;
 
 public:
+    DbTransaction(Db &db);
     DbTransaction(Db &db, tx::Transaction &trans) : db(db), trans(trans) {}
 
     // Global transactional algorithms,operations and general methods meant for
     // internal use should be here or should be routed through this object.
     // This should provide cleaner hierarchy of operations on database.
     // For example cleaner.
+
+    // Cleans edge part of database. MUST be called by one cleaner thread at
+    // one time.
+    void clean_edge_section();
+
+    // Cleans vertex part of database. MUST be called by one cleaner thread at
+    // one time..
+    void clean_vertex_section();
 
     // Updates indexes of Vertex/Edges in index_updates. True if indexes are
     // updated successfully. False means that transaction failed.

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "communication/bolt/v1/states.hpp"
-#include "io/network/socket.hpp"
 #include "dbms/dbms.hpp"
+#include "io/network/socket.hpp"
 
 namespace bolt
 {
@@ -16,11 +16,10 @@ class Bolt
 public:
     Bolt();
 
-    Session* create_session(io::Socket&& socket);
-    void close(Session* session);
+    Session *create_session(io::Socket &&socket);
+    void close(Session *session);
 
     States states;
     Dbms dbms;
 };
-
 }

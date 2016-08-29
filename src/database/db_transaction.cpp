@@ -1,5 +1,6 @@
 #include "database/db_transaction.hpp"
 
+#include "database/db.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_type/edge_type.hpp"
 #include "storage/label/label.hpp"
@@ -9,6 +10,79 @@
     if (!x) {                                                                  \
         return false;                                                          \
     }
+
+DbTransaction::DbTransaction(Db &db) : db(db), trans(db.tx_engine.begin()) {}
+
+// Cleaning for indexes in labels and edge_type
+template <class A>
+void clean_indexes(A &&acc, Id oldest_active)
+{
+    for (auto &l : acc) {
+        l.second.get()->index().clean(oldest_active);
+    }
+}
+
+// Cleaning for version lists
+template <class A>
+void clean_version_lists(A &&acc, Id oldest_active)
+{
+    for (auto &vlist : acc) {
+        if (vlist.second.gc_deleted(oldest_active)) {
+            // TODO: Optimization, iterator with remove method.
+            bool succ = acc.remove(vlist.first);
+            assert(succ); // There is other cleaner here
+        }
+    }
+}
+
+// Cleaning for indexes in properties.
+template <class A>
+void clean_property_indexes(A &&acc, Id oldest_active)
+{
+    for (auto &family : acc) {
+        auto oi = family.second->index.get_read();
+        if (oi.is_present()) {
+            oi.get()->clean(oldest_active);
+        }
+    }
+
+    // TODO: Code for cleaning other indexes which are not yet coded into
+    // the database.
+}
+
+// Cleans edge part of database. Should be called by one cleaner thread at
+// one time.
+void DbTransaction::clean_edge_section()
+{
+    Id oldest_active = trans.oldest_active();
+
+    // Clean edge_type index
+    clean_indexes(db.graph.edge_type_store.access(), oldest_active);
+
+    // Clean family_type_s edge index
+    clean_property_indexes(db.graph.edges.property_family_access(),
+                           oldest_active);
+
+    // Clean Edge list
+    clean_version_lists(db.graph.edges.access(), oldest_active);
+}
+
+// Cleans vertex part of database. Should be called by one cleaner thread at
+// one time.
+void DbTransaction::clean_vertex_section()
+{
+    Id oldest_active = trans.oldest_active();
+
+    // Clean label index
+    clean_indexes(db.graph.label_store.access(), oldest_active);
+
+    // Clean family_type_s vertex index
+    clean_property_indexes(db.graph.vertices.property_family_access(),
+                           oldest_active);
+
+    // Clean vertex list
+    clean_version_lists(db.graph.vertices.access(), oldest_active);
+}
 
 template <class TG, class IU>
 bool update_property_indexes(IU &iu, const tx::Transaction &t)

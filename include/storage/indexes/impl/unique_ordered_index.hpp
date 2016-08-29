@@ -32,8 +32,8 @@ public:
 
     // Removes for all transactions obsolete Records.
     // Cleaner has to call this method when he decideds that it is time for
-    // cleaning.
-    void clean(DbTransaction &) final;
+    // cleaning. Id must be id of oldest active transaction.
+    void clean(const Id &id) final;
 
 private:
     ConcurrentSet<IndexRecord<T, K>> set;

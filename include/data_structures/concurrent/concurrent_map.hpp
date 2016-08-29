@@ -33,13 +33,24 @@ public:
 
         std::pair<list_it, bool> insert(const K &key, T &&data)
         {
-            return accessor.insert(item_t(key, std::forward<T>(data)));
+            return accessor.insert(item_t(key, std::move(data)));
         }
 
         std::pair<list_it, bool> insert(K &&key, T &&data)
         {
             return accessor.insert(
                 item_t(std::forward<K>(key), std::forward<T>(data)));
+        }
+
+        template <class... Args1, class... Args2>
+        std::pair<list_it, bool> emplace(const K &key,
+                                         std::tuple<Args1...> first_args,
+                                         std::tuple<Args2...> second_args)
+        {
+            return accessor.emplace(
+                key, std::piecewise_construct,
+                std::forward<std::tuple<Args1...>>(first_args),
+                std::forward<std::tuple<Args2...>>(second_args));
         }
 
         list_it_con find(const K &key) const { return accessor.find(key); }

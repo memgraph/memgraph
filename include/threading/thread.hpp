@@ -1,11 +1,11 @@
 #pragma once
 
 #include <atomic>
-#include <thread>
 #include <cassert>
+#include <thread>
 
+#include "threading/id.hpp"
 #include "utils/underlying_cast.hpp"
-#include "id.hpp"
 
 class Thread
 {
@@ -28,27 +28,20 @@ public:
     }
 
     Thread() = default;
-    Thread(const Thread&) = delete;
+    Thread(const Thread &) = delete;
 
-    Thread(Thread&& other)
-    {
-        assert(thread_id == UNINITIALIZED);
-        thread_id = other.thread_id;
-        thread = std::move(other.thread);
-    }
+    Thread(Thread &&other);
 
-    void join() { return thread.join(); }
+    void join();
 
 private:
     unsigned thread_id = UNINITIALIZED;
     std::thread thread;
 
     template <class F, class... Args>
-    void start_thread(F&& f)
+    void start_thread(F &&f)
     {
-        this_thread::id = thread_id;
+        // this_thread::id = thread_id;
         f();
     }
 };
-
-std::atomic<unsigned> Thread::thread_counter {1};

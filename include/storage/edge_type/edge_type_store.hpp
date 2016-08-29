@@ -9,6 +9,10 @@
 class EdgeTypeStore
 {
 public:
+    using store_t = ConcurrentMap<CharStr, std::unique_ptr<EdgeType>>;
+
+    store_t::Accessor access();
+
     const EdgeType &find_or_create(const char *name);
 
     bool contains(const char *name); // TODO: const
@@ -24,5 +28,5 @@ public:
     //       templetize the two of them
 
 private:
-    ConcurrentMap<CharStr, std::unique_ptr<EdgeType>> edge_types;
+    store_t edge_types;
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mvcc/id.hpp"
 #include "utils/border.hpp"
 #include "utils/total_ordering.hpp"
 
@@ -52,6 +53,10 @@ public:
 
     bool is_valid(tx::Transaction &t) const;
 
+    // True if it can be removed.
+    bool to_clean(const Id &oldest_active) const;
+
+    // This method is valid only if is_valid is true.
     const auto access(DbTransaction &db) const;
 
     const K key;

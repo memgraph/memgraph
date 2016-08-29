@@ -9,6 +9,7 @@ template <class TG, class K>
 class NonUniqueUnorderedIndex : public IndexBase<TG, K>
 {
 public:
+    using store_t = List<IndexRecord<TG, K>>;
     // typedef T value_type;
     // typedef K key_type;
 
@@ -33,9 +34,9 @@ public:
 
     // Removes for all transactions obsolete Records.
     // Cleaner has to call this method when he decideds that it is time for
-    // cleaning.
-    void clean(DbTransaction &) final;
+    // cleaning. Id must be id of oldest active transaction.
+    void clean(const Id &id) final;
 
 private:
-    List<IndexRecord<TG, K>> list;
+    store_t list;
 };

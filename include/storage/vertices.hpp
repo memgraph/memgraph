@@ -33,6 +33,8 @@ public:
     VertexPropertyFamily &
     property_family_find_or_create(const std::string &name);
 
+    prop_familys_t::Accessor property_family_access();
+
 private:
     vertices_t vertices;
     // TODO: Because families wont be removed this could be done with more

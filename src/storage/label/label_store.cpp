@@ -1,5 +1,7 @@
 #include "storage/label/label_store.hpp"
 
+LabelStore::store_t::Accessor LabelStore::access() { return labels.access(); }
+
 const Label &LabelStore::find_or_create(const char *name)
 {
     auto accessor = labels.access();

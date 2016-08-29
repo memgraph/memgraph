@@ -33,6 +33,9 @@ public:
     // snapshot will be empty.
     void wait_for_active();
 
+    // Return id of oldest transaction from snapshot.
+    Id oldest_active();
+
     // True if id is in snapshot.
     bool is_active(const Id &id) const;
     void take_lock(RecordLock &lock);

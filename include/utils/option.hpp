@@ -131,6 +131,17 @@ public:
         return std::move(*data._M_ptr());
     }
 
+    // Takes if it exists otherwise returns given value.
+    T take_or(T &&value)
+    {
+        if (initialized) {
+            initialized = false;
+            return std::move(*data._M_ptr());
+        } else {
+            return std::move(value);
+        }
+    }
+
     explicit operator bool() const { return initialized; }
 
 private:
