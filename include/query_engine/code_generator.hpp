@@ -3,11 +3,11 @@
 #include "config/config.hpp"
 #include "cypher/ast/ast.hpp"
 #include "cypher/compiler.hpp"
+#include "logging/default.hpp"
 #include "query_engine/exceptions/errors.hpp"
 #include "template_engine/engine.hpp"
 #include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
-#include "logging/default.hpp"
 #include "utils/type_discovery.hpp"
 
 using std::string;
@@ -56,6 +56,7 @@ public:
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
                             // {"stream", type_name<Stream>().to_string()},
+                            // BARRIER !!!!
                             {"stream", "RecordStream<io::Socket>"},
                             {"code", cpp_traverser.code}});
 

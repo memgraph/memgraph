@@ -4,7 +4,6 @@
 #include "communication/bolt/v1/transport/chunked_encoder.hpp"
 #include "communication/bolt/v1/transport/socket_stream.hpp"
 #include "io/network/socket.hpp"
-#include "storage/edge_x_vertex.hpp"
 
 template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge)

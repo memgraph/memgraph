@@ -13,8 +13,7 @@ template <typename Stream>
 class ICodeCPU
 {
 public:
-    virtual bool run(barrier::Db &db, code_args_t &args,
-                     Stream &stream) = 0;
+    virtual bool run(barrier::Db &db, code_args_t &args, Stream &stream) = 0;
     virtual ~ICodeCPU() {}
 };
 
