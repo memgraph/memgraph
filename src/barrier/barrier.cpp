@@ -282,7 +282,7 @@ const Id &VertexAccessor::id() const { return HALF_CALL(id()); }
 
 VertexAccessor VertexAccessor::update() const { return CALL(update()); }
 
-bool VertexAccessor::remove() const { return HALF_CALL(remove()); }
+void VertexAccessor::remove() const { HALF_CALL(remove()); }
 
 const Property &VertexAccessor::at(VertexPropertyFamily &key) const
 {
@@ -372,7 +372,7 @@ const Id &EdgeAccessor::id() const { return HALF_CALL(id()); }
 
 EdgeAccessor EdgeAccessor::update() const { return CALL(update()); }
 
-bool EdgeAccessor::remove() const { return HALF_CALL(remove()); }
+void EdgeAccessor::remove() const { HALF_CALL(remove()); }
 
 const Property &EdgeAccessor::at(EdgePropertyFamily &key) const
 {

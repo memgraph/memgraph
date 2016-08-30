@@ -2,24 +2,19 @@
 
 #include "storage/vertex_record.hpp"
 
-bool EdgeAccessor::remove() const
+void EdgeAccessor::remove() const
 {
-    if (RecordAccessor::remove()) {
-        auto from_v = from();
-        bool f_from = from_v.fill();
-        assert(f_from);
+    RecordAccessor::remove();
+    auto from_v = from();
+    bool f_from = from_v.fill();
+    assert(f_from);
 
-        auto to_v = to();
-        bool f_to = to_v.fill();
-        assert(f_to);
+    auto to_v = to();
+    bool f_to = to_v.fill();
+    assert(f_to);
 
-        from_v.update().record->data.out.remove(vlist);
-        to_v.update().record->data.in.remove(vlist);
-
-        return true;
-    } else {
-        return false;
-    }
+    from_v.update().record->data.out.remove(vlist);
+    to_v.update().record->data.in.remove(vlist);
 }
 
 void EdgeAccessor::edge_type(const EdgeType &edge_type)

@@ -178,12 +178,11 @@ public:
         return remove(record, t), true;
     }
 
-    bool remove(T *record, tx::Transaction &t)
+    void remove(T *record, tx::Transaction &t)
     {
         assert(record != nullptr);
         lock_and_validate(record, t);
         record->mark_deleted(t);
-        return true;
     }
 
     const Id id;

@@ -15,19 +15,23 @@ class Edges;
 // There exists circular dependecy with VertexAccessor.
 class EdgeAccessor : public RecordAccessor<TypeGroupEdge, EdgeAccessor>
 {
+    friend VertexAccessor;
+
 public:
     using RecordAccessor::RecordAccessor;
     typedef Edge record_t;
     typedef EdgeRecord record_list_t;
 
     // Removes self and disconects vertices from it.
-    bool remove() const;
+    void remove() const;
 
     void edge_type(EdgeType const &edge_type);
 
     const EdgeType &edge_type() const;
 
+    // EdgeAccessor doesnt need to be filled
     VertexAccessor from() const;
 
+    // EdgeAccessor doesnt need to be filled
     VertexAccessor to() const;
 };

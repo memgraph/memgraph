@@ -146,7 +146,7 @@ public:
     }
 
 protected:
-    bool remove() const;
+    void remove() const;
 
     T *record{nullptr};
     vlist_t *const vlist;

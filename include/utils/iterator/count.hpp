@@ -1,8 +1,10 @@
 #pragma once
 
+#include "utils/total_ordering.hpp"
+
 // Represents number of to be returned elements from iterator. Where acutal
 // number is probably somwhere in [min,max].
-class Count
+class Count : public TotalOrdering<Count>
 {
 
 public:
@@ -14,6 +16,18 @@ public:
     {
         min = 0;
         return *this;
+    }
+
+    size_t avg() const { return ((max - min) >> 1) + min; }
+
+    friend constexpr bool operator<(const Count &lhs, const Count &rhs)
+    {
+        return lhs.avg() < rhs.avg();
+    }
+
+    friend constexpr bool operator==(const Count &lhs, const Count &rhs)
+    {
+        return lhs.avg() == rhs.avg();
     }
 
     size_t min;

@@ -48,3 +48,23 @@ bool VertexAccessor::in_contains(VertexAccessor const &other) const
 {
     return record->data.in.contains(other.vlist);
 }
+
+void VertexAccessor::remove() const
+{
+    RecordAccessor::remove();
+
+    for (auto evr : record->data.out) {
+        auto ea = EdgeAccessor(evr, db);
+        ea.vlist->remove(db.trans);
+        auto to_v = ea.to();
+        to_v.fill();
+        to_v.update().record->data.in.remove(ea.vlist);
+    }
+    for (auto evr : record->data.in) {
+        auto ea = EdgeAccessor(evr, db);
+        ea.vlist->remove(db.trans);
+        auto from_v = ea.from();
+        from_v.fill();
+        from_v.update().record->data.out.remove(ea.vlist);
+    }
+}

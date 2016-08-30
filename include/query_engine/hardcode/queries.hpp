@@ -271,13 +271,111 @@ auto load_queries(Db &db)
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
+        auto prop_name = t.vertex_property_key("name", args[0]->flags);
 
-        auto it_type = type.index().for_range(t);
-        auto it_vertex = t.vertex_access();
+        Option<const EdgeAccessor> r;
 
-        // TODO
-        // if (it_type.count().max > it_vertex.count().max) {
-        // }
+        auto it_type = type.index()
+                           .for_range(t)
+                           .clone_to(r) // Savepoint
+                           .from()      // Backtracing
+                           .has_property(prop_name, *args[0].get())
+                           .replace(r); // Load savepoint
+
+        auto it_vertex = t.vertex_access()
+                             .fill()
+                             .has_property(prop_name, *args[0].get())
+                             .out()
+                             .type(type);
+
+        if (it_type.count() > it_vertex.count()) {
+            // Going through vertices wiil probably be faster
+            it_vertex.to().for_all([&](auto m) {
+                // PRINT m
+            });
+
+        } else {
+            // Going through edges wiil probably be faster
+            it_type.to().for_all([&](auto m) {
+                // PRINT m
+            });
+        }
+
+        return t.commit();
+    };
+
+    // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN n,m
+    auto match_name_type_return_cross = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto &type = t.type_find_or_create("TYPE");
+        auto prop_name = t.vertex_property_key("name", args[0]->flags);
+
+        Option<const VertexAccessor> n;
+        Option<const EdgeAccessor> r;
+
+        auto it_type = type.index()
+                           .for_range(t)
+                           .clone_to(r) // Savepoint
+                           .from()      // Backtracing
+                           .has_property(prop_name, *args[0].get())
+                           .clone_to(n) // Savepoint
+                           .replace(r); // Load savepoint
+
+        auto it_vertex = t.vertex_access()
+                             .fill()
+                             .has_property(prop_name, *args[0].get())
+                             .clone_to(n) // Savepoint
+                             .out()
+                             .type(type);
+
+        if (it_type.count() > it_vertex.count()) {
+            // Going through vertices wiil probably be faster
+            it_vertex.to().for_all([&](auto m) {
+                // PRINT n,m
+            });
+
+        } else {
+            // Going through edges wiil probably be faster
+            it_type.to().for_all([&](auto m) {
+                // PRINT n,m
+            });
+        }
+
+        return t.commit();
+    };
+
+    // MATCH (n:LABEL)-[:TYPE]->(m) RETURN n
+    auto match_label_type_return = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto &type = t.type_find_or_create("TYPE");
+        auto &label = t.label_find_or_create("LABEL");
+
+        Option<const VertexAccessor> bt;
+
+        auto it_type = type.index().for_range(t).from().label(label);
+
+        auto it_vertex = t.vertex_access()
+                             .fill()
+                             .label(label)
+                             .clone_to(bt) // Savepoint
+                             .out()
+                             .type(type)
+                             .replace(bt); // Load savepoint
+
+        if (it_type.count() > it_vertex.count()) {
+            // Going through vertices wiil probably be faster
+            it_vertex.for_all([&](auto n) {
+                // PRINT n
+            });
+
+        } else {
+            // Going through edges wiil probably be faster
+            it_type.for_all([&](auto n) {
+                // PRINT n
+            });
+        }
 
         return t.commit();
     };
@@ -307,6 +405,9 @@ auto load_queries(Db &db)
     queries[14897166600223619735u] = match_edge_all_delete;
     queries[16888549834923624215u] = match_edge_type_delete;
     queries[11675960684124428508u] = match_id_type_return;
+    queries[1554436524951961398u] = match_name_type_return;
+    queries[8537338362659537296u] = match_name_type_return_cross;
+    queries[8918221081398321263u] = match_label_type_return;
 
     return queries;
 }

@@ -17,8 +17,8 @@ public:
     typedef Vertex record_t;
     typedef VertexRecord record_list_t;
 
-    // Removes only self.
-    bool remove() const { return RecordAccessor::remove(); }
+    // Removes self and all edges connected to it.
+    void remove() const;
 
     size_t out_degree() const;
 

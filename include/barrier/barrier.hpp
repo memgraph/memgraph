@@ -145,7 +145,7 @@ public:
 
     VertexAccessor update() const;
 
-    bool remove() const;
+    void remove() const;
 
     const Property &at(VertexPropertyFamily &key) const;
 
@@ -204,7 +204,7 @@ public:
 
     EdgeAccessor update() const;
 
-    bool remove() const;
+    void remove() const;
 
     const Property &at(EdgePropertyFamily &key) const;
 

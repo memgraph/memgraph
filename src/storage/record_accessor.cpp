@@ -13,11 +13,11 @@
 // }
 
 template <class T, class Derived>
-bool RecordAccessor<T, Derived>::remove() const
+void RecordAccessor<T, Derived>::remove() const
 {
     assert(!empty());
 
-    return vlist->remove(record, db.trans);
+    vlist->remove(record, db.trans);
 }
 
 template class RecordAccessor<TypeGroupEdge, EdgeAccessor>;
