@@ -18,11 +18,15 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
             std::time_t now = std::time(nullptr);
 
             if (now >= last_clean + cleaning_cycle) {
+                logger.info("Started cleaning cyle");
                 for (auto &db : dbs.access()) {
+                    logger.info("Cleaning database \"{}\"", db.first);
                     DbTransaction t(db.second);
 
                     try {
+                        logger.info("Cleaning edges");
                         t.clean_edge_section();
+                        logger.info("Cleaning vertices");
                         t.clean_vertex_section();
                     } catch (const std::exception &e) {
                         logger.error(
@@ -34,6 +38,7 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
                     t.trans.commit();
                 }
                 last_clean = now;
+                logger.info("Finished cleaning cyle");
             } else {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
