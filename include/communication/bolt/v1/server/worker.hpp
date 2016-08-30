@@ -9,8 +9,8 @@
 
 #include "communication/bolt/v1/bolt.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "logging/default.hpp"
 #include "io/network/stream_reader.hpp"
+#include "logging/default.hpp"
 
 namespace bolt
 {
@@ -76,6 +76,7 @@ public:
         } catch (const std::exception &e) {
             logger.error("Error occured while executing statement.");
             logger.error("{}", e.what());
+            // TODO: report to client
         }
     }
 
@@ -83,6 +84,15 @@ public:
     {
         logger.trace("[on_close] Client closed the connection");
         session.close();
+    }
+
+    template <class... Args>
+    void on_exception(Session &session, Args &&... args)
+    {
+        logger.error("Error occured in this session");
+        logger.error(args...);
+
+        // TODO: Do something about it
     }
 
     char buf[65536];

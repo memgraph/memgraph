@@ -7,9 +7,12 @@
 #include "database/db_transaction.hpp"
 #include "threading/thread.hpp"
 
+#include "logging/default.hpp"
+
 Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
 {
     cleaners.push_back(std::make_unique<Thread>([&]() {
+        Logger logger = logging::log->logger("Cleaner");
         std::time_t last_clean = std::time(nullptr);
         while (cleaning.load(std::memory_order_acquire)) {
             std::time_t now = std::time(nullptr);
@@ -17,8 +20,18 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
             if (now >= last_clean + cleaning_cycle) {
                 for (auto &db : dbs.access()) {
                     DbTransaction t(db.second);
-                    t.clean_edge_section();
-                    t.clean_vertex_section();
+
+                    try {
+                        t.clean_edge_section();
+                        t.clean_vertex_section();
+                    } catch (const std::exception &e) {
+                        logger.error(
+                            "Error occured while cleaning database \"{}\"",
+                            db.first);
+                        logger.error("{}", e.what());
+                    }
+
+                    t.trans.commit();
                 }
                 last_clean = now;
             } else {

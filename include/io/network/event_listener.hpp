@@ -28,36 +28,37 @@ public:
         auto n = listener.wait(events, max_events, 200);
 
         // go through all events and process them in order
-        for(int i = 0; i < n; ++i)
-        {
-            auto& event = events[i];
+        for (int i = 0; i < n; ++i) {
+            auto &event = events[i];
 
-            // hangup event
-            if(UNLIKELY(event.events & EPOLLRDHUP))
-            {
-                this->derived().on_close_event(event);
-                continue;
+            try {
+                // hangup event
+                if (UNLIKELY(event.events & EPOLLRDHUP)) {
+                    this->derived().on_close_event(event);
+                    continue;
+                }
+
+                // there was an error on the server side
+                if (UNLIKELY(!(event.events & EPOLLIN) ||
+                             event.events & (EPOLLHUP | EPOLLERR))) {
+                    this->derived().on_error_event(event);
+                    continue;
+                }
+
+                // we have some data waiting to be read
+                this->derived().on_data_event(event);
+            } catch (const std::exception &e) {
+                this->derived().on_exception_event(
+                    event, "Error occured while processing event \n{}",
+                    e.what());
             }
-
-            // there was an error on the server side
-            if(UNLIKELY(!(event.events & EPOLLIN) ||
-                          event.events & (EPOLLHUP | EPOLLERR)))
-            {
-                this->derived().on_error_event(event);
-                continue;
-            }
-
-            // we have some data waiting to be read
-            this->derived().on_data_event(event);
         }
 
         // this will be optimized out :D
-        if(wait_timeout < 0)
-            return;
+        if (wait_timeout < 0) return;
 
         // if there was events, continue to wait on new events
-        if(n != 0)
-            return;
+        if (n != 0) return;
 
         // wait timeout occurred and there were no events. if wait_timeout
         // is -1 there will never be any timeouts so client should provide
@@ -70,5 +71,4 @@ protected:
     Epoll listener;
     Epoll::Event events[max_events];
 };
-
 }
