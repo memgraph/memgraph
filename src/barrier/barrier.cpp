@@ -113,6 +113,9 @@ Order VertexIndex<K>::order()
     return HALF_CALL(order());
 }
 
+// INSTANCES OF VERTEX INDEX
+template class VertexIndex<std::nullptr_t>;
+
 // **************** EdgeIndex
 template <class K>
 EdgeIterator EdgeIndex<K>::for_range(DbAccessor &t, Border<K> from,
@@ -132,6 +135,9 @@ Order EdgeIndex<K>::order()
 {
     return HALF_CALL(order());
 }
+
+// INSTANCES OF EDGE INDEX
+template class EdgeIndex<std::nullptr_t>;
 
 // ************************* DbAccessor
 DESTRUCTOR(DbAccessor, DbAccessor);

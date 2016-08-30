@@ -19,9 +19,9 @@ public:
         // make sure to call this before requesting any random numbers!
 
         // NOTE: Valgird complanis to next instruction
-        // std::random_device rd;
-        // std::mt19937_64 gen(rd());
-        std::mt19937_64 gen(time(0));
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        // std::mt19937_64 gen(time(0));
 
         std::uniform_int_distribution<unsigned long long> dist;
 
