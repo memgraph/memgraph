@@ -177,14 +177,12 @@ TRANSFORM_REF(EdgePropertyKey,
               ::EdgePropertyFamily::PropertyType::PropertyFamilyKey);
 
 // ITERATORS
-TRANSFORM_REF_SIZED(VertexIterator,
-                    std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
-TRANSFORM_REF_SIZED(EdgeIterator,
-                    std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
-TRANSFORM_REF_SIZED(VertexAccessIterator, vertex_access_iterator_t);
-TRANSFORM_REF_SIZED(EdgeAccessIterator, edge_access_iterator_t);
-TRANSFORM_REF_SIZED(OutEdgesIterator, out_edge_iterator_t);
-TRANSFORM_REF_SIZED(InEdgesIterator, in_edge_iterator_t);
+TRANSFORM_REF(VertexIterator, ::iter::Virtual<const ::VertexAccessor>);
+TRANSFORM_REF(EdgeIterator, ::iter::Virtual<const ::EdgeAccessor>);
+TRANSFORM_REF(VertexAccessIterator, vertex_access_iterator_t);
+TRANSFORM_REF(EdgeAccessIterator, edge_access_iterator_t);
+TRANSFORM_REF(OutEdgesIterator, out_edge_iterator_t);
+TRANSFORM_REF(InEdgesIterator, in_edge_iterator_t);
 
 template <class T>
 TRANSFORM_REF_TEMPLATED(VertexIndex<T>, VertexIndexBase<T>);
@@ -212,22 +210,18 @@ TRANSFORM_VALUE(EdgePropertyKey,
 TRANSFORM_VALUE(VertexPropertyKey,
                 ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_VALUE_ONE(VertexAccessIterator, vertex_access_iterator_t);
-// MOVE_CONSTRUCTOR_FORCED(VertexAccessIterator, vertex_access_iterator_t);
+MOVE_CONSTRUCTOR_FORCED(VertexAccessIterator, vertex_access_iterator_t);
 TRANSFORM_VALUE_ONE(EdgeAccessIterator, edge_access_iterator_t);
-// MOVE_CONSTRUCTOR_FORCED(EdgeAccessIterator, edge_access_iterator_t);
+MOVE_CONSTRUCTOR_FORCED(EdgeAccessIterator, edge_access_iterator_t);
 TRANSFORM_VALUE_ONE(OutEdgesIterator, out_edge_iterator_t);
-// MOVE_CONSTRUCTOR_FORCED(OutEdgesIterator, out_edge_iterator_t);
+MOVE_CONSTRUCTOR_FORCED(OutEdgesIterator, out_edge_iterator_t);
 TRANSFORM_VALUE_ONE(InEdgesIterator, in_edge_iterator_t);
-// MOVE_CONSTRUCTOR_FORCED(InEdgesIterator, in_edge_iterator_t);
-TRANSFORM_VALUE_ONE(VertexIterator,
-                    std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
-// MOVE_CONSTRUCTOR_FORCED(VertexIterator,
-//                         std::unique_ptr<IteratorBase<const
-//                         ::VertexAccessor>>);
-TRANSFORM_VALUE_ONE(EdgeIterator,
-                    std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
-// MOVE_CONSTRUCTOR_FORCED(EdgeIterator,
-//                         std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
+MOVE_CONSTRUCTOR_FORCED(InEdgesIterator, in_edge_iterator_t);
+TRANSFORM_VALUE_ONE(VertexIterator, ::iter::Virtual<const ::VertexAccessor>);
+MOVE_CONSTRUCTOR_FORCED(VertexIterator,
+                        ::iter::Virtual<const ::VertexAccessor>);
+TRANSFORM_VALUE_ONE(EdgeIterator, ::iter::Virtual<const ::EdgeAccessor>);
+MOVE_CONSTRUCTOR_FORCED(EdgeIterator, ::iter::Virtual<const ::EdgeAccessor>);
 
 template <class T>
 TRANSFORM_VALUE_ONE_RAW(

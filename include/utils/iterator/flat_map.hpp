@@ -1,5 +1,8 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
+#include "utils/iterator/iterator_base.hpp"
+
 namespace iter
 {
 
@@ -12,7 +15,8 @@ namespace iter
 // J - iterator type returned from OP
 // OP - type of mapper function
 template <class T, class I, class J, class OP>
-class FlatMap : public IteratorBase<T>
+class FlatMap : public IteratorBase<T>,
+                public Composable<T, FlatMap<T, I, J, OP>>
 {
 
 public:

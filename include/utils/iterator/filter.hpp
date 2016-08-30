@@ -1,7 +1,7 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
 #include "utils/iterator/iterator_base.hpp"
-#include "utils/option.hpp"
 
 namespace iter
 {
@@ -12,7 +12,7 @@ namespace iter
 // I - iterator type
 // OP - type of filter function. OP: T& -> bool
 template <class T, class I, class OP>
-class Filter : public IteratorBase<T>
+class Filter : public IteratorBase<T>, public Composable<T, Filter<T, I, OP>>
 {
 
 public:

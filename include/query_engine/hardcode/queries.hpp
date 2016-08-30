@@ -405,8 +405,8 @@ auto load_queries(Db &db)
     queries[14897166600223619735u] = match_edge_all_delete;
     queries[16888549834923624215u] = match_edge_type_delete;
     queries[11675960684124428508u] = match_id_type_return;
-    queries[1554436524951961398u] = match_name_type_return;
-    queries[8537338362659537296u] = match_name_type_return_cross;
+    queries[15698881472054193835u] = match_name_type_return;
+    queries[12595102442911913761u] = match_name_type_return_cross;
     queries[8918221081398321263u] = match_label_type_return;
 
     return queries;

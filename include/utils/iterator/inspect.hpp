@@ -1,7 +1,7 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
 #include "utils/iterator/iterator_base.hpp"
-#include "utils/option.hpp"
 
 namespace iter
 {
@@ -13,7 +13,7 @@ namespace iter
 // I - iterator type
 // OP - type of inspector function. OP: T&->void
 template <class T, class I, class OP>
-class Inspect : public IteratorBase<T>
+class Inspect : public IteratorBase<T>, public Composable<T, Inspect<T, I, OP>>
 {
 
 public:

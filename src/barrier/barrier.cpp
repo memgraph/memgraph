@@ -432,24 +432,24 @@ bool operator!=(const EdgeAccessor &a, const EdgeAccessor &b)
 }
 
 // ************************* VertexIterator
-DESTRUCTOR(VertexIterator, unique_ptr);
+DESTRUCTOR(VertexIterator, Virtual);
 
 Option<const VertexAccessor> VertexIterator::next()
 {
-    return HALF_CALL(get()->next()).map<const VertexAccessor>();
+    return HALF_CALL(next()).map<const VertexAccessor>();
 }
 
-Count VertexIterator::count() { return HALF_CALL(get()->count()); }
+Count VertexIterator::count() { return HALF_CALL(count()); }
 
 // ************************* EdgeIterator
-DESTRUCTOR(EdgeIterator, unique_ptr);
+DESTRUCTOR(EdgeIterator, Virtual);
 
 Option<const EdgeAccessor> EdgeIterator::next()
 {
-    return HALF_CALL(get()->next()).map<const EdgeAccessor>();
+    return HALF_CALL(next()).map<const EdgeAccessor>();
 }
 
-Count EdgeIterator::count() { return HALF_CALL(get()->count()); }
+Count EdgeIterator::count() { return HALF_CALL(count()); }
 
 // ************************* OutEdgesIterator
 DESTRUCTOR(OutEdgesIterator, out_edge_iterator_t);

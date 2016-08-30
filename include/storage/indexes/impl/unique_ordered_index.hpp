@@ -22,7 +22,7 @@ public:
 
     // Returns iterator which returns valid records in range.
     // ordered==None => doesn't guarantee any order of submitting records.
-    std::unique_ptr<IteratorBase<const typename T::accessor_t>>
+    iter::Virtual<const typename T::accessor_t>
     for_range(DbAccessor &t, Border<K> from = Border<K>(),
               Border<K> to = Border<K>()) final;
 

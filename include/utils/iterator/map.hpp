@@ -1,7 +1,7 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
 #include "utils/iterator/iterator_base.hpp"
-#include "utils/option.hpp"
 
 namespace iter
 {
@@ -12,7 +12,7 @@ namespace iter
 // I - iterator type
 // OP - type of mapper function
 template <class T, class I, class OP>
-class Map : public IteratorBase<T>
+class Map : public IteratorBase<T>, public Composable<T, Map<T, I, OP>>
 {
 
 public:
