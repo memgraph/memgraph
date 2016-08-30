@@ -1,5 +1,5 @@
-#include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
+#include "communication/bolt/v1/states/executor.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"

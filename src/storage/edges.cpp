@@ -24,6 +24,7 @@ EdgeAccessor Edges::insert(DbTransaction &t, VertexRecord *from,
 
     // create new vertex record
     EdgeRecord edge_record(next, from, to);
+    auto edge = edge_record.insert(t.trans);
 
     // insert the new vertex record into the vertex store
     auto edges_accessor = edges.access();
@@ -31,7 +32,7 @@ EdgeAccessor Edges::insert(DbTransaction &t, VertexRecord *from,
 
     // create new vertex
     auto inserted_edge_record = result.first;
-    auto edge = inserted_edge_record->second.insert(t.trans);
+
     t.to_update_index<TypeGroupEdge>(&inserted_edge_record->second, edge);
 
     return EdgeAccessor(edge, &inserted_edge_record->second, t);

@@ -36,7 +36,7 @@
 
 using namespace std;
 
-constexpr char *_string = "string";
+constexpr char const *_string = "string";
 
 bool equal_str(const char *a, const char *b) { return strcasecmp(a, b) == 0; }
 
@@ -167,22 +167,6 @@ private:
         }
     }
 
-    // template <typename F>
-    // Option<unique_ptr<Filler>> make_filler_property(bool vertex,
-    //                                                 const char name, Flags
-    //                                                 type)
-    // {
-    //     if (vertex) {
-    //         std::unique_ptr<Filler> f(
-    //             F(db.vertex_property_key(name, Type(type))));
-    //         return make_option(std::move(f));
-    //     } else {
-    //         std::unique_ptr<Filler> f(
-    //             F(db.edge_property_key(name, Type(type))));
-    //         return make_option(std::move(f));
-    //     }
-    // }
-
     template <class TG>
     typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey
     prop_key(const char *name, Flags type)
@@ -197,6 +181,10 @@ private:
     {
         tmp_vec.clear();
         split(header_part, type_mark, tmp_vec);
+
+        const char *name = tmp_vec[0];
+        const char *type = tmp_vec[1];
+
         if (tmp_vec.size() > 2) {
             err("To much sub parts in header part");
             return make_option<unique_ptr<Filler>>();
@@ -205,27 +193,17 @@ private:
                 warn(
                     "Column ", tmp_vec[0],
                     " doesn't have specified type so string type will be used");
-                tmp_vec.push_back(_string);
+                name = tmp_vec[0];
+                type = _string;
             } else {
                 warn("Empty colum definition, skiping column.");
                 std::unique_ptr<Filler> f(new SkipFiller());
                 return make_option(std::move(f));
             }
+        } else {
+            name = tmp_vec[0];
+            type = tmp_vec[1];
         }
-
-        const char *name = tmp_vec[0];
-        const char *type = tmp_vec[1];
-
-        // cout << name << " # " << type << endl;
-
-        // auto prop_key = [&](auto name, auto type) -> auto
-        // {
-        //     if (vertex) {
-        //         return db.vertex_property_key(name, Type(type));
-        //     } else {
-        //         return db.edge_property_key(name, Type(type));
-        //     }
-        // };
 
         if (equal_str(type, "id")) {
             std::unique_ptr<Filler> f(

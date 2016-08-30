@@ -155,6 +155,9 @@ public:
         assert(record != nullptr);
         lock_and_validate(record, t);
 
+        // It could be done with unique_ptr but while this could mean memory
+        // leak on exception, unique_ptr could mean use after free. Memory
+        // leak is less dangerous.
         auto updated = new T();
         updated->data = record->data;
 
@@ -174,6 +177,7 @@ public:
 
         if (!record) return false;
 
+        // TODO: Is this lock and validate necessary
         lock_and_validate(record, t);
         return remove(record, t), true;
     }

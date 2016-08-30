@@ -144,6 +144,9 @@ private:
         // It is lock free but it isn't wait free.
         void push(T &&data)
         {
+            // It could be done with unique_ptr but while this could meen memory
+            // leak on excpetion, unique_ptr could meean use after free. Memory
+            // leak is less dangerous.
             auto node = new Node(data);
             Node *next = nullptr;
             do {
