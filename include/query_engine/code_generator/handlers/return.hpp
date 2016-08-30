@@ -38,6 +38,7 @@ auto return_query_action =
                     code += code_line(code::write_all_edges, entity);
 
             }
+            // the client will receive entities from label index
             if (cypher_data.source(entity) == EntitySource::LabelIndex)
             {
                 if (cypher_data.type(entity) == EntityType::Node) {
@@ -47,7 +48,6 @@ auto return_query_action =
                     code += code_line(code::fine_and_write_vertices_by_label,
                                       entity, label);
                 }
-                // TODO: code_line
             }
         } 
         else if (element.is_projection()) 

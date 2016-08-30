@@ -61,9 +61,11 @@ void Executor::run(Session& session, Query& query)
     auto &db = session.active_db();
     logger.debug("[ActiveDB] '{}'", db.name());
 
-    // TODO: error handling
-
-    query_engine.execute(query.statement, db, session.output_stream);
+    try {
+        query_engine.execute(query.statement, db, session.output_stream);
+    } catch (QueryEngineException &e) {
+        // return error to user
+    }
 }
 
 void Executor::pull_all(Session& session)

@@ -3,12 +3,12 @@
 #include <string>
 
 #include "cypher/visitor/traverser.hpp"
-
 #include "query_engine/code_generator/cpp_generator.hpp"
 #include "query_engine/code_generator/entity_search.hpp"
 #include "query_engine/code_generator/structures.hpp"
 #include "query_engine/exceptions/exceptions.hpp"
 #include "query_engine/traverser/code.hpp"
+#include "logging/default.hpp"
 
 struct SetElementState
 {
@@ -99,7 +99,11 @@ private:
         generator.clear();
     }
 
+    Logger logger;
+
 public:
+    CppTraverser() : logger(logging::log->logger("CppTraverser")) {}
+
     void semantic_check() const
     {
         if (!has_return)

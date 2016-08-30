@@ -36,7 +36,8 @@ public:
         } catch (QueryEngineException &e) {
             // in this case something fatal went wrong
             logger.error("QueryEngineException: {}", std::string(e.what()));
-            return false;
+            // return false;
+            throw e;
         }
     }
 
