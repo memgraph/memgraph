@@ -17,3 +17,4 @@ Testing/
 ve/
 release/memgraph_*
 release/libs/
+release/barrier/

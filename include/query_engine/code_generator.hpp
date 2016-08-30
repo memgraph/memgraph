@@ -60,7 +60,7 @@ public:
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
 #ifdef BARRIER
-                            {"stream", "RecordStream<io::Socket>"},
+                            {"stream", "RecordStream<::io::Socket>"},
 #else
                             {"stream", type_name<Stream>().to_string()},
 #endif

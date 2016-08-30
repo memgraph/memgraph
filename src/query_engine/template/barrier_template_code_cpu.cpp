@@ -1,7 +1,6 @@
 #include <iostream>
 #include <string>
 
-#include "query_engine/util.hpp"
 #include "query_engine/i_code_cpu.hpp"
 #include "storage/model/properties/all.hpp"
 

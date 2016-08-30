@@ -74,7 +74,7 @@ const std::string write_all_vertices =
 const std::string find_and_write_vertices_by_label =
         "auto &label = t.label_find_or_create(\"{1}\");\n"
         "        stream.write_field(\"{0}\");\n"
-        "        label.index().for_range(t)->for_all([&](auto vertex) {{\n"
+        "        label.index().for_range(t).for_all([&](auto vertex) {{\n"
         "            stream.write_record();\n"
         "            stream.write_list_header(1);\n"
         "            stream.write(vertex);\n"
@@ -97,7 +97,7 @@ const std::string write_all_edges =
 const std::string find_and_write_edges_by_type =
         "auto &type = t.type_find_or_create(\"{1}\");\n"
         "        stream.write_field(\"{0}\");\n"
-        "        type.index().for_range(t)->for_all([&](auto edge) {{\n"
+        "        type.index().for_range(t).for_all([&](auto edge) {{\n"
         "            stream.write_record();\n"
         "            stream.write_list_header(1);\n"
         "            stream.write(edge);\n"

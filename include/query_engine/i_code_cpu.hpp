@@ -1,11 +1,12 @@
 #pragma once
 
-#include "communication/communication.hpp"
 #include "query_engine/query_stripped.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.hpp"
+#include "io/network/socket.hpp"
 #else
+#include "communication/communication.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #endif
