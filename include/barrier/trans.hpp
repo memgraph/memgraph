@@ -5,9 +5,9 @@
 // This is the place for imports from memgraph .hpp
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "communication/bolt/v1/serialization/record_stream.hpp"
-#include "io/network/socket.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
+#include "io/network/socket.hpp"
 #include "storage/edge_type/edge_type.hpp"
 #include "storage/edge_x_vertex.hpp"
 #include "storage/label/label.hpp"
@@ -126,6 +126,9 @@
 using vertex_access_iterator_t =
     decltype(((::DbAccessor *)(std::nullptr_t()))->vertex_access());
 
+using edge_access_iterator_t =
+    decltype(((::DbAccessor *)(std::nullptr_t()))->edge_access());
+
 using out_edge_iterator_t =
     decltype(((::VertexAccessor *)(std::nullptr_t()))->out());
 
@@ -160,6 +163,7 @@ TRANSFORM_REF(VertexIterator,
 TRANSFORM_REF(EdgeIterator,
               std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
 TRANSFORM_REF(VertexAccessIterator, vertex_access_iterator_t);
+TRANSFORM_REF(EdgeAccessIterator, edge_access_iterator_t);
 TRANSFORM_REF(OutEdgesIterator, out_edge_iterator_t);
 TRANSFORM_REF(InEdgesIterator, in_edge_iterator_t);
 
@@ -190,6 +194,8 @@ TRANSFORM_VALUE(VertexPropertyKey,
                 ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_VALUE_ONE(VertexAccessIterator, vertex_access_iterator_t);
 MOVE_CONSTRUCTOR_FORCED(VertexAccessIterator, vertex_access_iterator_t);
+TRANSFORM_VALUE_ONE(EdgeAccessIterator, edge_access_iterator_t);
+MOVE_CONSTRUCTOR_FORCED(EdgeAccessIterator, edge_access_iterator_t);
 TRANSFORM_VALUE_ONE(OutEdgesIterator, out_edge_iterator_t);
 MOVE_CONSTRUCTOR_FORCED(OutEdgesIterator, out_edge_iterator_t);
 TRANSFORM_VALUE_ONE(InEdgesIterator, in_edge_iterator_t);

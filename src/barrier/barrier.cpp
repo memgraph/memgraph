@@ -148,6 +148,8 @@ Option<const VertexAccessor> DbAccessor::vertex_find(const Id &id)
 
 VertexAccessor DbAccessor::vertex_insert() { return CALL(vertex_insert()); }
 
+EdgeAccessIterator DbAccessor::edge_access() { return CALL(edge_access()); }
+
 Option<const EdgeAccessor> DbAccessor::edge_find(const Id &id)
 {
     return HALF_CALL(edge_find(id)).map<const EdgeAccessor>();
@@ -467,6 +469,14 @@ Option<const VertexAccessor> VertexAccessIterator::next()
     return HALF_CALL(next()).map<const VertexAccessor>();
 }
 
+// ************************* EdgeAccessIterator
+DESTRUCTOR(EdgeAccessIterator, edge_access_iterator_t);
+
+Option<const EdgeAccessor> EdgeAccessIterator::next()
+{
+    return HALF_CALL(next()).map<const EdgeAccessor>();
+}
+
 // ************************* VertexPropertyKey
 DESTRUCTOR(VertexPropertyKey, PropertyFamilyKey);
 
@@ -596,7 +606,7 @@ void RecordStream<Stream>::write_fields(const std::vector<std::string> &fields)
 }
 
 template <class Stream>
-void RecordStream<Stream>::write_field(const std::string& field)
+void RecordStream<Stream>::write_field(const std::string &field)
 {
     HALF_CALL(write_field(field));
 }
@@ -614,7 +624,7 @@ void RecordStream<Stream>::write_record()
 }
 
 template <class Stream>
-void RecordStream<Stream>::write_meta(const std::string& type)
+void RecordStream<Stream>::write_meta(const std::string &type)
 {
     HALF_CALL(write_meta(type));
 }
@@ -632,7 +642,6 @@ void RecordStream<Stream>::chunk()
 }
 
 template class RecordStream<io::Socket>;
-
 }
 
 // **************************** ERROR EXAMPLES ****************************** //

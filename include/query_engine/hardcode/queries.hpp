@@ -20,8 +20,7 @@ auto load_queries(Db &db)
 
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(prop_key, args[0]);
-        t.commit();
-        return true;
+        return t.commit();
     };
     queries[11597417457737499503u] = create_node;
 
@@ -34,8 +33,7 @@ auto load_queries(Db &db)
         vertex_accessor.set(prop_key, args[0]);
         vertex_accessor.add_label(label);
         // cout_properties(vertex_accessor.properties());
-        t.commit();
-        return true;
+        return t.commit();
     };
 
     auto create_account = [&db](const properties_t &args) {
@@ -53,8 +51,7 @@ auto load_queries(Db &db)
         vertex_accessor.set(prop_created, args[3]);
         vertex_accessor.add_label(label);
         // cout_properties(vertex_accessor.properties());
-        t.commit();
-        return true;
+        return t.commit();
     };
 
     auto find_node_by_internal_id = [&db](const properties_t &args) {
@@ -71,8 +68,7 @@ auto load_queries(Db &db)
         for (auto label_ref : vertex_accessor.labels()) {
             // cout << label_ref.get() << endl;
         }
-        t.commit();
-        return true;
+        return t.commit();
     };
 
     auto create_edge = [&db](const properties_t &args) {
@@ -89,13 +85,13 @@ auto load_queries(Db &db)
 
         edge_accessor.edge_type(edge_type);
 
-        t.commit();
+        bool ret = t.commit();
 
         // cout << edge_accessor.edge_type() << endl;
 
         // cout_properties(edge_accessor.properties());
 
-        return true;
+        return ret;
     };
 
     auto find_edge_by_internal_id = [&db](const properties_t &args) {
@@ -119,9 +115,7 @@ auto load_queries(Db &db)
         cout << "TO:" << endl;
         // cout_properties(to->data.props);
 
-        t.commit();
-
-        return true;
+        return t.commit();
     };
 
     auto update_node = [&db](const properties_t &args) {
@@ -135,9 +129,7 @@ auto load_queries(Db &db)
         v.set(prop_name, args[1]);
         // cout_properties(v.properties());
 
-        t.commit();
-
-        return true;
+        return t.commit();
     };
 
     // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25,
@@ -158,8 +150,7 @@ auto load_queries(Db &db)
         auto &IS = t.type_find_or_create("IS");
         r.edge_type(IS);
 
-        t.commit();
-        return true;
+        return t.commit();
     };
 
     // MATCH (n) RETURN n
@@ -172,7 +163,7 @@ auto load_queries(Db &db)
             }
         });
 
-        return t.commit(), true;
+        return t.commit();
     };
 
     // MATCH (n:LABEL) RETURN n
@@ -186,8 +177,105 @@ auto load_queries(Db &db)
         iter::for_all(label.index().for_range(t),
                       [&](auto a) { cout << a.at(prop_key) << endl; });
 
-        return t.commit(), true;
+        return t.commit();
     };
+
+    // MATCH (n) DELETE n
+    auto match_all_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        iter::for_all(t.vertex_access(), [&](auto a) {
+            if (a.fill()) {
+                a.remove();
+            }
+        });
+
+        return t.commit();
+    };
+
+    // MATCH (n:LABEL) DELETE n
+    auto match_label_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto &label = t.label_find_or_create("LABEL");
+
+        iter::for_all(label.index().for_range(t), [&](auto a) {
+            if (a.fill()) {
+                a.remove();
+            }
+        });
+
+        return t.commit();
+    };
+
+    // MATCH (n) WHERE ID(n) = id DELETE n
+    auto match_id_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto ov = t.vertex_find(args[0]->as<Int64>().value);
+        if (!option_fill(ov)) return t.commit(), false;
+
+        auto v = ov.take();
+        v.remove();
+
+        return t.commit();
+    };
+
+    // MATCH ()-[r]-() WHERE ID(r) = 0 DELETE r
+    auto match_edge_id_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto ov = t.edge_find(args[0]->as<Int64>().value);
+        if (!option_fill(ov)) return t.commit(), false;
+
+        auto v = ov.take();
+        v.remove();
+
+        return t.commit();
+    };
+
+    // MATCH ()-[r]-() DELETE r
+    auto match_edge_all_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        iter::for_all(t.edge_access(), [&](auto a) {
+            if (a.fill()) {
+                a.remove();
+            }
+        });
+
+        return t.commit();
+    };
+
+    // MATCH ()-[r:TYPE]-() DELETE r
+    auto match_edge_type_delete = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto &type = t.type_find_or_create("TYPE");
+
+        iter::for_all(type.index().for_range(t), [&](auto a) {
+            if (a.fill()) {
+                a.remove();
+            }
+        });
+
+        return t.commit();
+    };
+
+    // MATCH ()-[r]-() WHERE ID(r) = 0 DELETE r
+    auto = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        return t.commit();
+    };
+
+    // Blueprint:
+    // auto  = [&db](const properties_t &args) {
+    //     DbAccessor t(db);
+    //
+    //
+    //     return t.commit();
+    // };
 
     queries[15284086425088081497u] = match_all_nodes;
     queries[4857652843629217005u] = match_by_label;
@@ -199,6 +287,12 @@ auto load_queries(Db &db)
     queries[11198568396549106428u] = find_node_by_internal_id;
     queries[8320600413058284114u] = find_edge_by_internal_id;
     queries[6813335159006269041u] = update_node;
+    queries[10506105811763742758u] = match_all_delete;
+    queries[13742779491897528506u] = match_label_delete;
+    queries[11349462498691305864u] = match_id_delete;
+    queries[6963549500479100885u] = match_edge_id_delete;
+    queries[14897166600223619735u] = match_edge_all_delete;
+    queries[16888549834923624215u] = match_edge_type_delete;
 
     return queries;
 }

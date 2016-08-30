@@ -25,6 +25,7 @@ class EdgeIterator;
 
 // TYPED ITERATORS
 class VertexAccessIterator;
+class EdgeAccessIterator;
 class OutEdgesIterator;
 class InEdgesIterator;
 
@@ -247,6 +248,8 @@ public:
 
     VertexAccessor vertex_insert();
 
+    EdgeAccessIterator edge_access();
+
     Option<const EdgeAccessor> edge_find(const Id &id);
 
     EdgeAccessor edge_insert(VertexAccessor const &from,
@@ -307,6 +310,22 @@ public:
     VertexAccessIterator &operator=(VertexAccessIterator &&other) = delete;
 
     Option<const VertexAccessor> next();
+};
+
+// TODO: Find reasons of such great size ant try to decrease it.
+class EdgeAccessIterator : private Sized<552, 8>
+{
+public:
+    template <class T>
+    EdgeAccessIterator(T &&d);
+
+    EdgeAccessIterator(const EdgeAccessIterator &other) = delete;
+    EdgeAccessIterator(EdgeAccessIterator &&other);
+    ~EdgeAccessIterator();
+    EdgeAccessIterator &operator=(const EdgeAccessIterator &other) = delete;
+    EdgeAccessIterator &operator=(EdgeAccessIterator &&other) = delete;
+
+    Option<const EdgeAccessor> next();
 };
 
 class OutEdgesIterator : private Sized<40, 8>
@@ -442,10 +461,10 @@ public:
     void write_success_empty();
     void write_ignored();
     void write_fields(const std::vector<std::string> &fields);
-    void write_field(const std::string& field);
+    void write_field(const std::string &field);
     void write_list_header(size_t size);
     void write_record();
-    void write_meta(const std::string& type);
+    void write_meta(const std::string &type);
     void send();
     void chunk();
 };

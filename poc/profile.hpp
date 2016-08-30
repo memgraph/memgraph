@@ -116,19 +116,6 @@ void for_all_fill(I iter, C &&consumer)
 }
 
 template <class I, class C>
-void find(I iter, C &&consumer)
-{
-    auto e = iter.next();
-    while (e.is_present()) {
-
-        if (consumer(e.take())) {
-            return;
-        }
-        e = iter.next();
-    }
-}
-
-template <class I, class C>
 void find_fill(I iter, C &&consumer)
 {
     auto e = iter.next();
