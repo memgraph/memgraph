@@ -62,6 +62,8 @@ public:
 
     ~AccessorBase() {}
 
+    size_t size() { return accessor.size(); };
+
     list_it begin() { return accessor.begin(); }
 
     list_it_con begin() const { return accessor.cbegin(); }

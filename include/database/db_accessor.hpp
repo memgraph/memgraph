@@ -69,6 +69,14 @@ public:
     VertexAccessor vertex_insert();
 
     // ******************* EDGE METHODS
+    auto edge_access()
+    {
+        return iter::make_map(
+            iter::make_iter(this->db_transaction.db.graph.edges.access()),
+            [&](auto e) -> auto {
+                return EdgeAccessor(&(e->second), db_transaction);
+            });
+    }
 
     Option<const EdgeAccessor> edge_find(const Id &id);
 

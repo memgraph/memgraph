@@ -25,4 +25,17 @@ void for_all(std::unique_ptr<I> &&iter, C &&consumer)
         e = iter->next();
     }
 }
+
+template <class I, class C>
+void find(I iter, C &&consumer)
+{
+    auto e = iter.next();
+    while (e.is_present()) {
+
+        if (consumer(e.take())) {
+            return;
+        }
+        e = iter.next();
+    }
+}
 }

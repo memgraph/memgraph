@@ -5,12 +5,14 @@
 // This is the place for imports from memgraph .hpp
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "communication/bolt/v1/serialization/record_stream.hpp"
-#include "io/network/socket.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
+#include "io/network/socket.hpp"
 #include "storage/edge_type/edge_type.hpp"
 #include "storage/edge_x_vertex.hpp"
 #include "storage/label/label.hpp"
+
+// This is the place for imports from memgraph .cpp
 
 // **************************** HELPER DEFINES *******************************//
 // Creates 8 functions for transformation of refereces between types x and y.
@@ -25,6 +27,21 @@
     x const *trans(y const *l) { return ptr_as<x const>(l); }                  \
     y *trans(x *l) { return ptr_as<y>(l); }                                    \
     y const *trans(x const *l) { return ptr_as<y const>(l); }
+
+// Creates 4 functions for transformation of refereces between types x and y.
+// Where x is a sized border type.
+// DANGEROUS
+#define TRANSFORM_REF_SIZED(x, y)                                              \
+    y &trans(x &l) { return ref_as<y>(l._data_ref()); }                        \
+    y const &trans(x const &l)                                                 \
+    {                                                                          \
+        return ref_as<y const>(l._data_ref_const());                           \
+    }                                                                          \
+    y *trans(x *l) { return ptr_as<y>(&(l->_data_ref())); }                    \
+    y const *trans(x const *l)                                                 \
+    {                                                                          \
+        return ptr_as<y const>(&(l->_data_ref_const()));                       \
+    }
 
 // Creates 8 functions for transformation of refereces between types x and y.
 // Where both x and y are templates over T. Where x is a border type.
@@ -126,6 +143,9 @@
 using vertex_access_iterator_t =
     decltype(((::DbAccessor *)(std::nullptr_t()))->vertex_access());
 
+using edge_access_iterator_t =
+    decltype(((::DbAccessor *)(std::nullptr_t()))->edge_access());
+
 using out_edge_iterator_t =
     decltype(((::VertexAccessor *)(std::nullptr_t()))->out());
 
@@ -155,13 +175,16 @@ TRANSFORM_REF(VertexPropertyKey,
               ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_REF(EdgePropertyKey,
               ::EdgePropertyFamily::PropertyType::PropertyFamilyKey);
-TRANSFORM_REF(VertexIterator,
-              std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
-TRANSFORM_REF(EdgeIterator,
-              std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
-TRANSFORM_REF(VertexAccessIterator, vertex_access_iterator_t);
-TRANSFORM_REF(OutEdgesIterator, out_edge_iterator_t);
-TRANSFORM_REF(InEdgesIterator, in_edge_iterator_t);
+
+// ITERATORS
+TRANSFORM_REF_SIZED(VertexIterator,
+                    std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
+TRANSFORM_REF_SIZED(EdgeIterator,
+                    std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
+TRANSFORM_REF_SIZED(VertexAccessIterator, vertex_access_iterator_t);
+TRANSFORM_REF_SIZED(EdgeAccessIterator, edge_access_iterator_t);
+TRANSFORM_REF_SIZED(OutEdgesIterator, out_edge_iterator_t);
+TRANSFORM_REF_SIZED(InEdgesIterator, in_edge_iterator_t);
 
 template <class T>
 TRANSFORM_REF_TEMPLATED(VertexIndex<T>, VertexIndexBase<T>);
@@ -189,19 +212,22 @@ TRANSFORM_VALUE(EdgePropertyKey,
 TRANSFORM_VALUE(VertexPropertyKey,
                 ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_VALUE_ONE(VertexAccessIterator, vertex_access_iterator_t);
-MOVE_CONSTRUCTOR_FORCED(VertexAccessIterator, vertex_access_iterator_t);
+// MOVE_CONSTRUCTOR_FORCED(VertexAccessIterator, vertex_access_iterator_t);
+TRANSFORM_VALUE_ONE(EdgeAccessIterator, edge_access_iterator_t);
+// MOVE_CONSTRUCTOR_FORCED(EdgeAccessIterator, edge_access_iterator_t);
 TRANSFORM_VALUE_ONE(OutEdgesIterator, out_edge_iterator_t);
-MOVE_CONSTRUCTOR_FORCED(OutEdgesIterator, out_edge_iterator_t);
+// MOVE_CONSTRUCTOR_FORCED(OutEdgesIterator, out_edge_iterator_t);
 TRANSFORM_VALUE_ONE(InEdgesIterator, in_edge_iterator_t);
-MOVE_CONSTRUCTOR_FORCED(InEdgesIterator, in_edge_iterator_t);
+// MOVE_CONSTRUCTOR_FORCED(InEdgesIterator, in_edge_iterator_t);
 TRANSFORM_VALUE_ONE(VertexIterator,
                     std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
-MOVE_CONSTRUCTOR_FORCED(VertexIterator,
-                        std::unique_ptr<IteratorBase<const ::VertexAccessor>>);
+// MOVE_CONSTRUCTOR_FORCED(VertexIterator,
+//                         std::unique_ptr<IteratorBase<const
+//                         ::VertexAccessor>>);
 TRANSFORM_VALUE_ONE(EdgeIterator,
                     std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
-MOVE_CONSTRUCTOR_FORCED(EdgeIterator,
-                        std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
+// MOVE_CONSTRUCTOR_FORCED(EdgeIterator,
+//                         std::unique_ptr<IteratorBase<const ::EdgeAccessor>>);
 
 template <class T>
 TRANSFORM_VALUE_ONE_RAW(

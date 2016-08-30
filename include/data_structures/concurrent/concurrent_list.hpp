@@ -281,6 +281,8 @@ public:
 
     ConstIterator cend() { return ConstIterator(); }
 
+    std::size_t size() { return count.load(std::memory_order_consume); }
+
 private:
     std::atomic<std::size_t> count{0};
     std::atomic<Node *> head{nullptr};
