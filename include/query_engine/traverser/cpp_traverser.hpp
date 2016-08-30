@@ -255,7 +255,11 @@ public:
 
         Traverser::visit(ast_node);
 
-        if (state == CypherState::Create) {
+        // this is here because of RETURN clause
+        // CREATE (n {...}) RETURN n
+        if (cypher_data.status(name) != EntityStatus::Matched &&
+            state == CypherState::Create)
+        {
             cypher_data.node_created(name);
         }
     }
@@ -447,7 +451,7 @@ public:
         auto &cypher_data = generator.cypher_data();
         auto entity_type = cypher_data.type(entity);
 
-        if (entity_type == EntityType::NotFound)
+        if (entity_type == EntityType::None)
             throw SemanticError("Entity (" + entity + ") doesn't exist");
 
         auto &action_data = generator.action_data();

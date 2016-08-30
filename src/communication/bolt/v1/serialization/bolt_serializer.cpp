@@ -1,5 +1,8 @@
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
+#include "communication/bolt/v1/transport/chunked_buffer.hpp"
+#include "communication/bolt/v1/transport/chunked_encoder.hpp"
+#include "communication/bolt/v1/transport/socket_stream.hpp"
 #include "storage/edge_x_vertex.hpp"
 
 template <class Stream>
@@ -28,3 +31,6 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge)
         write(*prop.second);
     }
 }
+
+// template class bolt::BoltSerializer<bolt::BoltEncoder<
+//     bolt::ChunkedEncoder<bolt::ChunkedBuffer<bolt::SocketStream<io::Socket>>>>>;

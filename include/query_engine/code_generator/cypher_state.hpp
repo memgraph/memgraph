@@ -22,16 +22,25 @@ enum class CypherState : uint8_t
 
 enum class EntityStatus : uint8_t
 {
-    NotFound,
+    None,
     Matched,
     Created
 };
 
 enum class EntityType : uint8_t
 {
-    NotFound,
+    None,
     Node,
     Relationship
+};
+
+// where OR how entity can be found
+enum class EntitySource : uint8_t
+{
+    None,
+    InternalId,
+    LabelIndex,
+    MainStorage 
 };
 
 class CypherStateData
@@ -39,6 +48,7 @@ class CypherStateData
 private:
     std::map<std::string, EntityStatus> entity_status;
     std::map<std::string, EntityType> entity_type;
+    std::map<std::string, EntitySource> entity_source;
 
     // TODO: container that keeps track about c++ variable names
 
@@ -51,7 +61,7 @@ public:
     EntityStatus status(const std::string &name)
     {
         if (entity_status.find(name) == entity_status.end())
-            return EntityStatus::NotFound;
+            return EntityStatus::None;
 
         return entity_status.at(name);
     }
@@ -59,9 +69,16 @@ public:
     EntityType type(const std::string &name) const
     {
         if (entity_type.find(name) == entity_type.end())
-            return EntityType::NotFound;
+            return EntityType::None;
 
         return entity_type.at(name);
+    }
+
+    EntitySource source(const std::string &name) const
+    {
+        if (entity_source.find(name) == entity_source.end())
+            return EntitySource::None;
+        return entity_source.at(name);
     }
 
     const std::map<std::string, EntityType> &all_typed_enteties()
@@ -91,5 +108,10 @@ public:
     {
         entity_type[name] = EntityType::Relationship;
         entity_status[name] = EntityStatus::Created;
+    }
+
+    void source(const std::string& name, EntitySource source)
+    {
+        entity_source[name] = source;
     }
 };

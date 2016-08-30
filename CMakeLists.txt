@@ -307,6 +307,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE
     "${CMAKE_CXX_FLAGS_RELEASE}  -Wall")
 
+# TODO: find a way how to applay the defines at the query compile time
 # -- configure defines -- default is ON | true | enabled ----------------------
 # -- logging ------------------------------------------------------------------
 option(LOG_NO_TRACE "Disable trace logging" OFF)
@@ -376,6 +377,16 @@ message(STATUS "TOOLS binaries: ${TOOLS}")
 option(TESTS "Build test binaries" ON)
 message(STATUS "TESTS binaries: ${TESTS}")
 # -- binaries -----------------------------------------------------------------
+# -- barrier - this is the way how the engine is isolated so it can be shipped
+# wherever, the code is completely hidden behind the barrier, during the
+# development the barrier can be turned off because it is much easier to
+# debug
+option(BARRIER "Barrier" ON)
+message(STATUS "Barrier: ${BARRIER} (Source code isolation)")
+if(BARRIER)
+    add_definitions( -DBARRIER )
+endif()
+# -- barrier ------------------------------------------------------------------
 # -- configure defines --------------------------------------------------------
 
 # -- includes -----------------------------------------------------------------

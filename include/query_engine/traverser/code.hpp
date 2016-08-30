@@ -6,14 +6,15 @@
 
 struct Code
 {
-    void reset() { code = ""; }
-
     std::string code;
+
+    void reset() { code = ""; }
 };
 
 namespace code
 {
 
+// TODO: one more abstraction level
 // TODO: UNIT tests
 
 const std::string transaction_begin = "DbAccessor t(db);";
@@ -57,6 +58,18 @@ const std::string write_entity = "stream.write_field(\"{0}\");\n"
                                  "        stream.write({0});\n"
                                  "        stream.chunk();"
                                  "        stream.write_meta(\"rw\");\n";
+
+const std::string write_all_vertices = 
+        "stream.write_field(\"{0}\");\n"
+        "        iter::for_all(t.vertex_access(), [&](auto vertex) {{\n"
+        "            if (vertex.fill()) {{\n"
+        "                stream.write_record();\n"
+        "                stream.write_list_header(1);\n"
+        "                stream.write(vertex);\n"
+        "                stream.chunk();\n"
+        "            }}\n"
+        "        }});\n"
+        "        stream.write_meta(\"rw\");\n";
 
 const std::string return_true = "return true;";
 

@@ -57,7 +57,8 @@ void Executor::run(Session& session, Query& query)
     auto &db = session.active_db();
     logger.debug("[ActiveDB] '{}'", db.name());
 
-    // TODO: hangle syntax error use case
+    // TODO: error handling
+
     query_engine.execute(query.statement, db, session.output_stream);
 }
 

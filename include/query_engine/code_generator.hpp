@@ -58,7 +58,7 @@ public:
                             {"stream", type_name<Stream>().to_string()},
                             {"code", cpp_traverser.code}});
 
-        // logger.trace("generated code: {}", generated);
+        logger.debug("generated code: {}", generated);
 
         utils::write_file(generated, path);
     }

@@ -30,6 +30,9 @@ public:
     // Creates new Vertex and returns filled VertexAccessor.
     VertexAccessor insert(DbTransaction &t);
 
+    // TODO: how can I know how many elements exist
+    // without iterating through all of them? MVCC?
+
     VertexPropertyFamily &
     property_family_find_or_create(const std::string &name);
 
