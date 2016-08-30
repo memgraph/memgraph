@@ -5,16 +5,6 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
-auto EdgeAccessor::from() const
-{
-    return VertexAccessor(this->vlist->from(), this->db);
-}
-
-auto EdgeAccessor::to() const
-{
-    return VertexAccessor(this->vlist->to(), this->db);
-}
-
 auto VertexAccessor::out() const
 {
     DbTransaction &t = this->db;

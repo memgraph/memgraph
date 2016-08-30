@@ -25,6 +25,7 @@
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
 #include "utils/command_line/arguments.hpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 const int max_score = 1000000;
 

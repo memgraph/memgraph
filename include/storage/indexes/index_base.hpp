@@ -56,8 +56,8 @@ public:
 
     // Removes for all transactions obsolete Records.
     // Cleaner has to call this method when he decideds that it is time for
-    // cleaning.
-    virtual void clean(DbTransaction &) = 0;
+    // cleaning. Id must be id of oldest active transaction.
+    virtual void clean(const Id &id) = 0;
 
     // Activates index for readers.
     void activate();

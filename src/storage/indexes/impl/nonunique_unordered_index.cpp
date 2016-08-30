@@ -65,9 +65,14 @@ auto NonUniqueUnorderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
 }
 
 template <class T, class K>
-void NonUniqueUnorderedIndex<T, K>::clean(DbTransaction &)
+void NonUniqueUnorderedIndex<T, K>::clean(const Id &id)
 {
-    // TODO: Actual cleaning
+    auto end = list.end();
+    for (auto it = list.begin(); it != end; it++) {
+        if (it->to_clean(id)) {
+            it.remove();
+        }
+    }
 }
 
 template class NonUniqueUnorderedIndex<TypeGroupEdge, std::nullptr_t>;

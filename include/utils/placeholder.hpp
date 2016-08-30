@@ -43,6 +43,13 @@ public:
         initialized = true;
     }
 
+    template <class... Args>
+    void emplace(Args &&... args)
+    {
+        new (data._M_addr()) T(args...);
+        initialized = true;
+    }
+
 private:
     __gnu_cxx::__aligned_buffer<T> data;
     bool initialized = false;

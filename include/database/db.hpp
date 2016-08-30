@@ -28,6 +28,7 @@ public:
     // I - type of function I:const tx::Transaction& ->
     // std::unique_ptr<IndexBase<TypeGroupVertex,std::nullptr_t>>
     // G - type of collection (verrtex/edge)
+    // TODO: Currently only one index at a time can be created.
     template <class TG, class I, class G>
     bool create_index_on_vertex_property_family(const char *name, G &coll,
                                                 I &create_index);

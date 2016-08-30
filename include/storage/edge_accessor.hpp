@@ -3,6 +3,7 @@
 #include "storage/edge.hpp"
 #include "storage/edge_record.hpp"
 #include "storage/record_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 #include "utils/assert.hpp"
 #include "utils/reference_wrapper.hpp"
 
@@ -23,7 +24,7 @@ public:
 
     const EdgeType &edge_type() const;
 
-    auto from() const;
+    VertexAccessor from() const;
 
-    auto to() const;
+    VertexAccessor to() const;
 };

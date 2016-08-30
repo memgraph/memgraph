@@ -84,9 +84,15 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
 }
 
 template <class T, class K>
-void UniqueOrderedIndex<T, K>::clean(DbTransaction &)
+void UniqueOrderedIndex<T, K>::clean(const Id &id)
 {
-    // TODO: Actual cleaning
+    auto acc = set.access();
+    for (auto ir : acc) {
+        if (ir.to_clean(id)) {
+            // TODO: Optimization, iterator with remove method.
+            acc.remove(ir);
+        }
+    }
 }
 
 template class UniqueOrderedIndex<TypeGroupEdge, std::nullptr_t>;

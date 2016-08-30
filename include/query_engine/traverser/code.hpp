@@ -71,6 +71,29 @@ const std::string write_all_vertices =
         "        }});\n"
         "        stream.write_meta(\"rw\");\n";
 
+const std::string fine_and_write_vertices_by_label =
+        "auto &label = t.label_find_or_create(\"{1}\");\n"
+        "        stream.write_field(\"{0}\");\n"
+        "        label.index().for_range(t).for_all([&](auto vertex) {\n"
+        "            stream.write_record();\n"
+        "            stream.write_list_header(1);\n"
+        "            stream.write(vertex);\n"
+        "            stream.chunk();\n"
+        "        });\n"
+        "        stream.write_meta(\"rw\");\n";
+
+const std::string write_all_edges =
+        "stream.write_field(\"{0}\");\n"
+        "        iter::for_all(t.edge_access(), [&](auto edge) {{\n"
+        "            if (edge.fill()) {{\n"
+        "                stream.write_record();\n"
+        "                stream.write_list_header(1);\n"
+        "                stream.write(edge);\n"
+        "                stream.chunk();\n"
+        "            }}\n"
+        "        }});\n"
+        "        stream.write_meta(\"rw\");\n";
+
 const std::string return_true = "return true;";
 
 const std::string todo = "// TODO: {}";

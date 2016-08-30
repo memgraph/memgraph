@@ -3,6 +3,8 @@
 #include "storage/edge_accessor.hpp"
 #include "utils/iterator/iterator.hpp"
 
+Edges::store_t::Accessor Edges::access() { return edges.access(); }
+
 Option<const EdgeAccessor> Edges::find(DbTransaction &t, const Id &id)
 {
     auto edges_accessor = edges.access();
@@ -33,6 +35,11 @@ EdgeAccessor Edges::insert(DbTransaction &t, VertexRecord *from,
     t.to_update_index<TypeGroupEdge>(&inserted_edge_record->second, edge);
 
     return EdgeAccessor(edge, &inserted_edge_record->second, t);
+}
+
+Edges::prop_familys_t::Accessor Edges::property_family_access()
+{
+    return prop_familys.access();
 }
 
 EdgePropertyFamily &

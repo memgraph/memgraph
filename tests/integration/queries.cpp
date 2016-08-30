@@ -4,6 +4,7 @@
 
 #include "database/db.hpp"
 #include "query_engine/query_stripper.hpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 // #include "storage/edges.cpp"
 // #include "storage/edges.hpp"
 // #include "storage/vertices.cpp"

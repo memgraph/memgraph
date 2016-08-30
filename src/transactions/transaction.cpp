@@ -31,6 +31,11 @@ bool Transaction::is_active(const Id &id) const
     return snapshot.is_active(id);
 }
 
+Id Transaction::oldest_active()
+{
+    return snapshot.oldest_active().take_or(Id(id));
+}
+
 void Transaction::take_lock(RecordLock &lock) { locks.take(&lock, id); }
 
 void Transaction::commit() { engine.commit(*this); }

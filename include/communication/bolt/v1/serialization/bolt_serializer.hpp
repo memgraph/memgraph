@@ -8,6 +8,9 @@
 
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/properties.hpp"
+#include "storage/label/label.hpp"
+#include "storage/edge_type/edge_type.hpp"
+#include "storage/vertex_record.hpp"
 
 namespace bolt
 {

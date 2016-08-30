@@ -37,6 +37,11 @@ VertexAccessor Vertices::insert(DbTransaction &t)
     return VertexAccessor(vertex, &inserted_vertex_record->second, t);
 }
 
+Vertices::prop_familys_t::Accessor Vertices::property_family_access()
+{
+    return prop_familys.access();
+}
+
 VertexPropertyFamily &
 Vertices::property_family_find_or_create(const std::string &name)
 {

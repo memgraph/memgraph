@@ -20,6 +20,9 @@ public:
         std::string flags;
 
         // TODO: sync this with cmake configuration
+#ifdef BARRIER
+        flags += " -DBARRIER";
+#endif
 #ifdef NDEBUG
         flags += " -DNDEBUG -O2";
 #endif
@@ -51,6 +54,9 @@ public:
             "-I../libs/fmt", // TODO: load from config
             "-I../../libs/fmt",
             "-L./ -L../",
+#ifdef BARRIER
+            "-lbarrier_pic",
+#endif
             "-lmemgraph_pic",
             "-shared -fPIC" // shared library flags
             );

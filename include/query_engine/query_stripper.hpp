@@ -13,6 +13,7 @@
 #include "utils/hashing/fnv.hpp"
 #include "utils/string/transform.hpp"
 #include "utils/variadic/variadic.hpp"
+#include "logging/default.hpp"
 
 template <class T, class V>
 void store_query_param(code_args_t &arguments, V &&v)
@@ -25,7 +26,8 @@ class QueryStripper
 {
 public:
     QueryStripper(Ts &&... strip_types)
-        : strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)),
+        : logger(logging::log->logger("QueryStripper")),
+          strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)),
           lexer(std::make_unique<CypherLexer>())
     {
     }
@@ -70,6 +72,10 @@ public:
                                              std::stol(token.value));
                     break;
                 case TK_STR:
+                    // TODO: remove quotes view lexertl
+                    token.value.erase(0, 1);
+                    token.value.erase(token.value.length() - 1, 1);
+                    // TODO: remove
                     store_query_param<String>(stripped_arguments, token.value);
                     break;
                 case TK_BOOL: {
@@ -94,6 +100,7 @@ public:
     }
 
 private:
+    Logger logger;
     std::tuple<Ts...> strip_types;
     CypherLexer::uptr lexer;
 

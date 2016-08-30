@@ -3,11 +3,11 @@
 #include "config/config.hpp"
 #include "cypher/ast/ast.hpp"
 #include "cypher/compiler.hpp"
+#include "logging/default.hpp"
 #include "query_engine/exceptions/errors.hpp"
 #include "template_engine/engine.hpp"
 #include "traverser/cpp_traverser.hpp"
 #include "utils/string/file.hpp"
-#include "logging/default.hpp"
 #include "utils/type_discovery.hpp"
 
 using std::string;
@@ -27,7 +27,11 @@ public:
         CppTraverser cpp_traverser;
 
         // get paths
+#ifdef BARRIER
+        string template_path = CONFIG(config::BARRIER_TEMPLATE_CPU_CPP_PATH);
+#else
         string template_path = CONFIG(config::TEMPLATE_CPU_CPP_PATH);
+#endif
         string template_file = utils::read_file(template_path.c_str());
 
         // syntax tree generation
@@ -55,7 +59,11 @@ public:
             template_file, {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
+#ifdef BARRIER
+                            {"stream", "RecordStream<io::Socket>"},
+#else
                             {"stream", type_name<Stream>().to_string()},
+#endif
                             {"code", cpp_traverser.code}});
 
         logger.debug("generated code: {}", generated);

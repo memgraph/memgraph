@@ -32,6 +32,13 @@ bool IndexRecord<TG, K>::is_valid(tx::Transaction &t) const
 }
 
 template <class TG, class K>
+bool IndexRecord<TG, K>::to_clean(const Id &oldest_active) const
+{
+    assert(!empty());
+    return record->is_deleted_before(oldest_active);
+}
+
+template <class TG, class K>
 const auto IndexRecord<TG, K>::access(DbTransaction &db) const
 {
     return typename TG::accessor_t(record, vlist, db);

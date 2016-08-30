@@ -1,5 +1,10 @@
 #include "storage/edge_type/edge_type_store.hpp"
 
+EdgeTypeStore::store_t::Accessor EdgeTypeStore::access()
+{
+    return edge_types.access();
+}
+
 const EdgeType &EdgeTypeStore::find_or_create(const char *name)
 {
     auto accessor = edge_types.access();

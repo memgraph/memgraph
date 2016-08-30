@@ -63,6 +63,12 @@ public:
 
         // string literal TODO double quote escape
         rule("\\\"(.*?)\\\"", TK_STR);
+        // ALL BELOW COMBNATIONS DON'T WORK
+        // rule("(?#\\\")(.*?)(?#\\\")", TK_STR);
+        // rule("[\"](.*?)[\"]", TK_STR);
+        // rule("(?:\")(.*?)(?:\")", TK_STR);
+        // rule("(?#:\")(.*?)(?#:\")", TK_STR);
+        // rule("(?#\")(.*?)(?#\")", TK_STR);
 
         // number
         rule("\\d+", TK_LONG);

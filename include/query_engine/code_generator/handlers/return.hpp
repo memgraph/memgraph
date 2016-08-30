@@ -32,11 +32,21 @@ auto return_query_action =
             // the client has to receive all elements from the main storage
             if (cypher_data.source(entity) == EntitySource::MainStorage)
             {
-                code += code_line(code::write_all_vertices, entity);
+                if (cypher_data.type(entity) == EntityType::Node)
+                    code += code_line(code::write_all_vertices, entity);
+                else if (cypher_data.type(entity) == EntityType::Relationship)
+                    code += code_line(code::write_all_edges, entity);
+
             }
             if (cypher_data.source(entity) == EntitySource::LabelIndex)
             {
-                // TODO: fetch somehow label name
+                if (cypher_data.type(entity) == EntityType::Node) {
+                    if (cypher_data.tags(entity).size() == 0)
+                        throw CppGeneratorException("entity has no tags");
+                    auto label = cypher_data.tags(entity).at(0);  
+                    code += code_line(code::fine_and_write_vertices_by_label,
+                                      entity, label);
+                }
                 // TODO: code_line
             }
         } 

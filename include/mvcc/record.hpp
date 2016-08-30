@@ -102,6 +102,12 @@ public:
         return committed(hints.cre, tx.cre(), t);
     }
 
+    // True if record was deleted before id.
+    bool is_deleted_before(const Id &id)
+    {
+        return tx.exp() != Id(0) && tx.exp() < id;
+    }
+
     // TODO: Test this
     // True if this record is visible for write.
     bool is_visible_write(const tx::Transaction &t)

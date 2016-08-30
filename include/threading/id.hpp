@@ -2,5 +2,5 @@
 
 namespace this_thread
 {
-    thread_local unsigned id = 0;
+// thread_local unsigned id = 0;
 };

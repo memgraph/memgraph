@@ -1,8 +1,11 @@
 #pragma once
+
 #include "barrier/barrier.hpp"
 
 // This is the place for imports from memgraph .hpp
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
+#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "io/network/socket.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "storage/edge_type/edge_type.hpp"
@@ -165,7 +168,7 @@ TRANSFORM_REF_TEMPLATED(VertexIndex<T>, VertexIndexBase<T>);
 template <class T>
 TRANSFORM_REF_TEMPLATED(EdgeIndex<T>, EdgeIndexBase<T>);
 template <class T>
-TRANSFORM_REF_TEMPLATED(BoltSerializer<T>, ::bolt::BoltSerializer<T>);
+TRANSFORM_REF_TEMPLATED(RecordStream<T>, ::bolt::RecordStream<T>);
 
 template <class T>
 TRANSFORM_REF_TEMPLATED(
@@ -209,7 +212,7 @@ TRANSFORM_VALUE_ONE_RAW(EdgePropertyType<T>,
                         ::EdgePropertyFamily::PropertyType::PropertyTypeKey<T>)
 
 template <class T>
-TRANSFORM_VALUE_ONE_RAW(BoltSerializer<T>, ::bolt::BoltSerializer<T>)
+TRANSFORM_VALUE_ONE_RAW(RecordStream<T>, ::bolt::RecordStream<T>)
 
 // ********************* SPECIAL CONSTRUCTORS
 #define VertexPropertyType_constructor(x)                                      \

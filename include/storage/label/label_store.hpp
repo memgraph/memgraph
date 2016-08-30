@@ -9,6 +9,10 @@
 class LabelStore
 {
 public:
+    using store_t = ConcurrentMap<CharStr, std::unique_ptr<Label>>;
+
+    store_t::Accessor access();
+
     const Label &find_or_create(const char *name);
 
     bool contains(const char *name); // TODO: const
@@ -17,5 +21,5 @@ public:
     //       return { Label, is_found }
 
 private:
-    ConcurrentMap<CharStr, std::unique_ptr<Label>> labels;
+    store_t labels;
 };

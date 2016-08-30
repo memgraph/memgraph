@@ -1,6 +1,10 @@
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 
+#ifdef BARRIER
+#include "barrier/barrier.cpp"
+#endif
+
 namespace bolt
 {
 

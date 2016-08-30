@@ -144,6 +144,7 @@ endforeach()
 # -----------------------------------------------------------------------------
 # COPY header files required by query engine (query compiler)
 # TODO: somehow automate (in destination dir should be only required include files)
+FILE(COPY ${include_dir}/barrier/barrier.hpp DESTINATION ${build_include_dir}/barrier)
 FILE(COPY ${include_dir}/database/db.hpp DESTINATION ${build_include_dir}/database)
 FILE(COPY ${include_dir}/database/db_transaction.hpp DESTINATION ${build_include_dir}/database)
 FILE(COPY ${include_dir}/database/db_accessor.hpp DESTINATION ${build_include_dir}/database)
@@ -382,7 +383,7 @@ message(STATUS "TESTS binaries: ${TESTS}")
 # development the barrier can be turned off because it is much easier to
 # debug
 option(BARRIER "Barrier" ON)
-message(STATUS "Barrier: ${BARRIER} (Source code isolation)")
+message(STATUS "BARRIER: ${BARRIER} (Source code isolation)")
 if(BARRIER)
     add_definitions( -DBARRIER )
 endif()
@@ -412,6 +413,8 @@ EXECUTE_PROCESS(
 
 # TODO: create separate static library from bolt code
 set(memgraph_src_files
+    ${src_dir}/dbms/dbms.cpp
+    ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
@@ -426,6 +429,7 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
     ${src_dir}/communication/bolt/v1/transport/buffer.cpp
     ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
+    ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp
@@ -466,7 +470,6 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
 )
 
-
 # STATIC library used by memgraph executables
 add_library(memgraph STATIC ${memgraph_src_files})
 
@@ -474,6 +477,14 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
+if (BARRIER)
+    # create static barrier lib
+    add_library(barrier STATIC ${memgraph_src_files})
+
+    # create pic static barrier lib
+    add_library(barrier_pic STATIC ${memgraph_src_files})
+    set_property(TARGET barrier_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+endif()
 
 # tests
 if (TESTS)
@@ -509,7 +520,13 @@ set(MEMGRAPH_BUILD_NAME
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
+
+    if (BARRIER)
+        target_link_libraries(${MEMGRAPH_BUILD_NAME} barrier)
+    elseif (NOT BARRIER)
+        target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
+    endif ()
+
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
     if (UNIX)
@@ -519,12 +536,3 @@ if (MEMGRAPH)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
     endif (UNIX)
 endif()
-
-# # memgraph executable HTTP TODO: DEPRICATED
-# add_executable(memgraph_http src/memgraph.cpp)
-# add_dependencies(memgraph_http cypher_lib)
-# target_link_libraries(memgraph_http Threads::Threads)
-# target_link_libraries(memgraph_http pcre)
-# target_link_libraries(memgraph_http ${libuv_static_lib})
-# target_link_libraries(memgraph_http ${r3_static_lib})
-# target_link_libraries(memgraph_http ${http_parser_static_lib})

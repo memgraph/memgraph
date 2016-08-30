@@ -366,13 +366,15 @@ public:
 
     void visit(ast::LabelList &ast_label_list) override
     {
-        auto &data = generator.action_data();
+        auto &action_data = generator.action_data();
 
         if (!ast_label_list.has_value()) return;
 
         auto label = ast_label_list.value->name;
 
-        data.add_entity_tag(entity, label);
+        action_data.add_entity_tag(entity, label);
+        action_data.csm.search_cost(entity, entity_search::search_label_index,
+                                    entity_search::label_cost);
 
         Traverser::visit(ast_label_list);
     }

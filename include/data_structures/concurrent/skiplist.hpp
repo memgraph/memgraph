@@ -148,7 +148,7 @@ public:
 
         static Node *create(const T &item, uint8_t height)
         {
-            return create(item, height);
+            return create(height, item);
         }
 
         static Node *create(T &&item, uint8_t height)
@@ -158,6 +158,16 @@ public:
             // we have raw memory and we need to construct an object
             // of type Node on it
             return new (node) Node(std::move(item), height);
+        }
+
+        template <class... Args>
+        static Node *emplace(uint8_t height, Args &&... args)
+        {
+            auto node = allocate(height);
+
+            // we have raw memory and we need to construct an object
+            // of type Node on it
+            return new (node) Node(height, std::forward<Args>(args)...);
         }
 
         static void destroy(Node *node)
@@ -178,6 +188,12 @@ public:
             // initialize that memory
             for (auto i = 0; i < height; ++i)
                 new (&tower[i]) std::atomic<Node *>{nullptr};
+        }
+
+        template <class... Args>
+        Node(uint8_t height, Args &&... args) : Node(height)
+        {
+            this->data.emplace(std::forward<Args>(args)...);
         }
 
         Node(T &&data, uint8_t height) : Node(height)
@@ -519,12 +535,19 @@ public:
 
         std::pair<Iterator, bool> insert(const T &item)
         {
-            return skiplist->insert(item, preds, succs);
+            return skiplist->insert(preds, succs, item);
         }
 
         std::pair<Iterator, bool> insert(T &&item)
         {
-            return skiplist->insert(std::move(item), preds, succs);
+            return skiplist->insert(preds, succs, std::move(item));
+        }
+
+        template <class K, class... Args>
+        std::pair<Iterator, bool> emplace(K &key, Args &&... args)
+        {
+            return skiplist->emplace(preds, succs, key,
+                                     std::forward<Args>(args)...);
         }
 
         Iterator insert_non_unique(const T &item)
@@ -786,13 +809,15 @@ private:
             // has the locks
             if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
-            return insert_here(std::forward<T>(data), preds, succs, height,
-                               guards);
+            return insert_here(Node::create(std::move(data), height), preds,
+                               succs, height, guards);
         }
     }
 
     // Insert unique data
-    std::pair<Iterator, bool> insert(T &&data, Node *preds[], Node *succs[])
+    // F - type of funct which will create new node if needed. Recieves height
+    // of node.
+    std::pair<Iterator, bool> insert(Node *preds[], Node *succs[], T &&data)
     {
         while (true) {
             // TODO: before here was data.first
@@ -817,18 +842,53 @@ private:
             // has the locks
             if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
-            return {insert_here(std::move(data), preds, succs, height, guards),
+            return {insert_here(Node::create(std::move(data), height), preds,
+                                succs, height, guards),
                     true};
         }
     }
 
-    // Inserts data to specified locked location.
-    Iterator insert_here(T &&data, Node *preds[], Node *succs[], int height,
-                         guard_t guards[])
+    // Insert unique data
+    // TODO: This is almost all duplicate code from insert
+    template <class K, class... Args>
+    std::pair<Iterator, bool> emplace(Node *preds[], Node *succs[], K &key,
+                                      Args &&... args)
     {
-        // you have the locks, create a new node
-        auto new_node = Node::create(std::move(data), height);
+        while (true) {
+            // TODO: before here was data.first
+            auto level = find_path(this, H - 1, key, preds, succs);
 
+            if (level != -1) {
+                auto found = succs[level];
+
+                if (found->flags.is_marked()) continue;
+
+                while (!found->flags.is_fully_linked())
+                    usleep(250);
+
+                return {Iterator{succs[level]}, false};
+            }
+
+            auto height = rnd();
+            guard_t guards[H];
+
+            // try to acquire the locks for predecessors up to the height of
+            // the new node. release the locks and try again if someone else
+            // has the locks
+            if (!lock_nodes<true>(height, guards, preds, succs)) continue;
+
+            return {
+                insert_here(Node::emplace(height, std::forward<Args>(args)...),
+                            preds, succs, height, guards),
+                true};
+        }
+    }
+
+    // Inserts data to specified locked location.
+    Iterator insert_here(Node *new_node, Node *preds[], Node *succs[],
+                         int height, guard_t guards[])
+    {
+        // Node::create(std::move(data), height)
         // link the predecessors and successors, e.g.
         //
         // 4 HEAD ... P ------------------------> S ... NULL

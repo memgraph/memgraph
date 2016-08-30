@@ -111,6 +111,7 @@ set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
 add_executable(manual_query_hasher manual/query_hasher.cpp)
 target_link_libraries(manual_query_hasher memgraph)
 target_link_libraries(manual_query_hasher ${fmt_static_lib})
+target_link_libraries(manual_query_hasher Threads::Threads)
 set_property(TARGET manual_query_hasher PROPERTY CXX_STANDARD 14)
 
 # query_action_processor

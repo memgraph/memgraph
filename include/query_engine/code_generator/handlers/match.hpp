@@ -41,9 +41,17 @@ auto match_query_action =
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
                 code += code_line(code::match_vertex_by_id, name, index);
+                cypher_data.source(name, EntitySource::InternalId);
             }
             if (place == entity_search::search_main_storage) {
                 cypher_data.source(name, EntitySource::MainStorage);
+            }
+            if (place == entity_search::search_label_index) {
+                if (action_data.entity_data.at(name).tags.size() > 1) {
+                    throw SemanticError("Multiple label match (currently NOT supported)");
+                }
+                cypher_data.source(name, EntitySource::LabelIndex);
+                cypher_data.tags(name, action_data.entity_data.at(name).tags);
             }
         }
 
@@ -56,6 +64,10 @@ auto match_query_action =
             if (place == entity_search::search_internal_id) {
                 auto index = fetch_internal_index(action_data, name);
                 code += code_line(code::match_edge_by_id, name, index);
+                cypher_data.source(name, EntitySource::InternalId);
+            }
+            if (place == entity_search::search_main_storage) {
+                cypher_data.source(name, EntitySource::MainStorage);
             }
         }
     }
