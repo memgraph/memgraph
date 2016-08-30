@@ -249,7 +249,7 @@ public:
 
     void message_ignored()
     {
-        write_struct_header(1);
+        write_struct_header(0);
         write(underlying_cast(MessageCode::Ignored));
     }
 

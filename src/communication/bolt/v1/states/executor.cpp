@@ -8,7 +8,7 @@
 namespace bolt
 {
 
-Executor::Executor() : logger(logging::log->logger("Executor")) {}
+Executor::Executor() : State(logging::log->logger("Executor")) {}
 
 State *Executor::run(Session &session)
 {
@@ -25,15 +25,22 @@ State *Executor::run(Session &session)
 
         q.statement = session.decoder.read_string();
 
-        this->run(session, q);
+        try {
+            return this->run(session, q);
+        } catch (QueryEngineException &e) {
+            session.output_stream.write_failure(
+                {{"code", "Memgraph.QueryEngineException"},
+                 {"message", e.what()}});
+            session.output_stream.send();
+            return session.bolt.states.error.get();
+        }
     } else if (message_type == MessageCode::PullAll) {
         pull_all(session);
     } else if (message_type == MessageCode::DiscardAll) {
         discard_all(session);
     } else if (message_type == MessageCode::Reset) {
-        // todo rollback current transaction
+        // TODO: rollback current transaction
         // discard all records waiting to be sent
-
         return this;
     } else {
         logger.error("Unrecognized message recieved");
@@ -45,20 +52,28 @@ State *Executor::run(Session &session)
     return this;
 }
 
-void Executor::run(Session &session, Query &query)
+State* Executor::run(Session &session, Query &query)
 {
     logger.trace("[Run] '{}'", query.statement);
 
     auto &db = session.active_db();
     logger.debug("[ActiveDB] '{}'", db.name());
 
-    try {
+    auto is_successfully_executed =
         query_engine.execute(query.statement, db, session.output_stream);
-    } catch (QueryEngineException &e) {
+
+    if (!is_successfully_executed) {
         session.output_stream.write_failure(
-            {{"code", "unknown"}, {"message", e.what()}});
+            {{"code", "Memgraph.QueryExecutionFail"},
+             {"message", "Query execution has failed (probably there is no "
+                         "element or there are some problems with concurrent "
+                         "access -> client has to resolve problems with "
+                         "concurrent access)"}});
         session.output_stream.send();
+        return session.bolt.states.error.get();
     }
+
+    return this;
 }
 
 void Executor::pull_all(Session &session)

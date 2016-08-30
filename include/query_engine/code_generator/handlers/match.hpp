@@ -32,6 +32,7 @@ auto match_query_action =
 
         auto name = kv.first;
 
+        // TODO: duplicated code -> BIG PROBLEM
         // find node
         if (kv.second == ClauseAction::MatchNode) {
             if (already_matched(cypher_data, name, EntityType::Node))
@@ -68,6 +69,13 @@ auto match_query_action =
             }
             if (place == entity_search::search_main_storage) {
                 cypher_data.source(name, EntitySource::MainStorage);
+            }
+            if (place == entity_search::search_type_index) {
+                if (action_data.entity_data.at(name).tags.size() > 1) {
+                    throw SemanticError("Multiple type match (currently NOT supported)");
+                }
+                cypher_data.source(name, EntitySource::TypeIndex);
+                cypher_data.tags(name, action_data.entity_data.at(name).tags);
             }
         }
     }

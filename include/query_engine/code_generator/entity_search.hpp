@@ -26,6 +26,7 @@ using cost_t = uint64_t;
 constexpr cost_t internal_id_cost = 10;
 constexpr cost_t property_cost = 100;
 constexpr cost_t label_cost = 1000;
+constexpr cost_t type_cost = 1000;
 constexpr cost_t max_cost = max<cost_t>();
 
 template <typename T>
@@ -36,6 +37,7 @@ public:
     {
         internal_id,
         label_index,
+        type_index,
         property_index,
         main_storage
     };
@@ -47,6 +49,7 @@ public:
     {
         costs[SearchPlace::internal_id] = max<T>();
         costs[SearchPlace::label_index] = max<T>();
+        costs[SearchPlace::type_index] = max<T>();
         costs[SearchPlace::property_index] = max<T>();
         costs[SearchPlace::main_storage] = max<T>();
     }
@@ -80,6 +83,7 @@ using search_cost_t = SearchCost<cost_t>;
 
 constexpr auto search_internal_id = search_cost_t::SearchPlace::internal_id;
 constexpr auto search_label_index = search_cost_t::SearchPlace::label_index;
+constexpr auto search_type_index = search_cost_t::SearchPlace::type_index;
 constexpr auto search_property_index =
     search_cost_t::SearchPlace::property_index;
 constexpr auto search_main_storage = search_cost_t::SearchPlace::main_storage;

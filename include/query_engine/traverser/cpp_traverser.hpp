@@ -358,11 +358,14 @@ public:
 
     void visit(ast::RelationshipTypeList &ast_relationship_type_list) override
     {
-        auto &data = generator.action_data();
+        auto &action_data = generator.action_data();
 
         if (ast_relationship_type_list.has_value()) {
             auto type = ast_relationship_type_list.value->name;
-            data.add_entity_tag(entity, type);
+            action_data.add_entity_tag(entity, type);
+            action_data.csm.search_cost(
+                entity, entity_search::search_type_index,
+                entity_search::type_cost);
         }
 
         Traverser::visit(ast_relationship_type_list);

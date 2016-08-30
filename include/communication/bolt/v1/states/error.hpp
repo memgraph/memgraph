@@ -9,6 +9,8 @@ namespace bolt
 class Error : public State
 {
 public:
+    Error();
+
     State *run(Session &session) override;
 };
 

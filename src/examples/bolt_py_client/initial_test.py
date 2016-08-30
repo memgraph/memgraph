@@ -21,14 +21,20 @@ queries.append((True, "MATCH (n) WHERE ID(n)=2 RETURN n"))
 queries.append((True, "MATCH (n) WHERE ID(n)=3 RETURN n"))
 queries.append((True, "MATCH (n) WHERE ID(n)=4 RETURN n"))
 queries.append((True, "MATCH (n) WHERE ID(n)=5 RETURN n"))
+queries.append((True, "MATCH (n) RETURN n"));
+queries.append((True, "MATCH (n:PERSON) RETURN n"));
 
 queries.append((True, "MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)-[r:IS]->(n2) RETURN r"))
 queries.append((True, "MATCH (n1), (n2) WHERE ID(n1)=1 AND ID(n2)=2 CREATE (n1)-[r:IS {name: \"test\", age: 23}]->(n2) RETURN r"))
 queries.append((True, "MATCH (n1), (n2) WHERE ID(n1)=2 AND ID(n2)=0 CREATE (n1)-[r:IS {name: \"test\", age: 23}]->(n2) RETURN r"))
+queries.append((True, "MATCH (n1), (n2) WHERE ID(n1)=2 AND ID(n2)=0 CREATE (n1)-[r:ARE {name: \"test\", age: 23}]->(n2) RETURN r"))
 
 queries.append((True, "MATCH ()-[r]-() WHERE ID(r)=0 RETURN r"))
 queries.append((True, "MATCH ()-[r]-() WHERE ID(r)=1 RETURN r"))
 queries.append((True, "MATCH ()-[r]-() WHERE ID(r)=2 RETURN r"))
+queries.append((True, "MATCH ()-[r:IS]-() RETURN r"))
+queries.append((True, "MATCH ()-[r:ARE]-() RETURN r"))
+queries.append((True, "MATCH ()-[r]-() RETURN r"))
 
 queries.append((True, "MATCH (n) WHERE ID(n)=1 SET n.name = \"updated_name\" RETURN n"))
 queries.append((True, "MATCH (n) WHERE ID(n)=1 RETURN n"))

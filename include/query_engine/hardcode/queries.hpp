@@ -332,13 +332,13 @@ auto load_queries(Db &db)
         if (it_type.count() > it_vertex.count()) {
             // Going through vertices wiil probably be faster
             it_vertex.to().for_all([&](auto m) {
-                // PRINT n,m
+                // PRINT n, m
             });
 
         } else {
             // Going through edges wiil probably be faster
             it_type.to().for_all([&](auto m) {
-                // PRINT n,m
+                // PRINT n, m
             });
         }
 
