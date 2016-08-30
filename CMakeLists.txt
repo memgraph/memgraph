@@ -308,6 +308,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE
     "${CMAKE_CXX_FLAGS_RELEASE}  -Wall")
 
+# TODO: find a way how to applay the defines at the query compile time
 # -- configure defines -- default is ON | true | enabled ----------------------
 # -- logging ------------------------------------------------------------------
 option(LOG_NO_TRACE "Disable trace logging" OFF)
@@ -377,6 +378,16 @@ message(STATUS "TOOLS binaries: ${TOOLS}")
 option(TESTS "Build test binaries" ON)
 message(STATUS "TESTS binaries: ${TESTS}")
 # -- binaries -----------------------------------------------------------------
+# -- barrier - this is the way how the engine is isolated so it can be shipped
+# wherever, the code is completely hidden behind the barrier, during the
+# development the barrier can be turned off because it is much easier to
+# debug
+option(BARRIER "Barrier" ON)
+message(STATUS "BARRIER: ${BARRIER} (Source code isolation)")
+if(BARRIER)
+    add_definitions( -DBARRIER )
+endif()
+# -- barrier ------------------------------------------------------------------
 # -- configure defines --------------------------------------------------------
 
 # -- includes -----------------------------------------------------------------
@@ -466,10 +477,14 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
-add_library(barrier STATIC ${memgraph_src_files})
+if (BARRIER)
+    # create static barrier lib
+    add_library(barrier STATIC ${memgraph_src_files})
 
-add_library(barrier_pic STATIC ${memgraph_src_files})
-set_property(TARGET barrier_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+    # create pic static barrier lib
+    add_library(barrier_pic STATIC ${memgraph_src_files})
+    set_property(TARGET barrier_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+endif()
 
 # tests
 if (TESTS)
@@ -505,7 +520,13 @@ set(MEMGRAPH_BUILD_NAME
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} barrier)
+
+    if (BARRIER)
+        target_link_libraries(${MEMGRAPH_BUILD_NAME} barrier)
+    elseif (NOT BARRIER)
+        target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
+    endif ()
+
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
     if (UNIX)

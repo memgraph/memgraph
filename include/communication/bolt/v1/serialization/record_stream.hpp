@@ -92,6 +92,11 @@ public:
         chunk();
     }
 
+    void write_failure(const std::map<std::string, std::string>& data)
+    {
+        serializer.write_failure(data);
+        chunk();        
+    }
     // -- BOLT SPECIFIC METHODS -----------------------------------------------
 
     void write(const VertexAccessor &vertex) { serializer.write(vertex); }

@@ -95,6 +95,16 @@ public:
 
     void write(const String &prop) { encoder.write_string(prop.value); }
 
+    void write_failure(const std::map<std::string, std::string>& data)
+    {
+        encoder.message_failure();
+        encoder.write_map_header(data.size());
+        for (auto const &kv : data) {
+            write(kv.first);
+            write(kv.second);
+        }
+    }
+
     template <class T>
     void handle(const T &prop)
     {

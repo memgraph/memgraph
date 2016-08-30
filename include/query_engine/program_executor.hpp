@@ -12,10 +12,12 @@
 //  postprocess the results
 
 // BARRIER!
+#ifdef BARRIER
 namespace barrier
 {
-    Db& trans(::Db& ref);
+Db &trans(::Db &ref);
 }
+#endif
 
 template <typename Stream>
 class ProgramExecutor
@@ -23,12 +25,16 @@ class ProgramExecutor
 public:
     // QueryProgram has to know about the Stream
     // Stream has to be passed in this function for every execution
-    auto execute(QueryProgram<Stream> &program, Db &db,
-                 Stream &stream)
+    auto execute(QueryProgram<Stream> &program, Db &db, Stream &stream)
     {
         try {
             // TODO: return result of query/code exection
-            return program.code->run(barrier::trans(db), program.stripped.arguments, stream);
+#ifdef BARRIER
+            return program.code->run(barrier::trans(db),
+                                     program.stripped.arguments, stream);
+#else
+            return program.code->run(db, program.stripped.arguments, stream);
+#endif
         } catch (...) {
             // TODO: return more information about the error
             throw QueryEngineException("code execution error");

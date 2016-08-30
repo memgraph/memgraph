@@ -3,12 +3,12 @@
 #include <string>
 
 #include "cypher/visitor/traverser.hpp"
-
 #include "query_engine/code_generator/cpp_generator.hpp"
 #include "query_engine/code_generator/entity_search.hpp"
 #include "query_engine/code_generator/structures.hpp"
 #include "query_engine/exceptions/exceptions.hpp"
 #include "query_engine/traverser/code.hpp"
+#include "logging/default.hpp"
 
 struct SetElementState
 {
@@ -99,7 +99,11 @@ private:
         generator.clear();
     }
 
+    Logger logger;
+
 public:
+    CppTraverser() : logger(logging::log->logger("CppTraverser")) {}
+
     void semantic_check() const
     {
         if (!has_return)
@@ -255,7 +259,11 @@ public:
 
         Traverser::visit(ast_node);
 
-        if (state == CypherState::Create) {
+        // this is here because of RETURN clause
+        // CREATE (n {...}) RETURN n
+        if (cypher_data.status(name) != EntityStatus::Matched &&
+            state == CypherState::Create)
+        {
             cypher_data.node_created(name);
         }
     }
@@ -362,13 +370,15 @@ public:
 
     void visit(ast::LabelList &ast_label_list) override
     {
-        auto &data = generator.action_data();
+        auto &action_data = generator.action_data();
 
         if (!ast_label_list.has_value()) return;
 
         auto label = ast_label_list.value->name;
 
-        data.add_entity_tag(entity, label);
+        action_data.add_entity_tag(entity, label);
+        action_data.csm.search_cost(entity, entity_search::search_label_index,
+                                    entity_search::label_cost);
 
         Traverser::visit(ast_label_list);
     }
@@ -447,7 +457,7 @@ public:
         auto &cypher_data = generator.cypher_data();
         auto entity_type = cypher_data.type(entity);
 
-        if (entity_type == EntityType::NotFound)
+        if (entity_type == EntityType::None)
             throw SemanticError("Entity (" + entity + ") doesn't exist");
 
         auto &action_data = generator.action_data();

@@ -151,6 +151,14 @@ struct QueryActionData
         return entity_data.at(entity);
     }
 
+    auto get_tags(const std::string& entity) const
+    {
+        if (entity_data.find(entity) == entity_data.end())
+            throw CppGeneratorException("Entity " + entity + "doesn't exist");
+
+        return entity_data.at(entity).tags;
+    }
+
     void print() const
     {
         for (auto const &action : actions) {

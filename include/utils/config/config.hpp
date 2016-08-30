@@ -51,6 +51,9 @@ public:
         if (std::strcmp(key, "template_cpu_cpp_path") == 0)
             return "./template/template_code_cpu.cpp";
 
+        if (std::strcmp(key, "barrier_template_cpu_cpp_path") == 0)
+            return "./template/barrier_template_code_cpu.cpp";
+
         if (std::strcmp(key, "template_cpu_hpp_path") == 0)
             return "./template/template_code_cpu.hpp";
 

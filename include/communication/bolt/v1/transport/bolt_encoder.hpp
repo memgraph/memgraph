@@ -253,6 +253,12 @@ public:
         write(underlying_cast(MessageCode::Ignored));
     }
 
+    void message_failure()
+    {
+        write_struct_header(1);
+        write(underlying_cast(MessageCode::Failure));
+    }
+
     void message_ignored_empty()
     {
         message_ignored();
