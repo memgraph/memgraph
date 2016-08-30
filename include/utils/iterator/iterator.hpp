@@ -12,3 +12,4 @@
 #include "utils/iterator/limited_map.hpp"
 #include "utils/iterator/map.hpp"
 #include "utils/iterator/range_iterator.hpp"
+#include "utils/iterator/virtual_iter.hpp"

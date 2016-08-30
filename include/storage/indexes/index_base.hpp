@@ -8,7 +8,7 @@
 // #include "storage/indexes/index_record.hpp"
 #include "storage/garbage/delete_sensitive.hpp"
 #include "utils/border.hpp"
-#include "utils/iterator/iterator_base.hpp"
+#include "utils/iterator/virtual_iter.hpp"
 #include "utils/order.hpp"
 
 template <class TG, class K>
@@ -50,7 +50,7 @@ public:
     // order==Descending => guarantees order of returned records will be from
     // largest to smallest.
     // Range must be from<=to
-    virtual std::unique_ptr<IteratorBase<const typename TG::accessor_t>>
+    virtual iter::Virtual<const typename TG::accessor_t>
     for_range(DbAccessor &, Border<K> from = Border<K>(),
               Border<K> to = Border<K>()) = 0;
 

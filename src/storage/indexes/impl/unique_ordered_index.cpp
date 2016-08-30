@@ -39,11 +39,10 @@ bool UniqueOrderedIndex<T, K>::insert(IndexRecord<T, K> &&value)
 }
 
 template <class T, class K>
-std::unique_ptr<IteratorBase<const typename T::accessor_t>>
+iter::Virtual<const typename T::accessor_t>
 UniqueOrderedIndex<T, K>::for_range(DbAccessor &t, Border<K> from, Border<K> to)
 {
-    return std::make_unique<decltype(
-        for_range_exact(t, std::move(from), std::move(to)))>(
+    return iter::make_virtual(
         for_range_exact(t, std::move(from), std::move(to)));
 }
 

@@ -12,11 +12,7 @@ public:
 
     Count(size_t min, size_t max) : min(min), max(max) {}
 
-    Count &min_zero()
-    {
-        min = 0;
-        return *this;
-    }
+    Count min_zero() const { return Count(0, max); }
 
     size_t avg() const { return ((max - min) >> 1) + min; }
 

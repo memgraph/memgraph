@@ -22,7 +22,6 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
                 for (auto &db : dbs.access()) {
                     logger.info("Cleaning database \"{}\"", db.first);
                     DbTransaction t(db.second);
-
                     try {
                         logger.info("Cleaning edges");
                         t.clean_edge_section();
@@ -34,7 +33,6 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
                             db.first);
                         logger.error("{}", e.what());
                     }
-
                     t.trans.commit();
                 }
                 last_clean = now;

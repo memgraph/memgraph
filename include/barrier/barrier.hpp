@@ -283,8 +283,9 @@ public:
     void abort();
 };
 
-class VertexIterator : public Sized<8, 8>,
-                       public IteratorBase<const VertexAccessor>
+class VertexIterator
+    : public Sized<8, 8>,
+      public iter::Composable<const VertexAccessor, VertexIterator>
 {
 public:
     template <class T>
@@ -296,14 +297,15 @@ public:
     VertexIterator &operator=(const VertexIterator &other) = delete;
     VertexIterator &operator=(VertexIterator &&other) = delete;
 
-    Option<const VertexAccessor> next() final;
+    Option<const VertexAccessor> next();
 
-    Count count() final;
+    Count count();
 };
 
 // TODO: Find reasons of such great size ant try to decrease it.
-class VertexAccessIterator : public Sized<560, 8>,
-                             public IteratorBase<const VertexAccessor>
+class VertexAccessIterator
+    : public Sized<560, 8>,
+      public iter::Composable<const VertexAccessor, VertexAccessIterator>
 {
 public:
     template <class T>
@@ -315,14 +317,15 @@ public:
     VertexAccessIterator &operator=(const VertexAccessIterator &other) = delete;
     VertexAccessIterator &operator=(VertexAccessIterator &&other) = delete;
 
-    Option<const VertexAccessor> next() final;
+    Option<const VertexAccessor> next();
 
-    Count count() final;
+    Count count();
 };
 
 // TODO: Find reasons of such great size ant try to decrease it.
-class EdgeAccessIterator : public Sized<560, 8>,
-                           public IteratorBase<const EdgeAccessor>
+class EdgeAccessIterator
+    : public Sized<560, 8>,
+      public iter::Composable<const EdgeAccessor, EdgeAccessIterator>
 {
 public:
     template <class T>
@@ -334,13 +337,14 @@ public:
     EdgeAccessIterator &operator=(const EdgeAccessIterator &other) = delete;
     EdgeAccessIterator &operator=(EdgeAccessIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next() final;
+    Option<const EdgeAccessor> next();
 
-    Count count() final;
+    Count count();
 };
 
-class OutEdgesIterator : public Sized<48, 8>,
-                         public IteratorBase<const EdgeAccessor>
+class OutEdgesIterator
+    : public Sized<48, 8>,
+      public iter::Composable<const EdgeAccessor, OutEdgesIterator>
 {
 public:
     template <class T>
@@ -352,13 +356,14 @@ public:
     OutEdgesIterator &operator=(const OutEdgesIterator &other) = delete;
     OutEdgesIterator &operator=(OutEdgesIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next() final;
+    Option<const EdgeAccessor> next();
 
-    Count count() final;
+    Count count();
 };
 
-class InEdgesIterator : public Sized<64, 8>,
-                        public IteratorBase<const EdgeAccessor>
+class InEdgesIterator
+    : public Sized<64, 8>,
+      public iter::Composable<const EdgeAccessor, InEdgesIterator>
 {
 public:
     template <class T>
@@ -370,12 +375,13 @@ public:
     InEdgesIterator &operator=(const InEdgesIterator &other) = delete;
     InEdgesIterator &operator=(InEdgesIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next() final;
+    Option<const EdgeAccessor> next();
 
-    Count count() final;
+    Count count();
 };
 
-class EdgeIterator : public Sized<8, 8>, public IteratorBase<const EdgeAccessor>
+class EdgeIterator : public Sized<8, 8>,
+                     public iter::Composable<const EdgeAccessor, EdgeIterator>
 {
 public:
     template <class T>
@@ -387,9 +393,9 @@ public:
     EdgeIterator &operator=(const EdgeIterator &other) = delete;
     EdgeIterator &operator=(EdgeIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next() final;
+    Option<const EdgeAccessor> next();
 
-    Count count() final;
+    Count count();
 
     EdgeIterator &operator->() { return *this; }
 };

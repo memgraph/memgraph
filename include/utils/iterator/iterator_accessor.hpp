@@ -1,7 +1,7 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
 #include "utils/iterator/iterator_base.hpp"
-#include "utils/option.hpp"
 
 namespace iter
 {
@@ -11,7 +11,8 @@ namespace iter
 // I - iterator type gotten from accessor
 // A - accessor type
 template <class T, class I, class A>
-class IteratorAccessor : public IteratorBase<T>
+class IteratorAccessor : public IteratorBase<T>,
+                         public Composable<T, IteratorAccessor<T, I, A>>
 {
 public:
     IteratorAccessor() = delete;

@@ -36,6 +36,18 @@ auto load_queries(Db &db)
         return t.commit();
     };
 
+    auto create_labeled_and_named_node_v2 = [&db](const properties_t &args) {
+        DbAccessor t(db);
+        auto prop_key = t.vertex_property_key("name", args[0]->flags);
+        auto &label = t.label_find_or_create("OTHER");
+
+        auto vertex_accessor = t.vertex_insert();
+        vertex_accessor.set(prop_key, args[0]);
+        vertex_accessor.add_label(label);
+        // cout_properties(vertex_accessor.properties());
+        return t.commit();
+    };
+
     auto create_account = [&db](const properties_t &args) {
         DbAccessor t(db);
         auto prop_id = t.vertex_property_key("id", args[0]->flags);
@@ -400,6 +412,7 @@ auto load_queries(Db &db)
     queries[15648836733456301916u] = create_edge_v2;
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
+    queries[16090682663946456821u] = create_labeled_and_named_node_v2;
     queries[7939106225150551899u] = create_edge;
     queries[6579425155585886196u] = create_edge;
     queries[11198568396549106428u] = find_node_by_internal_id;
@@ -412,8 +425,8 @@ auto load_queries(Db &db)
     queries[14897166600223619735u] = match_edge_all_delete;
     queries[16888549834923624215u] = match_edge_type_delete;
     queries[11675960684124428508u] = match_id_type_return;
-    queries[1554436524951961398u] = match_name_type_return;
-    queries[8537338362659537296u] = match_name_type_return_cross;
+    queries[15698881472054193835u] = match_name_type_return;
+    queries[12595102442911913761u] = match_name_type_return_cross;
     queries[8918221081398321263u] = match_label_type_return;
 
     return queries;

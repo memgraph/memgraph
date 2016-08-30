@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utils/iterator/composable.hpp"
 #include "utils/iterator/iterator_base.hpp"
 
 namespace iter
@@ -8,7 +9,8 @@ namespace iter
 // T - type of return value
 // F - type of wraped lambda
 template <class T, class F>
-class LambdaIterator : public IteratorBase<T>
+class LambdaIterator : public IteratorBase<T>,
+                       public Composable<T, LambdaIterator<T, F>>
 {
 public:
     LambdaIterator(F &&f, size_t count) : func(std::move(f)), _count(count) {}
