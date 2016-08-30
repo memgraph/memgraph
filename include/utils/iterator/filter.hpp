@@ -6,26 +6,28 @@
 namespace iter
 {
 
-// Class which maps values returned by I iterator into value of type T with OP
+// Class which filters values returned by I iterator into value of type T with
+// OP
 // function.
 // T - type of return value
 // I - iterator type
 // OP - type of mapper function
 template <class T, class I, class OP>
-class Map : public IteratorBase<T>
+class Filter : public IteratorBase<T>
 {
 
 public:
-    Map() = delete;
+    Filter() = delete;
 
-    // Map operation is designed to be used in chained calls which operate on a
-    // iterator. Map will in that usecase receive other iterator by value and
+    // Filter operation is designed to be used in chained calls which operate on
+    // a
+    // iterator. Filter will in that usecase receive other iterator by value and
     // std::move is a optimization for it.
-    Map(I &&iter, OP &&op) : iter(std::move(iter)), op(std::move(op)) {}
+    Filter(I &&iter, OP &&op) : iter(std::move(iter)), op(std::move(op)) {}
 
-    Map(Map &&m) : iter(std::move(m.iter)), op(std::move(m.op)) {}
+    Filter(Filter &&m) : iter(std::move(m.iter)), op(std::move(m.op)) {}
 
-    ~Map() final {}
+    ~Filter() final {}
 
     Option<T> next() final
     {
@@ -46,7 +48,7 @@ template <class I, class OP>
 auto make_map(I &&iter, OP &&op)
 {
     // Compiler cant deduce type T. decltype is here to help with it.
-    return Map<decltype(op(iter.next().take())), I, OP>(std::move(iter),
-                                                        std::move(op));
+    return Filter<decltype(op(iter.next().take())), I, OP>(std::move(iter),
+                                                           std::move(op));
 }
 }

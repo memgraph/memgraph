@@ -221,7 +221,7 @@ auto load_queries(Db &db)
         return t.commit();
     };
 
-    // MATCH ()-[r]-() WHERE ID(r) = 0 DELETE r
+    // MATCH ()-[r]-() WHERE ID(r) = id DELETE r
     auto match_edge_id_delete = [&db](const properties_t &args) {
         DbAccessor t(db);
 
@@ -262,11 +262,17 @@ auto load_queries(Db &db)
         return t.commit();
     };
 
-    // MATCH ()-[r]-() WHERE ID(r) = 0 DELETE r
-    auto = [&db](const properties_t &args) {
+    // MATCH (n)-[:TYPE]->(m) WHERE ID(n) = id RETURN m
+    auto match_type_id_return = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        return t.commit();
+        auto ov = t.vertex_find(args[0]->as<Int64>().value);
+        if (!option_fill(ov)) return t.commit(), false;
+        auto v = ov.take();
+
+        auto resoults = iter::make_f`
+
+                        return t.commit();
     };
 
     // Blueprint:
