@@ -24,6 +24,7 @@ int main(void)
         "CREATE (n:LABEL {name: \"TEST1\"}) RETURN n",
         "CREATE (n:LABEL {name: \"TEST2\"}) RETURN n",
         "CREATE (n:LABEL {name: \"TEST3\"}) RETURN n",
+        "CREATE (n:OTHER {name: \"TEST4\"}) RETURN n"
         "CREATE (n:ACCOUNT {id: 2322, name: \"TEST\", country: \"Croatia\", "
         "created_at: 2352352}) RETURN n",
         "MATCH (n {id: 0}) RETURN n", "MATCH (n {id: 1}) RETURN n",

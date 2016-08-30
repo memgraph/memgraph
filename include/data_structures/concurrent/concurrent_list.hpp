@@ -5,6 +5,7 @@
 #include <utility>
 #include "utils/crtp.hpp"
 
+// TODO: reimplement this
 template <class T>
 class List
 {
@@ -183,19 +184,23 @@ private:
     private:
         void find_and_disconnect()
         {
-            auto it = It(list);
+            Node *bef = nullptr;
+            auto now = load(list->head);
             auto next = load(curr->next);
-            while (it.valid()) {
-                if (it.curr == curr) {
-                    if (it.disconnect()) {
+            while (now != nullptr) {
+                if (now == curr) {
+                    prev = bef;
+                    if (disconnect()) {
                         return;
                     }
-                    it.reset();
-                } else if (it.curr == next) { // Comparison with next is
-                                              // optimization for early return.
+                    bef = nullptr;
+                    now = load(list->head);
+                } else if (now == next) { // Comparison with next is
+                                          // optimization for early return.
                     return;
                 } else {
-                    it++;
+                    bef = now;
+                    now = load(now->next);
                 }
             }
         }

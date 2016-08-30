@@ -19,6 +19,7 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
                     DbTransaction t(db.second);
                     t.clean_edge_section();
                     t.clean_vertex_section();
+                    t.trans.commit();
                 }
                 last_clean = now;
             } else {

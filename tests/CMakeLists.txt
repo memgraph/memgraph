@@ -68,6 +68,14 @@ target_link_libraries(integration_queries ${fmt_static_lib})
 add_test(NAME integration_queries COMMAND integration_queries)
 set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
 
+# test cleaning methods
+add_executable(cleaning integration/cleaning.cpp)
+target_link_libraries(cleaning memgraph)
+target_link_libraries(cleaning Threads::Threads)
+target_link_libraries(cleaning ${fmt_static_lib})
+add_test(NAME cleaning COMMAND cleaning)
+set_property(TARGET cleaning PROPERTY CXX_STANDARD 14)
+
 # test query engine
 add_executable(integration_query_engine integration/query_engine.cpp)
 target_link_libraries(integration_query_engine Threads::Threads)
