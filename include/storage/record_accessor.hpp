@@ -73,13 +73,6 @@ public:
         }
     }
 
-    bool remove() const
-    {
-        assert(!empty());
-
-        return vlist->remove(record, db.trans);
-    }
-
     const Property &at(PropertyFamily<TG> &key) const
     {
         return properties().at(key);
@@ -153,6 +146,8 @@ public:
     }
 
 protected:
+    bool remove() const;
+
     T *record{nullptr};
     vlist_t *const vlist;
     DbTransaction &db;

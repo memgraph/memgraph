@@ -5,20 +5,29 @@
 #include "utils/iterator/iterator.hpp"
 
 class Vertices;
+class EdgeAccessor;
 
 // There exists circular dependecy with EdgeAccessor.
 class VertexAccessor : public RecordAccessor<TypeGroupVertex, VertexAccessor>
 {
+    friend EdgeAccessor;
+
 public:
     using RecordAccessor::RecordAccessor;
     typedef Vertex record_t;
     typedef VertexRecord record_list_t;
+
+    // Removes only self.
+    bool remove() const { return RecordAccessor::remove(); }
 
     size_t out_degree() const;
 
     size_t in_degree() const;
 
     size_t degree() const;
+
+    // True if vertex isn't connected to any other vertex.
+    bool isolated() const;
 
     // False if it's label with it already.
     bool add_label(const Label &label);

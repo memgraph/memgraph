@@ -418,7 +418,6 @@ set(memgraph_src_files
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
-    ${src_dir}/utils/iterator/iterator_base.cpp
     ${src_dir}/query_engine/util.cpp
     ${src_dir}/communication/bolt/v1/bolt.cpp
     ${src_dir}/communication/bolt/v1/states.cpp

@@ -20,6 +20,9 @@ public:
     typedef Edge record_t;
     typedef EdgeRecord record_list_t;
 
+    // Removes self and disconects vertices from it.
+    bool remove() const;
+
     void edge_type(EdgeType const &edge_type);
 
     const EdgeType &edge_type() const;

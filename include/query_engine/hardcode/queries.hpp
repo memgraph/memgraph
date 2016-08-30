@@ -4,7 +4,6 @@
 #include <map>
 
 #include "barrier/barrier.hpp"
-#include "utils/iterator/iterator_base.cpp"
 
 using namespace std;
 
@@ -182,7 +181,8 @@ auto load_queries(Db &db)
     auto match_all_delete = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        t.vertex_access().fill().for_all([&](auto a) { a.remove(); });
+        t.vertex_access().fill().isolated().for_all(
+            [&](auto a) { a.remove(); });
 
         return t.commit();
     };
@@ -193,7 +193,8 @@ auto load_queries(Db &db)
 
         auto &label = t.label_find_or_create("LABEL");
 
-        label.index().for_range(t).for_all([&](auto a) { a.remove(); });
+        label.index().for_range(t).isolated().for_all(
+            [&](auto a) { a.remove(); });
 
         return t.commit();
     };
@@ -204,8 +205,8 @@ auto load_queries(Db &db)
 
         auto ov = t.vertex_find(args[0]->as<Int64>().value);
         if (!option_fill(ov)) return t.commit(), false;
-
         auto v = ov.take();
+        if (!v.isolated()) return t.commit(), false;
         v.remove();
 
         return t.commit();
@@ -274,8 +275,8 @@ auto load_queries(Db &db)
         auto it_type = type.index().for_range(t);
         auto it_vertex = t.vertex_access();
 
-        // if(it_type.count().max>it_vertex.count().max){
-        //
+        // TODO
+        // if (it_type.count().max > it_vertex.count().max) {
         // }
 
         return t.commit();
