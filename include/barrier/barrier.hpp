@@ -115,6 +115,8 @@ public:
     VertexAccessor &operator=(const VertexAccessor &other);
     VertexAccessor &operator=(VertexAccessor &&other);
 
+    bool isolated() const;
+
     size_t out_degree() const;
 
     size_t in_degree() const;
@@ -388,6 +390,8 @@ public:
     Option<const EdgeAccessor> next() final;
 
     Count count() final;
+
+    EdgeIterator &operator->() { return *this; }
 };
 
 class VertexPropertyKey : private Sized<8, 8>

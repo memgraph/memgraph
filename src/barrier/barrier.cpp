@@ -237,6 +237,8 @@ DESTRUCTOR(VertexAccessor, VertexAccessor);
 COPY_OPERATOR(VertexAccessor);
 MOVE_OPERATOR(VertexAccessor);
 
+bool VertexAccessor::isolated() const { return HALF_CALL(isolated()); }
+
 size_t VertexAccessor::out_degree() const { return HALF_CALL(out_degree()); }
 
 size_t VertexAccessor::in_degree() const { return HALF_CALL(in_degree()); }

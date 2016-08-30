@@ -5,6 +5,11 @@
 #include "storage/vertices.hpp"
 #include "utils/iterator/iterator.hpp"
 
+bool VertexAccessor::isolated() const
+{
+    return out_degree() == 0 && in_degree() == 0;
+}
+
 size_t VertexAccessor::out_degree() const
 {
     return this->record->data.out.degree();
