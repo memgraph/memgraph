@@ -46,22 +46,26 @@ auto NonUniqueUnorderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
                                                     Border<K> from_v,
                                                     Border<K> to_v)
 {
-    return iter::make_iterator([
-        it = list.cbegin(), end = list.cend(), from = from_v, to = to_v, t = t_v
-    ]() mutable->auto {
-        while (it != end) {
-            const IndexRecord<T, K> &r = *it;
-            if (from < r.key && to > r.key &&
-                r.is_valid(t.db_transaction.trans)) {
-                const typename T::accessor_t acc = r.access(t.db_transaction);
+    return iter::make_iterator(
+        [
+          it = list.cbegin(), end = list.cend(), from = from_v, to = to_v,
+          t = t_v
+        ]() mutable->auto {
+            while (it != end) {
+                const IndexRecord<T, K> &r = *it;
+                if (from < r.key && to > r.key &&
+                    r.is_valid(t.db_transaction.trans)) {
+                    const typename T::accessor_t acc =
+                        r.access(t.db_transaction);
+                    it++;
+                    return make_option(std::move(acc));
+                }
                 it++;
-                return make_option(std::move(acc));
             }
-            it++;
-        }
 
-        return Option<const typename T::accessor_t>();
-    });
+            return Option<const typename T::accessor_t>();
+        },
+        list.size());
 }
 
 template <class T, class K>

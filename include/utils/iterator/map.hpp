@@ -37,6 +37,8 @@ public:
         }
     }
 
+    Count count() final { return iter.count(); }
+
 private:
     I iter;
     OP op;

@@ -121,6 +121,18 @@ protected:
                       "Border class aligment mismatch");
     }
 
+public:
+    typename std::aligned_storage<size_B, alignment_B>::type &_data_ref()
+    {
+        return data;
+    }
+
+    typename std::aligned_storage<size_B, alignment_B>::type const &
+    _data_ref_const() const
+    {
+        return data;
+    }
+
 private:
     // Here is the aligned storage which imitates size and aligment of object of
     // original class from memgraph.

@@ -437,6 +437,8 @@ Option<const VertexAccessor> VertexIterator::next()
     return HALF_CALL(get()->next()).map<const VertexAccessor>();
 }
 
+Count VertexIterator::count() { return HALF_CALL(get()->count()); }
+
 // ************************* EdgeIterator
 DESTRUCTOR(EdgeIterator, unique_ptr);
 
@@ -444,6 +446,8 @@ Option<const EdgeAccessor> EdgeIterator::next()
 {
     return HALF_CALL(get()->next()).map<const EdgeAccessor>();
 }
+
+Count EdgeIterator::count() { return HALF_CALL(get()->count()); }
 
 // ************************* OutEdgesIterator
 DESTRUCTOR(OutEdgesIterator, out_edge_iterator_t);
@@ -453,6 +457,8 @@ Option<const EdgeAccessor> OutEdgesIterator::next()
     return HALF_CALL(next()).map<const EdgeAccessor>();
 }
 
+Count OutEdgesIterator::count() { return HALF_CALL(count()); }
+
 // ************************* InEdgesIterator
 DESTRUCTOR(InEdgesIterator, in_edge_iterator_t);
 
@@ -460,6 +466,8 @@ Option<const EdgeAccessor> InEdgesIterator::next()
 {
     return HALF_CALL(next()).map<const EdgeAccessor>();
 }
+
+Count InEdgesIterator::count() { return HALF_CALL(count()); }
 
 // ************************* VertexAccessIterator
 DESTRUCTOR(VertexAccessIterator, vertex_access_iterator_t);
@@ -469,6 +477,8 @@ Option<const VertexAccessor> VertexAccessIterator::next()
     return HALF_CALL(next()).map<const VertexAccessor>();
 }
 
+Count VertexAccessIterator::count() { return HALF_CALL(count()); }
+
 // ************************* EdgeAccessIterator
 DESTRUCTOR(EdgeAccessIterator, edge_access_iterator_t);
 
@@ -476,6 +486,8 @@ Option<const EdgeAccessor> EdgeAccessIterator::next()
 {
     return HALF_CALL(next()).map<const EdgeAccessor>();
 }
+
+Count EdgeAccessIterator::count() { return HALF_CALL(count()); }
 
 // ************************* VertexPropertyKey
 DESTRUCTOR(VertexPropertyKey, PropertyFamilyKey);

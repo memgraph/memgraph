@@ -27,6 +27,8 @@ public:
 
     void clear() { edges.clear(); }
 
+    std::size_t size() { return edges.size(); }
+
 private:
     std::vector<EdgeRecord *> edges;
 };

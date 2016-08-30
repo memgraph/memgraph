@@ -17,12 +17,13 @@ public:
     IteratorAccessor() = delete;
 
     IteratorAccessor(A &&acc)
-        : begin(std::move(acc.begin())), acc(std::forward<A>(acc))
+        : begin(std::move(acc.begin())), acc(std::forward<A>(acc)), returned(0)
     {
     }
 
     IteratorAccessor(IteratorAccessor &&other)
-        : begin(std::move(other.begin)), acc(std::forward<A>(other.acc))
+        : begin(std::move(other.begin)), acc(std::forward<A>(other.acc)),
+          returned(other.returned)
     {
     }
 
@@ -37,15 +38,27 @@ public:
         if (begin != acc.end()) {
             auto ret = Option<T>(&(*(begin.operator->())));
             begin++;
+            returned++;
             return ret;
         } else {
             return Option<T>();
         }
     }
 
+    Count count() final
+    {
+        auto size = acc.size();
+        if (size > returned) {
+            return Count(0);
+        } else {
+            return Count(size - returned);
+        }
+    }
+
 private:
     I begin;
     A acc;
+    size_t returned;
 };
 
 // TODO: Join to make functions into one

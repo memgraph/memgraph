@@ -28,6 +28,8 @@ public:
 
     void clear() { edges.clear(); }
 
+    std::size_t size() { return edges.size(); }
+
 private:
     RhHashMultiMap<VertexRecord *, EdgeRecord> edges;
 };

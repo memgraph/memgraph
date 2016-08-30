@@ -4,6 +4,7 @@
 #include <map>
 
 #include "barrier/barrier.hpp"
+#include "utils/iterator/iterator_base.cpp"
 
 using namespace std;
 
@@ -157,11 +158,8 @@ auto load_queries(Db &db)
     auto match_all_nodes = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        iter::for_all(t.vertex_access(), [&](auto vertex) {
-            if (vertex.fill()) {
-                cout << vertex.id() << endl;
-            }
-        });
+        t.vertex_access().fill().for_all(
+            [&](auto vertex) { cout << vertex.id() << endl; });
 
         return t.commit();
     };
@@ -174,8 +172,8 @@ auto load_queries(Db &db)
         auto prop_key = t.vertex_property_key("name", Flags::String);
 
         cout << "VERTICES" << endl;
-        iter::for_all(label.index().for_range(t),
-                      [&](auto a) { cout << a.at(prop_key) << endl; });
+        label.index().for_range(t).for_all(
+            [&](auto a) { cout << a.at(prop_key) << endl; });
 
         return t.commit();
     };
@@ -184,11 +182,7 @@ auto load_queries(Db &db)
     auto match_all_delete = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        iter::for_all(t.vertex_access(), [&](auto a) {
-            if (a.fill()) {
-                a.remove();
-            }
-        });
+        t.vertex_access().fill().for_all([&](auto a) { a.remove(); });
 
         return t.commit();
     };
@@ -199,11 +193,7 @@ auto load_queries(Db &db)
 
         auto &label = t.label_find_or_create("LABEL");
 
-        iter::for_all(label.index().for_range(t), [&](auto a) {
-            if (a.fill()) {
-                a.remove();
-            }
-        });
+        label.index().for_range(t).for_all([&](auto a) { a.remove(); });
 
         return t.commit();
     };
@@ -238,11 +228,7 @@ auto load_queries(Db &db)
     auto match_edge_all_delete = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        iter::for_all(t.edge_access(), [&](auto a) {
-            if (a.fill()) {
-                a.remove();
-            }
-        });
+        t.edge_access().fill().for_all([&](auto a) { a.remove(); });
 
         return t.commit();
     };
@@ -253,26 +239,46 @@ auto load_queries(Db &db)
 
         auto &type = t.type_find_or_create("TYPE");
 
-        iter::for_all(type.index().for_range(t), [&](auto a) {
-            if (a.fill()) {
-                a.remove();
-            }
-        });
+        type.index().for_range(t).for_all([&](auto a) { a.remove(); });
 
         return t.commit();
     };
 
     // MATCH (n)-[:TYPE]->(m) WHERE ID(n) = id RETURN m
-    auto match_type_id_return = [&db](const properties_t &args) {
+    auto match_id_type_return = [&db](const properties_t &args) {
         DbAccessor t(db);
+
+        auto &type = t.type_find_or_create("TYPE");
 
         auto ov = t.vertex_find(args[0]->as<Int64>().value);
         if (!option_fill(ov)) return t.commit(), false;
         auto v = ov.take();
 
-        auto resoults = iter::make_f`
+        auto results = v.out().fill().type(type).to();
 
-                        return t.commit();
+        // Example of Print resoult.
+        // results.for_all([&](auto va) {
+        //     va is VertexAccessor
+        //     PRINT
+        // });
+
+        return t.commit();
+    };
+
+    // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN m
+    auto match_name_type_return = [&db](const properties_t &args) {
+        DbAccessor t(db);
+
+        auto &type = t.type_find_or_create("TYPE");
+
+        auto it_type = type.index().for_range(t);
+        auto it_vertex = t.vertex_access();
+
+        // if(it_type.count().max>it_vertex.count().max){
+        //
+        // }
+
+        return t.commit();
     };
 
     // Blueprint:
@@ -299,6 +305,7 @@ auto load_queries(Db &db)
     queries[6963549500479100885u] = match_edge_id_delete;
     queries[14897166600223619735u] = match_edge_all_delete;
     queries[16888549834923624215u] = match_edge_type_delete;
+    queries[11675960684124428508u] = match_id_type_return;
 
     return queries;
 }

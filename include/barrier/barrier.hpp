@@ -64,8 +64,8 @@ using label_ref_t = ReferenceWrapper<const Label>;
 // Original class should have Sized barrier class if it can't be Unsized.
 // Sized barrier classes should:
 // --Have same name as original class.
-// --Inherit Sized class from common.hpp as private. Blueprint:
-//      class class_name: Sized<size_of_t,aligment_of_t>
+// --Inherit Sized class from common.hpp as public. Blueprint:
+//      class class_name: public Sized<size_of_t,aligment_of_t>
 // --Sized template arguments must be hardcoded numbers equal to sizeof(T) and
 //   alignof(T) where T is original class.
 // --It should have undefined public constructor which is specialized in .cpp
@@ -83,7 +83,7 @@ using label_ref_t = ReferenceWrapper<const Label>;
 // --It should specify public methods which can be called on the original class.
 //
 // Blueprint:
-// class class_name : private Sized<,>
+// class class_name : public Sized<,>
 // {
 // public:
 //     template <class T>
@@ -281,7 +281,8 @@ public:
     void abort();
 };
 
-class VertexIterator : private Sized<8, 8>
+class VertexIterator : public Sized<8, 8>,
+                       public IteratorBase<const VertexAccessor>
 {
 public:
     template <class T>
@@ -293,11 +294,14 @@ public:
     VertexIterator &operator=(const VertexIterator &other) = delete;
     VertexIterator &operator=(VertexIterator &&other) = delete;
 
-    Option<const VertexAccessor> next();
+    Option<const VertexAccessor> next() final;
+
+    Count count() final;
 };
 
 // TODO: Find reasons of such great size ant try to decrease it.
-class VertexAccessIterator : private Sized<552, 8>
+class VertexAccessIterator : public Sized<560, 8>,
+                             public IteratorBase<const VertexAccessor>
 {
 public:
     template <class T>
@@ -309,11 +313,14 @@ public:
     VertexAccessIterator &operator=(const VertexAccessIterator &other) = delete;
     VertexAccessIterator &operator=(VertexAccessIterator &&other) = delete;
 
-    Option<const VertexAccessor> next();
+    Option<const VertexAccessor> next() final;
+
+    Count count() final;
 };
 
 // TODO: Find reasons of such great size ant try to decrease it.
-class EdgeAccessIterator : private Sized<552, 8>
+class EdgeAccessIterator : public Sized<560, 8>,
+                           public IteratorBase<const EdgeAccessor>
 {
 public:
     template <class T>
@@ -325,10 +332,13 @@ public:
     EdgeAccessIterator &operator=(const EdgeAccessIterator &other) = delete;
     EdgeAccessIterator &operator=(EdgeAccessIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next();
+    Option<const EdgeAccessor> next() final;
+
+    Count count() final;
 };
 
-class OutEdgesIterator : private Sized<40, 8>
+class OutEdgesIterator : public Sized<48, 8>,
+                         public IteratorBase<const EdgeAccessor>
 {
 public:
     template <class T>
@@ -340,10 +350,13 @@ public:
     OutEdgesIterator &operator=(const OutEdgesIterator &other) = delete;
     OutEdgesIterator &operator=(OutEdgesIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next();
+    Option<const EdgeAccessor> next() final;
+
+    Count count() final;
 };
 
-class InEdgesIterator : private Sized<56, 8>
+class InEdgesIterator : public Sized<64, 8>,
+                        public IteratorBase<const EdgeAccessor>
 {
 public:
     template <class T>
@@ -355,10 +368,12 @@ public:
     InEdgesIterator &operator=(const InEdgesIterator &other) = delete;
     InEdgesIterator &operator=(InEdgesIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next();
+    Option<const EdgeAccessor> next() final;
+
+    Count count() final;
 };
 
-class EdgeIterator : private Sized<8, 8>
+class EdgeIterator : public Sized<8, 8>, public IteratorBase<const EdgeAccessor>
 {
 public:
     template <class T>
@@ -370,7 +385,9 @@ public:
     EdgeIterator &operator=(const EdgeIterator &other) = delete;
     EdgeIterator &operator=(EdgeIterator &&other) = delete;
 
-    Option<const EdgeAccessor> next();
+    Option<const EdgeAccessor> next() final;
+
+    Count count() final;
 };
 
 class VertexPropertyKey : private Sized<8, 8>

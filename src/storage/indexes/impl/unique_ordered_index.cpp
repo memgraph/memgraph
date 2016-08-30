@@ -64,23 +64,28 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
     } else {
         assert(this->order() != None);
     }
+    // TODO: determine size on fact of border size.
+    auto size = acc.size();
 
-    return iter::make_iterator([
-        it = std::move(begin), b_end = std::move(end), t = t_v,
-        hold_acc = std::move(acc)
-    ]() mutable->auto {
-        while (b_end >= it->key) {
-            const IndexRecord<T, K> &r = *it;
-            if (r.is_valid(t.db_transaction.trans)) {
-                const typename T::accessor_t acc = r.access(t.db_transaction);
+    return iter::make_iterator(
+        [
+          it = std::move(begin), b_end = std::move(end), t = t_v,
+          hold_acc = std::move(acc)
+        ]() mutable->auto {
+            while (b_end >= it->key) {
+                const IndexRecord<T, K> &r = *it;
+                if (r.is_valid(t.db_transaction.trans)) {
+                    const typename T::accessor_t acc =
+                        r.access(t.db_transaction);
+                    it++;
+                    return make_option(std::move(acc));
+                }
                 it++;
-                return make_option(std::move(acc));
             }
-            it++;
-        }
 
-        return Option<const typename T::accessor_t>();
-    });
+            return Option<const typename T::accessor_t>();
+        },
+        size);
 }
 
 template <class T, class K>
