@@ -43,10 +43,21 @@ auto return_query_action =
             {
                 if (cypher_data.type(entity) == EntityType::Node) {
                     if (cypher_data.tags(entity).size() == 0)
-                        throw CppGeneratorException("entity has no tags");
+                        throw CppGeneratorException("node has no labels");
                     auto label = cypher_data.tags(entity).at(0);  
-                    code += code_line(code::fine_and_write_vertices_by_label,
+                    code += code_line(code::find_and_write_vertices_by_label,
                                       entity, label);
+                }
+            }
+
+            if (cypher_data.source(entity) == EntitySource::TypeIndex)
+            {
+                if (cypher_data.type(entity) == EntityType::Relationship) {
+                    if (cypher_data.tags(entity).size() == 0)
+                        throw CppGeneratorException("edge has no tag");
+                    auto type = cypher_data.tags(entity).at(0);  
+                    code += code_line(code::find_and_write_edges_by_type,
+                                      entity, type);
                 }
             }
         } 

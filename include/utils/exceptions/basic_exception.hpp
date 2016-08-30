@@ -9,16 +9,26 @@
 class BasicException : public std::exception
 {
 public:
-    BasicException(const std::string& message) noexcept : message(message)
+    BasicException(const std::string& message) noexcept
+        : message(message),
+          stacktrace_size(3)
     {
 #ifndef NDEBUG
         this->message += '\n';
 
         Stacktrace stacktrace;
 
-        for(auto& line : stacktrace)
+        // TODO: write this better
+        // (limit the size of stacktrace)
+        uint64_t count = 0;
+
+        for(auto& line : stacktrace) {
             this->message += fmt::format("  at {} ({})\n",
                 line.function, line.location);
+
+            if (++count >= stacktrace_size)
+                break;
+        }
 #endif
     }
 
@@ -33,5 +43,6 @@ public:
 
 private:
     std::string message;
+    uint64_t stacktrace_size;
 };
 

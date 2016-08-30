@@ -20,12 +20,10 @@ public:
     State* run(Session& session) override final;
 
 protected:
-    Logger logger;
-
     /* Execute an incoming query
      *
      */
-    void run(Session& session, Query& query);
+    State* run(Session& session, Query& query);
 
     /* Send all remaining results to the client
      *

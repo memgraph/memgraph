@@ -42,6 +42,7 @@ enum class EntitySource : uint8_t
     None,
     InternalId,
     LabelIndex,
+    TypeIndex,
     MainStorage 
 };
 

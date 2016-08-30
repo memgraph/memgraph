@@ -90,5 +90,7 @@ int main(void)
     clean_vertex(db);
     assert(db.graph.vertices.access().size() == 0);
 
+    // TODO: more tests
+
     return 0;
 }

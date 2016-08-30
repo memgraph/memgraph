@@ -344,13 +344,13 @@ auto load_queries(Db &db)
         if (it_type.count() > it_vertex.count()) {
             // Going through vertices wiil probably be faster
             it_vertex.to().for_all([&](auto m) {
-                // PRINT n,m
+                // PRINT n, m
             });
 
         } else {
             // Going through edges wiil probably be faster
             it_type.to().for_all([&](auto m) {
-                // PRINT n,m
+                // PRINT n, m
             });
         }
 
@@ -361,35 +361,42 @@ auto load_queries(Db &db)
     auto match_label_type_return = [&db](const properties_t &args) {
         DbAccessor t(db);
 
-        auto &type = t.type_find_or_create("TYPE");
-        auto &label = t.label_find_or_create("LABEL");
+        try {
+            auto &type = t.type_find_or_create("TYPE");
+            auto &label = t.label_find_or_create("LABEL");
 
-        Option<const VertexAccessor> bt;
+            Option<const VertexAccessor> bt;
 
-        auto it_type = type.index().for_range(t).from().label(label);
+            auto it_type = type.index().for_range(t).from().label(label);
 
-        auto it_vertex = t.vertex_access()
-                             .fill()
-                             .label(label)
-                             .clone_to(bt) // Savepoint
-                             .out()
-                             .type(type)
-                             .replace(bt); // Load savepoint
+            auto it_vertex = t.vertex_access()
+                                 .fill()
+                                 .label(label)
+                                 .clone_to(bt) // Savepoint
+                                 .out()
+                                 .type(type)
+                                 .replace(bt); // Load savepoint
 
-        if (it_type.count() > it_vertex.count()) {
-            // Going through vertices wiil probably be faster
-            it_vertex.for_all([&](auto n) {
-                // PRINT n
-            });
+            if (it_type.count() > it_vertex.count()) {
+                // Going through vertices wiil probably be faster
+                it_vertex.for_all([&](auto n) {
+                    // PRINT n
+                });
 
-        } else {
-            // Going through edges wiil probably be faster
-            it_type.for_all([&](auto n) {
-                // PRINT n
-            });
+            } else {
+                // Going through edges wiil probably be faster
+                it_type.for_all([&](auto n) {
+                    // PRINT n
+                });
+            }
+            return t.commit();
+        } catch (...) {
+            // Catch all exceptions
+            // Print something to logger
+            t.abort();
+            return false;
         }
 
-        return t.commit();
     };
 
     // Blueprint:

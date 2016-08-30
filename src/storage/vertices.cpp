@@ -23,7 +23,7 @@ VertexAccessor Vertices::insert(DbTransaction &t)
 
     // create new vertex record
     VertexRecord vertex_record(next);
-    // vertex_record.id(next);
+    auto vertex = vertex_record.insert(t.trans);
 
     // insert the new vertex record into the vertex store
     auto vertices_accessor = vertices.access();
@@ -31,7 +31,6 @@ VertexAccessor Vertices::insert(DbTransaction &t)
 
     // create new vertex
     auto inserted_vertex_record = result.first;
-    auto vertex = inserted_vertex_record->second.insert(t.trans);
     t.to_update_index<TypeGroupVertex>(&inserted_vertex_record->second, vertex);
 
     return VertexAccessor(vertex, &inserted_vertex_record->second, t);
