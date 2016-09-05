@@ -29,8 +29,8 @@ public:
         if (str[0] != '\0') {
             data.set_element_id(atol(str));
             if (key.is_present()) {
-                data.add_property(key.get(),
-                                  std::make_shared<Int64>(to_int64(str)));
+                data.add_property(
+                    StoredProperty<TG>(Int64(to_int64(str)), key.get()));
             }
         }
 

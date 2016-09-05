@@ -59,7 +59,7 @@ public:
         chunk();
     }
 
-    void write_field(const std::string& field)
+    void write_field(const std::string &field)
     {
         bolt_encoder.message_success();
         bolt_encoder.write_map_header(1);
@@ -74,16 +74,13 @@ public:
         bolt_encoder.write_list_header(size);
     }
 
-    void write_record()
-    {
-        bolt_encoder.message_record();
-    }
+    void write_record() { bolt_encoder.message_record(); }
 
     // writes metadata at the end of the message
     // TODO: write whole implementation (currently, only type is supported)
     // { "stats": { "nodes created": 1, "properties set": 1},
     //   "type": "r" | "rw" | ...
-    void write_meta(const std::string& type)
+    void write_meta(const std::string &type)
     {
         bolt_encoder.message_success();
         bolt_encoder.write_map_header(1);
@@ -92,33 +89,41 @@ public:
         chunk();
     }
 
-    void write_failure(const std::map<std::string, std::string>& data)
+    void write_failure(const std::map<std::string, std::string> &data)
     {
         serializer.write_failure(data);
-        chunk();        
+        chunk();
     }
     // -- BOLT SPECIFIC METHODS -----------------------------------------------
 
     void write(const VertexAccessor &vertex) { serializer.write(vertex); }
     void write(const EdgeAccessor &edge) { serializer.write(edge); }
 
-    void write(const Property &prop) { serializer.write(prop); }
-    void write(const Bool& prop) { serializer.write(prop); }
-    void write(const Float& prop) { serializer.write(prop); }
-    void write(const Int32& prop) { serializer.write(prop); }
-    void write(const Int64& prop) { serializer.write(prop); }
-    void write(const Double& prop) { serializer.write(prop); }
-    void write(const String& prop) { serializer.write(prop); }
-
-    void send()
+    void write(const StoredProperty<TypeGroupEdge> &prop)
     {
-        chunked_buffer.flush();
+        prop.accept(serializer);
     }
-
-    void chunk()
+    void write(const StoredProperty<TypeGroupVertex> &prop)
     {
-        chunked_encoder.write_chunk();
+        prop.accept(serializer);
     }
+    void write(const Null &prop) { serializer.write(prop); }
+    void write(const Bool &prop) { serializer.write(prop); }
+    void write(const Float &prop) { serializer.write(prop); }
+    void write(const Int32 &prop) { serializer.write(prop); }
+    void write(const Int64 &prop) { serializer.write(prop); }
+    void write(const Double &prop) { serializer.write(prop); }
+    void write(const String &prop) { serializer.write(prop); }
+    void write(const ArrayBool &prop) { serializer.write(prop); }
+    void write(const ArrayInt32 &prop) { serializer.write(prop); }
+    void write(const ArrayInt64 &prop) { serializer.write(prop); }
+    void write(const ArrayFloat &prop) { serializer.write(prop); }
+    void write(const ArrayDouble &prop) { serializer.write(prop); }
+    void write(const ArrayString &prop) { serializer.write(prop); }
+
+    void send() { chunked_buffer.flush(); }
+
+    void chunk() { chunked_encoder.write_chunk(); }
 
     void _write_test()
     {
@@ -152,6 +157,5 @@ private:
     chunked_encoder_t chunked_encoder{chunked_buffer};
     bolt_encoder_t bolt_encoder{chunked_encoder};
     bolt_serializer_t serializer{bolt_encoder};
-
 };
 }

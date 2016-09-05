@@ -34,6 +34,7 @@ public:
 
     public:
         // Ordered on POINTERS to PropertyFamily
+        // TODO: This probably isn't necessary anymore.
         class PropertyFamilyKey
             : public TotalOrdering<PropertyFamilyKey>,
               public TotalOrdering<PropertyFamilyKey, PropertyFamily>,
@@ -81,6 +82,8 @@ public:
                 return &(lhs) < &(rhs.type->family);
             }
 
+            Type get_type() const { return type->type; }
+
             Type prop_type() const { return type->type; }
 
             std::string const &family_name() const
@@ -105,7 +108,7 @@ public:
         public:
             PropertyFamilyKey family_key() { return PropertyFamilyKey(type); }
 
-            Type prop_type() const { return type.type; }
+            Type const &prop_type() const { return type.type; }
 
             friend bool operator==(const PropertyTypeKey &lhs,
                                    const PropertyTypeKey &rhs)
@@ -176,7 +179,7 @@ public:
     PropertyType &get(Type type);
 
     // Return pointer for NULL type. Extremly fast.
-    PropertyType &getNull() { return *null_type; }
+    PropertyType &getNull() const { return *null_type; }
 
     friend bool operator<(const PropertyFamily &lhs, const PropertyFamily &rhs);
 
@@ -204,17 +207,3 @@ using VertexPropertyType =
 template <class T>
 using EdgePropertyType =
     PropertyFamily<TypeGroupEdge>::PropertyType::PropertyTypeKey<T>;
-
-template <class TG>
-class PropertyHash
-{
-public:
-    size_t operator()(
-        typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey const &key)
-        const
-    {
-        return (std::hash<const void *>()((const void *)(&(key.get_family()))) +
-                7) *
-               UINT64_C(0xbf58476d1ce4e5b9);
-    }
-};

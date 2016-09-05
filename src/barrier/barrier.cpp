@@ -1,4 +1,3 @@
-#include "barrier/barrier.hpp"
 #include "barrier/trans.hpp"
 
 // ************************* Implementations
@@ -290,33 +289,29 @@ VertexAccessor VertexAccessor::update() const { return CALL(update()); }
 
 void VertexAccessor::remove() const { HALF_CALL(remove()); }
 
-const Property &VertexAccessor::at(VertexPropertyFamily &key) const
+const StoredProperty<TypeGroupVertex> &
+VertexAccessor::at(VertexPropertyFamily &key) const
 {
     return HALF_CALL(at(trans(key)));
 }
 
-const Property &VertexAccessor::at(VertexPropertyKey &key) const
+const StoredProperty<TypeGroupVertex> &
+VertexAccessor::at(VertexPropertyKey &key) const
 {
     return HALF_CALL(at(trans(key)));
 }
 
 template <class V>
-OptionPtr<V> VertexAccessor::at(VertexPropertyType<V> &key) const
+OptionPtr<const V> VertexAccessor::at(VertexPropertyType<V> &key) const
 {
     return HALF_CALL(at(trans<V>(key)));
 }
 #define VertexAccessor_at(x)                                                   \
-    template OptionPtr<x> VertexAccessor::at(VertexPropertyType<x> &key) const;
+    template OptionPtr<const x> VertexAccessor::at(VertexPropertyType<x> &key) \
+        const;
 INSTANTIATE_FOR_PROPERTY(VertexAccessor_at);
 
-// NOTE: I am not quite sure if this method will have any use
-template <class V, class... Args>
-void VertexAccessor::set(VertexPropertyType<V> &key, Args &&... args)
-{
-    HALF_CALL(set(trans(key), args...));
-}
-
-void VertexAccessor::set(VertexPropertyKey &key, Property::sptr value)
+void VertexAccessor::set(VertexPropertyKey &key, Property &&value)
 {
     HALF_CALL(set(trans(key), std::move(value)));
 }
@@ -380,33 +375,29 @@ EdgeAccessor EdgeAccessor::update() const { return CALL(update()); }
 
 void EdgeAccessor::remove() const { HALF_CALL(remove()); }
 
-const Property &EdgeAccessor::at(EdgePropertyFamily &key) const
+const StoredProperty<TypeGroupEdge> &
+EdgeAccessor::at(EdgePropertyFamily &key) const
 {
     return HALF_CALL(at(trans(key)));
 }
 
-const Property &EdgeAccessor::at(EdgePropertyKey &key) const
+const StoredProperty<TypeGroupEdge> &
+EdgeAccessor::at(EdgePropertyKey &key) const
 {
     return HALF_CALL(at(trans(key)));
 }
 
 template <class V>
-OptionPtr<V> EdgeAccessor::at(EdgePropertyType<V> &key) const
+OptionPtr<const V> EdgeAccessor::at(EdgePropertyType<V> &key) const
 {
     return HALF_CALL(at(trans<V>(key)));
 }
 #define EdgeAccessor_at(x)                                                     \
-    template OptionPtr<x> EdgeAccessor::at(EdgePropertyType<x> &key) const;
+    template OptionPtr<const x> EdgeAccessor::at(EdgePropertyType<x> &key)     \
+        const;
 INSTANTIATE_FOR_PROPERTY(EdgeAccessor_at);
 
-// NOTE: I am not quite sure if this method will have any use
-template <class V, class... Args>
-void EdgeAccessor::set(EdgePropertyType<V> &key, Args &&... args)
-{
-    HALF_CALL(set(trans(key), args...));
-}
-
-void EdgeAccessor::set(EdgePropertyKey &key, Property::sptr value)
+void EdgeAccessor::set(EdgePropertyKey &key, Property &&value)
 {
     HALF_CALL(set(trans(key), std::move(value)));
 }
@@ -548,7 +539,13 @@ void RecordStream<Stream>::write(const EdgeAccessor &edge)
 }
 
 template <class Stream>
-void RecordStream<Stream>::write(const Property &prop)
+void RecordStream<Stream>::write(const StoredProperty<TypeGroupEdge> &prop)
+{
+    HALF_CALL(write(prop));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const StoredProperty<TypeGroupVertex> &prop)
 {
     HALF_CALL(write(prop));
 }
@@ -558,6 +555,12 @@ void RecordStream<Stream>::write(const Property &prop)
 // {
 //     HALF_CALL(write_null());
 // }
+
+template <class Stream>
+void RecordStream<Stream>::write(const Null &v)
+{
+    HALF_CALL(write(v));
+}
 
 template <class Stream>
 void RecordStream<Stream>::write(const Bool &prop)
@@ -590,15 +593,45 @@ void RecordStream<Stream>::write(const Int64 &prop)
 }
 
 template <class Stream>
-void RecordStream<Stream>::write(const std::string &value)
+void RecordStream<Stream>::write(const String &value)
 {
     HALF_CALL(write(value));
 }
 
 template <class Stream>
-void RecordStream<Stream>::write(const String &prop)
+void RecordStream<Stream>::write(const ArrayBool &arr)
 {
-    HALF_CALL(write(prop));
+    HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const ArrayInt32 &arr)
+{
+    HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const ArrayInt64 &arr)
+{
+    HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const ArrayFloat &arr)
+{
+    HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const ArrayDouble &arr)
+{
+    HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write(const ArrayString &arr)
+{
+    HALF_CALL(write(arr));
 }
 
 template <class Stream>

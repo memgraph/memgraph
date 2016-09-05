@@ -4,7 +4,7 @@
 
 #include "storage/model/properties/property.hpp"
 
-using code_args_t = std::vector<Property::sptr>;
+using code_args_t = std::vector<Property>;
 
 struct QueryStripped
 {

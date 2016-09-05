@@ -10,7 +10,7 @@ using std::cout;
 using std::cin;
 using std::endl;
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     // arguments parsing
     auto arguments = all_arguments(argc, argv);
@@ -19,7 +19,7 @@ int main(int argc, char** argv)
     auto input_query = extract_query(arguments);
 
     cout << "QUERY: " << input_query << endl;
-    
+
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
     auto stripped = stripper.strip(input_query);
 
@@ -28,10 +28,10 @@ int main(int argc, char** argv)
     QueryHasher query_hasher;
 
     cout << "QUERY HASH: " << query_hasher.hash(stripped.query) << endl;
-    
+
     cout << "PROPERTIES:" << endl;
     for (auto property : stripped.arguments) {
-        cout << "    " << *property << endl;
+        cout << "    " << property << endl;
     }
 
     return 0;

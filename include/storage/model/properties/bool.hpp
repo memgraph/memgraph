@@ -1,28 +1,37 @@
 #pragma once
 
-#include "storage/model/properties/property.hpp"
+#include "storage/model/properties/flags.hpp"
 
-class Bool : public Property
+class Bool
 {
 public:
-    static constexpr Flags type = Flags::Bool;
+    const static Type type;
 
-    Bool(bool value);
-    Bool(const Bool &other) = default;
+    Bool(bool d) : data(d) {}
 
-    bool value() const;
+    bool &value() { return data; }
 
-    bool const &value_ref() const;
+    bool const &value() const { return data; }
 
-    explicit operator bool() const;
+    std::ostream &print(std::ostream &stream) const
+    {
+        return operator<<(stream, *this);
+    }
 
-    bool operator==(const Property &other) const override;
+    friend std::ostream &operator<<(std::ostream &stream, const Bool &prop)
+    {
+        return stream << prop.data;
+    }
 
-    bool operator==(const Bool &other) const;
+    bool operator==(const Bool &other) const
+    {
+        return other.value() == value();
+    }
 
-    bool operator==(bool v) const;
+    bool operator==(bool v) const { return value() == v; }
 
-    std::ostream &print(std::ostream &stream) const override;
+    explicit operator bool() const { return value(); }
 
-    friend std::ostream &operator<<(std::ostream &stream, const Bool &prop);
+private:
+    bool data;
 };

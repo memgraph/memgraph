@@ -90,7 +90,7 @@ bool update_property_indexes(IU &iu, const tx::Transaction &t)
     for (auto kp : iu.record->data.props) {
 
         // FamilyProperty index
-        auto opi = kp.first.get_family().index.get_write(t);
+        auto opi = kp.key.get_family().index.get_write(t);
         if (opi.is_present()) {
             TRY(opi.get()->insert(IndexRecord<TG, std::nullptr_t>(
                 std::nullptr_t(), iu.record, iu.vlist)));

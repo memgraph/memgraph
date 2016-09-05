@@ -1,15 +1,17 @@
 #pragma once
 
 #include <iostream>
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "fmt/format.h"
+#include "logging/default.hpp"
+#include "query_engine/exceptions/errors.hpp"
 #include "storage/model/properties/properties.hpp"
+#include "storage/model/properties/property.hpp"
 #include "storage/model/properties/traversers/consolewriter.hpp"
 #include "storage/model/properties/traversers/jsonwriter.hpp"
 #include "utils/types/byte.hpp"
-#include "logging/default.hpp"
 
 using std::cout;
 using std::endl;
@@ -26,7 +28,8 @@ void print_props(const Properties<T> &properties);
 template <class T>
 void cout_properties(const Properties<T> &properties);
 
-void cout_property(const std::string &key, const Property &property);
+template <class T>
+void cout_property(const StoredProperty<T> &property);
 
 // this is a nice way how to avoid multiple definition problem with
 // headers because it will create a unique namespace for each compilation unit
@@ -43,7 +46,11 @@ std::string format(const std::string &format_str, const Args &... args)
 template <typename... Args>
 std::string code_line(const std::string &format_str, const Args &... args)
 {
-    return "\t" + format(format_str, args...) + "\n";
+    try {
+        return "\t" + format(format_str, args...) + "\n";
+    } catch (std::runtime_error &e) {
+        throw CodeGenerationError(std::string(e.what()) + " " + format_str);
+    }
 }
 }
 
@@ -52,19 +59,19 @@ class CoutSocket
 public:
     CoutSocket() : logger(logging::log->logger("Cout Socket")) {}
 
-    int write(const std::string& str)
+    int write(const std::string &str)
     {
         logger.info(str);
         return str.size();
     }
 
-    int write(const char* data, size_t len)
+    int write(const char *data, size_t len)
     {
         logger.info(std::string(data, len));
         return len;
     }
 
-    int write(const byte* data, size_t len)
+    int write(const byte *data, size_t len)
     {
         std::stringstream ss;
         for (int i = 0; i < len; i++) {

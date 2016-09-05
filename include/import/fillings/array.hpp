@@ -30,7 +30,7 @@ public:
             }
         }
         if (vec.size() > 0) {
-            data.add_property(key, make_shared<A>(std::move(vec)));
+            data.add_property(StoredProperty<TG>(A(std::move(vec)), key));
         }
         return make_option<std::string>();
     }

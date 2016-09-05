@@ -21,11 +21,11 @@
 #include "storage/model/properties/properties.cpp"
 #include "storage/record_accessor.cpp"
 // #include "storage/vertex_accessor.cpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 const int max_score = 1000000;
 
@@ -60,7 +60,7 @@ public:
         auto now = this;
         double sum = 0;
         do {
-            sum += (now->vacc.at(tkey).get())->value;
+            sum += (now->vacc.at(tkey).get())->value();
             now = now->parent;
         } while (now != nullptr);
         return sum;
@@ -91,7 +91,7 @@ double calc_heuristic_cost_dummy(type_key_t<TypeGroupVertex, Double> tkey,
                                  EdgeAccessor &edge, VertexAccessor &vertex)
 {
     assert(!vertex.empty());
-    return 1 - vertex.at(tkey).get()->value;
+    return 1 - vertex.at(tkey).get()->value();
 }
 
 typedef bool (*EdgeFilter)(DbAccessor &t, EdgeAccessor &, Node *before);
@@ -289,9 +289,9 @@ void add_scores(Db &db)
         if (v.fill()) {
             // from Kruno's head :) (could be ALMOST anything else)
             std::srand(i ^ 0x7482616);
-            v.set(key_score,
-                  std::make_shared<Double>((std::rand() % max_score) /
-                                           (max_score + 0.0)));
+            v.set(StoredProperty<TypeGroupVertex>(
+                Double((std::rand() % max_score) / (max_score + 0.0)),
+                key_score));
             i++;
         }
     });

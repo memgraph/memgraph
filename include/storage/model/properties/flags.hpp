@@ -1,9 +1,15 @@
 #pragma once
 
 #include <cassert>
+#include <ostream>
+#include <string>
+#include <vector>
+
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
+// TODO: Revise this
+// NOTE: Why not just count all the types?
 enum class Flags : unsigned
 {
     // Type       | Mask
@@ -54,7 +60,6 @@ enum class Flags : unsigned
     ArrayDouble = (Double << 13) | Array,
 
     type_mask = 0xFFF
-
 };
 
 // Mask to turn flags into type. It passes all bits except 0x2 and 0x4 which
@@ -65,7 +70,7 @@ const unsigned flags_equal_mask = 0xFF9;
 class Type : public TotalOrdering<Type>
 {
 public:
-    Type(Flags f) : value(underlying_cast(f) & flags_equal_mask)
+    constexpr Type(Flags f) : value(underlying_cast(f) & flags_equal_mask)
     {
         Flags o = Flags(value);
         assert(o == Flags::Null || o == Flags::Bool || o == Flags::String ||
@@ -75,7 +80,7 @@ public:
 
     const std::string to_str()
     {
-        switch (Flags(value)) {
+        switch (flags()) {
         case Flags::Null:
             return "null";
         case Flags::Bool:
@@ -98,6 +103,16 @@ public:
         }
     }
 
+    Flags flags() const { return Flags(value); }
+
+    Type get_type() const { return *this; }
+
+    template <class T>
+    bool is() const
+    {
+        return *this == T::type;
+    }
+
     bool operator==(Flags other) const { return *this == Type(other); }
 
     bool operator!=(Flags other) const { return *this != Type(other); }
@@ -113,5 +128,5 @@ public:
     }
 
 private:
-    const unsigned value;
+    const unsigned value; // TODO: turn this to flags
 };

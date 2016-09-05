@@ -10,43 +10,17 @@
 class ElementSkeleton
 {
 
-    class Prop
-    {
-
-    public:
-        Prop(VertexPropertyFamily::PropertyType::PropertyFamilyKey key,
-             Option<std::shared_ptr<Property>> &&prop)
-            : key_v(key), prop(std::move(prop))
-        {
-        }
-
-        Prop(EdgePropertyFamily::PropertyType::PropertyFamilyKey key,
-             Option<std::shared_ptr<Property>> &&prop)
-            : key_e(key), prop(std::move(prop))
-        {
-        }
-
-        union
-        {
-            VertexPropertyFamily::PropertyType::PropertyFamilyKey key_v;
-            EdgePropertyFamily::PropertyType::PropertyFamilyKey key_e;
-        };
-        Option<std::shared_ptr<Property>> prop;
-    };
-
 public:
     ElementSkeleton(DbAccessor &db) : db(db){};
 
-    void add_property(VertexPropertyFamily::PropertyType::PropertyFamilyKey key,
-                      std::shared_ptr<Property> &&prop)
+    void add_property(StoredProperty<TypeGroupVertex> &&prop)
     {
-        properties.push_back(Prop(key, make_option(std::move(prop))));
+        properties_v.push_back(std::move(prop));
     }
 
-    void add_property(EdgePropertyFamily::PropertyType::PropertyFamilyKey key,
-                      std::shared_ptr<Property> &&prop)
+    void add_property(StoredProperty<TypeGroupEdge> &&prop)
     {
-        properties.push_back(Prop(key, make_option(std::move(prop))));
+        properties_e.push_back(std::move(prop));
     }
 
     void set_element_id(size_t id)
@@ -77,9 +51,8 @@ public:
             va.add_label(*l);
         }
 
-        for (auto prop : properties) {
-            assert(prop.prop.is_present());
-            va.set(prop.key_v, prop.prop.take());
+        for (auto prop : properties_v) {
+            va.set(std::move(prop));
         }
 
         return va;
@@ -100,9 +73,8 @@ public:
             ve.edge_type(*type.get());
         }
 
-        for (auto prop : properties) {
-            assert(prop.prop.is_present());
-            ve.set(prop.key_e, prop.prop.take());
+        for (auto prop : properties_e) {
+            ve.set(std::move(prop));
         }
 
         return make_option<std::string>();
@@ -115,7 +87,8 @@ public:
         from_va = make_option<VertexAccessor>();
         type = make_option<EdgeType const *>();
         labels.clear();
-        properties.clear();
+        properties_v.clear();
+        properties_e.clear();
     }
 
     // Returns import local id.
@@ -138,5 +111,6 @@ private:
     Option<VertexAccessor> from_va;
     Option<EdgeType const *> type;
     std::vector<Label const *> labels;
-    std::vector<Prop> properties;
+    std::vector<StoredProperty<TypeGroupEdge>> properties_e;
+    std::vector<StoredProperty<TypeGroupVertex>> properties_v;
 };

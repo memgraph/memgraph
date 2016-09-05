@@ -22,7 +22,7 @@ public:
     Option<std::string> fill(ElementSkeleton &data, char *str) final
     {
         if (str[0] != '\0') {
-            data.add_property(key, std::make_shared<Int32>(to_int32(str)));
+            data.add_property(StoredProperty<TG>(Int32(to_int32(str)), key));
         }
 
         return make_option<std::string>();

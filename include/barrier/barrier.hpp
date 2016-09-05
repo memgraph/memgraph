@@ -147,17 +147,14 @@ public:
 
     void remove() const;
 
-    const Property &at(VertexPropertyFamily &key) const;
+    const StoredProperty<TypeGroupVertex> &at(VertexPropertyFamily &key) const;
 
-    const Property &at(VertexPropertyKey &key) const;
+    const StoredProperty<TypeGroupVertex> &at(VertexPropertyKey &key) const;
 
     template <class V>
-    OptionPtr<V> at(VertexPropertyType<V> &key) const;
+    OptionPtr<const V> at(VertexPropertyType<V> &key) const;
 
-    template <class V, class... Args>
-    void set(VertexPropertyType<V> &key, Args &&... args);
-
-    void set(VertexPropertyKey &key, Property::sptr value);
+    void set(VertexPropertyKey &key, Property &&value);
 
     void clear(VertexPropertyKey &key);
 
@@ -206,17 +203,14 @@ public:
 
     void remove() const;
 
-    const Property &at(EdgePropertyFamily &key) const;
+    const StoredProperty<TypeGroupEdge> &at(EdgePropertyFamily &key) const;
 
-    const Property &at(EdgePropertyKey &key) const;
+    const StoredProperty<TypeGroupEdge> &at(EdgePropertyKey &key) const;
 
     template <class V>
-    OptionPtr<V> at(EdgePropertyType<V> &key) const;
+    OptionPtr<const V> at(EdgePropertyType<V> &key) const;
 
-    template <class V, class... Args>
-    void set(EdgePropertyType<V> &key, Args &&... args);
-
-    void set(EdgePropertyKey &key, Property::sptr value);
+    void set(EdgePropertyKey &key, Property &&value);
 
     void clear(EdgePropertyKey &key);
 
@@ -474,15 +468,22 @@ public:
 
     void write(const VertexAccessor &vertex);
     void write(const EdgeAccessor &edge);
-    void write(const Property &prop);
+    void write(const StoredProperty<TypeGroupVertex> &prop);
+    void write(const StoredProperty<TypeGroupEdge> &prop);
     void write_null();
+    void write(const Null &v);
     void write(const Bool &prop);
     void write(const Float &prop);
     void write(const Double &prop);
     void write(const Int32 &prop);
     void write(const Int64 &prop);
-    void write(const std::string &value);
     void write(const String &prop);
+    void write(const ArrayBool &);
+    void write(const ArrayInt32 &);
+    void write(const ArrayInt64 &);
+    void write(const ArrayFloat &);
+    void write(const ArrayDouble &);
+    void write(const ArrayString &);
 
     void write_success();
     void write_success_empty();

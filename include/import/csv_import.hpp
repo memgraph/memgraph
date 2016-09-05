@@ -169,7 +169,7 @@ private:
 
     template <class TG>
     typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey
-    prop_key(const char *name, Flags type)
+    property_key(const char *name, Flags type)
     {
         assert(false);
     }
@@ -209,7 +209,7 @@ private:
             std::unique_ptr<Filler> f(
                 name[0] == '\0' ? new IdFiller<TG>()
                                 : new IdFiller<TG>(make_option(
-                                      prop_key<TG>(name, Flags::Int64))));
+                                      property_key<TG>(name, Flags::Int64))));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "start_id") || equal_str(type, "from_id") ||
@@ -240,66 +240,66 @@ private:
             // return make_filler_property<BoolFiller>(vertex, name,
             // Flags::Bool);
             std::unique_ptr<Filler> f(
-                new BoolFiller<TG>(prop_key<TG>(name, Flags::Bool)));
+                new BoolFiller<TG>(property_key<TG>(name, Flags::Bool)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "double")) {
             std::unique_ptr<Filler> f(
-                new DoubleFiller<TG>(prop_key<TG>(name, Flags::Double)));
+                new DoubleFiller<TG>(property_key<TG>(name, Flags::Double)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "float")) {
             std::unique_ptr<Filler> f(
-                new FloatFiller<TG>(prop_key<TG>(name, Flags::Float)));
+                new FloatFiller<TG>(property_key<TG>(name, Flags::Float)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int")) {
             std::unique_ptr<Filler> f(
-                new Int32Filler<TG>(prop_key<TG>(name, Flags::Int32)));
+                new Int32Filler<TG>(property_key<TG>(name, Flags::Int32)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "long")) {
             std::unique_ptr<Filler> f(
-                new Int64Filler<TG>(prop_key<TG>(name, Flags::Int64)));
+                new Int64Filler<TG>(property_key<TG>(name, Flags::Int64)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string")) {
             std::unique_ptr<Filler> f(
-                new StringFiller<TG>(prop_key<TG>(name, Flags::String)));
+                new StringFiller<TG>(property_key<TG>(name, Flags::String)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "bool[]")) {
             std::unique_ptr<Filler> f(make_array_filler<TG, bool, ArrayBool>(
-                *this, prop_key<TG>(name, Flags::ArrayBool), to_bool));
+                *this, property_key<TG>(name, Flags::ArrayBool), to_bool));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "float[]")) {
             std::unique_ptr<Filler> f(make_array_filler<TG, float, ArrayFloat>(
-                *this, prop_key<TG>(name, Flags::ArrayFloat), to_float));
+                *this, property_key<TG>(name, Flags::ArrayFloat), to_float));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "double[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, double, ArrayDouble>(
-                    *this, prop_key<TG>(name, Flags::ArrayDouble), to_double));
+                    *this, property_key<TG>(name, Flags::ArrayDouble), to_double));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, int32_t, ArrayInt32>(
-                    *this, prop_key<TG>(name, Flags::ArrayInt32), to_int32));
+                    *this, property_key<TG>(name, Flags::ArrayInt32), to_int32));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "long[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, int64_t, ArrayInt64>(
-                    *this, prop_key<TG>(name, Flags::ArrayInt64), to_int64));
+                    *this, property_key<TG>(name, Flags::ArrayInt64), to_int64));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, string, ArrayString>(
-                    *this, prop_key<TG>(name, Flags::ArrayString), to_string));
+                    *this, property_key<TG>(name, Flags::ArrayString), to_string));
             return make_option(std::move(f));
 
         } else {
@@ -326,14 +326,14 @@ private:
 
 template <>
 PropertyFamily<TypeGroupVertex>::PropertyType::PropertyFamilyKey
-CSVImporter::prop_key<TypeGroupVertex>(const char *name, Flags type)
+CSVImporter::property_key<TypeGroupVertex>(const char *name, Flags type)
 {
     return db.vertex_property_key(name, Type(type));
 }
 
 template <>
 PropertyFamily<TypeGroupEdge>::PropertyType::PropertyFamilyKey
-CSVImporter::prop_key<TypeGroupEdge>(const char *name, Flags type)
+CSVImporter::property_key<TypeGroupEdge>(const char *name, Flags type)
 {
     return db.edge_property_key(name, Type(type));
 }

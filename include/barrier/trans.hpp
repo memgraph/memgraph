@@ -161,7 +161,7 @@ namespace barrier
 // TRANSFORM_REF(, ::);
 // template <class T> TRANSFORM_REF_TEMPLATED(<T>,::<T>);
 
-// ***************** TRANSFORMS of reference
+// ***************** TRANSFORMS of reference and pointers
 DUP(Label, TRANSFORM_REF);
 DUP(EdgeType, TRANSFORM_REF);
 DUP(VertexPropertyFamily, TRANSFORM_REF);

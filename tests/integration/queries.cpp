@@ -51,7 +51,8 @@ int main(void)
     for (auto &query : queries) {
         auto stripped = stripper.strip(query);
         std::cout << "Query hash: " << stripped.hash << std::endl;
-        auto result = query_functions[stripped.hash](stripped.arguments);
+        auto result =
+            query_functions[stripped.hash](std::move(stripped.arguments));
         permanent_assert(result == true,
                          "Result retured from query function is not true");
     }

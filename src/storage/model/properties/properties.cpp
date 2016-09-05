@@ -8,49 +8,53 @@
 #include "storage/type_group_vertex.hpp"
 
 template <class TG>
-const Property &Properties<TG>::at(PropertyFamily<TG> &fam) const
+const StoredProperty<TG> &Properties<TG>::at(PropertyFamily<TG> &fam) const
 {
     // It doesn't matter whit which type
-    // find is called, thats why getNull
+    // compare is done, thats why getNull
     // method is here to give fast access
     // to such key.
-    auto key = fam.getNull().family_key();
-    auto it = props.find(key);
-
-    if (it == props.end()) return Property::Null;
-
-    return *it->second.get();
+    auto f_key = fam.getNull().family_key();
+    return at(f_key);
 }
 
 template <class TG>
-const Property &Properties<TG>::at(prop_key_t &key) const
+const StoredProperty<TG> &Properties<TG>::at(property_key &key) const
 {
-    auto it = props.find(key);
-
-    if (it == props.end() || it->first.prop_type() != key.prop_type())
-        return Property::Null;
-
-    return *it->second.get();
-}
-
-template <class TG>
-void Properties<TG>::set(prop_key_t &key, Property::sptr value)
-{
-    // TODO: There is uneccesary copying of value here.
-    auto result = props.insert(make_pair(key, value));
-    if (!result.second) {
-        // It is necessary to change key because the types from before and now
-        // could be different.
-        prop_key_t &key_ref = const_cast<prop_key_t &>(result.first->first);
-        key_ref = key;
-        result.first->second = std::move(value);
+    for (auto &prop : props) {
+        if (prop.key == key) {
+            return prop;
+        }
     }
+    return StoredProperty<TG>::null;
 }
 
 template <class TG>
-void Properties<TG>::clear(prop_key_t &key)
+void Properties<TG>::set(StoredProperty<TG> &&value)
 {
-    props.erase(key);
+    for (auto &prop : props) {
+        if (prop.key == value.key) {
+            // It is necessary to change key because the types from before and
+            // now
+            // could be different.
+            StoredProperty<TG> &sp = const_cast<StoredProperty<TG> &>(prop);
+            sp = std::move(value);
+            return;
+        }
+    }
+    props.push_back(std::move(value));
+}
+
+template <class TG>
+void Properties<TG>::clear(property_key &key)
+{
+    auto end = props.end();
+    for (auto it = props.begin(); it != end; it++) {
+        if (it->key == key) {
+            props.erase(it);
+            return;
+        }
+    }
 }
 
 template <class TG>
@@ -60,8 +64,8 @@ void Properties<TG>::clear(PropertyFamily<TG> &fam)
     // find is called, thats why getNull
     // method is here to give fast access
     // to such key.
-    auto key = fam.getNull().family_key();
-    props.erase(key);
+    auto f_key = fam.getNull().family_key();
+    clear(f_key);
 }
 
 template class Properties<TypeGroupEdge>;

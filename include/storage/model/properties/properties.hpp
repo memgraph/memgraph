@@ -1,13 +1,12 @@
 #pragma once
 
-#include <unordered_map>
+#include <unordered_set>
 
-#include "storage/model/properties/property.hpp"
-#include "storage/model/properties/property_family.hpp"
 #include "utils/option.hpp"
+#include "utils/option_ptr.hpp"
 
-template <class TG>
-using prop_key_t = typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey;
+#include "storage/model/properties/property_family.hpp"
+#include "storage/model/properties/stored_property.hpp"
 
 template <class TG, class T>
 using type_key_t =
@@ -17,9 +16,7 @@ template <class TG>
 class Properties
 {
 public:
-    using sptr = std::shared_ptr<Properties>;
-
-    using prop_key_t =
+    using property_key =
         typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey;
 
     template <class T>
@@ -34,44 +31,26 @@ public:
 
     size_t size() const { return props.size(); }
 
-    const Property &at(PropertyFamily<TG> &key) const;
+    const StoredProperty<TG> &at(PropertyFamily<TG> &key) const;
 
-    const Property &at(prop_key_t &key) const;
+    const StoredProperty<TG> &at(property_key &key) const;
 
     template <class T>
-    OptionPtr<T> at(type_key_t<T> &key) const
+    OptionPtr<const T> at(type_key_t<T> &key) const
     {
         auto f_key = key.family_key();
-        auto it = props.find(f_key);
-
-        if (it == props.end() || it->first.prop_type() != key.prop_type())
-            return OptionPtr<T>();
-
-        return OptionPtr<T>(&(it->second.get()->template as<T>()));
-    }
-
-    template <class T, class... Args>
-    void set(type_key_t<T> &key, Args &&... args)
-    {
-        auto value = std::make_shared<T>(std::forward<Args>(args)...);
-
-        // try to emplace the item
-        // TODO: There is uneccesary copying of value here.
-        auto result = props.emplace(std::make_pair(key, value));
-
-        if (!result.second) {
-            // It is necessary to change key because the types from before and
-            // now
-            // could be different.
-            prop_key_t &key_ref = const_cast<prop_key_t &>(result.first->first);
-            key_ref = key;
-            result.first->second = std::move(value);
+        for (auto &prop : props) {
+            if (prop.key == f_key) {
+                return OptionPtr<const T>(&(prop.template as<T>()));
+            }
         }
+
+        return OptionPtr<const T>();
     }
 
-    void set(prop_key_t &key, Property::sptr value);
+    void set(StoredProperty<TG> &&value);
 
-    void clear(prop_key_t &key);
+    void clear(property_key &key);
 
     void clear(PropertyFamily<TG> &key);
 
@@ -79,7 +58,7 @@ public:
     void accept(Handler &handler) const
     {
         for (auto &kv : props)
-            handler.handle(kv.first, *kv.second);
+            kv.accept(handler);
 
         handler.finish();
     }
@@ -88,11 +67,10 @@ public:
     void for_all(Handler handler) const
     {
         for (auto &kv : props)
-            handler(kv.first, kv.second);
+            handler(kv);
     }
 
 private:
-    using props_t =
-        std::unordered_map<prop_key_t, Property::sptr, PropertyHash<TG>>;
+    using props_t = std::vector<StoredProperty<TG>>;
     props_t props;
 };

@@ -211,7 +211,6 @@ FILE(COPY ${include_dir}/storage/model/properties/properties.hpp DESTINATION ${b
 FILE(COPY ${include_dir}/storage/model/properties/property.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/traversers/consolewriter.hpp DESTINATION ${build_include_dir}/storage/model/properties/traversers)
 FILE(COPY ${include_dir}/storage/model/properties/traversers/jsonwriter.hpp DESTINATION ${build_include_dir}/storage/model/properties/traversers)
-FILE(COPY ${include_dir}/storage/model/properties/handler.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/all.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/bool.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/float.hpp DESTINATION ${build_include_dir}/storage/model/properties)
@@ -438,12 +437,16 @@ set(memgraph_src_files
     ${src_dir}/storage/label/label_store.cpp
     ${src_dir}/storage/edge_type/edge_type.cpp
     ${src_dir}/storage/edge_type/edge_type_store.cpp
-    ${src_dir}/storage/model/properties/property.cpp
     ${src_dir}/storage/model/properties/null.cpp
     ${src_dir}/storage/model/properties/bool.cpp
+    ${src_dir}/storage/model/properties/int32.cpp
+    ${src_dir}/storage/model/properties/int64.cpp
+    ${src_dir}/storage/model/properties/float.cpp
+    ${src_dir}/storage/model/properties/double.cpp
     ${src_dir}/storage/model/properties/string.cpp
     ${src_dir}/storage/model/properties/array.cpp
     ${src_dir}/storage/model/properties/properties.cpp
+    ${src_dir}/storage/model/properties/stored_property.cpp
     ${src_dir}/storage/model/properties/property_family.cpp
     ${src_dir}/storage/indexes/index_base.cpp
     ${src_dir}/storage/indexes/index_record.cpp

@@ -6,10 +6,10 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
+#include "storage/edge_type/edge_type.hpp"
+#include "storage/label/label.hpp"
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/properties.hpp"
-#include "storage/label/label.hpp"
-#include "storage/edge_type/edge_type.hpp"
 #include "storage/vertex_record.hpp"
 
 namespace bolt
@@ -59,8 +59,8 @@ public:
         encoder.write_map_header(props.size());
 
         for (auto &prop : props) {
-            write(prop.first.family_name());
-            write(*prop.second);
+            write(prop.key.family_name());
+            prop.accept(*this);
         }
     }
 
@@ -77,25 +77,41 @@ public:
      */
     void write(const EdgeAccessor &edge);
 
-    void write(const Property &prop) { accept(prop, *this); }
-
     void write_null() { encoder.write_null(); }
+
+    void write(const Null &v) { encoder.write_null(); }
 
     void write(const Bool &prop) { encoder.write_bool(prop.value()); }
 
-    void write(const Float &prop) { encoder.write_double(prop.value); }
+    void write(const Float &prop) { encoder.write_double(prop.value()); }
 
-    void write(const Double &prop) { encoder.write_double(prop.value); }
+    void write(const Double &prop) { encoder.write_double(prop.value()); }
 
-    void write(const Int32 &prop) { encoder.write_integer(prop.value); }
+    void write(const Int32 &prop) { encoder.write_integer(prop.value()); }
 
-    void write(const Int64 &prop) { encoder.write_integer(prop.value); }
+    void write(const Int64 &prop) { encoder.write_integer(prop.value()); }
 
-    void write(const std::string &value) { encoder.write_string(value); }
+    void write(const String &value) { encoder.write_string(value.value()); }
 
-    void write(const String &prop) { encoder.write_string(prop.value); }
+    // Not yet implemented
+    void write(const ArrayBool &) { assert(false); }
 
-    void write_failure(const std::map<std::string, std::string>& data)
+    // Not yet implemented
+    void write(const ArrayInt32 &) { assert(false); }
+
+    // Not yet implemented
+    void write(const ArrayInt64 &) { assert(false); }
+
+    // Not yet implemented
+    void write(const ArrayFloat &) { assert(false); }
+
+    // Not yet implemented
+    void write(const ArrayDouble &) { assert(false); }
+
+    // Not yet implemented
+    void write(const ArrayString &) { assert(false); }
+
+    void write_failure(const std::map<std::string, std::string> &data)
     {
         encoder.message_failure();
         encoder.write_map_header(data.size());

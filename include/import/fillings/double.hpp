@@ -21,7 +21,7 @@ public:
     Option<std::string> fill(ElementSkeleton &data, char *str) final
     {
         if (str[0] != '\0') {
-            data.add_property(key, std::make_shared<Double>(to_double(str)));
+            data.add_property(StoredProperty<TG>(Double(to_double(str)), key));
         }
 
         return make_option<std::string>();

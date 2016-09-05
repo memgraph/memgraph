@@ -1,6 +1,5 @@
 #pragma once
 
-#include "storage/model/properties/handler.hpp"
 #include "storage/model/properties/properties.hpp"
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"
@@ -11,45 +10,59 @@ struct JsonWriter
 public:
     JsonWriter(Buffer &buffer) : buffer(buffer) { buffer << '{'; };
 
-    void handle(const typename PropertyFamily<
-                    TypeGroupEdge>::PropertyType::PropertyFamilyKey &key,
-                const Property &value)
+    void handle(const StoredProperty<TypeGroupEdge> &prop)
     {
-        handle<TypeGroupEdge>(key, value);
+        handle<TypeGroupEdge>(prop);
     }
 
-    void handle(const typename PropertyFamily<
-                    TypeGroupVertex>::PropertyType::PropertyFamilyKey &key,
-                const Property &value)
+    void handle(const StoredProperty<TypeGroupVertex> &prop)
     {
-        handle<TypeGroupVertex>(key, value);
+        handle<TypeGroupVertex>(prop);
     }
 
-    template <class T>
-    void handle(
-        const typename PropertyFamily<T>::PropertyType::PropertyFamilyKey &key,
-        const Property &value)
+    template <class TG>
+    void handle(const StoredProperty<TG> &prop)
     {
         if (!first) buffer << ',';
 
         if (first) first = false;
 
-        buffer << '"' << key.family_name() << "\":";
-        // value.accept(*this);
-        accept(value, *this);
+        buffer << '"' << prop.get_property_key().family_name() << "\":";
+
+        prop.accept(*this);
     }
 
-    void handle(const Bool &b) { buffer << (b.value() ? "true" : "false"); }
+    void handle(const Null &v) { buffer << "NULL"; }
 
-    void handle(const String &s) { buffer << '"' << s.value << '"'; }
+    void handle(const Bool &b) { buffer << (b ? "true" : "false"); }
 
-    void handle(const Int32 &int32) { buffer << std::to_string(int32.value); }
+    void handle(const String &s) { buffer << '"' << s << '"'; }
 
-    void handle(const Int64 &int64) { buffer << std::to_string(int64.value); }
+    void handle(const Int32 &int32) { buffer << std::to_string(int32.value()); }
 
-    void handle(const Float &f) { buffer << std::to_string(f.value); }
+    void handle(const Int64 &int64) { buffer << std::to_string(int64.value()); }
 
-    void handle(const Double &d) { buffer << std::to_string(d.value); }
+    void handle(const Float &f) { buffer << std::to_string(f.value()); }
+
+    void handle(const Double &d) { buffer << std::to_string(d.value()); }
+
+    // Not yet implemented
+    void handle(const ArrayBool &) { assert(false); }
+
+    // Not yet implemented
+    void handle(const ArrayInt32 &) { assert(false); }
+
+    // Not yet implemented
+    void handle(const ArrayInt64 &) { assert(false); }
+
+    // Not yet implemented
+    void handle(const ArrayFloat &) { assert(false); }
+
+    // Not yet implemented
+    void handle(const ArrayDouble &) { assert(false); }
+
+    // Not yet implemented
+    void handle(const ArrayString &) { assert(false); }
 
     void finish() { buffer << '}'; }
 

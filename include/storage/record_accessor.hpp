@@ -7,6 +7,7 @@
 #include "storage/model/properties/properties.hpp"
 #include "storage/model/properties/property.hpp"
 #include "storage/model/properties/property_family.hpp"
+#include "storage/model/properties/stored_property.hpp"
 #include "transactions/transaction.hpp"
 
 template <class TG, class Derived>
@@ -73,34 +74,30 @@ public:
         }
     }
 
-    const Property &at(PropertyFamily<TG> &key) const
+    const StoredProperty<TG> &at(PropertyFamily<TG> &key) const
     {
         return properties().at(key);
     }
 
-    const Property &at(prop_key_t<TG> &key) const
+    const StoredProperty<TG> &at(property_key<TG> &key) const
     {
         return properties().at(key);
     }
 
     template <class V>
-    OptionPtr<V> at(type_key_t<TG, V> &key) const
+    OptionPtr<const V> at(type_key_t<TG, V> &key) const
     {
         return properties().template at<V>(key);
     }
 
-    template <class V, class... Args>
-    void set(type_key_t<TG, V> &key, Args &&... args)
+    void set(property_key<TG> &key, Property value)
     {
-        properties().template set<V>(key, std::forward<Args>(args)...);
+        properties().set(StoredProperty<TG>(std::move(value), key));
     }
 
-    void set(prop_key_t<TG> &key, Property::sptr value)
-    {
-        properties().set(key, std::move(value));
-    }
+    void set(StoredProperty<TG> value) { properties().set(std::move(value)); }
 
-    void clear(prop_key_t<TG> &key) { properties().clear(key); }
+    void clear(property_key<TG> &key) { properties().clear(key); }
 
     void clear(PropertyFamily<TG> &key) { properties().clear(key); }
 

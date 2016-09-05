@@ -1,18 +1,23 @@
 #pragma once
 
 #include "storage/model/properties/double.hpp"
+#include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/floating.hpp"
 
 class Float : public Floating<Float>
 {
+
 public:
-    static constexpr Flags type = Flags::Float;
+    const static Type type;
 
-    Float(float value) : Floating(Flags::Float), value(value) {}
+    Float(float d) : data(d) {}
 
-    operator Double() const { return Double(value); }
+    operator Double() const { return Double(value()); }
 
-    float const &value_ref() const { return value; }
+    float &value() { return data; }
 
-    float value;
+    float const &value() const { return data; }
+
+private:
+    float data;
 };

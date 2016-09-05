@@ -14,7 +14,8 @@ void run(size_t n, std::string &query, S &stripper, Q &qf)
     std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
               << std::endl;
     for (int i = 0; i < n; i++) {
-        assert(qf[stripped.hash](stripped.arguments));
+        properties_t vec = stripped.arguments;
+        assert(qf[stripped.hash](std::move(vec)));
     }
 }
 

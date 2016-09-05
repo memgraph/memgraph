@@ -136,7 +136,7 @@ void fill_with_bt(unordered_map<string, double> &values, VertexAccessor &com,
 {
     auto bus_t = com.at(prop_vertex_business_types);
     if (bus_t.is_present()) {
-        for (auto &bt : bus_t.get()->value) {
+        for (auto &bt : bus_t.get()->value()) {
             values[bt] += weight;
         }
     }
@@ -240,7 +240,7 @@ auto query(DbAccessor &t, const Id &start_id)
                                 return;
                             }
 
-                            auto str = feedback.get()->value.c_str();
+                            auto str = feedback.get()->value().c_str();
                             double weight = 0;
                             if (strcasecmp(str, "like") == 0) {
                                 weight = 1;
@@ -266,7 +266,7 @@ auto query(DbAccessor &t, const Id &start_id)
                         if (!os.is_present()) {
                             return;
                         }
-                        auto str = os.get()->value.c_str();
+                        auto str = os.get()->value().c_str();
 
                         if (strcasecmp(str, "pending") == 0) {
                             weight = 0.5;
@@ -283,7 +283,7 @@ auto query(DbAccessor &t, const Id &start_id)
                                ee_type == type_searched_and_clicked) {
                         auto count = employ_edge.at(prop_edge_count);
                         if (count.is_present()) {
-                            weight = 0.01 * (count.get()->value);
+                            weight = 0.01 * (count.get()->value());
                         }
                     }
 

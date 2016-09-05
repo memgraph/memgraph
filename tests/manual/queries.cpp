@@ -4,13 +4,13 @@
 
 #include "barrier/barrier.cpp"
 
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
 #include "query_engine/query_stripper.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 using namespace std;
 
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        auto result = queries[stripped.hash](stripped.arguments);
+        auto result = queries[stripped.hash](std::move(stripped.arguments));
         cout << "RETURN: " << result << endl;
 
     } while (command != "quit");

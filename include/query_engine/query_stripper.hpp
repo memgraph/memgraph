@@ -8,17 +8,18 @@
 
 #include "cypher/cypher.h"
 #include "cypher/tokenizer/cypher_lexer.hpp"
+#include "logging/default.hpp"
 #include "query_stripped.hpp"
 #include "storage/model/properties/all.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string/transform.hpp"
 #include "utils/variadic/variadic.hpp"
-#include "logging/default.hpp"
 
+// TODO: Maybe std::move(v) is faster, but it must be cheked for validity.
 template <class T, class V>
 void store_query_param(code_args_t &arguments, V &&v)
 {
-    arguments.emplace_back(std::make_shared<T>(std::forward<V>(v)));
+    arguments.emplace_back(Property(T(std::move(v)), T::type));
 }
 
 template <typename... Ts>
@@ -43,7 +44,8 @@ public:
     auto strip_space(const std::string &query)
     {
         auto stripped = strip(query, " ");
-        return QueryStripped(std::move(stripped.query), stripped.hash, std::move(stripped.arguments));
+        return QueryStripped(std::move(stripped.query), stripped.hash,
+                             std::move(stripped.arguments));
     }
 
     auto strip(const std::string &query, const std::string &separator = "")
@@ -87,6 +89,9 @@ public:
                     store_query_param<Float>(stripped_arguments,
                                              std::stof(token.value));
                     break;
+                default:
+                    // TODO: other propertys
+                    assert(false);
                 }
                 stripped_query += std::to_string(index) + separator;
             } else {

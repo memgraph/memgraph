@@ -21,12 +21,10 @@ void cout_properties(const Properties<T> &properties)
 }
 
 template <class T>
-void cout_property(
-    const typename PropertyFamily<T>::PropertyType::PropertyFamilyKey &key,
-    const Property &property)
+void cout_property(const StoredProperty<T> &property)
 {
     ConsoleWriter writer;
-    writer.handle<T>(key, property);
+    property.accept(writer);
     cout << "----" << endl;
 }
 
@@ -42,12 +40,8 @@ cout_properties<TypeGroupEdge>(const Properties<TypeGroupEdge> &properties);
 template void
 cout_properties<TypeGroupVertex>(const Properties<TypeGroupVertex> &properties);
 
-template void cout_property<TypeGroupEdge>(
-    const typename PropertyFamily<
-        TypeGroupEdge>::PropertyType::PropertyFamilyKey &key,
-    const Property &property);
+template void
+cout_property<TypeGroupEdge>(const StoredProperty<TypeGroupEdge> &property);
 
-template void cout_property<TypeGroupVertex>(
-    const typename PropertyFamily<
-        TypeGroupVertex>::PropertyType::PropertyFamilyKey &key,
-    const Property &property);
+template void
+cout_property<TypeGroupVertex>(const StoredProperty<TypeGroupVertex> &property);

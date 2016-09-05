@@ -9,6 +9,8 @@
 // barrier.cpp
 #include "mvcc/id.hpp"
 #include "storage/model/properties/all.hpp"
+#include "storage/model/properties/property.hpp"
+#include "storage/model/properties/stored_property.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/iterator.hpp"
 #include "utils/option_ptr.hpp"

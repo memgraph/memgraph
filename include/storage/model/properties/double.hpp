@@ -1,14 +1,19 @@
 #pragma once
 
+#include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/floating.hpp"
 
 struct Double : public Floating<Double>
 {
-    static constexpr Flags type = Flags::Double;
+public:
+    const static Type type;
 
-    Double(double value) : Floating(Flags::Double), value(value) {}
+    Double(double d) : data(d) {}
 
-    double const &value_ref() const { return value; }
+    double &value() { return data; }
 
-    double value;
+    double const &value() const { return data; }
+
+private:
+    double data;
 };

@@ -1,69 +1,75 @@
 #pragma once
 
-#include "storage/model/properties/property.hpp"
+#include <memory>
+#include <vector>
 
-template <class T, Flags f_type>
-class Array : public Property
+#include "storage/model/properties/flags.hpp"
+
+template <class T>
+using ArrayStore = std::vector<T>;
+
+template <class T, Flags flag_t>
+class Array
 {
 public:
-    static constexpr Flags type = f_type;
-    using Arr = std::vector<T>;
+    const static Type type;
 
-    Array(const Array &) = default;
-    Array(Array &&) = default;
+    using Arr = ArrayStore<T>;
 
-    Array(const Arr &value);
-    Array(Arr &&value);
+    Array(Arr &&value) : data(std::make_shared<Arr>(std::move(value))) {}
 
-    operator const Arr &() const;
+    Arr &value() { return *data.get(); }
 
-    bool operator==(const Property &other) const override;
+    Arr const &value() const { return *data.get(); }
 
-    bool operator==(const Array &other) const;
+    std::ostream &print(std::ostream &stream) const
+    {
+        stream << "[";
+        for (auto e : value()) {
+            stream << e << ",";
+        }
+        stream << "]";
+        return stream;
+    }
 
-    bool operator==(const Arr &other) const;
+    friend std::ostream &operator<<(std::ostream &stream, const Array &prop)
+    {
+        return prop.print(stream);
+    }
 
-    friend std::ostream &operator<<(std::ostream &stream, const Array &prop);
+    bool operator==(const Array &other) const { return *this == other.value(); }
 
-    std::ostream &print(std::ostream &stream) const override;
+    bool operator==(const Arr &other) const
+    {
+        auto arr = value();
+        if (arr.size() != other.size()) {
+            return false;
+        }
 
-    Arr const &value_ref() const { return value; }
+        auto n = arr.size();
+        for (size_t i = 0; i < n; i++) {
+            if (arr[i] != other[i]) {
+                return false;
+            }
+        }
 
-    Arr value;
+        return true;
+    }
+
+    operator const Arr &() const { return value(); };
+
+private:
+    std::shared_ptr<Arr> data;
 };
 
-class ArrayString : public Array<std::string, Flags::ArrayString>
-{
-public:
-    using Array::Array;
-};
+using ArrayString = Array<std::string, Flags::ArrayString>;
 
-class ArrayBool : public Array<bool, Flags::ArrayBool>
-{
-public:
-    using Array::Array;
-};
+using ArrayBool = Array<bool, Flags::ArrayBool>;
 
-class ArrayInt32 : public Array<int32_t, Flags::ArrayInt32>
-{
-public:
-    using Array::Array;
-};
+using ArrayInt32 = Array<int32_t, Flags::ArrayInt32>;
 
-class ArrayInt64 : public Array<int64_t, Flags::ArrayInt64>
-{
-public:
-    using Array::Array;
-};
+using ArrayInt64 = Array<int64_t, Flags::ArrayInt64>;
 
-class ArrayFloat : public Array<float, Flags::ArrayFloat>
-{
-public:
-    using Array::Array;
-};
+using ArrayFloat = Array<float, Flags::ArrayFloat>;
 
-class ArrayDouble : public Array<double, Flags::ArrayDouble>
-{
-public:
-    using Array::Array;
-};
+using ArrayDouble = Array<double, Flags::ArrayDouble>;

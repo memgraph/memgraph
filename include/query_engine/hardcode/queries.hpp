@@ -11,64 +11,66 @@ namespace barrier
 {
 auto load_queries(Db &db)
 {
-    std::map<uint64_t, std::function<bool(const properties_t &)>> queries;
+    std::map<uint64_t, std::function<bool(properties_t &&)>> queries;
 
     // CREATE (n {prop: 0}) RETURN n)
-    auto create_node = [&db](const properties_t &args) {
+    auto create_node = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto prop_key = t.vertex_property_key("prop", args[0]->flags);
+        auto property_key = t.vertex_property_key("prop", args[0].key.flags());
 
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.set(prop_key, args[0]);
+        vertex_accessor.set(property_key, std::move(args[0]));
         return t.commit();
     };
     queries[11597417457737499503u] = create_node;
 
-    auto create_labeled_and_named_node = [&db](const properties_t &args) {
+    auto create_labeled_and_named_node = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto prop_key = t.vertex_property_key("name", args[0]->flags);
+        auto property_key = t.vertex_property_key("name", args[0].key.flags());
         auto &label = t.label_find_or_create("LABEL");
 
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.set(prop_key, args[0]);
+        vertex_accessor.set(property_key, std::move(args[0]));
         vertex_accessor.add_label(label);
         // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
-    auto create_labeled_and_named_node_v2 = [&db](const properties_t &args) {
+    auto create_labeled_and_named_node_v2 = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto prop_key = t.vertex_property_key("name", args[0]->flags);
+        auto property_key = t.vertex_property_key("name", args[0].key.flags());
         auto &label = t.label_find_or_create("OTHER");
 
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.set(prop_key, args[0]);
+        vertex_accessor.set(property_key, std::move(args[0]));
         vertex_accessor.add_label(label);
         // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
-    auto create_account = [&db](const properties_t &args) {
+    auto create_account = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto prop_id = t.vertex_property_key("id", args[0]->flags);
-        auto prop_name = t.vertex_property_key("name", args[1]->flags);
-        auto prop_country = t.vertex_property_key("country", args[2]->flags);
-        auto prop_created = t.vertex_property_key("created_at", args[3]->flags);
+        auto prop_id = t.vertex_property_key("id", args[0].key.flags());
+        auto prop_name = t.vertex_property_key("name", args[1].key.flags());
+        auto prop_country =
+            t.vertex_property_key("country", args[2].key.flags());
+        auto prop_created =
+            t.vertex_property_key("created_at", args[3].key.flags());
         auto &label = t.label_find_or_create("ACCOUNT");
 
         auto vertex_accessor = t.vertex_insert();
-        vertex_accessor.set(prop_id, args[0]);
-        vertex_accessor.set(prop_name, args[1]);
-        vertex_accessor.set(prop_country, args[2]);
-        vertex_accessor.set(prop_created, args[3]);
+        vertex_accessor.set(prop_id, std::move(args[0]));
+        vertex_accessor.set(prop_name, std::move(args[1]));
+        vertex_accessor.set(prop_country, std::move(args[2]));
+        vertex_accessor.set(prop_created, std::move(args[3]));
         vertex_accessor.add_label(label);
         // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
-    auto find_node_by_internal_id = [&db](const properties_t &args) {
+    auto find_node_by_internal_id = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto maybe_va = t.vertex_find(Id(args[0]->as<Int32>().value));
+        auto maybe_va = t.vertex_find(Id(args[0].as<Int64>().value()));
         if (!option_fill(maybe_va)) {
             cout << "vertex doesn't exist" << endl;
             t.commit();
@@ -83,14 +85,14 @@ auto load_queries(Db &db)
         return t.commit();
     };
 
-    auto create_edge = [&db](const properties_t &args) {
+    auto create_edge = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto &edge_type = t.type_find_or_create("IS");
 
-        auto v1 = t.vertex_find(args[0]->as<Int32>().value);
+        auto v1 = t.vertex_find(args[0].as<Int64>().value());
         if (!option_fill(v1)) return t.commit(), false;
 
-        auto v2 = t.vertex_find(args[1]->as<Int32>().value);
+        auto v2 = t.vertex_find(args[1].as<Int64>().value());
         if (!option_fill(v2)) return t.commit(), false;
 
         auto edge_accessor = t.edge_insert(v1.get(), v2.get());
@@ -106,9 +108,9 @@ auto load_queries(Db &db)
         return ret;
     };
 
-    auto find_edge_by_internal_id = [&db](const properties_t &args) {
+    auto find_edge_by_internal_id = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto maybe_ea = t.edge_find(args[0]->as<Int32>().value);
+        auto maybe_ea = t.edge_find(args[0].as<Int64>().value());
         if (!option_fill(maybe_ea)) return t.commit(), false;
         auto edge_accessor = maybe_ea.get();
 
@@ -130,15 +132,15 @@ auto load_queries(Db &db)
         return t.commit();
     };
 
-    auto update_node = [&db](const properties_t &args) {
+    auto update_node = [&db](properties_t &&args) {
         DbAccessor t(db);
-        auto prop_name = t.vertex_property_key("name", args[1]->flags);
+        auto prop_name = t.vertex_property_key("name", args[1].key.flags());
 
-        auto maybe_v = t.vertex_find(args[0]->as<Int32>().value);
+        auto maybe_v = t.vertex_find(args[0].as<Int64>().value());
         if (!option_fill(maybe_v)) return t.commit(), false;
         auto v = maybe_v.get();
 
-        v.set(prop_name, args[1]);
+        v.set(prop_name, std::move(args[1]));
         // cout_properties(v.properties());
 
         return t.commit();
@@ -146,19 +148,19 @@ auto load_queries(Db &db)
 
     // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25,
     // weight: 70}]-(n2) RETURN r
-    auto create_edge_v2 = [&db](const properties_t &args) {
+    auto create_edge_v2 = [&db](properties_t &&args) {
         DbAccessor t(db);
 
-        auto prop_age = t.edge_property_key("age", args[2]->flags);
-        auto prop_weight = t.edge_property_key("weight", args[3]->flags);
+        auto prop_age = t.edge_property_key("age", args[2].key.flags());
+        auto prop_weight = t.edge_property_key("weight", args[3].key.flags());
 
-        auto n1 = t.vertex_find(args[0]->as<Int64>().value);
+        auto n1 = t.vertex_find(args[0].as<Int64>().value());
         if (!option_fill(n1)) return t.commit(), false;
-        auto n2 = t.vertex_find(args[1]->as<Int64>().value);
+        auto n2 = t.vertex_find(args[1].as<Int64>().value());
         if (!option_fill(n2)) return t.commit(), false;
         auto r = t.edge_insert(n2.get(), n1.get());
-        r.set(prop_age, args[2]);
-        r.set(prop_weight, args[3]);
+        r.set(prop_age, std::move(args[2]));
+        r.set(prop_weight, std::move(args[3]));
         auto &IS = t.type_find_or_create("IS");
         r.edge_type(IS);
 
@@ -166,7 +168,7 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n) RETURN n
-    auto match_all_nodes = [&db](const properties_t &args) {
+    auto match_all_nodes = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         t.vertex_access().fill().for_all(
@@ -176,21 +178,21 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n:LABEL) RETURN n
-    auto match_by_label = [&db](const properties_t &args) {
+    auto match_by_label = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &label = t.label_find_or_create("LABEL");
-        auto prop_key = t.vertex_property_key("name", Flags::String);
+        auto property_key = t.vertex_property_key("name", Flags::String);
 
         cout << "VERTICES" << endl;
         label.index().for_range(t).for_all(
-            [&](auto a) { cout << a.at(prop_key) << endl; });
+            [&](auto a) { cout << a.at(property_key) << endl; });
 
         return t.commit();
     };
 
     // MATCH (n) DELETE n
-    auto match_all_delete = [&db](const properties_t &args) {
+    auto match_all_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         t.vertex_access().fill().isolated().for_all(
@@ -200,7 +202,7 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n:LABEL) DELETE n
-    auto match_label_delete = [&db](const properties_t &args) {
+    auto match_label_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &label = t.label_find_or_create("LABEL");
@@ -212,10 +214,10 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n) WHERE ID(n) = id DELETE n
-    auto match_id_delete = [&db](const properties_t &args) {
+    auto match_id_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
-        auto ov = t.vertex_find(args[0]->as<Int64>().value);
+        auto ov = t.vertex_find(args[0].as<Int64>().value());
         if (!option_fill(ov)) return t.commit(), false;
         auto v = ov.take();
         if (!v.isolated()) return t.commit(), false;
@@ -225,10 +227,10 @@ auto load_queries(Db &db)
     };
 
     // MATCH ()-[r]-() WHERE ID(r) = id DELETE r
-    auto match_edge_id_delete = [&db](const properties_t &args) {
+    auto match_edge_id_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
-        auto ov = t.edge_find(args[0]->as<Int64>().value);
+        auto ov = t.edge_find(args[0].as<Int64>().value());
         if (!option_fill(ov)) return t.commit(), false;
 
         auto v = ov.take();
@@ -238,7 +240,7 @@ auto load_queries(Db &db)
     };
 
     // MATCH ()-[r]-() DELETE r
-    auto match_edge_all_delete = [&db](const properties_t &args) {
+    auto match_edge_all_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         t.edge_access().fill().for_all([&](auto a) { a.remove(); });
@@ -247,7 +249,7 @@ auto load_queries(Db &db)
     };
 
     // MATCH ()-[r:TYPE]-() DELETE r
-    auto match_edge_type_delete = [&db](const properties_t &args) {
+    auto match_edge_type_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
@@ -258,12 +260,12 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n)-[:TYPE]->(m) WHERE ID(n) = id RETURN m
-    auto match_id_type_return = [&db](const properties_t &args) {
+    auto match_id_type_return = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
 
-        auto ov = t.vertex_find(args[0]->as<Int64>().value);
+        auto ov = t.vertex_find(args[0].as<Int64>().value());
         if (!option_fill(ov)) return t.commit(), false;
         auto v = ov.take();
 
@@ -279,11 +281,11 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN m
-    auto match_name_type_return = [&db](const properties_t &args) {
+    auto match_name_type_return = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
-        auto prop_name = t.vertex_property_key("name", args[0]->flags);
+        auto prop_name = t.vertex_property_key("name", args[0].key.flags());
 
         Option<const EdgeAccessor> r;
 
@@ -291,12 +293,12 @@ auto load_queries(Db &db)
                            .for_range(t)
                            .clone_to(r) // Savepoint
                            .from()      // Backtracing
-                           .has_property(prop_name, *args[0].get())
+                           .has_property(prop_name, args[0])
                            .replace(r); // Load savepoint
 
         auto it_vertex = t.vertex_access()
                              .fill()
-                             .has_property(prop_name, *args[0].get())
+                             .has_property(prop_name, args[0])
                              .out()
                              .type(type);
 
@@ -317,11 +319,11 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN n,m
-    auto match_name_type_return_cross = [&db](const properties_t &args) {
+    auto match_name_type_return_cross = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
-        auto prop_name = t.vertex_property_key("name", args[0]->flags);
+        auto prop_name = t.vertex_property_key("name", args[0].key.flags());
 
         Option<const VertexAccessor> n;
         Option<const EdgeAccessor> r;
@@ -330,13 +332,13 @@ auto load_queries(Db &db)
                            .for_range(t)
                            .clone_to(r) // Savepoint
                            .from()      // Backtracing
-                           .has_property(prop_name, *args[0].get())
+                           .has_property(prop_name, args[0])
                            .clone_to(n) // Savepoint
                            .replace(r); // Load savepoint
 
         auto it_vertex = t.vertex_access()
                              .fill()
-                             .has_property(prop_name, *args[0].get())
+                             .has_property(prop_name, args[0])
                              .clone_to(n) // Savepoint
                              .out()
                              .type(type);
@@ -358,7 +360,7 @@ auto load_queries(Db &db)
     };
 
     // MATCH (n:LABEL)-[:TYPE]->(m) RETURN n
-    auto match_label_type_return = [&db](const properties_t &args) {
+    auto match_label_type_return = [&db](properties_t &&args) {
         DbAccessor t(db);
 
         try {
@@ -400,7 +402,7 @@ auto load_queries(Db &db)
     };
 
     // Blueprint:
-    // auto  = [&db](const properties_t &args) {
+    // auto  = [&db](properties_t &&args) {
     //     DbAccessor t(db);
     //
     //
@@ -412,7 +414,11 @@ auto load_queries(Db &db)
     queries[15648836733456301916u] = create_edge_v2;
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
+
+    // Query hasher reports two hash values
+    queries[998725786176032607u] = create_labeled_and_named_node_v2;
     queries[16090682663946456821u] = create_labeled_and_named_node_v2;
+
     queries[7939106225150551899u] = create_edge;
     queries[6579425155585886196u] = create_edge;
     queries[11198568396549106428u] = find_node_by_internal_id;

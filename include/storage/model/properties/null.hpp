@@ -1,31 +1,23 @@
 #pragma once
 
-#include "storage/model/properties/property.hpp"
+#include <ostream>
+#include <string>
+#include "storage/model/properties/flags.hpp"
+#include "utils/void.hpp"
 
-class Null : public Property
+class Null
 {
 public:
-    friend class Property;
+    const static Type type;
 
-    static constexpr Flags type = Flags::Null;
+    Void &value() { return Void::_void; }
+    Void const &value() const { return Void::_void; }
 
-    Null(const Null&) = delete;
-    Null(Null&&) = delete;
+    std::ostream &print(std::ostream &stream) const;
 
-    Null operator=(const Null&) = delete;
+    friend std::ostream &operator<<(std::ostream &stream, const Null &prop);
 
-    bool operator==(const Property& other) const override;
-
-    bool operator==(const Null&) const;
+    bool operator==(const Null &) const;
 
     explicit operator bool();
-
-    friend std::ostream& operator<<(std::ostream& stream, const Null&);
-
-    std::ostream& print(std::ostream& stream) const override;
-
-private:
-    // the constructor for null is private, it can be constructed only as a
-    // value inside the Property class, Property::Null
-    Null();
 };

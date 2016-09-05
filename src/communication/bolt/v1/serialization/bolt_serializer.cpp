@@ -27,8 +27,8 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge)
     encoder.write_map_header(props.size());
 
     for (auto &prop : props) {
-        write(prop.first.family_name());
-        write(*prop.second);
+        write(prop.key.family_name());
+        prop.accept(*this);
     }
 }
 

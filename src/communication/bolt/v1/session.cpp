@@ -3,7 +3,7 @@
 namespace bolt
 {
 
-Session::Session(io::Socket&& socket, Bolt& bolt)
+Session::Session(io::Socket &&socket, Bolt &bolt)
     : Stream(std::forward<io::Socket>(socket)), bolt(bolt)
 {
     logger = logging::log->logger("Session");
@@ -12,30 +12,22 @@ Session::Session(io::Socket&& socket, Bolt& bolt)
     state = bolt.states.handshake.get();
 }
 
-bool Session::alive() const
-{
-    return state != nullptr;
-}
+bool Session::alive() const { return state != nullptr; }
 
-void Session::execute(const byte* data, size_t len)
+void Session::execute(const byte *data, size_t len)
 {
     // mark the end of the message
     auto end = data + len;
 
-    while(true)
-    {
+    while (true) {
         auto size = end - data;
 
-        if(LIKELY(connected))
-        {
+        if (LIKELY(connected)) {
             logger.debug("Decoding chunk of size {}", size);
             auto finished = decoder.decode(data, size);
 
-            if(!finished)
-                return;
-        }
-        else
-        {
+            if (!finished) return;
+        } else {
             logger.debug("Decoding handshake of size {}", size);
             decoder.handshake(data, size);
         }
@@ -51,9 +43,5 @@ void Session::close()
     bolt.close(this);
 }
 
-Db& Session::active_db()
-{
-    return bolt.dbms.active();
-}
-
+Db &Session::active_db() { return bolt.dbms.active(); }
 }

@@ -1,31 +1,33 @@
 #pragma once
 
-#include "storage/model/properties/property.hpp"
+#include <memory>
+#include <ostream>
+#include <string>
 
-class String : public Property
+#include "storage/model/properties/flags.hpp"
+
+class String
 {
 public:
-    static constexpr Flags type = Flags::String;
+    const static Type type;
 
-    String(const String &) = default;
-    String(String &&) = default;
+    String(std::string const &d) : data(d) {}
+    String(std::string &&d) : data(std::move(d)) {}
 
-    String(const std::string &value);
-    String(std::string &&value);
+    std::string &value() { return data; }
 
-    operator const std::string &() const;
+    std::string const &value() const { return data; }
 
-    bool operator==(const Property &other) const override;
+    std::ostream &print(std::ostream &stream) const;
+
+    friend std::ostream &operator<<(std::ostream &stream, const String &prop);
 
     bool operator==(const String &other) const;
 
     bool operator==(const std::string &other) const;
 
-    friend std::ostream &operator<<(std::ostream &stream, const String &prop);
+    operator const std::string &() const;
 
-    std::ostream &print(std::ostream &stream) const override;
-
-    std::string const &value_ref() const { return value; }
-
-    std::string value;
+private:
+    std::string data;
 };
