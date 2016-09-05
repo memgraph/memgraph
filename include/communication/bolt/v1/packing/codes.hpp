@@ -13,6 +13,7 @@ enum Code : uint8_t
     TinyString   = 0x80,
     TinyList     = 0x90,
     TinyMap      = 0xA0,
+
     TinyStruct   = 0xB0,
 
     Null         = 0xC0,
@@ -51,6 +52,11 @@ enum Code : uint8_t
     Struct8      = 0xDC,
     Struct16     = 0xDD,
     EndOfStream  = 0xDF,
+};
+
+enum Rule : uint8_t
+{
+    MaxInitStructSize = 0x02
 };
 
 }

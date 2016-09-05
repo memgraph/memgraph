@@ -15,6 +15,7 @@ tags
 .gdb_history
 Testing/
 ve/
+ve3/
 release/memgraph_*
 release/libs/
 release/barrier/
