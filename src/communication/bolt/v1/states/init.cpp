@@ -14,12 +14,12 @@ State *Init::parse(Session &session, Message &message)
 {
     auto struct_type = session.decoder.read_byte();
 
-    if (UNLIKELY(struct_type & 0x0F <= pack::Rule::MaxInitStructSize)) {
+    if (UNLIKELY((struct_type & 0x0F) <= pack::Rule::MaxInitStructSize)) {
         logger.debug("{}", struct_type);
 
         logger.debug(
             "Expected struct marker of max size 0x{:02} instead of 0x{:02X}",
-            pack::Rule::MaxInitStructSize, pack::Code(unsigned) struct_type);
+            (unsigned) pack::Rule::MaxInitStructSize, (unsigned) struct_type);
 
         return nullptr;
     }
