@@ -16,6 +16,15 @@ cmake .
 make
 cd ..
 
+# yaml-cpp
+git clone https://github.com/jbeder/yaml-cpp
+yaml_cpp_tag="519d33fea3fbcbe7e1f89f97ee0fa539cec33eb7"
+cd yaml-cpp
+git checkout ${yaml_cpp_tag}
+cmake .
+make
+cd ..
+
 # http_parser
 git clone https://github.com/nodejs/http-parser
 http_parser_tag="4e382f96e6d3321538a78f2c7f9506d4e79b08d6"

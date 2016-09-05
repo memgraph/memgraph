@@ -13,7 +13,7 @@ public:
     Db &active();
 
     // set active database
-    // if active database doesn't exist create one
+    // if active database doesn't exist creates one
     Db &active(const std::string &name);
 
     // TODO: DELETE action

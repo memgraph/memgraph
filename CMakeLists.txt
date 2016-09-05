@@ -86,6 +86,9 @@ set(lexertl_dir ${libs_dir}/lexertl)
 # fmt
 set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
+# yaml-cpp
+set(yaml_source_dir ${libs_dir}/yaml-cpp)
+set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 # r3
 set(r3_source_dir ${libs_dir}/r3)
 set(r3_static_lib ${r3_source_dir}/.libs/libr3.a)
@@ -395,6 +398,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
+include_directories(${yaml_source_dir}/include)
 include_directories(${http_parser_source_dir})
 include_directories(${lexertl_dir})
 include_directories(${libuv_source_dir}/include)
@@ -413,6 +417,7 @@ EXECUTE_PROCESS(
 
 # TODO: create separate static library from bolt code
 set(memgraph_src_files
+    ${src_dir}/config/config.cpp
     ${src_dir}/dbms/dbms.cpp
     ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/string/transform.cpp
@@ -515,7 +520,7 @@ string(STRIP ${COMMIT_BRANCH} COMMIT_BRANCH)
 string(STRIP ${COMMIT_NO} COMMIT_NO)
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
-    "memgraph_${COMMIT_BRANCH}_${COMMIT_HASH}_${COMMIT_NO}_${CMAKE_BUILD_TYPE}")
+    "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
 
 # memgraph main executable
 if (MEMGRAPH)
@@ -533,6 +538,7 @@ if (MEMGRAPH)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
         # target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} ${fmt_static_lib})
+        target_link_libraries(${MEMGRAPH_BUILD_NAME} ${yaml_static_lib})
         target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
     endif (UNIX)
 endif()

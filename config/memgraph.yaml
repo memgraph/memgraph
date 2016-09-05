@@ -1,0 +1,4 @@
+compile_cpu_path: "./compiled/cpu/"
+template_cpu_cpp_path: "./template/template_code_cpu.cpp"
+barrier_template_cpu_cpp_path: "./template/barrier_template_code_cpu.cpp"
+template_cpu_hpp_path: "./template/template_code_cpu.hpp"

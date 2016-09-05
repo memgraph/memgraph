@@ -48,7 +48,7 @@ public:
 
         // code has to be generated, compiled and loaded
         //  TODO load output path from config
-        auto base_path = config::Config::instance()[config::COMPILE_CPU_PATH];
+        auto base_path = CONFIG(config::COMPILE_CPU_PATH);
         auto path_cpp = base_path + hash_string + ".cpp";
         auto stripped_space = stripper.strip_space(query);
         code_generator.generate_cpp(stripped_space.query, stripped.hash,
