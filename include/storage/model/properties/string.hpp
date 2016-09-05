@@ -26,7 +26,9 @@ public:
 
     bool operator==(const std::string &other) const;
 
-    operator const std::string &() const;
+    // NOTE: OTHER METHODS WILL AUTOMATICALLY USE THIS IN CERTAIN SITUATIONS
+    // TO MOVE STD::STRING OUT OF SHARED_PTR WHICH IS BAD.
+    // operator const std::string &() const;
 
 private:
     std::string data;

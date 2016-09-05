@@ -39,10 +39,14 @@ public:
     prop_familys_t::Accessor property_family_access();
 
 private:
-    vertices_t vertices;
     // TODO: Because families wont be removed this could be done with more
     // efficent
     // data structure.
     prop_familys_t prop_familys;
+
+    // NOTE: this must be before prop_familys field to be destroyed before them.
+    // Because there are property_family references in vertices.
+    vertices_t vertices;
+
     AtomicCounter<uint64_t> counter;
 };

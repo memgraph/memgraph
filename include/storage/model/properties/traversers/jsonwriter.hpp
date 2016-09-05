@@ -36,7 +36,7 @@ public:
 
     void handle(const Bool &b) { buffer << (b ? "true" : "false"); }
 
-    void handle(const String &s) { buffer << '"' << s << '"'; }
+    void handle(const String &s) { buffer << '"' << s.value() << '"'; }
 
     void handle(const Int32 &int32) { buffer << std::to_string(int32.value()); }
 

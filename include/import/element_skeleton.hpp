@@ -44,6 +44,8 @@ public:
 
     VertexAccessor add_vertex()
     {
+        assert(properties_e.empty());
+
         auto va = db.vertex_insert();
 
         for (auto l : labels) {
@@ -67,11 +69,13 @@ public:
         if (!to_va.is_present()) {
             return make_option(std::string("To field must be seted"));
         }
+        if (!type.is_present()) {
+            return make_option(std::string("Type field must be seted"));
+        }
+        assert(properties_v.empty());
 
         auto ve = db.edge_insert(from_va.get(), to_va.get());
-        if (type.is_present()) {
-            ve.edge_type(*type.get());
-        }
+        ve.edge_type(*type.get());
 
         for (auto prop : properties_e) {
             ve.set(std::move(prop));

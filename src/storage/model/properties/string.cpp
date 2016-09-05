@@ -2,8 +2,6 @@
 
 const Type String::type = Type(Flags::String);
 
-String::operator const std::string &() const { return value(); }
-
 bool String::operator==(const String &other) const
 {
     return value() == other.value();

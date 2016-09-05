@@ -56,7 +56,9 @@ public:
         return true;
     }
 
-    operator const Arr &() const { return value(); };
+    // NOTE: OTHER METHODS WILL AUTOMATICALLY USE THIS IN CERTAIN SITUATIONS TO
+    // MOVE ARR OUT OF SHARED_PTR WHICH IS BAD
+    // operator const Arr &() const { return value(); };
 
 private:
     std::shared_ptr<Arr> data;

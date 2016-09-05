@@ -98,6 +98,7 @@ public:
         default:
             assert(false);
         }
+        assert(key.get_type().flags() == Flags::Int64 || this->int64_v != 0);
     }
 
     PropertyHolder(PropertyHolder &&other) : key(other.key)
@@ -118,6 +119,7 @@ public:
         default:
             assert(false);
         }
+        assert(key.get_type().flags() == Flags::Int64 || this->int64_v != 0);
     }
 
     ~PropertyHolder()
@@ -133,6 +135,7 @@ public:
     {
         this->~PropertyHolder();
         new (this) PropertyHolder(other);
+        assert(key.get_type().flags() == Flags::Int64 || this->int64_v != 0);
         return *this;
     }
 
@@ -140,6 +143,7 @@ public:
     {
         this->~PropertyHolder();
         new (this) PropertyHolder(std::move(other));
+        assert(key.get_type().flags() == Flags::Int64 || this->int64_v != 0);
         return *this;
     }
 

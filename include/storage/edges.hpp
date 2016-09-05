@@ -34,10 +34,14 @@ public:
     EdgePropertyFamily &property_family_find_or_create(const std::string &name);
 
 private:
-    store_t edges;
     // TODO: Because familys wont be removed this could be done with more
     // efficent
     // data structure.
     prop_familys_t prop_familys;
+
+    // NOTE: this must be before prop_familys field to be destroyed before them.
+    // Because there are property_family references in vertices.
+    store_t edges;
+
     AtomicCounter<uint64_t> counter;
 };

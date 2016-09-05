@@ -281,25 +281,29 @@ private:
         } else if (equal_str(type, "double[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, double, ArrayDouble>(
-                    *this, property_key<TG>(name, Flags::ArrayDouble), to_double));
+                    *this, property_key<TG>(name, Flags::ArrayDouble),
+                    to_double));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, int32_t, ArrayInt32>(
-                    *this, property_key<TG>(name, Flags::ArrayInt32), to_int32));
+                    *this, property_key<TG>(name, Flags::ArrayInt32),
+                    to_int32));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "long[]")) {
             std::unique_ptr<Filler> f(
                 make_array_filler<TG, int64_t, ArrayInt64>(
-                    *this, property_key<TG>(name, Flags::ArrayInt64), to_int64));
+                    *this, property_key<TG>(name, Flags::ArrayInt64),
+                    to_int64));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string[]")) {
             std::unique_ptr<Filler> f(
-                make_array_filler<TG, string, ArrayString>(
-                    *this, property_key<TG>(name, Flags::ArrayString), to_string));
+                make_array_filler<TG, std::string, ArrayString>(
+                    *this, property_key<TG>(name, Flags::ArrayString),
+                    to_string));
             return make_option(std::move(f));
 
         } else {

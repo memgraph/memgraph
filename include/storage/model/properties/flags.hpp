@@ -59,13 +59,13 @@ enum class Flags : unsigned
     ArrayFloat = (Float << 13) | Array,
     ArrayDouble = (Double << 13) | Array,
 
-    type_mask = 0xFFF
+    type_mask = 0xFFFFFF
 };
 
 // Mask to turn flags into type. It passes all bits except 0x2 and 0x4 which
 // correspond
 // to True and False.
-const unsigned flags_equal_mask = 0xFF9;
+const unsigned flags_equal_mask = 0xFF3FF9;
 
 class Type : public TotalOrdering<Type>
 {
@@ -75,10 +75,13 @@ public:
         Flags o = Flags(value);
         assert(o == Flags::Null || o == Flags::Bool || o == Flags::String ||
                o == Flags::Int32 || o == Flags::Int64 || o == Flags::Float ||
-               o == Flags::Double || o == Flags::Array);
+               o == Flags::Double || o == Flags::ArrayBool ||
+               o == Flags::ArrayString || o == Flags::ArrayInt32 ||
+               o == Flags::ArrayInt64 || o == Flags::ArrayFloat ||
+               o == Flags::ArrayDouble);
     }
 
-    const std::string to_str()
+    const std::string to_str() const
     {
         switch (flags()) {
         case Flags::Null:
@@ -95,8 +98,19 @@ public:
             return "float";
         case Flags::Double:
             return "double";
-        case Flags::Array:
-            return "array";
+        case Flags::ArrayBool:
+            return "array_bool";
+        case Flags::ArrayString:
+            return "array_string";
+        case Flags::ArrayInt64:
+            return "array_int64";
+        case Flags::ArrayInt32:
+            return "array_int32";
+        case Flags::ArrayFloat:
+            return "array_float";
+        case Flags::ArrayDouble:
+            return "array_double";
+
         default:
             assert(false);
             return "err_unknown_type_" + std::to_string(value);
@@ -106,6 +120,11 @@ public:
     Flags flags() const { return Flags(value); }
 
     Type get_type() const { return *this; }
+
+    bool is_array() const
+    {
+        return (value & underlying_cast(Flags::Array)) != 0;
+    }
 
     template <class T>
     bool is() const

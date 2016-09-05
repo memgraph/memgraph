@@ -93,6 +93,11 @@ public:
 
             const PropertyFamily &get_family() const { return type->family; }
 
+            const std::string to_str() const
+            {
+                return std::string(family_name());
+            }
+
         private:
             const PropertyType *type;
         };
