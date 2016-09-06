@@ -10,9 +10,9 @@
 #include <strings.h>
 #include <unistd.h>
 #include <unordered_map>
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "import/csv_import.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 
 using namespace std;
 
@@ -22,6 +22,8 @@ int main(int argc, char **argv)
     Db db;
 
     import_csv_from_arguments(db, para);
+
+    usleep(1000 * 1000 * 10);
 
     {
         DbAccessor t(db);

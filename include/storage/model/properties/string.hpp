@@ -11,12 +11,14 @@ class String
 public:
     const static Type type;
 
-    String(std::string const &d) : data(d) {}
-    String(std::string &&d) : data(std::move(d)) {}
+    String(std::string const &d) : data(std::make_shared<std::string>(d)) {}
+    String(std::string &&d) : data(std::make_shared<std::string>(std::move(d)))
+    {
+    }
 
-    std::string &value() { return data; }
+    std::string &value() { return *data.get(); }
 
-    std::string const &value() const { return data; }
+    std::string const &value() const { return *data.get(); }
 
     std::ostream &print(std::ostream &stream) const;
 
@@ -31,5 +33,5 @@ public:
     // operator const std::string &() const;
 
 private:
-    std::string data;
+    std::shared_ptr<std::string> data;
 };

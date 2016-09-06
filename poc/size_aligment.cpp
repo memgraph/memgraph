@@ -28,6 +28,12 @@ using in_edge_iterator_t =
 
 int main()
 {
+    cout << "std::string: " << sizeof(std::string)
+         << " aligment: " << alignof(std::string) << endl;
+
+    cout << "StoredProperty: " << sizeof(StoredProperty<TypeGroupVertex>)
+         << " aligment: " << alignof(StoredProperty<TypeGroupVertex>) << endl;
+
     cout << "DbAccessor.vertex_access(): size: "
          << sizeof(vertex_access_iterator)
          << " aligment: " << alignof(vertex_access_iterator) << endl;

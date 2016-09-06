@@ -72,5 +72,9 @@ public:
 
 private:
     using props_t = std::vector<StoredProperty<TG>>;
+    // TODO: more bytes can be saved if this is array with exact size as number
+    // of elements.
+    // TODO: even more bytes can be saved if this is one ptr to structure which
+    // holds len followed by len sized array.
     props_t props;
 };
