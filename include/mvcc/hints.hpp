@@ -19,7 +19,8 @@ public:
     union HintBits;
 
 private:
-    enum Flags : uint8_t {
+    enum Flags : uint8_t
+    {
         CRE_CMT = 0x01, // __01
         CRE_ABT = 0x02, // __10
         EXP_CMT = 0x04, // 01__
@@ -32,19 +33,13 @@ private:
         using type = TxHints<COMMITTED, ABORTED>;
 
     public:
-        TxHints(std::atomic<uint8_t>& bits) : bits(bits) {}
+        TxHints(std::atomic<uint8_t> &bits) : bits(bits) {}
 
         struct Value
         {
-            bool is_committed() const
-            {
-                return bits & COMMITTED;
-            }
+            bool is_committed() const { return bits & COMMITTED; }
 
-            bool is_aborted() const
-            {
-                return bits & ABORTED;
-            }
+            bool is_aborted() const { return bits & ABORTED; }
 
             bool is_unknown() const
             {
@@ -56,7 +51,7 @@ private:
 
         Value load(std::memory_order order = std::memory_order_seq_cst)
         {
-            return Value { bits.load(order) };
+            return Value{bits.load(order)};
         }
 
         void set_committed(std::memory_order order = std::memory_order_seq_cst)
@@ -70,7 +65,7 @@ private:
         }
 
     private:
-        std::atomic<uint8_t>& bits;
+        std::atomic<uint8_t> &bits;
     };
 
     struct Cre : public TxHints<CRE_CMT, CRE_ABT>
@@ -84,10 +79,7 @@ private:
     };
 
 public:
-    Hints() : cre(bits), exp(bits)
-    {
-        assert(bits.is_lock_free());
-    }
+    Hints() : cre(bits), exp(bits) { assert(bits.is_lock_free()); }
 
     union HintBits
     {
@@ -99,13 +91,12 @@ public:
 
     HintBits load(std::memory_order order = std::memory_order_seq_cst)
     {
-        return HintBits { bits.load(order) };
+        return HintBits{bits.load(order)};
     }
 
     Cre cre;
     Exp exp;
 
-    std::atomic<uint8_t> bits { 0 };
+    std::atomic<uint8_t> bits{0};
 };
-
 }
