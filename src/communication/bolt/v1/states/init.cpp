@@ -12,9 +12,11 @@ Init::Init() : MessageParser<Init>(logging::log->logger("Init")) {}
 
 State *Init::parse(Session &session, Message &message)
 {
+    logger.debug("bolt::Init.parse()");
+
     auto struct_type = session.decoder.read_byte();
 
-    if (UNLIKELY((struct_type & 0x0F) <= pack::Rule::MaxInitStructSize)) {
+    if (UNLIKELY((struct_type & 0x0F) > pack::Rule::MaxInitStructSize)) {
         logger.debug("{}", struct_type);
 
         logger.debug(
@@ -35,7 +37,9 @@ State *Init::parse(Session &session, Message &message)
 
     message.client_name = session.decoder.read_string();
 
-    // TODO read authentication tokens if B2
+    if (struct_type == pack::Code::StructTwo) {
+        // TODO process authentication tokens
+    }
 
     return this;
 }

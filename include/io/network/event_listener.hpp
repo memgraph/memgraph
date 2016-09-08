@@ -2,6 +2,7 @@
 
 #include "io/network/epoll.hpp"
 #include "utils/crtp.hpp"
+#include "logging/default.hpp"
 
 namespace io
 {
@@ -12,7 +13,11 @@ class EventListener : public Crtp<Derived>
 public:
     using Crtp<Derived>::derived;
 
-    EventListener(uint32_t flags = 0) : listener(flags) {}
+    EventListener(uint32_t flags = 0) :
+        listener(flags),
+        logger(logging::log->logger("io::EventListener"))
+    {
+    }
 
     void wait_and_process_events()
     {
@@ -25,7 +30,15 @@ public:
         // waits for an event/multiple events and returns a maximum of
         // max_events and stores them in the events array. it waits for
         // wait_timeout milliseconds. if wait_timeout is achieved, returns 0
+       
         auto n = listener.wait(events, max_events, 200);
+
+#ifndef NDEBUG
+#ifndef LOG_NO_TRACE
+        if (n > 0)
+            logger.trace("number of events: {}", n);
+#endif
+#endif
 
         // go through all events and process them in order
         for (int i = 0; i < n; ++i) {
@@ -70,5 +83,8 @@ public:
 protected:
     Epoll listener;
     Epoll::Event events[max_events];
+
+private:
+    Logger logger;
 };
 }

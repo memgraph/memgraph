@@ -8,6 +8,7 @@
 
 #include "io/network/server.hpp"
 #include "communication/bolt/v1/bolt.hpp"
+#include "logging/default.hpp"
 
 namespace bolt
 {
@@ -17,7 +18,8 @@ class Server : public io::Server<Server<Worker>>
 {
 public:
     Server(io::Socket&& socket)
-        : io::Server<Server<Worker>>(std::forward<io::Socket>(socket)) {}
+        : io::Server<Server<Worker>>(std::forward<io::Socket>(socket)),
+          logger(logging::log->logger("bolt::Server")) {}
 
     void start(size_t n)
     {
@@ -47,6 +49,8 @@ public:
     {
         assert(idx < workers.size());
 
+        logger.trace("on connect");
+
         if(UNLIKELY(!workers[idx]->accept(this->socket)))
             return;
 
@@ -62,6 +66,7 @@ private:
     std::atomic<bool> alive {true};
 
     int idx {0};
+    Logger logger;
 };
 
 }

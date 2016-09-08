@@ -27,6 +27,7 @@ State *Executor::run(Session &session)
 
         try {
             return this->run(session, q);
+            // TODO: RETURN success MAYBE
         } catch (QueryEngineException &e) {
             session.output_stream.write_failure(
                 {{"code", "Memgraph.QueryEngineException"},

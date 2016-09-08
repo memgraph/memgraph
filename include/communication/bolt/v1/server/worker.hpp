@@ -27,7 +27,7 @@ public:
 
     Worker(Bolt &bolt) : bolt(bolt)
     {
-        logger = logging::log->logger("Network");
+        logger = logging::log->logger("bolt::Worker");
     }
 
     Session &on_connect(io::Socket &&socket)

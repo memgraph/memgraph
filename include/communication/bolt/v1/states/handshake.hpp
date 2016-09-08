@@ -8,6 +8,7 @@ namespace bolt
 class Handshake : public State
 {
 public:
+    Handshake();
     State* run(Session& session) override;
 };
 

@@ -57,6 +57,7 @@ public:
         }
 
         chunk();
+        send();
     }
 
     void write_field(const std::string& field)
@@ -67,6 +68,7 @@ public:
         write_list_header(1);
         bolt_encoder.write_string(field);
         chunk();
+        send();
     }
 
     void write_list_header(size_t size)
@@ -112,11 +114,13 @@ public:
 
     void send()
     {
+        logger.trace("send");
         chunked_buffer.flush();
     }
 
     void chunk()
     {
+        logger.trace("chunk");
         chunked_encoder.write_chunk();
     }
 
