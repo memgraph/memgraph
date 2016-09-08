@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/iterator/accessor.hpp"
+#include "utils/iterator/combined.hpp"
 #include "utils/iterator/count.hpp"
 #include "utils/iterator/filter.hpp"
 #include "utils/iterator/flat_map.hpp"

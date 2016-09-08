@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <atomic>
@@ -7,9 +8,9 @@
 
 // #include "storage/indexes/index_record.hpp"
 #include "storage/garbage/delete_sensitive.hpp"
+#include "storage/indexes/index_definition.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/virtual_iter.hpp"
-#include "utils/order.hpp"
 
 template <class TG, class K>
 class IndexRecord;
@@ -32,9 +33,9 @@ public:
     // typedef K key_type;
 
     // Created with the database
-    IndexBase(bool unique, Order order);
+    IndexBase(IndexDefinition &&it);
 
-    IndexBase(bool unique, Order order, const tx::Transaction &t);
+    IndexBase(IndexDefinition &&it, const tx::Transaction &t);
 
     virtual ~IndexBase(){};
 
@@ -68,15 +69,12 @@ public:
     // True if transaction is obliged to insert T into index.
     bool is_obliged_to_insert(const tx::Transaction &t);
 
-    bool unique() { return _unique; }
+    IndexType type() const { return it.type; }
 
-    Order order() { return _order; }
+    const IndexDefinition &definition() const { return it; }
 
 private:
-    // Are the records unique
-    const bool _unique;
-    // Ordering of the records.
-    const Order _order;
+    const IndexDefinition it;
     // Id of transaction which created this index.
     const Id created;
     // Active state

@@ -4,13 +4,12 @@
 #include <stdint.h>
 
 #include "storage/indexes/impl/nonunique_unordered_index.hpp"
+#include "storage/type_group_vertex.hpp"
 #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/char_str.hpp"
 #include "utils/reference_wrapper.hpp"
 #include "utils/total_ordering.hpp"
-// #include "storage/type_group_edge.hpp"
-#include "storage/type_group_vertex.hpp"
 
 using LabelIndexRecord = IndexRecord<TypeGroupVertex, std::nullptr_t>;
 
@@ -38,6 +37,8 @@ public:
     friend std::ostream &operator<<(std::ostream &stream, const Label &label);
 
     operator const std::string &() const;
+
+    std::string const &str() const { return name; }
 
     CharStr char_str() const { return CharStr(name.c_str()); }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utils/numerics/saturate.hpp"
 #include "utils/total_ordering.hpp"
 
 // Represents number of to be returned elements from iterator. Where acutal
@@ -24,6 +25,12 @@ public:
     friend constexpr bool operator==(const Count &lhs, const Count &rhs)
     {
         return lhs.avg() == rhs.avg();
+    }
+
+    friend Count operator+(const Count &lhs, const Count &rhs)
+    {
+        return Count(num::saturating_add(lhs.min, rhs.min),
+                     num::saturating_add(lhs.max, rhs.max));
     }
 
     size_t min;

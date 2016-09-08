@@ -240,7 +240,6 @@ FILE(COPY ${include_dir}/storage/label/label.hpp DESTINATION ${build_include_dir
 FILE(COPY ${include_dir}/storage/label/label_collection.hpp DESTINATION ${build_include_dir}/storage/label)
 FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
 
-FILE(COPY ${include_dir}/storage/indexes/index.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_record_collection.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_base.hpp DESTINATION ${build_include_dir}/storage/indexes)
@@ -422,6 +421,7 @@ set(memgraph_src_files
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
+    ${src_dir}/utils/numerics/saturate.cpp
     ${src_dir}/query_engine/util.cpp
     ${src_dir}/communication/bolt/v1/bolt.cpp
     ${src_dir}/communication/bolt/v1/states.cpp
@@ -435,6 +435,8 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
+    ${src_dir}/snapshot/snapshoter.cpp
+    ${src_dir}/snapshot/snapshot_encoder.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp
     ${src_dir}/storage/label/label.cpp
@@ -463,6 +465,7 @@ set(memgraph_src_files
     ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/transactions/transaction.cpp
+    ${src_dir}/transactions/transaction_id.cpp
     ${src_dir}/template_engine/engine.cpp
     ${src_dir}/logging/streams/stdout.cpp
     ${src_dir}/logging/levels.cpp

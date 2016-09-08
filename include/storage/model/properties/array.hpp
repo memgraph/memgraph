@@ -4,13 +4,7 @@
 #include <vector>
 
 #include "storage/model/properties/flags.hpp"
-
-// TODO: more bytes can be saved if this is array with exact size as number
-// of elements.
-// TODO: even more bytes can be saved if this is one ptr to structure which
-// holds len followed by len sized array.
-template <class T>
-using ArrayStore = std::vector<T>;
+#include "utils/array_store.hpp"
 
 template <class T, Flags flag_t>
 class Array

@@ -98,6 +98,24 @@ public:
         return *data._M_ptr();
     }
 
+    T &get_or(T &other)
+    {
+        if (is_present()) {
+            return get();
+        } else {
+            return other;
+        }
+    }
+
+    T const &get_or(T const &other) const
+    {
+        if (is_present()) {
+            return get();
+        } else {
+            return other;
+        }
+    }
+
     const T &get() const noexcept
     {
         assert(initialized);
@@ -121,6 +139,26 @@ public:
             return Option<U>(f(take()));
         } else {
             return Option<U>();
+        }
+    }
+
+    template <class U, class F>
+    U map_or(F f, U &&def)
+    {
+        if (is_present()) {
+            return f(take());
+        } else {
+            return std::move(def);
+        }
+    }
+
+    template <class U, class F>
+    U call_or(F f, U &&def)
+    {
+        if (is_present()) {
+            return f(get());
+        } else {
+            return std::move(def);
         }
     }
 

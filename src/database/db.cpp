@@ -1,10 +1,14 @@
 #include "database/db.hpp"
+
+#include "storage/indexes/indexes.hpp"
 #include "storage/model/properties/property_family.hpp"
 
 Db::Db() = default;
 Db::Db(const std::string &name) : name_(name) {}
 
-std::string &Db::name() { return name_; }
+std::string const &Db::name() const { return name_; }
+
+Indexes Db::indexes() { return Indexes(*this); }
 
 template <class TG, class I, class G>
 bool Db::create_index_on_vertex_property_family(const char *name, G &coll,

@@ -10,8 +10,8 @@ class Null
 public:
     const static Type type;
 
-    Void &value() { return Void::_void; }
-    Void const &value() const { return Void::_void; }
+    Void &value() { return _void; }
+    Void const &value() const { return _void; }
 
     std::ostream &print(std::ostream &stream) const;
 

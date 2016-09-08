@@ -5,6 +5,7 @@
 
 class Db;
 class DbAccessor;
+class SnapshotEncoder;
 
 using index_updates_t = std::vector<IndexUpdate>;
 

@@ -3,6 +3,7 @@
 #include "database/db_accessor.hpp"
 #include "import/fillings/common.hpp"
 #include "import/fillings/filler.hpp"
+#include "utils/array_store.hpp"
 
 template <class TG, class T, class A>
 class ArrayFiller : public Filler

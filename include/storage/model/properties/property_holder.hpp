@@ -43,6 +43,14 @@
         break;                                                                 \
     }
 
+// Genrates case claus for Flags::type_name to handle primitives of type_name
+// object from field of union_name
+#define GENERATE_CASE_CLAUSE_FOR_HANDLER_PRIMITIVE(type_name, union_name)      \
+    case Flags::type_name: {                                                   \
+        h.handle(this->union_name.value());                                    \
+        break;                                                                 \
+    }
+
 // Genrates case claus for Flags::type_name to print type_name object from
 // field of union_name
 #define GENERATE_CASE_CLAUSE_FOR_PRINT(type_name, union_name)                  \
@@ -147,11 +155,24 @@ public:
         return *this;
     }
 
+    // Calls appropiate handler with a database property.
+    // (String,Int64,ArrayBool,...)
     template <class Handler>
     void accept(Handler &h) const
     {
         switch (key.get_type().flags()) {
             GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_HANDLER);
+        default:
+            assert(false);
+        }
+    }
+
+    // Calls appropiate handler with a primitive.(std::string,bool,int64_t,...)
+    template <class Handler>
+    void accept_primitive(Handler &h) const
+    {
+        switch (key.get_type().flags()) {
+            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_HANDLER_PRIMITIVE);
         default:
             assert(false);
         }

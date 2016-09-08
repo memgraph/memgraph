@@ -12,9 +12,10 @@ public:
     // typedef K key_type;
 
     // Created with the database
-    UniqueOrderedIndex(Order order);
+    UniqueOrderedIndex(IndexLocation loc, Order order);
 
-    UniqueOrderedIndex(Order order, tx::Transaction const &t);
+    UniqueOrderedIndex(IndexLocation loc, Order order,
+                       tx::Transaction const &t);
 
     // Insert's value.
     // nonunique => always succeds.

@@ -7,6 +7,8 @@
 #include "storage/graph.hpp"
 #include "transactions/engine.hpp"
 
+class Indexes;
+
 class Db
 {
 public:
@@ -20,7 +22,9 @@ public:
     tx::Engine tx_engine;
     Garbage garbage;
 
-    std::string &name();
+    std::string const &name() const;
+
+    Indexes indexes();
 
     // INDEXES
 

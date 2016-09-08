@@ -11,13 +11,13 @@ using label_ref_t = ReferenceWrapper<const Label>;
 class LabelCollection
 {
 public:
-    auto begin();
-    auto begin() const;
-    auto cbegin() const;
+    auto begin() { return _labels.begin(); }
+    auto begin() const { return _labels.begin(); }
+    auto cbegin() const { return _labels.begin(); }
 
-    auto end();
-    auto end() const;
-    auto cend() const;
+    auto end() { return _labels.end(); }
+    auto end() const { return _labels.end(); }
+    auto cend() const { return _labels.end(); }
 
     bool add(const Label &label);
     bool has(const Label &label) const;

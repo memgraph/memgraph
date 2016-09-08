@@ -2,14 +2,6 @@
 
 #include "storage/label/label.hpp"
 
-auto LabelCollection::begin() { return _labels.begin(); }
-auto LabelCollection::begin() const { return _labels.begin(); }
-auto LabelCollection::cbegin() const { return _labels.begin(); }
-
-auto LabelCollection::end() { return _labels.end(); }
-auto LabelCollection::end() const { return _labels.end(); }
-auto LabelCollection::cend() const { return _labels.end(); }
-
 bool LabelCollection::add(const Label &label)
 {
     if (has(label)) {

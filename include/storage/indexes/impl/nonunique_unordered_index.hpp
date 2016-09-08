@@ -14,9 +14,9 @@ public:
     // typedef K key_type;
 
     // Created with the database
-    NonUniqueUnorderedIndex();
+    NonUniqueUnorderedIndex(IndexLocation &&loc);
 
-    NonUniqueUnorderedIndex(tx::Transaction const &t);
+    NonUniqueUnorderedIndex(IndexLocation &&loc, tx::Transaction const &t);
 
     // Insert's value.
     // nonunique => always succeds.

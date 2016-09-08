@@ -9,7 +9,8 @@
 
 #include "logging/default.hpp"
 
-Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs) : dbms(dbs)
+Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
+    : dbms(dbs), cleaning_cycle(cleaning_cycle)
 {
     cleaners.push_back(std::make_unique<Thread>([&]() {
         Logger logger = logging::log->logger("Cleaner");

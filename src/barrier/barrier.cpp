@@ -101,15 +101,9 @@ VertexIterator VertexIndex<K>::for_range(DbAccessor &t, Border<K> from,
 }
 
 template <class K>
-bool VertexIndex<K>::unique()
+IndexType VertexIndex<K>::type()
 {
-    return HALF_CALL(unique());
-}
-
-template <class K>
-Order VertexIndex<K>::order()
-{
-    return HALF_CALL(order());
+    return HALF_CALL(type());
 }
 
 // INSTANCES OF VERTEX INDEX
@@ -124,15 +118,9 @@ EdgeIterator EdgeIndex<K>::for_range(DbAccessor &t, Border<K> from,
 }
 
 template <class K>
-bool EdgeIndex<K>::unique()
+IndexType EdgeIndex<K>::type()
 {
-    return HALF_CALL(unique());
-}
-
-template <class K>
-Order EdgeIndex<K>::order()
-{
-    return HALF_CALL(order());
+    return HALF_CALL(type());
 }
 
 // INSTANCES OF EDGE INDEX

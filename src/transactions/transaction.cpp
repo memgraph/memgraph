@@ -11,8 +11,15 @@ namespace tx
 
 Transaction::Transaction(const Id &id, const Snapshot<Id> &snapshot,
                          Engine &engine)
-    : id(id), cid(1), snapshot(snapshot), engine(engine)
+    : TransactionId(id, snapshot, engine)
 {
+}
+
+// Returns copy of transaction_id
+TransactionId Transaction::transaction_id()
+{
+    TransactionId const &t = *this;
+    return t;
 }
 
 void Transaction::wait_for_active()
@@ -24,16 +31,6 @@ void Transaction::wait_for_active()
         }
         snapshot.remove(id);
     }
-}
-
-bool Transaction::is_active(const Id &id) const
-{
-    return snapshot.is_active(id);
-}
-
-Id Transaction::oldest_active()
-{
-    return snapshot.oldest_active().take_or(Id(id));
 }
 
 void Transaction::take_lock(RecordLock &lock) { locks.take(&lock, id); }

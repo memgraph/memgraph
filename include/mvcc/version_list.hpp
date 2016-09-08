@@ -103,7 +103,7 @@ public:
 
     void vacuum() {}
 
-    T *find(const tx::Transaction &t) const
+    T *find(const tx::TransactionId &t) const
     {
         auto r = head.load(std::memory_order_seq_cst);
 

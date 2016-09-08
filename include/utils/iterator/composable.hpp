@@ -29,6 +29,9 @@ auto make_limited_map(I &&iter, OP &&op);
 template <class I, class OP>
 auto make_virtual(I &&iter);
 
+template <class IT1, class IT2>
+auto make_combined(IT1 &&iter1, IT2 &&iter2);
+
 // Class for creating easy composable iterators fo querying.
 // Derived - type of derived class
 // T - return type
@@ -39,6 +42,12 @@ class Composable : public Crtp<Derived>
     Derived &&move() { return std::move(this->derived()); }
 public:
     auto virtualize() { return iter::make_virtual(move()); }
+
+    template <class IT>
+    auto combine(IT &&it)
+    {
+        return iter::make_combined<Derived, IT>(move(), std::move(it));
+    }
 
     template <class OP>
     auto map(OP &&op)

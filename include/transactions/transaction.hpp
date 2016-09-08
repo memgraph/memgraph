@@ -9,44 +9,31 @@
 #include "storage/locking/record_lock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
+#include "transactions/transaction_id.hpp"
 
 namespace tx
 {
 
-class Engine;
-
-class Transaction
+class Transaction : public TransactionId
 {
-    friend class Engine;
 
 public:
     Transaction(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
     Transaction(const Transaction &) = delete;
     Transaction(Transaction &&) = delete;
 
-    // index of this transaction
-    const Id id;
-    // index of the current command in the current transaction;
-    uint8_t cid;
-    // a snapshot of currently active transactions
+    // Returns copy of transaction_id
+    TransactionId transaction_id();
 
     // Blocks until all transactions from snapshot finish. After this method,
     // snapshot will be empty.
     void wait_for_active();
 
-    // Return id of oldest transaction from snapshot.
-    Id oldest_active();
-
-    // True if id is in snapshot.
-    bool is_active(const Id &id) const;
     void take_lock(RecordLock &lock);
     void commit();
     void abort();
 
-    Engine &engine;
-
 private:
-    Snapshot<Id> snapshot;
     LockStore<RecordLock> locks;
 };
 }

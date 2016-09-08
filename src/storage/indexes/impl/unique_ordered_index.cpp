@@ -17,22 +17,22 @@
 #include "storage/indexes/index_record.cpp"
 
 template <class T, class K>
-UniqueOrderedIndex<T, K>::UniqueOrderedIndex(Order order)
-    : IndexBase<T, K>(true, order)
+UniqueOrderedIndex<T, K>::UniqueOrderedIndex(IndexLocation loc, Order order)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}})
 {
 }
 
 template <class T, class K>
-UniqueOrderedIndex<T, K>::UniqueOrderedIndex(Order order,
+UniqueOrderedIndex<T, K>::UniqueOrderedIndex(IndexLocation loc, Order order,
                                              tx::Transaction const &t)
-    : IndexBase<T, K>(true, order, t)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}}, t)
 {
 }
 
 template <class T, class K>
 bool UniqueOrderedIndex<T, K>::insert(IndexRecord<T, K> &&value)
 {
-    if (this->order() == Descending) {
+    if (this->type().order == Descending) {
         value.set_descending();
     }
     return set.access().insert(std::move(value)).second;
@@ -55,13 +55,13 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
     auto end = to_v;
 
     // Sorted order must be checked
-    if (this->order() == Ascending && from_v.key.is_present()) {
+    if (this->type().order == Ascending && from_v.key.is_present()) {
         begin = acc.cfind_or_larger(from_v);
-    } else if (this->order() == Descending && to_v.key.is_present()) {
+    } else if (this->type().order == Descending && to_v.key.is_present()) {
         begin = acc.cfind_or_larger(to_v);
         end = from_v;
     } else {
-        assert(this->order() != None);
+        assert(this->type().order != None);
     }
     // TODO: determine size on fact of border size.
     auto size = acc.size();

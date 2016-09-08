@@ -8,13 +8,13 @@
 // THis shoul be the only place to include code from memgraph other than
 // barrier.cpp
 #include "mvcc/id.hpp"
+#include "storage/indexes/index_definition.hpp"
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/property.hpp"
 #include "storage/model/properties/stored_property.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/iterator.hpp"
 #include "utils/option_ptr.hpp"
-#include "utils/order.hpp"
 #include "utils/reference_wrapper.hpp"
 
 // Contains common classes and functions for barrier.hpp and barrier.cpp.

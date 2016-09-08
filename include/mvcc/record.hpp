@@ -5,7 +5,7 @@
 
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
-#include "transactions/transaction.hpp"
+#include "transactions/transaction_id.hpp"
 
 #include "mvcc/cre_exp.hpp"
 #include "mvcc/hints.hpp"
@@ -41,7 +41,7 @@ public:
     RecordLock lock;
 
     // check if this record is visible to the transaction t
-    bool visible(const tx::Transaction &t)
+    bool visible(const tx::TransactionId &t)
     {
         // TODO check if the record was created by a transaction that has been
         // aborted. one might implement this by checking the hints in mvcc
@@ -70,34 +70,34 @@ public:
                    ))));
     }
 
-    void mark_created(const tx::Transaction &t)
+    void mark_created(const tx::TransactionId &t)
     {
         tx.cre(t.id);
         cmd.cre(t.cid);
     }
 
-    void mark_deleted(const tx::Transaction &t)
+    void mark_deleted(const tx::TransactionId &t)
     {
         tx.exp(t.id);
         cmd.exp(t.cid);
     }
 
-    bool exp_committed(const Id &id, const tx::Transaction &t)
+    bool exp_committed(const Id &id, const tx::TransactionId &t)
     {
         return committed(hints.exp, id, t);
     }
 
-    bool exp_committed(const tx::Transaction &t)
+    bool exp_committed(const tx::TransactionId &t)
     {
         return committed(hints.exp, tx.exp(), t);
     }
 
-    bool cre_committed(const Id &id, const tx::Transaction &t)
+    bool cre_committed(const Id &id, const tx::TransactionId &t)
     {
         return committed(hints.cre, id, t);
     }
 
-    bool cre_committed(const tx::Transaction &t)
+    bool cre_committed(const tx::TransactionId &t)
     {
         return committed(hints.cre, tx.cre(), t);
     }
@@ -110,7 +110,7 @@ public:
 
     // TODO: Test this
     // True if this record is visible for write.
-    bool is_visible_write(const tx::Transaction &t)
+    bool is_visible_write(const tx::TransactionId &t)
     {
         return (tx.cre() == t.id &&      // inserted by the current transaction
                 cmd.cre() <= t.cid &&    // before this command, and
@@ -122,7 +122,7 @@ public:
 
 protected:
     template <class U>
-    bool committed(U &hints, const Id &id, const tx::Transaction &t)
+    bool committed(U &hints, const Id &id, const tx::TransactionId &t)
     {
         // you certainly can't see the transaction with id greater than yours
         // as that means it started after this transaction and if it committed,
@@ -130,7 +130,7 @@ protected:
         if (id > t.id) return false;
 
         // The creating transaction is still in progress (examine snapshot)
-        if (t.is_active(id)) return false;
+        if (t.in_snapshot(id)) return false;
 
         auto hint_bits = hints.load();
 

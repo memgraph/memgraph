@@ -1,23 +1,24 @@
 #pragma once
 
 #include "database/db.hpp"
+#include "threading/thread.hpp"
 
 class Thread;
-
-// How much sec is a cleaning_cycle in which cleaner will clean at most
-// once.
-constexpr size_t cleaning_cycle = 60;
 
 class Cleaning
 {
 
 public:
-    Cleaning(ConcurrentMap<std::string, Db> &dbs);
+    // How much sec is a cleaning_cycle in which cleaner will clean at most
+    // once.
+    Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle);
 
     ~Cleaning();
 
 private:
     ConcurrentMap<std::string, Db> &dbms;
+
+    const size_t cleaning_cycle;
 
     std::vector<std::unique_ptr<Thread>> cleaners;
 

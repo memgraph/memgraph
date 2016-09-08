@@ -51,6 +51,13 @@ public:
 
     const Id &id() const { return vlist->id; }
 
+    // True if record visible for current transaction is visible to given
+    // transaction id.
+    bool is_visble_to(tx::TransactionId const &id)
+    {
+        return record->visible(id);
+    }
+
     // TODO: Test this
     Derived update() const
     {

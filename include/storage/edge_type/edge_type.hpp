@@ -35,6 +35,8 @@ public:
 
     operator const std::string &() const;
 
+    std::string const &str() const { return id; }
+
     CharStr char_str() { return CharStr(&id[0]); }
 
     type_index_t &index() const;

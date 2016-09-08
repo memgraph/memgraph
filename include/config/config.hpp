@@ -22,10 +22,18 @@ constexpr const char *COMPILE_CPU_PATH = "compile_cpu_path";
 constexpr const char *TEMPLATE_CPU_CPP_PATH = "template_cpu_cpp_path";
 constexpr const char *BARRIER_TEMPLATE_CPU_CPP_PATH =
     "barrier_template_cpu_cpp_path";
+constexpr const char *SNAPSHOTS_PATH = "snapshots_path";
+constexpr const char *CLEANING_CYCLE_SEC = "cleaning_cycle_sec";
+constexpr const char *SNAPSHOT_CYCLE_SEC = "snapshot_cycle_sec";
 // -- all possible Memgraph's keys --
-
 }
 
 // code uses this define for key access
 // _KEY_ is value from all possible keys that are listed above
 #define CONFIG(_KEY_) config::Config<config::MemgraphConfig>::instance()[_KEY_]
+
+namespace stupid
+{
+size_t from(std::string &&s) { return stoull(s); }
+};
+#define CONFIG_INTEGER(_KEY_) stupid::from(CONFIG(_KEY_))

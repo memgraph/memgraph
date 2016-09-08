@@ -37,6 +37,13 @@ private:
 
 // Wraps lambda which returns options as an iterator.
 template <class F>
+auto make_iterator(F &&f)
+{
+    return make_iterator<F>(std::move(f), ~((size_t)0));
+}
+
+// Wraps lambda which returns options as an iterator.
+template <class F>
 auto make_iterator(F &&f, size_t count)
 {
     // Because function isn't receving or in any way using type T from

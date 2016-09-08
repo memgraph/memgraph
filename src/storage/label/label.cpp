@@ -2,7 +2,10 @@
 #include "storage/label/label.hpp"
 
 Label::Label(const char *name)
-    : name(std::string(name)), index_v(std::make_unique<label_index_t>())
+    : name(std::string(name)),
+      index_v(std::make_unique<label_index_t>(
+          IndexLocation{VertexSide, Option<std::string>(),
+                        Option<std::string>(std::string(name))}))
 {
 }
 

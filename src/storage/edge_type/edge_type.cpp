@@ -1,17 +1,10 @@
 #include "storage/edge_type/edge_type.hpp"
 
-EdgeType::EdgeType(const std::string &id)
-    : id(id), index_v(std::unique_ptr<type_index_t>(new type_index_t()))
-{
-}
-EdgeType::EdgeType(const char *id)
-    : id(std::string(id)),
-      index_v(std::unique_ptr<type_index_t>(new type_index_t()))
-{
-}
+EdgeType::EdgeType(const std::string &id) : EdgeType(std::string(id)) {}
+EdgeType::EdgeType(const char *id) : EdgeType(std::string(id)) {}
 EdgeType::EdgeType(std::string &&id)
-    : id(std::move(id)),
-      index_v(std::unique_ptr<type_index_t>(new type_index_t()))
+    : id(id), index_v(std::make_unique<type_index_t>(IndexLocation{
+                  EdgeSide, Option<std::string>(), Option<std::string>(id)}))
 {
 }
 

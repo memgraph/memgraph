@@ -551,9 +551,7 @@ public:
     VertexIterator for_range(DbAccessor &, Border<K> from = Border<K>(),
                              Border<K> to = Border<K>());
 
-    bool unique();
-
-    Order order();
+    IndexType type();
 };
 
 template <class K>
@@ -565,9 +563,7 @@ public:
     EdgeIterator for_range(DbAccessor &, Border<K> from = Border<K>(),
                            Border<K> to = Border<K>());
 
-    bool unique();
-
-    Order order();
+    IndexType type();
 };
 
 class Db : protected Unsized

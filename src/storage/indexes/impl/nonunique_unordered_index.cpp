@@ -13,14 +13,15 @@
 #include "storage/indexes/index_record.cpp"
 
 template <class T, class K>
-NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex()
-    : IndexBase<T, K>(false, None)
+NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(IndexLocation &&loc)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}})
 {
 }
 
 template <class T, class K>
-NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(tx::Transaction const &t)
-    : IndexBase<T, K>(false, None, t)
+NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(IndexLocation &&loc,
+                                                       tx::Transaction const &t)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}}, t)
 {
 }
 

@@ -5,14 +5,14 @@
 #include "transactions/transaction.hpp"
 
 template <class TG, class K>
-IndexBase<TG, K>::IndexBase(bool unique, Order order)
-    : _unique(unique), _order(order), created(Id(0)), active(true)
+IndexBase<TG, K>::IndexBase(IndexDefinition &&it)
+    : it(it), created(Id(0)), active(true)
 {
 }
 
 template <class TG, class K>
-IndexBase<TG, K>::IndexBase(bool unique, Order order, const tx::Transaction &t)
-    : _unique(unique), _order(order), created(t.id)
+IndexBase<TG, K>::IndexBase(IndexDefinition &&it, const tx::Transaction &t)
+    : it(it), created(t.id)
 {
 }
 
