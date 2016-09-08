@@ -5,6 +5,7 @@
 
 #include "io/network/socket.hpp"
 #include "utils/likely.hpp"
+#include "logging/default.hpp"
 
 namespace io
 {
@@ -20,7 +21,8 @@ class Epoll
 public:
     using Event = struct epoll_event;
 
-    Epoll(int flags)
+    Epoll(int flags) :
+        logger(logging::log->logger("io::Epoll"))
     {
         epoll_fd = epoll_create1(flags);
 
@@ -49,6 +51,7 @@ public:
 
 private:
     int epoll_fd;
+    Logger logger;
 };
 
 }

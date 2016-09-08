@@ -9,10 +9,14 @@ template <class Derived>
 class Server : public EventListener<Derived>
 {
 public:
-    Server(Socket &&socket) : socket(std::forward<Socket>(socket))
+    Server(Socket &&socket) : socket(std::forward<Socket>(socket)),
+        logger(logging::log->logger("io::Server"))
     {
         event.data.fd = this->socket;
-        event.events = EPOLLIN | EPOLLET;
+
+        // TODO: EPOLLET is hard to use -> figure out how should EPOLLET be used
+        // event.events = EPOLLIN | EPOLLET;
+        event.events = EPOLLIN;
 
         this->listener.add(this->socket, &event);
     }
@@ -32,10 +36,12 @@ public:
     void on_exception_event(Epoll::Event &event, Args &&... args)
     {
         // TODO: Do something about it
+        logger.warn("epoll exception");
     }
 
 protected:
     Epoll::Event event;
     Socket socket;
+    Logger logger;
 };
 }

@@ -15,6 +15,8 @@ enum Code : uint8_t
     TinyMap      = 0xA0,
 
     TinyStruct   = 0xB0,
+    StructOne    = 0xB1,
+    StructTwo    = 0xB2,
 
     Null         = 0xC0,
 

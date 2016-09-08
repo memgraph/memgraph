@@ -9,8 +9,12 @@ static constexpr uint32_t preamble = 0x6060B017;
 
 static constexpr byte protocol[4] = {0x00, 0x00, 0x00, 0x01};
 
+Handshake::Handshake() : State(logging::log->logger("Handshake")) {}
+
 State* Handshake::run(Session& session)
 {
+    logger.debug("run");
+
     if(UNLIKELY(session.decoder.read_uint32() != preamble))
         return nullptr;
 

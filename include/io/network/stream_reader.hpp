@@ -17,10 +17,13 @@ public:
         size_t len;
     };
 
-    StreamReader(uint32_t flags = 0) : StreamListener<Derived, Stream>(flags) {}
+    StreamReader(uint32_t flags = 0) : StreamListener<Derived, Stream>(flags),
+        logger(logging::log->logger("io::StreamReader")) {}
 
     bool accept(Socket& socket)
     {
+        logger.trace("accept");
+
         // accept a connection from a socket
         auto s = socket.accept(nullptr, nullptr);
 
@@ -44,6 +47,8 @@ public:
 
     void on_data(Stream& stream)
     {
+        logger.trace("on data");
+
         while(true)
         {
             if(UNLIKELY(!stream.alive()))
@@ -82,6 +87,9 @@ public:
             this->derived().on_read(stream, buf);
         }
     }
+
+private:
+    Logger logger;
 };
 
 }
