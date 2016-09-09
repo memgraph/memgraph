@@ -4,8 +4,8 @@
 
 #include "database/db.hpp"
 #include "logging/default.hpp"
+#include "threading/thread.hpp"
 
-class Thread;
 class SnapshotEncoder;
 class SnapshotDecoder;
 
@@ -21,7 +21,7 @@ public:
 
     ~Snapshoter();
 
-    // Imports latest snapshot into the databse
+    // Imports latest snapshot into the databse. Multi thread safe.
     void import(Db &db);
 
 private:
@@ -65,6 +65,7 @@ private:
     Logger logger;
 
     const size_t snapshot_cycle;
+    const size_t max_old_snapshots;
     const std::string snapshot_folder;
 
     std::unique_ptr<Thread> thread = {nullptr};

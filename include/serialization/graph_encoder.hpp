@@ -40,7 +40,7 @@ public:
     void end_vertex() {}
 
     // Starts writing edge from vertex to vertex
-    void start_edge(Id id, Id from, Id to) {}
+    void start_edge(Id from, Id to) {}
 
     // Type of currently started edge
     void edge_type(std::string const &et) {}

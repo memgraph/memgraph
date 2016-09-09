@@ -32,6 +32,15 @@ Option<const EdgeAccessor> DbAccessor::edge_find(const Id &id)
     return db_transaction.db.graph.edges.find(db_transaction, id);
 }
 
+EdgeAccessor DbAccessor::edge_insert(VertexAccessor &from, VertexAccessor &to)
+{
+    auto edge_accessor = db_transaction.db.graph.edges.insert(
+        db_transaction, from.vlist, to.vlist);
+    from->data.out.add(edge_accessor.vlist);
+    to->data.in.add(edge_accessor.vlist);
+    return edge_accessor;
+}
+
 EdgeAccessor DbAccessor::edge_insert(VertexAccessor const &from,
                                      VertexAccessor const &to)
 {

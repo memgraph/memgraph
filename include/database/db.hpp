@@ -8,6 +8,7 @@
 #include "transactions/engine.hpp"
 
 class Indexes;
+class Snapshoter;
 
 class Db
 {
@@ -16,6 +17,8 @@ public:
 
     Db();
     Db(const std::string &name);
+    // Loads newest snapshot
+    Db(const std::string &name, Snapshoter &snap);
     Db(const Db &db) = delete;
 
     Graph graph;

@@ -81,6 +81,10 @@ public:
     Option<const EdgeAccessor> edge_find(const Id &id);
 
     // Creates new Edge and returns filled EdgeAccessor.
+    // Slighlty faster than const version.
+    EdgeAccessor edge_insert(VertexAccessor &from, VertexAccessor &to);
+
+    // Creates new Edge and returns filled EdgeAccessor.
     EdgeAccessor edge_insert(VertexAccessor const &from,
                              VertexAccessor const &to);
 

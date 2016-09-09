@@ -11,3 +11,8 @@ class CppGeneratorException : public BasicException
 {
     using BasicException::BasicException;
 };
+
+class DecoderException : public BasicException
+{
+    using BasicException::BasicException;
+};

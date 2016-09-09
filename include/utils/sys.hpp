@@ -13,37 +13,19 @@
 
 namespace sys
 {
-// Code from stackoverflow
-// http://stackoverflow.com/questions/109449/getting-a-file-from-a-stdfstream
+// Code from stackoverflow:
+// http://stackoverflow.com/questions/676787/how-to-do-fsync-on-an-ofstream
 // Extracts FILE* from streams in std.
-template <class STREAM>
-struct STDIOAdapter
+inline int GetFileDescriptor(std::filebuf &filebuf)
 {
-    static FILE *yield(STREAM *stream)
+    class my_filebuf : public std::filebuf
     {
-        assert(stream != NULL);
+    public:
+        int handle() { return _M_file.fd(); }
+    };
 
-        static cookie_io_functions_t Cookies = {.read = NULL,
-                                                .write = cookieWrite,
-                                                .seek = NULL,
-                                                .close = cookieClose};
-
-        return fopencookie(stream, "w", Cookies);
-    }
-
-    ssize_t static cookieWrite(void *cookie, const char *buf, size_t size)
-    {
-        if (cookie == NULL) return -1;
-
-        STREAM *writer = static_cast<STREAM *>(cookie);
-
-        writer->write(buf, size);
-
-        return size;
-    }
-
-    int static cookieClose(void *cookie) { return EOF; }
-}; // STDIOAdapter
+    return static_cast<my_filebuf &>(filebuf).handle();
+}
 
 inline int futex(void *addr1, int op, int val1, const struct timespec *timeout,
                  void *addr2, int val3)
@@ -57,8 +39,7 @@ template <class STREAM>
 inline size_t flush_file_to_disk(STREAM &file)
 {
     file.flush();
-    FILE *f = STDIOAdapter<STREAM>::yield(&file);
-    if (fsync(fileno(f)) == 0) {
+    if (fsync(GetFileDescriptor(*file.rdbuf())) == 0) {
         return 0;
     }
 

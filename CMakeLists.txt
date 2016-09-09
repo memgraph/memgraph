@@ -437,6 +437,7 @@ set(memgraph_src_files
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/snapshot/snapshoter.cpp
     ${src_dir}/snapshot/snapshot_encoder.cpp
+    ${src_dir}/snapshot/snapshot_decoder.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp
     ${src_dir}/storage/label/label.cpp
@@ -452,6 +453,7 @@ set(memgraph_src_files
     ${src_dir}/storage/model/properties/double.cpp
     ${src_dir}/storage/model/properties/string.cpp
     ${src_dir}/storage/model/properties/array.cpp
+    ${src_dir}/storage/model/properties/property.cpp
     ${src_dir}/storage/model/properties/properties.cpp
     ${src_dir}/storage/model/properties/stored_property.cpp
     ${src_dir}/storage/model/properties/property_family.cpp

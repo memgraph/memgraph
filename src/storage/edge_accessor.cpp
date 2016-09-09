@@ -1,5 +1,7 @@
 #include "storage/edge_accessor.hpp"
 
+#include <cassert>
+
 #include "storage/vertex_record.hpp"
 
 void EdgeAccessor::remove() const
@@ -24,6 +26,7 @@ void EdgeAccessor::edge_type(const EdgeType &edge_type)
 
 const EdgeType &EdgeAccessor::edge_type() const
 {
+    assert(this->record->data.edge_type != nullptr);
     runtime_assert(this->record->data.edge_type != nullptr, "EdgeType is null");
     return *this->record->data.edge_type;
 }

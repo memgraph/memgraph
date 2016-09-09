@@ -15,6 +15,8 @@ Snapshoter::Snapshoter(ConcurrentMap<std::string, Db> &dbs,
 {
     thread = std::make_unique<Thread>([&]() {
         logger = logging::log->logger("Snapshoter");
+        logger.info("Started with snapshoot cycle of {} sec",
+                    this->snapshot_cycle);
 
         try {
             run(logger);
@@ -113,49 +115,9 @@ void Snapshoter::make_snapshot(std::time_t now, const char *type)
     logger.info(std::string("Finished ") + type + " snapshot cycle");
 }
 
-void Snapshoter::snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
-                          tx::TransactionId const &old_trans)
-{
-    Db &db = dt.db;
-    DbAccessor t(db, dt.trans);
-
-    // Anounce property names
-    for (auto &family : db.graph.vertices.property_family_access()) {
-        snap.property_name_init(family.first);
-    }
-    for (auto &family : db.graph.edges.property_family_access()) {
-        snap.property_name_init(family.first);
-    }
-
-    // Anounce label names
-    for (auto &labels : db.graph.label_store.access()) {
-        snap.label_name_init(labels.first.to_string());
-    }
-
-    // Store vertices
-    snap.start_vertices();
-    t.vertex_access()
-        .fill()
-        .filter([&](auto va) { return !va.is_visble_to(old_trans); })
-        .for_all([&](auto va) { serialization::serialize_vertex(va, snap); });
-
-    // Store edges
-    snap.start_edges();
-    t.edge_access()
-        .fill()
-        .filter([&](auto va) { return !va.is_visble_to(old_trans); })
-        .for_all([&](auto ea) { serialization::serialize_edge(ea, snap); });
-
-    // Store info on existing indexes.
-    snap.start_indexes();
-    db.indexes().vertex_indexes([&](auto &i) { snap.index(i.definition()); });
-    db.indexes().edge_indexes([&](auto &i) { snap.index(i.definition()); });
-
-    snap.end();
-}
-
 void Snapshoter::import(Db &db)
 {
+    Logger logger = logging::log->logger("Snapshot import");
     logger.info("Started import for database \"{}\"", db.name());
 
     try {
@@ -216,7 +178,82 @@ void Snapshoter::import(Db &db)
     logger.info("Finished import for database \"{}\"", db.name());
 }
 
+void Snapshoter::snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
+                          tx::TransactionId const &old_trans)
+{
+    Db &db = dt.db;
+    DbAccessor t(db, dt.trans);
+
+    // Anounce property names
+    for (auto &family : db.graph.vertices.property_family_access()) {
+        snap.property_name_init(family.first);
+    }
+    for (auto &family : db.graph.edges.property_family_access()) {
+        snap.property_name_init(family.first);
+    }
+
+    // Anounce label names
+    for (auto &labels : db.graph.label_store.access()) {
+        snap.label_name_init(labels.first.to_string());
+    }
+
+    // Anounce edge_type names
+    for (auto &et : db.graph.edge_type_store.access()) {
+        snap.edge_type_name_init(et.first.to_string());
+    }
+
+    // Store vertices
+    snap.start_vertices();
+    t.vertex_access()
+        .fill()
+        .filter([&](auto va) { return !va.is_visble_to(old_trans); })
+        .for_all([&](auto va) { serialization::serialize_vertex(va, snap); });
+
+    // Store edges
+    snap.start_edges();
+    t.edge_access()
+        .fill()
+        .filter([&](auto va) { return !va.is_visble_to(old_trans); })
+        .for_all([&](auto ea) { serialization::serialize_edge(ea, snap); });
+
+    // Store info on existing indexes.
+    snap.start_indexes();
+    db.indexes().vertex_indexes([&](auto &i) { snap.index(i.definition()); });
+    db.indexes().edge_indexes([&](auto &i) { snap.index(i.definition()); });
+
+    snap.end();
+}
+
 bool Snapshoter::snapshot_load(DbTransaction const &dt, SnapshotDecoder &snap)
 {
-    // TODO
+    std::unordered_map<uint64_t, VertexAccessor> vertices;
+
+    Db &db = dt.db;
+    DbAccessor t(db, dt.trans);
+
+    // Load names
+    snap.load_init();
+
+    // Load vertices
+    snap.begin_vertices();
+    while (!snap.end_vertices()) {
+        vertices.insert(serialization::deserialize_vertex(t, snap));
+    }
+
+    // Load edges
+    snap.begin_edges();
+    while (!snap.end_edges()) {
+        serialization::deserialize_edge(t, snap, vertices);
+    }
+
+    // Load indexes
+    snap.start_indexes();
+    auto indexs = db.indexes();
+    while (!snap.end()) {
+        // This will add index. It is alright for now to ignore if add_index
+        // return false.
+        indexs.add_index(snap.load_index());
+    }
+
+    return true;
 }

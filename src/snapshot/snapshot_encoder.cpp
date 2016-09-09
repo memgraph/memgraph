@@ -29,18 +29,12 @@ void SnapshotEncoder::end() { encoder.write_string("end"); }
 
 // **************** INDEX
 // Prepares for indexes
-void SnapshotEncoder::start_indexes() { encoder.write_string("vertices"); }
+void SnapshotEncoder::start_indexes() { encoder.write_string("indexes"); }
 
 // Writes index definition
 void SnapshotEncoder::index(IndexDefinition const &def)
 {
-    std::string empty;
-
-    encoder.write_byte(underlying_cast(def.loc.side));
-    encoder.write_string(def.loc.property_name.get_or(empty));
-    encoder.write_string(def.loc.label_name.get_or(empty));
-    encoder.write_bool(def.type.unique);
-    encoder.write_byte(underlying_cast(def.type.order));
+    def.serialize(encoder);
 }
 
 // ************* VERTEX
@@ -85,9 +79,8 @@ void SnapshotEncoder::label(std::string const &l)
 void SnapshotEncoder::start_edges() { encoder.write_string("edges"); }
 
 // Starts writing edge from vertex to vertex
-void SnapshotEncoder::start_edge(Id id, Id from, Id to)
+void SnapshotEncoder::start_edge(Id from, Id to)
 {
-    encoder.write_integer(id);
     encoder.write_integer(from);
     encoder.write_integer(to);
 }

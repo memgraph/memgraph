@@ -8,6 +8,13 @@ class Indexes
 public:
     Indexes(Db &d) : db(d) {}
 
+    bool add_index(IndexDefinition id)
+    {
+        // TODO: Not yet implemented
+        // assert(false);
+        return true;
+    }
+
     // Calls F over all vertex indexes in the database which are readable.
     template <class F>
     void vertex_indexes(F &&f)

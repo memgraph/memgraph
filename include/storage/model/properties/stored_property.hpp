@@ -21,4 +21,7 @@ public:
     const static class StoredProperty<TG> null;
 
     using PropertyHolder<property_key<TG>>::PropertyHolder;
+
+    template <class P>
+    StoredProperty(PropertyFamily<TG> &family, P &&property);
 };

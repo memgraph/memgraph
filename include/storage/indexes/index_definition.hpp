@@ -2,6 +2,7 @@
 
 #include "utils/option.hpp"
 #include "utils/order.hpp"
+#include "utils/underlying_cast.hpp"
 
 enum DbSide : uint8_t
 {
@@ -32,6 +33,47 @@ public:
 struct IndexDefinition
 {
 public:
+    // Serializes self which can be deserialized
+    template <class E>
+    void serialize(E &encoder) const
+    {
+        std::string empty;
+        encoder.write_integer(underlying_cast(loc.side));
+        encoder.write_string(loc.property_name.get_or(empty));
+        encoder.write_string(loc.label_name.get_or(empty));
+        encoder.write_bool(type.unique);
+        encoder.write_integer(underlying_cast(type.order));
+    }
+
+    // Deserializes self.
+    template <class D>
+    static IndexDefinition deserialize(D &decoder)
+    {
+        auto side = decoder.integer() == 0 ? EdgeSide : VertexSide;
+
+        std::string property_name_s;
+        decoder.string(property_name_s);
+        auto property_name =
+            property_name_s.empty()
+                ? Option<std::string>()
+                : Option<std::string>(std::move(property_name_s));
+
+        std::string label_name_s;
+        decoder.string(label_name_s);
+        auto label_name = label_name_s.empty()
+                              ? Option<std::string>()
+                              : Option<std::string>(std::move(label_name_s));
+
+        bool unique = decoder.read_bool();
+
+        auto order_v = decoder.integer();
+        auto order =
+            order_v == 0 ? None : (order_v == 1 ? Ascending : Descending);
+
+        return IndexDefinition{IndexLocation{side, property_name, label_name},
+                               IndexType{unique, order}};
+    }
+
     const IndexLocation loc;
     const IndexType type;
 };

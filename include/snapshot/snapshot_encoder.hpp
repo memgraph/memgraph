@@ -15,6 +15,7 @@
 // write. Caller is responisble to structure his calls as following:
 // * property_name_init
 // * label_name_init
+// * edge_type_name_init
 // 1 start_vertices
 //      * <vertex>
 // 1 start_edges
@@ -68,7 +69,7 @@ public:
     void label(std::string const &l);
 
     // Starts writing edge from vertex to vertex
-    void start_edge(Id id, Id from, Id to);
+    void start_edge(Id from, Id to);
 
     // Type of currently started edge
     void edge_type(std::string const &et);

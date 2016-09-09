@@ -26,14 +26,12 @@ constexpr const char *SNAPSHOTS_PATH = "snapshots_path";
 constexpr const char *CLEANING_CYCLE_SEC = "cleaning_cycle_sec";
 constexpr const char *SNAPSHOT_CYCLE_SEC = "snapshot_cycle_sec";
 // -- all possible Memgraph's keys --
+
+inline size_t to_int(std::string &&s) { return stoull(s); }
 }
 
 // code uses this define for key access
 // _KEY_ is value from all possible keys that are listed above
 #define CONFIG(_KEY_) config::Config<config::MemgraphConfig>::instance()[_KEY_]
 
-namespace stupid
-{
-size_t from(std::string &&s) { return stoull(s); }
-};
-#define CONFIG_INTEGER(_KEY_) stupid::from(CONFIG(_KEY_))
+#define CONFIG_INTEGER(_KEY_) config::to_int(CONFIG(_KEY_))
