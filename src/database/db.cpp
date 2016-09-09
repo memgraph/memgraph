@@ -4,13 +4,14 @@
 #include "storage/indexes/indexes.hpp"
 #include "storage/model/properties/property_family.hpp"
 
-Db::Db() = default;
-
-Db::Db(const std::string &name) : name_(name) {}
-
-Db::Db(const std::string &name, Snapshoter &snap) : name_(name)
+Db::Db() : name_("default"), snap_engine(*this, "default")
 {
-    snap.import(*this);
+    snap_engine.import();
+}
+
+Db::Db(const std::string &name) : name_(name), snap_engine(*this, name)
+{
+    snap_engine.import();
 }
 
 std::string const &Db::name() const { return name_; }

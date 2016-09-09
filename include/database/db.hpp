@@ -3,6 +3,7 @@
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"
 
+#include "snapshot/snapshot_engine.hpp"
 #include "storage/garbage/garbage.hpp"
 #include "storage/graph.hpp"
 #include "transactions/engine.hpp"
@@ -17,17 +18,16 @@ public:
 
     Db();
     Db(const std::string &name);
-    // Loads newest snapshot
-    Db(const std::string &name, Snapshoter &snap);
     Db(const Db &db) = delete;
 
     Graph graph;
     tx::Engine tx_engine;
     Garbage garbage;
+    SnapshotEngine snap_engine;
 
     std::string const &name() const;
 
-    Indexes indexes();
+    Indexes indexes(); // TODO join into Db
 
     // INDEXES
 

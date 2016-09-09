@@ -435,6 +435,7 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
+    ${src_dir}/snapshot/snapshot_engine.cpp
     ${src_dir}/snapshot/snapshoter.cpp
     ${src_dir}/snapshot/snapshot_encoder.cpp
     ${src_dir}/snapshot/snapshot_decoder.cpp

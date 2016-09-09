@@ -21,7 +21,7 @@ Db &Dbms::active(const std::string &name)
     if (it == acc.end()) {
         Snapshoter &snap = snapshoter;
         it = acc.emplace(name, std::forward_as_tuple(name),
-                         std::forward_as_tuple(name, snap))
+                         std::forward_as_tuple(name))
                  .first;
     }
 
