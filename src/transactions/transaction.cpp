@@ -11,14 +11,14 @@ namespace tx
 
 Transaction::Transaction(const Id &id, const Snapshot<Id> &snapshot,
                          Engine &engine)
-    : TransactionId(id, snapshot, engine)
+    : TransactionRead(id, snapshot, engine)
 {
 }
 
 // Returns copy of transaction_id
-TransactionId Transaction::transaction_id()
+TransactionRead Transaction::transaction_read()
 {
-    TransactionId const &t = *this;
+    TransactionRead const &t = *this;
     return t;
 }
 

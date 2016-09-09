@@ -468,7 +468,7 @@ set(memgraph_src_files
     ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/transactions/transaction.cpp
-    ${src_dir}/transactions/transaction_id.cpp
+    ${src_dir}/transactions/transaction_read.cpp
     ${src_dir}/template_engine/engine.cpp
     ${src_dir}/logging/streams/stdout.cpp
     ${src_dir}/logging/levels.cpp

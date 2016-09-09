@@ -53,7 +53,7 @@ public:
 
     // True if record visible for current transaction is visible to given
     // transaction id.
-    bool is_visble_to(tx::TransactionId const &id)
+    bool is_visble_to(tx::TransactionRead const &id)
     {
         return record->visible(id);
     }

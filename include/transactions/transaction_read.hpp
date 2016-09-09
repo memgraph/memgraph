@@ -13,16 +13,20 @@ namespace tx
 
 class Engine;
 
-class TransactionId
+// Has read only capbilities.
+// TODO: Not all applicable methods in code have been changed to accept
+// TransactionRead instead of a Transaction.
+class TransactionRead
 {
     friend class Engine;
 
 public:
-    TransactionId(Engine &engine);
+    TransactionRead(Engine &engine);
 
-    TransactionId(const Id &&id, const Snapshot<Id> &&snapshot, Engine &engine);
+    TransactionRead(const Id &&id, const Snapshot<Id> &&snapshot,
+                    Engine &engine);
 
-    TransactionId(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
+    TransactionRead(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
 
     // Return id of oldest transaction from snapshot.
     Id oldest_active();

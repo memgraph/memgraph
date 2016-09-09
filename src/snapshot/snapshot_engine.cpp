@@ -38,7 +38,7 @@ bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
 
         SnapshotEncoder snap(snapshot_file);
 
-        auto old_trans = tx::TransactionId(db.tx_engine);
+        auto old_trans = tx::TransactionRead(db.tx_engine);
         snapshot(t, snap, old_trans);
 
         auto res = sys::flush_file_to_disk(snapshot_file);
@@ -135,7 +135,7 @@ bool SnapshotEngine::import()
 }
 
 void SnapshotEngine::snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
-                              tx::TransactionId const &old_trans)
+                              tx::TransactionRead const &old_trans)
 {
     Db &db = dt.db;
     DbAccessor t(db, dt.trans);

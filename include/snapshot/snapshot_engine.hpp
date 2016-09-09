@@ -36,7 +36,7 @@ private:
 
     // Makes snapshot. It only saves records which have changed since old_trans.
     void snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
-                  tx::TransactionId const &old_trans);
+                  tx::TransactionRead const &old_trans);
 
     // Loads snapshot. True if success
     bool snapshot_load(DbTransaction const &dt, SnapshotDecoder &snap);

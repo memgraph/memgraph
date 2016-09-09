@@ -9,12 +9,12 @@
 #include "storage/locking/record_lock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
-#include "transactions/transaction_id.hpp"
+#include "transactions/transaction_read.hpp"
 
 namespace tx
 {
 
-class Transaction : public TransactionId
+class Transaction : public TransactionRead
 {
 
 public:
@@ -22,8 +22,8 @@ public:
     Transaction(const Transaction &) = delete;
     Transaction(Transaction &&) = delete;
 
-    // Returns copy of transaction_id
-    TransactionId transaction_id();
+    // Returns copy of transaction_read
+    TransactionRead transaction_read();
 
     // Blocks until all transactions from snapshot finish. After this method,
     // snapshot will be empty.
