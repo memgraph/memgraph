@@ -4,6 +4,8 @@
 
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "query_engine/query_stripper.hpp"
 // #include "storage/edges.cpp"
 // #include "storage/edges.hpp"
@@ -13,6 +15,9 @@
 
 int main(void)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     Db db;
 
     auto query_functions = load_queries(barrier::trans(db));

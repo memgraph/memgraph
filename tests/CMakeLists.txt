@@ -80,6 +80,15 @@ target_link_libraries(cleaning ${yaml_static_lib})
 add_test(NAME cleaning COMMAND cleaning)
 set_property(TARGET cleaning PROPERTY CXX_STANDARD 14)
 
+# test snapshot validity
+add_executable(snapshot integration/snapshot.cpp)
+target_link_libraries(snapshot memgraph)
+target_link_libraries(snapshot Threads::Threads)
+target_link_libraries(snapshot ${fmt_static_lib})
+target_link_libraries(snapshot ${yaml_static_lib})
+add_test(NAME snapshot COMMAND snapshot)
+set_property(TARGET snapshot PROPERTY CXX_STANDARD 14)
+
 # test query engine
 add_executable(integration_query_engine integration/query_engine.cpp)
 target_link_libraries(integration_query_engine Threads::Threads)

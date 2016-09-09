@@ -33,7 +33,7 @@ int main(void)
 
     size_t cvl_n = 1000;
 
-    Db db;
+    Db db("cleaning");
 
     auto query_functions = load_queries(barrier::trans(db));
 

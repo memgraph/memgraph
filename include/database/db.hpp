@@ -36,11 +36,13 @@ public:
     // std::unique_ptr<IndexBase<TypeGroupVertex,std::nullptr_t>>
     // G - type of collection (verrtex/edge)
     // TODO: Currently only one index at a time can be created.
+    // TODO: Move to indexes
     template <class TG, class I, class G>
     bool create_index_on_vertex_property_family(const char *name, G &coll,
                                                 I &create_index);
 
     // Removes index IndexHolder. True if there was index to remove.
+    // TODO: Move to indexes
     template <class TG, class K>
     bool remove_index(IndexHolder<TG, K> &ih);
 
