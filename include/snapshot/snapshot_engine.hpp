@@ -32,6 +32,9 @@ public:
     bool make_snapshot();
 
 private:
+    // Removes excess of snapshots starting with oldest one.
+    void clean_snapshots();
+
     // Makes snapshot of given type
     bool make_snapshot(std::time_t now, const char *type);
 
@@ -55,5 +58,10 @@ private:
     Db &db;
     std::mutex guard;
     const std::string snapshot_folder;
+
+    // Determines how many newest snapshot will be preserved, while the other
+    // ones will be deleted.
+    const size_t max_retained_snapshots;
+
     std::atomic<size_t> snapshoted_no_v = {0};
 };

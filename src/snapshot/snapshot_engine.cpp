@@ -11,6 +11,7 @@
 
 SnapshotEngine::SnapshotEngine(Db &db, std::string const &name)
     : snapshot_folder(CONFIG(config::SNAPSHOTS_PATH)), db(db),
+      max_retained_snapshots(CONFIG_INTEGER(config::MAX_RETAINED_SNAPSHOTS)),
       logger(logging::log->logger("SnapshotEngine db[" + name + "]"))
 {
 }
@@ -19,7 +20,58 @@ bool SnapshotEngine::make_snapshot()
 {
     std::lock_guard<std::mutex> lock(guard);
     std::time_t now = std::time(nullptr);
-    return make_snapshot(now, "full");
+    if (make_snapshot(now, "full")) {
+        clean_snapshots();
+        return true;
+    } else {
+        return false;
+    }
+}
+
+void SnapshotEngine::clean_snapshots()
+{
+    logger.info("Started cleaning commit_file");
+    std::vector<std::string> lines;
+    {
+        std::ifstream commit_file(snapshot_commit_file());
+
+        std::string line;
+        while (std::getline(commit_file, line)) {
+            lines.push_back(line);
+        }
+    }
+
+    int n = lines.size() - max_retained_snapshots;
+    if (n > 0) {
+        std::ofstream commit_file(snapshot_commit_file(), std::fstream::trunc);
+
+        for (auto i = n; i < lines.size(); i++) {
+            commit_file << lines[i] << std::endl;
+        }
+
+        auto res = sys::flush_file_to_disk(commit_file);
+        if (res == 0) {
+            commit_file.close();
+            logger.info("Removed {} snapshot from commit_file", n);
+
+            for (auto i = 0; i < n; i++) {
+                auto res = std::remove(lines[i].c_str());
+                if (res == 0) {
+                    logger.info("Succesfully deleted snapshot file \"{}\"",
+                                lines[i]);
+                } else {
+                    logger.error(
+                        "Error {} occured while deleting snapshot file \"{}\"",
+                        res, lines[i]);
+                }
+            }
+
+        } else {
+            logger.error("Error {} occured while flushing commit file", res);
+        }
+    }
+
+    logger.info("Finished cleaning commit_file");
 }
 
 bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
@@ -38,7 +90,9 @@ bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
 
         SnapshotEncoder snap(snapshot_file);
 
-        auto old_trans = tx::TransactionRead(db.tx_engine);
+        auto old_trans =
+            tx::TransactionRead(db.tx_engine); // Overenginered for incremental
+                                               // snapshot. Can be removed.
         snapshot(t, snap, old_trans);
 
         auto res = sys::flush_file_to_disk(snapshot_file);
