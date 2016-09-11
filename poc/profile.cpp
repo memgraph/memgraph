@@ -10,20 +10,27 @@
 #include <strings.h>
 #include <unistd.h>
 #include <unordered_map>
+
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "import/csv_import.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
 
 using namespace std;
 
+// Accepts flags for csv import.
+// -db name # will create database with that name.
+// -s true # will create snapshot of the database after import.
 int main(int argc, char **argv)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     auto para = all_arguments(argc, argv);
-    Db db;
+    Db db(get_argument(para, "-db", "powerlinks_profile"));
 
     import_csv_from_arguments(db, para);
-
-    usleep(1000 * 1000 * 10);
 
     {
         DbAccessor t(db);
@@ -70,6 +77,10 @@ int main(int argc, char **argv)
 
         cout << endl << endl << "Compiler sum " << sum << endl;
         t.commit();
+    }
+
+    if (get_argument(para, "-s", "false") == "true") {
+        db.snap_engine.make_snapshot();
     }
     // usleep(1000 * 1000 * 60);
 

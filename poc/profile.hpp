@@ -189,7 +189,7 @@ auto query(DbAccessor &t, const Id &start_id)
     const EdgeType &type_created = t.type_find_or_create("Created");
 
     auto prop_edge_status = t.edge_property_key<String>("status");
-    auto prop_edge_count = t.edge_property_key<Int32>("count");
+    auto prop_edge_count = t.edge_property_key<Int64>("count");
     auto prop_edge_feedback = t.edge_property_key<String>("feedback");
 
     auto prop_vertex_business_types =

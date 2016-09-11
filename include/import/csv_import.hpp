@@ -38,6 +38,10 @@ using namespace std;
 
 constexpr char const *_string = "string";
 
+// Will change all int32 into int64, and all float into double from csv into
+// database. Uplifting will occure even in arrays.
+constexpr const bool UPLIFT_PRIMITIVES = true;
+
 bool equal_str(const char *a, const char *b) { return strcasecmp(a, b) == 0; }
 
 // CSV importer for importing multiple files regarding same graph.
@@ -243,7 +247,8 @@ private:
                 new BoolFiller<TG>(property_key<TG>(name, Flags::Bool)));
             return make_option(std::move(f));
 
-        } else if (equal_str(type, "double")) {
+        } else if (equal_str(type, "double") ||
+                   (UPLIFT_PRIMITIVES && equal_str(type, "float"))) {
             std::unique_ptr<Filler> f(
                 new DoubleFiller<TG>(property_key<TG>(name, Flags::Double)));
             return make_option(std::move(f));
@@ -253,14 +258,15 @@ private:
                 new FloatFiller<TG>(property_key<TG>(name, Flags::Float)));
             return make_option(std::move(f));
 
+        } else if (equal_str(type, "long") ||
+                   (UPLIFT_PRIMITIVES && equal_str(type, "int"))) {
+            std::unique_ptr<Filler> f(
+                new Int64Filler<TG>(property_key<TG>(name, Flags::Int64)));
+            return make_option(std::move(f));
+
         } else if (equal_str(type, "int")) {
             std::unique_ptr<Filler> f(
                 new Int32Filler<TG>(property_key<TG>(name, Flags::Int32)));
-            return make_option(std::move(f));
-
-        } else if (equal_str(type, "long")) {
-            std::unique_ptr<Filler> f(
-                new Int64Filler<TG>(property_key<TG>(name, Flags::Int64)));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string")) {
@@ -273,16 +279,25 @@ private:
                 *this, property_key<TG>(name, Flags::ArrayBool), to_bool));
             return make_option(std::move(f));
 
+        } else if (equal_str(type, "double[]") ||
+                   (UPLIFT_PRIMITIVES && equal_str(type, "float[]"))) {
+            std::unique_ptr<Filler> f(
+                make_array_filler<TG, double, ArrayDouble>(
+                    *this, property_key<TG>(name, Flags::ArrayDouble),
+                    to_double));
+            return make_option(std::move(f));
+
         } else if (equal_str(type, "float[]")) {
             std::unique_ptr<Filler> f(make_array_filler<TG, float, ArrayFloat>(
                 *this, property_key<TG>(name, Flags::ArrayFloat), to_float));
             return make_option(std::move(f));
 
-        } else if (equal_str(type, "double[]")) {
+        } else if (equal_str(type, "long[]") ||
+                   (UPLIFT_PRIMITIVES && equal_str(type, "int[]"))) {
             std::unique_ptr<Filler> f(
-                make_array_filler<TG, double, ArrayDouble>(
-                    *this, property_key<TG>(name, Flags::ArrayDouble),
-                    to_double));
+                make_array_filler<TG, int64_t, ArrayInt64>(
+                    *this, property_key<TG>(name, Flags::ArrayInt64),
+                    to_int64));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "int[]")) {
@@ -290,13 +305,6 @@ private:
                 make_array_filler<TG, int32_t, ArrayInt32>(
                     *this, property_key<TG>(name, Flags::ArrayInt32),
                     to_int32));
-            return make_option(std::move(f));
-
-        } else if (equal_str(type, "long[]")) {
-            std::unique_ptr<Filler> f(
-                make_array_filler<TG, int64_t, ArrayInt64>(
-                    *this, property_key<TG>(name, Flags::ArrayInt64),
-                    to_int64));
             return make_option(std::move(f));
 
         } else if (equal_str(type, "string[]")) {

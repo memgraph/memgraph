@@ -95,7 +95,7 @@ bool SnapshotEngine::import()
             logger.info("Importing data from snapshot \"{}\"",
                         snapshots.back());
 
-            DbTransaction t(db);
+            DbAccessor t(db);
 
             try {
                 std::ifstream snapshot_file(snapshots.back(),
@@ -103,13 +103,20 @@ bool SnapshotEngine::import()
                 SnapshotDecoder decoder(snapshot_file);
 
                 if (snapshot_load(t, decoder)) {
-                    t.trans.commit();
-                    logger.info("Succesfully imported snapshot \"{}\"",
-                                snapshots.back());
-                    success = true;
-                    break;
+                    if (t.commit()) {
+                        logger.info("Succesfully imported snapshot \"{}\"",
+                                    snapshots.back());
+                        success = true;
+                        break;
+
+                    } else {
+                        logger.info("Unuccesfully tryed to import snapshot "
+                                    "\"{}\" because indexes where unuccesfully "
+                                    "with updating",
+                                    snapshots.back());
+                    }
                 } else {
-                    t.trans.abort();
+                    t.abort();
                     logger.info("Unuccesfully tryed to import snapshot \"{}\"",
                                 snapshots.back());
                 }
@@ -118,7 +125,7 @@ bool SnapshotEngine::import()
                 logger.error("Error occured while importing snapshot \"{}\"",
                              snapshots.back());
                 logger.error("{}", e.what());
-                t.trans.abort();
+                t.abort();
             }
 
             snapshots.pop_back();
@@ -180,28 +187,30 @@ void SnapshotEngine::snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
     snap.end();
 }
 
-bool SnapshotEngine::snapshot_load(DbTransaction const &dt,
-                                   SnapshotDecoder &snap)
+bool SnapshotEngine::snapshot_load(DbAccessor &t, SnapshotDecoder &snap)
 {
     std::unordered_map<uint64_t, VertexAccessor> vertices;
-
-    Db &db = dt.db;
-    DbAccessor t(db, dt.trans);
 
     // Load names
     snap.load_init();
 
     // Load vertices
     snap.begin_vertices();
+    size_t v_count = 0;
     while (!snap.end_vertices()) {
         vertices.insert(serialization::deserialize_vertex(t, snap));
+        v_count++;
     }
+    logger.info("Loaded {} vertices", v_count);
 
     // Load edges
     snap.begin_edges();
+    size_t e_count = 0;
     while (!snap.end_edges()) {
         serialization::deserialize_edge(t, snap, vertices);
+        e_count++;
     }
+    logger.info("Loaded {} edges", e_count);
 
     // Load indexes
     snap.start_indexes();

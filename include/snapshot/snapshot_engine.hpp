@@ -10,6 +10,7 @@ class SnapshotEncoder;
 class SnapshotDecoder;
 class Db;
 class DbTransaction;
+class DbAccessor;
 
 // Captures snapshots. Only one per database should exist.
 class SnapshotEngine
@@ -39,7 +40,7 @@ private:
                   tx::TransactionRead const &old_trans);
 
     // Loads snapshot. True if success
-    bool snapshot_load(DbTransaction const &dt, SnapshotDecoder &snap);
+    bool snapshot_load(DbAccessor &t, SnapshotDecoder &snap);
 
     std::string snapshot_file(std::time_t const &now, const char *type);
 
