@@ -37,8 +37,9 @@ public:
 
     Hints hints;
 
+    // NOTE: Wasn't used.
     // this lock is used by write queries when they update or delete records
-    RecordLock lock;
+    // RecordLock lock;
 
     // check if this record is visible to the transaction t
     bool visible(const tx::TransactionRead &t)
