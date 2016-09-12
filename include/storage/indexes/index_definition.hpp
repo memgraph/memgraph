@@ -19,21 +19,37 @@ public:
     const Order order;
 };
 
+// Defines location of index in a sense of what is necessary to be present in
+// Edge/Vertex for it to be in index.
 struct IndexLocation
 {
 public:
+    // Returns code for location.
+    size_t location_code() const
+    {
+        return (property_name.is_present() ? 1 : 0) |
+               (label_name.is_present() ? 2 : 0) |
+               (edge_type_name.is_present() ? 4 : 0);
+    }
+
+    IndexLocation clone() const
+    {
+        return IndexLocation{side, property_name, label_name, edge_type_name};
+    }
+
     const DbSide side;
     const Option<std::string> property_name;
     const Option<std::string> label_name;
+    const Option<std::string> edge_type_name;
 };
 
 // Fully answers:
-// On what index?
+// Index on what?
 // What kind of index?
 struct IndexDefinition
 {
 public:
-    // Serializes self which can be deserialized
+    // Serializes self which can be deserialized.
     template <class E>
     void serialize(E &encoder) const
     {
@@ -41,6 +57,7 @@ public:
         encoder.write_integer(underlying_cast(loc.side));
         encoder.write_string(loc.property_name.get_or(empty));
         encoder.write_string(loc.label_name.get_or(empty));
+        encoder.write_string(loc.edge_type_name.get_or(empty));
         encoder.write_bool(type.unique);
         encoder.write_integer(underlying_cast(type.order));
     }
@@ -64,14 +81,22 @@ public:
                               ? Option<std::string>()
                               : Option<std::string>(std::move(label_name_s));
 
+        std::string edge_type_name_s;
+        decoder.string(edge_type_name_s);
+        auto edge_type_name =
+            edge_type_name_s.empty()
+                ? Option<std::string>()
+                : Option<std::string>(std::move(edge_type_name_s));
+
         bool unique = decoder.read_bool();
 
         auto order_v = decoder.integer();
         auto order =
             order_v == 0 ? None : (order_v == 1 ? Ascending : Descending);
 
-        return IndexDefinition{IndexLocation{side, property_name, label_name},
-                               IndexType{unique, order}};
+        return IndexDefinition{
+            IndexLocation{side, property_name, label_name, edge_type_name},
+            IndexType{unique, order}};
     }
 
     const IndexLocation loc;

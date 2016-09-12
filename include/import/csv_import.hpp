@@ -51,7 +51,10 @@ class CSVImporter : public BaseImporter
 {
 
 public:
-    using BaseImporter::BaseImporter;
+    CSVImporter(DbAccessor &db)
+        : BaseImporter(db, logging::log->logger("CSV_import"))
+    {
+    }
 
     // Loads data from stream and returns number of loaded vertexes.
     size_t import_vertices(std::fstream &file)
@@ -77,12 +80,12 @@ private:
 
         // HEADERS
         if (!getline(file, line)) {
-            err("No lines");
+            logger.error("No lines");
             return 0;
         }
 
         if (!split(line, parts_mark, sub_str)) {
-            err("Illegal headers");
+            logger.error("Illegal headers");
             return 0;
         }
 
@@ -115,7 +118,7 @@ private:
                 for (int i = 0; i < n; i++) {
                     auto er = fillers[i]->fill(es, sub_str[i]);
                     if (er.is_present()) {
-                        err(er.get(), " on line: ", line_no);
+                        logger.error("{} on line: {}", er.get(), line_no);
                     }
                 }
 
@@ -143,17 +146,18 @@ private:
                                     id.get() - im->vertices.size() + 1, empty);
             }
             if (im->vertices[id.get()].is_present()) {
-                im->err("Vertex on line: ", line_no,
-                        " has same id with another previously loaded vertex");
+                im->logger.error("Vertex on line: {} has same id with another "
+                                 "previously loaded vertex",
+                                 line_no);
                 return false;
             } else {
                 im->vertices[id.get()] = make_option(std::move(va));
                 return true;
             }
         } else {
-            im->warn("Missing import local vertex id for vertex on "
-                     "line: ",
-                     line_no);
+            im->logger.warn("Missing import local vertex id for vertex on "
+                            "line: {}",
+                            line_no);
         }
 
         return true;
@@ -166,7 +170,7 @@ private:
         if (!o.is_present()) {
             return true;
         } else {
-            im->err(o.get(), " on line: ", line_no);
+            im->logger.error("{} on line: {}", o.get(), line_no);
             return false;
         }
     }
@@ -190,17 +194,17 @@ private:
         const char *type = tmp_vec[1];
 
         if (tmp_vec.size() > 2) {
-            err("To much sub parts in header part");
+            logger.error("To much sub parts in header part");
             return make_option<unique_ptr<Filler>>();
         } else if (tmp_vec.size() < 2) {
             if (tmp_vec.size() == 1) {
-                warn(
-                    "Column ", tmp_vec[0],
-                    " doesn't have specified type so string type will be used");
+                logger.warn("Column: {} doesn't have specified type so string "
+                            "type will be used",
+                            tmp_vec[0]);
                 name = tmp_vec[0];
                 type = _string;
             } else {
-                warn("Empty colum definition, skiping column.");
+                logger.warn("Empty colum definition, skiping column.");
                 std::unique_ptr<Filler> f(new SkipFiller());
                 return make_option(std::move(f));
             }
@@ -235,7 +239,7 @@ private:
             return make_option(std::move(f));
 
         } else if (name[0] == '\0') { // OTHER FILLERS REQUIRE NAME
-            warn("Unnamed column of type: ", type, " will be skipped.");
+            logger.warn("Unnamed column of type: {} will be skipped.", type);
             std::unique_ptr<Filler> f(new SkipFiller());
             return make_option(std::move(f));
 
@@ -315,7 +319,7 @@ private:
             return make_option(std::move(f));
 
         } else {
-            err("Unknown type: ", type);
+            logger.error("Unknown type: {}", type);
             return make_option<unique_ptr<Filler>>();
         }
     }
@@ -324,13 +328,13 @@ private:
     {
         if (diff != 0) {
             if (diff < 0) {
-                // warn("Line no: ", line_no, " has less parts then "
-                //                            "specified in header. Missing ",
-                //      diff, " parts");
+                logger.warn("Line no: {} has less parts then specified in "
+                            "header. Missing: {} parts",
+                            line_no, diff);
             } else {
-                warn("Line no: ", line_no,
-                     " has more parts then specified in header. Extra ", diff,
-                     " parts");
+                logger.warn("Line no: {} has more parts then specified in "
+                            "header. Extra: {} parts",
+                            line_no, diff);
             }
         }
     }
@@ -351,25 +355,18 @@ CSVImporter::property_key<TypeGroupEdge>(const char *name, Flags type)
 }
 
 // Imports all -v "vertex_file_path.csv" vertices and -e "edge_file_path.csv"
-// edges from specified files. Also defines arguments -d, -ad, -w, -err, -info.
+// edges from specified files. Also defines arguments -d, -ad.
 // -d delimiter => sets delimiter for parsing .csv files. Default is ,
-// -ad delimiter => sets delimiter for parsing arrays in .csv. Default is ,
-// -w bool => turns on/off output of warnings. Default on.
-// -err bool => turns on/off output of errors. Default on.
-// -info bool => turns on/off output of info. Default on.
+// -ad delimiter => sets delimiter for parsing arrays in .csv. Default is
 // Returns (no loaded vertices,no loaded edges)
 std::pair<size_t, size_t>
 import_csv_from_arguments(Db &db, std::vector<std::string> &para)
 {
     DbAccessor t(db);
-    CSVImporter imp(t, cerr);
+    CSVImporter imp(t);
 
     imp.parts_mark = get_argument(para, "-d", ",")[0];
     imp.parts_array_mark = get_argument(para, "-ad", ",")[0];
-    imp.warning = strcmp(get_argument(para, "-w", "true").c_str(), "true") == 0;
-    imp.error = strcmp(get_argument(para, "-err", "true").c_str(), "true") == 0;
-    bool info =
-        strcmp(get_argument(para, "-info", "true").c_str(), "true") == 0;
 
     // IMPORT VERTICES
     size_t l_v = 0;
@@ -377,16 +374,12 @@ import_csv_from_arguments(Db &db, std::vector<std::string> &para)
     while (o.is_present()) {
         std::fstream file(o.get());
 
-        if (info)
-            std::cout << "Importing vertices from file: " << o.get()
-                      << std::endl;
+        imp.logger.info("Importing vertices from file: {}", o.get());
 
         auto n = imp.import_vertices(file);
         l_v = +n;
 
-        if (info)
-            std::cout << "Loaded " << n << " vertices from " << o.get()
-                      << std::endl;
+        imp.logger.info("Loaded: {} vertices from {}", n, o.get());
 
         o = take_argument(para, "-v");
     }
@@ -397,15 +390,12 @@ import_csv_from_arguments(Db &db, std::vector<std::string> &para)
     while (o.is_present()) {
         std::fstream file(o.get());
 
-        if (info)
-            std::cout << "Importing edges from file: " << o.get() << std::endl;
+        imp.logger.info("Importing edges from file: {}", o.get());
 
         auto n = imp.import_edges(file);
         l_e = +n;
 
-        if (info)
-            std::cout << "Loaded " << n << " edges from " << o.get()
-                      << std::endl;
+        imp.logger.info("Loaded: {} edges from {}", n, o.get());
 
         o = take_argument(para, "-e");
     }

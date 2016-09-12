@@ -9,8 +9,12 @@
 #include "transactions/engine.hpp"
 
 class Indexes;
-class Snapshoter;
 
+// Main class which represents Database concept in code.
+// TODO: Maybe split this in another layer between Db and Dbms. Where the new
+// layer would hold SnapshotEngine and his kind of concept objects. Some
+// guidelines would be: retain objects which are necessary to implement querys
+// in Db, the rest can be moved to the new layer.
 class Db
 {
 public:
@@ -20,32 +24,21 @@ public:
     Db(const std::string &name);
     Db(const Db &db) = delete;
 
-    Graph graph;
+private:
+    const std::string name_;
+
+public:
     tx::Engine tx_engine;
-    Garbage garbage;
-    SnapshotEngine snap_engine;
+    Graph graph;
+    Garbage garbage = {tx_engine};
+
+    // This must be initialized after name.
+    SnapshotEngine snap_engine = {*this};
+
+    // Creates Indexes for this db.
+    // TODO: Indexes should be created only once somwhere Like Db or layer
+    // between Db and Dbms.
+    Indexes indexes();
 
     std::string const &name() const;
-
-    Indexes indexes(); // TODO join into Db
-
-    // INDEXES
-
-    // TG - type group
-    // I - type of function I:const tx::Transaction& ->
-    // std::unique_ptr<IndexBase<TypeGroupVertex,std::nullptr_t>>
-    // G - type of collection (verrtex/edge)
-    // TODO: Currently only one index at a time can be created.
-    // TODO: Move to indexes
-    template <class TG, class I, class G>
-    bool create_index_on_vertex_property_family(const char *name, G &coll,
-                                                I &create_index);
-
-    // Removes index IndexHolder. True if there was index to remove.
-    // TODO: Move to indexes
-    template <class TG, class K>
-    bool remove_index(IndexHolder<TG, K> &ih);
-
-private:
-    std::string name_;
 };

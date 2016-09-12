@@ -17,7 +17,7 @@ class SnapshotEngine
 {
 
 public:
-    SnapshotEngine(Db &db, std::string const &name);
+    SnapshotEngine(Db &db);
 
     ~SnapshotEngine() = default;
 

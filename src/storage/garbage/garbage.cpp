@@ -2,10 +2,15 @@
 
 void Garbage::dispose(tx::Snapshot<Id> &&snapshot, DeleteSensitive *data)
 {
-    // TODO: add to list
+    // If this fails it's better to leak memory than to cause read after free.
+    gar.begin().push(std::make_pair(snapshot, data));
 }
 
-void Garbage::clean(tx::Engine &engine)
+void Garbage::clean()
 {
-    // TODO: iterator throug list and check snapshot
+    for (auto it = gar.begin(); it != gar.end(); it++) {
+        if (it->first.all_finished(engine) && it.remove()) {
+            it->second->~DeleteSensitive();
+        }
+    }
 }

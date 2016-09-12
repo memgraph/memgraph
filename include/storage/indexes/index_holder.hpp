@@ -11,7 +11,7 @@ namespace tx
 class Transaction;
 }
 
-// Holds onde index which can be changed.
+// Holds one index which can be changed. Convinient class.
 // TG - type group
 // K - key of index_records
 template <class TG, class K>
@@ -25,7 +25,7 @@ public:
 
     IndexHolder(IndexHolder &&) = default;
 
-    // Sets index for this property family. Treturns false if index is already
+    // Sets index for this property family. returns false if index is already
     // present.
     bool set_index(std::unique_ptr<IndexBase<TG, K>> inx);
 

@@ -58,6 +58,13 @@ public:
         return record->visible(id);
     }
 
+    // Returns new IndexRecord with given key.
+    template <class K>
+    IndexRecord<TG, K> create_index_record(K &&key)
+    {
+        return IndexRecord<TG, K>(std::move(key), record, vlist);
+    }
+
     // TODO: Test this
     Derived update() const
     {

@@ -458,6 +458,7 @@ set(memgraph_src_files
     ${src_dir}/storage/model/properties/properties.cpp
     ${src_dir}/storage/model/properties/stored_property.cpp
     ${src_dir}/storage/model/properties/property_family.cpp
+    ${src_dir}/storage/indexes/indexes.cpp
     ${src_dir}/storage/indexes/index_base.cpp
     ${src_dir}/storage/indexes/index_record.cpp
     ${src_dir}/storage/indexes/index_update.cpp
@@ -467,6 +468,7 @@ set(memgraph_src_files
     ${src_dir}/storage/locking/record_lock.cpp
     ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
+    ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/transactions/transaction_read.cpp
     ${src_dir}/template_engine/engine.cpp

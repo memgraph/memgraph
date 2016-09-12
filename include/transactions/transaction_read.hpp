@@ -28,6 +28,10 @@ public:
 
     TransactionRead(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
 
+    // True if this transaction and every transaction from snapshot have
+    // finished.
+    bool all_finished();
+
     // Return id of oldest transaction from snapshot.
     Id oldest_active();
 

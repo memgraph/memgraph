@@ -16,13 +16,15 @@ class Engine;
 class Garbage
 {
 public:
+    Garbage(tx::Engine &e) : engine(e) {}
+
     void dispose(tx::Snapshot<Id> &&snapshot, DeleteSensitive *data);
 
-    // Cleaner thread shoul call this method every some time. Removes data which
-    // is
-    // safe to be deleted.
-    void clean(tx::Engine &engine);
+    // Cleaner thread should call this method every some time. Removes data
+    // which is safe to be deleted.
+    void clean();
 
 private:
-    List<std::pair<tx::Snapshot<Id>, DeleteSensitive *>> gar;
+    ConcurrentList<std::pair<tx::Snapshot<Id>, DeleteSensitive *>> gar;
+    tx::Engine &engine;
 };

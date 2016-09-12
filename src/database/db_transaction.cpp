@@ -48,7 +48,8 @@ void DbTransaction::clean_vertex_section()
     Id oldest_active = trans.oldest_active();
 
     // Clean indexes
-    db.indexes().vertex_indexes([&](auto &in) { in.clean(oldest_active); });
+    db.indexes().vertex_indexes(
+        [&](auto &in) { in.clean(oldest_active); });
 
     // Clean vertex list
     clean_version_lists(db.graph.vertices.access(), oldest_active);
@@ -67,7 +68,8 @@ bool DbTransaction::update_indexes()
             TRY(e.record->data.edge_type->index().insert(
                 EdgeTypeIndexRecord(std::nullptr_t(), e.record, e.vlist)));
 
-            TRY(db.indexes().update_property_indexes<TypeGroupEdge>(e, trans));
+            TRY(db.indexes().update_property_indexes<TypeGroupEdge>(
+                e, trans));
 
         } else {
             auto v = iu.v;
@@ -80,8 +82,8 @@ bool DbTransaction::update_indexes()
                     LabelIndexRecord(std::nullptr_t(), v.record, v.vlist)));
             }
 
-            TRY(db.indexes().update_property_indexes<TypeGroupVertex>(v,
-                                                                      trans));
+            TRY(db.indexes().update_property_indexes<TypeGroupVertex>(
+                v, trans));
         }
 
         index_updates.pop_back();

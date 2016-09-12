@@ -14,6 +14,7 @@
 
 #include "import/element_skeleton.hpp"
 #include "import/fillings/filler.hpp"
+#include "logging/default.hpp"
 #include "storage/model/properties/flags.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/option.hpp"
@@ -27,42 +28,9 @@ class BaseImporter
 {
 
 public:
-    BaseImporter(DbAccessor &db, ostream &err_stream)
-        : db(db), err_stream(err_stream)
+    BaseImporter(DbAccessor &db, Logger &&logger)
+        : db(db), logger(std::move(logger))
     {
-    }
-
-    template <class... Args>
-    void err(Args &... args)
-    {
-        if (error) {
-            err_stream << " Error: ";
-            out_err(args...);
-            err_stream << endl;
-        }
-    }
-
-    template <class... Args>
-    void warn(Args &... args)
-    {
-        if (warning) {
-            err_stream << "     Warning: ";
-            out_err(args...);
-            err_stream << endl;
-        }
-    }
-
-    template <class T, class... Args>
-    void out_err(T &first, Args &... args)
-    {
-        err_stream << first;
-        out_err(args...);
-    }
-
-    template <class T>
-    void out_err(T &first)
-    {
-        err_stream << first;
     }
 
     char *cstr(string &str) { return &str[0]; }
@@ -104,7 +72,7 @@ public:
             // IN ARRAY check
             if (c == open_bracket) {
                 if (in_array) {
-                    err("Nested arrays aren't supported.");
+                    logger.error("Nested arrays aren't supported.");
                     return false;
                 }
                 in_array = true;
@@ -198,6 +166,7 @@ public:
 
 public:
     DbAccessor &db;
+    Logger logger;
 
     char parts_mark = ',';
     char parts_array_mark = ',';
@@ -206,13 +175,7 @@ public:
     char open_bracket = '[';
     char closed_bracket = ']';
 
-    bool warning = true;
-    bool error = true;
-
 protected:
-    // All errors are writen to this stream.
-    ostream &err_stream;
-
     // All created vertices which have import local id
     vector<Option<VertexAccessor>> vertices;
 };

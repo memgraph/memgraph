@@ -9,10 +9,10 @@
 #include "threading/thread.hpp"
 #include "utils/sys.hpp"
 
-SnapshotEngine::SnapshotEngine(Db &db, std::string const &name)
+SnapshotEngine::SnapshotEngine(Db &db)
     : snapshot_folder(CONFIG(config::SNAPSHOTS_PATH)), db(db),
       max_retained_snapshots(CONFIG_INTEGER(config::MAX_RETAINED_SNAPSHOTS)),
-      logger(logging::log->logger("SnapshotEngine db[" + name + "]"))
+      logger(logging::log->logger("SnapshotEngine db[" + db.name() + "]"))
 {
 }
 
@@ -268,11 +268,14 @@ bool SnapshotEngine::snapshot_load(DbAccessor &t, SnapshotDecoder &snap)
 
     // Load indexes
     snap.start_indexes();
-    auto indexs = db.indexes();
     while (!snap.end()) {
-        // This will add index. It is alright for now to ignore if add_index
-        // return false.
-        indexs.add_index(snap.load_index());
+        // This will add index.
+        // TODO: It is alright for now to ignore if add_index return false. I am
+        // not even sure if false should stop snapshot loading.
+        if (!db.indexes().add_index(snap.load_index())) {
+            logger.warn("Failed to add index, but still continuing with "
+                        "loading snapshot");
+        }
     }
 
     return true;

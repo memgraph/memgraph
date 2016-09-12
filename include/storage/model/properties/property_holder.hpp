@@ -235,6 +235,9 @@ public:
         return !(*this == other);
     }
 
+    // True if NULL
+    bool is_empty() const { return is<Null>(); }
+
     // True if contains T property
     template <class D>
     bool is() const

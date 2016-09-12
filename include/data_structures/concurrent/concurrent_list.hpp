@@ -7,7 +7,7 @@
 
 // TODO: reimplement this
 template <class T>
-class List
+class ConcurrentList
 {
 private:
     template <class V>
@@ -50,12 +50,12 @@ private:
     template <class It>
     class IteratorBase : public Crtp<It>
     {
-        friend class List;
+        friend class ConcurrentList;
 
     protected:
         IteratorBase() : list(nullptr), curr(nullptr) {}
 
-        IteratorBase(List *list) : list(list)
+        IteratorBase(ConcurrentList *list) : list(list)
         {
             assert(list != nullptr);
             list->count++;
@@ -157,17 +157,16 @@ private:
         }
 
         // True only if this call removed the element. Only reason for fail is
-        // if
-        // the element is already removed.
+        // if the element is already removed.
         // Remove has deadlock if another thread dies between marking node for
-        // removal
-        // and the disconnection.
+        // removal and the disconnection.
         // This can be improved with combinig the removed flag with prev.next or
         // curr.next
         bool remove()
         {
             assert(valid());
             if (cas(curr->removed, false, true)) {
+                // I removed it!!!
                 if (!disconnect()) {
                     find_and_disconnect();
                 }
@@ -222,7 +221,7 @@ private:
             return true;
         }
 
-        List *list;
+        ConcurrentList *list;
         Node *prev{nullptr};
         Node *curr;
     };
@@ -230,7 +229,7 @@ private:
 public:
     class ConstIterator : public IteratorBase<ConstIterator>
     {
-        friend class List;
+        friend class ConcurrentList;
 
     public:
         using IteratorBase<ConstIterator>::IteratorBase;
@@ -253,19 +252,19 @@ public:
 
     class Iterator : public IteratorBase<Iterator>
     {
-        friend class List;
+        friend class ConcurrentList;
 
     public:
         using IteratorBase<Iterator>::IteratorBase;
     };
 
 public:
-    List() = default;
+    ConcurrentList() = default;
 
-    List(List &) = delete;
-    List(List &&) = delete;
+    ConcurrentList(ConcurrentList &) = delete;
+    ConcurrentList(ConcurrentList &&) = delete;
 
-    ~List()
+    ~ConcurrentList()
     {
         auto now = head.load();
         while (now != nullptr) {
@@ -275,7 +274,7 @@ public:
         }
     }
 
-    void operator=(List &) = delete;
+    void operator=(ConcurrentList &) = delete;
 
     Iterator begin() { return Iterator(this); }
 

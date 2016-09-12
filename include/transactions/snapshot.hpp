@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <vector>
 
+#include "mvcc/id.hpp"
 #include "utils/option.hpp"
 
 namespace tx
 {
+
+class Engine;
 
 template <class id_t>
 class Snapshot
@@ -19,6 +22,9 @@ public:
     Snapshot(const Snapshot &other) { active = other.active; }
 
     Snapshot(Snapshot &&other) { active = std::move(other.active); }
+
+    // True if all transaction from snapshot have finished.
+    bool all_finished(Engine &engine);
 
     bool is_active(id_t xid) const
     {

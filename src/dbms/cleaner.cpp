@@ -30,8 +30,13 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
                         try {
                             logger.info("Cleaning edges");
                             t.clean_edge_section();
+
                             logger.info("Cleaning vertices");
                             t.clean_vertex_section();
+
+                            logger.info("Cleaning garbage");
+                            db.second.garbage.clean();
+
                         } catch (const std::exception &e) {
                             logger.error(
                                 "Error occured while cleaning database \"{}\"",

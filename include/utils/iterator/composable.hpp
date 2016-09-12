@@ -99,6 +99,13 @@ public:
     }
 
     // Filters with property under given key
+    template <class KEY>
+    auto has_property(KEY &key)
+    {
+        return filter([&](auto &va) { return !va.at(key).is_empty(); });
+    }
+
+    // Filters with property under given key
     template <class KEY, class PROP>
     auto has_property(KEY &key, PROP const &prop)
     {
@@ -150,6 +157,22 @@ public:
     void for_all(OP &&op)
     {
         iter::for_all(move(), std::move(op));
+    }
+
+    // All items must satisfy given predicate for this function to return true.
+    // Otherwise stops calling predicate on firts false and returns fasle.
+    template <class OP>
+    bool all(OP &&op)
+    {
+        auto iter = move();
+        auto e = iter.next();
+        while (e.is_present()) {
+            if (!op(e.take())) {
+                return false;
+            }
+            e = iter.next();
+        }
+        return true;
     }
 };
 }

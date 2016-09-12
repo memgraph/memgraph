@@ -9,7 +9,7 @@ template <class TG, class K>
 class NonUniqueUnorderedIndex : public IndexBase<TG, K>
 {
 public:
-    using store_t = List<IndexRecord<TG, K>>;
+    using store_t = ConcurrentList<IndexRecord<TG, K>>;
     // typedef T value_type;
     // typedef K key_type;
 

@@ -5,7 +5,7 @@
 
 TEST_CASE("Conncurent List insert")
 {
-    List<int> list;
+    ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.reset();
@@ -14,7 +14,7 @@ TEST_CASE("Conncurent List insert")
 
 TEST_CASE("Conncurent List iterate")
 {
-    List<int> list;
+    ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.push(7);
@@ -35,7 +35,7 @@ TEST_CASE("Conncurent List iterate")
 
 TEST_CASE("Conncurent List head remove")
 {
-    List<int> list;
+    ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.reset();
@@ -50,7 +50,7 @@ TEST_CASE("Conncurent List head remove")
 
 TEST_CASE("Conncurent List remove")
 {
-    List<int> list;
+    ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.push(7);

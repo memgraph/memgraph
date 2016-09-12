@@ -25,11 +25,11 @@ TransactionRead Transaction::transaction_read()
 void Transaction::wait_for_active()
 {
     while (snapshot.size() > 0) {
-        auto id = snapshot.back();
-        while (engine.clog.fetch_info(id).is_active()) {
+        auto sid = snapshot.back();
+        while (engine.clog.fetch_info(sid).is_active()) {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
-        snapshot.remove(id);
+        snapshot.remove(sid);
     }
 }
 

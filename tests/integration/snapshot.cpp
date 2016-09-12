@@ -180,7 +180,7 @@ int main(void)
     clear_database(db, stripper, query_functions);
     db.snap_engine.import();
     {
-        Db db2;
+        Db db2("snapshot");
         assert(equal(db, db2));
     }
 
