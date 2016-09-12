@@ -127,10 +127,14 @@ bool Indexes::add_index(IndexDefinition id)
 
     if (finish(t)) {
         t.trans.commit();
+
+        logger.info("Success");
         return true;
 
     } else {
         t.trans.abort();
+
+        logger.info("Failed");
         return false;
     }
 }
