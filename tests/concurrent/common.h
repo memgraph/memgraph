@@ -20,6 +20,9 @@
 #include "logging/streams/stdout.hpp"
 #include "utils/sysinfo/memory.hpp"
 
+// Sets max number of threads that will be used in concurrent tests.
+constexpr int max_no_threads=8;
+
 using std::cout;
 using std::endl;
 using map_t = ConcurrentMap<int, int>;

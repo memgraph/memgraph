@@ -188,7 +188,6 @@ int main(void)
         // empty database
         // import snapshot
         // assert database empty
-
         Db db("snapshot", false);
         db.snap_engine.make_snapshot();
         run(cvl_n, create_vertex_label, db);

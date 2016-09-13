@@ -1,6 +1,6 @@
 #include "common.h"
 
-#define THREADS_NO 4
+constexpr size_t THREADS_NO = std::min(max_no_threads, 4);
 constexpr size_t key_range = 1e4;
 constexpr size_t op_per_thread = 1e5;
 // Depending on value there is a possiblity of numerical overflow

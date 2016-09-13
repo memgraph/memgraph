@@ -1,6 +1,6 @@
 #include "common.h"
 
-#define THREADS_NO 8
+constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
 
 constexpr size_t elements = 2e6;
 

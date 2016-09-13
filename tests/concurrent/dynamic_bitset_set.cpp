@@ -1,6 +1,6 @@
 #include "common.h"
 
-#define THREADS_NO 8
+constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
 constexpr size_t op_per_thread = 1e5;
 constexpr size_t key_range = op_per_thread * THREADS_NO * 3;
 

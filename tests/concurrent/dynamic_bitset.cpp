@@ -1,6 +1,6 @@
 #include "common.h"
 
-#define THREADS_NO 8
+constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
 constexpr size_t op_per_thread = 1e5;
 constexpr size_t bit_part_len = 2;
 constexpr size_t no_slots = 1e4;
