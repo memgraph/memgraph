@@ -226,7 +226,7 @@ int main(int argc, char **argv)
 
     auto para = all_arguments(argc, argv);
 
-    Db db;
+    Db db(false);
     auto loaded = import_csv_from_arguments(db, para);
     add_scores(db);
 
