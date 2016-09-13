@@ -27,7 +27,7 @@ public:
 
         if (first) first = false;
 
-        buffer << '"' << prop.get_property_key().family_name() << "\":";
+        buffer << '"' << prop.key.family_name() << "\":";
 
         prop.accept(*this);
     }

@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "data_structures/map/rh_hashmap.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.cpp"
 #include "database/db_accessor.hpp"
-
 #include "import/csv_import.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
@@ -23,8 +23,6 @@
 #include "storage/indexes/impl/nonunique_unordered_index.cpp"
 #include "storage/model/properties/properties.cpp"
 #include "storage/record_accessor.cpp"
-// #include "storage/vertex_accessor.cpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
@@ -226,9 +224,7 @@ int main(int argc, char **argv)
 
     auto para = all_arguments(argc, argv);
 
-    Db db;
-    auto loaded = import_csv_from_arguments(db, para);
-    add_scores(db);
+    Db db("astar");
 
     EdgeFilter e_filters[] = {&edge_filter_dummy, &edge_filter_dummy,
                               &edge_filter_dummy, &edge_filter_dummy};
@@ -247,7 +243,8 @@ int main(int argc, char **argv)
     double sum = 0;
     std::vector<Node *> best;
     for (int i = 0; i < bench_n; i++) {
-        auto start_vertex_index = std::rand() % loaded.first;
+        auto start_vertex_index =
+            std::rand() % db.graph.vertices.access().size();
 
         auto begin = clock();
         auto found = a_star(db, start_vertex_index, 3, e_filters, f_filters,
