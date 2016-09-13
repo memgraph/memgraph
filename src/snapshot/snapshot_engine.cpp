@@ -156,22 +156,18 @@ bool SnapshotEngine::import()
                                             std::fstream::binary);
                 SnapshotDecoder decoder(snapshot_file);
 
-                if (snapshot_load(t, decoder)) {
-                    if (t.commit()) {
-                        logger.info("Succesfully imported snapshot \"{}\"",
-                                    snapshots.back());
-                        success = true;
-                        break;
+                auto indexes = snapshot_load(t, decoder);
+                if (t.commit()) {
+                    logger.info("Succesfully imported snapshot \"{}\"",
+                                snapshots.back());
+                    add_indexes(indexes);
+                    success = true;
+                    break;
 
-                    } else {
-                        logger.info("Unuccesfully tryed to import snapshot "
-                                    "\"{}\" because indexes where unuccesfully "
-                                    "with updating",
-                                    snapshots.back());
-                    }
                 } else {
-                    t.abort();
-                    logger.info("Unuccesfully tryed to import snapshot \"{}\"",
+                    logger.info("Unuccesfully tryed to import snapshot "
+                                "\"{}\" because indexes where unuccesfully "
+                                "with updating",
                                 snapshots.back());
                 }
 
@@ -241,7 +237,8 @@ void SnapshotEngine::snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
     snap.end();
 }
 
-bool SnapshotEngine::snapshot_load(DbAccessor &t, SnapshotDecoder &snap)
+std::vector<IndexDefinition>
+SnapshotEngine::snapshot_load(DbAccessor &t, SnapshotDecoder &snap)
 {
     std::unordered_map<uint64_t, VertexAccessor> vertices;
 
@@ -268,23 +265,36 @@ bool SnapshotEngine::snapshot_load(DbAccessor &t, SnapshotDecoder &snap)
 
     // Load indexes
     snap.start_indexes();
+    std::vector<IndexDefinition> indexes;
     while (!snap.end()) {
-        // This will add index.
+        indexes.push_back(snap.load_index());
+    }
+
+    return indexes;
+}
+
+void SnapshotEngine::add_indexes(std::vector<IndexDefinition> &v)
+{
+    logger.info("Adding: {} indexes", v.size());
+    for (auto id : v) {
         // TODO: It is alright for now to ignore if add_index return false. I am
         // not even sure if false should stop snapshot loading.
-        if (!db.indexes().add_index(snap.load_index())) {
+        if (!db.indexes().add_index(id)) {
             logger.warn("Failed to add index, but still continuing with "
                         "loading snapshot");
         }
     }
-
-    return true;
 }
 
 std::string SnapshotEngine::snapshot_file(std::time_t const &now,
                                           const char *type)
 {
-    return snapshot_db_dir() + "/" + std::to_string(now) + "_" + type;
+    auto now_nano = std::chrono::time_point_cast<std::chrono::nanoseconds>(
+                        std::chrono::high_resolution_clock::now())
+                        .time_since_epoch()
+                        .count();
+    return snapshot_db_dir() + "/" + std::to_string(now) + "_" +
+           std::to_string(now_nano) + "_" + type;
 }
 
 std::string SnapshotEngine::snapshot_commit_file()
