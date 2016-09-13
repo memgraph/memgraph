@@ -64,6 +64,15 @@ public:
     }
 
     template <class Handler>
+    void handle(Handler &handler) const
+    {
+        for (auto &kv : props)
+            handler.handle(kv);
+
+        handler.finish();
+    }
+
+    template <class Handler>
     void for_all(Handler handler) const
     {
         for (auto &kv : props)

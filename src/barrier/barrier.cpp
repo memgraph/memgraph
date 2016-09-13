@@ -482,6 +482,10 @@ DESTRUCTOR(VertexPropertyKey, PropertyFamilyKey);
 // ************************* EdgePropertyKey
 DESTRUCTOR(EdgePropertyKey, PropertyFamilyKey);
 
+// ************************* VertexPropertyType
+#define VERTEX_PROPERTY_TYPE(x) template class VertexPropertyType<x>;
+INSTANTIATE_FOR_PROPERTY(VERTEX_PROPERTY_TYPE)
+
 // ************************* VertexPropertyFamily
 OptionPtr<VertexIndex<std::nullptr_t>> VertexPropertyFamily::index()
 {

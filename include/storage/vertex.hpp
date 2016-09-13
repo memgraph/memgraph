@@ -28,7 +28,7 @@ inline std::ostream &operator<<(std::ostream &stream, const Vertex &record)
     JsonWriter<StringBuffer> writer(buffer);
 
     // dump properties in this buffer
-    record.data.props.accept(writer);
+    record.data.props.handle(writer);
     writer.finish();
 
     return stream << "Vertex"

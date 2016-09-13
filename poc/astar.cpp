@@ -13,7 +13,10 @@
 #include "database/db.hpp"
 #include "database/db_accessor.cpp"
 #include "database/db_accessor.hpp"
+
 #include "import/csv_import.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "storage/edge_x_vertex.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
@@ -218,9 +221,12 @@ auto a_star(
 
 int main(int argc, char **argv)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     auto para = all_arguments(argc, argv);
 
-    Db db;
+    Db db(false);
     auto loaded = import_csv_from_arguments(db, para);
     add_scores(db);
 

@@ -20,8 +20,9 @@ class Db
 public:
     using sptr = std::shared_ptr<Db>;
 
-    Db();
-    Db(const std::string &name);
+    explicit Db(bool import_snapshot = true);
+    Db(const char *name, bool import_snapshot = true);
+    Db(const std::string &name, bool import_snapshot = true);
     Db(const Db &db) = delete;
 
 private:

@@ -121,6 +121,12 @@ public:
         properties().template accept<Handler>(handler);
     }
 
+    template <class Handler>
+    void handle(Handler &handler) const
+    {
+        properties().template handle<Handler>(handler);
+    }
+
     Properties<TG> &properties() const { return record->data.props; }
 
     explicit operator bool() const { return record != nullptr; }
