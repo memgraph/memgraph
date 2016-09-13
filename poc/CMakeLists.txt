@@ -4,6 +4,7 @@ project(memgraph_poc)
 
 
 include_directories(${CMAKE_SOURCE_DIR}/poc)
+include_directories(${CMAKE_SOURCE_DIR}/queries)
 
 
 add_executable(poc_astar astar.cpp)
