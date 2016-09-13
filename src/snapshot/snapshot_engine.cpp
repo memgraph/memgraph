@@ -292,7 +292,8 @@ std::string SnapshotEngine::snapshot_file(std::time_t const &now,
     auto now_nano = std::chrono::time_point_cast<std::chrono::nanoseconds>(
                         std::chrono::high_resolution_clock::now())
                         .time_since_epoch()
-                        .count();
+                        .count() %
+                    (1000 * 1000 * 1000);
     return snapshot_db_dir() + "/" + std::to_string(now) + "_" +
            std::to_string(now_nano) + "_" + type;
 }
