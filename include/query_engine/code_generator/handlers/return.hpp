@@ -69,5 +69,18 @@ auto return_query_action =
         }
     }
 
+    // return functions
+    for (auto const &kv : action_data.actions)
+    {
+        auto name = kv.first;
+        if (kv.second == ClauseAction::ReturnCount)
+        {
+            if (cypher_data.source(name) == EntitySource::MainStorage)
+            {
+                code += code_line(code::count, name);
+            }
+        }
+    }
+
     return code;
 };

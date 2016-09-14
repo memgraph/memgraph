@@ -19,3 +19,4 @@
 #include "set.hpp"
 #include "expr.hpp"
 #include "with.hpp"
+#include "functions.hpp"

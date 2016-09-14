@@ -58,6 +58,9 @@ public:
         rule("(?i:AND)", TK_AND);
         rule("(?i:OR)", TK_OR);
 
+        // functions
+        rule("(?i:COUNT)", TK_COUNT);
+
         // string literal TODO single quote escape
         rule("'(.*?)'", TK_STR);
 

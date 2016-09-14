@@ -493,6 +493,7 @@ public:
     void write_list_header(size_t size);
     void write_record();
     void write_meta(const std::string &type);
+    void write_failure(const std::map<std::string, std::string> &data);
     void send();
     void chunk();
 };

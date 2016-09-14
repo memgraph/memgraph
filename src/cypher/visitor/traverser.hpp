@@ -154,6 +154,10 @@ public:
         accept(rem.right);
     }
 
+    void visit(ast::CountFunction& count) override
+    {
+    }
+
     void visit(ast::PropertyList& prop_list) override
     {
         accept(prop_list.value);

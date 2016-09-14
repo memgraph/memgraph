@@ -36,6 +36,9 @@ struct Star;
 struct Slash;
 struct Rem;
 
+// functions
+struct CountFunction;
+
 struct RelationshipSpecs;
 struct RelationshipTypeList;
 struct Relationship;
@@ -83,6 +86,7 @@ struct AstVisitor
           PatternList, Match, ReadQuery, Start, Where, WriteQuery, Create,
           Return, Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
           ReadWriteQuery, IdentifierList, WithList, WithClause, WithQuery, Long,
+          CountFunction,
           InternalIdExpr, SetValue, SetElement, SetList>
 {
 };

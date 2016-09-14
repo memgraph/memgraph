@@ -24,6 +24,16 @@ struct LeafExpr : public ValueExpr<Derived>
     T value;
 };
 
+// T is argument type
+template <class T, class Derived>
+struct FunctionExpr : public ValueExpr<Derived>
+{
+    FunctionExpr(const std::string& name, T argument) : name(name), argument(argument) {}
+    
+    std::string name;
+    T argument;
+};
+
 template <class Derived>
 struct BinaryExpr : public ValueExpr<Derived>
 {
@@ -43,4 +53,5 @@ struct PatternExpr : public Expr
 
     Pattern *pattern;
 };
+
 }

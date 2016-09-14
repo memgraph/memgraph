@@ -519,4 +519,15 @@ public:
 
         code += generator.generate();
     }
+
+    void visit(ast::CountFunction& ast_count) override
+    {
+        auto &action_data = generator.action_data();
+        auto &cypher_data = generator.cypher_data();
+
+        if (state == CypherState::Return)
+        {
+            action_data.actions[ast_count.argument] = ClauseAction::ReturnCount;
+        }
+    }
 };

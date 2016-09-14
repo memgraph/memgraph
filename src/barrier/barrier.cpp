@@ -675,6 +675,12 @@ void RecordStream<Stream>::write_meta(const std::string &type)
 }
 
 template <class Stream>
+void RecordStream<Stream>::write_failure(const std::map<std::string, std::string> &data)
+{
+    HALF_CALL(write_failure(data));
+}
+
+template <class Stream>
 void RecordStream<Stream>::send()
 {
     HALF_CALL(send());

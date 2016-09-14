@@ -105,6 +105,18 @@ const std::string find_and_write_edges_by_type =
     "        }});\n"
     "        stream.write_meta(\"rw\");\n";
 
+// TODO: vertices and edges
+const std::string count =
+    "size_t count = 0;\n"
+    "        t.vertex_access().fill().for_all(\n"
+    "            [&](auto vertex) {{ ++count; }});\n"
+    "        stream.write_field(\"count({0})\");\n"
+    "        stream.write_record();\n"
+    "        stream.write_list_header(1);\n"
+    "        stream.write(Int64(count));\n"
+    "        stream.chunk();\n"
+    "        stream.write_meta(\"r\");\n";
+
 const std::string return_true = "return true;";
 
 const std::string todo = "// TODO: {}";

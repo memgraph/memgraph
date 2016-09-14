@@ -94,7 +94,6 @@ void astar(DbAccessor &t, code_args_t &args, STREAM &stream)
         queue.pop();
 
         if (max_depth <= now->depth) {
-            stream.write_success_empty();
             // best.push_back(now);
             count++;
             if (count >= limit) {
@@ -113,6 +112,12 @@ void astar(DbAccessor &t, code_args_t &args, STREAM &stream)
             }
         });
     } while (!queue.empty());
+
+	stream.write_field("n");
+    stream.write_record();
+    stream.write_list_header(0);
+    stream.chunk();
+    stream.write_meta("r");
 
     for (auto n : all_nodes) {
         delete n;

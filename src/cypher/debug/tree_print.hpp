@@ -294,6 +294,12 @@ public:
         Traverser::visit(rem);
     }
 
+    void visit(ast::CountFunction& count) override
+    {
+        auto entry = printer.advance("Count ");
+        entry << count.name << "(" << count.argument << ")";
+    }
+
     void visit(ast::PropertyList& prop_list) override
     {
         auto entry = printer.advance("Property List");

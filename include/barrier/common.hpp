@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <map>
 
 // THis shoul be the only place to include code from memgraph other than
 // barrier.cpp

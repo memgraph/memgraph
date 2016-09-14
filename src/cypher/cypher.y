@@ -495,6 +495,12 @@ pattern_expr(E) ::= pattern(P). {
     E = ast->create<ast::PatternExpr>(P);
 }
 
+%type function_expr {ast::Expr*}
+
+function_expr(E) ::= COUNT LP IDN(A) RP. {
+    E = ast->create<ast::CountFunction>(A->value);
+}
+
 %type expr {ast::Expr*}
 
 expr(E) ::= value_expr(V). {
@@ -503,6 +509,10 @@ expr(E) ::= value_expr(V). {
 
 expr(E) ::= pattern_expr(P). {
     E = P;
+}
+
+expr(E) ::= function_expr(F). {
+    E = F;
 }
 
 //%type alias {ast::Alias*}

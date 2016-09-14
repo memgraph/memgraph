@@ -12,6 +12,7 @@
 #include "query_engine/query_stripper.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "logging/default.hpp"
+#include "utils/file.hpp"
 
 using std::string;
 
@@ -46,16 +47,32 @@ public:
             return query_program_t(code, std::move(stripped));
         }
 
-        // code has to be generated, compiled and loaded
-        //  TODO load output path from config
         auto base_path = CONFIG(config::COMPILE_CPU_PATH);
         auto path_cpp = base_path + hash_string + ".cpp";
+        auto hard_code_cpp = base_path + "hardcode/" + hash_string + ".cpp";
         auto stripped_space = stripper.strip_space(query);
-        code_generator.generate_cpp(stripped_space.query, stripped.hash,
-                                    path_cpp);
 
+        // cpp files in the hardcode folder have bigger priority then
+        // other cpp files
+        if (!utils::fexists(hard_code_cpp))
+        {
+            code_generator.generate_cpp(stripped_space.query, stripped.hash,
+                                        path_cpp);
+        }
+
+        // compile the code
         auto path_so = base_path + hash_string + ".so";
-        code_compiler.compile(path_cpp, path_so);
+
+        // hardcoded queries are compiled to the same folder as generated
+        // queries (all .so files are in the same folder)
+        if (utils::fexists(hard_code_cpp))
+        {
+            code_compiler.compile(hard_code_cpp, path_so);
+        }
+        else
+        {
+            code_compiler.compile(path_cpp, path_so);
+        }
 
         // loads dynamic lib and store it
         auto code_lib = load_code_lib(path_so);
