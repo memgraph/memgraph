@@ -43,27 +43,30 @@ int main(int argc, char **argv)
     Db db("astar");
     barrier::CodeCPU cp;
     int bench_n = 1000;
-    double sum = 0;
-    for (int i = 0; i < bench_n; i++) {
-        auto start_vertex_index =
-            std::rand() % db.graph.vertices.access().size();
 
-        auto begin = clock();
+    do {
+        double sum = 0;
+        for (int i = 0; i < bench_n; i++) {
+            auto start_vertex_index =
+                std::rand() % db.graph.vertices.access().size();
 
-        code_args_t args;
-        args.push_back(Property(Int64(start_vertex_index), Int64::type));
+            auto begin = clock();
 
-        cp.run(barrier::trans(db), args, std::cout);
+            code_args_t args;
+            args.push_back(Property(Int64(start_vertex_index), Int64::type));
 
-        clock_t end = clock();
+            cp.run(barrier::trans(db), args, std::cout);
 
-        double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
-        sum += elapsed_ms;
-    }
+            clock_t end = clock();
 
-    std::cout << "\nSearch for best " << barrier::limit
-              << " results has runing time of:\n    avg: " << sum / bench_n
-              << " [ms]\n";
+            double elapsed_ms = (double(end - begin) / CLOCKS_PER_SEC) * 1000;
+            sum += elapsed_ms;
+        }
+
+        std::cout << "\nSearch for best " << barrier::limit
+                  << " results has runing time of:\n    avg: " << sum / bench_n
+                  << " [ms]\n";
+    } while (true);
 
     return 0;
 }
