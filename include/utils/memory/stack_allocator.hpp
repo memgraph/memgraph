@@ -20,7 +20,8 @@ public:
     {
         // If size is bigger than pages_size then this do-whil will never end
         // until it eats all the memory.
-        static_assert(sizeof(T) <= page_size);
+        static_assert(sizeof(T) <= page_size,
+                      "Cant allocate objects larger than page_size");
         do {
             // Mask which has log2(alignof(T)) lower bits setted to 0 and the
             // rest to 1.

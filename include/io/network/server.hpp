@@ -9,8 +9,9 @@ template <class Derived>
 class Server : public EventListener<Derived>
 {
 public:
-    Server(Socket &&socket) : socket(std::forward<Socket>(socket)),
-        logger(logging::log->logger("io::Server"))
+    Server(Socket &&socket)
+        : socket(std::forward<Socket>(socket)),
+          logger(logging::log->logger("io::Server"))
     {
         event.data.fd = this->socket;
 

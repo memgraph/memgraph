@@ -59,6 +59,8 @@ class EdgePropertyFamily;
 
 // ************* Here should be defined usings
 using label_ref_t = ReferenceWrapper<const Label>;
+using VertexStoredProperty = PropertyHolder<VertexPropertyKey>;
+using EdgeStoredProperty = PropertyHolder<EdgePropertyKey>;
 
 // ************ Here should be definitions of Sized barrier classes
 // Original class should have Sized barrier class if it can't be Unsized.
@@ -147,9 +149,9 @@ public:
 
     void remove() const;
 
-    const StoredProperty<TypeGroupVertex> &at(VertexPropertyFamily &key) const;
+    const VertexStoredProperty &at(VertexPropertyFamily &key) const;
 
-    const StoredProperty<TypeGroupVertex> &at(VertexPropertyKey &key) const;
+    const VertexStoredProperty &at(VertexPropertyKey &key) const;
 
     template <class V>
     OptionPtr<const V> at(VertexPropertyType<V> &key) const;
@@ -203,9 +205,9 @@ public:
 
     void remove() const;
 
-    const StoredProperty<TypeGroupEdge> &at(EdgePropertyFamily &key) const;
+    const EdgeStoredProperty &at(EdgePropertyFamily &key) const;
 
-    const StoredProperty<TypeGroupEdge> &at(EdgePropertyKey &key) const;
+    const EdgeStoredProperty &at(EdgePropertyKey &key) const;
 
     template <class V>
     OptionPtr<const V> at(EdgePropertyType<V> &key) const;
@@ -406,6 +408,8 @@ public:
 
     VertexPropertyKey &operator=(const VertexPropertyKey &other) = default;
     VertexPropertyKey &operator=(VertexPropertyKey &&other) = default;
+
+    Type get_type() const;
 };
 
 class EdgePropertyKey : private Sized<8, 8>
@@ -420,6 +424,8 @@ public:
 
     EdgePropertyKey &operator=(const EdgePropertyKey &other) = default;
     EdgePropertyKey &operator=(EdgePropertyKey &&other) = default;
+
+    Type get_type() const;
 };
 
 template <class K>
@@ -468,8 +474,8 @@ public:
 
     void write(const VertexAccessor &vertex);
     void write(const EdgeAccessor &edge);
-    void write(const StoredProperty<TypeGroupVertex> &prop);
-    void write(const StoredProperty<TypeGroupEdge> &prop);
+    void write(const VertexStoredProperty &prop);
+    void write(const EdgeStoredProperty &prop);
     void write_null();
     void write(const Null &v);
     void write(const Bool &prop);

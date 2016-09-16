@@ -175,6 +175,8 @@ TRANSFORM_REF(VertexPropertyKey,
               ::VertexPropertyFamily::PropertyType::PropertyFamilyKey);
 TRANSFORM_REF(EdgePropertyKey,
               ::EdgePropertyFamily::PropertyType::PropertyFamilyKey);
+TRANSFORM_REF(VertexStoredProperty, ::StoredProperty<TypeGroupVertex>);
+TRANSFORM_REF(EdgeStoredProperty, ::StoredProperty<TypeGroupEdge>);
 
 // ITERATORS
 TRANSFORM_REF(VertexIterator, ::iter::Virtual<const ::VertexAccessor>);

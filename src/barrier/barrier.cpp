@@ -277,16 +277,14 @@ VertexAccessor VertexAccessor::update() const { return CALL(update()); }
 
 void VertexAccessor::remove() const { HALF_CALL(remove()); }
 
-const StoredProperty<TypeGroupVertex> &
-VertexAccessor::at(VertexPropertyFamily &key) const
+const VertexStoredProperty &VertexAccessor::at(VertexPropertyFamily &key) const
 {
-    return HALF_CALL(at(trans(key)));
+    return CALL(at(trans(key)));
 }
 
-const StoredProperty<TypeGroupVertex> &
-VertexAccessor::at(VertexPropertyKey &key) const
+const VertexStoredProperty &VertexAccessor::at(VertexPropertyKey &key) const
 {
-    return HALF_CALL(at(trans(key)));
+    return CALL(at(trans(key)));
 }
 
 template <class V>
@@ -363,16 +361,14 @@ EdgeAccessor EdgeAccessor::update() const { return CALL(update()); }
 
 void EdgeAccessor::remove() const { HALF_CALL(remove()); }
 
-const StoredProperty<TypeGroupEdge> &
-EdgeAccessor::at(EdgePropertyFamily &key) const
+const EdgeStoredProperty &EdgeAccessor::at(EdgePropertyFamily &key) const
 {
-    return HALF_CALL(at(trans(key)));
+    return CALL(at(trans(key)));
 }
 
-const StoredProperty<TypeGroupEdge> &
-EdgeAccessor::at(EdgePropertyKey &key) const
+const EdgeStoredProperty &EdgeAccessor::at(EdgePropertyKey &key) const
 {
-    return HALF_CALL(at(trans(key)));
+    return CALL(at(trans(key)));
 }
 
 template <class V>
@@ -479,8 +475,12 @@ Count EdgeAccessIterator::count() { return HALF_CALL(count()); }
 // ************************* VertexPropertyKey
 DESTRUCTOR(VertexPropertyKey, PropertyFamilyKey);
 
+Type VertexPropertyKey::get_type() const { return HALF_CALL(get_type()); }
+
 // ************************* EdgePropertyKey
 DESTRUCTOR(EdgePropertyKey, PropertyFamilyKey);
+
+Type EdgePropertyKey::get_type() const { return HALF_CALL(get_type()); }
 
 // ************************* VertexPropertyType
 #define VERTEX_PROPERTY_TYPE(x) template class VertexPropertyType<x>;
@@ -531,15 +531,15 @@ void RecordStream<Stream>::write(const EdgeAccessor &edge)
 }
 
 template <class Stream>
-void RecordStream<Stream>::write(const StoredProperty<TypeGroupEdge> &prop)
+void RecordStream<Stream>::write(const VertexStoredProperty &prop)
 {
-    HALF_CALL(write(prop));
+    HALF_CALL(write(trans(prop)));
 }
 
 template <class Stream>
-void RecordStream<Stream>::write(const StoredProperty<TypeGroupVertex> &prop)
+void RecordStream<Stream>::write(const EdgeStoredProperty &prop)
 {
-    HALF_CALL(write(prop));
+    HALF_CALL(write(trans(prop)));
 }
 
 // template <class Stream>
@@ -675,7 +675,8 @@ void RecordStream<Stream>::write_meta(const std::string &type)
 }
 
 template <class Stream>
-void RecordStream<Stream>::write_failure(const std::map<std::string, std::string> &data)
+void RecordStream<Stream>::write_failure(
+    const std::map<std::string, std::string> &data)
 {
     HALF_CALL(write_failure(data));
 }
@@ -720,4 +721,55 @@ const>(barrier::VertexAccessor const&&)'
 description:
 Move constructor VertexAccessor<VertexAccessor const>(VertexAccessor const&&)
 isn't defined.
+
+
+error:
+/home/ktf/Workspace/memgraph/src/barrier/barrier.cpp:282:12: error: call to
+'trans' is ambiguous
+    return CALL(at(trans(key)));
+           ^~~~~~~~~~~~~~~~~~~~
+/home/ktf/Workspace/memgraph/src/barrier/barrier.cpp:18:17: note: expanded from
+macro 'CALL'
+#define CALL(x) trans(HALF_CALL(x))
+                ^~~~~
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:208:21: note: candidate
+function
+DUP(VertexAccessor, TRANSFORM_VALUE);
+                    ^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:169:21: note: candidate
+function
+DUP(VertexAccessor, TRANSFORM_REF);
+                    ^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:170:19: note: candidate
+function
+DUP(EdgeAccessor, TRANSFORM_REF);
+                  ^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:174:1: note: candidate
+function
+TRANSFORM_REF(VertexPropertyKey,
+^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:25:14: note: expanded
+from macro 'TRANSFORM_REF'
+    y const &trans(x const &l) { return ref_as<y const>(l); }                  \
+             ^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:176:1: note: candidate
+function
+TRANSFORM_REF(EdgePropertyKey,
+^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:25:14: note: expanded
+from macro 'TRANSFORM_REF'
+    y const &trans(x const &l) { return ref_as<y const>(l); }                  \
+             ^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:182:1: note: candidate
+function
+TRANSFORM_REF(VertexIterator, ::iter::Virtual<const ::VertexAccessor>);
+^
+/home/ktf/Workspace/memgraph/include/barrier/trans.hpp:23:14: note: expanded
+from macro 'TRANSFORM_REF'
+    x const &trans(y const &l) { return ref_as<x const>(l); }                  \
+...
+
+description:
+There is no valid transformation for types on which trans is called.
+
 */

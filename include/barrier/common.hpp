@@ -1,10 +1,10 @@
 #pragma once
 
 #include <cassert>
+#include <map>
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <map>
 
 // THis shoul be the only place to include code from memgraph other than
 // barrier.cpp
@@ -12,7 +12,6 @@
 #include "storage/indexes/index_definition.hpp"
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/property.hpp"
-#include "storage/model/properties/stored_property.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/iterator.hpp"
 #include "utils/option_ptr.hpp"
