@@ -10,17 +10,11 @@ class BlockAllocator
 {
     struct Block
     {
-        Block()
-        {
-            data = malloc(block_size);
-        }
+        Block() { data = malloc(block_size); }
 
-        Block(void* ptr)
-        {
-            data = ptr;
-        }
+        Block(void *ptr) { data = ptr; }
 
-        void* data;
+        void *data;
     };
 
 public:
@@ -28,23 +22,29 @@ public:
 
     BlockAllocator(size_t capacity = 0)
     {
-        for(size_t i = 0; i < capacity; ++i)
+        for (size_t i = 0; i < capacity; ++i)
             blocks.emplace_back();
     }
 
-    void* acquire()
+    ~BlockAllocator()
     {
-        if(blocks.size() == 0)
-            blocks.emplace_back();
+        for (auto b : blocks) {
+            free(b.data);
+        }
+        blocks.clear();
+    }
 
+    // Returns nullptr on no memory.
+    void *acquire()
+    {
+        if (blocks.size() == 0) blocks.emplace_back();
+
+        auto ptr = blocks.back().data;
         Auto(blocks.pop_back());
-        return blocks.back().data;
+        return ptr;
     }
-    
-    void release(void* ptr)
-    {
-        blocks.emplace_back(ptr);
-    }
+
+    void release(void *ptr) { blocks.emplace_back(ptr); }
 
 private:
     std::vector<Block> blocks;

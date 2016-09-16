@@ -5,6 +5,7 @@
 
 #include "query_engine/i_code_cpu.hpp"
 #include "storage/model/properties/all.hpp"
+#include "utils/memory/stack_allocator.hpp"
 
 using std::cout;
 using std::endl;
@@ -71,6 +72,8 @@ bool vertex_filter_contained(DbAccessor &t, VertexAccessor &v, Node *before)
 
 void astar(DbAccessor &t, code_args_t &args, STREAM &stream)
 {
+    StackAllocator stack;
+
     VertexPropertyType<Double> tkey = t.vertex_property_key<Double>("score");
 
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
@@ -84,7 +87,7 @@ void astar(DbAccessor &t, code_args_t &args, STREAM &stream)
     }
 
     start_vr.get().fill();
-    Node *start = new Node(start_vr.take(), 0, tkey);
+    Node *start = stack.make<Node>(start_vr.take(), 0, tkey);
     queue.push(start);
     all_nodes.push_back(start);
 
@@ -106,22 +109,24 @@ void astar(DbAccessor &t, code_args_t &args, STREAM &stream)
             VertexAccessor va = edge.to();
             if (vertex_filter_contained(t, va, now)) {
                 auto cost = 1 - va.at(tkey).get()->value();
-                Node *n = new Node(va, now->cost + cost, now, tkey);
+                Node *n = stack.make<Node>(va, now->cost + cost, now, tkey);
                 queue.push(n);
                 all_nodes.push_back(n);
             }
         });
     } while (!queue.empty());
 
-	stream.write_field("n");
+    stream.write_field("n");
     stream.write_record();
     stream.write_list_header(0);
     stream.chunk();
     stream.write_meta("r");
 
-    for (auto n : all_nodes) {
-        delete n;
-    }
+    // for (auto n : all_nodes) {
+    //     delete n;
+    // }
+
+    stack.free();
 }
 
 class CodeCPU : public ICodeCPU<STREAM>
