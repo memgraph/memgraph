@@ -19,3 +19,5 @@ ve3/
 release/memgraph_*
 release/libs/
 release/barrier/
+release/barrier_*
+

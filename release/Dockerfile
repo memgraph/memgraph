@@ -7,9 +7,11 @@ RUN apt-get update \
 RUN mkdir -p /libs
 RUN mkdir -p /memgraph
 
-COPY barrier /memgraph
+ENV BINARY_NAME memgraph_393_7eff53e_demo_debug
+
+COPY barrier_$BINARY_NAME /memgraph
 COPY libs/fmt /libs/fmt
 
 WORKDIR /memgraph
 
-CMD ./memgraph_dev_f3af0ef_363_release
+CMD ./$BINARY_NAME
