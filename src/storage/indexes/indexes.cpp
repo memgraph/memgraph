@@ -13,7 +13,7 @@ bool Indexes::add_index(IndexDefinition id)
     // Creates transaction and during it's creation adds index into it's
     // place. Also created finish closure which will add necessary elements
     // into index.
-    DbTransaction t(db, db.tx_engine.begin([&, id](auto &t) mutable {
+    DbTransaction t(db, db.tx_engine.begin([&](auto &t) mutable {
         size_t code = id.loc.location_code();
 
         switch (code) {

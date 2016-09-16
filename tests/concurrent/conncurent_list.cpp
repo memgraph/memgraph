@@ -1,11 +1,11 @@
 #include "common.h"
 
 constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
-constexpr size_t key_range = 1e5;
-constexpr size_t op_per_thread = 1e6;
+constexpr size_t key_range = 1e2;
+constexpr size_t op_per_thread = 1e5;
 // Depending on value there is a possiblity of numerical overflow
 constexpr size_t max_number = 10;
-constexpr size_t no_find_per_change = 5;
+constexpr size_t no_find_per_change = 2;
 constexpr size_t no_insert_for_one_delete = 1;
 
 // This test simulates behavior of transactions.
@@ -16,10 +16,10 @@ int main()
 {
     init_log();
     memory_check(THREADS_NO, [] {
-        map_t skiplist;
+        ConcurrentList<std::pair<int, int>> list;
 
         auto futures = run<std::pair<long long, long long>>(
-            THREADS_NO, skiplist, [](auto acc, auto index) {
+            THREADS_NO, [&](auto index) mutable {
                 auto rand = rand_gen(key_range);
                 auto rand_change = rand_gen_bool(no_find_per_change);
                 auto rand_delete = rand_gen_bool(no_insert_for_one_delete);
@@ -31,28 +31,36 @@ int main()
                     auto data = num % max_number;
                     if (rand_change()) {
                         if (rand_delete()) {
-                            if (acc.remove(num)) {
-                                sum -= data;
-                                count--;
+                            for (auto it = list.begin(); it != list.end();
+                                 it++) {
+                                if (it->first == num) {
+                                    if (it.remove()) {
+                                        sum -= data;
+                                        count--;
+                                    }
+                                    break;
+                                }
                             }
                         } else {
-                            if (acc.insert(num, data).second) {
-                                sum += data;
-                                count++;
-                            }
+                            list.begin().push(std::make_pair(num, data));
+                            sum += data;
+                            count++;
                         }
                     } else {
-                        auto value = acc.find(num);
-                        permanent_assert(value == acc.end() ||
-                                             value->second == data,
-                                         "Data is invalid");
+                        for (auto &v : list) {
+                            if (v.first == num) {
+                                permanent_assert(v.second == data,
+                                                 "Data is invalid");
+                                break;
+                            }
+                        }
                     }
                 }
 
                 return std::pair<long long, long long>(sum, count);
             });
 
-        auto accessor = skiplist.access();
+        auto it = list.begin();
         long long sums = 0;
         long long counters = 0;
         for (auto &data : collect(futures)) {
@@ -60,11 +68,10 @@ int main()
             counters += data.second.second;
         }
 
-        for (auto &e : accessor) {
+        for (auto &e : list) {
             sums -= e.second;
         }
         permanent_assert(sums == 0, "Same values aren't present");
-        check_size<map_t>(accessor, counters);
-        check_order<map_t>(accessor);
+        check_size_list<ConcurrentList<std::pair<int, int>>>(list, counters);
     });
 }

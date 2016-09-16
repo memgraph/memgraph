@@ -66,7 +66,7 @@ void add_property(Db &db, StoredProperty<TypeGroupVertex> &prop)
     assert(t.commit());
 }
 
-void add_property_different_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
+void add_vertex_property_serial_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
 {
     DbAccessor t(db);
 
@@ -81,7 +81,23 @@ void add_property_different_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
     assert(t.commit());
 }
 
-size_t size(Db &db, IndexHolder<TypeGroupVertex, std::nullptr_t> &h)
+void add_edge_property_serial_int(Db &db, PropertyFamily<TypeGroupEdge> &f)
+{
+    DbAccessor t(db);
+
+    auto key = f.get(Int64::type).family_key();
+
+    size_t i = 0;
+    t.edge_access().fill().for_all([&](auto va) mutable {
+        va.set(StoredProperty<TypeGroupEdge>(Int64(i), key));
+        i++;
+    });
+
+    assert(t.commit());
+}
+
+template <class TG>
+size_t size(Db &db, IndexHolder<TG, std::nullptr_t> &h)
 {
     DbAccessor t(db);
 
@@ -179,93 +195,43 @@ int main(void)
     std::string delete_label_vertices = "MATCH (n:LABEL) DELETE n";
     std::string delete_all_vertices = "MATCH (n) DELETE n";
 
+    IndexDefinition vertex_property_nonunique_unordered = {
+        IndexLocation{VertexSide, Option<std::string>("prop"),
+                      Option<std::string>(), Option<std::string>()},
+        IndexType{false, None}};
+    IndexDefinition edge_property_nonunique_unordered = {
+        IndexLocation{EdgeSide, Option<std::string>("prop"),
+                      Option<std::string>(), Option<std::string>()},
+        IndexType{false, None}};
+    IndexDefinition edge_property_unique_ordered = {
+        IndexLocation{EdgeSide, Option<std::string>("prop"),
+                      Option<std::string>(), Option<std::string>()},
+        IndexType{true, Ascending}};
+    IndexDefinition vertex_property_unique_ordered = {
+        IndexLocation{VertexSide, Option<std::string>("prop"),
+                      Option<std::string>(), Option<std::string>()},
+        IndexType{true, Ascending}};
+
     // ******************************* TEST 1 ********************************//
     {
         std::cout << "TEST1" << std::endl;
-        // make snapshot of empty db
-        // add vertexs
-        // add edges
-        // empty database
-        // import snapshot
-        // assert database empty
-        Db db("snapshot", false);
-        db.snap_engine.make_snapshot();
-        run(cvl_n, create_vertex_label, db);
-        add_edge(cvl_n, db);
-        clear_database(db);
-        db.snap_engine.import();
-        assert_empty(db);
-    }
-
-    // ******************************* TEST 2 ********************************//
-    {
-        std::cout << "TEST2" << std::endl;
-        // add vertexs
-        // add edges
-        // make snapshot of db
-        // empty database
-        // import snapshot
-        // create new db
-        // compare database with new db
-        Db db("snapshot", false);
-        run(cvl_n, create_vertex_label, db);
-        add_edge(cvl_n, db);
-        db.snap_engine.make_snapshot();
-        clear_database(db);
-        db.snap_engine.import();
-        {
-            Db db2("snapshot");
-            assert(equal(db, db2));
-        }
-    }
-
-    // ******************************* TEST 3 ********************************//
-    {
-        std::cout << "TEST3" << std::endl;
-        // add vertexs
-        // add edges
-        // make snapshot of db
-        // compare database with different named database
-        Db db("snapshot", false);
-        run(cvl_n, create_vertex_label, db);
-        add_edge(cvl_n, db);
-        db.snap_engine.make_snapshot();
-        {
-            Db db2("not_snapshot");
-            assert(!equal(db, db2));
-        }
-    }
-
-    // ******************************* TEST 4 ********************************//
-    {
-        std::cout << "TEST4" << std::endl;
+        // add indexes
         // add vertices LABEL
-        // add properties
-        // add vertices LABEL
-        // add index on proprety
-        // assert index containts vertices
-        // make snapshot
-        // create new db
-        // assert index on LABEL in new db exists
-        // assert index in new db containts vertice
-        Db db("snapshot", false);
+        // add edges
+        // add vertices property
+        // assert index size.
+        Db db("index", false);
+        assert(db.indexes().add_index(vertex_property_nonunique_unordered));
+        assert(db.indexes().add_index(edge_property_nonunique_unordered));
         run(cvl_n, create_vertex_label, db);
-        auto &family = db.graph.vertices.property_family_find_or_create("prop");
-        add_property_different_int(db, family);
-        run(cvl_n, create_vertex_other, db);
-        IndexDefinition idef = {
-            IndexLocation{VertexSide, Option<std::string>("prop"),
-                          Option<std::string>(), Option<std::string>()},
-            IndexType{false, None}};
-        assert(db.indexes().add_index(idef));
-        assert(cvl_n == size(db, family.index));
-        db.snap_engine.make_snapshot();
-        {
-            Db db2("snapshot");
-            assert(cvl_n == size(db, db2.graph.vertices
-                                         .property_family_find_or_create("prop")
-                                         .index));
-        }
+        add_edge(cvl_n, db);
+        assert(cvl_n ==
+               size(db, db.graph.vertices.property_family_find_or_create("prop")
+                            .index));
+        assert(
+            cvl_n ==
+            size(db,
+                 db.graph.edges.property_family_find_or_create("prop").index));
     }
 
     // TODO: more tests

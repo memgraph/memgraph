@@ -1,6 +1,6 @@
 #include "common.h"
 
-#define THREADS_NO 1
+constexpr size_t THREADS_NO = std::min(max_no_threads, 1);
 constexpr size_t elems_per_thread = 16e5;
 
 // Known memory leak at 1,600,000 elements.

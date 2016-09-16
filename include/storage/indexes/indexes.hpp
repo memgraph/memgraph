@@ -20,6 +20,61 @@ public:
 
     // Adds index defined in given definition. Returns true if successfull.
     bool add_index(IndexDefinition id);
+    //
+    // // Returns index from location.
+    // template <class TG, class K>
+    // Option<IndexHolder<TG, K>> get_index(IndexLocation loc)
+    // {
+    //     size_t code = loc.location_code();
+    //
+    //     switch (code) {
+    //     case 0: // Illegal location
+    //         return Option<IndexHolder<TG, K>>();
+    //
+    //     case 1:
+    //         switch (loc.side) {
+    //         case EdgeSide: {
+    //             return make_option(
+    //                 db.graph.edges
+    //                     .property_family_find_or_create(loc.property_name.get())
+    //                     .index);
+    //         }
+    //         case VertexSide: {
+    //             return make_option(
+    //                 db.graph.vertices
+    //                     .property_family_find_or_create(loc.property_name.get())
+    //                     .index);
+    //         }
+    //         default:
+    //             throw new NonExhaustiveSwitch("Unkown side: " +
+    //                                           std::to_string(loc.side));
+    //         };
+    //
+    //     case 2: // Can't be removed
+    //         return Option<IndexHolder<TG, K>>();
+    //
+    //     case 3: // Not yet implemented
+    //         throw new NotYetImplemented("Getting index over label and "
+    //                                     "property isn't yet implemented");
+    //     case 4: // Can't be removed
+    //         return Option<IndexHolder<TG, K>>();
+    //
+    //     case 5: // Not yet implemented
+    //         throw new NotYetImplemented("Getting index over edge_type and "
+    //                                     "property isn't yet implemented");
+    //     case 6: // Not yet implemented
+    //         throw new NotYetImplemented("Getting index over edge_type and "
+    //                                     "label isn't yet implemented");
+    //     case 7: // Not yet implemented
+    //         throw new NotYetImplemented("Getting index over label, edge_type
+    //         "
+    //                                     "and property isn't yet
+    //                                     implemented");
+    //     default:
+    //         throw new NonExhaustiveSwitch("Unkown index location code: " +
+    //                                       std::to_string(code));
+    //     }
+    // }
 
     // Removes index from given location. Returns true if successfull or if no
     // index was present. False if index location is illegal.
@@ -98,7 +153,7 @@ public:
                                       f);
     }
 
-    // Updates property indexes for given TypeGroup TG and IU index update
+    // Updates property indexes for given TypeGroup TG and IU index_update
     template <class TG, class IU>
     bool update_property_indexes(IU &iu, const tx::Transaction &t)
     {

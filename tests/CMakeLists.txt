@@ -89,6 +89,15 @@ target_link_libraries(snapshot ${yaml_static_lib})
 add_test(NAME snapshot COMMAND snapshot)
 set_property(TARGET snapshot PROPERTY CXX_STANDARD 14)
 
+# test index validity
+add_executable(index integration/index.cpp)
+target_link_libraries(index memgraph)
+target_link_libraries(index Threads::Threads)
+target_link_libraries(index ${fmt_static_lib})
+target_link_libraries(index ${yaml_static_lib})
+add_test(NAME index COMMAND index)
+set_property(TARGET index PROPERTY CXX_STANDARD 14)
+
 # test query engine
 add_executable(integration_query_engine integration/query_engine.cpp)
 target_link_libraries(integration_query_engine Threads::Threads)

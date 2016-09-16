@@ -13,11 +13,15 @@
 #include "data_structures/concurrent/concurrent_multiset.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
+#include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/static_array.hpp"
 #include "utils/assert.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "utils/sysinfo/memory.hpp"
+
+// Sets max number of threads that will be used in concurrent tests.
+constexpr int max_no_threads=8;
 
 using std::cout;
 using std::endl;
@@ -64,6 +68,26 @@ void check_present_same(typename S::Accessor &acc,
 
 // Checks if reported size and traversed size are equal to given size.
 template <typename S>
+void check_size_list(S &acc, long long size)
+{
+    // check size
+
+    permanent_assert(acc.size() == size, "Size should be " << size
+                                                           << ", but size is "
+                                                           << acc.size());
+
+    // check count
+
+    size_t iterator_counter = 0;
+
+    for (auto elem : acc) {
+        ++iterator_counter;
+    }
+    permanent_assert(iterator_counter == size, "Iterator count should be "
+                                                   << size << ", but size is "
+                                                   << iterator_counter);
+}
+template <typename S>
 void check_size(typename S::Accessor &acc, long long size)
 {
     // check size
@@ -83,6 +107,7 @@ void check_size(typename S::Accessor &acc, long long size)
                                                    << size << ", but size is "
                                                    << iterator_counter);
 }
+
 // Checks if order in list is maintened. It expects map
 template <typename S>
 void check_order(typename S::Accessor &acc)

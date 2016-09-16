@@ -27,6 +27,11 @@ void add_scores(Db &db, double max_value, std::string const &property_name)
     t.commit();
 }
 
+// Tool to add double propertys to all vertices.
+// // Accepts flags for csv import.
+// -db name , will create database with that name.
+// -pn name , will name property with that name,default: name=score.
+// -max number , will set range of property [0,max], default: max=1
 int main(int argc, char **argv)
 {
     logging::init_async();

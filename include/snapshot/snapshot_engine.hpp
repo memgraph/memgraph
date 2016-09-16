@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "logging/default.hpp"
+#include "storage/indexes/index_definition.hpp"
 #include "transactions/transaction.hpp"
 
 class SnapshotEncoder;
@@ -42,9 +43,14 @@ private:
     void snapshot(DbTransaction const &dt, SnapshotEncoder &snap,
                   tx::TransactionRead const &old_trans);
 
-    // Loads snapshot. True if success
-    bool snapshot_load(DbAccessor &t, SnapshotDecoder &snap);
+    // Loads snapshot. True if success. Returns indexes which were in snapshot.
+    std::vector<IndexDefinition> snapshot_load(DbAccessor &t,
+                                               SnapshotDecoder &snap);
 
+    // Adds indexes. Should be called outside transactions.
+    void add_indexes(std::vector<IndexDefinition> &v);
+
+    // Will return different name on every call.
     std::string snapshot_file(std::time_t const &now, const char *type);
 
     std::string snapshot_commit_file();
