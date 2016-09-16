@@ -22,6 +22,7 @@ bool contains_argument(const std::vector<std::string> &all,
     return std::find(all.begin(), all.end(), flag) != all.end();
 }
 
+// just returns argument value
 auto get_argument(const std::vector<std::string> &all, const std::string &flag,
                   const std::string &default_value)
 {
@@ -32,6 +33,7 @@ auto get_argument(const std::vector<std::string> &all, const std::string &flag,
     return all[std::distance(all.begin(), it) + 1];
 }
 
+// removes argument value from the all vector
 Option<std::string> take_argument(std::vector<std::string> &all,
                                   const std::string &flag)
 {
