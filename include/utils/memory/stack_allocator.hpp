@@ -4,6 +4,8 @@
 #include "query_engine/exceptions/exceptions.hpp"
 #include "utils/memory/block_allocator.hpp"
 
+// http://en.cppreference.com/w/cpp/language/new
+
 // Useful for allocating memory which can be freed with one call.
 // Most performant for data which need to be present to the end.
 class StackAllocator

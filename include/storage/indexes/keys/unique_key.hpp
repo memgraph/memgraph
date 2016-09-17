@@ -1,5 +1,7 @@
 #pragma once
 
+// TODO: DEPRICATED
+
 #include "utils/total_ordering.hpp"
 
 #include "storage/indexes/sort_order.hpp"

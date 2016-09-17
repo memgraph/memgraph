@@ -20,7 +20,13 @@ public:
 
     // Adds index defined in given definition. Returns true if successfull.
     bool add_index(IndexDefinition id);
+
+    // currently caller has to get index through object that contains
+    // the index
+    
+    // TODO: redesign
     //
+    // this was a nice try
     // // Returns index from location.
     // template <class TG, class K>
     // Option<IndexHolder<TG, K>> get_index(IndexLocation loc)

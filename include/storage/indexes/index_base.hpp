@@ -29,9 +29,6 @@ template <class TG, class K>
 class IndexBase : public DeleteSensitive
 {
 public:
-    // typedef T value_type;
-    // typedef K key_type;
-
     // Created with the database
     IndexBase(IndexDefinition &&it);
 

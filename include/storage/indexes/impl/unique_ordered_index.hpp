@@ -4,6 +4,7 @@
 
 #include "data_structures/concurrent/concurrent_set.hpp"
 
+// TODO: T shoud be TG (TypeGroup)
 template <class T, class K>
 class UniqueOrderedIndex : public IndexBase<T, K>
 {

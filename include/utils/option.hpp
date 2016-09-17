@@ -5,17 +5,13 @@
 #include <ext/aligned_buffer.h>
 #include <utility>
 
+// Optional object storage
+
 template <class T>
 class Option
 {
 public:
     Option() { std::memset(data._M_addr(), 0, sizeof(T)); }
-    //
-    // Option(T item)
-    // {
-    //     new (data._M_addr()) T(std::forward(item));
-    //     initialized = true;
-    // }
 
     Option(T const &item)
     {

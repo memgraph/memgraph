@@ -72,7 +72,7 @@ public:
 
         if (record->is_visible_write(db.trans)) {
             // TODO: VALIDATE THIS BRANCH. THEN ONLY THIS TRANSACTION CAN SEE
-            // THIS DATA WHICH MEENS THAT IT CAN CHANGE IT.
+            // THIS DATA WHICH MEANS THAT IT CAN CHANGE IT.
             return Derived(record, vlist, db);
 
         } else {

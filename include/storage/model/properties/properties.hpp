@@ -8,6 +8,9 @@
 #include "storage/model/properties/property_family.hpp"
 #include "storage/model/properties/stored_property.hpp"
 
+// TG - type group (TypeGroupEntity)
+
+// TODO: think about a better place
 template <class TG, class T>
 using type_key_t =
     typename PropertyFamily<TG>::PropertyType::template PropertyTypeKey<T>;

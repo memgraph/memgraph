@@ -328,6 +328,7 @@ auto load_queries(Db &db)
         Option<const VertexAccessor> n;
         Option<const EdgeAccessor> r;
 
+        // lazy load iterator
         auto it_type = type.index()
                            .for_range(t)
                            .clone_to(r) // Savepoint
@@ -346,12 +347,16 @@ auto load_queries(Db &db)
         if (it_type.count() > it_vertex.count()) {
             // Going through vertices wiil probably be faster
             it_vertex.to().for_all([&](auto m) {
+                // m is changing
+                // n is n
                 // PRINT n, m
             });
 
         } else {
             // Going through edges wiil probably be faster
             it_type.to().for_all([&](auto m) {
+                // m is r
+                // n is changing
                 // PRINT n, m
             });
         }

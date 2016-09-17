@@ -16,6 +16,8 @@ struct IndexUpdateVertex
     Vertex *record;
 };
 
+// based of IndexUpdate objects IndexRecords are created
+// at the end of transaction (inside commit called on DbAccessor)
 struct IndexUpdate
 {
     enum

@@ -34,7 +34,6 @@ public:
 
     public:
         // Ordered on POINTERS to PropertyFamily
-        // TODO: This probably isn't necessary anymore.
         class PropertyFamilyKey
             : public TotalOrdering<PropertyFamilyKey>,
               public TotalOrdering<PropertyFamilyKey, PropertyFamily>,

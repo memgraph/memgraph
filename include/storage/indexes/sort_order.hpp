@@ -1,5 +1,7 @@
 #pragma once
 
+// TODO: DEPRICATED
+
 template <class T>
 struct Ascending
 {
