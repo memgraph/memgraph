@@ -5,6 +5,7 @@ Db &Dbms::active()
 {
     Db *active = active_db.load(std::memory_order_acquire);
     if (UNLIKELY(active == nullptr)) {
+        // There is no active database.
         return create_default();
     } else {
         return *active;
@@ -19,6 +20,8 @@ Db &Dbms::active(const std::string &name)
     // create db if it doesn't exist
     auto it = acc.find(name);
     if (it == acc.end()) {
+
+        // It doesn't exist.
         Snapshoter &snap = snapshoter;
         it = acc.emplace(name, std::forward_as_tuple(name),
                          std::forward_as_tuple(name))

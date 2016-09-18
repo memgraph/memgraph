@@ -11,8 +11,7 @@
 #include "utils/stream_wrapper.hpp"
 
 // Represents creation of a snapshot. Contains all necessary informations
-// for
-// write. Caller is responisble to structure his calls as following:
+// for write. Caller is responisble to structure his calls as following:
 // * property_name_init
 // * label_name_init
 // * edge_type_name_init

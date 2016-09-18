@@ -7,7 +7,7 @@ namespace iter
 {
 
 // Class which maps values returned by I iterator into value of type T with OP
-// function and ends when op return empty optional.
+// function and ends when op returns empty optional.
 // T - type of return value
 // I - iterator type
 // OP - type of mapper function. OP: V -> Option<T>

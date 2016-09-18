@@ -6,7 +6,7 @@
 #include "storage/vertex_accessor.hpp"
 
 // Holder for element data which he can then insert as a vertex or edge into the
-// database depending on the available data.
+// database depending on the available data and called add_* method.
 class ElementSkeleton
 {
 
@@ -99,15 +99,6 @@ public:
     Option<size_t> element_id() { return el_id; }
 
 private:
-    // template <class A>
-    // void add_propreties(A &ra)
-    // {
-    //     for (auto prop : properties) {
-    //         assert(prop.prop.is_present());
-    //         ra.set(prop.key, prop.prop.take());
-    //     }
-    // }
-
     DbAccessor &db;
 
     Option<size_t> el_id;

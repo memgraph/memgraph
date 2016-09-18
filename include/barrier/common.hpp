@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-// THis shoul be the only place to include code from memgraph other than
+// This shoul be the only place to include code from memgraph other than
 // barrier.cpp
 #include "mvcc/id.hpp"
 #include "storage/indexes/index_definition.hpp"
@@ -28,30 +28,35 @@ namespace barrier
         x(ArrayInt64) x(ArrayFloat) x(ArrayDouble) x(ArrayBool) x(ArrayString)
 
 // **************************** HELPER FUNCTIONS **************************** //
+// CASTS FROM& -> TO&
 template <class TO, class FROM>
 TO &ref_as(FROM &ref)
 {
     return (*reinterpret_cast<TO *>(&ref));
 }
 
+// CASTS FROM const& -> TO const&
 template <class TO, class FROM>
 TO const &ref_as(FROM const &ref)
 {
     return (*reinterpret_cast<TO const *>(&ref));
 }
 
+// CASTS FROM* -> TO*
 template <class TO, class FROM>
 TO *ptr_as(FROM *ref)
 {
     return (reinterpret_cast<TO *>(ref));
 }
 
+// CASTS FROM const* -> TO const*
 template <class TO, class FROM>
 TO const *ptr_as(FROM const *ref)
 {
     return (reinterpret_cast<TO const *>(ref));
 }
 
+// CASTS FROM&& -> TO&&
 template <class TO, class FROM>
 TO &&value_as(FROM &&ref)
 {
@@ -61,6 +66,7 @@ TO &&value_as(FROM &&ref)
     return (reinterpret_cast<TO &&>(std::move(ref)));
 }
 
+// CASTS FROM const&& -> TO const&&
 template <class TO, class FROM>
 const TO &&value_as(const FROM &&ref)
 {
@@ -71,7 +77,8 @@ const TO &&value_as(const FROM &&ref)
 }
 
 // Barrier classes which will be used only through reference/pointer should
-// inherit this class.
+// inherit this class. Outside of barrier derived classes will be used only
+// through reference/pointer.
 class Unsized
 {
 public:
@@ -95,7 +102,7 @@ class Sized
 {
 protected:
     // This will ensure that this/derived class can't be instantiated.
-    // This way side outside the barrier can't "accidentaly" create this/derived
+    // Something outside the barrier can't "accidentaly" create this/derived
     // type because that would be erroneous.
     Sized() = delete;
 
@@ -123,28 +130,9 @@ protected:
                       "Border class aligment mismatch");
     }
 
-public:
-    typename std::aligned_storage<size_B, alignment_B>::type &_data_ref()
-    {
-        return data;
-    }
-
-    typename std::aligned_storage<size_B, alignment_B>::type const &
-    _data_ref_const() const
-    {
-        return data;
-    }
-
 private:
     // Here is the aligned storage which imitates size and aligment of object of
     // original class from memgraph.
     typename std::aligned_storage<size_B, alignment_B>::type data;
 };
-
-// HELPER FUNCTIONS
-template <class R>
-bool option_fill(Option<R> &o)
-{
-    return o.is_present() && o.get().fill();
-}
 }

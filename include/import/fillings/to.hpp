@@ -6,6 +6,7 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+// Parses to import local id of vertex for edge.
 class ToFiller : public Filler
 {
 

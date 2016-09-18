@@ -11,7 +11,7 @@ bool Indexes::add_index(IndexDefinition id)
     std::function<bool(DbTransaction &)> finish = [](auto &t) { return false; };
 
     // Creates transaction and during it's creation adds index into it's
-    // place. Also created finish closure which will add necessary elements
+    // place. Also creates finish closure which will add necessary elements
     // into index.
     DbTransaction t(db, db.tx_engine.begin([&](auto &t) mutable {
         size_t code = id.loc.location_code();

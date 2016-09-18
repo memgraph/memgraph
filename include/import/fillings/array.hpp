@@ -5,6 +5,10 @@
 #include "import/fillings/filler.hpp"
 #include "utils/array_store.hpp"
 
+// Parses Array of elements type T.
+// TG - Type group
+// T - type of element in array.
+// A - property type in database for holding arrays.
 template <class TG, class T, class A>
 class ArrayFiller : public Filler
 {

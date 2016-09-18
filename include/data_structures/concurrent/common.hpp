@@ -5,6 +5,8 @@
 
 using std::pair;
 
+// Item stored in skiplist. Used by ConcurrentMap and ConcurrentMultiMap to
+// store key and value but to make ordering on keys.
 template <typename K, typename T>
 class Item : public TotalOrdering<Item<K, T>>,
              public TotalOrdering<K, Item<K, T>>,
@@ -45,6 +47,8 @@ public:
     }
 };
 
+// Common base for accessor of all derived containers(ConcurrentMap,
+// ConcurrentSet, ...) from SkipList.
 template <typename T>
 class AccessorBase
 {

@@ -104,13 +104,19 @@ public:
         // Ordered on POINTERS to PropertyType.
         // When compared with PropertyFamilyKey behaves as PropertyFamilyKey.
         template <class T>
-        class PropertyTypeKey : public TotalOrdering<PropertyTypeKey<T>>
+        class PropertyTypeKey
+            : public TotalOrdering<PropertyTypeKey<T>>,
+              public TotalOrdering<PropertyFamilyKey, PropertyTypeKey<T>>,
+              public TotalOrdering<PropertyTypeKey<T>, PropertyFamilyKey>
         {
             friend class PropertyType;
 
             PropertyTypeKey(const PropertyType &type) : type(type) {}
         public:
-            PropertyFamilyKey family_key() { return PropertyFamilyKey(type); }
+            PropertyFamilyKey family_key() const
+            {
+                return PropertyFamilyKey(type);
+            }
 
             Type const &prop_type() const { return type.type; }
 
@@ -124,6 +130,30 @@ public:
                                   const PropertyTypeKey &rhs)
             {
                 return &(lhs.type) < &(rhs.type);
+            }
+
+            friend bool operator==(const PropertyFamilyKey &lhs,
+                                   const PropertyTypeKey &rhs)
+            {
+                return lhs == rhs.family_key();
+            }
+
+            friend bool operator<(const PropertyFamilyKey &lhs,
+                                  const PropertyTypeKey &rhs)
+            {
+                return lhs < rhs.family_key();
+            }
+
+            friend bool operator==(const PropertyTypeKey &lhs,
+                                   const PropertyFamilyKey &rhs)
+            {
+                return lhs.family_key() == rhs;
+            }
+
+            friend bool operator<(const PropertyTypeKey &lhs,
+                                  const PropertyFamilyKey &rhs)
+            {
+                return lhs.family_key() < rhs;
             }
 
         private:
@@ -190,12 +220,15 @@ public:
     friend bool operator==(const PropertyFamily &lhs,
                            const PropertyFamily &rhs);
 
+    // Place for index of TG::elements which have property from this family.
     IndexHolder<TG, std::nullptr_t> index;
 
 private:
     const std::string name_v;
+
     // This is exclusivly for getNull method.
     PropertyType *null_type{nullptr};
+
     // TODO: Because types wont be removed this could be done with more efficent
     // data structure.
     ConcurrentMap<Type, std::unique_ptr<PropertyType>> types;

@@ -160,6 +160,10 @@ namespace barrier
 // Blueprint for valid transformation of references:
 // TRANSFORM_REF(, ::);
 // template <class T> TRANSFORM_REF_TEMPLATED(<T>,::<T>);
+// TODO: Strongest assurance that evertyhing is correct is for all of following
+// transformation to use DUP for defining theres transformation. This would mean
+// that names of classes exported in barrier and names from real class in
+// database are equal.
 
 // ***************** TRANSFORMS of reference and pointers
 DUP(Label, TRANSFORM_REF);

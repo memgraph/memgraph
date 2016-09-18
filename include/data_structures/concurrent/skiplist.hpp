@@ -334,6 +334,8 @@ public:
         MultiIterator(SkipList *skiplist, const K &data)
             : data(data), skiplist(skiplist)
         {
+            // WHe must find the first element with K key.
+            // All of logic in this loop was taken from insert method.
             while (true) {
                 auto level = find_path(skiplist, H - 1, data, preds, succs);
                 if (level == -1) {
@@ -368,32 +370,36 @@ public:
             return succs[0]->value();
         }
 
-        // WRONG THIS CAN POSSIBLY NOT BE TRUE IF SOMEONE JUST AFTER THIS REMOVE
-        // ELEMENT AFTER THIS ONE.
-        // bool has_next()
-        // {
-        //     assert(succs[0] != nullptr);
-        //     return succs[0].forward(0) != nullptr;
-        // }
-
         bool has_value() { return succs[0] != nullptr; }
 
         MultiIterator &operator++()
         {
             assert(succs[0] != nullptr);
-            // This whole method can be optimized if it's valid to expect height
+            // NOTE: This whole method can be optimized if it's valid to expect
+            // height
             // of 1 on same key elements.
+
+            // First update preds and succs.
             for (int i = succs[0]->height - 1; i >= 0; i--) {
                 preds[i] = succs[i];
                 succs[i] = preds[i]->forward(i);
             }
+
+            // If there exists current value then check if it is equal to our
+            // data.
             if (succs[0] != nullptr) {
                 if (succs[0]->value() != data) {
+                    // Current data isn't equal to our data that means that this
+                    // is the end of list of same values.
                     succs[0] = nullptr;
                 } else {
+                    // Current value is same as our data but whe must check that
+                    // it is valid data and if not whe must wait for it to
+                    // become valid.
                     while (succs[0] != succs[succs[0]->height - 1] ||
                            !succs[0]->flags.is_fully_linked()) {
-                        usleep(250);
+                        usleep(250); // Wait to become linked
+                        // Reget succs.
                         for (int i = succs[0]->height - 1; i >= 0; i--) {
                             succs[i] = preds[i]->forward(i);
                         }
@@ -427,6 +433,8 @@ public:
         bool remove()
         {
             assert(succs[0] != nullptr);
+            // Calls skiplist remove method.
+
             return skiplist->template remove<K>(
                 data, preds, succs,
                 SkipList<T>::template MultiIterator<K>::update_path);
@@ -436,14 +444,18 @@ public:
         static int update_path(SkipList *skiplist, int start, const K &item,
                                Node *preds[], Node *succs[])
         {
+            // NOTE: This could be done more efficent than serching for item
+            // element again. Whe just need to use infromation already present
+            // in preds and succ because whe know that this method is used
+            // exclusively by passing it into skiplist remove method from
+            // MultiIterator remove method.
+
             // One optimization here would be to wait for is_fully_linked to be
             // true. That way that doesnt have to be done in constructor and
             // ++ operator.
             int level_found = succs[0]->height - 1;
             assert(succs[0] == succs[level_found]);
-            // for (int i = level_found; i >= 0; i--) {
-            //     // Someone has done something
-            //     if (preds[i]->forward(i) != succs[i]) {
+
             for (auto it = MultiIterator<K>(skiplist, item); it.has_value();
                  it++) {
                 if (it.succs[0] == succs[0]) { // Found it
@@ -453,12 +465,7 @@ public:
                 }
             }
             // Someone removed it
-            // assert(succs[0]->flags.is_marked());
             return -1;
-            //     }
-            // }
-            // // Everything is fine
-            // return level_found;
         }
 
         const K &data;
@@ -751,10 +758,12 @@ private:
         return valid;
     }
 
+    // Inserts non unique data into list.
+    // NOTE: Uses modified logic from insert method.
     Iterator insert_non_unique(T &&data, Node *preds[], Node *succs[])
     {
         while (true) {
-            // TODO: before here was data.first
+
             auto level = find_path(this, H - 1, data, preds, succs);
 
             auto height = 1;
@@ -849,7 +858,7 @@ private:
     }
 
     // Insert unique data
-    // TODO: This is almost all duplicate code from insert
+    // NOTE: This is almost all duplicate code from insert.
     template <class K, class... Args>
     std::pair<Iterator, bool> emplace(Node *preds[], Node *succs[], K &key,
                                       Args &&... args)

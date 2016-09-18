@@ -2,6 +2,8 @@
 
 #include "import/fillings/filler.hpp"
 
+// Parses import local Id.
+// TG - Type group
 template <class TG>
 class IdFiller : public Filler
 {

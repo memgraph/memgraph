@@ -6,6 +6,8 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+// Parses int32.
+// TG - Type group
 template <class TG>
 class Int32Filler : public Filler
 {

@@ -5,8 +5,7 @@
 #include <ext/aligned_buffer.h>
 #include <utility>
 
-// Optional object storage
-
+// Optional object storage. It maybe has and maybe dosent have objet of type T.
 template <class T>
 class Option
 {
@@ -86,6 +85,7 @@ public:
         return *this;
     }
 
+    // True if object i present.
     bool is_present() const { return initialized; }
 
     T &get() noexcept
@@ -103,6 +103,7 @@ public:
         }
     }
 
+    // Returns ref to object if present else other.
     T const &get_or(T const &other) const
     {
         if (is_present()) {
@@ -202,4 +203,11 @@ template <class T>
 auto make_option_const(const T &&data)
 {
     return Option<const T>(std::move(data));
+}
+
+// HELPER FUNCTIONS
+template <class R>
+bool option_fill(Option<R> &o)
+{
+    return o.is_present() && o.get().fill();
 }

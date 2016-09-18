@@ -1,7 +1,7 @@
 #include <functional>
 
-#include "utils/crtp.hpp"
 #include "data_structures/map/rh_common.hpp"
+#include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 
 // HashMap with RobinHood collision resolution policy.
@@ -47,17 +47,20 @@ public:
         size_t now = index(key, mask);
         size_t off = 0;
         size_t border = 8 <= capacity ? 8 : capacity;
+
         while (off < border) {
             Combined other = array[now];
             if (other.valid()) {
                 auto other_off = other.off();
                 if (other_off == off && key == other.ptr()->get_key()) {
+                    // Found data.
                     return OptionPtr<D>(other.ptr());
 
                 } else if (other_off < off) { // Other is rich
                     break;
                 } // Else other has equal or greater offset, so he is poor.
             } else {
+                // Empty slot means that there is no searched data.
                 break;
             }
 
@@ -76,16 +79,20 @@ public:
             size_t now = index(key, mask);
             size_t off = 0;
             size_t border = 8 <= capacity ? 8 : capacity;
+
             while (off < border) {
                 Combined other = array[now];
                 if (other.valid()) {
                     auto other_off = other.off();
                     if (other_off == off && key == other.ptr()->get_key()) {
+                        // Element already exists.
                         return false;
 
                     } else if (other_off < off) { // Other is rich
+                        // Set data.
                         array[now] = Combined(data, off);
 
+                        // Move other data to the higher indexes,
                         while (other.increment_off()) {
                             now = (now + 1) & mask;
                             auto tmp = array[now];
@@ -97,9 +104,11 @@ public:
                             }
                         }
                         data = other.ptr();
-                        break; // Cant insert removed element
+                        break; // Cant insert removed element because it would
+                               // be to far from his real place.
                     } // Else other has equal or greater offset, so he is poor.
                 } else {
+                    // Data can be placed in this empty slot.
                     array[now] = Combined(data, off);
                     count++;
                     return true;
@@ -110,6 +119,8 @@ public:
             }
         }
 
+        // There isn't enough space for element pointed by data so whe must
+        // increase array.
         increase_size();
         return insert(data);
     }
@@ -121,6 +132,7 @@ public:
         size_t now = index(key, mask);
         size_t off = 0;
         size_t border = 8 <= capacity ? 8 : capacity;
+
         while (off < border) {
             Combined other = array[now];
             if (other.valid()) {
@@ -130,6 +142,7 @@ public:
                     key == other_ptr->get_key()) { // Found it
 
                     auto before = now;
+                    // Whe must move other elements one slot lower.
                     do {
                         // This is alright even for off=0 on found element
                         // because it wont be seen.
@@ -139,7 +152,10 @@ public:
                         before = now;
                         now = (now + 1) & mask;
                         other = array[now];
-                    } while (other.valid() && other.off() > 0);
+                    } while (other.valid() &&
+                             other.off() > 0); // Exit if whe encounter empty
+                                               // slot or data which is exactly
+                                               // in slot which it want's to be.
 
                     array[before] = Combined();
                     count--;
@@ -149,6 +165,7 @@ public:
                     break;
                 } // Else other has equal or greater offset, so he is poor.
             } else {
+                // If the element to be removed existed in map it would be here.
                 break;
             }
 

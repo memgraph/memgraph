@@ -46,7 +46,19 @@ bool equal_str(const char *a, const char *b) { return strcasecmp(a, b) == 0; }
 
 // CSV importer for importing multiple files regarding same graph.
 // CSV format of file should be following:
+// header
+// line of data
+// line of data
+// ...
 //
+// Where header should be composed of parts splited by parts_mark. Number of
+// parts should be same as number of parts in every line of data. Parts should
+// be of format name:type where name is alfanumeric identifyer of data in thath
+// column and type should be one of: id, from, to, label, type, bool, int, long,
+// float, double, string, bool[], int[], long[], float[], double[], string[].
+// If name is missing the column data wont be saved into the elements.
+// if the type is missing the column will be interperted as type string. If
+// neither name nor type are present column will be skipped.
 class CSVImporter : public BaseImporter
 {
 
@@ -70,6 +82,8 @@ public:
 
 private:
     // Loads data from file and returns number of loaded name.
+    // TG - TypeGroup
+    // F - function which will create element from filled element skelleton.
     template <class TG, class F>
     size_t import(std::fstream &file, F f, bool vertex)
     {
@@ -104,10 +118,6 @@ private:
         size_t line_no = 1;
         ElementSkeleton es(db);
         while (std::getline(file, line)) {
-            // if (line_no % 1000 == 0) {
-            //     cout << line_no << endl;
-            // }
-            // cout << line << endl;
             sub_str.clear();
             es.clear();
 
@@ -196,6 +206,7 @@ private:
         if (tmp_vec.size() > 2) {
             logger.error("To much sub parts in header part");
             return make_option<unique_ptr<Filler>>();
+
         } else if (tmp_vec.size() < 2) {
             if (tmp_vec.size() == 1) {
                 logger.warn("Column: {} doesn't have specified type so string "
@@ -203,16 +214,19 @@ private:
                             tmp_vec[0]);
                 name = tmp_vec[0];
                 type = _string;
+
             } else {
                 logger.warn("Empty colum definition, skiping column.");
                 std::unique_ptr<Filler> f(new SkipFiller());
                 return make_option(std::move(f));
             }
+
         } else {
             name = tmp_vec[0];
             type = tmp_vec[1];
         }
 
+        // Create adequat filler
         if (equal_str(type, "id")) {
             std::unique_ptr<Filler> f(
                 name[0] == '\0' ? new IdFiller<TG>()
@@ -245,8 +259,6 @@ private:
 
             // *********************** PROPERTIES
         } else if (equal_str(type, "bool")) {
-            // return make_filler_property<BoolFiller>(vertex, name,
-            // Flags::Bool);
             std::unique_ptr<Filler> f(
                 new BoolFiller<TG>(property_key<TG>(name, Flags::Bool)));
             return make_option(std::move(f));

@@ -3,6 +3,8 @@
 #include "import/element_skeleton.hpp"
 #include "utils/option.hpp"
 
+// Common class for varius classes which accept one part from data line in
+// import, parses it and adds it into element skelleton.
 class Filler
 {
 public:

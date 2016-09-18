@@ -30,7 +30,9 @@ private:
     // currently active database
     std::atomic<Db *> active_db;
 
+    // Cleaning thread.
     Cleaning cleaning = {dbs, CONFIG_INTEGER(config::CLEANING_CYCLE_SEC)};
 
+    // Snapshoting thread.
     Snapshoter snapshoter = {dbs, CONFIG_INTEGER(config::SNAPSHOT_CYCLE_SEC)};
 };

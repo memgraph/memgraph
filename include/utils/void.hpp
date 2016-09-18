@@ -2,6 +2,7 @@
 
 #include "utils/total_ordering.hpp"
 
+// Type which represents nothing.
 class Void : public TotalOrdering<Void>
 {
 public:

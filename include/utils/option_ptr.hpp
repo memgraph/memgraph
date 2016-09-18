@@ -1,5 +1,6 @@
 #pragma once
 
+// Like option just for pointers. More efficent than option.
 template <class T>
 class OptionPtr
 {

@@ -28,14 +28,20 @@ public:
 
     // Cleans edge part of database. MUST be called by one cleaner thread at
     // one time.
+    // TODO: Should be exctracted to separate class which can enforce one thread
+    // at atime.
     void clean_edge_section();
 
     // Cleans vertex part of database. MUST be called by one cleaner thread at
     // one time..
+    // TODO: Should be exctracted to separate class which can enforce one thread
+    // at atime.
     void clean_vertex_section();
 
     // Updates indexes of Vertex/Edges in index_updates. True if indexes are
     // updated successfully. False means that transaction failed.
+    // TODO: Should be moved to Indexes class where it will this DbTransaction
+    // as an argument.
     bool update_indexes();
 
     // Will update indexes for given element TG::record_t. Actual update happens

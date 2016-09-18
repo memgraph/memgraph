@@ -20,9 +20,17 @@ class Db
 public:
     using sptr = std::shared_ptr<Db>;
 
+    // import_snapshot will in constructor import latest snapshot into the db.
+    // NOTE: explicit is here to prevent compiler from evaluating const char *
+    // into a bool.
     explicit Db(bool import_snapshot = true);
+
+    // import_snapshot will in constructor import latest snapshot into the db.
     Db(const char *name, bool import_snapshot = true);
+
+    // import_snapshot will in constructor import latest snapshot into the db.
     Db(const std::string &name, bool import_snapshot = true);
+
     Db(const Db &db) = delete;
 
 private:

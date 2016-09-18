@@ -10,6 +10,8 @@ void Garbage::clean()
 {
     for (auto it = gar.begin(); it != gar.end(); it++) {
         if (it->first.all_finished(engine) && it.remove()) {
+            // All transactions who could have seen data are finished and this
+            // thread successfull removed item from list.
             it->second->~DeleteSensitive();
         }
     }

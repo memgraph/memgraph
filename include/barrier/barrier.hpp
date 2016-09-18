@@ -10,8 +10,8 @@
 // for querys.
 namespace barrier
 {
-// Every class which must be visible to outside the barrier should have there
-// barrier class defined here.
+// Every class from database which must be visible to outside the barrier should
+// have there barrier class defined here.
 
 // ************ Here should be forward declarations of Sized barrier classes
 // ACCESSORS
@@ -298,7 +298,8 @@ public:
     Count count();
 };
 
-// TODO: Find reasons of such great size ant try to decrease it.
+// NOTE: This large size is because of SkipList accessor which is embeded into
+// iterator. The accessor has 64 fields of pointers which is in total 512 B.
 class VertexAccessIterator
     : public Sized<560, 8>,
       public iter::Composable<const VertexAccessor, VertexAccessIterator>
@@ -318,7 +319,8 @@ public:
     Count count();
 };
 
-// TODO: Find reasons of such great size ant try to decrease it.
+// NOTE: This large size is because of SkipList accessor which is embeded into
+// iterator. The accessor has 64 fields of pointers which is in total 512 B.
 class EdgeAccessIterator
     : public Sized<560, 8>,
       public iter::Composable<const EdgeAccessor, EdgeAccessIterator>
@@ -476,7 +478,6 @@ public:
     void write(const EdgeAccessor &edge);
     void write(const VertexStoredProperty &prop);
     void write(const EdgeStoredProperty &prop);
-    void write_null();
     void write(const Null &v);
     void write(const Bool &prop);
     void write(const Float &prop);

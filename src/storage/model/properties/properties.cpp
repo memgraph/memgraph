@@ -35,8 +35,7 @@ void Properties<TG>::set(StoredProperty<TG> &&value)
     for (auto &prop : props) {
         if (prop.key == value.key) {
             // It is necessary to change key because the types from before and
-            // now
-            // could be different.
+            // now could be different.
             StoredProperty<TG> &sp = const_cast<StoredProperty<TG> &>(prop);
             sp = std::move(value);
             return;

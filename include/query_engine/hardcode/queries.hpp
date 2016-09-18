@@ -336,6 +336,21 @@ auto load_queries(Db &db)
                            .has_property(prop_name, args[0])
                            .clone_to(n) // Savepoint
                            .replace(r); // Load savepoint
+        // Above statments + .to().for_all([&](auto m) {}) will unrool into:
+        // for(auto edge:type.index.for_range(t)){
+        //      auto from_vertex=edge.from();
+        //      if(from_vertex.fill()){
+        //          auto &prop=from_vertex.at(prop_name);
+        //          if(prop==args[0]){
+        //              auto to_vertex=edge.to();
+        //              if(to_vertex.fill()){
+        //                  // Here you have all data.
+        //                  // n == from_vertex
+        //                  // m == to_vertex
+        //              }
+        //          }
+        //      }
+        // }
 
         auto it_vertex = t.vertex_access()
                              .fill()
@@ -343,6 +358,24 @@ auto load_queries(Db &db)
                              .clone_to(n) // Savepoint
                              .out()
                              .type(type);
+        // Above statments + .to().for_all([&](auto m) {}) will unrool into:
+        // for(auto from_vertex:t.vertex_access(t)){
+        //      if(from_vertex.fill()){
+        //          auto &prop=from_vertex.at(prop_name);
+        //          if(prop==args[0]){
+        //              for(auto edge:from_vertex.out()){
+        //                  if(edge.edge_type() == type){
+        //                      auto to_vertex=edge.to();
+        //                      if(to_vertex.fill()){
+        //                          // Here you have all data.
+        //                          // n == from_vertex
+        //                          // m == to_vertex
+        //                      }
+        //                  }
+        //              }
+        //          }
+        //      }
+        // }
 
         if (it_type.count() > it_vertex.count()) {
             // Going through vertices wiil probably be faster

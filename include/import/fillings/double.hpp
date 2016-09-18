@@ -6,6 +6,8 @@
 #include "storage/model/properties/flags.hpp"
 #include "storage/model/properties/property_family.hpp"
 
+// Parses double.
+// TG - Type group
 template <class TG>
 class DoubleFiller : public Filler
 {

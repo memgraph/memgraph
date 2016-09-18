@@ -49,8 +49,10 @@ public:
     // Will change ordering of record to descending.
     void set_descending();
 
+    // true if record is nullptr.
     bool empty() const;
 
+    // True if this index record i valid for given Transaction.
     bool is_valid(tx::Transaction &t) const;
 
     // True if it can be removed.
@@ -62,7 +64,7 @@ public:
     const K key;
 
 private:
-    bool descending = false;
+    bool descending = false; // TODO: this can be passed as template argument.
     typename TG::record_t *const record{nullptr};
     typename TG::vlist_t *const vlist{nullptr};
 };

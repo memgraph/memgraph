@@ -5,6 +5,7 @@
 
 // Represents number of to be returned elements from iterator. Where acutal
 // number is probably somwhere in [min,max].
+// NOTE: Experimental
 class Count : public TotalOrdering<Count>
 {
 

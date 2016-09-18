@@ -21,8 +21,11 @@ bool SnapshotEngine::make_snapshot()
     std::lock_guard<std::mutex> lock(guard);
     std::time_t now = std::time(nullptr);
     if (make_snapshot(now, "full")) {
+        // Sanpsthot was created so whe should check if some older snapshots
+        // should be deleted.
         clean_snapshots();
         return true;
+
     } else {
         return false;
     }
@@ -31,6 +34,8 @@ bool SnapshotEngine::make_snapshot()
 void SnapshotEngine::clean_snapshots()
 {
     logger.info("Started cleaning commit_file");
+    // Whe first count the number of snapshots that whe know about in commit
+    // file.
     std::vector<std::string> lines;
     {
         std::ifstream commit_file(snapshot_commit_file());
@@ -43,14 +48,19 @@ void SnapshotEngine::clean_snapshots()
 
     int n = lines.size() - max_retained_snapshots;
     if (n > 0) {
+        // Whe have to much snapshots so whe should delete some.
         std::ofstream commit_file(snapshot_commit_file(), std::fstream::trunc);
 
+        // First whw will rewrite commit file to contain only
+        // max_retained_snapshots newest snapshots.
         for (auto i = n; i < lines.size(); i++) {
             commit_file << lines[i] << std::endl;
         }
 
         auto res = sys::flush_file_to_disk(commit_file);
         if (res == 0) {
+            // Commit file was succesfully changed so whe can now delete
+            // snapshots which whe evicted from commit file.
             commit_file.close();
             logger.info("Removed {} snapshot from commit_file", n);
 
@@ -93,12 +103,16 @@ bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
         auto old_trans =
             tx::TransactionRead(db.tx_engine); // Overenginered for incremental
                                                // snapshot. Can be removed.
+
+        // Everything is ready for creation of snapshot.
         snapshot(t, snap, old_trans);
 
         auto res = sys::flush_file_to_disk(snapshot_file);
         if (res == 0) {
+            // Snapshot was succesfully written to disk.
             t.trans.commit();
             success = true;
+
         } else {
             logger.error("Error {} occured while flushing snapshot file", res);
             t.trans.abort();
@@ -112,6 +126,8 @@ bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
     }
 
     if (success) {
+        // Snapshot was succesfully created but for it to be reachable for
+        // import whe must add it to the end of commit file.
         std::ofstream commit_file(snapshot_commit_file(), std::fstream::app);
 
         commit_file << snapshot_file_name << std::endl;
@@ -120,6 +136,8 @@ bool SnapshotEngine::make_snapshot(std::time_t now, const char *type)
         if (res == 0) {
             commit_file.close();
             snapshoted_no_v.fetch_add(1);
+            // Snapshot was succesfully commited.
+
         } else {
             logger.error("Error {} occured while flushing commit file", res);
         }
@@ -139,6 +157,7 @@ bool SnapshotEngine::import()
 
         std::ifstream commit_file(snapshot_commit_file());
 
+        // Whe first load all known snpashot file names from commit file.
         std::vector<std::string> snapshots;
         std::string line;
         while (std::getline(commit_file, line)) {
@@ -166,8 +185,7 @@ bool SnapshotEngine::import()
 
                 } else {
                     logger.info("Unuccesfully tryed to import snapshot "
-                                "\"{}\" because indexes where unuccesfully "
-                                "with updating",
+                                "\"{}\"",
                                 snapshots.back());
                 }
 
@@ -179,6 +197,7 @@ bool SnapshotEngine::import()
             }
 
             snapshots.pop_back();
+            // Whe will try to import older snapashot if such one exist.
         }
 
     } catch (const std::exception &e) {
@@ -289,11 +308,13 @@ void SnapshotEngine::add_indexes(std::vector<IndexDefinition> &v)
 std::string SnapshotEngine::snapshot_file(std::time_t const &now,
                                           const char *type)
 {
+    // Current nano time less than second.
     auto now_nano = std::chrono::time_point_cast<std::chrono::nanoseconds>(
                         std::chrono::high_resolution_clock::now())
                         .time_since_epoch()
                         .count() %
                     (1000 * 1000 * 1000);
+
     return snapshot_db_dir() + "/" + std::to_string(now) + "_" +
            std::to_string(now_nano) + "_" + type;
 }
@@ -308,9 +329,11 @@ std::string SnapshotEngine::snapshot_db_dir()
     if (!sys::ensure_directory_exists(snapshot_folder)) {
         logger.error("Error while creating directory \"{}\"", snapshot_folder);
     }
+
     auto db_path = snapshot_folder + "/" + db.name();
     if (!sys::ensure_directory_exists(db_path)) {
         logger.error("Error while creating directory \"{}\"", db_path);
     }
+
     return db_path;
 }

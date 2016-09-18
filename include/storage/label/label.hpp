@@ -42,6 +42,7 @@ public:
 
     CharStr char_str() const { return CharStr(name.c_str()); }
 
+    // Index of vertices with current label.
     label_index_t &index() const;
 
 private:

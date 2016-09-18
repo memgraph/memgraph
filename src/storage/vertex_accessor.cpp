@@ -53,16 +53,27 @@ void VertexAccessor::remove() const
 {
     RecordAccessor::remove();
 
+    // Detach all out edges.
     for (auto evr : record->data.out) {
         auto ea = EdgeAccessor(evr, db);
+
+        // Delete edge
         ea.vlist->remove(db.trans);
+
+        // Remove edge from it's to vertex.
         auto to_v = ea.to();
         to_v.fill();
         to_v.update().record->data.in.remove(ea.vlist);
     }
+
+    // Detach all in edges.
     for (auto evr : record->data.in) {
         auto ea = EdgeAccessor(evr, db);
+
+        // Delete edge
         ea.vlist->remove(db.trans);
+
+        // Remove edge from it's from vertex.
         auto from_v = ea.from();
         from_v.fill();
         from_v.update().record->data.out.remove(ea.vlist);

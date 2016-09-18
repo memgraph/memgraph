@@ -5,6 +5,9 @@
 
 using std::pair;
 
+// Multi thread safe multi map based on skiplist.
+// K - type of key.
+// T - type of data.
 template <typename K, typename T>
 class ConcurrentMultiMap
 {
@@ -53,11 +56,13 @@ public:
 
         list_it find(const K &key) { return accessor.find(key); }
 
+        // Returns iterator to item or first larger if it doesn't exist.
         list_it_con find_or_larger(const T &item) const
         {
             return accessor.find_or_larger(item);
         }
 
+        // Returns iterator to item or first larger if it doesn't exist.
         list_it find_or_larger(const T &item)
         {
             return accessor.find_or_larger(item);

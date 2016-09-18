@@ -60,26 +60,6 @@ public:
         return a > b || a == b;
     }
 
-    // // true if no border or this > key or this >= key depends on border type.
-    // bool operator>(const T &other) const
-    // {
-    //     return !key.is_present() || key.get() > other ||
-    //            (type == Including && key.get() == other);
-    // }
-    //
-    // // true if this border is inclusive and key is present and key == other.
-    // bool operator==(const T &other) const
-    // {
-    //     return type == Including && key.is_present() && key.get() == other;
-    // }
-    //
-    // // true if no border or this < key or this <= key depends on border type.
-    // bool operator<(const T &other) const
-    // {
-    //     return !key.is_present() || key.get() < other ||
-    //            (type == Including && key.get() == other);
-    // }
-
     Option<T> key;
     BorderType type;
 };

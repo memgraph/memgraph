@@ -12,6 +12,9 @@
 // Decodes stored snapshot.
 // Caller must respect loading order to be same as stored order with
 // SnapshotEncoder.
+// Main idea of knowing when something starts and ends is at certain points try
+// to deserialize string and compare it with logically expected string seted by
+// the SnapshotEncoder.
 class SnapshotDecoder : public GraphDecoder
 {
 public:
@@ -68,6 +71,8 @@ public:
     T property()
     {
         if (decoder.is_list()) {
+            // Whe are deserializing an array.
+
             auto size = decoder.list_header();
             if (decoder.is_bool()) {
                 ArrayStore<bool> store;
@@ -100,6 +105,8 @@ public:
                 return T::handle(std::move(store));
             }
         } else {
+            // Whe are deserializing a primitive.
+
             if (decoder.is_bool()) {
                 return T::handle(decoder.read_bool());
 

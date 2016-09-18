@@ -13,7 +13,6 @@ DbAccessor::DbAccessor(Db &db, tx::Transaction &t)
 }
 
 // VERTEX METHODS
-// auto DbAccessor::vertex_access()
 
 Option<const VertexAccessor> DbAccessor::vertex_find(const Id &id)
 {
@@ -36,8 +35,11 @@ EdgeAccessor DbAccessor::edge_insert(VertexAccessor &from, VertexAccessor &to)
 {
     auto edge_accessor = db_transaction.db.graph.edges.insert(
         db_transaction, from.vlist, to.vlist);
+
+    // Connect edge with from,to vertices.
     from->data.out.add(edge_accessor.vlist);
     to->data.in.add(edge_accessor.vlist);
+
     return edge_accessor;
 }
 
@@ -46,8 +48,11 @@ EdgeAccessor DbAccessor::edge_insert(VertexAccessor const &from,
 {
     auto edge_accessor = db_transaction.db.graph.edges.insert(
         db_transaction, from.vlist, to.vlist);
+
+    // Connect edge with updated from,to vertices.
     from.update()->data.out.add(edge_accessor.vlist);
     to.update()->data.in.add(edge_accessor.vlist);
+
     return edge_accessor;
 }
 
@@ -107,6 +112,7 @@ bool DbAccessor::commit()
         db_transaction.trans.commit();
         return true;
     } else {
+        // Index update wasn't successfull so whe are aborting transaction.
         db_transaction.trans.abort();
         return false;
     }

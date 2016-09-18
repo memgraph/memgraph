@@ -8,7 +8,8 @@ template <class TG>
 using property_key =
     typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey;
 
-// Property Class designated for creation outside the database.
+// Property Class designated for creation inside the database. Meant for
+// storage.
 template <class TG>
 class StoredProperty : public PropertyHolder<property_key<TG>>
 {
@@ -16,7 +17,8 @@ class StoredProperty : public PropertyHolder<property_key<TG>>
     const static class PropertyFamily<TG> null_family;
 
 public:
-    // Needed for properties to return reference on stored property when they
+    // NOTE: Needed for properties to return reference on stored property when
+    // they
     // don't cointain searched property.
     const static class StoredProperty<TG> null;
 

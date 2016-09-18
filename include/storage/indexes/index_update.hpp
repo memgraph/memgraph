@@ -4,12 +4,14 @@
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"
 
+// Record for updating indexes of edge
 struct IndexUpdateEdge
 {
     EdgeRecord *vlist;
     Edge *record;
 };
 
+// Record for updatin indexes of vertex
 struct IndexUpdateVertex
 {
     VertexRecord *vlist;

@@ -20,11 +20,7 @@ protected:
     public:
         Combined() : data(0) {}
 
-        Combined(D *data, size_t off)
-        {
-            // assert((((size_t)data) & 0x7) == 0 && off < 8);
-            this->data = ((size_t)data) | off;
-        }
+        Combined(D *data, size_t off) { this->data = ((size_t)data) | off; }
 
         bool valid() const { return data != 0; }
 
@@ -72,6 +68,7 @@ protected:
         size_t data;
     };
 
+    // Base for all iterators. It can start from any point in map.
     template <class It>
     class IteratorBase : public Crtp<It>
     {
@@ -97,7 +94,11 @@ protected:
         }
 
         const RhBase *map;
+
+        // How many times did whe advance.
         size_t advanced;
+
+        // Current position in array
         size_t index;
 
     public:
@@ -123,12 +124,15 @@ protected:
             do {
                 advanced++;
                 if (advanced >= map->capacity) {
+                    // Whe have advanced more than the capacity of map is so whe
+                    // are done.
                     map = nullptr;
                     advanced = index = ~((size_t)0);
                     break;
                 }
                 index = (index + 1) & mask;
-            } while (!map->array[index].valid());
+            } while (!map->array[index].valid()); // Check if there is element
+                                                  // at current position.
 
             return this->derived();
         }
@@ -221,6 +225,7 @@ public:
     ConstIterator cend() const { return ConstIterator(); }
 
 protected:
+    // Copys RAW BYTE data from other RhBase.
     void copy_from(const RhBase &other)
     {
         capacity = other.capacity;
@@ -235,6 +240,7 @@ protected:
         }
     }
 
+    // Takes data from other RhBase.
     void take_from(RhBase &&other)
     {
         capacity = other.capacity;
@@ -245,16 +251,17 @@ protected:
         other.capacity = 0;
     }
 
-    void init_array(size_t size)
+    // Initiazes array with given capacity.
+    void init_array(size_t capacity)
     {
-        size_t bytes = sizeof(Combined) * size;
+        size_t bytes = sizeof(Combined) * capacity;
         array = (Combined *)malloc(bytes);
         std::memset(array, 0, bytes);
-        capacity = size;
+        this->capacity = capacity;
     }
 
     // True if before array has some values.
-    // Before array has to be released also.
+    // Before array must be released in the caller.
     bool increase_size()
     {
         if (capacity == 0) {
@@ -276,6 +283,7 @@ protected:
     }
 
 public:
+    // Cleares all data.
     void clear()
     {
         free(array);
@@ -297,7 +305,7 @@ protected:
         return hash(std::hash<K>()(key)) & mask;
     }
 
-    // This is rather expensive but offers good distribution.
+    // NOTE: This is rather expensive but offers good distribution.
     size_t hash(size_t x) const
     {
         x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);

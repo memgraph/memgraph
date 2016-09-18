@@ -61,7 +61,7 @@ void add_property(Db &db, StoredProperty<TypeGroupVertex> &prop)
 {
     DbAccessor t(db);
 
-    t.vertex_access().fill().for_all([&](auto va) { va.set(prop); });
+    t.vertex_access().fill().update().for_all([&](auto va) { va.set(prop); });
 
     assert(t.commit());
 }
@@ -73,7 +73,7 @@ void add_vertex_property_serial_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
     auto key = f.get(Int64::type).family_key();
 
     size_t i = 0;
-    t.vertex_access().fill().for_all([&](auto va) mutable {
+    t.vertex_access().fill().update().for_all([&](auto va) mutable {
         va.set(StoredProperty<TypeGroupVertex>(Int64(i), key));
         i++;
     });
@@ -88,7 +88,7 @@ void add_edge_property_serial_int(Db &db, PropertyFamily<TypeGroupEdge> &f)
     auto key = f.get(Int64::type).family_key();
 
     size_t i = 0;
-    t.edge_access().fill().for_all([&](auto va) mutable {
+    t.edge_access().fill().update().for_all([&](auto va) mutable {
         va.set(StoredProperty<TypeGroupEdge>(Int64(i), key));
         i++;
     });
@@ -186,7 +186,7 @@ int main(void)
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
 
-    size_t cvl_n = 1000;
+    size_t cvl_n = 1;
 
     std::string create_vertex_label =
         "CREATE (n:LABEL {name: \"cleaner_test\"}) RETURN n";
@@ -223,11 +223,22 @@ int main(void)
         Db db("index", false);
         assert(db.indexes().add_index(vertex_property_nonunique_unordered));
         assert(db.indexes().add_index(edge_property_nonunique_unordered));
+
         run(cvl_n, create_vertex_label, db);
-        add_edge(cvl_n, db);
+        auto sp = StoredProperty<TypeGroupVertex>(
+            Int64(0), db.graph.vertices.property_family_find_or_create("prop")
+                          .get(Int64::type)
+                          .family_key());
+        add_property(db, sp);
+
         assert(cvl_n ==
                size(db, db.graph.vertices.property_family_find_or_create("prop")
                             .index));
+
+        add_edge(cvl_n, db);
+        add_edge_property_serial_int(
+            db, db.graph.edges.property_family_find_or_create("prop"));
+
         assert(
             cvl_n ==
             size(db,

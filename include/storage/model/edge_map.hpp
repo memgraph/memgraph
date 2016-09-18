@@ -2,7 +2,6 @@
 
 #include "data_structures/map/rh_hashmultimap.hpp"
 #include "storage/edge_record.hpp"
-// #include "storage/vertex_record.hpp"
 
 class EdgeMap
 {

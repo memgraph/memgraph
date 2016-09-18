@@ -23,7 +23,7 @@ public:
 
     // currently caller has to get index through object that contains
     // the index
-    
+
     // TODO: redesign
     //
     // this was a nice try
@@ -252,15 +252,20 @@ private:
 
         auto oindex = holder.get_write(t.trans);
         if (oindex.is_present()) {
+            // Inexed to which whe must insert is present. This wouldn't be the
+            // case if someone removed it.
             auto index = oindex.get();
 
             // Iterate over all elements and add them into index. Fail if
             // some insert failed.
             bool res = iter.all([&](auto elem) {
+                // Try to insert record.
                 if (!index->insert(elem.first.create_index_record(
                         std::move(elem.second)))) {
-
                     // Index is probably unique.
+
+                    // Index wasn't successfully filled so whe should remove it
+                    // an safely dispose of it.
                     auto owned_maybe = holder.remove_index(index);
                     if (owned_maybe.is_present()) {
                         db.garbage.dispose(db.tx_engine.snapshot(),
@@ -272,6 +277,8 @@ private:
                 return true;
             });
             if (res) {
+                // Index has been updated accordingly and whe can activate it
+                // for read.
                 index->activate();
                 return true;
             }
@@ -286,6 +293,8 @@ private:
     {
         auto owned_maybe = ih.remove_index();
         if (owned_maybe.is_present()) {
+            // Index was successfully removed so whe are responsible for
+            // dispoising it safely.
             db.garbage.dispose(db.tx_engine.snapshot(),
                                owned_maybe.get().release());
             return true;

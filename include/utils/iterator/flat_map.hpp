@@ -14,6 +14,7 @@ namespace iter
 // I - iterator type
 // J - iterator type returned from OP
 // OP - type of mapper function
+// TODO: Split into flat operation and map operation.
 template <class T, class I, class J, class OP>
 class FlatMap : public IteratorBase<T>,
                 public Composable<T, FlatMap<T, I, J, OP>>

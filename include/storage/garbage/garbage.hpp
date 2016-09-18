@@ -18,6 +18,7 @@ class Garbage
 public:
     Garbage(tx::Engine &e) : engine(e) {}
 
+    // Will safely dispose of data.
     void dispose(tx::Snapshot<Id> &&snapshot, DeleteSensitive *data);
 
     // Cleaner thread should call this method every some time. Removes data

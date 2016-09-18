@@ -15,6 +15,9 @@ template <class TG, class T>
 using type_key_t =
     typename PropertyFamily<TG>::PropertyType::template PropertyTypeKey<T>;
 
+// Collcetion of stored properties.
+// NOTE: Currently underlying strucutre is a vector which is fine for smaller
+// number of properties.
 template <class TG>
 class Properties
 {
@@ -41,10 +44,12 @@ public:
     template <class T>
     OptionPtr<const T> at(type_key_t<T> &key) const
     {
-        auto f_key = key.family_key();
         for (auto &prop : props) {
-            if (prop.key == f_key) {
-                return OptionPtr<const T>(&(prop.template as<T>()));
+            if (prop.key == key) {
+                if (prop.template is<T>()) {
+                    return OptionPtr<const T>(&(prop.template as<T>()));
+                }
+                break;
             }
         }
 

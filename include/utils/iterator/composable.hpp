@@ -98,6 +98,12 @@ public:
         });
     }
 
+    // Calls update on values and returns resoult.
+    auto update()
+    {
+        return map([](auto ar) { return ar.update(); });
+    }
+
     // Filters with property under given key
     template <class KEY>
     auto has_property(KEY &key)
@@ -111,13 +117,6 @@ public:
     {
         return filter([&](auto &va) { return va.at(key) == prop; });
     }
-
-    // Copy-s all pasing value to t before they are returned.
-    // auto clone_to(Option<T> &t)
-    // {
-    //     return iter::make_inspect<decltype(std::move(*this))>(
-    //         std::move(*this), [&](auto &v) { t = Option<T>(v); });
-    // }
 
     // Copy-s pasing value to t before they are returned.
     auto clone_to(Option<const T> &t)

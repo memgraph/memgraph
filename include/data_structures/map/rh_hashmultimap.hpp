@@ -15,6 +15,27 @@
 // D must have method K& get_key()
 // K must be comparable with ==.
 // HashMap behaves as if it isn't owner of entrys.
+//
+// Main idea of this MultiMap is a tweak of logic in RobinHood.
+// RobinHood offset from prefered slot is equal to the number of slots between
+// [current slot and prefered slot>.
+// While in this flavour of "multi RobinHood" offset from prefered slot is equal
+// to the number of different keyed elements between his current slot and
+// prefered slot.
+// In the following examples slots will have keys as caracters. So something
+// like this: |a| will mean that in this slot there is data with key 'a'.
+// like this: | | will mean empty slot.
+// like this: |...| will mean arbitary number of slots.
+// like this: |b:a| will mean that a want's to be in slot but b is in't.
+//
+// Examples:
+// |...|a:a|...| => off(a) = 0
+// |...|a:a|a|...|a|...| => off(a) = 0
+// |...|b:a|a|...| => off(a) = 1
+// |...|b:a|b|...|b|a|...| => off(a) = 1
+// |...|c:a|b|a|...| => off(a) = 2
+// |...|c:a|c|...|c|b|...|b||a|...|a|...| => off(a) = 2
+// ...
 template <class K, class D, size_t init_size_pow2 = 2>
 class RhHashMultiMap : public RhBase<K, D, init_size_pow2>
 {
@@ -124,14 +145,18 @@ public:
                     bool multi = false;
                     if (other_off == off && other.ptr()->get_key() == key) {
                         // Found the same
+                        // Must skip same keyd values to insert new value at the
+                        // end.
                         do {
                             now = (now + 1) & mask;
                             other = array[now];
                             if (!other.valid()) {
+                                // Found empty slot in which data ca be added.
                                 set(now, data, off);
                                 return;
                             }
                         } while (other.equal(key, off));
+                        // There is no empty slot after same keyed values.
                         multi = true;
                     } else if (other_off > off ||
                                other_poor(other, mask, start,
@@ -142,6 +167,8 @@ public:
                         continue;
                     }
 
+                    // Data will be insrted at current slot and all other data
+                    // will be displaced for one slot.
                     array[now] = Combined(data, off);
                     auto start_insert = now;
                     while (is_off_adjusted(other, mask, start_insert, now,
@@ -152,6 +179,7 @@ public:
                         array[now] = other;
                         other = tmp;
                         if (!other.valid()) {
+                            // Found empty slot which means i can finish now.
                             count++;
                             return;
                         }
@@ -159,12 +187,14 @@ public:
                     data = other.ptr();
                     break; // Cant insert removed element
                 } else {
+                    // Found empty slot for data.
                     set(now, data, off);
                     return;
                 }
             }
         }
 
+        // There is't enough space for data.
         increase_size();
         add(data);
     }
@@ -179,14 +209,18 @@ public:
             size_t off = 0;
             size_t border = 8 <= capacity ? 8 : capacity;
             Combined other = array[now];
+
             while (other.valid() && off < border) {
                 const size_t other_off = other.off();
                 if (other_off == off && key == other.ptr()->get_key()) {
+                    // Found same key data.
                     auto founded = capacity;
                     size_t started = now;
                     bool multi = false;
+                    // Must find slot with searched data.
                     do {
                         if (other.ptr() == data) {
+                            // founded it.
                             founded = now;
                         }
                         now = (now + 1) & mask;
@@ -196,11 +230,14 @@ public:
                             break;
                         }
                     } while (other.equal(key, off) && (multi = true));
-                    // multi = true is correct
+
                     if (founded == capacity) {
+                        // Didn't found the data.
                         return false;
                     }
 
+                    // Data will be removed by moving other data by one slot
+                    // before.
                     auto bef = before_index(now, mask);
                     array[founded] = array[bef];
 
@@ -223,6 +260,8 @@ public:
                     break;
 
                 } else { // Else other has equal or greater off, so he is poor.
+                    // Must skip values of same keys but different key than
+                    // data.
                     if (UNLIKELY(skip(now, other, other_off, mask))) {
                         break;
                     }
@@ -317,54 +356,3 @@ private:
                (end < start && p <= start && p > end);
     }
 };
-
-// Unnecessary
-// // Removes element. Returns removed element if it existed. It doesn't
-// // specify which element from same key group will be removed.
-// OptionPtr<D> remove(const K &key_in)
-// {
-//
-//     if (count > 0) {
-//         auto key = std::ref(key_in);
-//         size_t mask = this->mask();
-//         size_t now = index(key, mask);
-//         size_t off = 0;
-//         size_t checked = 0;
-//         size_t border = 8 <= capacity ? 8 : capacity;
-//         Combined other = array[now];
-//         while (other.valid() && off < border) {
-//             auto other_off = other.off();
-//             bool multi = false;
-//             if (other_off == off && key == other.ptr()->get_key()) {
-//                 do {
-//                     now = (now + 1) & mask;
-//                     other = array[now];
-//                     if (!other.valid()) {
-//                         break;
-//                     }
-//                     other_off = other.off();
-//                 } while (other_off == off &&
-//                          other.ptr()->get_key() == key &&
-//                          (multi = true)); // multi = true is correct
-//
-//                 auto bef = before_index(now, mask);
-//                 auto ret = OptionPtr<D>(array[bef].ptr());
-//
-//                 move_before(now, bef, other, mask, multi);
-//                 return ret;
-//
-//             } else if (other_off < off) { // Other is rich
-//                 break;
-//
-//             } else { // Else other has equal or greater off, so he is
-//             poor.
-//                 if (UNLIKELY(skip(now, other, other_off, mask))) {
-//                     break;
-//                 }
-//                 off++;
-//             }
-//         }
-//     }
-//
-//     return OptionPtr<D>();
-// }

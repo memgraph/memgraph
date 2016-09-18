@@ -39,6 +39,7 @@ public:
 
     CharStr char_str() { return CharStr(&id[0]); }
 
+    // Index of esges which have this type.
     type_index_t &index() const;
 
 private:

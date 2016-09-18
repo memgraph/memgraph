@@ -3,6 +3,7 @@
 #include "database/db_accessor.hpp"
 #include "import/fillings/filler.hpp"
 
+// Parses type of edge.
 class TypeFiller : public Filler
 {
 

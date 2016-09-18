@@ -98,7 +98,8 @@ public:
         return true;
     }
 
-    // Extracts parts while stripping data of array chars and qutation marks.
+    // Extracts parts of str while stripping parts of array chars and qutation
+    // marks. Parts are separated with delimiter.
     void extract(char *str, const char delimiter, vector<char *> &sub_str)
     {
         int head = 0;
@@ -148,12 +149,9 @@ public:
         }
 
         sub_str.push_back(&str[head]);
-        //
-        // for (auto s : sub_str) {
-        //     cout << "#" << s;
-        // }
     }
 
+    // Optionaly return vertex with given import local id if it exists.
     Option<VertexAccessor> const &get_vertex(size_t id)
     {
         if (vertices.size() > id) {
@@ -168,6 +166,8 @@ public:
     DbAccessor &db;
     Logger logger;
 
+    // Varius marks and delimiters. They can be freely changed here and
+    // everything will work.
     char parts_mark = ',';
     char parts_array_mark = ',';
     char type_mark = ':';
@@ -176,6 +176,6 @@ public:
     char closed_bracket = ']';
 
 protected:
-    // All created vertices which have import local id
+    // All created vertices which have import local id.
     vector<Option<VertexAccessor>> vertices;
 };

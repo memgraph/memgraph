@@ -12,6 +12,7 @@
 Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
     : dbms(dbs), cleaning_cycle(cleaning_cycle)
 {
+    // Start the cleaning thread
     cleaners.push_back(
         std::make_unique<Thread>([&, cleaning_cycle = cleaning_cycle ]() {
             Logger logger = logging::log->logger("Cleaner");
@@ -22,8 +23,11 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
             while (cleaning.load(std::memory_order_acquire)) {
                 std::time_t now = std::time(nullptr);
 
+                // Maybe it's cleaning time.
                 if (now >= last_clean + cleaning_cycle) {
                     logger.info("Started cleaning cyle");
+
+                    // Clean all databases
                     for (auto &db : dbs.access()) {
                         logger.info("Cleaning database \"{}\"", db.first);
                         DbTransaction t(db.second);
@@ -43,11 +47,15 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
                                 db.first);
                             logger.error("{}", e.what());
                         }
+                        // NOTE: Whe should commit even if error occured.
                         t.trans.commit();
                     }
                     last_clean = now;
                     logger.info("Finished cleaning cyle");
+
                 } else {
+
+                    // Cleaning isn't scheduled for now so i should sleep.
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
             }
@@ -56,8 +64,10 @@ Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
 
 Cleaning::~Cleaning()
 {
+    // Stop cleaning
     cleaning.store(false, std::memory_order_release);
     for (auto &t : cleaners) {
+        // Join with cleaners
         t.get()->join();
     }
 }

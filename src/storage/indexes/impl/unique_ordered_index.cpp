@@ -57,9 +57,13 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
     // Sorted order must be checked
     if (this->type().order == Ascending && from_v.key.is_present()) {
         begin = acc.cfind_or_larger(from_v);
+
     } else if (this->type().order == Descending && to_v.key.is_present()) {
+        // Order is descending so whe have to start from the end border and
+        // iterate to the from border.
         begin = acc.cfind_or_larger(to_v);
         end = from_v;
+
     } else {
         assert(this->type().order != None);
     }
@@ -71,9 +75,15 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
           it = std::move(begin), b_end = std::move(end), t = t_v,
           hold_acc = std::move(acc)
         ]() mutable->auto {
+            // UniqueOrderedIndex is smart so he has to iterate only through
+            // records which are inside borders. He knows that he will start
+            // with items larger than from_v but he needs to check if it has
+            // reached end border.
             while (b_end >= it->key) {
                 const IndexRecord<T, K> &r = *it;
                 if (r.is_valid(t.db_transaction.trans)) {
+                    // record r is inside borders and is valid for current
+                    // transaction.
                     const typename T::accessor_t acc =
                         r.access(t.db_transaction);
                     it++;

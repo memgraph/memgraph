@@ -7,6 +7,7 @@
 void EdgeAccessor::remove() const
 {
     RecordAccessor::remove();
+
     auto from_v = from();
     bool f_from = from_v.fill();
     assert(f_from);
@@ -15,6 +16,7 @@ void EdgeAccessor::remove() const
     bool f_to = to_v.fill();
     assert(f_to);
 
+    // Detach edge from vertices.
     from_v.update().record->data.out.remove(vlist);
     to_v.update().record->data.in.remove(vlist);
 }

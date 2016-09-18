@@ -3,6 +3,8 @@
 #include "data_structures/concurrent/common.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 
+// Multi thread safe set based on skiplist.
+// T - type of data.
 template <class T>
 class ConcurrentSet
 {
@@ -37,18 +39,21 @@ public:
 
         list_it find(const T &item) { return accessor.find(item); }
 
+        // Returns iterator to item or first larger if it doesn't exist.
         template <class K>
         list_it_con find_or_larger(const K &item) const
         {
             return accessor.find_or_larger(item);
         }
 
+        // Returns iterator to item or first larger if it doesn't exist.
         template <class K>
         list_it find_or_larger(const K &item)
         {
             return accessor.find_or_larger(item);
         }
 
+        // Returns iterator to item or first larger if it doesn't exist.
         template <class K>
         list_it_con cfind_or_larger(const K &item)
         {

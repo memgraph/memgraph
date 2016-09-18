@@ -3,6 +3,7 @@
 #include "database/db_accessor.hpp"
 #include "import/fillings/filler.hpp"
 
+// Parses array of labels.
 class LabelFiller : public Filler
 {
 

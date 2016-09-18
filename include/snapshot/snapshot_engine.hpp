@@ -53,6 +53,7 @@ private:
     // Will return different name on every call.
     std::string snapshot_file(std::time_t const &now, const char *type);
 
+    // Returns name of snapshot commit file.
     std::string snapshot_commit_file();
 
     // Path to directory of database. Ensures that all necessary directorys

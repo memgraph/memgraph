@@ -53,7 +53,9 @@ public:
     DbAccessor(Db &db, tx::Transaction &t);
 
     //*******************VERTEX METHODS
+    // Returns iterator of VertexAccessor for all vertices.
     // TODO: Implement class specaily for this return
+    // NOTE: This implementation must be here to be able to infere return type.
     auto vertex_access()
     {
         return iter::make_map(
@@ -63,12 +65,16 @@ public:
             });
     }
 
+    // Optionaly return vertex with given internal Id.
     Option<const VertexAccessor> vertex_find(const Id &id);
 
     // Creates new Vertex and returns filled VertexAccessor.
     VertexAccessor vertex_insert();
 
     // ******************* EDGE METHODS
+    // Returns iterator of EdgeAccessor for all edges.
+    // TODO: Implement class specaily for this return
+    // NOTE: This implementation must be here to be able to infere return type.
     auto edge_access()
     {
         return iter::make_map(
@@ -78,6 +84,7 @@ public:
             });
     }
 
+    // Optionally return Edge with given internal Id.
     Option<const EdgeAccessor> edge_find(const Id &id);
 
     // Creates new Edge and returns filled EdgeAccessor.
@@ -89,15 +96,17 @@ public:
                              VertexAccessor const &to);
 
     // ******************* LABEL METHODS
-
+    // Finds or crated label with given name.
     const Label &label_find_or_create(const char *name);
 
+    // True if label with name exists.
     bool label_contains(const char *name);
 
     // ******************** TYPE METHODS
-
+    // Finds or creates edge_type with given name.
     const EdgeType &type_find_or_create(const char *name);
 
+    // True if edge_type with given name exists.
     bool type_contains(const char *name);
 
     // ******************** PROPERTY METHODS
@@ -135,6 +144,8 @@ public:
 
     // True if commit was successful, or false if transaction was aborted.
     bool commit();
+
+    // Aborts transaction.
     void abort();
 
 private:
@@ -146,11 +157,3 @@ private:
 
     DbTransaction db_transaction;
 };
-
-// ********************** CONVENIENT FUNCTIONS
-
-template <class R>
-bool option_fill(Option<R> &o)
-{
-    return o.is_present() && o.get().fill();
-}

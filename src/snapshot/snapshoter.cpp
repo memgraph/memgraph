@@ -12,6 +12,7 @@ Snapshoter::Snapshoter(ConcurrentMap<std::string, Db> &dbs,
                        size_t snapshot_cycle)
     : snapshot_cycle(snapshot_cycle), dbms(dbs)
 {
+    // Start snapshoter thread.
     thread = std::make_unique<Thread>([&]() {
         logger = logging::log->logger("Snapshoter");
         logger.info("Started with snapshoot cycle of {} sec",
@@ -46,7 +47,9 @@ void Snapshoter::run()
             make_snapshots();
 
             last_snapshot = now;
+
         } else {
+            // It isn't time for snapshot so i should wait.
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }

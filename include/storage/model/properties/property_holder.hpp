@@ -68,22 +68,22 @@
 // Generates field in a union with a given type and name
 #define GENERATE_UNION_FIELD(type_name, union_name) type_name union_name
 
-// Generates signatures GENERATE_define_generator(type_name, union_name );
+// Generates signatures define_generator(type_name, union_name );
 // for every pair type,property
 #define GENERATE_FOR_ALL_PROPERTYS(define_generator)                           \
-    GENERATE_##define_generator(Null, null_v);                                 \
-    GENERATE_##define_generator(Bool, bool_v);                                 \
-    GENERATE_##define_generator(Int32, int32_v);                               \
-    GENERATE_##define_generator(Int64, int64_v);                               \
-    GENERATE_##define_generator(Float, float_V);                               \
-    GENERATE_##define_generator(Double, double_v);                             \
-    GENERATE_##define_generator(String, string_v);                             \
-    GENERATE_##define_generator(ArrayBool, array_bool);                        \
-    GENERATE_##define_generator(ArrayInt32, array_int32);                      \
-    GENERATE_##define_generator(ArrayInt64, array_int64);                      \
-    GENERATE_##define_generator(ArrayFloat, array_float);                      \
-    GENERATE_##define_generator(ArrayDouble, array_double);                    \
-    GENERATE_##define_generator(ArrayString, array_string);
+    define_generator(Null, null_v);                                            \
+    define_generator(Bool, bool_v);                                            \
+    define_generator(Int32, int32_v);                                          \
+    define_generator(Int64, int64_v);                                          \
+    define_generator(Float, float_V);                                          \
+    define_generator(Double, double_v);                                        \
+    define_generator(String, string_v);                                        \
+    define_generator(ArrayBool, array_bool);                                   \
+    define_generator(ArrayInt32, array_int32);                                 \
+    define_generator(ArrayInt64, array_int64);                                 \
+    define_generator(ArrayFloat, array_float);                                 \
+    define_generator(ArrayDouble, array_double);                               \
+    define_generator(ArrayString, array_string);
 
 // Holds property and has some means of determining its type.
 // T must have method get_type() const which returns Type.
@@ -97,12 +97,13 @@ class PropertyHolder
 public:
     PropertyHolder() = delete;
 
-    GENERATE_FOR_ALL_PROPERTYS(CONSTRUCTOR_FOR_DATA);
+    GENERATE_FOR_ALL_PROPERTYS(GENERATE_CONSTRUCTOR_FOR_DATA);
 
     PropertyHolder(PropertyHolder const &other) : key(other.key)
     {
         switch (other.key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_CONSTRUCTOR_COPY);
+            GENERATE_FOR_ALL_PROPERTYS(
+                GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_COPY);
         default:
             assert(false);
         }
@@ -112,7 +113,8 @@ public:
     PropertyHolder(PropertyHolder &&other) : key(other.key)
     {
         switch (other.key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
+            GENERATE_FOR_ALL_PROPERTYS(
+                GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
         default:
             assert(false);
         }
@@ -123,7 +125,8 @@ public:
     {
         assert(other.key.get_type() == key.get_type());
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
+            GENERATE_FOR_ALL_PROPERTYS(
+                GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
         default:
             assert(false);
         }
@@ -133,7 +136,7 @@ public:
     ~PropertyHolder()
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_DESTRUCTOR);
+            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_DESTRUCTOR);
         default:
             assert(false);
         }
@@ -161,7 +164,7 @@ public:
     void accept(Handler &h) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_HANDLER);
+            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_HANDLER);
         default:
             assert(false);
         }
@@ -172,7 +175,8 @@ public:
     void accept_primitive(Handler &h) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_HANDLER_PRIMITIVE);
+            GENERATE_FOR_ALL_PROPERTYS(
+                GENERATE_CASE_CLAUSE_FOR_HANDLER_PRIMITIVE);
         default:
             assert(false);
         }
@@ -181,7 +185,7 @@ public:
     std::ostream &print(std::ostream &stream) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_PRINT);
+            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_PRINT);
         default:
             assert(false);
         }
@@ -197,7 +201,7 @@ public:
     {
         if (key == other.key) {
             switch (key.get_type().flags()) {
-                GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_COMPARISON);
+                GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
             default:
                 assert(false);
             }
@@ -211,7 +215,7 @@ public:
     {
         if (key.get_type() == other.key.get_type()) {
             switch (key.get_type().flags()) {
-                GENERATE_FOR_ALL_PROPERTYS(CASE_CLAUSE_FOR_COMPARISON);
+                GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
             default:
                 assert(false);
             }
@@ -269,7 +273,7 @@ private:
     // Stored data.
     union
     {
-        GENERATE_FOR_ALL_PROPERTYS(UNION_FIELD);
+        GENERATE_FOR_ALL_PROPERTYS(GENERATE_UNION_FIELD);
     };
 };
 

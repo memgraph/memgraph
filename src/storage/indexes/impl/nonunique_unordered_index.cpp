@@ -51,10 +51,14 @@ auto NonUniqueUnorderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
           it = list.cbegin(), end = list.cend(), from = from_v, to = to_v,
           t = t_v
         ]() mutable->auto {
+            // NonUniqueUnorderedIndex is stupid so it must iterate through all
+            // index records to determine which are iniside borders.
             while (it != end) {
                 const IndexRecord<T, K> &r = *it;
                 if (from < r.key && to > r.key &&
                     r.is_valid(t.db_transaction.trans)) {
+                    // record r is inside borders and is valid for current
+                    // transaction.
                     const typename T::accessor_t acc =
                         r.access(t.db_transaction);
                     it++;

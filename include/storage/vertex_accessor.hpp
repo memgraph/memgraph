@@ -29,7 +29,7 @@ public:
     // True if vertex isn't connected to any other vertex.
     bool isolated() const;
 
-    // False if it's label with it already.
+    // False if it already has labe.
     bool add_label(const Label &label);
 
     // False if it doesn't have label.

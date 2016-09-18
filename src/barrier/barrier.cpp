@@ -6,15 +6,18 @@
 // Implementations should follow the form:
 // border_return_type border_class::method_name(arguments){
 //      return
-//      CALL(method_name(trans(arguments)))/HALF_CALL(method_name(trans(arguments)));
+//      CALL(method_name(trans(arguments)))
+//      or
+//      HALF_CALL(method_name(trans(arguments)));
 // }
 
 // **************************** HELPER DEFINES *******************************//
-// returns transformed pointer
+// returns transformed this pointer
 #define THIS (trans(this))
-// Performs call x on transformed border class.
+// In border class performs call x on original class.
 #define HALF_CALL(x) (THIS->x)
-// Performs call x on transformed border class and returns transformed output.
+// In border class performs call x on original class and produces transformed
+// output.
 #define CALL(x) trans(HALF_CALL(x))
 
 // Creates destructor for border type x which is original type y.
@@ -57,24 +60,6 @@
 
 namespace barrier
 {
-
-// ************************* EdgePropertyType
-// #define FOR_ALL_PROPS_delete_EdgePropertyType(x)                               \
-//     template <>                                                                \
-//     EdgePropertyType<x>::~EdgePropertyType()                                   \
-//     {                                                                          \
-//         HALF_CALL(~PropertyTypeKey());                                         \
-//     }
-// INSTANTIATE_FOR_PROPERTY(FOR_ALL_PROPS_delete_EdgePropertyType)
-
-// ************************* VertexPropertyType
-// #define FOR_ALL_PROPS_delete_VertexPropertyType(x)                             \
-//     template <>                                                                \
-//     VertexPropertyType<x>::~VertexPropertyType()                               \
-//     {                                                                          \
-//         HALF_CALL(~PropertyTypeKey());                                         \
-//     }
-// // INSTANTIATE_FOR_PROPERTY(FOR_ALL/_PROPS_delete_VertexPropertyType)
 
 // ***************** Label
 VertexIndex<std::nullptr_t> &Label::index() const { return CALL(index()); }
@@ -542,12 +527,6 @@ void RecordStream<Stream>::write(const EdgeStoredProperty &prop)
     HALF_CALL(write(trans(prop)));
 }
 
-// template <class Stream>
-// void RecordStream<Stream>::write_null()
-// {
-//     HALF_CALL(write_null());
-// }
-
 template <class Stream>
 void RecordStream<Stream>::write(const Null &v)
 {
@@ -699,31 +678,31 @@ template class RecordStream<io::Socket>;
 // **************************** ERROR EXAMPLES ****************************** //
 // **************************** COMPILE TIME
 /*
-error:
+### error:
 ../libmemgraph.a(barrier.cpp.o): In function `Option<barrier::VertexAccessor
 const> Option<VertexAccessor const>::map<barrier::VertexAccessor const>()':
 /home/ktf/Workspace/memgraph/include/utils/option.hpp:111: undefined reference
 to `barrier::VertexAccessor::VertexAccessor<VertexAccessor const>(VertexAccessor
 const&&)'
 
-description:
+# description:
 Constructor VertexAccessor<::VertexAccessor const>(::VertexAccessor const&&)
 isn't written.
 
 
-error:
+### error:
 ../libmemgraph.a(barrier.cpp.o): In function `barrier::EdgeAccessor::from()
 const':
 /home/ktf/Workspace/memgraph/src/barrier/barrier.cpp:501: undefined reference to
 `barrier::VertexAccessor::VertexAccessor<barrier::VertexAccessor
 const>(barrier::VertexAccessor const&&)'
 
-description:
+# description:
 Move constructor VertexAccessor<VertexAccessor const>(VertexAccessor const&&)
 isn't defined.
 
 
-error:
+### error:
 /home/ktf/Workspace/memgraph/src/barrier/barrier.cpp:282:12: error: call to
 'trans' is ambiguous
     return CALL(at(trans(key)));
@@ -769,7 +748,7 @@ from macro 'TRANSFORM_REF'
     x const &trans(y const &l) { return ref_as<x const>(l); }                  \
 ...
 
-description:
+# description:
 There is no valid transformation for types on which trans is called.
 
 */
