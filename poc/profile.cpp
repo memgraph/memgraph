@@ -19,6 +19,9 @@
 
 using namespace std;
 
+using company_profile_type =
+    pair<barrier::VertexAccessor, unordered_map<string, double>>;
+
 // Accepts flags for csv import.
 // -db name # will create database with that name.
 // -s true # will create snapshot of the database after import.
@@ -35,12 +38,11 @@ int main(int argc, char **argv)
     {
         DbAccessor t(db);
 
-        vector<pair<barrier::VertexAccessor, unordered_map<string, double>>>
-            coll;
+        vector<company_profile_type> company_profiles;
 
         // QUERY BENCHMARK
         auto begin = clock();
-        int n = for_all_companys(barrier::trans(t), coll);
+        int n = for_all_companys(barrier::trans(t), company_profiles);
         clock_t end = clock();
         double elapsed_s = (double(end - begin) / CLOCKS_PER_SEC);
 
@@ -54,28 +56,35 @@ int main(int argc, char **argv)
              << endl;
         cout << "Throughput: " << 1 / (elapsed_s / n) << " [query/sec]" << endl;
 
-        auto res = coll.back();
+        // remove ones who don't have profile results
+        auto res = company_profiles.back();
         while (res.second.empty()) {
-            coll.pop_back();
-            res = coll.back();
+            company_profiles.pop_back();
+            res = company_profiles.back();
         }
 
-        auto prop_vertex_id = t.vertex_property_key<Int64>("company_id");
-        cout << endl
-             << "Example: "
-             << *barrier::trans(res.first).at(prop_vertex_id).get() << endl;
-        for (auto e : res.second) {
-            cout << e.first << " = " << e.second << endl;
-        }
-
-        double sum = 0;
-        for (auto r : coll) {
-            for (auto e : r.second) {
-                sum += e.second;
+        // print specific company
+        int company_id = std::stoi(get_argument(para, "-company_id", "230216"));
+        for (auto &company_profile : company_profiles) {
+            auto prop_vertex_id = t.vertex_property_key<Int64>("company_id");
+            auto db_company_id = *barrier::trans(company_profile.first)
+                                             .at(prop_vertex_id).get();
+            if (db_company_id == company_id) {
+                cout << endl << "CompanyID: " << company_id << endl;
+                for (auto e : company_profile.second) {
+                    cout << e.first << " = " << e.second << endl;
+                }
             }
         }
 
-        cout << endl << endl << "Compiler sum " << sum << endl;
+        // double sum = 0;
+        // for (auto r : coll) {
+        //     for (auto e : r.second) {
+        //         sum += e.second;
+        //     }
+        // }
+        // cout << endl << endl << "Compiler sum " << sum << endl;
+
         t.commit();
     }
 

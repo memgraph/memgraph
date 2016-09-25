@@ -2,10 +2,8 @@ cmake_minimum_required(VERSION 3.1)
 
 project(memgraph_poc)
 
-
 include_directories(${CMAKE_SOURCE_DIR}/poc)
 include_directories(${CMAKE_SOURCE_DIR}/queries)
-
 
 add_executable(poc_astar astar.cpp)
 target_link_libraries(poc_astar memgraph)

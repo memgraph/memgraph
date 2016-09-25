@@ -159,11 +159,11 @@ auto a_star(
                                   EdgeAccessor &edge, VertexAccessor &vertex),
     int limit)
 {
+    // get transaction
     DbAccessor t(db);
-    type_key_t<TypeGroupVertex, Double> tkey =
-        t.vertex_property_family_get("score")
-            .get(Flags::Double)
-            .type_key<Double>();
+
+    type_key_t<TypeGroupVertex, Double> type_key =
+        t.vertex_property_family_get("score").get(Flags::Double).type_key<Double>();
 
     auto best_found = new std::map<Id, Score>[max_depth];
 
@@ -174,7 +174,7 @@ auto a_star(
     auto start_vr = t.vertex_find(sys_id_start);
     assert(start_vr);
     start_vr.get().fill();
-    Node *start = new Node(start_vr.take(), 0, tkey);
+    Node *start = new Node(start_vr.take(), 0, type_key);
     queue.push(start);
     int count = 0;
     do {
@@ -205,8 +205,8 @@ auto a_star(
             if (e_filter[now->depth](t, edge, now)) {
                 VertexAccessor va = edge.to();
                 if (v_filter[now->depth](t, va, now)) {
-                    auto cost = calc_heuristic_cost(tkey, edge, va);
-                    Node *n = new Node(va, now->cost + cost, now, tkey);
+                    auto cost = calc_heuristic_cost(type_key, edge, va);
+                    Node *n = new Node(va, now->cost + cost, now, type_key);
                     queue.push(n);
                 }
             }
@@ -293,7 +293,7 @@ void add_scores(Db &db)
     int i = 1;
     iter::for_all(t.vertex_access(), [&](auto v) {
         if (v.fill()) {
-            // from Kruno's head :) (could be ALMOST anything else)
+            // any random number is OK
             std::srand(i ^ 0x7482616);
             v.set(StoredProperty<TypeGroupVertex>(
                 Double((std::rand() % max_score) / (max_score + 0.0)),
