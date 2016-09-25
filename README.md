@@ -47,7 +47,25 @@ ctest -R concurrent
 ctest -R concurrent --parallel 4
 ```
 
-# custom test build example
+## Proof of concept
+
+### Dressipi
+
+Run command:
+```
+cd build/poc
+MEMGRAPH_CONFIG=/path/to/config/memgraph.yaml ./poc_astar -v "dressipi/graph_nodes_export.csv" -e "dressipi/graph_edges_export.csv"
+```
+
+### Powerlinx
+
+Run command:
+```
+cd build/poc
+MEMGRAPH_CONFIG=/path/to/config/memgraph.yaml ./profile -d ";" -v "node_account.csv" -v "node_company.csv" -v "node_opportunity.csv"  -v "node_personnel.csv" -e "rel_created.csv" -e "rel_has_match.csv" -e "rel_interested_in.csv" -e "rel_is_employee.csv" -e "rel_partnered_with.csv" -e "rel_reached_to.csv" -e "rel_searched_and_clicked.csv" -e "rel_viewed.csv" -e "rel_works_in.csv"
+```
+
+# Custom test build example
 clang++ -std=c++1y -o concurrent_skiplist ../tests/concurrent/skiplist.cpp -pg -I../src/ -I../libs/fmt -Lfmt-prefix/src/fmt-build/fmt -lfmt -lpthread
 
 # TODO

@@ -241,7 +241,6 @@ FILE(COPY ${include_dir}/storage/label/label_collection.hpp DESTINATION ${build_
 FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
 
 FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_include_dir}/storage/indexes)
-FILE(COPY ${include_dir}/storage/indexes/index_record_collection.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_base.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/impl/nonunique_unordered_index.hpp DESTINATION ${build_include_dir}/storage/indexes/impl)
 
