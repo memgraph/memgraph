@@ -376,6 +376,8 @@ option(TOOLS "Build tool executables" ON)
 message(STATUS "TOOLS binaries: ${TOOLS}")
 option(TESTS "Build test binaries" ON)
 message(STATUS "TESTS binaries: ${TESTS}")
+option(BENCHMARK "Build benchmark binaries" ON)
+message(STATUS "BENCHMARK binaries: ${BENCHMARK}")
 # -- binaries -----------------------------------------------------------------
 # -- barrier - this is the way how the engine is isolated so it can be shipped
 # wherever, the code is completely hidden behind the barrier, during the
@@ -511,6 +513,10 @@ if (POC)
     add_subdirectory(poc)
 endif()
 
+# benchmark binaries
+if (BENCHMARK)
+    add_subdirectory(benchmark)
+endif()
 
 # memgraph build name
 execute_process(
