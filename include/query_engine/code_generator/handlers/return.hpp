@@ -80,6 +80,10 @@ auto return_query_action =
                 code += code_line(code::count, name);
             }
         }
+        if (kv.second == ClauseAction::ReturnLabels)
+        {
+            // TODO: similar to above
+        }
     }
 
     return code;

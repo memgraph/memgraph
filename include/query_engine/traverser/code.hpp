@@ -126,3 +126,8 @@ const std::string print_properties =
 const std::string print_property =
     "cout_property(\"{0}\", {0}.property(\"{1}\"));";
 }
+
+// DELETE
+const std::string detach_delete_all_nodes =
+    "t.vertex_access().fill().isolated().for_all("
+    "        [&](auto a) {{ a.remove(); }});";

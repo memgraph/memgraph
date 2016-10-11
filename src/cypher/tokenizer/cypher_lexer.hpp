@@ -60,6 +60,7 @@ public:
 
         // functions
         rule("(?i:COUNT)", TK_COUNT);
+        rule("(?i:LABELS)", TK_LABELS);
 
         // string literal TODO single quote escape
         rule("'(.*?)'", TK_STR);

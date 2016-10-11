@@ -17,5 +17,6 @@ enum class ClauseAction : uint32_t
     ReturnRelationship,
     ReturnPack,
     ReturnProjection,
-    ReturnCount
+    ReturnCount,
+    ReturnLabels
 };

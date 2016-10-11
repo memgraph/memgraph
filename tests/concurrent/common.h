@@ -1,27 +1,30 @@
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
 #include <chrono>
 #include <future>
 #include <iostream>
 #include <random>
 #include <thread>
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
+#include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_multimap.hpp"
 #include "data_structures/concurrent/concurrent_multiset.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/static_array.hpp"
-#include "utils/assert.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
 
+// NOTE: this file is highly coupled to data_structures
+// TODO: REFACTOR
+
 // Sets max number of threads that will be used in concurrent tests.
-constexpr int max_no_threads=8;
+constexpr int max_no_threads = 8;
 
 using std::cout;
 using std::endl;
@@ -300,8 +303,9 @@ void memory_check(size_t no_threads, std::function<void()> f)
     permanent_assert(leaked <= 0, "Memory leak check");
 }
 
-//Initializes loging faccilityes
-void init_log(){
+// Initializes loging faccilityes
+void init_log()
+{
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
 }

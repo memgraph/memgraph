@@ -38,6 +38,7 @@ struct Rem;
 
 // functions
 struct CountFunction;
+struct LabelsFunction;
 
 struct RelationshipSpecs;
 struct RelationshipTypeList;
@@ -86,7 +87,7 @@ struct AstVisitor
           PatternList, Match, ReadQuery, Start, Where, WriteQuery, Create,
           Return, Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
           ReadWriteQuery, IdentifierList, WithList, WithClause, WithQuery, Long,
-          CountFunction,
+          CountFunction, LabelsFunction,
           InternalIdExpr, SetValue, SetElement, SetList>
 {
 };

@@ -11,4 +11,12 @@ struct CountFunction : public FunctionExpr<std::string, CountFunction>
     {
     }
 };
+
+struct LabelsFunction : public FunctionExpr<std::string, LabelsFunction>
+{
+    LabelsFunction(const std::string &argument) : FunctionExpr("labels", argument)
+    {
+    }
+};
+
 }

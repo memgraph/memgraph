@@ -158,6 +158,10 @@ public:
     {
     }
 
+    void visit(ast::LabelsFunction& labels) override
+    {
+    }
+
     void visit(ast::PropertyList& prop_list) override
     {
         accept(prop_list.value);

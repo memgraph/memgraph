@@ -501,6 +501,10 @@ function_expr(E) ::= COUNT LP IDN(A) RP. {
     E = ast->create<ast::CountFunction>(A->value);
 }
 
+function_expr(E) ::= LABELS LP IDN(A) RP. {
+    E = ast->create<ast::LabelsFunction>(A->value);
+}
+
 %type expr {ast::Expr*}
 
 expr(E) ::= value_expr(V). {

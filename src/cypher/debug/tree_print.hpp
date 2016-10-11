@@ -300,6 +300,12 @@ public:
         entry << count.name << "(" << count.argument << ")";
     }
 
+    void visit(ast::LabelsFunction& labels) override
+    {
+        auto entry = printer.advance("Labels ");
+        entry << labels.name << "(" << labels.argument << ")";
+    }
+
     void visit(ast::PropertyList& prop_list) override
     {
         auto entry = printer.advance("Property List");
