@@ -1,6 +1,8 @@
 #include "query_engine/hardcode/queries.hpp"
 
+#ifdef BARRIER
 #include "barrier/barrier.cpp"
+#endif
 
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
@@ -20,7 +22,11 @@ int main(void)
 
     Db db;
 
+#ifdef BARRIER
     auto query_functions = load_queries(barrier::trans(db));
+#else
+    auto query_functions = load_queries(db);
+#endif
 
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 

@@ -209,7 +209,6 @@ public:
         query_action = QueryAction::Return;
 
         Traverser::visit(ast_return);
-
     }
 
     void visit(ast::ReturnList &ast_return_list) override
@@ -374,6 +373,7 @@ public:
     void visit(ast::LabelList &ast_label_list) override
     {
         auto &action_data = generator.action_data();
+        auto &cypher_data = generator.cypher_data();
 
         if (!ast_label_list.has_value()) return;
 
@@ -382,6 +382,9 @@ public:
         action_data.add_entity_tag(entity, label);
         action_data.csm.search_cost(entity, entity_search::search_label_index,
                                     entity_search::label_cost);
+        cypher_data.tag(entity, label);
+        // TODO: it shouldn't be decided here
+        cypher_data.source(entity, EntitySource::LabelIndex);
 
         Traverser::visit(ast_label_list);
     }
@@ -525,9 +528,9 @@ public:
         auto &action_data = generator.action_data();
         auto &cypher_data = generator.cypher_data();
 
-        if (state == CypherState::Return)
-        {
+        // if (state == CypherState::Return)
+        // {
             action_data.actions[ast_count.argument] = ClauseAction::ReturnCount;
-        }
+        // }
     }
 };

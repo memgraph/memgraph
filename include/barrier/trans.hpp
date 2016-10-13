@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef BARRIER
+
 #include "barrier/barrier.hpp"
 
 // This is the place for imports from memgraph .hpp
@@ -263,3 +265,5 @@ INSTANTIATE_FOR_PROPERTY(EdgePropertyType_constructor);
 
 DbAccessor::DbAccessor(Db &db) : Sized(::DbAccessor(trans(db))) {}
 }
+
+#endif

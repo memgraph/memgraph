@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef BARRIER
+
 #include "barrier/common.hpp"
 
 // This namespace is holding header parts of barrier classes. Barrier class
@@ -578,3 +580,5 @@ class Db : protected Unsized
 {
 };
 }
+
+#endif

@@ -2,7 +2,9 @@
 
 #include "query_engine/hardcode/queries.hpp"
 
+#ifdef BARRIER
 #include "barrier/barrier.cpp"
+#endif
 
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
@@ -17,7 +19,11 @@ using namespace std;
 int main(int argc, char **argv)
 {
     Db db;
+#ifdef BARRIER
     auto queries = load_queries(barrier::trans(db));
+#else
+    auto queries = load_queries(db);
+#endif
 
     // auto arguments = all_arguments(argc, argv);
     // auto input_query = extract_query(arguments);

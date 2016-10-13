@@ -3,12 +3,43 @@
 #include <iostream>
 #include <map>
 
-#include "barrier/barrier.hpp"
-
 using namespace std;
 
+#ifdef BARRIER
+
+#include "barrier/barrier.hpp"
 namespace barrier
 {
+
+#else
+
+#include <cassert>
+#include <map>
+#include <type_traits>
+#include <utility>
+#include <vector>
+#include "mvcc/id.hpp"
+#include "storage/indexes/index_definition.hpp"
+#include "storage/model/properties/all.hpp"
+#include "storage/model/properties/property.hpp"
+#include "utils/border.hpp"
+#include "utils/iterator/iterator.hpp"
+#include "utils/option_ptr.hpp"
+#include "utils/reference_wrapper.hpp"
+#include "database/db.hpp"
+#include "database/db_accessor.hpp"
+#include "utils/iterator/iterator.hpp"
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
+#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "database/db.hpp"
+#include "database/db_accessor.hpp"
+#include "io/network/socket.hpp"
+#include "storage/edge_type/edge_type.hpp"
+#include "storage/edge_x_vertex.hpp"
+#include "storage/label/label.hpp"
+
+#endif
+
 auto load_queries(Db &db)
 {
     std::map<uint64_t, std::function<bool(properties_t &&)>> queries;
@@ -475,4 +506,7 @@ auto load_queries(Db &db)
 
     return queries;
 }
+
+#ifdef BARRIER
 }
+#endif

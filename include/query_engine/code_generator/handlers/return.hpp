@@ -73,11 +73,25 @@ auto return_query_action =
     for (auto const &kv : action_data.actions)
     {
         auto name = kv.first;
+
         if (kv.second == ClauseAction::ReturnCount)
         {
             if (cypher_data.source(name) == EntitySource::MainStorage)
             {
                 code += code_line(code::count, name);
+            }
+
+            if (cypher_data.source(name) == EntitySource::LabelIndex)
+            {
+                auto tags = cypher_data.tags(name);
+                if (tags.size() == 1) {
+                    auto label = tags.at(0);
+                    code += code_line(code::count_vertices_for_one_label,
+                                      name, label);
+                }
+                // TODO: do for more, isn't easy because of
+                // multiple iterators, but we have iterator infrastructure
+                // to do that
             }
         }
         if (kv.second == ClauseAction::ReturnLabels)

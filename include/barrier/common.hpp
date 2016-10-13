@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef BARRIER
+
 #include <cassert>
 #include <map>
 #include <type_traits>
@@ -136,3 +138,5 @@ private:
     typename std::aligned_storage<size_B, alignment_B>::type data;
 };
 }
+
+#endif

@@ -105,6 +105,19 @@ const std::string find_and_write_edges_by_type =
     "        }});\n"
     "        stream.write_meta(\"rw\");\n";
 
+const std::string count_vertices_for_one_label =
+    "size_t count = 0;\n"
+    "auto &label = t.label_find_or_create(\"{1}\");\n"
+    "        label.index().for_range(t).for_all([&](auto vertex) {{\n"
+    "            count++;\n"
+    "        }});\n"
+    "        stream.write_field(\"count({0})\");\n"
+    "        stream.write_record();\n"
+    "        stream.write_list_header(1);\n"
+    "        stream.write(Int64(count));\n"
+    "        stream.chunk();\n"
+    "        stream.write_meta(\"r\");\n";
+
 // TODO: vertices and edges
 const std::string count =
     "size_t count = 0;\n"

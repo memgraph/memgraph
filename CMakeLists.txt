@@ -14,12 +14,6 @@ find_package(Threads REQUIRED)
 # c++14
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 
-# glibcxx debug (useful for gdb)
-# the problem is that the query engine doesn't work as it should work if
-# this flag is present
-# TODO: find more appropriate way to use this flag only when it is needed
-# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_DEBUG")
-
 # functions
 
 # prints all included directories
@@ -305,7 +299,10 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 endif()
 
 # release flags
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 ${CMAKE_CXX_FLAGS_RELEASE}")
+
+#debug flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g2 ${CMAKE_CXX_FLAGS_DEBUG}")
 
 # TODO: find a way how to applay the defines at the query compile time
 # -- configure defines -- default is ON | true | enabled ----------------------
@@ -367,6 +364,16 @@ if(NDEBUG)
     add_definitions( -DNDEBUG )
 endif()
 # -- ndebug -------------------------------------------------------------------
+# -- GLIBCXX_DEBUG ------------------------------------------------------------
+# glibcxx debug (useful for gdb)
+# the problem is that the query engine doesn't work as it should work if
+# this flag is present
+option(GLIBCXX_DEBUG "glibc debug" OFF)
+message(STATUS "GLIBCXX_DEBUG: ${GLIBCXX_DEBUG} (solves problem with _M_dataplus member during a debugging process")
+if(GLIBCXX_DEBUG)
+    set(CMAKE_CXX_FLAGS_DEBUG "-D_GLIBCXX_DEBUG ${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+# -----------------------------------------------------------------------------
 # -- binaries -----------------------------------------------------------------
 option(MEMGRAPH "Build memgraph binary" ON)
 message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
@@ -536,6 +543,10 @@ string(STRIP ${COMMIT_NO} COMMIT_NO)
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
     "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
+
+message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Debug flags: ${CMAKE_CXX_FLAGS_DEBUG}")
+message(STATUS "Release flags: ${CMAKE_CXX_FLAGS_RELEASE}")
 
 # memgraph main executable
 if (MEMGRAPH)

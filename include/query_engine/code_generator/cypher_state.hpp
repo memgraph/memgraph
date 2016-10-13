@@ -54,8 +54,6 @@ private:
     std::map<std::string, EntitySource> entity_source;
     std::map<std::string, std::vector<std::string>> entity_tags;
 
-    // TODO: container that keeps track about c++ variable names
-
 public:
     bool exist(const std::string &name) const
     {
@@ -129,5 +127,14 @@ public:
     void tags(const std::string& name, std::vector<std::string> tags)
     {
         entity_tags[name] = tags;
+    }
+
+    void tag(const std::string& name, const std::string& new_tag)
+    {
+        if (entity_tags.find(name) != entity_tags.end())
+        {
+            entity_tags[name] = std::vector<std::string>{};
+        }
+        entity_tags[name].emplace_back(new_tag);
     }
 };
