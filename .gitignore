@@ -5,6 +5,7 @@
 *.swo
 *.out
 *.so
+*.o
 *.dSYM/
 memgraph
 *~

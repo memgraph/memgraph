@@ -409,9 +409,14 @@ public:
         auto prop = property_state.property_name;
         auto index = property_state.property_index;
 
-        auto &data = generator.action_data();
-        data.parameter_index.emplace(ParameterIndexKey(entity, prop), index);
-        data.add_entitiy_property(entity, prop);
+        // update action data
+        auto &action_data = generator.action_data();
+        action_data.parameter_index.emplace(ParameterIndexKey(entity, prop), index);
+        action_data.add_entitiy_property(entity, prop);
+
+        // update cypher data
+        auto &cypher_data = generator.cypher_data();
+        cypher_data.index(entity, prop, index);
 
         clear_state();
     }

@@ -46,13 +46,19 @@ enum class EntitySource : uint8_t
     MainStorage 
 };
 
+// TODO: reduce copying
 class CypherStateData
 {
+public:
+    using tags_type = std::vector<std::string>;
+    using properties_type = std::map<std::string, int64_t>;
+
 private:
     std::map<std::string, EntityStatus> entity_status;
     std::map<std::string, EntityType> entity_type;
     std::map<std::string, EntitySource> entity_source;
-    std::map<std::string, std::vector<std::string>> entity_tags;
+    std::map<std::string, tags_type> entity_tags;
+    std::map<std::string, properties_type> entity_properties;
 
 public:
     bool exist(const std::string &name) const
@@ -83,14 +89,7 @@ public:
         return entity_source.at(name);
     }
 
-    auto tags(const std::string& name) const
-    {
-        if (entity_tags.find(name) == entity_tags.end())
-            throw CppGeneratorException("No tags for specified entity");
-        return entity_tags.at(name);
-    }
-
-    const std::map<std::string, EntityType> &all_typed_enteties()
+        const std::map<std::string, EntityType> &all_typed_enteties()
     {
         return entity_type;
     }
@@ -123,8 +122,16 @@ public:
     {
         entity_source[name] = source;
     }
+    
+    // entity tags
+    auto tags(const std::string& name) const
+    {
+        if (entity_tags.find(name) == entity_tags.end())
+            throw CppGeneratorException("No tags for specified entity");
+        return entity_tags.at(name);
+    }
 
-    void tags(const std::string& name, std::vector<std::string> tags)
+    void tags(const std::string& name, tags_type tags)
     {
         entity_tags[name] = tags;
     }
@@ -137,4 +144,40 @@ public:
         }
         entity_tags[name].emplace_back(new_tag);
     }
+
+    // entity properties
+    auto properties(const std::string& name) const
+    {
+        if (entity_properties.find(name) == entity_properties.end())
+            throw CppGeneratorException("No properties for specified entity");
+        return entity_properties.at(name);
+    }
+
+    void properties(const std::string& name, properties_type properties)
+    {
+        entity_properties[name] = properties;
+    }
+
+    void index(const std::string& entity, const std::string& property, int64_t index)
+    {
+        if (entity_properties.find(entity) != entity_properties.end())
+        {
+            entity_properties[entity] = properties_type{};
+        }
+        entity_properties[entity][property] = index;
+    }
+
+    auto index(const std::string& entity, const std::string& property_name)
+    {
+        if (entity_properties.find(entity) != entity_properties.end())
+            throw CppGeneratorException("No properties for specified entity");
+
+        auto properties = entity_properties.at(entity);
+
+        if (properties.find(property_name) != properties.end())
+            throw CppGeneratorException("No property for specified property name");
+
+        return properties[property_name];
+    }
+
 };

@@ -10,8 +10,8 @@ namespace logging
 {
     namespace format
     {
-        std::string out = "{} {:<5} [{}] {}\n";
-        std::string err = out;
+        static const std::string out = "{} {:<5} [{}] {}\n";
+        static const std::string err = out;
 
         // TODO: configurable formats
     }

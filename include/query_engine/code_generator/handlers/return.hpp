@@ -48,6 +48,8 @@ auto return_query_action =
                     code += code_line(code::find_and_write_vertices_by_label,
                                       entity, label);
                 }
+
+                // TODO: 16/10/2016 create match code if properties exist
             }
 
             if (cypher_data.source(entity) == EntitySource::TypeIndex)
