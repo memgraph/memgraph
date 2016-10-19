@@ -52,4 +52,5 @@ auto make_iterator(F &&f, size_t count)
     // is T.
     return LambdaIterator<decltype(f().take()), F>(std::move(f), count);
 }
+
 }

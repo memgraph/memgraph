@@ -15,7 +15,7 @@ template <class TG, class T>
 using type_key_t =
     typename PropertyFamily<TG>::PropertyType::template PropertyTypeKey<T>;
 
-// Collcetion of stored properties.
+// Collection of stored properties.
 // NOTE: Currently underlying strucutre is a vector which is fine for smaller
 // number of properties.
 template <class TG>
@@ -36,6 +36,8 @@ public:
     auto cend() const { return props.cend(); }
 
     size_t size() const { return props.size(); }
+
+    const bool contains(property_key &key) const;
 
     const StoredProperty<TG> &at(PropertyFamily<TG> &key) const;
 

@@ -148,7 +148,7 @@ public:
     // Filters out vertices which are connected.
     auto isolated()
     {
-        return filter([&](auto &ra) { return ra.isolated(); });
+        return filter([&](auto &element) { return element.isolated(); });
     }
 
     // For all items calls OP.

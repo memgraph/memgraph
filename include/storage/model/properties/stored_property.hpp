@@ -18,8 +18,7 @@ class StoredProperty : public PropertyHolder<property_key<TG>>
 
 public:
     // NOTE: Needed for properties to return reference on stored property when
-    // they
-    // don't cointain searched property.
+    // they don't cointain searched property.
     const static class StoredProperty<TG> null;
 
     using PropertyHolder<property_key<TG>>::PropertyHolder;

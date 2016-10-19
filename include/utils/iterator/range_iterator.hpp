@@ -5,7 +5,7 @@
 namespace iter
 {
 
-// Class which wraps iterator with next() into c++ iterator.
+// Class which wraps iterator with next() into C++ iterator.
 // T - type of return value
 // I - iterator type
 template <class T, class I>
@@ -65,10 +65,10 @@ private:
 template <class I>
 auto make_range_iterator(I &&iter)
 {
-    // Because function isn't receving or in any way using type T from
-    // RangeIterator compiler can't deduce it thats way there is decltype in
-    // construction of RangeIterator. Resoulting type of iter.next().take() is
-    // T.
+    // Because this function isn't receving or in any way using type T from
+    // RangeIterator, compiler can't deduce it. That is the reason why
+    // there is decltype in construction of RangeIterator.
+    // declytype(iter.next().take()) is T.
     return RangeIterator<decltype(iter.next().take()), I>(std::move(iter));
 }
 }

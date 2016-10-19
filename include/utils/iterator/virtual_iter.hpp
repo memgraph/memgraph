@@ -42,7 +42,7 @@ private:
 template <class I>
 auto make_virtual(I &&iter)
 {
-    // Compiler cant deduce type T. decltype is here to help with it.
+    // Compiler can't deduce type T. decltype is here to help with it.
     return Virtual<decltype(iter.next().take())>(std::move(iter));
 }
 }

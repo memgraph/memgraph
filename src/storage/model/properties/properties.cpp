@@ -8,6 +8,20 @@
 #include "storage/type_group_vertex.hpp"
 
 template <class TG>
+const bool Properties<TG>::contains(property_key &key) const
+{
+    for (auto &prop : props)
+    {
+        if (prop.key == key)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+template <class TG>
 const StoredProperty<TG> &Properties<TG>::at(PropertyFamily<TG> &fam) const
 {
     // It doesn't matter whit which type

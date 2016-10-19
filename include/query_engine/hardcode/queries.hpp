@@ -18,25 +18,25 @@ namespace barrier
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
+#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "database/db.hpp"
+#include "database/db.hpp"
+#include "database/db_accessor.hpp"
+#include "database/db_accessor.hpp"
+#include "io/network/socket.hpp"
 #include "mvcc/id.hpp"
+#include "storage/edge_type/edge_type.hpp"
+#include "storage/edge_x_vertex.hpp"
 #include "storage/indexes/index_definition.hpp"
+#include "storage/label/label.hpp"
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/property.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/iterator.hpp"
+#include "utils/iterator/iterator.hpp"
 #include "utils/option_ptr.hpp"
 #include "utils/reference_wrapper.hpp"
-#include "database/db.hpp"
-#include "database/db_accessor.hpp"
-#include "utils/iterator/iterator.hpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
-#include "communication/bolt/v1/serialization/record_stream.hpp"
-#include "database/db.hpp"
-#include "database/db_accessor.hpp"
-#include "io/network/socket.hpp"
-#include "storage/edge_type/edge_type.hpp"
-#include "storage/edge_x_vertex.hpp"
-#include "storage/label/label.hpp"
 
 #endif
 
@@ -44,38 +44,35 @@ auto load_queries(Db &db)
 {
     std::map<uint64_t, std::function<bool(properties_t &&)>> queries;
 
-    // CREATE (n {prop: 0}) RETURN n)
+    // CREATE (n {prop: 0}) RETURN n
     auto create_node = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto property_key = t.vertex_property_key("prop", args[0].key.flags());
-
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(property_key, std::move(args[0]));
         return t.commit();
     };
     queries[11597417457737499503u] = create_node;
 
+    // CREATE (n:LABEL {name: "TEST"}) RETURN n;
     auto create_labeled_and_named_node = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto property_key = t.vertex_property_key("name", args[0].key.flags());
         auto &label = t.label_find_or_create("LABEL");
-
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(property_key, std::move(args[0]));
         vertex_accessor.add_label(label);
-        // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
+    // CREATE (n:OTHER {name: "TEST"}) RETURN n;
     auto create_labeled_and_named_node_v2 = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto property_key = t.vertex_property_key("name", args[0].key.flags());
         auto &label = t.label_find_or_create("OTHER");
-
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(property_key, std::move(args[0]));
         vertex_accessor.add_label(label);
-        // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
@@ -88,14 +85,12 @@ auto load_queries(Db &db)
         auto prop_created =
             t.vertex_property_key("created_at", args[3].key.flags());
         auto &label = t.label_find_or_create("ACCOUNT");
-
         auto vertex_accessor = t.vertex_insert();
         vertex_accessor.set(prop_id, std::move(args[0]));
         vertex_accessor.set(prop_name, std::move(args[1]));
         vertex_accessor.set(prop_country, std::move(args[2]));
         vertex_accessor.set(prop_created, std::move(args[3]));
         vertex_accessor.add_label(label);
-        // cout_properties(vertex_accessor.properties());
         return t.commit();
     };
 
@@ -225,6 +220,11 @@ auto load_queries(Db &db)
     // MATCH (n) DELETE n
     auto match_all_delete = [&db](properties_t &&args) {
         DbAccessor t(db);
+
+        // DETACH DELETE
+        // t.edge_access().fill().for_all(
+        //     [&](auto e) { e.remove(); }
+        // );
 
         t.vertex_access().fill().isolated().for_all(
             [&](auto a) { a.remove(); });
@@ -469,6 +469,45 @@ auto load_queries(Db &db)
         }
 
     };
+
+    // MATCH (n:LABEL {name: "TEST01"}) RETURN n;
+    auto match_label_property = [&db](properties_t &&args) {
+        std::map<std::string, int64_t> properties{{"name", 0}};
+        DbAccessor t(db);
+        try {
+            auto &label = t.label_find_or_create("LABEL");
+            label.index().for_range(t).for_all(
+                [&](auto vertex_accessor) -> void {
+                    // TODO: record_accessor.match_execute(properties, op);
+                    bool match = true;
+                    for (auto &property_index : properties) {
+                        auto property_key = t.vertex_property_key(
+                            property_index.first,
+                            args[property_index.second].key.flags());
+                        if (!vertex_accessor.contains(property_key)) {
+                            match = false;
+                            break;
+                        }
+                        auto vertex_property_value =
+                            vertex_accessor.at(property_key);
+                        auto query_property_value = args[property_index.second];
+                        if (!(vertex_property_value == query_property_value)) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        std::cout << "MATCH" << std::endl;
+                    }
+                }
+            );
+            return t.commit();
+        } catch (...) {
+            t.abort();
+            return false;
+        }
+    };
+    queries[17721584194272598838u] = match_label_property;
 
     // Blueprint:
     // auto  = [&db](properties_t &&args) {

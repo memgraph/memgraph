@@ -6,6 +6,8 @@
 #include "barrier/barrier.cpp"
 #endif
 
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
 #include "query_engine/query_stripper.hpp"
@@ -18,6 +20,9 @@ using namespace std;
 
 int main(int argc, char **argv)
 {
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     Db db;
 #ifdef BARRIER
     auto queries = load_queries(barrier::trans(db));
@@ -25,17 +30,7 @@ int main(int argc, char **argv)
     auto queries = load_queries(db);
 #endif
 
-    // auto arguments = all_arguments(argc, argv);
-    // auto input_query = extract_query(arguments);
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
-    // auto stripped = stripper.strip(input_query);
-    //
-    // auto time = timer<ms>([&stripped, &queries]() {
-    //     for (int i = 0; i < 1000000; ++i) {
-    //         queries[stripped.hash](stripped.arguments);
-    //     }
-    // });
-    // std::cout << time << std::endl;
 
     vector<string> history;
     string command;

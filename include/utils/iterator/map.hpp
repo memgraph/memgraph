@@ -51,4 +51,5 @@ auto make_map(I &&iter, OP &&op)
     return Map<decltype(op(iter.next().take())), I, OP>(std::move(iter),
                                                         std::move(op));
 }
+
 }

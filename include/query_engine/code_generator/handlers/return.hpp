@@ -41,9 +41,12 @@ auto return_query_action =
             // the client will receive entities from label index
             if (cypher_data.source(entity) == EntitySource::LabelIndex)
             {
+                if (cypher_data.tags(entity).size() == 0)
+                    throw CppGeneratorException("node has no labels");
+
+                // node and no other property
                 if (cypher_data.type(entity) == EntityType::Node) {
-                    if (cypher_data.tags(entity).size() == 0)
-                        throw CppGeneratorException("node has no labels");
+                    // TODO: solve the case with more labels
                     auto label = cypher_data.tags(entity).at(0);  
                     code += code_line(code::find_and_write_vertices_by_label,
                                       entity, label);

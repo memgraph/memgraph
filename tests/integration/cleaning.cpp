@@ -33,7 +33,7 @@ int main(void)
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
 
-    size_t cvl_n = 1000;
+    size_t entities_number = 1000;
 
     Db db("cleaning");
 
@@ -57,14 +57,14 @@ int main(void)
     // clean vertices
     // delete vertices a
     // clean vertices
-    run(cvl_n, create_vertex_label, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    run(entities_number, create_vertex_label, stripper, query_functions);
+    assert(db.graph.vertices.access().size() == entities_number);
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    assert(db.graph.vertices.access().size() == entities_number);
 
     run(1, delete_label_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    assert(db.graph.vertices.access().size() == entities_number);
 
     clean_vertex(db);
     assert(db.graph.vertices.access().size() == 0);
@@ -76,23 +76,23 @@ int main(void)
     // delete vertices a
     // clean vertices
     // delete vertices all
-    run(cvl_n, create_vertex_label, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    run(entities_number, create_vertex_label, stripper, query_functions);
+    assert(db.graph.vertices.access().size() == entities_number);
 
-    run(cvl_n, create_vertex_other, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n * 2);
+    run(entities_number, create_vertex_other, stripper, query_functions);
+    assert(db.graph.vertices.access().size() == entities_number * 2);
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == cvl_n * 2);
+    assert(db.graph.vertices.access().size() == entities_number * 2);
 
     run(1, delete_label_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n * 2);
+    assert(db.graph.vertices.access().size() == entities_number * 2);
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    assert(db.graph.vertices.access().size() == entities_number);
 
     run(1, delete_all_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == cvl_n);
+    assert(db.graph.vertices.access().size() == entities_number);
 
     clean_vertex(db);
     assert(db.graph.vertices.access().size() == 0);

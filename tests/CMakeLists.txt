@@ -98,18 +98,6 @@ target_link_libraries(index ${yaml_static_lib})
 add_test(NAME index COMMAND index)
 set_property(TARGET index PROPERTY CXX_STANDARD 14)
 
-# test query engine
-add_executable(integration_query_engine integration/query_engine.cpp)
-target_link_libraries(integration_query_engine Threads::Threads)
-add_test(NAME integration_query_engine COMMAND integration_query_engine)
-set_property(TARGET integration_query_engine PROPERTY CXX_STANDARD 14)
-
-# test memgraph with bolt protocol
-add_executable(integration_memgraph_bolt integration/memgraph_bolt.cpp)
-target_link_libraries(integration_memgraph_bolt Threads::Threads)
-add_test(NAME integration_memgraph_bolt COMMAND integration_memgraph_bolt)
-set_property(TARGET integration_memgraph_bolt PROPERTY CXX_STANDARD 14)
-
 ## MANUAL TESTS
 
 # cypher_ast

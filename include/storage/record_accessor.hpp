@@ -88,6 +88,11 @@ public:
         }
     }
 
+    bool contains(property_key<TG> &key) const
+    {
+        return properties().contains(key);
+    }
+
     const StoredProperty<TG> &at(PropertyFamily<TG> &key) const
     {
         return properties().at(key);

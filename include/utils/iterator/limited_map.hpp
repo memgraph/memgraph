@@ -54,4 +54,5 @@ auto make_limited_map(I &&iter, OP &&op)
     return LimitedMap<decltype(op(iter.next().take()).take()), I, OP>(
         std::move(iter), std::move(op));
 }
+
 }

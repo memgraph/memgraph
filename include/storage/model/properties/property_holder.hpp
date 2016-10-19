@@ -70,7 +70,7 @@
 
 // Generates signatures define_generator(type_name, union_name );
 // for every pair type,property
-#define GENERATE_FOR_ALL_PROPERTYS(define_generator)                           \
+#define GENERATE_FOR_ALL_PROPERTIES(define_generator)                           \
     define_generator(Null, null_v);                                            \
     define_generator(Bool, bool_v);                                            \
     define_generator(Int32, int32_v);                                          \
@@ -97,12 +97,12 @@ class PropertyHolder
 public:
     PropertyHolder() = delete;
 
-    GENERATE_FOR_ALL_PROPERTYS(GENERATE_CONSTRUCTOR_FOR_DATA);
+    GENERATE_FOR_ALL_PROPERTIES(GENERATE_CONSTRUCTOR_FOR_DATA);
 
     PropertyHolder(PropertyHolder const &other) : key(other.key)
     {
         switch (other.key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(
+            GENERATE_FOR_ALL_PROPERTIES(
                 GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_COPY);
         default:
             assert(false);
@@ -113,7 +113,7 @@ public:
     PropertyHolder(PropertyHolder &&other) : key(other.key)
     {
         switch (other.key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(
+            GENERATE_FOR_ALL_PROPERTIES(
                 GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
         default:
             assert(false);
@@ -125,7 +125,7 @@ public:
     {
         assert(other.key.get_type() == key.get_type());
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(
+            GENERATE_FOR_ALL_PROPERTIES(
                 GENERATE_CASE_CLAUSE_FOR_CONSTRUCTOR_MOVE);
         default:
             assert(false);
@@ -136,7 +136,7 @@ public:
     ~PropertyHolder()
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_DESTRUCTOR);
+            GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_DESTRUCTOR);
         default:
             assert(false);
         }
@@ -164,7 +164,7 @@ public:
     void accept(Handler &h) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_HANDLER);
+            GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_HANDLER);
         default:
             assert(false);
         }
@@ -175,7 +175,7 @@ public:
     void accept_primitive(Handler &h) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(
+            GENERATE_FOR_ALL_PROPERTIES(
                 GENERATE_CASE_CLAUSE_FOR_HANDLER_PRIMITIVE);
         default:
             assert(false);
@@ -185,7 +185,7 @@ public:
     std::ostream &print(std::ostream &stream) const
     {
         switch (key.get_type().flags()) {
-            GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_PRINT);
+            GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_PRINT);
         default:
             assert(false);
         }
@@ -201,9 +201,10 @@ public:
     {
         if (key == other.key) {
             switch (key.get_type().flags()) {
-                GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
+                GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
             default:
                 assert(false);
+                return false;
             }
         } else {
             return false;
@@ -215,9 +216,10 @@ public:
     {
         if (key.get_type() == other.key.get_type()) {
             switch (key.get_type().flags()) {
-                GENERATE_FOR_ALL_PROPERTYS(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
+                GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_COMPARISON);
             default:
                 assert(false);
+                return false;
             }
         } else {
             return false;
@@ -273,7 +275,7 @@ private:
     // Stored data.
     union
     {
-        GENERATE_FOR_ALL_PROPERTYS(GENERATE_UNION_FIELD);
+        GENERATE_FOR_ALL_PROPERTIES(GENERATE_UNION_FIELD);
     };
 };
 
@@ -285,4 +287,4 @@ private:
 #undef GENERATE_CASE_CLAUSE_FOR_PRINT
 #undef GENERATE_CASE_CLAUSE_FOR_COMPARISON
 #undef GENERATE_UNION_FIELD
-#undef GENERATE_FOR_ALL_PROPERTYS
+#undef GENERATE_FOR_ALL_PROPERTIES
