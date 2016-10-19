@@ -4,10 +4,9 @@
 #include "utils/iterator/count.hpp"
 #include "utils/option.hpp"
 
-// class EdgeType;
-
 namespace iter
 {
+
 template <class I, class OP>
 auto make_map(I &&iter, OP &&op);
 
@@ -33,6 +32,7 @@ template <class IT1, class IT2>
 auto make_combined(IT1 &&iter1, IT2 &&iter2);
 
 // Class for creating easy composable iterators fo querying.
+//
 // Derived - type of derived class
 // T - return type
 template <class T, class Derived>
@@ -40,6 +40,7 @@ class Composable : public Crtp<Derived>
 {
     // Moves self
     Derived &&move() { return std::move(this->derived()); }
+
 public:
     auto virtualize() { return iter::make_virtual(move()); }
 
@@ -68,6 +69,33 @@ public:
         return iter::make_limited_map<Derived>(
             move(), [&](auto v) mutable { return std::move(n); });
     }
+
+    // For all items calls OP.
+    template <class OP>
+    void for_all(OP &&op)
+    {
+        iter::for_all(move(), std::move(op));
+    }
+
+    // All items must satisfy given predicate for this function to return true.
+    // Otherwise stops calling predicate on firts false and returns fasle.
+    template <class OP>
+    bool all(OP &&op)
+    {
+        auto iter = move();
+        auto e = iter.next();
+        while (e.is_present()) {
+            if (!op(e.take())) {
+                return false;
+            }
+            e = iter.next();
+        }
+        return true;
+    }
+
+    // !! MEMGRAPH specific composable filters
+    // TODO: isolate, but it is not trivial because this class
+    // is a base for other generic classes
 
     // Maps with call to method to() and filters with call to fill.
     auto to()
@@ -98,7 +126,7 @@ public:
         });
     }
 
-    // Calls update on values and returns resoult.
+    // Calls update on values and returns result.
     auto update()
     {
         return map([](auto ar) { return ar.update(); });
@@ -151,27 +179,26 @@ public:
         return filter([&](auto &element) { return element.isolated(); });
     }
 
-    // For all items calls OP.
-    template <class OP>
-    void for_all(OP &&op)
+    // filter elements based on properties (all properties have to match)
+    // TRANSACTION -> transaction
+    // PROPERTIES  -> [(name, property)]
+    template <class TRANSACTION, class PROPERTIES>
+    auto properties_filter(TRANSACTION &t, PROPERTIES& properties)
     {
-        iter::for_all(move(), std::move(op));
-    }
-
-    // All items must satisfy given predicate for this function to return true.
-    // Otherwise stops calling predicate on firts false and returns fasle.
-    template <class OP>
-    bool all(OP &&op)
-    {
-        auto iter = move();
-        auto e = iter.next();
-        while (e.is_present()) {
-            if (!op(e.take())) {
-                return false;
+        return filter([&](auto &element) {
+            for (auto &name_value : properties) {
+                auto property_key = t.vertex_property_key(
+                    name_value.first,
+                    name_value.second.key.flags());
+                if (!element.contains(property_key))
+                    return false;
+                auto vertex_property_value = element.at(property_key);
+                if (!(vertex_property_value == name_value.second))
+                    return false;
             }
-            e = iter.next();
-        }
-        return true;
+            return true;
+        });
     }
 };
+
 }

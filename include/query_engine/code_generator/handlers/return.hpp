@@ -46,13 +46,18 @@ auto return_query_action =
 
                 // node and no other property
                 if (cypher_data.type(entity) == EntityType::Node) {
-                    // TODO: solve the case with more labels
                     auto label = cypher_data.tags(entity).at(0);  
-                    code += code_line(code::find_and_write_vertices_by_label,
-                                      entity, label);
+                    if (cypher_data.properties(entity).size() > 0)
+                    {
+                        code += code_line(code::find_and_write_vertices_by_label_and_properties,
+                                    cypher_data.print_indices(entity), label, entity);
+                    }
+                    else
+                    {
+                        code += code_line(code::find_and_write_vertices_by_label,
+                                          entity, label);
+                    }
                 }
-
-                // TODO: 16/10/2016 create match code if properties exist
             }
 
             if (cypher_data.source(entity) == EntitySource::TypeIndex)

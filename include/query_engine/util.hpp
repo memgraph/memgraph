@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <map>
 
 #include "fmt/format.h"
 #include "logging/default.hpp"
@@ -52,6 +53,19 @@ std::string code_line(const std::string &format_str, const Args &... args)
         throw CodeGenerationError(std::string(e.what()) + " " + format_str);
     }
 }
+
+using name_properties_t = std::vector<std::pair<std::string, Property>>;
+
+auto query_properties(const std::map<std::string, int64_t> &indices,
+                      properties_t &values)
+{
+    name_properties_t properties;
+    for (auto &property_index : indices) {
+        properties.push_back(
+            std::make_pair(std::move(property_index.first),
+                           std::move(values[property_index.second])));
+    }
+    return properties;
 }
 
 class CoutSocket
@@ -86,3 +100,5 @@ public:
 private:
     Logger logger;
 };
+
+}

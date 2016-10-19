@@ -6,8 +6,8 @@
 #include <vector>
 
 #include "query_engine/code_generator/namer.hpp"
-#include "storage/model/properties/flags.hpp"
 #include "query_engine/exceptions/exceptions.hpp"
+#include "storage/model/properties/flags.hpp"
 
 // main states that are used while ast is traversed
 // in order to generate ActionSequence
@@ -43,7 +43,7 @@ enum class EntitySource : uint8_t
     InternalId,
     LabelIndex,
     TypeIndex,
-    MainStorage 
+    MainStorage
 };
 
 // TODO: reduce copying
@@ -89,7 +89,7 @@ public:
         return entity_source.at(name);
     }
 
-        const std::map<std::string, EntityType> &all_typed_enteties()
+    const std::map<std::string, EntityType> &all_typed_enteties()
     {
         return entity_type;
     }
@@ -118,66 +118,87 @@ public:
         entity_status[name] = EntityStatus::Created;
     }
 
-    void source(const std::string& name, EntitySource source)
+    void source(const std::string &name, EntitySource source)
     {
         entity_source[name] = source;
     }
-    
+
     // entity tags
-    auto tags(const std::string& name) const
+    auto tags(const std::string &name) const
     {
         if (entity_tags.find(name) == entity_tags.end())
             throw CppGeneratorException("No tags for specified entity");
         return entity_tags.at(name);
     }
 
-    void tags(const std::string& name, tags_type tags)
+    void tags(const std::string &name, tags_type tags)
     {
         entity_tags[name] = tags;
     }
 
-    void tag(const std::string& name, const std::string& new_tag)
+    void tag(const std::string &name, const std::string &new_tag)
     {
-        if (entity_tags.find(name) != entity_tags.end())
-        {
+        if (entity_tags.find(name) == entity_tags.end()) {
             entity_tags[name] = std::vector<std::string>{};
         }
         entity_tags[name].emplace_back(new_tag);
     }
 
     // entity properties
-    auto properties(const std::string& name) const
+    auto properties(const std::string &name) const
     {
         if (entity_properties.find(name) == entity_properties.end())
             throw CppGeneratorException("No properties for specified entity");
         return entity_properties.at(name);
     }
 
-    void properties(const std::string& name, properties_type properties)
+    void properties(const std::string &name, properties_type properties)
     {
         entity_properties[name] = properties;
     }
 
-    void index(const std::string& entity, const std::string& property, int64_t index)
+    void index(const std::string &entity, const std::string &property,
+               int64_t index)
     {
-        if (entity_properties.find(entity) != entity_properties.end())
-        {
+        if (entity_properties.find(entity) == entity_properties.end()) {
             entity_properties[entity] = properties_type{};
         }
         entity_properties[entity][property] = index;
     }
 
-    auto index(const std::string& entity, const std::string& property_name)
+    auto index(const std::string &entity, const std::string &property_name)
     {
-        if (entity_properties.find(entity) != entity_properties.end())
+        if (entity_properties.find(entity) == entity_properties.end())
             throw CppGeneratorException("No properties for specified entity");
 
         auto properties = entity_properties.at(entity);
 
-        if (properties.find(property_name) != properties.end())
-            throw CppGeneratorException("No property for specified property name");
+        if (properties.find(property_name) == properties.end())
+            throw CppGeneratorException(
+                "No property for specified property name");
 
         return properties[property_name];
     }
 
+    using iter_t = properties_type::iterator;
+    auto print_indices(const std::string &name,
+                       const std::string &variable_name = "indices")
+    {
+        // TODO: find out smarter way it's not hard
+        std::string print =
+            "std::map<std::string, int64_t> " + variable_name + " = ";
+        print += "{";
+        auto indices = entity_properties.at(name);
+        size_t i = 0;
+        iter_t it = indices.begin();
+        for (; it != indices.end(); ++it, ++i)
+        {
+            print +=
+                "{\"" + it->first + "\"," + std::to_string(it->second) + "}";
+            if (i < indices.size() - 1)
+                print += ",";
+        }
+        print += "};";
+        return print;
+    }
 };

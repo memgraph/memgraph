@@ -12,6 +12,7 @@ bool fill(A &a)
 {
     return a.fill();
 }
+
 };
 
 // Base iterator for next() kind iterator.

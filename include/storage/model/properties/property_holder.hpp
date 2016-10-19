@@ -187,7 +187,8 @@ public:
         switch (key.get_type().flags()) {
             GENERATE_FOR_ALL_PROPERTIES(GENERATE_CASE_CLAUSE_FOR_PRINT);
         default:
-            assert(false);
+            // TODO: custom error
+            throw std::runtime_error("PropertyHolder::print -> unknown flag");
         }
     }
 

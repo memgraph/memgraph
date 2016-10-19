@@ -37,6 +37,7 @@ namespace barrier
 #include "utils/iterator/iterator.hpp"
 #include "utils/option_ptr.hpp"
 #include "utils/reference_wrapper.hpp"
+#include "query_engine/util.hpp"
 
 #endif
 
@@ -472,33 +473,14 @@ auto load_queries(Db &db)
 
     // MATCH (n:LABEL {name: "TEST01"}) RETURN n;
     auto match_label_property = [&db](properties_t &&args) {
-        std::map<std::string, int64_t> properties{{"name", 0}};
+        std::map<std::string, int64_t> indices{{"name", 0}};
+        auto properties = query_properties(indices, args);
         DbAccessor t(db);
         try {
             auto &label = t.label_find_or_create("LABEL");
-            label.index().for_range(t).for_all(
+            label.index().for_range(t).properties_filter(t, properties).for_all(
                 [&](auto vertex_accessor) -> void {
-                    // TODO: record_accessor.match_execute(properties, op);
-                    bool match = true;
-                    for (auto &property_index : properties) {
-                        auto property_key = t.vertex_property_key(
-                            property_index.first,
-                            args[property_index.second].key.flags());
-                        if (!vertex_accessor.contains(property_key)) {
-                            match = false;
-                            break;
-                        }
-                        auto vertex_property_value =
-                            vertex_accessor.at(property_key);
-                        auto query_property_value = args[property_index.second];
-                        if (!(vertex_property_value == query_property_value)) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) {
-                        std::cout << "MATCH" << std::endl;
-                    }
+                    std::cout << "MATCH" << std::endl;
                 }
             );
             return t.commit();
@@ -523,7 +505,7 @@ auto load_queries(Db &db)
     queries[10597108978382323595u] = create_account;
     queries[5397556489557792025u] = create_labeled_and_named_node;
 
-    // Query hasher reports two hash values
+    // TODO: query hasher reports two hash values
     queries[998725786176032607u] = create_labeled_and_named_node_v2;
     queries[16090682663946456821u] = create_labeled_and_named_node_v2;
 

@@ -59,14 +59,17 @@ const std::string write_entity = "stream.write_field(\"{0}\");\n"
                                  "        stream.chunk();"
                                  "        stream.write_meta(\"rw\");\n";
 
+const std::string write_vertex_accessor =
+    "        stream.write_record();\n"
+    "        stream.write_list_header(1);\n"
+    "        stream.write(vertex_accessor);\n"
+    "        stream.chunk();\n";
+
 const std::string write_all_vertices =
     "stream.write_field(\"{0}\");\n"
-    "        iter::for_all(t.vertex_access(), [&](auto vertex) {{\n"
-    "            if (vertex.fill()) {{\n"
-    "                stream.write_record();\n"
-    "                stream.write_list_header(1);\n"
-    "                stream.write(vertex);\n"
-    "                stream.chunk();\n"
+    "        iter::for_all(t.vertex_access(), [&](auto vertex_accessor) {{\n"
+    "            if (vertex_accessor.fill()) {{\n"
+    + write_vertex_accessor +
     "            }}\n"
     "        }});\n"
     "        stream.write_meta(\"rw\");\n";
@@ -74,11 +77,19 @@ const std::string write_all_vertices =
 const std::string find_and_write_vertices_by_label =
     "auto &label = t.label_find_or_create(\"{1}\");\n"
     "        stream.write_field(\"{0}\");\n"
-    "        label.index().for_range(t).for_all([&](auto vertex) {{\n"
-    "            stream.write_record();\n"
-    "            stream.write_list_header(1);\n"
-    "            stream.write(vertex);\n"
-    "            stream.chunk();\n"
+    "        label.index().for_range(t).for_all([&](auto vertex_accessor) {{\n"
+    + write_vertex_accessor +
+    "        }});\n"
+    "        stream.write_meta(\"rw\");\n";
+
+const std::string find_and_write_vertices_by_label_and_properties =
+    "{0}\n"
+    "        auto properties = query_properties(indices, args);\n"
+    "        auto &label = t.label_find_or_create(\"{1}\");\n"
+    "        stream.write_field(\"{2}\");\n"
+    "        label.index().for_range(t).properties_filter(t, properties).for_all(\n"
+    "        [&](auto vertex_accessor) -> void {{\n"
+    "            "+ write_vertex_accessor +
     "        }});\n"
     "        stream.write_meta(\"rw\");\n";
 

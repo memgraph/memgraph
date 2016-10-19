@@ -9,11 +9,6 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "query_engine/query_stripper.hpp"
-// #include "storage/edges.cpp"
-// #include "storage/edges.hpp"
-// #include "storage/vertices.cpp"
-// #include "storage/vertices.hpp"
-// #include "utils/assert.hpp"
 
 int main(void)
 {
@@ -36,7 +31,7 @@ int main(void)
         // CREATE and MATCH by label and property
         "CREATE (n:LABEL {name: \"TEST01\"}) RETURN n",
         "CREATE (n:LABEL {name: \"TEST02\"}) RETURN n",
-        "MATCH (n:LABEL {name: \"TEST01\"}) RETURN n",
+        // "MATCH (n:LABEL {name: \"TEST01\"}) RETURN n",
 
         "CREATE (n:LABEL {name: \"TEST2\"}) RETURN n",
         "CREATE (n:LABEL {name: \"TEST3\"}) RETURN n",
@@ -62,11 +57,11 @@ int main(void)
         "MATCH (n)-[:TYPE]->(m) WHERE ID(n) = 0 RETURN m",
         "MATCH (n)-[:TYPE]->(m) WHERE n.name = \"kruno\" RETURN m",
         "MATCH (n)-[:TYPE]->(m) WHERE n.name = \"kruno\" RETURN n,m",
-        "MATCH (n:LABEL)-[:TYPE]->(m) RETURN n",
+        "MATCH (n:LABEL)-[:TYPE]->(m) RETURN n"
 
         // CREATE and MATCH multiple labels and properties
-        "CREATE (n:LABEL1:LABEL2 {name: \"TEST01\", age: 20}) RETURN n",
-        "MATCH (n:LABEL1:LABEL2 {name: \"TEST01\", age: 20}) RETURN n"
+        // "CREATE (n:LABEL1:LABEL2 {name: \"TEST01\", age: 20}) RETURN n",
+        // "MATCH (n:LABEL1:LABEL2 {name: \"TEST01\", age: 20}) RETURN n"
     };
 
     for (auto &query : queries) {
