@@ -1,16 +1,16 @@
 #include <iostream>
 
-#include "query_engine/hardcode/queries.hpp"
+#include "query/hardcode/queries.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"
 #endif
 
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
-#include "query_engine/query_stripper.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
+#include "query/strip/stripper.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
 #include "storage/vertices.cpp"

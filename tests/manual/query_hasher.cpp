@@ -1,8 +1,7 @@
 #include <iostream>
 
-#include "cypher/common.hpp"
-#include "query_engine/query_hasher.hpp"
-#include "query_engine/query_stripper.hpp"
+#include "query/language/cypher/common.hpp"
+#include "query/preprocesor.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
 
@@ -18,19 +17,14 @@ int main(int argc, char **argv)
     // query extraction
     auto input_query = extract_query(arguments);
 
+    QueryPreprocessor preprocessor;
+    auto preprocessed = preprocessor.preprocess(input_query);
+
     cout << "QUERY: " << input_query << endl;
-
-    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
-    auto stripped = stripper.strip(input_query);
-
-    cout << "STRIPPED QUERY: " << stripped.query << endl;
-
-    QueryHasher query_hasher;
-
-    cout << "QUERY HASH: " << query_hasher.hash(stripped.query) << endl;
-
+    cout << "STRIPPED QUERY: " << preprocessed.query << endl;
+    cout << "QUERY HASH: " << preprocessed.hash << endl;
     cout << "PROPERTIES:" << endl;
-    for (auto property : stripped.arguments) {
+    for (auto property : preprocessed.arguments) {
         cout << "    " << property << endl;
     }
 

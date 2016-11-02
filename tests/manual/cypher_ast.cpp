@@ -2,10 +2,10 @@
 #include <vector>
 #include <vector>
 
-#include "cypher/compiler.hpp"
-#include "cypher/debug/tree_print.hpp"
+#include "query/language/cypher/common.hpp"
+#include "query/language/cypher/compiler.hpp"
+#include "query/language/cypher/debug/tree_print.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "cypher/common.hpp"
 #include "utils/terminate_handler.hpp"
 
 using std::cout;

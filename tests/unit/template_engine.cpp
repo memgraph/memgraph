@@ -5,9 +5,8 @@
 
 TEST_CASE("Template Engine - basic placeholder replacement")
 {
-    template_engine::TemplateEngine engine;
-    auto rendered =
-        engine.render("{{one}} {{two}}", {{"one", "two"}, {"two", "one"}});
+    auto rendered = template_engine::render("{{one}} {{two}}",
+                                            {{"one", "two"}, {"two", "one"}});
 
     REQUIRE(rendered == "two one");
 }

@@ -2,7 +2,7 @@
 
 #include "communication/bolt/v1/states/state.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "query_engine/query_engine.hpp"
+#include "query/engine.hpp"
 
 namespace bolt
 {

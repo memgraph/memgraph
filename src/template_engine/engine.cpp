@@ -5,7 +5,7 @@
 namespace template_engine
 {
 
-string TemplateEngine::render(const string& form, const data& partials)
+string render(const string& form, const data& partials)
 {
     //  TODO more optimal implementation
     //  another option is something like https://github.com/no1msd/mstch

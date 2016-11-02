@@ -99,7 +99,7 @@ set(catch_source_dir "${libs_dir}/Catch")
 
 # build memgraph's cypher grammar
 # copy grammar file to the build directory
-FILE(COPY ${src_dir}/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
+FILE(COPY ${include_dir}/query/language/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
 # build cypher parser (only c file - cypher.c)
 EXECUTE_PROCESS(
     COMMAND ${lemon_dir}/lemon ${CMAKE_BINARY_DIR}/cypher.y -s
@@ -164,10 +164,9 @@ FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_inclu
 FILE(COPY ${include_dir}/storage/model/edge_map.hpp DESTINATION ${build_include_dir}/storage/model)
 FILE(COPY ${include_dir}/storage/model/properties/flags.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 
-FILE(COPY ${include_dir}/query_engine/util.hpp DESTINATION ${build_include_dir}/query_engine)
-FILE(COPY ${include_dir}/query_engine/i_code_cpu.hpp DESTINATION ${build_include_dir}/query_engine)
-FILE(COPY ${include_dir}/query_engine/query_result.hpp DESTINATION ${build_include_dir}/query_engine)
-FILE(COPY ${include_dir}/query_engine/query_stripped.hpp DESTINATION ${build_include_dir}/query_engine)
+FILE(COPY ${include_dir}/query/util.hpp DESTINATION ${build_include_dir}/query)
+FILE(COPY ${include_dir}/query/i_plan_cpu.hpp DESTINATION ${build_include_dir}/query)
+FILE(COPY ${include_dir}/query/strip/stripped.hpp DESTINATION ${build_include_dir}/query/strip)
 
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_map.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_set.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)

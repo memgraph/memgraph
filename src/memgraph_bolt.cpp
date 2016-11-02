@@ -71,9 +71,9 @@ int main(void)
     bolt::Server<bolt::Worker> server(std::move(socket));
     serverptr = &server;
 
+    // TODO: N should be configurable
     auto N = std::thread::hardware_concurrency();
-
-    logger.info("Starting {} workers", N);
+    logger.info("Starting {} workers", 1);
     server.start(N);
 
     logger.info("Shutting down...");

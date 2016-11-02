@@ -1,4 +1,4 @@
-#include "query_engine/util.hpp"
+#include "query/util.hpp"
 
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"

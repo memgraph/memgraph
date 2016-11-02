@@ -1,4 +1,4 @@
-#include "query_engine/hardcode/queries.hpp"
+#include "query/hardcode/queries.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"
@@ -6,7 +6,7 @@
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query_engine/query_stripper.hpp"
+#include "query/strip/stripper.hpp"
 #include "utils/sysinfo/memory.hpp"
 
 template <class S, class Q>

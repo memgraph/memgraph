@@ -1,5 +1,5 @@
-#include "communication/bolt/v1/messaging/codes.hpp"
 #include "communication/bolt/v1/states/executor.hpp"
+#include "communication/bolt/v1/messaging/codes.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"
@@ -20,30 +20,42 @@ State *Executor::run(Session &session)
 
     auto message_type = session.decoder.read_byte();
 
-    if (message_type == MessageCode::Run) {
+    if (message_type == MessageCode::Run)
+    {
         Query q;
 
         q.statement = session.decoder.read_string();
 
-        try {
+        try
+        {
             return this->run(session, q);
             // TODO: RETURN success MAYBE
-        } catch (QueryEngineException &e) {
+        }
+        catch (QueryEngineException &e)
+        {
             session.output_stream.write_failure(
                 {{"code", "Memgraph.QueryEngineException"},
                  {"message", e.what()}});
             session.output_stream.send();
             return session.bolt.states.error.get();
         }
-    } else if (message_type == MessageCode::PullAll) {
+    }
+    else if (message_type == MessageCode::PullAll)
+    {
         pull_all(session);
-    } else if (message_type == MessageCode::DiscardAll) {
+    }
+    else if (message_type == MessageCode::DiscardAll)
+    {
         discard_all(session);
-    } else if (message_type == MessageCode::Reset) {
+    }
+    else if (message_type == MessageCode::Reset)
+    {
         // TODO: rollback current transaction
         // discard all records waiting to be sent
         return this;
-    } else {
+    }
+    else
+    {
         logger.error("Unrecognized message recieved");
         logger.debug("Invalid message type 0x{:02X}", message_type);
 
@@ -53,7 +65,7 @@ State *Executor::run(Session &session)
     return this;
 }
 
-State* Executor::run(Session &session, Query &query)
+State *Executor::run(Session &session, Query &query)
 {
     logger.trace("[Run] '{}'", query.statement);
 
@@ -63,7 +75,8 @@ State* Executor::run(Session &session, Query &query)
     auto is_successfully_executed =
         query_engine.execute(query.statement, db, session.output_stream);
 
-    if (!is_successfully_executed) {
+    if (!is_successfully_executed)
+    {
         session.output_stream.write_failure(
             {{"code", "Memgraph.QueryExecutionFail"},
              {"message", "Query execution has failed (probably there is no "

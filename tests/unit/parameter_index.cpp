@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "query_engine/code_generator/query_action_data.hpp"
+#include "query/backend/cpp_old/query_action_data.hpp"
 #include "utils/assert.hpp"
 
 using ParameterIndexKey::Type::InternalId;

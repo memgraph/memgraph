@@ -1,4 +1,4 @@
-#include "query_engine/hardcode/queries.hpp"
+#include "query/hardcode/queries.hpp"
 
 #include <random>
 
@@ -8,7 +8,7 @@
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query_engine/query_stripper.hpp"
+#include "query/strip/stripper.hpp"
 #include "storage/indexes/indexes.hpp"
 #include "utils/sysinfo/memory.hpp"
 

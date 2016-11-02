@@ -1,15 +1,14 @@
 #include <iostream>
 #include <cassert>
-
-#include "cypher/compiler.hpp"
-#include "cypher/debug/tree_print.hpp"
-
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <iterator>
 #include <vector>
 #include <experimental/filesystem>
+
+#include "query/language/cypher/compiler.hpp"
+#include "query/language/cypher/debug/tree_print.hpp"
 
 namespace fs = std::experimental::filesystem;
 

@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "query_engine/code_generator/entity_search.hpp"
+#include "query/backend/cpp_old/entity_search.hpp"
 #include "utils/assert.hpp"
 #include "utils/underlying_cast.hpp"
 

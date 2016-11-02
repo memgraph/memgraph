@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "query_engine/code_generator/cpp_generator.hpp"
+#include "query/backend/cpp_old/cypher.hpp"
 
 using ParameterIndexKey::Type::InternalId;
 using ParameterIndexKey::Type::Projection;

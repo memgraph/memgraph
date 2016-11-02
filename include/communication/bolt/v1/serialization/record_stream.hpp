@@ -43,6 +43,15 @@ public:
         bolt_encoder.message_ignored();
     }
 
+    void write_empty_fields()
+    {
+        bolt_encoder.message_success();
+        bolt_encoder.write_map_header(1);
+        bolt_encoder.write_string("fields");
+        write_list_header(0);
+        chunk();
+    }
+
     void write_fields(const std::vector<std::string> &fields)
     {
         // TODO: that should be one level below?

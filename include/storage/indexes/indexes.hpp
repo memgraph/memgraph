@@ -1,13 +1,14 @@
 #pragma once
 
 #include "database/db.hpp"
-#include "query_engine/exceptions/exceptions.hpp"
 #include "storage/garbage/garbage.hpp"
 #include "storage/graph.hpp"
 #include "storage/indexes/impl/nonunique_unordered_index.hpp"
 #include "storage/indexes/impl/unique_ordered_index.hpp"
 #include "storage/indexes/index_definition.hpp"
 #include "transactions/engine.hpp"
+#include "utils/exceptions/non_exaustive_switch.hpp"
+#include "utils/exceptions/not_yet_implemented.hpp"
 
 // Operation on indexes in the  This should be the only place which knows how
 // to get all indexes in database.

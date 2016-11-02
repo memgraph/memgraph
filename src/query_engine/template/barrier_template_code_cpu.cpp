@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 
-#include "query_engine/i_code_cpu.hpp"
+#include "query/i_plan_cpu.hpp"
 #include "storage/model/properties/all.hpp"
 
 using std::cout;
@@ -13,11 +13,11 @@ using std::endl;
 namespace barrier
 {
 
-class {{class_name}} : public ICodeCPU<{{stream}}>
+class {{class_name}} : public IPlanCPU<{{stream}}>
 {
 public:
 
-    bool run(Db &db, code_args_t &args,
+    bool run(Db &db, plan_args_t &args,
              {{stream}} &stream) override
     {
 {{code}}
@@ -29,13 +29,13 @@ public:
 }
 
 
-extern "C" ICodeCPU<barrier::{{stream}}>* produce()
+extern "C" IPlanCPU<barrier::{{stream}}>* produce()
 {
     // BARRIER!
     return new barrier::{{class_name}}();
 }
 
-extern "C" void destruct(ICodeCPU<barrier::{{stream}}>* p)
+extern "C" void destruct(IPlanCPU<barrier::{{stream}}>* p)
 {
     delete p;
 }

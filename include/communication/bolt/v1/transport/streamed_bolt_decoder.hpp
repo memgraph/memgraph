@@ -3,7 +3,7 @@
 #include <string>
 
 #include "communication/bolt/v1/packing/codes.hpp"
-#include "query_engine/exceptions/exceptions.hpp"
+#include "query/exception/decoder_exception.hpp"
 #include "utils/bswap.hpp"
 #include "utils/types/byte.hpp"
 
