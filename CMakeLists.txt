@@ -150,6 +150,7 @@ FILE(COPY ${include_dir}/storage/common.hpp DESTINATION ${build_include_dir}/sto
 FILE(COPY ${include_dir}/storage/graph.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edge.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edge_record.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/vertex_record.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edge_accessor.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/edges.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/vertices.hpp DESTINATION ${build_include_dir}/storage)
@@ -163,6 +164,10 @@ FILE(COPY ${include_dir}/storage/edge_type/edge_type.hpp DESTINATION ${build_inc
 FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
 FILE(COPY ${include_dir}/storage/model/edge_map.hpp DESTINATION ${build_include_dir}/storage/model)
 FILE(COPY ${include_dir}/storage/model/properties/flags.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/model/properties/stored_property.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/model/properties/property_holder.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/type_group_edge.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/type_group_vertex.hpp DESTINATION ${build_include_dir}/storage)
 
 FILE(COPY ${include_dir}/query/util.hpp DESTINATION ${build_include_dir}/query)
 FILE(COPY ${include_dir}/query/i_plan_cpu.hpp DESTINATION ${build_include_dir}/query)
@@ -185,8 +190,7 @@ FILE(COPY ${include_dir}/threading/sync/futex.hpp DESTINATION ${build_include_di
 FILE(COPY ${include_dir}/threading/sync/lock_timeout_error.hpp DESTINATION ${build_include_dir}/threading/sync)
 
 FILE(COPY ${include_dir}/memory/freelist.hpp DESTINATION ${build_include_dir}/memory)
-FILE(COPY ${include_dir}/memory/lazy_gc.hpp DESTINATION ${build_include_dir}/memory)
-
+FILE(COPY ${include_dir}/memory/lazy_gc.hpp DESTINATION ${build_include_dir}/garbage)
 FILE(COPY ${include_dir}/mvcc/cre_exp.hpp DESTINATION ${build_include_dir}/mvcc)
 FILE(COPY ${include_dir}/mvcc/hints.hpp DESTINATION ${build_include_dir}/mvcc)
 FILE(COPY ${include_dir}/mvcc/id.hpp DESTINATION ${build_include_dir}/mvcc)
@@ -202,6 +206,7 @@ FILE(COPY ${include_dir}/transactions/snapshot.hpp DESTINATION ${build_include_d
 FILE(COPY ${include_dir}/transactions/commit_log.hpp DESTINATION ${build_include_dir}/transactions)
 FILE(COPY ${include_dir}/transactions/engine.hpp DESTINATION ${build_include_dir}/transactions)
 FILE(COPY ${include_dir}/transactions/transaction_store.hpp DESTINATION ${build_include_dir}/transactions)
+FILE(COPY ${include_dir}/transactions/transaction_read.hpp DESTINATION ${build_include_dir}/transactions)
 
 FILE(COPY ${include_dir}/storage/model/properties/properties.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/property.hpp DESTINATION ${build_include_dir}/storage/model/properties)
@@ -209,6 +214,7 @@ FILE(COPY ${include_dir}/storage/model/properties/traversers/consolewriter.hpp D
 FILE(COPY ${include_dir}/storage/model/properties/traversers/jsonwriter.hpp DESTINATION ${build_include_dir}/storage/model/properties/traversers)
 FILE(COPY ${include_dir}/storage/model/properties/all.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/bool.hpp DESTINATION ${build_include_dir}/storage/model/properties)
+FILE(COPY ${include_dir}/storage/model/properties/null.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/float.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/double.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/model/properties/int32.hpp DESTINATION ${build_include_dir}/storage/model/properties)
@@ -236,8 +242,17 @@ FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_inclu
 FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/index_base.hpp DESTINATION ${build_include_dir}/storage/indexes)
 FILE(COPY ${include_dir}/storage/indexes/impl/nonunique_unordered_index.hpp DESTINATION ${build_include_dir}/storage/indexes/impl)
+FILE(COPY ${include_dir}/storage/indexes/index_holder.hpp DESTINATION ${build_include_dir}/storage/indexes)
+FILE(COPY ${include_dir}/storage/indexes/index_definition.hpp DESTINATION ${build_include_dir}/storage/indexes)
+FILE(COPY ${include_dir}/storage/indexes/index_update.hpp DESTINATION ${build_include_dir}/storage/indexes)
+
+FILE(COPY ${include_dir}/storage/garbage/delete_sensitive.hpp DESTINATION ${build_include_dir}/storage/garbage)
+FILE(COPY ${include_dir}/storage/garbage/garbage.hpp DESTINATION ${build_include_dir}/storage/garbage)
 
 FILE(COPY ${include_dir}/utils/sys.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/char_str.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/void.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/array_store.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/bswap.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/stacktrace.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/auto_scope.hpp DESTINATION ${build_include_dir}/utils)
@@ -257,10 +272,29 @@ FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${buil
 FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
-FILE(COPY ${include_dir}/utils/iterator/iterator_base.hpp DESTINATION ${build_include_dir}/utils/iterator)
 FILE(COPY ${include_dir}/utils/option_ptr.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/option.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/border.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/order.hpp DESTINATION ${build_include_dir}/utils)
+FILE(COPY ${include_dir}/utils/numerics/saturate.hpp DESTINATION ${build_include_dir}/utils/numerics)
+
+FILE(COPY ${include_dir}/utils/iterator/iterator_base.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/virtual_iter.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/composable.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/count.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/accessor.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/combined.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/count.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/filter.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/flat_map.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/for_all.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/inspect.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/iterator_accessor.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/lambda_iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/limited_map.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/map.hpp DESTINATION ${build_include_dir}/utils/iterator)
+FILE(COPY ${include_dir}/utils/iterator/range_iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
 
 FILE(COPY ${include_dir}/communication/communication.hpp DESTINATION ${build_include_dir}/communication)
 FILE(COPY ${include_dir}/communication/bolt/v1/config.hpp DESTINATION ${build_include_dir}/communication/bolt/v1)
@@ -283,6 +317,8 @@ FILE(COPY ${include_dir}/logging/default.hpp DESTINATION ${build_include_dir}/lo
 FILE(COPY ${include_dir}/logging/log.hpp DESTINATION ${build_include_dir}/logging)
 FILE(COPY ${include_dir}/logging/logger.hpp DESTINATION ${build_include_dir}/logging)
 FILE(COPY ${include_dir}/logging/levels.hpp DESTINATION ${build_include_dir}/logging)
+
+FILE(COPY ${include_dir}/snapshot/snapshot_engine.hpp DESTINATION ${build_include_dir}/snapshot)
 # -----------------------------------------------------------------------------
 
 # add all cpp file recursive into sourceFiles varibale

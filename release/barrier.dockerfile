@@ -5,9 +5,8 @@ RUN apt-get update \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN mkdir -p /libs
-RUN mkdir -p /memgraph
 
-ENV BINARY_NAME memgraph_394_4616f32_demo_release
+ENV BINARY_NAME memgraph_414_dba2610_dev_debug
 
 COPY barrier_$BINARY_NAME /memgraph
 COPY libs/fmt /libs/fmt

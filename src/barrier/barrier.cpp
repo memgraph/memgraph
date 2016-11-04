@@ -272,6 +272,12 @@ const VertexStoredProperty &VertexAccessor::at(VertexPropertyKey &key) const
     return CALL(at(trans(key)));
 }
 
+// template <class TG>
+// bool VertexAccessor::contains(property_key<TG> &key) const
+// {
+//     return HALF_CALL(contains<TG>(key));
+// }
+
 template <class V>
 OptionPtr<const V> VertexAccessor::at(VertexPropertyType<V> &key) const
 {
@@ -603,6 +609,12 @@ template <class Stream>
 void RecordStream<Stream>::write(const ArrayString &arr)
 {
     HALF_CALL(write(arr));
+}
+
+template <class Stream>
+void RecordStream<Stream>::write_empty_fields()
+{
+    HALF_CALL(write_empty_fields());
 }
 
 template <class Stream>

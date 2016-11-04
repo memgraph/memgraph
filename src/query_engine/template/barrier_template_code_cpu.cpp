@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "query/property_util.hpp"
 #include "query/i_plan_cpu.hpp"
 #include "storage/model/properties/all.hpp"
 

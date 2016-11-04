@@ -190,7 +190,7 @@ public:
                 auto property_key = t.vertex_property_key(
                     name_value.first,
                     name_value.second.key.flags());
-                if (!element.contains(property_key))
+                if (!element.properties().contains(property_key))
                     return false;
                 auto vertex_property_value = element.at(property_key);
                 if (!(vertex_property_value == name_value.second))

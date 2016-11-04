@@ -73,7 +73,7 @@ int main(void)
 
     // TODO: N should be configurable
     auto N = std::thread::hardware_concurrency();
-    logger.info("Starting {} workers", 1);
+    logger.info("Starting {} workers", N);
     server.start(N);
 
     logger.info("Shutting down...");

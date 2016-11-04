@@ -151,6 +151,9 @@ public:
 
     void remove() const;
 
+    // template <class TG>
+    // bool contains(property_key<TG> &key) const;
+
     const VertexStoredProperty &at(VertexPropertyFamily &key) const;
 
     const VertexStoredProperty &at(VertexPropertyKey &key) const;
@@ -494,6 +497,7 @@ public:
     void write(const ArrayDouble &);
     void write(const ArrayString &);
 
+    void write_empty_fields();
     void write_success();
     void write_success_empty();
     void write_ignored();

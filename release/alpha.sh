@@ -35,6 +35,8 @@ cp ${exe_name} ../release/${exe_name}/memgraph
 cp libmemgraph_pic.a ../release/${exe_name}/libmemgraph_pic.a
 cp -r include ../release/${exe_name}/include
 cp -r template ../release/${exe_name}/template
+cp -r ../config ../release/${exe_name}/config
+
 mkdir -p ../release/${exe_name}/compiled/cpu
 
 echo "Memgraph Release Building DONE"
