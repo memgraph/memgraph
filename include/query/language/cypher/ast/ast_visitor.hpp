@@ -70,6 +70,7 @@ struct ReadWriteQuery;
 struct SetKey;
 struct SetValue;
 struct SetElement;
+struct LabelSetElement;
 struct SetList;
 
 struct WithList;
@@ -87,8 +88,8 @@ struct AstVisitor
           PatternList, Match, ReadQuery, Start, Where, WriteQuery, Create,
           Return, Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
           ReadWriteQuery, IdentifierList, WithList, WithClause, WithQuery, Long,
-          CountFunction, LabelsFunction,
-          InternalIdExpr, SetValue, SetElement, SetList>
+          CountFunction, LabelsFunction, InternalIdExpr, SetValue, SetElement,
+          LabelSetElement, SetList>
 {
 };
 }

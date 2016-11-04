@@ -111,6 +111,22 @@ struct ReturnElement
     bool is_projection() const { return has_entity() && has_property(); }
 };
 
+struct LabelSetElement
+{     
+    std::string entity;
+    std::vector<std::string> labels;
+    
+    LabelSetElement() = default;
+    LabelSetElement(const LabelSetElement&) = default;
+    LabelSetElement(LabelSetElement&&) = default;
+
+    void clear()
+    {
+        entity.clear();
+        labels.clear();
+    }
+};
+
 struct QueryActionData
 {
     std::map<ParameterIndexKey, uint64_t> parameter_index;
@@ -118,6 +134,7 @@ struct QueryActionData
     std::map<std::string, EntityData> entity_data;
     std::map<std::string, RelationshipData> relationship_data;
     std::vector<ReturnElement> return_elements;
+    std::vector<LabelSetElement> label_set_elements;
     bool is_detach;
     CypherStateMachine csm;
 

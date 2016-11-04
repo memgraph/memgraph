@@ -35,7 +35,19 @@ struct SetValue : public AstNode<SetValue>
     bool has_value() const { return value != nullptr; }
 };
 
-struct SetElement : public AstNode<SetElement>
+struct SetElementBase : public AstVisitable
+{
+};
+
+template <class Derived>
+struct SetElementDerivedBase : public Crtp<Derived>, public SetElementBase
+{
+    using uptr = std::unique_ptr<Derived>;
+
+    virtual void accept(AstVisitor &visitor) { visitor.visit(this->derived()); }
+};
+
+struct SetElement : public SetElementDerivedBase<SetElement>
 {
     SetElement(Accessor* accessor, SetValue* set_value)
         : accessor(accessor), set_value(set_value) {}
@@ -47,7 +59,19 @@ struct SetElement : public AstNode<SetElement>
     bool has_value() const { return set_value != nullptr; }
 };
 
-struct SetList : public List<SetElement, SetList>
+struct LabelSetElement : public SetElementDerivedBase<LabelSetElement>
+{
+    LabelSetElement(Identifier* identifier, LabelList* label_list)
+        : identifier(identifier), label_list(label_list) {}
+
+    Identifier* identifier;
+    LabelList* label_list;
+
+    bool has_identifier() const { return identifier != nullptr; }
+    bool has_label_list() const { return label_list != nullptr; }
+};
+
+struct SetList : public List<SetElementBase, SetList>
 {
     using List::List;
 };

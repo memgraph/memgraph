@@ -4,18 +4,21 @@
 import logging
 
 # TODO: auto import
-from scenario import no_000001 
+# TODO: better logging (scenario visibility)
+# TODO: result storage
+from scenario import no_000001, no_000002
 from neo4j.v1 import GraphDatabase, basic_auth, types, Node
 
-scenarios = [no_000001.scenario_1]
+# scenarios = [no_000001.scenario_1, no_000002.scenario_2]
+scenarios = [no_000002.scenario_2]
 
 # logging init
 log = logging.getLogger(__name__)
 
 # initialize driver and create session
 session = GraphDatabase.driver("bolt://localhost",
-                              auth=basic_auth("neo4j", "1234"),
-                              encrypted=0).session()
+                               auth=basic_auth("neo4j", "1234"),
+                               encrypted=0).session()
 
 
 def check(condition, scenario_no, message):
@@ -55,6 +58,7 @@ if __name__ == "__main__":
 
 			# in case that the result is single
 			if count == 1:
+
 				# extract properties from record
 				record = records[0]
 				record_name, = record

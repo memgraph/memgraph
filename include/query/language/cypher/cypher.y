@@ -544,10 +544,14 @@ set_list(L) ::= set_element(E). {
     L = ast->create<ast::SetList>(E, nullptr);
 }
 
-%type set_element {ast::SetElement*}
+%type set_element {ast::SetElementBase*}
 
 set_element(E) ::= accessor(A) EQ set_value(V). {
     E = ast->create<ast::SetElement>(A, V);
+}
+
+set_element(E) ::= idn(I) label_idn(L). {
+    E = ast->create<ast::LabelSetElement>(I, L);
 }
 
 %type accessor {ast::Accessor*}

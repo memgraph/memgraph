@@ -66,8 +66,6 @@ auto return_query_action =
                 }
             }
 
-            
-
             if (cypher_data.source(entity) == EntitySource::TypeIndex)
             {
                 if (cypher_data.type(entity) == EntityType::Relationship)
@@ -116,7 +114,17 @@ auto return_query_action =
         }
         if (kv.second == ClauseAction::ReturnLabels)
         {
-            // TODO: similar to above
+            if (cypher_data.source(name) == EntitySource::LabelIndex)
+            {
+                auto tags = cypher_data.tags(name);
+                if (tags.size() == 1)
+                {
+                    auto label = tags.at(0);
+                    code += code_line(code::return_labels,
+                                      cypher_data.print_indices(name), label,
+                                      name);
+                }
+            }
         }
     }
 

@@ -18,5 +18,9 @@ enum class ClauseAction : uint32_t
     ReturnPack,
     ReturnProjection,
     ReturnCount,
-    ReturnLabels
+    ReturnLabels,
+    
+    UpdateEntityLabels,
+    UpdateEntityLabels_Identifier,
+    UpdateEntityLabels_Labels
 };

@@ -30,8 +30,8 @@ struct SetElementState
     void clear()
     {
         set_entity = "";
-        set_prop = "";
-        set_index = -1;
+        set_prop   = "";
+        set_index  = -1;
     }
 };
 
@@ -52,7 +52,7 @@ struct PropertyState
 
     void clear()
     {
-        property_name = "";
+        property_name  = "";
         property_index = -1;
     }
 };
@@ -79,6 +79,7 @@ private:
     RelationshipData::Direction direction;
 
     SetElementState set_element_state;
+    LabelSetElement labels_set_element;
     PropertyState property_state;
 
     void clear_state()
@@ -95,7 +96,9 @@ private:
     void finish_query_execution()
     {
         generator.add_action(QueryAction::TransactionCommit);
+
         code += generator.generate();
+
         generator.clear();
     }
 
@@ -182,7 +185,7 @@ public:
         code += generator.generate();
         generator.add_action(QueryAction::Create);
 
-        state = CypherState::Create;
+        state        = CypherState::Create;
         query_action = QueryAction::Create;
 
         Traverser::visit(ast_create);
@@ -194,10 +197,12 @@ public:
 
         generator.add_action(QueryAction::Set);
 
-        state = CypherState::Set;
+        state        = CypherState::Set;
         query_action = QueryAction::Set;
 
         Traverser::visit(ast_set);
+
+        code += generator.generate();
     }
 
     void visit(ast::Return &ast_return) override
@@ -206,7 +211,7 @@ public:
 
         generator.add_action(QueryAction::Return);
 
-        state = CypherState::Return;
+        state        = CypherState::Return;
         query_action = QueryAction::Return;
 
         Traverser::visit(ast_return);
@@ -225,11 +230,14 @@ public:
     void visit(ast::Pattern &ast_pattern) override
     {
         // TODO: Is that traversal order OK for all cases? Probably NOT.
-        if (ast_pattern.has_next()) {
+        if (ast_pattern.has_next())
+        {
             visit(*ast_pattern.next);
             visit(*ast_pattern.node);
             visit(*ast_pattern.relationship);
-        } else {
+        }
+        else
+        {
             Traverser::visit(ast_pattern);
         }
     }
@@ -242,17 +250,22 @@ public:
         if (!ast_node.has_identifier()) return;
 
         auto name = ast_node.idn->name;
-        entity = name;
+        entity    = name;
         visited_nodes.push_back(name);
 
-        if (state == CypherState::Match) {
+        if (state == CypherState::Match)
+        {
             action_data.actions[name] = ClauseAction::MatchNode;
         }
 
-        if (state == CypherState::Create) {
-            if (cypher_data.status(name) == EntityStatus::Matched) {
+        if (state == CypherState::Create)
+        {
+            if (cypher_data.status(name) == EntityStatus::Matched)
+            {
                 action_data.actions[name] = ClauseAction::MatchNode;
-            } else {
+            }
+            else
+            {
                 action_data.actions[name] = ClauseAction::CreateNode;
             }
         }
@@ -260,7 +273,8 @@ public:
         Traverser::visit(ast_node);
 
         if (cypher_data.status(name) != EntityStatus::Matched &&
-            state == CypherState::Create) {
+            state == CypherState::Create)
+        {
             cypher_data.node_created(name);
         }
     }
@@ -286,9 +300,9 @@ public:
     // -- RELATIONSHIP --
     void create_relationship(const std::string &name)
     {
-        auto &data = generator.action_data();
+        auto &data         = generator.action_data();
         data.actions[name] = ClauseAction::CreateRelationship;
-        auto nodes = visited_nodes.last_two();
+        auto nodes         = visited_nodes.last_two();
         data.relationship_data.emplace(name,
                                        RelationshipData(nodes, direction));
     }
@@ -301,7 +315,7 @@ public:
         if (!ast_relationship.has_name()) return;
         entity = ast_relationship.name();
 
-        using ast_direction = ast::Relationship::Direction;
+        using ast_direction       = ast::Relationship::Direction;
         using generator_direction = RelationshipData::Direction;
 
         if (ast_relationship.direction == ast_direction::Left)
@@ -313,15 +327,19 @@ public:
         // TODO: add suport for Direction::Both
 
         // TODO: simplify somehow
-        if (state == CypherState::Create) {
-            if (!cypher_data.exist(entity)) {
+        if (state == CypherState::Create)
+        {
+            if (!cypher_data.exist(entity))
+            {
                 clause_action = ClauseAction::CreateRelationship;
                 create_relationship(entity);
             }
         }
 
-        if (state == CypherState::Match) {
-            if (!cypher_data.exist(entity)) {
+        if (state == CypherState::Match)
+        {
+            if (!cypher_data.exist(entity))
+            {
                 action_data.actions[entity] = ClauseAction::MatchRelationship;
             }
         }
@@ -331,20 +349,25 @@ public:
 
     void visit(ast::RelationshipSpecs &ast_relationship_specs) override
     {
-        if (state == CypherState::Match) {
-            if (ast_relationship_specs.has_identifier()) {
-                auto name = ast_relationship_specs.name();
+        if (state == CypherState::Match)
+        {
+            if (ast_relationship_specs.has_identifier())
+            {
+                auto name         = ast_relationship_specs.name();
                 auto &cypher_data = generator.cypher_data();
-                if (!cypher_data.exist(name)) {
-                    clause_action = ClauseAction::MatchRelationship;
-                    auto &data = generator.action_data();
+                if (!cypher_data.exist(name))
+                {
+                    clause_action      = ClauseAction::MatchRelationship;
+                    auto &data         = generator.action_data();
                     data.actions[name] = ClauseAction::MatchRelationship;
                 }
             }
         }
 
-        if (state == CypherState::Create) {
-            if (ast_relationship_specs.has_identifier()) {
+        if (state == CypherState::Create)
+        {
+            if (ast_relationship_specs.has_identifier())
+            {
                 entity = ast_relationship_specs.name();
             }
         }
@@ -356,7 +379,8 @@ public:
     {
         auto &action_data = generator.action_data();
 
-        if (ast_relationship_type_list.has_value()) {
+        if (ast_relationship_type_list.has_value())
+        {
             auto type = ast_relationship_type_list.value->name;
             action_data.add_entity_tag(entity, type);
             action_data.csm.search_cost(entity,
@@ -369,6 +393,13 @@ public:
 
     void visit(ast::LabelList &ast_label_list) override
     {
+        if (state == CypherState::Set)
+        {
+            clause_action = ClauseAction::UpdateEntityLabels_Labels;
+            Traverser::visit(ast_label_list);
+            return;
+        }
+
         auto &action_data = generator.action_data();
         auto &cypher_data = generator.cypher_data();
 
@@ -398,12 +429,13 @@ public:
         Traverser::visit(ast_property);
 
         // TODO: too ugly refactor somehow (clear_state part is awful)
-        if (entity.empty() || !property_state.is_defined()) {
+        if (entity.empty() || !property_state.is_defined())
+        {
             clear_state();
             return;
         }
 
-        auto prop = property_state.property_name;
+        auto prop  = property_state.property_name;
         auto index = property_state.property_index;
 
         // update action data
@@ -423,20 +455,33 @@ public:
     {
         property_state.property_name = ast_identifier.name;
 
-        if (state == CypherState::Delete) {
+        if (state == CypherState::Delete)
+        {
             auto &action_data = generator.action_data();
-            auto name = ast_identifier.name;
+            auto name         = ast_identifier.name;
             auto &cypher_data = generator.cypher_data();
             if (cypher_data.type(name) == EntityType::Node)
                 action_data.actions[name] = ClauseAction::DeleteNode;
             if (cypher_data.type(name) == EntityType::Relationship)
                 action_data.actions[name] = ClauseAction::DeleteRelationship;
         }
+
+        if (state == CypherState::Set &&
+            clause_action == ClauseAction::UpdateEntityLabels_Identifier)
+        {
+            labels_set_element.entity = ast_identifier.name;
+        }
+
+        if (state == CypherState::Set &&
+            clause_action == ClauseAction::UpdateEntityLabels_Labels)
+        {
+            labels_set_element.labels.emplace_back(ast_identifier.name);
+        }
     }
 
     void visit(ast::Long &ast_long) override
     {
-        set_element_state.set_index = ast_long.value;
+        set_element_state.set_index   = ast_long.value;
         property_state.property_index = ast_long.value;
     }
 
@@ -454,17 +499,18 @@ public:
     {
         Traverser::visit(ast_set_element);
 
-        if (!set_element_state.is_defined()) {
+        if (!set_element_state.is_defined())
+        {
             clear_state();
             return;
         }
 
         auto entity = set_element_state.set_entity;
-        auto prop = set_element_state.set_prop;
-        auto index = set_element_state.set_index;
+        auto prop   = set_element_state.set_prop;
+        auto index  = set_element_state.set_index;
 
         auto &cypher_data = generator.cypher_data();
-        auto entity_type = cypher_data.type(entity);
+        auto entity_type  = cypher_data.type(entity);
 
         if (entity_type == EntityType::None)
             throw CypherSemanticError("Entity (" + entity + ") doesn't exist");
@@ -489,12 +535,16 @@ public:
 
         auto &action_data = generator.action_data();
 
-        if (state == CypherState::Return) {
+        if (state == CypherState::Return)
+        {
             auto &return_elements = action_data.return_elements;
-            auto &entity = ast_accessor.entity_name();
-            if (!ast_accessor.has_prop()) {
+            auto &entity          = ast_accessor.entity_name();
+            if (!ast_accessor.has_prop())
+            {
                 return_elements.emplace_back(ReturnElement(entity));
-            } else {
+            }
+            else
+            {
                 auto &property = ast_accessor.entity_prop();
                 return_elements.emplace_back(ReturnElement(entity, property));
             }
@@ -502,15 +552,31 @@ public:
 
         if (!ast_accessor.has_prop()) return;
 
-        if (state == CypherState::Set) {
+        if (state == CypherState::Set)
+        {
             set_element_state.set_entity = ast_accessor.entity_name();
-            set_element_state.set_prop = ast_accessor.entity_prop();
+            set_element_state.set_prop   = ast_accessor.entity_prop();
         }
     }
 
     void visit(ast::SetValue &ast_set_value) override
     {
         Traverser::visit(ast_set_value);
+    }
+
+    void visit(ast::LabelSetElement &ast_label_set_element) override
+    {
+        clause_action = ClauseAction::UpdateEntityLabels_Identifier;
+
+        labels_set_element.clear();
+
+        Traverser::visit(ast_label_set_element);
+
+        auto &action_data = generator.action_data();
+
+        action_data.label_set_elements.emplace_back(std::move(labels_set_element));
+
+        clause_action = ClauseAction::Undefined;
     }
 
     void visit(ast::Delete &ast_delete) override
@@ -535,5 +601,11 @@ public:
         // {
         action_data.actions[ast_count.argument] = ClauseAction::ReturnCount;
         // }
+    }
+
+    void visit(ast::LabelsFunction &ast_label) override
+    {
+        auto &action_data = generator.action_data();
+        action_data.actions[ast_label.argument] = ClauseAction::ReturnLabels;
     }
 };

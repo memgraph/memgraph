@@ -395,6 +395,12 @@ public:
         Traverser::visit(set_element);
     }
 
+    void visit(ast::LabelSetElement &label_set_element) override
+    {
+        auto entry = printer.advance("Label Set Element");
+        Traverser::visit(label_set_element);
+    }
+
     void visit(ast::SetList &set_list) override
     {
         auto entry = printer.advance("Set List");

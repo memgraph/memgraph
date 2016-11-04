@@ -244,6 +244,12 @@ public:
         accept(set_element.set_value);
     }
 
+    void visit(ast::LabelSetElement& label_set_element) override
+    {
+        accept(label_set_element.identifier);
+        accept(label_set_element.label_list);
+    }
+
     void visit(ast::SetList& set_list) override
     {
         accept(set_list.value);

@@ -86,15 +86,75 @@ const std::string find_and_write_vertices_by_label =
     "        stream.write_meta(\"rw\");\n";
 
 const std::string find_and_write_vertices_by_label_and_properties =
-    "{0}\n"
-    "        auto properties = query_properties(indices, args);\n"
-    "        auto &label = t.label_find_or_create(\"{1}\");\n"
-    "        stream.write_field(\"{2}\");\n"
-    "        label.index().for_range(t).properties_filter(t, properties).for_all(\n"
+    "{{\n"
+    "    DbAccessor _t(db);\n"
+    "    {0}\n"
+    "    auto properties = query_properties(indices, args);\n"
+    "    auto &label = _t.label_find_or_create(\"{1}\");\n"
+    "    stream.write_field(\"{2}\");\n"
+    "    label.index().for_range(_t).properties_filter(_t, properties).for_all(\n"
+    "    [&](auto vertex_accessor) -> void {{\n"
+    "        "+ write_vertex_accessor +
+    "    }});\n"
+    "    stream.write_meta(\"rw\");\n"
+    "    _t.commit();"
+    "}}\n";
+
+// -- LABELS
+const std::string set_vertex_element =
+    "{{\n"
+    "    DbAccessor _t(db);" // TODO: HACK (set labels should somehow persist the state)
+    "    {0}\n"
+    "    auto properties = query_properties(indices, args);\n"
+    "    auto &label = _t.label_find_or_create(\"{1}\");\n"
+    "    label.index().for_range(_t).properties_filter(_t, properties).for_all(\n"
     "        [&](auto vertex_accessor) -> void {{\n"
-    "            "+ write_vertex_accessor +
-    "        }});\n"
-    "        stream.write_meta(\"rw\");\n";
+    "            auto {2} = _t.vertex_property_key(\"{2}\", args[{3}].key.flags());\n"
+    "            vertex_accessor.set({2}, std::move(args[{3}]));\n"
+    "        }}\n"
+    "    );\n"
+    "    _t.commit();\n"
+    "}}";
+
+const std::string set_labels_start =
+    "        {{\n"
+    "            DbAccessor _t(db);" // TODO: HACK (set labels should somehow persist the state)
+    "            {0}\n"
+    "            auto properties = query_properties(indices, args);\n"
+    "            auto &label = _t.label_find_or_create(\"{1}\");\n"
+    "            label.index().for_range(_t).properties_filter(_t, properties).for_all(\n"
+    "                [&](auto vertex_accessor) -> void {{\n";
+const std::string set_label =
+    "                    auto &{0} = _t.label_find_or_create(\"{0}\");\n"
+    "                    vertex_accessor.add_label({0});\n";
+const std::string set_labels_end =
+    "                }}\n"
+    "            );\n"
+    "            _t.commit();"
+    "        }}";
+
+const std::string return_labels =
+    "{{\n"
+    "     DbAccessor _t(db);" // TODO: HACK (set labels should somehow persist the state)
+    "     {0}\n"
+    "     auto properties = query_properties(indices, args);\n"
+    "     auto &label = _t.label_find_or_create(\"{1}\");\n"
+    "     stream.write_field(\"labels({2})\");\n"
+    "     label.index().for_range(_t).properties_filter(_t, properties).for_all(\n"
+    "         [&](auto vertex_accessor) -> void {{\n"
+    "             auto &labels = vertex_accessor.labels();\n"
+    "             stream.write_record();\n"
+    "             stream.write_list_header(1);\n" // TODO: figure out why
+    "             stream.write_list_header(labels.size());\n"
+    "             for (auto &label : labels) {{\n"
+    "                 stream.write(label.get().str());\n"
+    "             }}\n"
+    "             stream.chunk();\n"
+    "         }}\n"
+    "     );\n"
+    "     stream.write_meta(\"rw\");\n"
+    "     _t.commit();\n"
+    "}}";
 
 const std::string write_all_edges =
     "stream.write_field(\"{0}\");\n"
