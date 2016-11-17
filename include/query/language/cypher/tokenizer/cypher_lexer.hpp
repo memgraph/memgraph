@@ -43,6 +43,7 @@ public:
 
         // keywords
         rule("(?i:CREATE)", TK_CREATE);
+        rule("(?i:MERGE)", TK_MERGE);
         rule("(?i:MATCH)", TK_MATCH);
         rule("(?i:WHERE)", TK_WHERE);
         rule("(?i:SET)", TK_SET);

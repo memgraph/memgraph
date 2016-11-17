@@ -1,11 +1,6 @@
-#include "query/hardcode/queries.hpp"
-
 #include <random>
 
-#ifdef BARRIER
-#include "barrier/barrier.cpp"
-#endif
-
+#include "query/hardcode/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "query/strip/stripper.hpp"
@@ -24,11 +19,7 @@ void run(size_t n, std::string &query, Db &db)
 {
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
-#ifdef BARRIER
-    auto qf = load_queries(barrier::trans(db));
-#else
-    auto qf = load_queries(db);
-#endif
+    auto qf = hardcode::load_basic_functions(db);
 
     auto stripped = stripper.strip(query);
     std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
@@ -43,11 +34,7 @@ void add_edge(size_t n, Db &db)
 {
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
-#ifdef BARRIER
-    auto qf = load_queries(barrier::trans(db));
-#else
-    auto qf = load_queries(db);
-#endif
+    auto qf = hardcode::load_basic_functions(db);
 
     std::string query = "MATCH (n1), (n2) WHERE ID(n1)=0 AND "
                         "ID(n2)=1 CREATE (n1)<-[r:IS {age: "

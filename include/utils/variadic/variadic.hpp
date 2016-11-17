@@ -2,23 +2,38 @@
 
 #include <iostream>
 
-// variadic argument printer
+namespace utils
+{
 
+/*
+ * Variadic argument print
+ */
 template<class Head>
-void _print_vargs(std::ostream& s, Head&& head)
+void print_vargs(std::ostream& s, Head&& head)
 {
     s << std::forward<Head>(head);
 }
 template<class Head, class ...Tail>
-void _print_vargs(std::ostream& s, Head&& head, Tail&& ...tail)
+void print_vargs(std::ostream& s, Head&& head, Tail&& ...tail)
 {
     s << std::forward<Head>(head);
-    _print_vargs(s, std::forward<Tail>(tail)...);
+    print_vargs(s, std::forward<Tail>(tail)...);
 }
+
+/*
+ * Compile time print line.
+ *
+ * USAGE:
+ *     RUN: utils::printer("ONE ", "TWO");
+ *     OUTPUT: "ONE TWO\n"
+ *
+ * TODO: reimplament with C++17 fold expressions
+ */
 template<class ...Args>
-void print_vargs(Args&&... args)
+void println(Args&&... args)
 {
-    _print_vargs(std::cout, std::forward<Args>(args)...);
+    print_vargs(std::cout, std::forward<Args>(args)...);
+    std::cout << std::endl;
 }
 
 // value equality with any of variadic argument
@@ -38,4 +53,6 @@ template<class Value, class ...Array>
 bool or_vargs(Value&& value, Array&&... array)
 {
    return _or_vargs(std::forward<Value>(value), std::forward<Array>(array)...);
+}
+
 }

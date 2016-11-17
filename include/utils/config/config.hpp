@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <cstdlib>
 
-// TODO: isolate from caller (caller should know that his dependency is
+// TODO: isolate from caller (caller shouldn't know that his dependency is)
 // yaml-cpp
 #include "yaml-cpp/yaml.h"
 
@@ -48,6 +48,10 @@ public:
     {
         static Config<Definition> config;
         return config;
+    }
+
+    void register_program_arguments()
+    {
     }
 
     std::string operator[](const char* key)

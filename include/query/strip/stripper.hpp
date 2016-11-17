@@ -26,7 +26,8 @@ template <typename... Ts>
 class QueryStripper : public Loggable
 {
 public:
-    QueryStripper(Ts &&... strip_types) : Loggable("QueryStripper"),
+    QueryStripper(Ts &&... strip_types)
+        : Loggable("QueryStripper"),
           strip_types(std::make_tuple(std::forward<Ts>(strip_types)...)),
           lexer(std::make_unique<CypherLexer>())
     {
@@ -34,19 +35,21 @@ public:
 
     QueryStripper(QueryStripper &other) = delete;
 
-    QueryStripper(QueryStripper &&other) : Loggable("QueryStripper"),
-          strip_types(std::move(other.strip_types)),
+    QueryStripper(QueryStripper &&other)
+        : Loggable("QueryStripper"), strip_types(std::move(other.strip_types)),
           lexer(std::move(other.lexer))
     {
     }
 
-    auto strip_space(const std::string &query)
-    {
-        return strip(query, " ");
-    }
+    auto strip_space(const std::string &query) { return strip(query, " "); }
 
     auto strip(const std::string &query, const std::string &separator = "")
     {
+        //  -------------------------------------------------------------------
+        //  TODO: write speed tests and then optimize, because this
+        //  function is called before every query execution !
+        //  -------------------------------------------------------------------
+
         //  TODO write this more optimal (resplace string
         //  concatenation with something smarter)
         //  TODO: in place substring replacement
@@ -66,7 +69,8 @@ public:
             if (_or(token.id, strip_types, std::make_index_sequence<size>{}))
             {
                 auto index = counter++;
-                switch (token.id) {
+                switch (token.id)
+                {
                 case TK_LONG:
                     store_query_param<Int64>(stripped_arguments,
                                              std::stol(token.value));
@@ -78,7 +82,8 @@ public:
                     // TODO: remove
                     store_query_param<String>(stripped_arguments, token.value);
                     break;
-                case TK_BOOL: {
+                case TK_BOOL:
+                {
                     bool value = token.value[0] == 'T' || token.value[0] == 't';
                     store_query_param<Bool>(stripped_arguments, value);
                     break;
@@ -92,16 +97,33 @@ public:
                     assert(false);
                 }
                 stripped_query += std::to_string(index) + separator;
-            } else {
-                //  TODO: lowercase only keywords like (MATCH, CREATE, ...)
+            }
+            else
+            {
+                // if token is keyword then lowercase because query hash
+                // should be the same
+                // TODO: probably we shoud do the lowercase before
+                // or during the tokenization (SPEED TESTS)
+                if (token.id == TK_OR || token.id == TK_AND ||
+                    token.id == TK_NOT || token.id == TK_WITH ||
+                    token.id == TK_SET || token.id == TK_CREATE ||
+                    token.id == TK_MERGE || token.id == TK_MATCH ||
+                    token.id == TK_DELETE || token.id == TK_DETACH ||
+                    token.id == TK_WHERE || token.id == TK_RETURN ||
+                    token.id == TK_DISTINCT || token.id == TK_COUNT ||
+                    token.id == TK_LABELS)
+                {
+                    std::transform(token.value.begin(), token.value.end(),
+                                   token.value.begin(), ::tolower);
+                }
                 stripped_query += token.value + separator;
             }
         }
 
+        // TODO: hash function should be a template parameter
         auto hash = fnv(stripped_query);
         return QueryStripped(std::move(stripped_query),
-                             std::move(stripped_arguments),
-                             hash);
+                             std::move(stripped_arguments), hash);
     }
 
 private:
@@ -111,7 +133,7 @@ private:
     template <typename Value, typename Tuple, std::size_t... index>
     bool _or(Value &&value, Tuple &&tuple, std::index_sequence<index...>)
     {
-        return or_vargs(std::forward<Value>(value),
+        return utils::or_vargs(std::forward<Value>(value),
                         std::get<index>(std::forward<Tuple>(tuple))...);
     }
 };

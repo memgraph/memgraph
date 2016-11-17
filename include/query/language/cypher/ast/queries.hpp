@@ -6,6 +6,7 @@
 #include "match.hpp"
 #include "return.hpp"
 #include "set.hpp"
+#include "merge.hpp"
 
 namespace ast
 {
@@ -67,6 +68,19 @@ struct ReadWriteQuery : public AstNode<ReadWriteQuery>
 
     Match *match_clause;
     Create *create_clause;
+    Return *return_clause;
+};
+
+struct MergeQuery : public AstNode<MergeQuery>
+{
+    MergeQuery(Merge* merge_clause, Set* set_clause, Return* return_clause) :
+        merge_clause(merge_clause), set_clause(set_clause),
+        return_clause(return_clause)
+    {
+    }
+
+    Merge *merge_clause;
+    Set *set_clause;
     Return *return_clause;
 };
 

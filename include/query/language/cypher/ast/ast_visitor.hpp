@@ -55,6 +55,7 @@ struct ReturnList;
 struct Distinct;
 
 struct Create;
+struct Merge;
 struct Match;
 struct Where;
 struct Set;
@@ -66,6 +67,7 @@ struct ReadQuery;
 struct UpdateQuery;
 struct DeleteQuery;
 struct ReadWriteQuery;
+struct MergeQuery;
 
 struct SetKey;
 struct SetValue;
@@ -89,7 +91,7 @@ struct AstVisitor
           Return, Distinct, Delete, DeleteQuery, UpdateQuery, Set, SetKey,
           ReadWriteQuery, IdentifierList, WithList, WithClause, WithQuery, Long,
           CountFunction, LabelsFunction, InternalIdExpr, SetValue, SetElement,
-          LabelSetElement, SetList>
+          MergeQuery, Merge, LabelSetElement, SetList>
 {
 };
 }

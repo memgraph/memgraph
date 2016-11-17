@@ -15,18 +15,24 @@ int main(int argc, char **argv)
     auto arguments = all_arguments(argc, argv);
 
     // query extraction
-    auto input_query = extract_query(arguments);
+    auto queries = extract_queries(arguments);
 
     QueryPreprocessor preprocessor;
-    auto preprocessed = preprocessor.preprocess(input_query);
 
-    cout << "QUERY: " << input_query << endl;
-    cout << "STRIPPED QUERY: " << preprocessed.query << endl;
-    cout << "QUERY HASH: " << preprocessed.hash << endl;
-    cout << "PROPERTIES:" << endl;
-    for (auto property : preprocessed.arguments) {
-        cout << "    " << property << endl;
+    for (auto &query : queries)
+    {
+        auto preprocessed = preprocessor.preprocess(query);
+        cout << "QUERY: " << query << endl;
+        cout << "STRIPPED QUERY: " << preprocessed.query << endl;
+        cout << "QUERY HASH: " << preprocessed.hash << endl;
+        cout << "PROPERTIES:" << endl;
+        for (auto property : preprocessed.arguments) {
+            cout << "    " << property << endl;
+        }
+        cout << "-----------------------------" << endl;
     }
+
+
 
     return 0;
 }

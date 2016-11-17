@@ -1,15 +1,24 @@
 #pragma once
 
+#include <vector>
+
 #include "utils/command_line/arguments.hpp"
 #include "utils/string/file.hpp"
 
-std::string extract_query(const std::vector<std::string>& arguments)
+auto extract_queries(const std::vector<std::string>& arguments)
 {
+    std::vector<std::string> queries;
+
+    // load single query
     if (contains_argument(arguments, "-q"))
-        return get_argument(arguments, "-q", "CREATE (n) RETURN n");
-    auto default_file = "query.cypher";
+    {
+        queries.emplace_back(get_argument(arguments, "-q", "CREATE (n) RETURN n"));
+        return queries;
+    }
+
+    // load multiple queries from file
+    auto default_file = "queries.cypher";
     auto file = get_argument(arguments, "-f", default_file);
-    // TODO: error handling
-    return utils::read_file(file.c_str());
+    return utils::read_lines(file.c_str());
 }
 

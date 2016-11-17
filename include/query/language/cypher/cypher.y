@@ -81,6 +81,22 @@ start ::= read_write_query(Q). {
     ast->root = Q;
 }
 
+start ::= merge_query(Q). {
+    ast->root = Q;
+}
+
+// -- merge query
+
+%type merge_query {ast::MergeQuery*}
+
+merge_query(MQ) ::= merge_clause(MC) set_clause(SC) return_clause(RC). {
+    MQ = ast->create<ast::MergeQuery>(MC, SC, RC);
+}
+
+merge_query(MQ) ::= merge_clause(MC) return_clause(RC). {
+    MQ = ast->create<ast::MergeQuery>(MC, nullptr, RC);
+}
+
 // -- with query
 
 %type with_query {ast::WithQuery*}
@@ -188,7 +204,13 @@ delete_query(DQ) ::= match_clause(M) delete_clause(D). {
 %type create_clause {ast::Create*}
 
 create_clause(C) ::= CREATE pattern(P). {
-   C = ast->create<ast::Create>(P);
+    C = ast->create<ast::Create>(P);
+}
+
+%type merge_clause {ast::Merge*}
+
+merge_clause(M) ::= MERGE pattern(P). {
+    M = ast->create<ast::Merge>(P);
 }
 
 %type match_clause {ast::Match*}

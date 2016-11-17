@@ -34,6 +34,13 @@ public:
         accept(query.return_clause);
     }
 
+    void visit(ast::MergeQuery& query) override
+    {
+        accept(query.merge_clause);
+        accept(query.set_clause);
+        accept(query.return_clause);
+    }
+
     void visit(ast::Match& match) override
     {
         accept(match.pattern_list);
@@ -259,6 +266,11 @@ public:
     void visit(ast::Create& create) override
     {
         accept(create.pattern);
+    }
+
+    void visit(ast::Merge& merge) override
+    {
+        accept(merge.pattern);
     }
 
     void visit(ast::Distinct& distinct) override

@@ -593,6 +593,7 @@ if (MEMGRAPH)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
     endif ()
 
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
     if (UNIX)

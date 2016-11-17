@@ -19,14 +19,18 @@ int main(int argc, char *argv[])
     auto arguments = all_arguments(argc, argv);
 
     // // query extraction
-    auto cypher_query = extract_query(arguments);
-    cout << "QUERY: " << cypher_query << endl;
+    auto queries = extract_queries(arguments);
 
-    auto print_visitor = new PrintVisitor(cout);
-    cypher::Compiler compiler;
-    auto tree = compiler.syntax_tree(cypher_query);
-    tree.root->accept(*print_visitor);
-    cout << endl;
+
+    for (auto &query : queries)
+    {
+        cout << "QUERY: " << query << endl;
+        auto print_visitor = new PrintVisitor(cout);
+        cypher::Compiler compiler;
+        auto tree = compiler.syntax_tree(query);
+        tree.root->accept(*print_visitor);
+        cout << endl;
+    }
 
     return 0;
 }

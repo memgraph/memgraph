@@ -64,6 +64,7 @@ endforeach()
 
 # test hard coded queries
 add_executable(integration_queries integration/queries.cpp)
+target_link_libraries(integration_queries stdc++fs)
 target_link_libraries(integration_queries memgraph)
 target_link_libraries(integration_queries Threads::Threads)
 target_link_libraries(integration_queries ${fmt_static_lib})
@@ -102,6 +103,7 @@ set_property(TARGET index PROPERTY CXX_STANDARD 14)
 
 # cypher_ast
 add_executable(manual_cypher_ast manual/cypher_ast.cpp)
+target_link_libraries(manual_cypher_ast stdc++fs)
 target_link_libraries(manual_cypher_ast memgraph)
 target_link_libraries(manual_cypher_ast Threads::Threads)
 target_link_libraries(manual_cypher_ast ${fmt_static_lib})
@@ -120,6 +122,7 @@ set_property(TARGET manual_queries PROPERTY CXX_STANDARD 14)
 
 # query_engine
 add_executable(manual_query_engine manual/query_engine.cpp)
+target_link_libraries(manual_query_engine stdc++fs)
 target_link_libraries(manual_query_engine memgraph)
 target_link_libraries(manual_query_engine ${fmt_static_lib})
 target_link_libraries(manual_query_engine ${yaml_static_lib})
@@ -130,6 +133,7 @@ set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
 
 # query_hasher
 add_executable(manual_query_hasher manual/query_hasher.cpp)
+target_link_libraries(manual_query_hasher stdc++fs)
 target_link_libraries(manual_query_hasher memgraph)
 target_link_libraries(manual_query_hasher ${fmt_static_lib})
 target_link_libraries(manual_query_hasher ${yaml_static_lib})

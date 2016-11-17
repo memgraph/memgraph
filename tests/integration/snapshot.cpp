@@ -1,13 +1,8 @@
-#include "query/hardcode/queries.hpp"
-
 #include <random>
-
-#ifdef BARRIER
-#include "barrier/barrier.cpp"
-#endif
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "query/hardcode/basic.hpp"
 #include "query/strip/stripper.hpp"
 #include "storage/indexes/indexes.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -24,16 +19,13 @@ void run(size_t n, std::string &query, Db &db)
 {
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
-#ifdef BARRIER
-    auto qf = load_queries(barrier::trans(db));
-#else
-    auto qf = load_queries(db);
-#endif
+    auto qf = hardcode::load_basic_functions(db);
 
     auto stripped = stripper.strip(query);
     std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
               << std::endl;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++)
+    {
         properties_t vec = stripped.arguments;
         assert(qf[stripped.hash](std::move(vec)));
     }
@@ -42,11 +34,7 @@ void run(size_t n, std::string &query, Db &db)
 void add_edge(size_t n, Db &db)
 {
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
-#ifdef BARRIER
-    auto qf = load_queries(barrier::trans(db));
-#else
-    auto qf = load_queries(db);
-#endif
+    auto qf       = hardcode::load_basic_functions(db);
 
     std::string query = "MATCH (n1), (n2) WHERE ID(n1)=0 AND "
                         "ID(n2)=1 CREATE (n1)<-[r:IS {age: "
@@ -57,15 +45,17 @@ void add_edge(size_t n, Db &db)
               << " time to add edge." << std::endl;
 
     std::vector<int64_t> vertices;
-    for (auto &v : db.graph.vertices.access()) {
+    for (auto &v : db.graph.vertices.access())
+    {
         vertices.push_back(v.second.id);
     }
 
     auto rand = rand_gen(vertices.size());
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++)
+    {
         properties_t vec = stripped.arguments;
-        vec[0] = Property(Int64(vertices[rand()]), Flags::Int64);
-        vec[1] = Property(Int64(vertices[rand()]), Flags::Int64);
+        vec[0]           = Property(Int64(vertices[rand()]), Flags::Int64);
+        vec[1]           = Property(Int64(vertices[rand()]), Flags::Int64);
         assert(qf[stripped.hash](std::move(vec)));
     }
 }
@@ -99,8 +89,9 @@ size_t size(Db &db, IndexHolder<TypeGroupVertex, std::nullptr_t> &h)
     DbAccessor t(db);
 
     size_t count = 0;
-    auto oin = h.get_read();
-    if (oin.is_present()) {
+    auto oin     = h.get_read();
+    if (oin.is_present())
+    {
         oin.get()->for_range(t).for_all([&](auto va) mutable { count++; });
     }
 
@@ -132,7 +123,7 @@ void clean_edge(Db &db)
 void clear_database(Db &db)
 {
     std::string delete_all_vertices = "MATCH (n) DELETE n";
-    std::string delete_all_edges = "MATCH ()-[r]-() DELETE r";
+    std::string delete_all_edges    = "MATCH ()-[r]-() DELETE r";
 
     run(1, delete_all_edges, db);
     run(1, delete_all_vertices, db);
@@ -147,14 +138,16 @@ bool equal(Db &a, Db &b)
         auto acc_a = a.graph.vertices.access();
         auto acc_b = b.graph.vertices.access();
 
-        if (acc_a.size() != acc_b.size()) {
+        if (acc_a.size() != acc_b.size())
+        {
             return false;
         }
 
         auto it_a = acc_a.begin();
         auto it_b = acc_b.begin();
 
-        for (auto i = acc_a.size(); i > 0; i--) {
+        for (auto i = acc_a.size(); i > 0; i--)
+        {
             // TODO: compare
         }
     }
@@ -163,14 +156,16 @@ bool equal(Db &a, Db &b)
         auto acc_a = a.graph.edges.access();
         auto acc_b = b.graph.edges.access();
 
-        if (acc_a.size() != acc_b.size()) {
+        if (acc_a.size() != acc_b.size())
+        {
             return false;
         }
 
         auto it_a = acc_a.begin();
         auto it_b = acc_b.begin();
 
-        for (auto i = acc_a.size(); i > 0; i--) {
+        for (auto i = acc_a.size(); i > 0; i--)
+        {
             // TODO: compare
         }
     }
@@ -190,7 +185,7 @@ int main(void)
     std::string create_vertex_other =
         "CREATE (n:OTHER {name: \"cleaner_test\"}) RETURN n";
     std::string delete_label_vertices = "MATCH (n:LABEL) DELETE n";
-    std::string delete_all_vertices = "MATCH (n) DELETE n";
+    std::string delete_all_vertices   = "MATCH (n) DELETE n";
 
     // ******************************* TEST 1 ********************************//
     {

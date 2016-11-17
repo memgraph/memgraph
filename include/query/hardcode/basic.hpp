@@ -1,50 +1,13 @@
 #pragma once
 
-#include <iostream>
-#include <map>
+#include "includes.hpp"
 
-using namespace std;
-
-#ifdef BARRIER
-
-#include "barrier/barrier.hpp"
-namespace barrier
+namespace hardcode
 {
 
-#else
-
-#include <cassert>
-#include <map>
-#include <type_traits>
-#include <utility>
-#include <vector>
-
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
-#include "communication/bolt/v1/serialization/record_stream.hpp"
-#include "database/db.hpp"
-#include "database/db.hpp"
-#include "database/db_accessor.hpp"
-#include "database/db_accessor.hpp"
-#include "io/network/socket.hpp"
-#include "mvcc/id.hpp"
-#include "storage/edge_type/edge_type.hpp"
-#include "storage/edge_x_vertex.hpp"
-#include "storage/indexes/index_definition.hpp"
-#include "storage/label/label.hpp"
-#include "storage/model/properties/all.hpp"
-#include "storage/model/properties/property.hpp"
-#include "utils/border.hpp"
-#include "utils/iterator/iterator.hpp"
-#include "utils/iterator/iterator.hpp"
-#include "utils/option_ptr.hpp"
-#include "utils/reference_wrapper.hpp"
-#include "query/util.hpp"
-
-#endif
-
-auto load_queries(Db &db)
+auto load_basic_functions(Db &db)
 {
-    std::map<uint64_t, std::function<bool(properties_t &&)>> queries;
+    query_functions_t functions;
 
     // CREATE (n {prop: 0}) RETURN n
     auto create_node = [&db](properties_t &&args) {
@@ -54,7 +17,7 @@ auto load_queries(Db &db)
         vertex_accessor.set(property_key, std::move(args[0]));
         return t.commit();
     };
-    queries[11597417457737499503u] = create_node;
+    functions[11597417457737499503u] = create_node;
 
     // CREATE (n:LABEL {name: "TEST"}) RETURN n;
     auto create_labeled_and_named_node = [&db](properties_t &&args) {
@@ -490,45 +453,35 @@ auto load_queries(Db &db)
             return false;
         }
     };
-    queries[17721584194272598838u] = match_label_property;
+    functions[17721584194272598838u] = match_label_property;
 
-    // Blueprint:
-    // auto  = [&db](properties_t &&args) {
-    //     DbAccessor t(db);
-    //
-    //
-    //     return t.commit();
-    // };
-
-    queries[15284086425088081497u] = match_all_nodes;
-    queries[4857652843629217005u] = match_by_label;
-    queries[15648836733456301916u] = create_edge_v2;
-    queries[10597108978382323595u] = create_account;
-    queries[5397556489557792025u] = create_labeled_and_named_node;
+    functions[15284086425088081497u] = match_all_nodes;
+    functions[4857652843629217005u] = match_by_label;
+    functions[15648836733456301916u] = create_edge_v2;
+    functions[10597108978382323595u] = create_account;
+    functions[5397556489557792025u] = create_labeled_and_named_node;
 
     // TODO: query hasher reports two hash values
-    queries[998725786176032607u] = create_labeled_and_named_node_v2;
-    queries[16090682663946456821u] = create_labeled_and_named_node_v2;
+    functions[998725786176032607u] = create_labeled_and_named_node_v2;
+    functions[16090682663946456821u] = create_labeled_and_named_node_v2;
 
-    queries[7939106225150551899u] = create_edge;
-    queries[6579425155585886196u] = create_edge;
-    queries[11198568396549106428u] = find_node_by_internal_id;
-    queries[8320600413058284114u] = find_edge_by_internal_id;
-    queries[6813335159006269041u] = update_node;
-    queries[10506105811763742758u] = match_all_delete;
-    queries[13742779491897528506u] = match_label_delete;
-    queries[11349462498691305864u] = match_id_delete;
-    queries[6963549500479100885u] = match_edge_id_delete;
-    queries[14897166600223619735u] = match_edge_all_delete;
-    queries[16888549834923624215u] = match_edge_type_delete;
-    queries[11675960684124428508u] = match_id_type_return;
-    queries[15698881472054193835u] = match_name_type_return;
-    queries[12595102442911913761u] = match_name_type_return_cross;
-    queries[8918221081398321263u] = match_label_type_return;
+    functions[7939106225150551899u] = create_edge;
+    functions[6579425155585886196u] = create_edge;
+    functions[11198568396549106428u] = find_node_by_internal_id;
+    functions[8320600413058284114u] = find_edge_by_internal_id;
+    functions[6813335159006269041u] = update_node;
+    functions[10506105811763742758u] = match_all_delete;
+    functions[13742779491897528506u] = match_label_delete;
+    functions[11349462498691305864u] = match_id_delete;
+    functions[6963549500479100885u] = match_edge_id_delete;
+    functions[14897166600223619735u] = match_edge_all_delete;
+    functions[16888549834923624215u] = match_edge_type_delete;
+    functions[11675960684124428508u] = match_id_type_return;
+    functions[15698881472054193835u] = match_name_type_return;
+    functions[12595102442911913761u] = match_name_type_return_cross;
+    functions[8918221081398321263u] = match_label_type_return;
 
-    return queries;
+    return functions;
 }
 
-#ifdef BARRIER
 }
-#endif

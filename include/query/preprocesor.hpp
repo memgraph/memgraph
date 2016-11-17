@@ -27,5 +27,10 @@ public:
     auto preprocess(const std::string &query) { return stripper.strip(query); }
 
 private:
+    // In C++17 the ints should be unnecessary?
+    // as far as I understand in C++17 class template parameters
+    // can be deduced just like function template parameters
+    // TODO: once C++ 17 will be well suported by comilers
+    // refactor this piece of code
     QueryStripper<int, int, int, int> stripper;
 };

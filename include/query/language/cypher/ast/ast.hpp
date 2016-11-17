@@ -20,3 +20,4 @@
 #include "expr.hpp"
 #include "with.hpp"
 #include "functions.hpp"
+#include "merge.hpp"

@@ -21,10 +21,11 @@ public:
 #else
         std::string template_path = CONFIG(config::TEMPLATE_CPU_CPP_PATH);
 #endif
-        template_file = utils::read_file(template_path.c_str());
+        template_text = utils::read_text(fs::path(template_path));
     }
 
     template <typename Tree>
+    // TODO: query and path shoud be distinct types
     void generate_code(const Tree &tree, const std::string &query,
                        const uint64_t stripped_hash, const std::string &path)
     {
@@ -42,7 +43,7 @@ public:
 
         // save the code
         std::string generated = template_engine::render(
-            template_file, {{"class_name", "CodeCPU"},
+            template_text.str(), {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
 #ifdef BARRIER
@@ -54,12 +55,12 @@ public:
 
         logger.trace("generated code: {}", generated);
 
-        utils::write_file(generated, path);
+        utils::write(utils::Text(generated), fs::path(path));
     }
 
 protected:
     Logger logger;
 
 private:
-    std::string template_file;
+    utils::Text template_text;
 };

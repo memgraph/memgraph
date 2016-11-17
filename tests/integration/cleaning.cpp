@@ -1,11 +1,6 @@
-#include "query/hardcode/queries.hpp"
-
-#ifdef BARRIER
-#include "barrier/barrier.cpp"
-#endif
-
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "query/hardcode/basic.hpp"
 #include "query/strip/stripper.hpp"
 #include "utils/sysinfo/memory.hpp"
 
@@ -15,7 +10,8 @@ void run(size_t n, std::string &query, S &stripper, Q &qf)
     auto stripped = stripper.strip(query);
     std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
               << std::endl;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++)
+    {
         properties_t vec = stripped.arguments;
         assert(qf[stripped.hash](std::move(vec)));
     }
@@ -37,11 +33,7 @@ int main(void)
 
     Db db("cleaning");
 
-#ifdef BARRIER
-    auto query_functions = load_queries(barrier::trans(db));
-#else
-    auto query_functions = load_queries(db);
-#endif
+    auto query_functions = hardcode::load_basic_functions(db);
 
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
@@ -50,7 +42,7 @@ int main(void)
     std::string create_vertex_other =
         "CREATE (n:OTHER {name: \"cleaner_test\"}) RETURN n";
     std::string delete_label_vertices = "MATCH (n:LABEL) DELETE n";
-    std::string delete_all_vertices = "MATCH (n) DELETE n";
+    std::string delete_all_vertices   = "MATCH (n) DELETE n";
 
     // ******************************* TEST 1 ********************************//
     // add vertices a

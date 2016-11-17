@@ -1,15 +1,11 @@
 #include <iostream>
 
-#include "query/hardcode/queries.hpp"
-
-#ifdef BARRIER
-#include "barrier/barrier.cpp"
-#endif
-
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "database/db.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "query/hardcode/basic.hpp"
+#include "query/hardcode/dressipi.hpp"
 #include "query/strip/stripper.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
@@ -24,25 +20,23 @@ int main(int argc, char **argv)
     logging::log->pipe(std::make_unique<Stdout>());
 
     Db db;
-#ifdef BARRIER
-    auto queries = load_queries(barrier::trans(db));
-#else
-    auto queries = load_queries(db);
-#endif
+    auto queries = hardcode::load_basic_functions(db);
 
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
     vector<string> history;
     string command;
     cout << "-- Memgraph query engine --" << endl;
-    do {
+    do
+    {
 
         cout << "> ";
         getline(cin, command);
         history.push_back(command);
         auto stripped = stripper.strip(command);
 
-        if (queries.find(stripped.hash) == queries.end()) {
+        if (queries.find(stripped.hash) == queries.end())
+        {
             cout << "unsupported query" << endl;
             continue;
         }

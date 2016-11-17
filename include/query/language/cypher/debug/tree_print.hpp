@@ -350,6 +350,12 @@ public:
         Traverser::visit(write_query);
     }
 
+    void visit(ast::MergeQuery &merge_query) override
+    {
+        auto entry = printer.advance("Merge Query");
+        Traverser::visit(merge_query);
+    }
+
     void visit(ast::DeleteQuery &delete_query) override
     {
         auto entry = printer.advance("Delete Query");
@@ -369,6 +375,12 @@ public:
     {
         auto entry = printer.advance("Create");
         Traverser::visit(create);
+    }
+
+    void visit(ast::Merge &merge) override
+    {
+        auto entry = printer.advance("Merge");
+        Traverser::visit(merge);
     }
 
     void visit(ast::UpdateQuery &update_query) override
