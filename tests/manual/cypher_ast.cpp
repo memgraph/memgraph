@@ -7,9 +7,10 @@
 #include "query/language/cypher/debug/tree_print.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variadic/variadic.hpp"
 
+using utils::println;
 using std::cout;
-using std::endl;
 
 int main(int argc, char *argv[])
 {
@@ -21,15 +22,14 @@ int main(int argc, char *argv[])
     // // query extraction
     auto queries = extract_queries(arguments);
 
-
     for (auto &query : queries)
     {
-        cout << "QUERY: " << query << endl;
+        println("QUERY: ", query);
         auto print_visitor = new PrintVisitor(cout);
         cypher::Compiler compiler;
         auto tree = compiler.syntax_tree(query);
         tree.root->accept(*print_visitor);
-        cout << endl;
+        println("");
     }
 
     return 0;

@@ -7,6 +7,10 @@ string(REPLACE " " "_" ProjectId ${ProjectId})
 # set project name
 project(${ProjectId})
 
+# setup CMake module path, defines path for include() and find_package()
+# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+
 find_package(Threads REQUIRED)
 
 # flags
@@ -83,19 +87,11 @@ set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # yaml-cpp
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
-# r3
-set(r3_source_dir ${libs_dir}/r3)
-set(r3_static_lib ${r3_source_dir}/.libs/libr3.a)
-# http-parser
-set(http_parser_source_dir "${libs_dir}/http-parser")
-set(http_parser_static_lib ${http_parser_source_dir}/libhttp_parser.a)
-# libuv
-set(libuv_source_dir ${libs_dir}/libuv)
-set(libuv_static_lib ${libuv_source_dir}/.libs/libuv.a)
-# rapidjson (C++ JSON encoder/decoder)
-set(rapidjson_source_dir "${libs_dir}/rapidjson")
 # Catch (C++ Automated Test Cases in Headers)
 set(catch_source_dir "${libs_dir}/Catch")
+
+# load cmake modules: cmake/*.cmake
+include(gbenchmark)
 
 # build memgraph's cypher grammar
 # copy grammar file to the build directory
@@ -557,7 +553,7 @@ endif()
 
 # benchmark binaries
 if (BENCHMARK)
-    add_subdirectory(benchmark)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/benchmark)
 endif()
 
 # memgraph build name

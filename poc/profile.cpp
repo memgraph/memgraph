@@ -4,7 +4,9 @@
 #include <unistd.h>
 #include <unordered_map>
 
+// TODO: remove barrier
 #include "barrier/barrier.cpp"
+
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"

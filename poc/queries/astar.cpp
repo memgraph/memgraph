@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "query_engine/i_code_cpu.hpp"
+#include "query/i_code_cpu.hpp"
 #include "storage/model/properties/all.hpp"
 #include "utils/memory/stack_allocator.hpp"
 

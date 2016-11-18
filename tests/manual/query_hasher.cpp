@@ -4,10 +4,9 @@
 #include "query/preprocesor.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
+#include "utils/variadic/variadic.hpp"
 
-using std::cout;
-using std::cin;
-using std::endl;
+using utils::println;
 
 int main(int argc, char **argv)
 {
@@ -22,17 +21,15 @@ int main(int argc, char **argv)
     for (auto &query : queries)
     {
         auto preprocessed = preprocessor.preprocess(query);
-        cout << "QUERY: " << query << endl;
-        cout << "STRIPPED QUERY: " << preprocessed.query << endl;
-        cout << "QUERY HASH: " << preprocessed.hash << endl;
-        cout << "PROPERTIES:" << endl;
+        println("QUERY: ", query);
+        println("STRIPPED QUERY: ", preprocessed.query);
+        println("QUERY HASH: ", preprocessed.hash);
+        println("PROPERTIES:");
         for (auto property : preprocessed.arguments) {
-            cout << "    " << property << endl;
+            println("    ", property);
         }
-        cout << "-----------------------------" << endl;
+        println("-----------------------------");
     }
-
-
 
     return 0;
 }
