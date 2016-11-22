@@ -18,7 +18,6 @@ class RandomGenerator {
 
  public:
   RandomGenerator(Distribution dist) : gen_(device_()), dist_(dist) {}
-
 };
 
 class StringGenerator
@@ -30,45 +29,27 @@ class StringGenerator
 
   std::string next(int size) {
     std::string random_string;
+    random_string.reserve(size);
 
     for (int i = 0; i < size; i++) random_string += (dist_(gen_) + '\0');
+
     return random_string;
   }
-
 };
 
 template <class Distribution, class Generator, class DistributionRangeType>
-class IntegerGenerator : public RandomGenerator<Distribution, Generator> {
-
+class NumberGenerator : public RandomGenerator<Distribution, Generator> {
  public:
-  IntegerGenerator(DistributionRangeType start, DistributionRangeType end)  :
-    RandomGenerator<Distribution,Generator>(Distribution(start, end)){}
+  NumberGenerator(DistributionRangeType start, DistributionRangeType end)
+      : RandomGenerator<Distribution, Generator>(Distribution(start, end)) {}
 
-  int next() {
-    return this->dist_(this->gen_);
-
-  }
-
-};
-
-template <class Distribution, class Generator, class DistributionRangeType>
-class DecimalGenerator : public RandomGenerator<Distribution, Generator> {
-
-  public:
-    DecimalGenerator(DistributionRangeType start, DistributionRangeType end) :
-      RandomGenerator<Distribution, Generator>(Distribution(start, end)) {}
-
-    auto next() {
-      return this->dist_(this->gen_);
-    }
-
+  auto next() { return this->dist_(this->gen_); }
 };
 
 template <class RandomGenerator>
 auto generate_vector(RandomGenerator& gen, int size) {
-  std::vector<decltype (gen.next())> elements(size);
-  for (int i = 0; i < size; i++)
-    elements[i] = gen.next();
+  std::vector<decltype(gen.next())> elements(size);
+  for (int i = 0; i < size; i++) elements[i] = gen.next();
   return elements;
 }
 
