@@ -23,9 +23,12 @@ class RandomGenerator {
 class StringGenerator
     : public RandomGenerator<std::uniform_int_distribution<int>,
                              std::default_random_engine> {
+ private:
+   int size_;
  public:
-  StringGenerator()
-      : RandomGenerator(std::uniform_int_distribution<int>(32, 126)) {}
+  StringGenerator(int size)
+      : RandomGenerator(std::uniform_int_distribution<int>(32, 126)),
+size_(size) {}
 
   std::string next(int size) {
     std::string random_string;
@@ -34,6 +37,10 @@ class StringGenerator
     for (int i = 0; i < size; i++) random_string += (dist_(gen_) + '\0');
 
     return random_string;
+  }
+
+  std::string next() {
+    return next(size_);
   }
 };
 
@@ -44,6 +51,19 @@ class NumberGenerator : public RandomGenerator<Distribution, Generator> {
       : RandomGenerator<Distribution, Generator>(Distribution(start, end)) {}
 
   auto next() { return this->dist_(this->gen_); }
+};
+
+template <class FirstGenerator, class SecondGenerator>
+class PairGenerator {
+  private:
+    FirstGenerator* first_;
+    SecondGenerator* second_;
+  public:
+    PairGenerator(FirstGenerator* first, SecondGenerator* second) :
+      first_(first), second_(second) {}
+    auto next() {
+      return std::make_pair(first_->next(), second_->next());
+  }
 };
 
 template <class RandomGenerator>
