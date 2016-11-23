@@ -11,18 +11,18 @@
 /*
   ConcurrentMap Benchmark Test:
     - tests time of Insertion, Contain and Delete operations
-    
+
     - benchmarking time per operation
-    
+
     - test run ConcurrentMap with the following keys and values:
         - <int,int>
         - <int, string>
         - <string, int>
         - <string, string>
-  
+
     - tests run single and multi threaded in range (1, Max_Threads_Per_Cpu)
 
-    TODO(sale) implements configurable command line arguments on start 
+    TODO(sale) implements configurable command line arguments on start
 */
 
 using utils::random::NumberGenerator;
@@ -31,7 +31,6 @@ using utils::random::StringGenerator;
 
 using IntegerGenerator = NumberGenerator<std::uniform_int_distribution<int>,
                                          std::default_random_engine, int>;
-
 
 template <class K, class V>
 static void InsertValue(benchmark::State& state, ConcurrentMap<K, V>* map,
@@ -45,7 +44,6 @@ static void InsertValue(benchmark::State& state, ConcurrentMap<K, V>* map,
   state.SetComplexityN(state.range(0));
 }
 
-
 template <class K, class V>
 static void DeleteValue(benchmark::State& state, ConcurrentMap<K, V>* map,
                         const std::vector<std::pair<K, V>> elements) {
@@ -57,7 +55,6 @@ static void DeleteValue(benchmark::State& state, ConcurrentMap<K, V>* map,
   }
   state.SetComplexityN(state.range(0));
 }
-
 
 template <class K, class V>
 static void ContainsValue(benchmark::State& state, ConcurrentMap<K, V>* map,
