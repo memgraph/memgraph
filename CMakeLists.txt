@@ -91,6 +91,7 @@ set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 set(catch_source_dir "${libs_dir}/Catch")
 
 # load cmake modules: cmake/*.cmake
+include(gtest)
 include(gbenchmark)
 
 # build memgraph's cypher grammar
