@@ -4,6 +4,7 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "utils/command_line/arguments.hpp"
 #include "utils/random/generator.h"
 
 #include "benchmark/benchmark_api.h"
@@ -19,10 +20,6 @@
         - <int, string>
         - <string, int>
         - <string, string>
-
-    - tests run single and multi threaded in range (1, Max_Threads_Per_Cpu)
-
-    TODO(sale) implements configurable command line arguments on start
 */
 
 using utils::random::NumberGenerator;
@@ -32,6 +29,13 @@ using utils::random::StringGenerator;
 using IntegerGenerator = NumberGenerator<std::uniform_int_distribution<int>,
                                          std::default_random_engine, int>;
 
+// Global arguments
+int MAX_ELEMENTS = 1 << 20, MULTIPLIER = 2;
+int THREADS, RANGE_START, RANGE_END, STRING_LENGTH;
+
+/*
+  ConcurrentMap Insertion Benchmark Test
+*/
 template <class K, class V>
 static void InsertValue(benchmark::State& state, ConcurrentMap<K, V>* map,
                         const std::vector<std::pair<K, V>>& elements) {
@@ -44,6 +48,9 @@ static void InsertValue(benchmark::State& state, ConcurrentMap<K, V>* map,
   state.SetComplexityN(state.range(0));
 }
 
+/*
+  ConcurrentMap Deletion Benchmark Test
+*/
 template <class K, class V>
 static void DeleteValue(benchmark::State& state, ConcurrentMap<K, V>* map,
                         const std::vector<std::pair<K, V>> elements) {
@@ -56,6 +63,9 @@ static void DeleteValue(benchmark::State& state, ConcurrentMap<K, V>* map,
   state.SetComplexityN(state.range(0));
 }
 
+/*
+  ConcurrentMap Contains Benchmark Test
+*/
 template <class K, class V>
 static void ContainsValue(benchmark::State& state, ConcurrentMap<K, V>* map,
                           const std::vector<std::pair<K, V>> elements) {
@@ -80,16 +90,42 @@ auto BM_ContainsValue = [](benchmark::State& state, auto* map, auto elements) {
   ContainsValue(state, map, elements);
 };
 
-int main(int argc, char** argv) {
-  int MAX_ELEMENTS = 1 << 14;
-  int MULTIPLIER = 2;
-  int MAX_THREADS = (int)std::thread::hardware_concurrency();
+/*
+  Commandline Argument Parsing
 
+  Arguments:
+   * Integer Range Minimum
+      -start number
+
+   *  Integer Range Maximum
+      - end number
+
+   * Number of threads
+      - threads number
+
+   * Random String lenght
+      -string-length number
+*/
+void parse_arguments(int argc, char** argv) {
+  auto para = all_arguments(argc, argv);
+
+  RANGE_START = std::stoi(get_argument(para, "-start", "0"));
+  RANGE_END = std::stoi(get_argument(para, "-end", "1000000000"));
+
+  THREADS = std::min(std::stoi(get_argument(para, "-threads", "1")),
+                     (int)std::thread::hardware_concurrency());
+
+  STRING_LENGTH = std::stoi(get_argument(para, "-string-length", "128"));
+}
+
+int main(int argc, char** argv) {
   logging::init_async();
   logging::log->pipe(std::make_unique<Stdout>());
 
-  StringGenerator sg(128);
-  IntegerGenerator ig(0, 1000000);
+  parse_arguments(argc, argv);
+
+  StringGenerator sg(STRING_LENGTH);
+  IntegerGenerator ig(RANGE_START, RANGE_END);
 
   /*
     Creates RandomGenerators, ConcurentMaps and Random Element Vectors for the
@@ -102,16 +138,19 @@ int main(int argc, char** argv) {
         <string, string>
   */
 
+  // random generators for tests
   PairGenerator<IntegerGenerator, IntegerGenerator> piig(&ig, &ig);
   PairGenerator<StringGenerator, StringGenerator> pssg(&sg, &sg);
   PairGenerator<StringGenerator, IntegerGenerator> psig(&sg, &ig);
   PairGenerator<IntegerGenerator, StringGenerator> pisg(&ig, &sg);
 
+  // maps used for testing
   ConcurrentMap<int, int> ii_map;
   ConcurrentMap<int, std::string> is_map;
   ConcurrentMap<std::string, int> si_map;
   ConcurrentMap<std::string, std::string> ss_map;
 
+  // random elements for testing
   auto ii_elems = utils::random::generate_vector(piig, MAX_ELEMENTS);
   auto is_elems = utils::random::generate_vector(pisg, MAX_ELEMENTS);
   auto si_elems = utils::random::generate_vector(psig, MAX_ELEMENTS);
@@ -119,100 +158,93 @@ int main(int argc, char** argv) {
 
   /* insertion Tests */
 
-  for (int t = 1; t <= MAX_THREADS; t *= 2) {
-    benchmark::RegisterBenchmark("InsertValue[Int, Int]", BM_InsertValue,
-                                 &ii_map, ii_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("InsertValue[Int, Int]", BM_InsertValue, &ii_map,
+                               ii_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("InsertValue[Int, String] (size:128 chars)",
-                                 BM_InsertValue, &is_map, is_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("InsertValue[Int, String]", BM_InsertValue,
+                               &is_map, is_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("InsertValue[String, Int] (size:128 chars)",
-                                 BM_InsertValue, &si_map, si_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("InsertValue[String, Int]", BM_InsertValue,
+                               &si_map, si_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("InsertValue[String, String] (size:128 chars)",
-                                 BM_InsertValue, &ss_map, ss_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
-  }
+  benchmark::RegisterBenchmark("InsertValue[String, String]", BM_InsertValue,
+                               &ss_map, ss_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
   // Contains Benchmark Tests
 
-  for (int t = 1; t <= MAX_THREADS; t *= 2) {
-    benchmark::RegisterBenchmark("ContainsValue[Int, Int]", BM_ContainsValue,
-                                 &ii_map, ii_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("ContainsValue[Int, Int]", BM_ContainsValue,
+                               &ii_map, ii_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("ContainsValue[Int, String] (size:128 chars)",
-                                 BM_ContainsValue, &is_map, is_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("ContainsValue[Int, String]", BM_ContainsValue,
+                               &is_map, is_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("ContainsValue[String, Int] (size:128 chars)",
-                                 BM_ContainsValue, &si_map, si_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("ContainsValue[String, Int]", BM_ContainsValue,
+                               &si_map, si_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark(
-        "ContainsValue[String, String] (size:128 chars)", BM_ContainsValue,
-        &ss_map, ss_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
-  }
+  benchmark::RegisterBenchmark("ContainsValue[String, String]",
+                               BM_ContainsValue, &ss_map, ss_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
   // Deletion Banchamark Tests
 
-  for (int t = 1; t <= MAX_THREADS; t *= 2) {
-    benchmark::RegisterBenchmark("DeleteValue[Int, Int]", BM_DeleteValue,
-                                 &ii_map, ii_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("DeleteValue[Int, Int]", BM_DeleteValue, &ii_map,
+                               ii_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("DeleteValue[Int, String] (size:128 chars)",
-                                 BM_DeleteValue, &is_map, is_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("DeleteValue[Int, String]", BM_DeleteValue,
+                               &is_map, is_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("DeleteValue[String, Int] (size:128 chars)",
-                                 BM_DeleteValue, &si_map, si_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
+  benchmark::RegisterBenchmark("DeleteValue[String, Int]", BM_DeleteValue,
+                               &si_map, si_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::RegisterBenchmark("DeleteValue[String, String] (size:128 chars)",
-                                 BM_DeleteValue, &ss_map, ss_elems)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(t);
-  }
+  benchmark::RegisterBenchmark("DeleteValue[String, String]", BM_DeleteValue,
+                               &ss_map, ss_elems)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
