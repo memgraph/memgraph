@@ -107,15 +107,20 @@ auto BM_ContainsValue = [](benchmark::State& state, auto* map, auto elements) {
       -string-length number
 */
 void parse_arguments(int argc, char** argv) {
-  auto para = all_arguments(argc, argv);
+  ProgramArguments::instance().register_args(argc, argv);
 
-  RANGE_START = std::stoi(get_argument(para, "-start", "0"));
-  RANGE_END = std::stoi(get_argument(para, "-end", "1000000000"));
+  RANGE_START =
+      ProgramArguments::instance().get_arg("-start", "0").GetInteger();
+  RANGE_END =
+      ProgramArguments::instance().get_arg("-end", "1000000000").GetInteger();
 
-  THREADS = std::min(std::stoi(get_argument(para, "-threads", "1")),
-                     (int)std::thread::hardware_concurrency());
+  THREADS = std::min(
+      ProgramArguments::instance().get_arg("-threads", "1").GetInteger(),
+      (int)std::thread::hardware_concurrency());
 
-  STRING_LENGTH = std::stoi(get_argument(para, "-string-length", "128"));
+  STRING_LENGTH = ProgramArguments::instance()
+                      .get_arg("-string-length", "128")
+                      .GetInteger();
 }
 
 int main(int argc, char** argv) {

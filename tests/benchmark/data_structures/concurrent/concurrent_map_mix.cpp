@@ -36,11 +36,10 @@ static void Rape(benchmark::State& state, ConcurrentMap<int, int>* map,
     auto accessor = map->access();
 
     for (int start = 0; start < state.range(0); start++) {
-      float current_percentage = (float)start / (float)number_of_elements;
-      if (current_percentage * 100 < (float)INSERT_PERC) {
+      float current_percentage = (float)start / (float)number_of_elements * 100;
+      if (current_percentage < (float)INSERT_PERC) {
         accessor.insert(elements[start].first, elements[start].second);
-      } else if (current_percentage * 100 <
-                 (float)CONTAINS_PERC + INSERT_PERC) {
+      } else if (current_percentage < (float)CONTAINS_PERC + INSERT_PERC) {
         accessor.contains(elements[start].first);
       } else {
         accessor.remove(elements[start].first);
@@ -78,11 +77,14 @@ auto BM_Rape = [](benchmark::State& state, auto* map, auto& elements) {
         -threads number
 */
 void parse_arguments(int argc, char** argv) {
-  auto para = all_arguments(argc, argv);
+  ProgramArguments::instance().register_args(argc, argv);
 
-  INSERT_PERC = std::stoi(get_argument(para, "-insert", "50"));
-  DELETE_PERC = std::stoi(get_argument(para, "-delete", "20"));
-  CONTAINS_PERC = std::stoi(get_argument(para, "-find", "30"));
+  INSERT_PERC =
+      ProgramArguments::instance().get_arg("-insert", "50").GetInteger();
+  DELETE_PERC =
+      ProgramArguments::instance().get_arg("-delete", "20").GetInteger();
+  CONTAINS_PERC =
+      ProgramArguments::instance().get_arg("-find", "30").GetInteger();
 
   if (INSERT_PERC + DELETE_PERC + CONTAINS_PERC != 100) {
     std::cout << "Invalid percentage" << std::endl;
@@ -90,12 +92,15 @@ void parse_arguments(int argc, char** argv) {
     exit(-1);
   }
 
-  RANGE_START = std::stoi(get_argument(para, "-start", "0"));
-  RANGE_END = std::stoi(get_argument(para, "-end", "1000000000"));
+  RANGE_START =
+      ProgramArguments::instance().get_arg("-start", "0").GetInteger();
 
-  std::cout << "start" << RANGE_START << std::endl;
-  THREADS = std::min(std::stoi(get_argument(para, "-threads", "1")),
-                     (int)std::thread::hardware_concurrency());
+  RANGE_END =
+      ProgramArguments::instance().get_arg("-end", "1000000000").GetInteger();
+
+  THREADS = std::min(
+      ProgramArguments::instance().get_arg("-threads", "1").GetInteger(),
+      (int)std::thread::hardware_concurrency());
 }
 
 int main(int argc, char** argv) {
