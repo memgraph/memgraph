@@ -16,7 +16,7 @@ public:
     auto end() const { return edges.end(); }
     auto cend() const { return edges.end(); }
 
-    void add(EdgeRecord *edge) { edges.push_back(edge); }
+    void add(EdgeRecord *edge) { edges.emplace_back(edge); }
 
     size_t degree() const { return edges.size(); }
 

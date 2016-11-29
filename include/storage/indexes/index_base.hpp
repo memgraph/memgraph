@@ -7,6 +7,7 @@
 #include "mvcc/id.hpp"
 
 // #include "storage/indexes/index_record.hpp"
+#include "logging/loggable.hpp"
 #include "storage/garbage/delete_sensitive.hpp"
 #include "storage/indexes/index_definition.hpp"
 #include "utils/border.hpp"
@@ -26,13 +27,14 @@ class Transaction;
 // TG type group
 // K type of key on which records are ordered
 template <class TG, class K>
-class IndexBase : public DeleteSensitive
+class IndexBase : public DeleteSensitive, public Loggable
 {
 public:
     // Created with the database
-    IndexBase(IndexDefinition &&it);
+    IndexBase(IndexDefinition &&it, std::string &&logger_name = "IndexBase");
 
-    IndexBase(IndexDefinition &&it, const tx::Transaction &t);
+    IndexBase(IndexDefinition &&it, const tx::Transaction &t,
+              std::string &&logger_name = "IndexBase");
 
     virtual ~IndexBase(){};
 
@@ -69,6 +71,9 @@ public:
     IndexType type() const { return it.type; }
 
     const IndexDefinition &definition() const { return it; }
+
+protected:
+    Logger logger;
 
 private:
     const IndexDefinition it;

@@ -1,0 +1,2 @@
+MERGE (g1:garment {garment_id: 1234})-[r:default_outfit]-(g2:garment {garment_id: 2345}) RETURN r
+MATCH (p:profile {profile_id: 111, partner_id: 55})-[s:score]-(g.garment {garment_id: 1234}) DELETE s

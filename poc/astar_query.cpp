@@ -1,7 +1,3 @@
-#include "queries/astar.cpp"
-
-#include "barrier/barrier.cpp"
-
 #include <chrono>
 #include <cstring>
 #include <ctime>
@@ -21,6 +17,7 @@
 #include "import/csv_import.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "queries/astar.hpp"
 #include "storage/edge_x_vertex.hpp"
 #include "storage/edges.cpp"
 #include "storage/edges.hpp"
@@ -41,21 +38,23 @@ int main(int argc, char **argv)
     auto para = all_arguments(argc, argv);
 
     Db db("astar");
-    barrier::CodeCPU cp;
+    PlanCPU plan;
     int bench_n = 1000;
 
-    do {
+    do
+    {
         double sum = 0;
-        for (int i = 0; i < bench_n; i++) {
+        for (int i = 0; i < bench_n; i++)
+        {
             auto start_vertex_index =
                 std::rand() % db.graph.vertices.access().size();
 
             auto begin = clock();
 
-            code_args_t args;
+            plan_args_t args;
             args.push_back(Property(Int64(start_vertex_index), Int64::type));
 
-            cp.run(barrier::trans(db), args, std::cout);
+            plan.run(db, args, std::cout);
 
             clock_t end = clock();
 
@@ -63,7 +62,7 @@ int main(int argc, char **argv)
             sum += elapsed_ms;
         }
 
-        std::cout << "\nSearch for best " << barrier::limit
+        std::cout << "\nSearch for best " << limit
                   << " results has runing time of:\n    avg: " << sum / bench_n
                   << " [ms]\n";
     } while (true);

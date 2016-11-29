@@ -1,15 +1,41 @@
-CREATE (n {garment_id: 1234, garment_category_id: 1}) RETURN n
-CREATE (p:profile {profile_id: 111, partner_id: 55}) RETURN p
-MATCH (g:garment {garment_id: 1234}) SET g:FF RETURN labels(g)
-MATCH (p:profile {profile_id: 111, partner_id: 55})-[s:score]-(g:garment{garment_id: 1234}) SET s.score = 1550 RETURN s.score
-MATCH (g:garment {garment_id: 3456}) SET g.reveals = 50 RETURN g
-MERGE (g1:garment {garment_id: 1234})-[r:default_outfit]-(g2:garment {garment_id: 2345}) RETURN r
-MERGE (p:profile {profile_id: 111, partner_id: 55})-[s:score]-(g.garment {garment_id: 1234}) SET s.score=1500 RETURN s
-MATCH (p:profile {profile_id: 111, partner_id: 55})-[s:score]-(g.garment {garment_id: 1234}) DELETE s
-MATCH (p:profile {profile_id: 113}) DELETE p
-MATCH (n) DETACH DELETE n
-MATCH (p:profile) RETURN p
+CREATE (g:garment {garment_id: 1, garment_category_id: 1}) RETURN g
+CREATE (g:garment {garment_id: 2, garment_category_id: 2}) RETURN g
+CREATE (g:garment {garment_id: 3, garment_category_id: 3}) RETURN g
+
+MATCH (g:garment {garment_id: 3}) SET g.reveals = 50 RETURN g
+
+MERGE (g1:garment {garment_id: 1})-[r:default_outfit]-(g2:garment {garment_id: 2}) RETURN r
+MERGE (g1:garment {garment_id: 2})-[r:default_outfit]-(g2:garment {garment_id: 3}) RETURN r
+MERGE (g1:garment {garment_id: 3})-[r:default_outfit]-(g2:garment {garment_id: 1}) RETURN r
+
+CREATE (p:profile {profile_id: 1, partner_id: 1}) RETURN p
+CREATE (p:profile {profile_id: 2, partner_id: 2}) RETURN p
+CREATE (p:profile {profile_id: 3, partner_id: 2}) RETURN p
+
 MATCH (g:garment) RETURN COUNT(g)
-MATCH (g:garment {garment_id: 1234}) RETURN g
-MATCH (p:profile {partner_id: 55}) RETURN p
+MATCH (g:garment) RETURN g
+
+MATCH (p:profile) RETURN count(p)
+MATCH (p:profile) RETURN p
+
+MATCH (g:garment {garment_id: 1}) RETURN g
+MATCH (p:profile {partner_id: 1}) RETURN p
+
+MATCH (n) RETURN count(n)
+
+MATCH (g:garment {garment_id: 2}) SET g:FF RETURN labels(g)
+
+MERGE (p:profile {profile_id: 1, partner_id: 1})-[s:score]-(g.garment {garment_id: 1}) SET s.score = 1500 RETURN s
+MATCH (p:profile {profile_id: 1, partner_id: 1})-[s:score]-(g:garment {garment_id: 1}) SET s.score = 1550 RETURN s.score
+MATCH (p:profile {profile_id: 1, partner_id: 1})-[s:score]-(g.garment {garment_id: 1}) DELETE s
+
+MATCH (g:garment {garment_id: 1}) DELETE g
+MATCH (p:profile {profile_id: 1}) DELETE p
+
+MATCH (n) RETURN count(n)
+
+MATCH (g:garment) RETURN COUNT(g)
+
+MATCH (n) DETACH DELETE n
+
 MATCH (n) RETURN count(n)

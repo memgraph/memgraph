@@ -305,7 +305,7 @@ auto load_basic_functions(Db &db)
             });
 
         } else {
-            // Going through edges wiil probably be faster
+            // Going through edges will probably be faster
             it_type.to().for_all([&](auto m) {
                 // PRINT m
             });
@@ -319,7 +319,8 @@ auto load_basic_functions(Db &db)
         DbAccessor t(db);
 
         auto &type = t.type_find_or_create("TYPE");
-        auto prop_name = t.vertex_property_key("name", args[0].key.flags());
+        auto prop_name =
+            t.vertex_property_key("name", args[0].key.flags());
 
         Option<const VertexAccessor> n;
         Option<const EdgeAccessor> r;
@@ -437,7 +438,7 @@ auto load_basic_functions(Db &db)
 
     // MATCH (n:LABEL {name: "TEST01"}) RETURN n;
     auto match_label_property = [&db](properties_t &&args) {
-        std::map<std::string, int64_t> indices{{"name", 0}};
+        indices_t indices{{"name", 0}};
         auto properties = query_properties(indices, args);
         DbAccessor t(db);
         try {

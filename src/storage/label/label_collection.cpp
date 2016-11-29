@@ -7,15 +7,14 @@ bool LabelCollection::add(const Label &label)
     if (has(label)) {
         return false;
     } else {
-        _labels.push_back(label_ref_t(label));
+        labels_.push_back(label_ref_t(label));
         return true;
     }
-    // return _labels.(label_ref_t(label)).second;
 }
 
 bool LabelCollection::has(const Label &label) const
 {
-    for (auto l : _labels) {
+    for (auto l : labels_) {
         if (l == label) {
             return true;
         }
@@ -23,14 +22,14 @@ bool LabelCollection::has(const Label &label) const
     return false;
 }
 
-size_t LabelCollection::count() const { return _labels.size(); }
+size_t LabelCollection::count() const { return labels_.size(); }
 
 bool LabelCollection::remove(const Label &label)
 {
-    auto end = _labels.end();
-    for (auto it = _labels.begin(); it != end; it++) {
+    auto end = labels_.end();
+    for (auto it = labels_.begin(); it != end; it++) {
         if (*it == label) {
-            _labels.erase(it);
+            labels_.erase(it);
             return true;
         }
     }
@@ -38,9 +37,9 @@ bool LabelCollection::remove(const Label &label)
     return false;
 }
 
-void LabelCollection::clear() { _labels.clear(); }
+void LabelCollection::clear() { labels_.clear(); }
 
 const std::vector<label_ref_t> &LabelCollection::operator()() const
 {
-    return _labels;
+    return labels_;
 }

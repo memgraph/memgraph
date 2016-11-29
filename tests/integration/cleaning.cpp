@@ -1,6 +1,6 @@
+#include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/hardcode/basic.hpp"
 #include "query/strip/stripper.hpp"
 #include "utils/sysinfo/memory.hpp"
 

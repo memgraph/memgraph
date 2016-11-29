@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cmath>
-#include "query_engine/exceptions/exceptions.hpp"
+
+#include "utils/exceptions/out_of_memory.hpp"
 #include "utils/memory/block_allocator.hpp"
 
 // http://en.cppreference.com/w/cpp/language/new
@@ -24,7 +25,8 @@ public:
         // until it eats all the memory.
         static_assert(sizeof(T) <= page_size,
                       "Cant allocate objects larger than page_size");
-        do {
+        do
+        {
             // Mask which has log2(alignof(T)) lower bits setted to 0 and the
             // rest to 1.
             // example:
@@ -56,7 +58,8 @@ public:
 
             // If the new_head is greater than end that means that there isn't
             // enough space for object T in current block of memory.
-            if (LIKELY(new_head <= end)) {
+            if (LIKELY(new_head <= end))
+            {
 
                 // All is fine, head can become new_head
                 head = new_head;
@@ -99,7 +102,8 @@ public:
     // Relases all memory.
     void free()
     {
-        while (allocated_blocks.size() > 0) {
+        while (allocated_blocks.size() > 0)
+        {
             blocks.release(allocated_blocks.back());
             allocated_blocks.pop_back();
         }
@@ -109,5 +113,5 @@ private:
     BlockAllocator<page_size> blocks;
     std::vector<void *> allocated_blocks;
     char *head = {nullptr};
-    char *end = {nullptr};
+    char *end  = {nullptr};
 };

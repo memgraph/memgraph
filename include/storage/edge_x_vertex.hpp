@@ -8,6 +8,8 @@
 auto VertexAccessor::out() const
 {
     DbTransaction &t = this->db;
+    std::cout << "VA OUT" << std::endl;
+    std::cout << record->data.out.size() << std::endl;
     return iter::make_map(iter::make_iter_ref(record->data.out),
                           [&](auto e) -> auto { return EdgeAccessor(*e, t); });
 }

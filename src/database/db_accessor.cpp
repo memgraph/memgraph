@@ -3,12 +3,12 @@
 #include "utils/iterator/iterator.hpp"
 
 DbAccessor::DbAccessor(Db &db)
-    : db_transaction(DbTransaction(db, db.tx_engine.begin()))
+    : db_transaction(std::move(DbTransaction(db, db.tx_engine.begin())))
 {
 }
 
 DbAccessor::DbAccessor(Db &db, tx::Transaction &t)
-    : db_transaction(DbTransaction(db, t))
+    : db_transaction(std::move(DbTransaction(db, t)))
 {
 }
 
@@ -103,6 +103,11 @@ EdgePropertyFamily::PropertyType::PropertyFamilyKey
 DbAccessor::edge_property_key(const std::string &name, Type type)
 {
     return edge_property_family_get(name).get(type).family_key();
+}
+
+bool DbAccessor::update_indexes()
+{
+    return db_transaction.update_indexes();
 }
 
 // TRANSACTION METHODS

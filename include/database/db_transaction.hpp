@@ -1,5 +1,6 @@
 #pragma once
 
+#include "logging/loggable.hpp"
 #include "storage/indexes/index_update.hpp"
 #include "transactions/transaction.hpp"
 
@@ -13,13 +14,19 @@ using index_updates_t = std::vector<IndexUpdate>;
 // its methods.
 // Also serves as a barrier for calling methods defined public but meant for
 // internal use. That kind of method should request DbTransaction&.
-class DbTransaction
+class DbTransaction : public Loggable
 {
     friend DbAccessor;
 
 public:
     DbTransaction(Db &db);
-    DbTransaction(Db &db, tx::Transaction &trans) : db(db), trans(trans) {}
+    DbTransaction(Db &db, tx::Transaction &trans)
+        : Loggable("DbTransaction"), db(db), trans(trans)
+    {
+    }
+
+    DbTransaction(const DbTransaction& other) = delete;
+    DbTransaction(DbTransaction&& other) = default;
 
     // Global transactional algorithms,operations and general methods meant for
     // internal use should be here or should be routed through this object.
@@ -48,14 +55,9 @@ public:
     // with call update_indexes
     template <class TG>
     void to_update_index(typename TG::vlist_t *vlist,
-                         typename TG::record_t *record)
-    {
-        index_updates.push_back(make_index_update(vlist, record));
-    }
+                         typename TG::record_t *record);
 
     index_updates_t index_updates;
-
-    tx::Transaction &trans;
-
     Db &db;
+    tx::Transaction &trans;
 };

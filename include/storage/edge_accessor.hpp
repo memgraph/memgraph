@@ -19,8 +19,9 @@ class EdgeAccessor : public RecordAccessor<TypeGroupEdge, EdgeAccessor>
 
 public:
     using RecordAccessor::RecordAccessor;
-    typedef Edge record_t;
-    typedef EdgeRecord record_list_t;
+
+    using record_t = Edge;
+    using record_list_t = EdgeRecord;
 
     // Removes self and disconects vertices from it.
     void remove() const;
@@ -34,4 +35,21 @@ public:
 
     // EdgeAccessor doesnt need to be filled
     VertexAccessor to() const;
+
+    template <typename Stream>
+    void stream_repr(Stream& stream) const
+    {
+        auto from_va = from();
+        auto to_va = to();
+
+        from_va.fill();
+        to_va.fill();
+
+        from_va.stream_repr(stream);
+        stream << '-';
+        this->record->stream_repr(stream);
+        stream << "->";
+        to_va.stream_repr(stream);
+        stream << '\n';
+    }
 };

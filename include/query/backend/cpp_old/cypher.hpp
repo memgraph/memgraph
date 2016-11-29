@@ -14,13 +14,8 @@ class CypherBackend
 public:
     CypherBackend() : logger(logging::log->logger("CypherBackend"))
     {
-// load template file
-#ifdef BARRIER
-        std::string template_path =
-            CONFIG(config::BARRIER_TEMPLATE_CPU_CPP_PATH);
-#else
+        // load template file
         std::string template_path = CONFIG(config::TEMPLATE_CPU_CPP_PATH);
-#endif
         template_text = utils::read_text(fs::path(template_path));
     }
 
@@ -46,11 +41,7 @@ public:
             template_text.str(), {{"class_name", "CodeCPU"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
-#ifdef BARRIER
-                            {"stream", "RecordStream<::io::Socket>"},
-#else
                             {"stream", type_name<Stream>().to_string()},
-#endif
                             {"code", cpp_traverser.code}});
 
         logger.trace("generated code: {}", generated);

@@ -2,12 +2,14 @@
 #include "database/db.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/hardcode/basic.hpp"
-#include "query/hardcode/dressipi.hpp"
+#include "_hardcoded_query/basic.hpp"
+#include "_hardcoded_query/dressipi.hpp"
 #include "query/strip/stripper.hpp"
 #include "utils/string/file.hpp"
 #include "utils/variadic/variadic.hpp"
 #include "utils/command_line/arguments.hpp"
+
+Logger logger;
 
 int main(int argc, char *argv[])
 {
@@ -19,8 +21,10 @@ int main(int argc, char *argv[])
     auto work_mode = get_argument(arguments, "-w", "query_execution");
 
     // init logging
-    logging::init_async();
+    logging::init_sync();
     logging::log->pipe(std::make_unique<Stdout>());
+    auto log = logging::log->logger("test");
+    log.info("bla");
 
     // init db, functions and stripper
     Db db;
@@ -42,10 +46,16 @@ int main(int argc, char *argv[])
     // execute all queries
     for (auto &query : queries)
     {
+        if (query.empty())
+            continue;
+
+        utils::println("");
         utils::println("Query: ", query);
 
         auto stripped = stripper.strip(query);
         utils::println("Hash: ", stripped.hash);
+        
+        utils::println("------------------------");
 
         // TODO: more robust solution (enum like)
         if (work_mode == "hash_generation") continue;
@@ -54,7 +64,7 @@ int main(int argc, char *argv[])
             query_functions[stripped.hash](std::move(stripped.arguments));
         permanent_assert(result == true,
                          "Result retured from query function is not true");
-        utils::println("------------------------ PASS");
+        utils::println("------------------------");
     }
 
     return 0;

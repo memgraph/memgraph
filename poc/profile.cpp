@@ -4,9 +4,6 @@
 #include <unistd.h>
 #include <unordered_map>
 
-// TODO: remove barrier
-#include "barrier/barrier.cpp"
-
 #include "database/db.hpp"
 #include "database/db_accessor.hpp"
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
@@ -20,7 +17,7 @@ using namespace std;
 
 // (company, {type_name, score})
 using company_profile_type =
-    pair<barrier::VertexAccessor, unordered_map<string, double>>;
+    pair<VertexAccessor, unordered_map<string, double>>;
 
 // Accepted flags for CSV import.
 // -db name # will create database with that name.
@@ -44,7 +41,7 @@ int main(int argc, char **argv)
 
         // query benchmark
         auto begin = clock();
-        int n = for_all_companys(barrier::trans(t), company_profiles);
+        int n = for_all_companys(t, company_profiles);
         clock_t end = clock();
         double elapsed_s = (double(end - begin) / CLOCKS_PER_SEC);
 
@@ -71,8 +68,8 @@ int main(int argc, char **argv)
         for (auto &company_profile : company_profiles) {
             auto prop_vertex_id = t.vertex_property_key<Int64>("company_id");
             auto db_company_id =
-                *barrier::trans(company_profile.first).at(prop_vertex_id).get();
-            if (db_company_id == company_id) {
+                company_profile.first.at(prop_vertex_id).get();
+            if (db_company_id->value() == company_id) {
                 cout << endl << "CompanyID: " << company_id << endl;
                 for (auto e : company_profile.second) {
                     cout << e.first << " = " << e.second << endl;

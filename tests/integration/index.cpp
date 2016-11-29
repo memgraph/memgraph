@@ -1,6 +1,6 @@
 #include <random>
 
-#include "query/hardcode/basic.hpp"
+#include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "query/strip/stripper.hpp"

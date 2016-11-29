@@ -2,6 +2,7 @@
 
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"
+#include "transactions/transaction.hpp"
 
 template <class TG, class K>
 IndexRecord<TG, K>::IndexRecord(K key, typename TG::record_t *record,
@@ -28,7 +29,15 @@ template <class TG, class K>
 bool IndexRecord<TG, K>::is_valid(tx::Transaction &t) const
 {
     assert(!empty());
-    return record == vlist->find(t);
+    // TODO: this has to be tested extensively
+    // before here was only (record == newest_record)
+    // but it doesn't work if single transaction updates something from
+    // this index and then tries to access to the same element again through
+    // the same index
+    auto newest_record = vlist->find(t);
+    if (newest_record == nullptr)
+        return false;
+    return (record == newest_record) || (newest_record->tx.cre() == t.id);
 }
 
 template <class TG, class K>
