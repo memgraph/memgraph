@@ -10,9 +10,13 @@ class BasicException : public std::exception {
  public:
   BasicException(const std::string &message, uint64_t stacktrace_size) noexcept
       : message_(message),
-        stacktrace_size_(stacktrace_size) {}
+        stacktrace_size_(stacktrace_size) {
+    generate_stacktrace();
+  }
   BasicException(const std::string &message) noexcept : message_(message),
-                                                        stacktrace_size_(10) {}
+                                                        stacktrace_size_(10) {
+    generate_stacktrace();
+  }
 
   template <class... Args>
   BasicException(const std::string &format, Args &&... args) noexcept
@@ -24,8 +28,8 @@ class BasicException : public std::exception {
   std::string message_;
   uint64_t stacktrace_size_;
 
-#ifndef NDEBUG
   void generate_stacktrace() {
+#ifndef NDEBUG
     Stacktrace stacktrace;
 
     int size = std::min(stacktrace_size_, stacktrace.size());
@@ -33,6 +37,6 @@ class BasicException : public std::exception {
       message_.append(fmt::format("\n at {} ({})", stacktrace[i].function,
                                   stacktrace[i].location));
     }
-  }
 #endif
+  }
 };
