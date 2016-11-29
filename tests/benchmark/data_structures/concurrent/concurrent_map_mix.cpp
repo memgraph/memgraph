@@ -77,14 +77,11 @@ auto BM_Rape = [](benchmark::State& state, auto* map, auto& elements) {
         -threads number
 */
 void parse_arguments(int argc, char** argv) {
-  ProgramArguments::instance().register_args(argc, argv);
+  REGISTER_ARGS(argc, argv);
 
-  INSERT_PERC =
-      ProgramArguments::instance().get_arg("-insert", "50").GetInteger();
-  DELETE_PERC =
-      ProgramArguments::instance().get_arg("-delete", "20").GetInteger();
-  CONTAINS_PERC =
-      ProgramArguments::instance().get_arg("-find", "30").GetInteger();
+  INSERT_PERC = GET_ARG("-insert", "50").get_int();
+  DELETE_PERC = GET_ARG("-delete", "20").get_int();
+  CONTAINS_PERC = GET_ARG("-find", "30").get_int();
 
   if (INSERT_PERC + DELETE_PERC + CONTAINS_PERC != 100) {
     std::cout << "Invalid percentage" << std::endl;
@@ -92,15 +89,12 @@ void parse_arguments(int argc, char** argv) {
     exit(-1);
   }
 
-  RANGE_START =
-      ProgramArguments::instance().get_arg("-start", "0").GetInteger();
+  RANGE_START = GET_ARG("-start", "0").get_int();
 
-  RANGE_END =
-      ProgramArguments::instance().get_arg("-end", "1000000000").GetInteger();
+  RANGE_END = GET_ARG("-end", "1000000000").get_int();
 
-  THREADS = std::min(
-      ProgramArguments::instance().get_arg("-threads", "1").GetInteger(),
-      (int)std::thread::hardware_concurrency());
+  THREADS = std::min(GET_ARG("-threads", "1").get_int(),
+                     (int)std::thread::hardware_concurrency());
 }
 
 int main(int argc, char** argv) {

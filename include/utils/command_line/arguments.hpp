@@ -8,19 +8,32 @@
 #include <set>
 #include <string>
 #include <vector>
+
+#include "utils/exceptions/basic_exception.hpp"
 #include "utils/option.hpp"
 
+#define REGISTER_ARGS(argc, argv) \
+  ProgramArguments::instance().register_args(argc, argv)
+#define REGISTER_REQUIRED_ARGS(vector) \
+  ProgramArguments::instance().register_required_args(vector)
+#define GET_ARG(flag, default_value) \
+  ProgramArguments::instance().get_arg(flag, default_value)
+#define GET_ARGS(flag, default_value) \
+  ProgramArguments::instance().get_arg_list(flag, default_value)
+#define CONTAINS_FLAG(flag) ProgramArguments::instance().contains_flag(flag)
+#define CLEAR_ARGS() ProgramArguments::instance().clear()
+
+// TODO namespace utils
 namespace {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-function"
 
-class ProgramArgumentException : public std::exception {
+class ProgramArgumentException : public BasicException {
  public:
-  virtual const char *what() const throw() {
-    return "Invalid Command Line Arguments";
-  }
-} arg_exception;
+  ProgramArgumentException(const std::string &mess)
+      : BasicException("ProgramArgumentException: " + mess + ".") {}
+};
 
 class ProgramArguments {
  private:
@@ -48,10 +61,10 @@ class ProgramArguments {
 
    public:
     Argument(const std::string &arg) : arg_(arg) {}
-    std::string GetString() { return arg_; }
-    int GetInteger() { return std::atoi(arg_.c_str()); };
-    float GetFloat() { return std::atof(arg_.c_str()); };
-    long GetLong() { return std::atol(arg_.c_str()); }
+    std::string get_string() { return arg_; }
+    int get_int() { return std::atoi(arg_.c_str()); };
+    float get_float() { return std::atof(arg_.c_str()); };
+    long get_long() { return std::atol(arg_.c_str()); }
   };
 
   static ProgramArguments &instance() {
@@ -75,7 +88,7 @@ class ProgramArguments {
           i++;
           std::string arg(*(argv + i));
           if (!is_flag(arg))
-            arguments_[flag].push_back(arg);
+            arguments_[flag].emplace_back(arg);
           else {
             i--;
             break;
@@ -86,7 +99,8 @@ class ProgramArguments {
 
     if (required_arguments_.empty()) return;
 
-    if (!is_valid()) throw arg_exception;
+    if (!is_valid())
+      throw ProgramArgumentException("Required Args not satisfied.");
   }
 
   void register_required_args(std::vector<std::string> args) {
@@ -94,7 +108,8 @@ class ProgramArguments {
 
     if (arguments_.empty()) return;
 
-    if (!is_valid()) throw arg_exception;
+    if (!is_valid())
+      throw ProgramArgumentException("Required Args not satisfied.");
   }
 
   bool contains_flag(const std::string &flag) {
@@ -157,3 +172,4 @@ Option<std::string> take_argument(std::vector<std::string> &all,
 
 #pragma clang diagnostic pop
 }
+// namespace utils

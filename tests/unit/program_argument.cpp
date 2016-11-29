@@ -7,53 +7,47 @@
 #pragma clang diagnostic ignored "-Wwritable-strings"
 
 TEST_CASE("ProgramArgument FlagOnly Test") {
-  ProgramArguments::instance().clear();
+  CLEAR_ARGS();
 
   int argc = 2;
-
   char* argv[] = {"ProgramArgument FlagOnly Test", "-test"};
 
-  ProgramArguments::instance().register_args(argc, argv);
-  ProgramArguments::instance().register_required_args({"-test"});
+  REGISTER_ARGS(argc, argv);
+  REGISTER_REQUIRED_ARGS({"-test"});
 
-  REQUIRE(ProgramArguments::instance().contains_flag("-test") == true);
+  REQUIRE(CONTAINS_FLAG("-test") == true);
 }
 
 TEST_CASE("ProgramArgument Single Entry Test") {
-  ProgramArguments::instance().clear();
+  CLEAR_ARGS();
 
   int argc = 3;
-
   char* argv[] = {"ProgramArgument Single Entry Test", "-bananas", "99"};
 
-  ProgramArguments::instance().register_required_args({"-bananas"});
-  ProgramArguments::instance().register_args(argc, argv);
+  REGISTER_REQUIRED_ARGS({"-bananas"});
+  REGISTER_ARGS(argc, argv);
 
-  REQUIRE(
-      ProgramArguments::instance().get_arg("-bananas", "100").GetInteger() ==
-      99);
+  REQUIRE(GET_ARG("-bananas", "100").get_int() == 99);
 }
 
 TEST_CASE("ProgramArgument Multiple Entries Test") {
-  ProgramArguments::instance().clear();
+  CLEAR_ARGS();
 
   int argc = 4;
-
   char* argv[] = {"ProgramArgument Multiple Entries Test", "-files",
                   "first_file.txt", "second_file.txt"};
 
-  ProgramArguments::instance().register_args(argc, argv);
+  REGISTER_ARGS(argc, argv);
 
-  auto files = ProgramArguments::instance().get_arg_list("-files", {});
+  auto files = GET_ARGS("-files", {});
 
-  REQUIRE(files[0].GetString() == "first_file.txt");
+  REQUIRE(files[0].get_string() == "first_file.txt");
 }
 
 TEST_CASE("ProgramArgument Combination Test") {
-  ProgramArguments::instance().clear();
+  CLEAR_ARGS();
 
   int argc = 14;
-
   char* argv[] = {"ProgramArgument Combination Test",
                   "-run_tests",
                   "-tests",
@@ -69,27 +63,23 @@ TEST_CASE("ProgramArgument Combination Test") {
                   "-import",
                   "data.txt"};
 
-  ProgramArguments::instance().register_args(argc, argv);
+  REGISTER_ARGS(argc, argv);
 
-  REQUIRE(ProgramArguments::instance().contains_flag("-run_tests") == true);
+  REQUIRE(CONTAINS_FLAG("-run_tests") == true);
 
-  auto tests = ProgramArguments::instance().get_arg_list("-tests", {});
-  REQUIRE(tests[0].GetString() == "Test1");
-  REQUIRE(tests[1].GetString() == "Test2");
-  REQUIRE(tests[2].GetString() == "Test3");
+  auto tests = GET_ARGS("-tests", {});
+  REQUIRE(tests[0].get_string() == "Test1");
+  REQUIRE(tests[1].get_string() == "Test2");
+  REQUIRE(tests[2].get_string() == "Test3");
 
-  REQUIRE(
-      ProgramArguments::instance().get_arg("-run_times", "0").GetInteger() ==
-      10);
+  REQUIRE(GET_ARG("-run_times", "0").get_int() == 10);
 
-  auto exports = ProgramArguments::instance().get_arg_list("-export", {});
-  REQUIRE(exports[0].GetString() == "test1.txt");
-  REQUIRE(exports[1].GetString() == "test2.txt");
-  REQUIRE(exports[2].GetString() == "test3.txt");
+  auto exports = GET_ARGS("-export", {});
+  REQUIRE(exports[0].get_string() == "test1.txt");
+  REQUIRE(exports[1].get_string() == "test2.txt");
+  REQUIRE(exports[2].get_string() == "test3.txt");
 
-  REQUIRE(
-      ProgramArguments::instance().get_arg("-import", "test.txt").GetString() ==
-      "data.txt");
+  REQUIRE(GET_ARG("-import", "test.txt").get_string() == "data.txt");
 }
 
 #pragma clang diagnostic pop

@@ -30,7 +30,7 @@ using IntegerGenerator = NumberGenerator<std::uniform_int_distribution<int>,
                                          std::default_random_engine, int>;
 
 // Global arguments
-int MAX_ELEMENTS = 1 << 20, MULTIPLIER = 2;
+int MAX_ELEMENTS = 1 << 18, MULTIPLIER = 2;
 int THREADS, RANGE_START, RANGE_END, STRING_LENGTH;
 
 /*
@@ -107,20 +107,16 @@ auto BM_ContainsValue = [](benchmark::State& state, auto* map, auto elements) {
       -string-length number
 */
 void parse_arguments(int argc, char** argv) {
-  ProgramArguments::instance().register_args(argc, argv);
+  REGISTER_ARGS(argc, argv);
 
-  RANGE_START =
-      ProgramArguments::instance().get_arg("-start", "0").GetInteger();
-  RANGE_END =
-      ProgramArguments::instance().get_arg("-end", "1000000000").GetInteger();
+  RANGE_START = GET_ARG("-start", "0").get_int();
+  RANGE_END = GET_ARG("-end", "1000000000").get_int();
 
-  THREADS = std::min(
-      ProgramArguments::instance().get_arg("-threads", "1").GetInteger(),
-      (int)std::thread::hardware_concurrency());
+  THREADS = std::min(GET_ARG("-threads", "1").get_int(),
+                     (int)std::thread::hardware_concurrency());
 
-  STRING_LENGTH = ProgramArguments::instance()
-                      .get_arg("-string-length", "128")
-                      .GetInteger();
+  STRING_LENGTH =
+      ProgramArguments::instance().get_arg("-string-length", "128").get_int();
 }
 
 int main(int argc, char** argv) {
