@@ -9,8 +9,8 @@
 using std::cout;
 using std::endl;
 
-// Query: CREATE (g:garment {garment_id: 1234, garment_category_id: 1}) RETURN g
-// Hash: 18071907865596388702
+// Query: CREATE (p:profile {profile_id: 111, partner_id: 55}) RETURN p
+// Hash: 17158428452166262783
 
 class CodeCPU : public IPlanCPU<Stream>
 {
@@ -20,23 +20,24 @@ public:
     {
         DbAccessor t(db);
 
-        auto garment_id =
-            t.vertex_property_key("garment_id", args[0].key.flags());
-        auto garment_category_id =
-            t.vertex_property_key("garment_category_id", args[1].key.flags());
+        auto profile_id =
+            t.vertex_property_key("profile_id", args[0].key.flags());
+        auto partner_id =
+            t.vertex_property_key("partner_id", args[1].key.flags());
 
         auto va = t.vertex_insert();
-        va.set(garment_id, std::move(args[0]));
-        va.set(garment_category_id, std::move(args[1]));
+        va.set(profile_id, std::move(args[0]));
+        va.set(partner_id, std::move(args[1]));
 
-        auto &garment = t.label_find_or_create("garment");
-        va.add_label(garment);
+        auto &profile = t.label_find_or_create("profile");
+        va.add_label(profile);
 
-        stream.write_field("g");
+        stream.write_field("p");
         stream.write_vertex_record(va);
         stream.write_meta("w");
 
         return t.commit();
+
     }
 
     ~CodeCPU() {}

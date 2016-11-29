@@ -29,6 +29,7 @@ FILE(COPY ${include_dir}/storage/model/properties/stored_property.hpp DESTINATIO
 FILE(COPY ${include_dir}/storage/model/properties/property_holder.hpp DESTINATION ${build_include_dir}/storage/model/properties)
 FILE(COPY ${include_dir}/storage/type_group_edge.hpp DESTINATION ${build_include_dir}/storage)
 FILE(COPY ${include_dir}/storage/type_group_vertex.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/edge_x_vertex.hpp DESTINATION ${build_include_dir}/storage)
 
 FILE(COPY ${include_dir}/query/util.hpp DESTINATION ${build_include_dir}/query)
 FILE(COPY ${include_dir}/query/i_plan_cpu.hpp DESTINATION ${build_include_dir}/query)

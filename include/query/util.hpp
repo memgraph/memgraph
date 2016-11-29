@@ -46,7 +46,7 @@ std::string code_line(const std::string &format_str, const Args &... args)
 }
 
 using name_properties_t = std::vector<std::pair<std::string, Property>>;
-using indices_t = std::map<std::string, int>;
+using indices_t = std::map<std::string, long>;
 
 auto query_properties(indices_t &indices, properties_t &values)
 {

@@ -160,6 +160,12 @@ auto load_dressipi_functions(Db &db)
                 ea.set(score_key, std::move(args[3]));
             });
 
+        // stream.write_field("r.score");
+        // write_record();
+        // write_list_header(1);
+        // write(Float(args[3]));
+        // chunk();
+
         print_entities(t);
 
         return t.commit();
@@ -261,6 +267,8 @@ auto load_dressipi_functions(Db &db)
 
         auto score_key = t.edge_property_key("score", args[3].key.flags());
         
+        // stream.write_field("s");
+
         // TODO: implement
         bool exists = false;
         Option<const EdgeAccessor> e1;
@@ -277,6 +285,7 @@ auto load_dressipi_functions(Db &db)
                 exists = true;
                 auto ea = e1.get().update();
                 ea.set(score_key, args[3]);
+                // stream.write_edge_record(ea);
             });
 
         Option<const EdgeAccessor> e2;
@@ -293,6 +302,7 @@ auto load_dressipi_functions(Db &db)
                 exists = true;
                 auto ea = e2.get().update();
                 ea.set(score_key, args[3]);
+                // stream.write_edge_record(ea);
             });
 
         if (!exists) {
@@ -306,15 +316,11 @@ auto load_dressipi_functions(Db &db)
                     auto ea = t.edge_insert(va1, va2);
                     ea.edge_type(score);
                     ea.set(score_key, args[3]);
+                    // stream.write_edge_record(ea);
                 });
             });
         }
 
-        // stream.write_field("r.score");
-        // write_record();
-        // write_list_header(1);
-        // write(Float(args[3]));
-        // chunk();
         // stream.write_field("w");
 
         print_entities(t);

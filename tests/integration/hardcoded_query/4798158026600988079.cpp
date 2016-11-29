@@ -9,7 +9,8 @@
 using std::cout;
 using std::endl;
 
-// query:
+// Query: MATCH (n) DETACH DELETE n
+// Hash: 4798158026600988079
 
 class CodeCPU : public IPlanCPU<Stream>
 {
@@ -17,7 +18,16 @@ public:
 
     bool run(Db &db, plan_args_t &args, Stream &stream) override
     {
+        DbAccessor t(db);
 
+        t.edge_access().fill().for_all([&](auto e) { e.remove(); });
+        t.vertex_access().fill().isolated().for_all(
+            [&](auto a) { a.remove(); });
+
+        stream.write_empty_fields();
+        stream.write_meta("w");
+
+        return t.commit();
     }
 
     ~CodeCPU() {}

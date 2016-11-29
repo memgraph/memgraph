@@ -9,8 +9,8 @@
 using std::cout;
 using std::endl;
 
-// Query: CREATE (g:garment {garment_id: 1234, garment_category_id: 1}) RETURN g
-// Hash: 18071907865596388702
+// Query: MATCH (g:garment {garment_id: 1}) RETURN g
+// Hash: 7756609649964321221
 
 class CodeCPU : public IPlanCPU<Stream>
 {
@@ -20,20 +20,20 @@ public:
     {
         DbAccessor t(db);
 
-        auto garment_id =
-            t.vertex_property_key("garment_id", args[0].key.flags());
-        auto garment_category_id =
-            t.vertex_property_key("garment_category_id", args[1].key.flags());
+        indices_t indices = {{"garment_id", 0}};
+        auto properties   = query_properties(indices, args);
 
-        auto va = t.vertex_insert();
-        va.set(garment_id, std::move(args[0]));
-        va.set(garment_category_id, std::move(args[1]));
-
-        auto &garment = t.label_find_or_create("garment");
-        va.add_label(garment);
+        auto &label = t.label_find_or_create("garment");
 
         stream.write_field("g");
-        stream.write_vertex_record(va);
+
+        label.index()
+            .for_range(t)
+            .properties_filter(t, properties)
+            .for_all([&](auto va) -> void {
+                stream.write_vertex_record(va);
+            });
+
         stream.write_meta("w");
 
         return t.commit();
