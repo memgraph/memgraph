@@ -8,12 +8,6 @@
 #include "storage/label/label.hpp"
 #include "storage/vertex.hpp"
 
-#define TRY(x)                                                                 \
-    if (!x)                                                                    \
-    {                                                                          \
-        return false;                                                          \
-    }
-
 DbTransaction::DbTransaction(Db &db)
     : Loggable("DbTransaction"), db(db), trans(db.tx_engine.begin())
 {
@@ -75,11 +69,14 @@ bool DbTransaction::update_indexes()
 
             // TODO: This could be done in batch
             // NOTE: This assumes that type index is created with the database.
-            TRY(edge.record->data.edge_type->index().insert(EdgeTypeIndexRecord(
-                std::nullptr_t(), edge.record, edge.vlist)));
+            if (!edge.record->data.edge_type->index().insert(
+                    EdgeTypeIndexRecord(std::nullptr_t(), edge.record,
+                                        edge.vlist)))
+                return false;
 
-            TRY(db.indexes().update_property_indexes<TypeGroupEdge>(edge,
-                                                                    trans));
+            if (!db.indexes().update_property_indexes<TypeGroupEdge>(edge,
+                                                                     trans))
+                return false;
         }
         else
         {
@@ -90,12 +87,14 @@ bool DbTransaction::update_indexes()
                 // TODO: This could be done in batch
                 // NOTE: This assumes that label index is created with the
                 // database.
-                TRY(label.get().index().insert(LabelIndexRecord(
-                    std::nullptr_t(), vertex.record, vertex.vlist)));
+                if (!label.get().index().insert(LabelIndexRecord(
+                        std::nullptr_t(), vertex.record, vertex.vlist)))
+                    return false;
             }
 
-            TRY(db.indexes().update_property_indexes<TypeGroupVertex>(vertex,
-                                                                      trans));
+            if (!db.indexes().update_property_indexes<TypeGroupVertex>(vertex,
+                                                                       trans))
+                return false;
         }
 
         index_updates.pop_back();

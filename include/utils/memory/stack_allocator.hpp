@@ -102,7 +102,7 @@ public:
     // Relases all memory.
     void free()
     {
-        while (allocated_blocks.size() > 0)
+        while (allocated_blocks.size())
         {
             blocks.release(allocated_blocks.back());
             allocated_blocks.pop_back();

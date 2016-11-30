@@ -24,7 +24,6 @@ int main(int argc, char *argv[])
     logging::init_sync();
     logging::log->pipe(std::make_unique<Stdout>());
     auto log = logging::log->logger("test");
-    log.info("bla");
 
     // init db, functions and stripper
     Db db;

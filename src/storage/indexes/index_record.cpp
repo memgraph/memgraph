@@ -35,7 +35,7 @@ bool IndexRecord<TG, K>::is_valid(tx::Transaction &t) const
     // this index and then tries to access to the same element again through
     // the same index
     auto newest_record = vlist->find(t);
-    if (newest_record == nullptr)
+    if (!newest_record)
         return false;
     return (record == newest_record) || (newest_record->tx.cre() == t.id);
 }

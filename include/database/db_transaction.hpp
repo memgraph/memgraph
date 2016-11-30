@@ -19,14 +19,18 @@ class DbTransaction : public Loggable
     friend DbAccessor;
 
 public:
-    DbTransaction(Db &db);
-    DbTransaction(Db &db, tx::Transaction &trans)
-        : Loggable("DbTransaction"), db(db), trans(trans)
-    {
-    }
+    DbTransaction() = delete;
+    ~DbTransaction() = default; 
 
     DbTransaction(const DbTransaction& other) = delete;
     DbTransaction(DbTransaction&& other) = default;
+
+    DbTransaction &operator=(const DbTransaction &) = delete;
+    DbTransaction &operator=(DbTransaction &&) = default;
+
+    DbTransaction(Db &db);
+    DbTransaction(Db &db, tx::Transaction &trans)
+        : Loggable("DbTransaction"), db(db), trans(trans) {}
 
     // Global transactional algorithms,operations and general methods meant for
     // internal use should be here or should be routed through this object.

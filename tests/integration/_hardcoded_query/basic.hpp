@@ -299,13 +299,13 @@ auto load_basic_functions(Db &db)
                              .type(type);
 
         if (it_type.count() > it_vertex.count()) {
-            // Going through vertices wiil probably be faster
+            // TODO: Going through vertices wiil probably be faster
             it_vertex.to().for_all([&](auto m) {
                 // PRINT m
             });
 
         } else {
-            // Going through edges will probably be faster
+            // TODO: Going through edges will probably be faster
             it_type.to().for_all([&](auto m) {
                 // PRINT m
             });

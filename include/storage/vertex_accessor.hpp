@@ -56,10 +56,9 @@ public:
     template <typename Stream>
     void stream_repr(Stream& stream) const
     {
-        if (this->record != nullptr)
-            this->record->stream_repr(stream);
-        else
-            std::cout << "TRACE: record is nullptr" << std::endl;
-            
+        if (!this->record)
+            return;
+
+        this->record->stream_repr(stream);
     }
 };
