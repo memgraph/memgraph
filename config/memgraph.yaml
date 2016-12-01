@@ -1,8 +1,27 @@
+###########################
+# MEMGRAPH DEFAULT CONFIG #
+###########################
+
+# NOTE: all paths are relative to the run folder
+# (where the executable is runned)
+
+# path to the codes which will be compiled
 compile_cpu_path: "./compiled/cpu/"
+
+# path to the template (cpp) for codes generation
 template_cpu_cpp_path: "./template/template_code_cpu.cpp"
-barrier_template_cpu_cpp_path: "./template/barrier_template_code_cpu.cpp"
+
+# path to the template (hpp) for codes generation
 template_cpu_hpp_path: "./template/template_code_cpu.hpp"
+
+# path to the folder with snapshots
 snapshots_path: "snapshots"
+
+# leaning cycle interval
 cleaning_cycle_sec: "300"
+
+# snapshot cycle interval
 snapshot_cycle_sec: "60"
+
+# max number of snapshots which will be kept on the disk at some point
 max_retained_snapshots: "3"

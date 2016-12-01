@@ -33,10 +33,11 @@ public:
                     "Unable to execute query (executor returned false)");
             }
             return result;
+        } catch (CypherLexicalError &e) {
+            logger.error("CypherLexicalError: {}", std::string(e.what()));
+            throw e;
         } catch (QueryEngineException &e) {
-            // in this case something fatal went wrong
             logger.error("QueryEngineException: {}", std::string(e.what()));
-            // return false;
             throw e;
         } catch (std::exception &e) {
             throw e;

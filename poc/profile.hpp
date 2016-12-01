@@ -8,12 +8,9 @@
 #include <unistd.h>
 #include <unordered_map>
 
-#include "barrier/barrier.hpp"
+#include "storage/edge_x_vertex.hpp"
 
 using namespace std;
-
-namespace barrier
-{
 
 // TODO: Turn next template, expand on it, standardize it, and use it for query
 // generation.
@@ -334,10 +331,9 @@ size_t for_all_companys(
     int i = 0;
     iter::for_all_fill(
         t.label_find_or_create("Company").index().for_range(t), [&](auto v) {
-            coll.push_back(make_pair(v, barrier::query(t, v.id())));
+            coll.push_back(make_pair(v, query(t, v.id())));
             i++;
             return false;
         });
     return i;
-}
 }

@@ -7,10 +7,6 @@ set(src_dir ${CMAKE_SOURCE_DIR}/src)
 include_directories(${catch_source_dir}/include)
 
 # TODO: modular approach (REFACTOR)
-# add_executable()
-# target_link_libraries()
-# add_test(NAME COMMAND)
-# set_property(TARGET PROPERTY CXX_STANDARD 14)
 
 ## UNIT TESTS
 
@@ -111,15 +107,6 @@ target_link_libraries(manual_cypher_ast ${yaml_static_lib})
 target_link_libraries(manual_cypher_ast cypher_lib)
 set_property(TARGET manual_cypher_ast PROPERTY CXX_STANDARD 14)
 
-# queries
-add_executable(manual_queries manual/queries.cpp)
-target_link_libraries(manual_queries memgraph)
-target_link_libraries(manual_queries Threads::Threads)
-target_link_libraries(manual_queries ${fmt_static_lib})
-target_link_libraries(manual_queries ${yaml_static_lib})
-target_link_libraries(manual_queries cypher_lib)
-set_property(TARGET manual_queries PROPERTY CXX_STANDARD 14)
-
 # query_engine
 add_executable(manual_query_engine manual/query_engine.cpp)
 target_link_libraries(manual_query_engine stdc++fs)
@@ -139,10 +126,3 @@ target_link_libraries(manual_query_hasher ${fmt_static_lib})
 target_link_libraries(manual_query_hasher ${yaml_static_lib})
 target_link_libraries(manual_query_hasher Threads::Threads)
 set_property(TARGET manual_query_hasher PROPERTY CXX_STANDARD 14)
-
-# query_action_processor
-add_executable(manual_cpp_generator manual/cpp_generator.cpp)
-target_link_libraries(manual_cpp_generator memgraph)
-target_link_libraries(manual_cpp_generator ${fmt_static_lib})
-target_link_libraries(manual_cpp_generator ${yaml_static_lib})
-set_property(TARGET manual_cpp_generator PROPERTY CXX_STANDARD 14)

@@ -6,7 +6,8 @@
 namespace iter
 {
 
-// Class which Combined two iterators IT1 and IT2. Both return values T
+// Class which Combined two iterators IT1 and IT2.
+// Both return values T
 // T - type of return value
 // IT1 - first iterator type
 // IT2 - second iterator type

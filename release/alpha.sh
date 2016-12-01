@@ -37,7 +37,10 @@ cp -r include ../release/${exe_name}/include
 cp -r template ../release/${exe_name}/template
 cp -r ../config ../release/${exe_name}/config
 
-mkdir -p ../release/${exe_name}/compiled/cpu
+# create compiled folder and copy hard coded queries
+mkdir -p ../release/${exe_name}/compiled/cpu/hardcode
+cp ../tests/integration/hardcoded_query/*.cpp ../release/${exe_name}/compiled/cpu/hardcode
+cp ../tests/integration/hardcoded_query/*.hpp ../release/${exe_name}/compiled/cpu/hardcode
 
 echo "Memgraph Release Building DONE"
 

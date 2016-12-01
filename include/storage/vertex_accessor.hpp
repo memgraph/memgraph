@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage/label/label_collection.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "utils/iterator/iterator.hpp"
@@ -15,7 +16,7 @@ class VertexAccessor : public RecordAccessor<TypeGroupVertex, VertexAccessor>
 public:
     using RecordAccessor::RecordAccessor;
 
-    using record_t = Vertex;
+    using record_t      = Vertex;
     using record_list_t = VertexRecord;
 
     // Removes self and all edges connected to it.
@@ -51,4 +52,13 @@ public:
 
     // True if there exists edge between other vertex and this vertex.
     bool in_contains(VertexAccessor const &other) const;
+
+    template <typename Stream>
+    void stream_repr(Stream& stream) const
+    {
+        if (!this->record)
+            return;
+
+        this->record->stream_repr(stream);
+    }
 };

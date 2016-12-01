@@ -6,7 +6,6 @@
 class Traverser : public ast::AstVisitor
 {
 public:
-
     using uptr = std::unique_ptr<Traverser>;
     using sptr = std::shared_ptr<Traverser>;
 

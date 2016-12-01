@@ -3,22 +3,20 @@
 #include <cassert>
 
 #include "storage/vertex_record.hpp"
+#include "storage/edge_type/edge_type.hpp"
 
 void EdgeAccessor::remove() const
 {
     RecordAccessor::remove();
 
-    auto from_v = from();
-    bool f_from = from_v.fill();
-    assert(f_from);
+    auto from_va = from();
+    assert(from_va.fill());
 
-    auto to_v = to();
-    bool f_to = to_v.fill();
-    assert(f_to);
+    auto to_va = to();
+    assert(to_va.fill());
 
-    // Detach edge from vertices.
-    from_v.update().record->data.out.remove(vlist);
-    to_v.update().record->data.in.remove(vlist);
+    from_va.update().record->data.out.remove(vlist);
+    to_va.update().record->data.in.remove(vlist);
 }
 
 void EdgeAccessor::edge_type(const EdgeType &edge_type)

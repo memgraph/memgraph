@@ -76,8 +76,10 @@ public:
     template <class... Args>
     void debug(Args&&... args)
     {
+#ifndef NDEBUG
 #ifndef LOG_NO_DEBUG
         emit<Debug>(std::forward<Args>(args)...);
+#endif
 #endif
     }
 

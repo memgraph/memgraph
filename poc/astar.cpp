@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "data_structures/map/rh_hashmap.hpp"
 #include "database/db.hpp"
 #include "database/db_accessor.cpp"
 #include "database/db_accessor.hpp"
-
 #include "import/csv_import.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
@@ -23,8 +23,6 @@
 #include "storage/indexes/impl/nonunique_unordered_index.cpp"
 #include "storage/model/properties/properties.cpp"
 #include "storage/record_accessor.cpp"
-// #include "storage/vertex_accessor.cpp"
-#include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "storage/vertices.cpp"
 #include "storage/vertices.hpp"
@@ -60,9 +58,10 @@ public:
 
     double sum_vertex_score()
     {
-        auto now = this;
+        auto now   = this;
         double sum = 0;
-        do {
+        do
+        {
             sum += (now->vacc.at(tkey).get())->value();
             now = now->parent;
         } while (now != nullptr);
@@ -84,8 +83,11 @@ void found_result(Node *res)
 
     std::cout << "{score: " << sum << endl;
     auto bef = res;
-    while (bef != nullptr) {
-        std::cout << "   " << *(bef->vacc.operator->()) << endl;
+    while (bef != nullptr)
+    {
+        std::cout << "   ";
+        bef->vacc.operator->()->stream_repr(std::cout);
+        std::cout << std::endl;
         bef = bef->parent;
     }
 }
@@ -113,18 +115,23 @@ bool vertex_filter_dummy(DbAccessor &t, VertexAccessor &va, Node *before)
 bool vertex_filter_contained_dummy(DbAccessor &t, VertexAccessor &v,
                                    Node *before)
 {
-    if (v.fill()) {
+    if (v.fill())
+    {
         bool found;
-        do {
-            found = false;
+        do
+        {
+            found  = false;
             before = before->parent;
-            if (before == nullptr) {
+            if (before == nullptr)
+            {
                 return true;
             }
             auto it = before->vacc.out();
-            for (auto e = it.next(); e.is_present(); e = it.next()) {
+            for (auto e = it.next(); e.is_present(); e = it.next())
+            {
                 VertexAccessor va = e.get().to();
-                if (va == v) {
+                if (va == v)
+                {
                     found = true;
                     break;
                 }
@@ -136,12 +143,15 @@ bool vertex_filter_contained_dummy(DbAccessor &t, VertexAccessor &v,
 
 bool vertex_filter_contained(DbAccessor &t, VertexAccessor &v, Node *before)
 {
-    if (v.fill()) {
+    if (v.fill())
+    {
         bool found;
-        do {
-            found = false;
+        do
+        {
+            found  = false;
             before = before->parent;
-            if (before == nullptr) {
+            if (before == nullptr)
+            {
                 return true;
             }
         } while (v.in_contains(before->vacc));
@@ -163,7 +173,9 @@ auto a_star(
     DbAccessor t(db);
 
     type_key_t<TypeGroupVertex, Double> type_key =
-        t.vertex_property_family_get("score").get(Flags::Double).type_key<Double>();
+        t.vertex_property_family_get("score")
+            .get(Flags::Double)
+            .type_key<Double>();
 
     auto best_found = new std::map<Id, Score>[max_depth];
 
@@ -177,17 +189,20 @@ auto a_star(
     Node *start = new Node(start_vr.take(), 0, type_key);
     queue.push(start);
     int count = 0;
-    do {
+    do
+    {
         auto now = queue.top();
         queue.pop();
         // if(!visited.insert(now)){
         //     continue;
         // }
 
-        if (max_depth <= now->depth) {
+        if (max_depth <= now->depth)
+        {
             best.push_back(now);
             count++;
-            if (count >= limit) {
+            if (count >= limit)
+            {
                 return best;
             }
             continue;
@@ -202,11 +217,13 @@ auto a_star(
         // }
 
         iter::for_all(now->vacc.out(), [&](auto edge) {
-            if (e_filter[now->depth](t, edge, now)) {
+            if (e_filter[now->depth](t, edge, now))
+            {
                 VertexAccessor va = edge.to();
-                if (v_filter[now->depth](t, va, now)) {
+                if (v_filter[now->depth](t, va, now))
+                {
                     auto cost = calc_heuristic_cost(type_key, edge, va);
-                    Node *n = new Node(va, now->cost + cost, now, type_key);
+                    Node *n   = new Node(va, now->cost + cost, now, type_key);
                     queue.push(n);
                 }
             }
@@ -238,15 +255,16 @@ int main(int argc, char **argv)
 
     // CONF
     std::srand(time(0));
-    auto best_n = 10;
-    auto bench_n = 1000;
+    auto best_n       = 10;
+    auto bench_n      = 1000;
     auto best_print_n = 10;
     bool pick_best_found =
         strcmp(get_argument(para, "-p", "true").c_str(), "true") == 0;
 
     double sum = 0;
     std::vector<Node *> best;
-    for (int i = 0; i < bench_n; i++) {
+    for (int i = 0; i < bench_n; i++)
+    {
         auto start_vertex_index = std::rand() % loaded.first;
 
         auto begin = clock();
@@ -260,12 +278,14 @@ int main(int argc, char **argv)
         if ((best.size() < best_print_n && found.size() > best.size()) ||
             (pick_best_found && found.size() > 0 &&
              found.front()->sum_vertex_score() >
-                 best.front()->sum_vertex_score())) {
+                 best.front()->sum_vertex_score()))
+        {
             best = found;
         }
 
         // Just to be safe
-        if (i + 1 == bench_n && best.size() == 0) {
+        if (i + 1 == bench_n && best.size() == 0)
+        {
             bench_n++;
         }
     }
@@ -274,7 +294,8 @@ int main(int argc, char **argv)
               << " results has runing time of:\n    avg: " << sum / bench_n
               << " [ms]\n";
     std::cout << "\nExample of best result:\n";
-    for (int i = 0; i < best_print_n && best.size() > 0; i++) {
+    for (int i = 0; i < best_print_n && best.size() > 0; i++)
+    {
         found_result(best.front());
         best.erase(best.begin());
     }
@@ -292,7 +313,8 @@ void add_scores(Db &db)
 
     int i = 1;
     iter::for_all(t.vertex_access(), [&](auto v) {
-        if (v.fill()) {
+        if (v.fill())
+        {
             // any random number is OK
             std::srand(i ^ 0x7482616);
             v.set(StoredProperty<TypeGroupVertex>(

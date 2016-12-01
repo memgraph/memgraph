@@ -31,10 +31,24 @@ State *Executor::run(Session &session)
             return this->run(session, q);
             // TODO: RETURN success MAYBE
         }
-        catch (QueryEngineException &e)
+        catch (const CypherLexicalError &e)
+        {
+            session.output_stream.write_failure(
+                {{"code", "Memgraph.CypherLexicalError"},
+                 {"message", e.what()}});
+            session.output_stream.send();
+            return session.bolt.states.error.get();
+        }
+        catch (const QueryEngineException &e)
         {
             session.output_stream.write_failure(
                 {{"code", "Memgraph.QueryEngineException"},
+                 {"message", e.what()}});
+            session.output_stream.send();
+            return session.bolt.states.error.get();
+        } catch (std::exception &e) {
+            session.output_stream.write_failure(
+                {{"code", "Memgraph.Exception"},
                  {"message", e.what()}});
             session.output_stream.send();
             return session.bolt.states.error.get();
