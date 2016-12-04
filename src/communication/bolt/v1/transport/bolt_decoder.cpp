@@ -90,7 +90,7 @@ std::string BoltDecoder::read_string()
         size = marker & 0x0F;
     }
     // if the marker is 0xD0, size is an 8-bit unsigned integer
-    if (marker == pack::String8) {
+    else if (marker == pack::String8) {
         size = read_byte();
     }
     // if the marker is 0xD1, size is a 16-bit big-endian unsigned integer
