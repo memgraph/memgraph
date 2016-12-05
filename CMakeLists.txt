@@ -137,10 +137,29 @@ endforeach()
 
 include(copy_includes)
 
-# add all cpp file recursive into sourceFiles varibale
-# FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
-# print list of source files
-# MESSAGE(STATUS "All source files are: ${sourceFiles}")
+# linter setup (clang-tidy)
+# all source files for linting
+FILE(GLOB_RECURSE LINTER_SRC_FILES
+    ${src_dir}/*.cpp
+    ${CMAKE_SOURCE_DIR}/tests/.cpp
+    ${CMAKE_SOURCE_DIR}/poc/.cpp
+)
+MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
+
+# linter target clang-tidy
+find_program(CLANG_TIDY "clang-tidy")
+if(CLANG_TIDY)
+    add_custom_target(
+        clang-tidy
+        COMMAND /usr/bin/clang-tidy
+        ${LINTER_SRC_FILES}
+        -config=''
+        --
+        -std=c++1y
+        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir}
+    )
+endif()
+# linter setup
 
 # debug flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
