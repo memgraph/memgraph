@@ -86,6 +86,7 @@ set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # yaml-cpp
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
+set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 # Catch (C++ Automated Test Cases in Headers)
 set(catch_source_dir "${libs_dir}/Catch")
@@ -137,10 +138,29 @@ endforeach()
 
 include(copy_includes)
 
-# add all cpp file recursive into sourceFiles varibale
-# FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
-# print list of source files
-# MESSAGE(STATUS "All source files are: ${sourceFiles}")
+# linter setup (clang-tidy)
+# all source files for linting
+FILE(GLOB_RECURSE LINTER_SRC_FILES
+    ${src_dir}/*.cpp
+    ${CMAKE_SOURCE_DIR}/tests/.cpp
+    ${CMAKE_SOURCE_DIR}/poc/.cpp
+)
+MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
+
+# linter target clang-tidy
+find_program(CLANG_TIDY "clang-tidy")
+if(CLANG_TIDY)
+    add_custom_target(
+        clang-tidy
+        COMMAND /usr/bin/clang-tidy
+        ${LINTER_SRC_FILES}
+        -config=''
+        --
+        -std=c++1y
+        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir} -I${yaml_include_dir}
+    )
+endif()
+# linter setup
 
 # debug flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
@@ -244,7 +264,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
-include_directories(${yaml_source_dir}/include)
+include_directories(${yaml_include_dir})
 include_directories(${http_parser_source_dir})
 include_directories(${lexertl_dir})
 include_directories(${libuv_source_dir}/include)
