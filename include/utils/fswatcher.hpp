@@ -4,6 +4,7 @@
 #include <atomic>
 #include <sys/inotify.h>
 #include <chrono>
+#include <thread>
 // TODO: remove experimental from here once that becomes possible
 #include <experimental/filesystem>
 
@@ -18,6 +19,9 @@ namespace utils
 
 using ms = std::chrono::milliseconds;
 
+/*
+ * File System Event Types
+ */
 enum class FSEvent : int
 {
     Created  = 0x1,
@@ -25,6 +29,9 @@ enum class FSEvent : int
     Deleted  = 0x4
 };
 
+/*
+ * Custom exception 
+ */
 class FSWatcherException : public BasicException
 {
 public:
@@ -34,18 +41,27 @@ public:
 /*
  * File System Watcher
  *
+ * The idea is to create wrapper of inotify or any other file system
+ * notificatino system.
+ *
  * parameters:
- *     * interval
+ *     * interval - time between two check for the new file system events
  */
 class FSWatcher
 {
+    // watch descriptor type
     using wd_t = int;
+
+    // callback type (the code that will be notified will be notified
+    // through callback of this type
     using callback_t = std::function<void(fs::path &path, FSEvent event)>;
+
+    // storage type for all subscribers
     // <path, watch descriptor, callback>
     using entry_t = std::tuple<fs::path, wd_t, callback_t>;
 
 public:
-    FSWatcher(ms interval = 100ms) : interval_(interval) { init(); }
+    FSWatcher(ms interval = ms(100)) : interval_(interval) { init(); }
     ~FSWatcher() = default;
 
     // copy and move constructors and assignemnt operators are deleted because
@@ -55,6 +71,9 @@ public:
     FSWatcher &operator=(const FSWatcher &) = delete;
     FSWatcher &operator=(FSWatcher &&) = delete;
 
+    /*
+     * Initialize file system notification system.
+     */
     void init()
     {
         inotify_fd_ = inotify_init();
@@ -62,15 +81,27 @@ public:
             throw FSWatcherException("Unable to initialize inotify");
     }
 
-    void watch(const fs::path &path, callback_t callback)
+    /*
+     * Add subscriber
+     *
+     * parameters:
+     *     * path: path to a file which will be monitored
+     *     * type: type of events
+     *     * callback: callback that will be called on specified event type
+     */
+    void watch(const fs::path &path, FSEvent, callback_t callback)
     {
+        // TODO: instead IN_ALL_EVENTS pass FSEvent
         int wd = inotify_add_watch(inotify_fd_, path.c_str(), IN_ALL_EVENTS);
         if (wd == -1)
             throw FSWatcherException("Unable to add watch");
         entries_.emplace_back(std::make_tuple(path, wd, callback));
     }
 
-    void unwatch(const fs::path &path)
+    /*
+     * Remove subscriber on specified path and type
+     */
+    void unwatch(const fs::path &path, FSEvent)
     {
         // iterate through all entries and remove specified watch descriptor
         for (auto &entry : entries_)
@@ -86,6 +117,9 @@ public:
         }
     }
 
+    /*
+     * Remove all subscribers.
+     */
     void unwatchAll()
     {
         // iterate through all entries and remove all watch descriptors
@@ -102,16 +136,16 @@ public:
      */
     void start()
     {
+        throw NotYetImplemented("FSWatch::start");
+
         is_running_.store(true);
 
-        // TODO: run on a separate thread
-
-        while (is_running_.load())
-        {
-            // TODO: read
-        }
-
-        throw NotYetImplemented("FSWatch::start");
+        dispatch_thread_ = std::thread([this]() {
+            while (is_running_.load()) {
+                std::this_thread::sleep_for(interval_);
+                // TODO implement file system event processing
+            }
+        });
     }
 
     /*
@@ -127,5 +161,6 @@ private:
     std::atomic<bool> is_running_;
     ms interval_;
     std::vector<entry_t> entries_;
+    std::thread dispatch_thread_;
 };
 }
