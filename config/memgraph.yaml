@@ -9,7 +9,7 @@
 compile_cpu_path: "./compiled/cpu/"
 
 # path to the template (cpp) for codes generation
-template_cpu_cpp_path: "./template/template_code_cpu.cpp"
+template_cpu_cpp_path: "./template/template_code_cpu_cpp"
 
 # path to the template (hpp) for codes generation
 template_cpu_hpp_path: "./template/template_code_cpu.hpp"

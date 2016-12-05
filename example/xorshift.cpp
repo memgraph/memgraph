@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <thread>
+#include <cassert>
 
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -47,6 +48,7 @@ int main(void)
 
     auto max = std::accumulate(buckets.begin(), buckets.end(), 0u,
         [](auto& acc, auto& x) { return std::max(acc, x.load()); });
+    assert(max != 0u);
 
     std::cout << std::fixed;
 

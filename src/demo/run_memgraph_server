@@ -1,5 +1,0 @@
-#!/bin/bash
-
-docker stop memgraph_demo
-docker rm memgraph_demo
-docker run -it --rm memgraph_demo

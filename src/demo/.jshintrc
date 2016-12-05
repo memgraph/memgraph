@@ -1,8 +1,0 @@
-{
-  "esnext": true,
-  "browser": true,
-  "globals": {
-    "sigma": true,
-    "console": true
-  }
-}
