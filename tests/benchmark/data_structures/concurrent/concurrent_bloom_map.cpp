@@ -1,7 +1,7 @@
 #include <random>
 #include <thread>
 
-#include "data_structures/bloom/basic_bloom_filter.hpp"
+#include "data_structures/bloom/bloom_filter.hpp"
 #include "data_structures/concurrent/concurrent_bloom_map.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
@@ -51,21 +51,6 @@ static void InsertValue(benchmark::State& state, ConcurrentBloomMap<K, V, F>* ma
 }
 
 /*
-  ConcurrentMap Deletion Benchmark Test
-template <class K, class V>
-static void DeleteValue(benchmark::State& state, ConcurrentBloomMap<K, V, F>* map,
-                        const std::vector<std::pair<K, V>> elements) {
-  while (state.KeepRunning()) {
-    auto accessor = map->access();
-    for (int start = 0; start < state.range(0); start++) {
-      accessor.remove(elements[start].first);
-    }
-  }
-  state.SetComplexityN(state.range(0));
-}
-*/
-
-/*
   ConcurrentMap Contains Benchmark Test
 */
 template <class K, class V, class F>
@@ -82,12 +67,6 @@ static void ContainsValue(benchmark::State& state, ConcurrentBloomMap<K, V, F>* 
 auto BM_InsertValue = [](benchmark::State& state, auto* map, auto& elements) {
   InsertValue(state, map, elements);
 };
-
-/*
-auto BM_DeleteValue = [](benchmark::State& state, auto* map, auto elements) {
-  DeleteValue(state, map, elements);
-};
-*/
 
 auto BM_ContainsValue = [](benchmark::State& state, auto* map, auto elements) {
   ContainsValue(state, map, elements);
@@ -154,12 +133,12 @@ int main(int argc, char** argv) {
     hash1, hash2
   };
 
-  BasicBloomFilter<std::string, 128> bloom_filter_(funcs);
+  BloomFilter<std::string, 128> bloom_filter_(funcs);
 
   // maps used for testing
   //ConcurrentBloomMap<int, int> ii_map;
   //ConcurrentBloomMap<int, std::string> is_map;
-  using Filter = BasicBloomFilter<std::string, 128>;
+  using Filter = BloomFilter<std::string, 128>;
   ConcurrentBloomMap<std::string, int, Filter > si_map(bloom_filter_);
   ConcurrentBloomMap<std::string, std::string, Filter>
 ss_map(bloom_filter_);
@@ -171,21 +150,6 @@ ss_map(bloom_filter_);
   auto ss_elems = utils::random::generate_vector(pssg, MAX_ELEMENTS);
 
   /* insertion Tests */
-  /*
-  benchmark::RegisterBenchmark("InsertValue[Int, Int]", BM_InsertValue, &ii_map,
-                               ii_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-
-  benchmark::RegisterBenchmark("InsertValue[Int, String]", BM_InsertValue,
-                               &is_map, is_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-  */
   benchmark::RegisterBenchmark("InsertValue[String, Int]", BM_InsertValue,
                                &si_map, si_elems)
       ->RangeMultiplier(MULTIPLIER)
@@ -201,22 +165,6 @@ ss_map(bloom_filter_);
       ->Threads(THREADS);
 
   // Contains Benchmark Tests
-
-  /*
-  benchmark::RegisterBenchmark("ContainsValue[Int, Int]", BM_ContainsValue,
-                               &ii_map, ii_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-
-  benchmark::RegisterBenchmark("ContainsValue[Int, String]", BM_ContainsValue,
-                               &is_map, is_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-  */
   benchmark::RegisterBenchmark("ContainsValue[String, Int]", BM_ContainsValue,
                                &si_map, si_elems)
       ->RangeMultiplier(MULTIPLIER)
@@ -230,38 +178,6 @@ ss_map(bloom_filter_);
       ->Range(1, MAX_ELEMENTS)
       ->Complexity(benchmark::oN)
       ->Threads(THREADS);
-
-  // Deletion Banchamark Tests
-  /*
-
-  benchmark::RegisterBenchmark("DeleteValue[Int, Int]", BM_DeleteValue, &ii_map,
-                               ii_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-
-  benchmark::RegisterBenchmark("DeleteValue[Int, String]", BM_DeleteValue,
-                               &is_map, is_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-
-  benchmark::RegisterBenchmark("DeleteValue[String, Int]", BM_DeleteValue,
-                               &si_map, si_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-
-  benchmark::RegisterBenchmark("DeleteValue[String, String]", BM_DeleteValue,
-                               &ss_map, ss_elems)
-      ->RangeMultiplier(MULTIPLIER)
-      ->Range(1, MAX_ELEMENTS)
-      ->Complexity(benchmark::oN)
-      ->Threads(THREADS);
-  */
 
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();

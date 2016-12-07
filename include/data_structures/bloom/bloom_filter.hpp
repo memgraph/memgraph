@@ -2,8 +2,17 @@
 #include <iostream>
 #include <vector>
 
+/*
+  Implementation of a generic Bloom Filter.
+
+  Read more about bloom filters here:
+    http://en.wikipedia.org/wiki/Bloom_filter
+    http://www.jasondavies.com/bloomfilter/
+*/
+
+// Type specifies the type of data stored
 template <class Type, int BucketSize = 8>
-class BasicBloomFilter {
+class BloomFilter {
  private:
   using HashFunction = std::function<uint64_t(const Type&)>;
   using CompresionFunction = std::function<int(uint64_t)>;
@@ -28,13 +37,13 @@ class BasicBloomFilter {
   }
 
  public:
-  BasicBloomFilter(std::vector<HashFunction> funcs,
-                   CompresionFunction compression = {})
+  BloomFilter(std::vector<HashFunction> funcs,
+              CompresionFunction compression = {})
       : hashes_(funcs) {
     if (!compression)
-      compression_ = std::bind(&BasicBloomFilter::default_compression, this,
+      compression_ = std::bind(&BloomFilter::default_compression, this,
                                std::placeholders::_1);
-    else 
+    else
       compression_ = compression;
 
     buckets.resize(hashes_.size());

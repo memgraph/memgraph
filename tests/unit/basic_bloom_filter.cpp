@@ -4,14 +4,14 @@
 #include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
 
-#include "data_structures/bloom/basic_bloom_filter.hpp"
+#include "data_structures/bloom/bloom_filter.hpp"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wwritable-strings"
 
 using StringHashFunction = std::function<uint64_t(const std::string&)>;
  
-TEST_CASE("BasicBloomFilter Test") {
+TEST_CASE("BloomFilter Test") {
   StringHashFunction hash1 = fnv64<std::string>;
   StringHashFunction hash2 = fnv1a64<std::string>;
 
@@ -22,10 +22,10 @@ TEST_CASE("BasicBloomFilter Test") {
     hash1, hash2
   };
 
-  BasicBloomFilter<std::string, 64> bloom(funcs);
+  BloomFilter<std::string, 64> bloom(funcs);
 
   std::string test = "test";
-  std::string kifla = "pizda";
+  std::string kifla = "kifla";
 
   std::cout << hash1(test) << std::endl;
   std::cout << hash2(test) << std::endl;

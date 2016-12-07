@@ -1,7 +1,7 @@
 #include <random>
 #include <thread>
 
-#include "data_structures/bloom/basic_bloom_filter.hpp"
+#include "data_structures/bloom/bloom_filter.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
@@ -14,7 +14,7 @@ using utils::random::StringGenerator;
 using StringHashFunction = std::function<uint64_t(const std::string&)>;
 
 template <class Type, int Size>
-static void TestBloom(benchmark::State& state, BasicBloomFilter<Type, Size>*
+static void TestBloom(benchmark::State& state, BloomFilter<Type, Size>*
 bloom, const std::vector<Type>& elements) {
   while(state.KeepRunning()) {
     for (int start = 0; start < state.range(0); start++)
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     hash1, hash2
   };
 
-  BasicBloomFilter<std::string, 128> bloom(funcs);
+  BloomFilter<std::string, 128> bloom(funcs);
 
   benchmark::RegisterBenchmark("SimpleBloomFilter Benchmark Test", BM_Bloom,
                                &bloom, elements)
