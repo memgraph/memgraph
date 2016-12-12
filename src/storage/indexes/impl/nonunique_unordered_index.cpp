@@ -14,14 +14,16 @@
 
 template <class T, class K>
 NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(IndexLocation &&loc)
-    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}})
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}},
+                      "NonUniqueUnorderedIndex")
 {
 }
 
 template <class T, class K>
 NonUniqueUnorderedIndex<T, K>::NonUniqueUnorderedIndex(IndexLocation &&loc,
                                                        tx::Transaction const &t)
-    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}}, t)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{false, None}}, t,
+                      "NonUniqueUnorderedIndex")
 {
 }
 
@@ -49,18 +51,22 @@ auto NonUniqueUnorderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
     return iter::make_iterator(
         [
           it = list.cbegin(), end = list.cend(), from = from_v, to = to_v,
-          t = t_v
-        ]() mutable->auto {
+          // &t_v is passed by reference because otherwise
+          // DbAccessor would be copied that means that t_v.db_transaction would
+          // also be copied and that wouldn't be good because
+          // db_transaction contains index_updates
+          t = &t_v
+        ]() mutable -> auto {
             // NonUniqueUnorderedIndex is stupid so it must iterate through all
             // index records to determine which are iniside borders.
             while (it != end) {
                 const IndexRecord<T, K> &r = *it;
                 if (from < r.key && to > r.key &&
-                    r.is_valid(t.db_transaction.trans)) {
+                    r.is_valid(t->db_transaction.trans)) {
                     // record r is inside borders and is valid for current
                     // transaction.
                     const typename T::accessor_t acc =
-                        r.access(t.db_transaction);
+                        r.access(t->db_transaction);
                     it++;
                     return make_option(std::move(acc));
                 }

@@ -86,6 +86,7 @@ set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # yaml-cpp
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
+set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 # Catch (C++ Automated Test Cases in Headers)
 set(catch_source_dir "${libs_dir}/Catch")
@@ -135,193 +136,31 @@ foreach(source_foler ${source_folders})
     file(COPY ${include_dir}/${source_folder} DESTINATION ${test_include_dir})
 endforeach()
 
-# -----------------------------------------------------------------------------
-# COPY header files required by query engine (query compiler)
-# TODO: somehow automate (in destination dir should be only required include files)
-FILE(COPY ${include_dir}/barrier/barrier.hpp DESTINATION ${build_include_dir}/barrier)
-FILE(COPY ${include_dir}/database/db.hpp DESTINATION ${build_include_dir}/database)
-FILE(COPY ${include_dir}/database/db_transaction.hpp DESTINATION ${build_include_dir}/database)
-FILE(COPY ${include_dir}/database/db_accessor.hpp DESTINATION ${build_include_dir}/database)
+include(copy_includes)
 
-FILE(COPY ${include_dir}/storage/common.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/graph.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/edge.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/edge_record.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/vertex_record.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/edge_accessor.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/edges.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/vertices.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/vertex.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/vertex_accessor.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/record_accessor.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/locking/record_lock.hpp DESTINATION ${build_include_dir}/storage/locking)
-FILE(COPY ${include_dir}/storage/locking/lock_status.hpp DESTINATION ${build_include_dir}/storage/locking)
-FILE(COPY ${include_dir}/storage/edge_type/edge_type_store.hpp DESTINATION ${build_include_dir}/storage/edge_type)
-FILE(COPY ${include_dir}/storage/edge_type/edge_type.hpp DESTINATION ${build_include_dir}/storage/edge_type)
-FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
-FILE(COPY ${include_dir}/storage/model/edge_map.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/model/properties/flags.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/stored_property.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/property_holder.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/type_group_edge.hpp DESTINATION ${build_include_dir}/storage)
-FILE(COPY ${include_dir}/storage/type_group_vertex.hpp DESTINATION ${build_include_dir}/storage)
+# linter setup (clang-tidy)
+# all source files for linting
+FILE(GLOB_RECURSE LINTER_SRC_FILES
+    ${src_dir}/*.cpp
+    ${CMAKE_SOURCE_DIR}/tests/.cpp
+    ${CMAKE_SOURCE_DIR}/poc/.cpp
+)
+MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
 
-FILE(COPY ${include_dir}/query/util.hpp DESTINATION ${build_include_dir}/query)
-FILE(COPY ${include_dir}/query/i_plan_cpu.hpp DESTINATION ${build_include_dir}/query)
-FILE(COPY ${include_dir}/query/strip/stripped.hpp DESTINATION ${build_include_dir}/query/strip)
-
-FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_map.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_set.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_list.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/concurrent/common.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/concurrent/skiplist.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/concurrent/skiplist_gc.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
-FILE(COPY ${include_dir}/data_structures/map/rh_hashmultimap.hpp DESTINATION ${build_include_dir}/data_structures/map)
-FILE(COPY ${include_dir}/data_structures/map/rh_common.hpp DESTINATION ${build_include_dir}/data_structures/map)
-
-FILE(COPY ${include_dir}/data_structures/bitset/dynamic_bitset.hpp DESTINATION ${build_include_dir}/data_structures/bitset)
-
-FILE(COPY ${include_dir}/threading/sync/lockable.hpp DESTINATION ${build_include_dir}/threading/sync)
-FILE(COPY ${include_dir}/threading/sync/spinlock.hpp DESTINATION ${build_include_dir}/threading/sync)
-FILE(COPY ${include_dir}/threading/sync/futex.hpp DESTINATION ${build_include_dir}/threading/sync)
-FILE(COPY ${include_dir}/threading/sync/lock_timeout_error.hpp DESTINATION ${build_include_dir}/threading/sync)
-
-FILE(COPY ${include_dir}/memory/freelist.hpp DESTINATION ${build_include_dir}/memory)
-FILE(COPY ${include_dir}/memory/lazy_gc.hpp DESTINATION ${build_include_dir}/garbage)
-FILE(COPY ${include_dir}/mvcc/cre_exp.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/hints.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/id.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/mvcc_error.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/record.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/serialization_error.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/version.hpp DESTINATION ${build_include_dir}/mvcc)
-FILE(COPY ${include_dir}/mvcc/version_list.hpp DESTINATION ${build_include_dir}/mvcc)
-
-FILE(COPY ${include_dir}/transactions/transaction.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/lock_store.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/snapshot.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/commit_log.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/engine.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/transaction_store.hpp DESTINATION ${build_include_dir}/transactions)
-FILE(COPY ${include_dir}/transactions/transaction_read.hpp DESTINATION ${build_include_dir}/transactions)
-
-FILE(COPY ${include_dir}/storage/model/properties/properties.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/property.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/traversers/consolewriter.hpp DESTINATION ${build_include_dir}/storage/model/properties/traversers)
-FILE(COPY ${include_dir}/storage/model/properties/traversers/jsonwriter.hpp DESTINATION ${build_include_dir}/storage/model/properties/traversers)
-FILE(COPY ${include_dir}/storage/model/properties/all.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/bool.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/null.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/float.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/double.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/int32.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/int64.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/string.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/array.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/floating.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/number.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/integral.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/property_family.hpp DESTINATION ${build_include_dir}/storage/model/properties)
-FILE(COPY ${include_dir}/storage/model/properties/utils/math_operations.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
-FILE(COPY ${include_dir}/storage/model/properties/utils/unary_negation.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
-FILE(COPY ${include_dir}/storage/model/properties/utils/modulo.hpp DESTINATION ${build_include_dir}/storage/model/properties/utils)
-
-
-FILE(COPY ${include_dir}/storage/model/edge_model.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/model/property_model.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/model/vertex_model.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/model/edge_list.hpp DESTINATION ${build_include_dir}/storage/model)
-
-FILE(COPY ${include_dir}/storage/label/label.hpp DESTINATION ${build_include_dir}/storage/label)
-FILE(COPY ${include_dir}/storage/label/label_collection.hpp DESTINATION ${build_include_dir}/storage/label)
-FILE(COPY ${include_dir}/storage/label/label_store.hpp DESTINATION ${build_include_dir}/storage/label)
-
-FILE(COPY ${include_dir}/storage/indexes/index_record.hpp DESTINATION ${build_include_dir}/storage/indexes)
-FILE(COPY ${include_dir}/storage/indexes/index_base.hpp DESTINATION ${build_include_dir}/storage/indexes)
-FILE(COPY ${include_dir}/storage/indexes/impl/nonunique_unordered_index.hpp DESTINATION ${build_include_dir}/storage/indexes/impl)
-FILE(COPY ${include_dir}/storage/indexes/index_holder.hpp DESTINATION ${build_include_dir}/storage/indexes)
-FILE(COPY ${include_dir}/storage/indexes/index_definition.hpp DESTINATION ${build_include_dir}/storage/indexes)
-FILE(COPY ${include_dir}/storage/indexes/index_update.hpp DESTINATION ${build_include_dir}/storage/indexes)
-
-FILE(COPY ${include_dir}/storage/garbage/delete_sensitive.hpp DESTINATION ${build_include_dir}/storage/garbage)
-FILE(COPY ${include_dir}/storage/garbage/garbage.hpp DESTINATION ${build_include_dir}/storage/garbage)
-
-FILE(COPY ${include_dir}/utils/sys.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/char_str.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/void.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/array_store.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/bswap.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/stacktrace.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/auto_scope.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/assert.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/reference_wrapper.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/underlying_cast.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/total_ordering.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/crtp.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/placeholder.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/likely.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/cpu_relax.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/counters/atomic_counter.hpp DESTINATION ${build_include_dir}/utils/counters)
-FILE(COPY ${include_dir}/utils/counters/simple_counter.hpp DESTINATION ${build_include_dir}/utils/counters)
-FILE(COPY ${include_dir}/utils/random/fast_binomial.hpp DESTINATION ${build_include_dir}/utils/random)
-FILE(COPY ${include_dir}/utils/random/xorshift128plus.hpp DESTINATION ${build_include_dir}/utils/random)
-FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${build_include_dir}/utils/exceptions)
-FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
-FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
-FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
-FILE(COPY ${include_dir}/utils/option_ptr.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/option.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/border.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/order.hpp DESTINATION ${build_include_dir}/utils)
-FILE(COPY ${include_dir}/utils/numerics/saturate.hpp DESTINATION ${build_include_dir}/utils/numerics)
-
-FILE(COPY ${include_dir}/utils/iterator/iterator_base.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/virtual_iter.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/composable.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/count.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/accessor.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/combined.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/count.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/filter.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/flat_map.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/for_all.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/inspect.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/iterator_accessor.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/lambda_iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/limited_map.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/map.hpp DESTINATION ${build_include_dir}/utils/iterator)
-FILE(COPY ${include_dir}/utils/iterator/range_iterator.hpp DESTINATION ${build_include_dir}/utils/iterator)
-
-FILE(COPY ${include_dir}/communication/communication.hpp DESTINATION ${build_include_dir}/communication)
-FILE(COPY ${include_dir}/communication/bolt/v1/config.hpp DESTINATION ${build_include_dir}/communication/bolt/v1)
-FILE(COPY ${include_dir}/communication/bolt/v1/serialization/record_stream.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/serialization)
-FILE(COPY ${include_dir}/communication/bolt/v1/serialization/bolt_serializer.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/serialization)
-FILE(COPY ${include_dir}/communication/bolt/v1/transport/bolt_encoder.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
-FILE(COPY ${include_dir}/communication/bolt/v1/transport/chunked_buffer.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
-FILE(COPY ${include_dir}/communication/bolt/v1/transport/chunked_encoder.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
-FILE(COPY ${include_dir}/communication/bolt/v1/transport/socket_stream.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
-FILE(COPY ${include_dir}/communication/bolt/v1/transport/stream_error.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/transport)
-FILE(COPY ${include_dir}/communication/bolt/v1/packing/codes.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/packing)
-FILE(COPY ${include_dir}/communication/bolt/v1/messaging/codes.hpp DESTINATION ${build_include_dir}/communication/bolt/v1/messaging)
-
-FILE(COPY ${include_dir}/io/network/socket.hpp DESTINATION ${build_include_dir}/io/network)
-FILE(COPY ${include_dir}/io/network/addrinfo.hpp DESTINATION ${build_include_dir}/io/network)
-FILE(COPY ${include_dir}/io/network/network_error.hpp DESTINATION ${build_include_dir}/io/network)
-FILE(COPY ${include_dir}/io/network/socket.hpp DESTINATION ${build_include_dir}/io/network)
-
-FILE(COPY ${include_dir}/logging/default.hpp DESTINATION ${build_include_dir}/logging)
-FILE(COPY ${include_dir}/logging/log.hpp DESTINATION ${build_include_dir}/logging)
-FILE(COPY ${include_dir}/logging/logger.hpp DESTINATION ${build_include_dir}/logging)
-FILE(COPY ${include_dir}/logging/levels.hpp DESTINATION ${build_include_dir}/logging)
-
-FILE(COPY ${include_dir}/snapshot/snapshot_engine.hpp DESTINATION ${build_include_dir}/snapshot)
-# -----------------------------------------------------------------------------
-
-# add all cpp file recursive into sourceFiles varibale
-# FILE(GLOB_RECURSE sourceFiles ${src_dir}/*.cpp)
-# print list of source files
-# MESSAGE(STATUS "All source files are: ${sourceFiles}")
+# linter target clang-tidy
+find_program(CLANG_TIDY "clang-tidy")
+if(CLANG_TIDY)
+    add_custom_target(
+        clang-tidy
+        COMMAND /usr/bin/clang-tidy
+        ${LINTER_SRC_FILES}
+        -config=''
+        --
+        -std=c++1y
+        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir} -I${yaml_include_dir}
+    )
+endif()
+# linter setup
 
 # debug flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
@@ -418,16 +257,6 @@ message(STATUS "TESTS binaries: ${TESTS}")
 option(BENCHMARK "Build benchmark binaries" ON)
 message(STATUS "BENCHMARK binaries: ${BENCHMARK}")
 # -- binaries -----------------------------------------------------------------
-# -- barrier - this is the way how the engine is isolated so it can be shipped
-# wherever, the code is completely hidden behind the barrier, during the
-# development the barrier can be turned off because it is much easier to
-# debug
-option(BARRIER "Barrier" ON)
-message(STATUS "BARRIER: ${BARRIER} (Source code isolation)")
-if(BARRIER)
-    add_definitions( -DBARRIER )
-endif()
-# -- barrier ------------------------------------------------------------------
 # -- configure defines --------------------------------------------------------
 
 # -- includes -----------------------------------------------------------------
@@ -435,7 +264,7 @@ include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
-include_directories(${yaml_source_dir}/include)
+include_directories(${yaml_include_dir})
 include_directories(${http_parser_source_dir})
 include_directories(${lexertl_dir})
 include_directories(${libuv_source_dir}/include)
@@ -461,7 +290,6 @@ set(memgraph_src_files
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
     ${src_dir}/utils/numerics/saturate.cpp
-    ${src_dir}/query_engine/util.cpp
     ${src_dir}/communication/bolt/v1/bolt.cpp
     ${src_dir}/communication/bolt/v1/states.cpp
     ${src_dir}/communication/bolt/v1/session.cpp
@@ -483,6 +311,7 @@ set(memgraph_src_files
     ${src_dir}/storage/label/label.cpp
     ${src_dir}/storage/label/label_collection.cpp
     ${src_dir}/storage/label/label_store.cpp
+    ${src_dir}/storage/label/labels_writer.cpp
     ${src_dir}/storage/edge_type/edge_type.cpp
     ${src_dir}/storage/edge_type/edge_type_store.cpp
     ${src_dir}/storage/model/properties/null.cpp
@@ -532,15 +361,6 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
-if (BARRIER)
-    # create static barrier lib
-    add_library(barrier STATIC ${memgraph_src_files})
-
-    # create pic static barrier lib
-    add_library(barrier_pic STATIC ${memgraph_src_files})
-    set_property(TARGET barrier_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
-endif()
-
 # tests
 if (TESTS)
     enable_testing()
@@ -584,12 +404,7 @@ message(STATUS "Release flags: ${CMAKE_CXX_FLAGS_RELEASE}")
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
 
-    if (BARRIER)
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} barrier)
-    elseif (NOT BARRIER)
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
-    endif ()
-
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)

@@ -1,0 +1,34 @@
+#include <iostream>
+#include <string>
+
+#include "query/util.hpp"
+#include "query/i_plan_cpu.hpp"
+#include "storage/model/properties/all.hpp"
+#include "using.hpp"
+
+using std::cout;
+using std::endl;
+
+// query:
+
+class CodeCPU : public IPlanCPU<Stream>
+{
+public:
+
+    bool run(Db &db, plan_args_t &args, Stream &stream) override
+    {
+
+    }
+
+    ~CodeCPU() {}
+};
+
+extern "C" IPlanCPU<Stream>* produce()
+{
+    return new CodeCPU();
+}
+
+extern "C" void destruct(IPlanCPU<Stream>* p)
+{
+    delete p;
+}

@@ -5,7 +5,8 @@
 #include <ext/aligned_buffer.h>
 #include <utility>
 
-// Optional object storage. It maybe has and maybe dosent have objet of type T.
+// Optional object storage. It maybe has and maybe
+// dosent have objet of type T.
 template <class T>
 class Option
 {
@@ -33,12 +34,14 @@ public:
             std::memset(data._M_addr(), 0, sizeof(T));
         }
     }
-    // Containers from std which have strong exception guarantees wont use move
-    // constructors and operators wihtout noexcept. "Optimized C++,2016 , Kurt
-    // Guntheroth, page: 142, title: Moving instances into std::vector"
+
+    // Containers from std which have strong exception
+    // guarantees wont use move constructors and operators
+    // wihtout noexcept. "Optimized C++,2016 , Kurt
+    // Guntheroth, page: 142, title: Moving instances into
+    // std::vector"
     Option(Option &&other) noexcept
     {
-
         if (other.initialized) {
             new (data._M_addr()) T(std::move(other.get()));
             other.initialized = false;
@@ -69,6 +72,7 @@ public:
 
         return *this;
     }
+
     Option &operator=(Option &&other)
     {
         if (initialized) {
@@ -180,8 +184,9 @@ public:
     explicit operator bool() const { return initialized; }
 
 private:
-    // Aligned buffer is here to ensure aligment for data of type T. It isn't
-    // applicable to just put T field because the field has to be able to be
+    // Aligned buffer is here to ensure aligment for
+    // data of type T. It isn't applicable to just put T
+    // field because the field has to be able to be
     // uninitialized to fulfill the semantics of Option class.
     __gnu_cxx::__aligned_buffer<T> data;
     bool initialized = false;

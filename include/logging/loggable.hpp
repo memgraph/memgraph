@@ -5,7 +5,10 @@
 class Loggable
 {
 public:
-    Loggable(const std::string& name) : logger(logging::log->logger(name)) {}
+    Loggable(std::string &&name)
+        : logger(logging::log->logger(std::forward<std::string>(name)))
+    {
+    }
 
     virtual ~Loggable() {}
 

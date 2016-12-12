@@ -80,6 +80,7 @@ private:
     // TODO ifdef MEMGRAPH64 problem, how to use this kind
     // of ifdef functions?
     // uint64_t depends on fnv function
+    // TODO: faster datastructure
     std::unordered_map<uint64_t, sptr_code_lib> code_libs;
 
     QueryPreprocessor preprocessor;

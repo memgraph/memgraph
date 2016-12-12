@@ -8,19 +8,19 @@
 #include "storage/label/label.hpp"
 #include "storage/vertex.hpp"
 
-#define TRY(x)                                                                 \
-    if (!x) {                                                                  \
-        return false;                                                          \
-    }
-
-DbTransaction::DbTransaction(Db &db) : db(db), trans(db.tx_engine.begin()) {}
+DbTransaction::DbTransaction(Db &db)
+    : Loggable("DbTransaction"), db(db), trans(db.tx_engine.begin())
+{
+}
 
 // Cleaning for version lists
 template <class A>
 void clean_version_lists(A &&acc, Id oldest_active)
 {
-    for (auto &vlist : acc) {
-        if (vlist.second.gc_deleted(oldest_active)) {
+    for (auto &vlist : acc)
+    {
+        if (vlist.second.gc_deleted(oldest_active))
+        {
             // TODO: Optimization, iterator with remove method.
             bool succ = acc.remove(vlist.first);
             assert(succ); // There is other cleaner here
@@ -48,8 +48,7 @@ void DbTransaction::clean_vertex_section()
     Id oldest_active = trans.oldest_active();
 
     // Clean indexes
-    db.indexes().vertex_indexes(
-        [&](auto &in) { in.clean(oldest_active); });
+    db.indexes().vertex_indexes([&](auto &in) { in.clean(oldest_active); });
 
     // Clean vertex list
     clean_version_lists(db.graph.vertices.access(), oldest_active);
@@ -57,36 +56,63 @@ void DbTransaction::clean_vertex_section()
 
 bool DbTransaction::update_indexes()
 {
-    while (!index_updates.empty()) {
-        auto iu = index_updates.back();
+    logger.debug("index_updates: {}, instance: {}, transaction: {}",
+                 index_updates.size(), static_cast<void *>(this), trans.id);
 
-        if (iu.tag == IndexUpdate::EDGE) {
-            auto e = iu.e;
+    while (!index_updates.empty())
+    {
+        auto index_update = index_updates.back();
+
+        if (index_update.tag == IndexUpdate::EDGE)
+        {
+            auto edge = index_update.e;
 
             // TODO: This could be done in batch
             // NOTE: This assumes that type index is created with the database.
-            TRY(e.record->data.edge_type->index().insert(
-                EdgeTypeIndexRecord(std::nullptr_t(), e.record, e.vlist)));
+            if (!edge.record->data.edge_type->index().insert(
+                    EdgeTypeIndexRecord(std::nullptr_t(), edge.record,
+                                        edge.vlist)))
+                return false;
 
-            TRY(db.indexes().update_property_indexes<TypeGroupEdge>(
-                e, trans));
+            if (!db.indexes().update_property_indexes<TypeGroupEdge>(edge,
+                                                                     trans))
+                return false;
+        }
+        else
+        {
+            auto vertex = index_update.v;
 
-        } else {
-            auto v = iu.v;
-
-            for (auto l : v.record->data.labels()) {
+            for (auto label : vertex.record->data.labels())
+            {
                 // TODO: This could be done in batch
                 // NOTE: This assumes that label index is created with the
                 // database.
-                TRY(l.get().index().insert(
-                    LabelIndexRecord(std::nullptr_t(), v.record, v.vlist)));
+                if (!label.get().index().insert(LabelIndexRecord(
+                        std::nullptr_t(), vertex.record, vertex.vlist)))
+                    return false;
             }
 
-            TRY(db.indexes().update_property_indexes<TypeGroupVertex>(
-                v, trans));
+            if (!db.indexes().update_property_indexes<TypeGroupVertex>(vertex,
+                                                                       trans))
+                return false;
         }
 
         index_updates.pop_back();
     }
     return true;
 }
+
+template <class TG>
+void DbTransaction::to_update_index(typename TG::vlist_t *vlist,
+                                    typename TG::record_t *record)
+{
+    index_updates.emplace_back(make_index_update(vlist, record));
+    logger.debug("update_index, updates_no: {}, instance: {}, transaction: {}",
+                 index_updates.size(), static_cast<void *>(this), trans.id);
+}
+
+template void DbTransaction::to_update_index<TypeGroupVertex>(
+    TypeGroupVertex::vlist_t *vlist, TypeGroupVertex::record_t *record);
+template void
+DbTransaction::to_update_index<TypeGroupEdge>(TypeGroupEdge::vlist_t *vlist,
+                                              TypeGroupEdge::record_t *record);

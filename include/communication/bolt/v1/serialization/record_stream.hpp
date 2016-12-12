@@ -105,10 +105,32 @@ public:
         serializer.write_failure(data);
         chunk();
     }
-    // -- BOLT SPECIFIC METHODS -----------------------------------------------
+
+    void write_count(const size_t count)
+    {
+        write_record();
+        write_list_header(1);
+        write(Int64(count));
+        chunk();
+    }
 
     void write(const VertexAccessor &vertex) { serializer.write(vertex); }
+    void write_vertex_record(const VertexAccessor& va)
+    {
+        write_record();
+        write_list_header(1);
+        write(va);
+        chunk();
+    }
+
     void write(const EdgeAccessor &edge) { serializer.write(edge); }
+    void write_edge_record(const EdgeAccessor& ea)
+    {
+        write_record();
+        write_list_header(1);
+        write(ea);
+        chunk();
+    }
 
     void write(const StoredProperty<TypeGroupEdge> &prop)
     {

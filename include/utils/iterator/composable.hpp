@@ -116,6 +116,12 @@ public:
             move(), [](auto vr) { return vr.out().fill(); });
     }
 
+    auto in()
+    {
+        return iter::make_flat_map<Derived>(
+            move(), [](auto vr) { return vr.in().fill(); });
+    }
+
     // Filters with label on from vertex.
     template <class LABEL>
     auto from_label(LABEL const &label)
@@ -152,6 +158,12 @@ public:
         return iter::make_inspect<Derived>(
             move(), [&](auto &v) mutable { t = Option<const T>(v); });
     }
+
+    // auto clone_to(Option<T> &t)
+    // {
+    //     return iter::make_inspect<Derived>(
+    //         move(), [&](auto &e) mutable { t = Option<T>(e); });
+    // }
 
     // Filters with call to method fill()
     auto fill()

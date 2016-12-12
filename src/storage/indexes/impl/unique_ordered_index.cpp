@@ -18,14 +18,16 @@
 
 template <class T, class K>
 UniqueOrderedIndex<T, K>::UniqueOrderedIndex(IndexLocation loc, Order order)
-    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}})
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}},
+                      "UniqueOrderedIndex")
 {
 }
 
 template <class T, class K>
 UniqueOrderedIndex<T, K>::UniqueOrderedIndex(IndexLocation loc, Order order,
                                              tx::Transaction const &t)
-    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}}, t)
+    : IndexBase<T, K>(IndexDefinition{loc, IndexType{true, order}},
+                      t, "UniqueOrderedIndex")
 {
 }
 
@@ -72,7 +74,7 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
 
     return iter::make_iterator(
         [
-          it = std::move(begin), b_end = std::move(end), t = t_v,
+          it = std::move(begin), b_end = std::move(end), t = &t_v,
           hold_acc = std::move(acc)
         ]() mutable->auto {
             // UniqueOrderedIndex is smart so he has to iterate only through
@@ -81,11 +83,11 @@ auto UniqueOrderedIndex<T, K>::for_range_exact(DbAccessor &t_v,
             // reached end border.
             while (b_end >= it->key) {
                 const IndexRecord<T, K> &r = *it;
-                if (r.is_valid(t.db_transaction.trans)) {
+                if (r.is_valid(t->db_transaction.trans)) {
                     // record r is inside borders and is valid for current
                     // transaction.
                     const typename T::accessor_t acc =
-                        r.access(t.db_transaction);
+                        r.access(t->db_transaction);
                     it++;
                     return make_option(std::move(acc));
                 }

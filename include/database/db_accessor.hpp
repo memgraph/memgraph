@@ -49,8 +49,10 @@ class DbAccessor
 
 public:
     DbAccessor(Db &db);
-
     DbAccessor(Db &db, tx::Transaction &t);
+
+    DbAccessor(const DbAccessor& other) = delete;
+    DbAccessor(DbAccessor&& other) = delete;
 
     //*******************VERTEX METHODS
     // Returns iterator of VertexAccessor for all vertices.
@@ -140,6 +142,7 @@ public:
             .template type_key<T>();
     }
 
+    bool update_indexes();
     // ******************** TRANSACTION METHODS
 
     // True if commit was successful, or false if transaction was aborted.

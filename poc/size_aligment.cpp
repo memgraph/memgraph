@@ -11,8 +11,6 @@
 #include "storage/edge_x_vertex.hpp"
 #include "storage/indexes/impl/nonunique_unordered_index.cpp"
 #include "storage/model/properties/properties.cpp"
-// #include "storage/record_accessor.cpp"
-// #include "storage/vertex_accessor.cpp"
 #include "utils/command_line/arguments.hpp"
 
 using namespace std;
