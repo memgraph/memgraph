@@ -132,7 +132,6 @@ FILE(COPY ${include_dir}/utils/counters/atomic_counter.hpp DESTINATION ${build_i
 FILE(COPY ${include_dir}/utils/counters/simple_counter.hpp DESTINATION ${build_include_dir}/utils/counters)
 FILE(COPY ${include_dir}/utils/random/fast_binomial.hpp DESTINATION ${build_include_dir}/utils/random)
 FILE(COPY ${include_dir}/utils/random/xorshift128plus.hpp DESTINATION ${build_include_dir}/utils/random)
-FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${build_include_dir}/utils/exceptions)
 FILE(COPY ${include_dir}/utils/datetime/timestamp.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/datetime/datetime_error.hpp DESTINATION ${build_include_dir}/utils/datetime)
 FILE(COPY ${include_dir}/utils/types/byte.hpp DESTINATION ${build_include_dir}/utils/types)
@@ -141,6 +140,10 @@ FILE(COPY ${include_dir}/utils/option.hpp DESTINATION ${build_include_dir}/utils
 FILE(COPY ${include_dir}/utils/border.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/order.hpp DESTINATION ${build_include_dir}/utils)
 FILE(COPY ${include_dir}/utils/numerics/saturate.hpp DESTINATION ${build_include_dir}/utils/numerics)
+FILE(COPY ${include_dir}/utils/memory/stack_allocator.hpp DESTINATION ${build_include_dir}/utils/memory)
+FILE(COPY ${include_dir}/utils/memory/block_allocator.hpp DESTINATION ${build_include_dir}/utils/memory)
+FILE(COPY ${include_dir}/utils/exceptions/basic_exception.hpp DESTINATION ${build_include_dir}/utils/exceptions)
+FILE(COPY ${include_dir}/utils/exceptions/out_of_memory.hpp DESTINATION ${build_include_dir}/utils/exceptions)
 
 FILE(COPY ${include_dir}/utils/iterator/iterator_base.hpp DESTINATION ${build_include_dir}/utils/iterator)
 FILE(COPY ${include_dir}/utils/iterator/virtual_iter.hpp DESTINATION ${build_include_dir}/utils/iterator)

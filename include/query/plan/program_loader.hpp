@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <experimental/filesystem>
 
 #include "config/config.hpp"
 #include "logging/default.hpp"
@@ -16,6 +17,8 @@
 #include "utils/file.hpp"
 #include "utils/hashing/fnv.hpp"
 
+namespace fs = std::experimental::filesystem;
+
 template <typename Stream>
 class ProgramLoader
 {
@@ -25,6 +28,16 @@ public:
     using query_program_t = QueryProgram<Stream>;
 
     ProgramLoader() : logger(logging::log->logger("PlanLoader")) {}
+
+    // TODO: decouple load(query) method
+
+    auto load(const uint64_t hash, const fs::path &path)
+    {
+        // TODO: get lib path (that same folder as path folder or from config)
+        // TODO: compile
+        // TODO: dispose the old lib
+        // TODO: store the compiled lib
+    }
 
     auto load(const std::string &query)
     {

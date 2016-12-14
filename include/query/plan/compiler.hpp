@@ -20,9 +20,6 @@ public:
         std::string flags;
 
 // TODO: sync this with cmake configuration
-#ifdef BARRIER
-        flags += " -DBARRIER";
-#endif
 #ifdef NDEBUG
         flags += " -DNDEBUG -O2";
 #endif
@@ -53,9 +50,6 @@ public:
             "-I../include",
             "-I../libs/fmt", // TODO: load from config
             "-I../../libs/fmt", "-L./ -L../",
-#ifdef BARRIER
-            "-lbarrier_pic",
-#endif
             "-lmemgraph_pic",
             "-shared -fPIC" // shared library flags
             );
@@ -67,6 +61,8 @@ public:
 
         // if compilation has failed throw exception
         if (compile_status == -1) {
+            logger.debug("FAIL: Query Code Compilation: {} -> {}", in_file,
+                         out_file);
             throw PlanCompilationException(
                 "Code compilation error. Generated code is not compilable or "
                 "compilation settings are wrong");
