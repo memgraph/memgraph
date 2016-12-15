@@ -17,7 +17,7 @@ auto load_basic_functions(Db &db)
         vertex_accessor.set(property_key, std::move(args[0]));
         return t.commit();
     };
-    functions[11597417457737499503u] = create_node;
+    functions[3191791685918807343u] = create_node;
 
     // CREATE (n:LABEL {name: "TEST"}) RETURN n;
     auto create_labeled_and_named_node = [&db](properties_t &&args) {
@@ -29,6 +29,19 @@ auto load_basic_functions(Db &db)
         vertex_accessor.add_label(label);
         return t.commit();
     };
+    functions[8273374963505210457u] = create_labeled_and_named_node;
+
+    // CREATE (n:OTHER {name: "cleaner_test"}) RETURN n
+    auto create_node_with_other_label = [&db](properties_t &&args) {
+        DbAccessor t(db);
+        auto property_key = t.vertex_property_key("name", args[0].key.flags());
+        auto &label = t.label_find_or_create("OTHER");
+        auto vertex_accessor = t.vertex_insert();
+        vertex_accessor.set(property_key, std::move(args[0]));
+        vertex_accessor.add_label(label);
+        return t.commit();
+    };
+    functions[6237439055665132277u] = create_node_with_other_label;
 
     // CREATE (n:OTHER {name: "TEST"}) RETURN n;
     auto create_labeled_and_named_node_v2 = [&db](properties_t &&args) {
@@ -40,7 +53,9 @@ auto load_basic_functions(Db &db)
         vertex_accessor.add_label(label);
         return t.commit();
     };
+    functions[832997784138269151u] = create_labeled_and_named_node_v2;
 
+    // CREATE (n:ACCOUNT {id: 2322, name: "TEST", country: "Croatia", "created_at": 2352352}) RETURN n
     auto create_account = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto prop_id = t.vertex_property_key("id", args[0].key.flags());
@@ -58,7 +73,12 @@ auto load_basic_functions(Db &db)
         vertex_accessor.add_label(label);
         return t.commit();
     };
+    functions[16701745788564313211u] = create_account;
 
+    // TODO: inconsistency but it doesn't affect the integration tests
+    //       this is not a unique case
+    // MATCH (n) WHERE ID(n) = 1 RETURN n
+    // MATCH (n {id: 0}) RETURN n
     auto find_node_by_internal_id = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto maybe_va = t.vertex_find(Id(args[0].as<Int64>().value()));
@@ -75,7 +95,10 @@ auto load_basic_functions(Db &db)
         }
         return t.commit();
     };
+    functions[1444315501940151196u] = find_node_by_internal_id;
+    functions[11624983287202420303u] = find_node_by_internal_id;
 
+    // MATCH (a {id:0}), (p {id: 1}) CREATE (a)-[r:IS]->(p) RETURN r
     auto create_edge = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto &edge_type = t.type_find_or_create("IS");
@@ -98,7 +121,9 @@ auto load_basic_functions(Db &db)
 
         return ret;
     };
+    functions[6972641167053231355u] = create_edge;
 
+    // MATCH ()-[r]-() WHERE ID(r)=0 RETURN r
     auto find_edge_by_internal_id = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto maybe_ea = t.edge_find(args[0].as<Int64>().value());
@@ -122,7 +147,9 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[15080095524051312786u] = find_edge_by_internal_id;
 
+    // MATCH (n {id: 0}) SET n.name = "TEST102" RETURN n
     auto update_node = [&db](properties_t &&args) {
         DbAccessor t(db);
         auto prop_name = t.vertex_property_key("name", args[1].key.flags());
@@ -136,6 +163,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[2835161674800069655u] = update_node;
 
     // MATCH (n1), (n2) WHERE ID(n1)=0 AND ID(n2)=1 CREATE (n1)<-[r:IS {age: 25,
     // weight: 70}]-(n2) RETURN r
@@ -157,6 +185,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[10360716473890539004u] = create_edge_v2;
 
     // MATCH (n) RETURN n
     auto match_all_nodes = [&db](properties_t &&args) {
@@ -167,6 +196,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[5949923385370229113u] = match_all_nodes;
 
     // MATCH (n:LABEL) RETURN n
     auto match_by_label = [&db](properties_t &&args) {
@@ -181,6 +211,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[16533049303627288013u] = match_by_label;
 
     // MATCH (n) DELETE n
     auto match_all_delete = [&db](properties_t &&args) {
@@ -196,6 +227,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[16628411757092333638u] = match_all_delete;
 
     // MATCH (n:LABEL) DELETE n
     auto match_label_delete = [&db](properties_t &&args) {
@@ -208,6 +240,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[10022871879682099034u] = match_label_delete;
 
     // MATCH (n) WHERE ID(n) = id DELETE n
     auto match_id_delete = [&db](properties_t &&args) {
@@ -221,6 +254,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[5375628876334795080u] = match_id_delete;
 
     // MATCH ()-[r]-() WHERE ID(r) = id DELETE r
     auto match_edge_id_delete = [&db](properties_t &&args) {
@@ -234,15 +268,17 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[11747491556476630933u] = match_edge_id_delete;
 
     // MATCH ()-[r]-() DELETE r
-    auto match_edge_all_delete = [&db](properties_t &&args) {
+    auto match_edge_all_delete = [&db](properties_t &&) {
         DbAccessor t(db);
 
         t.edge_access().fill().for_all([&](auto a) { a.remove(); });
 
         return t.commit();
     };
+    functions[10064744449500095415u] = match_edge_all_delete;
 
     // MATCH ()-[r:TYPE]-() DELETE r
     auto match_edge_type_delete = [&db](properties_t &&args) {
@@ -254,6 +290,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[6084209470626828855u] = match_edge_type_delete;
 
     // MATCH (n)-[:TYPE]->(m) WHERE ID(n) = id RETURN m
     auto match_id_type_return = [&db](properties_t &&args) {
@@ -275,6 +312,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[2605621337795673948u] = match_id_type_return;
 
     // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN m
     auto match_name_type_return = [&db](properties_t &&args) {
@@ -313,6 +351,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[17303982256920342123u] = match_name_type_return;
 
     // MATCH (n)-[:TYPE]->(m) WHERE n.name = "kruno" RETURN n,m
     auto match_name_type_return_cross = [&db](properties_t &&args) {
@@ -393,6 +432,7 @@ auto load_basic_functions(Db &db)
 
         return t.commit();
     };
+    functions[17456874322957005665u] = match_name_type_return_cross;
 
     // MATCH (n:LABEL)-[:TYPE]->(m) RETURN n
     auto match_label_type_return = [&db](properties_t &&args) {
@@ -433,8 +473,8 @@ auto load_basic_functions(Db &db)
             t.abort();
             return false;
         }
-
     };
+    functions[4866842751631597263u] = match_label_type_return;
 
     // MATCH (n:LABEL {name: "TEST01"}) RETURN n;
     auto match_label_property = [&db](properties_t &&args) {
@@ -454,33 +494,7 @@ auto load_basic_functions(Db &db)
             return false;
         }
     };
-    functions[17721584194272598838u] = match_label_property;
-
-    functions[15284086425088081497u] = match_all_nodes;
-    functions[4857652843629217005u] = match_by_label;
-    functions[15648836733456301916u] = create_edge_v2;
-    functions[10597108978382323595u] = create_account;
-    functions[5397556489557792025u] = create_labeled_and_named_node;
-
-    // TODO: query hasher reports two hash values
-    functions[998725786176032607u] = create_labeled_and_named_node_v2;
-    functions[16090682663946456821u] = create_labeled_and_named_node_v2;
-
-    functions[7939106225150551899u] = create_edge;
-    functions[6579425155585886196u] = create_edge;
-    functions[11198568396549106428u] = find_node_by_internal_id;
-    functions[8320600413058284114u] = find_edge_by_internal_id;
-    functions[6813335159006269041u] = update_node;
-    functions[10506105811763742758u] = match_all_delete;
-    functions[13742779491897528506u] = match_label_delete;
-    functions[11349462498691305864u] = match_id_delete;
-    functions[6963549500479100885u] = match_edge_id_delete;
-    functions[14897166600223619735u] = match_edge_all_delete;
-    functions[16888549834923624215u] = match_edge_type_delete;
-    functions[11675960684124428508u] = match_id_type_return;
-    functions[15698881472054193835u] = match_name_type_return;
-    functions[12595102442911913761u] = match_name_type_return_cross;
-    functions[8918221081398321263u] = match_label_type_return;
+    functions[7710665404758409302u] = match_label_property;
 
     return functions;
 }

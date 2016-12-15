@@ -58,6 +58,8 @@ endforeach()
 
 ## INTEGRATION TESTS
 
+# TODO: move to tests/integration folder
+
 # test hard coded queries
 add_executable(integration_queries integration/queries.cpp)
 target_link_libraries(integration_queries stdc++fs)
@@ -69,31 +71,31 @@ add_test(NAME integration_queries COMMAND integration_queries)
 set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
 
 # test cleaning methods
-add_executable(cleaning integration/cleaning.cpp)
-target_link_libraries(cleaning memgraph)
-target_link_libraries(cleaning Threads::Threads)
-target_link_libraries(cleaning ${fmt_static_lib})
-target_link_libraries(cleaning ${yaml_static_lib})
-add_test(NAME cleaning COMMAND cleaning)
-set_property(TARGET cleaning PROPERTY CXX_STANDARD 14)
+add_executable(integration_cleaning integration/cleaning.cpp)
+target_link_libraries(integration_cleaning memgraph)
+target_link_libraries(integration_cleaning Threads::Threads)
+target_link_libraries(integration_cleaning ${fmt_static_lib})
+target_link_libraries(integration_cleaning ${yaml_static_lib})
+add_test(NAME integration_cleaning COMMAND integration_cleaning)
+set_property(TARGET integration_cleaning PROPERTY CXX_STANDARD 14)
 
 # test snapshot validity
-add_executable(snapshot integration/snapshot.cpp)
-target_link_libraries(snapshot memgraph)
-target_link_libraries(snapshot Threads::Threads)
-target_link_libraries(snapshot ${fmt_static_lib})
-target_link_libraries(snapshot ${yaml_static_lib})
-add_test(NAME snapshot COMMAND snapshot)
-set_property(TARGET snapshot PROPERTY CXX_STANDARD 14)
+add_executable(integration_snapshot integration/snapshot.cpp)
+target_link_libraries(integration_snapshot memgraph)
+target_link_libraries(integration_snapshot Threads::Threads)
+target_link_libraries(integration_snapshot ${fmt_static_lib})
+target_link_libraries(integration_snapshot ${yaml_static_lib})
+add_test(NAME integration_snapshot COMMAND integration_snapshot)
+set_property(TARGET integration_snapshot PROPERTY CXX_STANDARD 14)
 
 # test index validity
-add_executable(index integration/index.cpp)
-target_link_libraries(index memgraph)
-target_link_libraries(index Threads::Threads)
-target_link_libraries(index ${fmt_static_lib})
-target_link_libraries(index ${yaml_static_lib})
-add_test(NAME index COMMAND index)
-set_property(TARGET index PROPERTY CXX_STANDARD 14)
+add_executable(integration_index integration/index.cpp)
+target_link_libraries(integration_index memgraph)
+target_link_libraries(integration_index Threads::Threads)
+target_link_libraries(integration_index ${fmt_static_lib})
+target_link_libraries(integration_index ${yaml_static_lib})
+add_test(NAME integration_index COMMAND integration_index)
+set_property(TARGET integration_index PROPERTY CXX_STANDARD 14)
 
 ## MANUAL TESTS
 
