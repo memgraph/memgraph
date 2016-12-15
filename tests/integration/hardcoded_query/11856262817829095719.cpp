@@ -99,6 +99,7 @@ auto astar(VertexAccessor &va, DbAccessor &t, plan_args_t &, Stream &)
 
         if (now->depth >= max_depth)
         {
+            now->sum_vertex_score();
             results.emplace_back(now);
 
             count++;
@@ -130,6 +131,14 @@ auto astar(VertexAccessor &va, DbAccessor &t, plan_args_t &, Stream &)
     return results;
 }
 
+void reverse_stream_ids(Node *node, Stream& stream, VertexPropertyKey key)
+{
+    if (node == nullptr)
+        return;
+    reverse_stream_ids(node->parent, stream, key);
+    stream.write(node->vacc.at(key).template as<Int64>());
+}
+
 class PlanCPU : public IPlanCPU<Stream>
 {
 public:
@@ -152,26 +161,14 @@ public:
             .properties_filter(t, properties)
             .for_all([&](auto va) {
                 auto results = astar(va, t, args, stream);
-                for (auto node : results)
-                {
-                    node->sum_vertex_score();
-                }
                 std::sort(results.begin(), results.end(),
-                          [](Node *a, Node *b) { return a->sum < b->sum; });
+                          [](Node *a, Node *b) { return a->sum > b->sum; });
                 for (auto node : results)
                 {
                     stream.write_record();
                     stream.write_list_header(max_depth + 1);
-                    auto current_node = node;
-                    do
-                    {
-                        // TODO: get property but reverser order
-                        stream.write(current_node->vacc.at(garment_id_prop_key)
-                                         .template as<Float>());
-                        current_node = current_node->parent;
-                    } while (current_node != nullptr);
+                    reverse_stream_ids(node, stream, garment_id_prop_key);
                 }
-
             });
 
         stream.write_empty_fields();
