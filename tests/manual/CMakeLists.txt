@@ -41,7 +41,4 @@ foreach(test_cpp ${test_type_cpps})
     # dynamic lib
     target_link_libraries(${target_name} dl)
 
-    # register test
-    add_test(${target_name} ${exec_name})
-
 endforeach()
