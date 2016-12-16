@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.1)
 
 # get directory name
-get_filename_component(ProjectId ${CMAKE_SOURCE_DIR} NAME)
+get_filename_component(project_name ${CMAKE_SOURCE_DIR} NAME)
 # replace whitespaces with underscores
-string(REPLACE " " "_" ProjectId ${ProjectId})
+string(REPLACE " " "_" project_name ${project_name})
 # set project name
-project(${ProjectId})
+project(${project_name})
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
@@ -16,6 +16,7 @@ find_package(Threads REQUIRED)
 # flags
 
 # c++14
+set(cxx_standard 14)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 
 # functions
@@ -252,10 +253,20 @@ option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
 option(TOOLS "Build tool executables" ON)
 message(STATUS "TOOLS binaries: ${TOOLS}")
+
 option(TESTS "Build test binaries" ON)
 message(STATUS "TESTS binaries: ${TESTS}")
-option(BENCHMARK "Build benchmark binaries" ON)
-message(STATUS "BENCHMARK binaries: ${BENCHMARK}")
+
+option(BENCHMARK "Build benchmark test binaries" ON)
+message(STATUS "BENCHMARK test binaries: ${BENCHMARK}")
+option(CONCURRENT "Build concurrent test binaries" ON)
+message(STATUS "CONCURRENT test binaries: ${CONCURRENT}")
+option(INTEGRATION "Build integration test binaries" ON)
+message(STATUS "INTEGRATION test binaries: ${INTEGRATION}")
+option(MANUAL "Build manual test binaries" ON)
+message(STATUS "MANUAL test binaries: ${MANUAL}")
+option(UNIT "Build unit test binaries" ON)
+message(STATUS "UNIT test binaries: ${UNIT}")
 # -- binaries -----------------------------------------------------------------
 # -- configure defines --------------------------------------------------------
 
@@ -361,6 +372,10 @@ add_library(memgraph STATIC ${memgraph_src_files})
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
+# TODO: test build & run logic T190
+
+include_directories(${catch_source_dir}/include)
+
 # tests
 if (TESTS)
     enable_testing()
@@ -372,9 +387,29 @@ if (POC)
     add_subdirectory(poc)
 endif()
 
-# benchmark binaries
+# benchmark test binaries
 if (BENCHMARK)
     add_subdirectory(${PROJECT_SOURCE_DIR}/tests/benchmark)
+endif()
+
+# concurrent test binaries
+if (CONCURRENT)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/concurrent)
+endif()
+
+# integration test binaries
+if (INTEGRATION)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/integration)
+endif()
+
+# integration test binaries
+if (MANUAL)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/manual)
+endif()
+
+# integration test binaries
+if (UNIT)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/unit)
 endif()
 
 # memgraph build name

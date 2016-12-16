@@ -28,8 +28,6 @@ foreach(test_cpp ${test_type_cpps})
     # link libraries
     # threads (cross-platform)
     target_link_libraries(${target_name} Threads::Threads)
-    # google-benchmark
-    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
     # memgraph lib
     target_link_libraries(${target_name} memgraph)
     # fmt format lib
