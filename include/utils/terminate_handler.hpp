@@ -1,48 +1,35 @@
 #pragma once
 
 #include "utils/auto_scope.hpp"
+#include "utils/stacktrace.hpp"
 
-#include <iostream>
 #include <execinfo.h>
+#include <iostream>
 
 // TODO: log to local file or remote database
-void stacktrace(std::ostream& stream) noexcept
-{
-    void* array[50];
-    int size = backtrace(array, 50);
+void stacktrace(std::ostream& stream) noexcept {
+  Stacktrace stacktrace;
 
-    stream << __FUNCTION__ << " backtrace returned "
-           << size << " frames." << std::endl;
+  std::string message;
 
-    char** messages = backtrace_symbols(array, size);
-    Auto(free(messages));
-
-    for (int i = 0; i < size && messages != NULL; ++i)
-        stream << "[bt]: (" << i << ") " << messages[i] << std::endl;
-
-    stream << std::endl;
+  for (int i = 0; i < stacktrace.size(); i++) {
+    message.append(fmt::format("\n at {} ({})", stacktrace[i].function,
+                               stacktrace[i].location));
+  }
+  stream << message << std::endl;
 }
 
 // TODO: log to local file or remote database
-void terminate_handler(std::ostream& stream) noexcept
-{
-    if (auto exc = std::current_exception())
-    {
-        try
-        {
-            std::rethrow_exception(exc);
-        }
-        catch(std::exception& ex)
-        {
-            stream << ex.what() << std::endl << std::endl;
-            stacktrace(stream);
-        }
+void terminate_handler(std::ostream& stream) noexcept {
+  if (auto exc = std::current_exception()) {
+    try {
+      std::rethrow_exception(exc);
+    } catch (std::exception& ex) {
+      stream << ex.what() << std::endl << std::endl;
+      stacktrace(stream);
     }
-
-    std::abort();
+  }
+  std::abort();
 }
 
-void terminate_handler() noexcept
-{
-    terminate_handler(std::cout);
-}
+void terminate_handler() noexcept { terminate_handler(std::cout); }

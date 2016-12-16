@@ -1,5 +1,5 @@
-#include <iostream>
 #include <signal.h>
+#include <iostream>
 
 #include "communication/bolt/v1/server/server.hpp"
 #include "communication/bolt/v1/server/worker.hpp"
@@ -9,74 +9,84 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "utils/signals/handler.hpp"
+#include "utils/stacktrace.hpp"
 #include "utils/terminate_handler.hpp"
 
 static bolt::Server<bolt::Worker>* serverptr;
 
 Logger logger;
 
-void sigint_handler(int s)
-{
-    auto signal = s == SIGINT ? "SIGINT" : "SIGABRT";
-
-    logger.info("Recieved signal {}", signal);
-    logger.info("Shutting down...");
-
-    std::exit(EXIT_SUCCESS);
-}
-
 static constexpr const char* interface = "0.0.0.0";
 static constexpr const char* port = "7687";
 
-int main(void)
-{
-    // TODO figure out what is the relationship between this and signals
-    // that are configured below
-    std::set_terminate(&terminate_handler);
+void throw_and_stacktace(std::string message) {
+  Stacktrace stacktrace;
 
-    // logger init
+  for (int i = 0; i < stacktrace.size(); i++)
+    message.append(fmt::format("\n at {} ({})", stacktrace[i].function,
+                               stacktrace[i].location));
+
+  logger.info(message);
+}
+
+int main(void) {
+  // TODO figure out what is the relationship between this and signals
+  // that are configured below
+  std::set_terminate(&terminate_handler);
+
+// logger init
 #ifdef SYNC_LOGGER
-    logging::init_sync();
+  logging::init_sync();
 #else
-    logging::init_async();
+  logging::init_async();
 #endif
-    logging::log->pipe(std::make_unique<Stdout>());
+  logging::log->pipe(std::make_unique<Stdout>());
 
-    // get Main logger
-    logger = logging::log->logger("Main");
-    logger.info("{}", logging::log->type());
+  // get Main logger
+  logger = logging::log->logger("Main");
+  logger.info("{}", logging::log->type());
 
-    signal(SIGINT, sigint_handler);
-    signal(SIGABRT, sigint_handler);
+  SignalHandler::register_handler(Signal::SegmentationFault, []() {
+    throw_and_stacktace("SegmentationFault signal raised");
+    exit(1);
+  });
 
-    io::Socket socket;
+  SignalHandler::register_handler(Signal::Terminate, []() {
+    throw_and_stacktace("Terminate signal raised");
+    exit(1);
+  });
 
-    try
-    {
-        socket = io::Socket::bind(interface, port);
-    }
-    catch(io::NetworkError e)
-    {
-        logger.error("Cannot bind to socket on {} at {}", interface, port);
-        logger.error("{}", e.what());
+  SignalHandler::register_handler(Signal::Abort, []() {
+    throw_and_stacktace("Abort signal raised");
+    exit(1);
+  });
 
-        std::exit(EXIT_FAILURE);
-    }
+  io::Socket socket;
 
-    socket.set_non_blocking();
-    socket.listen(1024);
+  try {
+    socket = io::Socket::bind(interface, port);
+  } catch (io::NetworkError e) {
+    logger.error("Cannot bind to socket on {} at {}", interface, port);
+    logger.error("{}", e.what());
 
-    logger.info("Listening on {} at {}", interface, port);
+    std::exit(EXIT_FAILURE);
+  }
 
-    bolt::Server<bolt::Worker> server(std::move(socket));
-    serverptr = &server;
+  socket.set_non_blocking();
+  socket.listen(1024);
 
-    // TODO: N should be configurable
-    auto N = std::thread::hardware_concurrency();
-    logger.info("Starting {} workers", N);
-    server.start(N);
+  logger.info("Listening on {} at {}", interface, port);
 
-    logger.info("Shutting down...");
+  bolt::Server<bolt::Worker> server(std::move(socket));
+  serverptr = &server;
 
-    return EXIT_SUCCESS;
+  // TODO: N should be configurable
+  auto N = std::thread::hardware_concurrency();
+  logger.info("Starting {} workers", N);
+  server.start(N);
+
+  logger.info("Shutting down...");
+
+  return EXIT_SUCCESS;
 }
