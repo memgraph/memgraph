@@ -9,14 +9,7 @@
 // TODO: log to local file or remote database
 void stacktrace(std::ostream& stream) noexcept {
   Stacktrace stacktrace;
-
-  std::string message;
-
-  for (int i = 0; i < stacktrace.size(); i++) {
-    message.append(fmt::format("\n at {} ({})", stacktrace[i].function,
-                               stacktrace[i].location));
-  }
-  stream << message << std::endl;
+  stacktrace.dump(stream);
 }
 
 // TODO: log to local file or remote database

@@ -58,6 +58,22 @@ public:
         return lines.size();
     }
 
+    void dump(std::ostream& stream) {
+      std::string message;
+      for (int i = 0; i < size(); i++) {
+        message.append(fmt::format("at {} ({})\n", lines[i].function, 
+          lines[i].location));    
+      }
+      stream << message;
+    }
+    
+    void dump(std::string& message) {
+      for (int i = 0; i < size(); i++) {
+        message.append(fmt::format("at {} ({}) \n", lines[i].function, 
+          lines[i].location));    
+      }
+    }
+
 private:
     std::vector<Line> lines;
 
