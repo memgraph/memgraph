@@ -13,12 +13,8 @@ TEST_CASE("SignalHandler Segmentation Fault Test") {
     std::cout << "Segmentation Fault" << std::endl;
     Stacktrace stacktrace;
 
-    int size = 10;
     std::string message;
-    for (int i = 0; i < size; i++) {
-      message.append(fmt::format("\n at {} ({})", stacktrace[i].function,
-                                 stacktrace[i].location));
-    }
+    stacktrace.dump(message);
     std::cout << message << std::endl;
 
   });

@@ -60,10 +60,7 @@ public:
 
     void dump(std::ostream& stream) {
       std::string message;
-      for (int i = 0; i < size(); i++) {
-        message.append(fmt::format("at {} ({})\n", lines[i].function, 
-          lines[i].location));    
-      }
+      dump(message);
       stream << message;
     }
     
