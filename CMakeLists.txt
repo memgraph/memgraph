@@ -1,58 +1,46 @@
+# MemGraph CMake configuration
+
 cmake_minimum_required(VERSION 3.1)
 
+# !! IMPORTANT !! run ./project_root/init.sh before cmake command
+# to download dependencies
+
+# choose a compiler 
+# NOTE: must be choosen before use of project() or enable_language()
+if (UNIX)
+set(CMAKE_C_COMPILER "clang")
+set(CMAKE_CXX_COMPILER "clang++")
+endif (UNIX)
+# -----------------------------------------------------------------------------
+
+# set project name
 # get directory name
 get_filename_component(project_name ${CMAKE_SOURCE_DIR} NAME)
 # replace whitespaces with underscores
 string(REPLACE " " "_" project_name ${project_name})
 # set project name
 project(${project_name})
+# -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+# -----------------------------------------------------------------------------
 
+# custom function definitions
+include(functions)
+# -----------------------------------------------------------------------------
+
+# threading
 find_package(Threads REQUIRED)
-
-# flags
+# -----------------------------------------------------------------------------
 
 # c++14
 set(cxx_standard 14)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
-
-# functions
-
-# prints all included directories
-function(list_includes)
-    get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                      PROPERTY INCLUDE_DIRECTORIES)
-    foreach(dir ${dirs})
-          message(STATUS "dir='${dir}'")
-    endforeach()
-endfunction(list_includes)
-
-# get file names from list of file paths
-function(get_file_names file_paths file_names)
-    set(file_names "")
-    foreach(file_path ${file_paths})
-        get_filename_component (file_name ${file_path} NAME_WE)
-        list(APPEND file_names ${file_name})
-    endforeach()
-    set(file_names "${file_names}" PARENT_SCOPE)
-endfunction()
-
-MACRO(SUBDIRLIST result curdir)
-    FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
-    SET(dirlist "")
-    FOREACH(child ${children})
-        IF(IS_DIRECTORY ${curdir}/${child})
-            LIST(APPEND dirlist ${child})
-        ENDIF()
-    ENDFOREACH()
-    SET(${result} ${dirlist})
-ENDMACRO()
+# -----------------------------------------------------------------------------
 
 # custom targets
-
 # move test data data to the build directory
 if (UNIX)
     set(test_data "tests/data")
@@ -63,21 +51,18 @@ if (UNIX)
         COMMAND cp -r ${test_data_src} ${test_data_dst}
 	)
 endif (UNIX)
+# -----------------------------------------------------------------------------
 
-# external dependencies
-
+# dir variables
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 set(include_dir ${CMAKE_SOURCE_DIR}/include)
 set(build_include_dir ${CMAKE_BINARY_DIR}/include)
 set(test_include_dir ${CMAKE_BINARY_DIR}/tests/include)
 set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
+# -----------------------------------------------------------------------------
 
 # setup external dependencies
-
-# !! IMPORTANT !! run ./libs/setup.sh before cmake command
-# TODO: run from execute_process
-
 # lemon & lempar
 set(lemon_dir ${libs_dir}/lemon)
 # lexertl
@@ -91,14 +76,17 @@ set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 # Catch (C++ Automated Test Cases in Headers)
 set(catch_source_dir "${libs_dir}/Catch")
+# -----------------------------------------------------------------------------
 
 # load cmake modules: cmake/*.cmake
 include(gtest)
 include(gbenchmark)
+# -----------------------------------------------------------------------------
 
 # build memgraph's cypher grammar
 # copy grammar file to the build directory
-FILE(COPY ${include_dir}/query/language/cypher/cypher.y DESTINATION ${CMAKE_BINARY_DIR})
+FILE(COPY ${include_dir}/query/language/cypher/cypher.y
+     DESTINATION ${CMAKE_BINARY_DIR})
 # build cypher parser (only c file - cypher.c)
 EXECUTE_PROCESS(
     COMMAND ${lemon_dir}/lemon ${CMAKE_BINARY_DIR}/cypher.y -s
@@ -110,34 +98,22 @@ FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.c ${CMAKE_BINARY_DIR}/cypher.cpp)
 SET(cypher_build_include_dir ${build_include_dir}/cypher)
 FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
 FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
+# -----------------------------------------------------------------------------
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
 # copy query_engine's templates file
-FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR}/tests)
+FILE(COPY ${src_dir}/query_engine/template
+     DESTINATION ${CMAKE_BINARY_DIR}/tests)
 FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
 # create destination folder for compiled queries
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled/cpu)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled/cpu)
+# -----------------------------------------------------------------------------
 
-# TODO: filter header files, all files don't need to be copied
-# they are all copied because query engine needs header files during
-# query compilation
-# TODO: make a function (REMOVE copy pasted part)
-# SUBDIRLIST(source_folders ${src_dir})
-# foreach(source_folder ${source_folders})
-#     file(COPY ${src_dir}/${source_folder} DESTINATION ${build_include_dir})
-# endforeach()
-SUBDIRLIST(source_folders ${src_dir})
-foreach(source_folder ${source_folders})
-    file(COPY ${src_dir}/${source_folder} DESTINATION ${test_src_dir})
-endforeach()
-SUBDIRLIST(source_folders ${include_dir})
-foreach(source_foler ${source_folders})
-    file(COPY ${include_dir}/${source_folder} DESTINATION ${test_include_dir})
-endforeach()
-
+# copy files needed for query engine (headers)
 include(copy_includes)
+# -----------------------------------------------------------------------------
 
 # linter setup (clang-tidy)
 # all source files for linting
@@ -147,7 +123,6 @@ FILE(GLOB_RECURSE LINTER_SRC_FILES
     ${CMAKE_SOURCE_DIR}/poc/.cpp
 )
 MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
-
 # linter target clang-tidy
 find_program(CLANG_TIDY "clang-tidy")
 if(CLANG_TIDY)
@@ -161,24 +136,29 @@ if(CLANG_TIDY)
         -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir} -I${yaml_include_dir}
     )
 endif()
-# linter setup
+# -----------------------------------------------------------------------------
 
-# debug flags
+# TODO: add specific flags
+# release flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+#debug flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
+
+# compiler specific flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     # set(CMAKE_CXX_FLAGS_DEBUG "-Wl,--export-dynamic ${CMAKE_CXX_FLAGS_DEBUG}")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     # set(CMAKE_CXX_FLAGS_DEBUG "-rdynamic ${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
-# release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 ${CMAKE_CXX_FLAGS_RELEASE}")
+# default build type is debug
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(CMAKE_BUILD_TYPE "debug")
+endif()
+message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
+# -----------------------------------------------------------------------------
 
-#debug flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g2 ${CMAKE_CXX_FLAGS_DEBUG}")
-
-# TODO: find a way how to applay the defines at the query compile time
-# -- configure defines -- default is ON | true | enabled ----------------------
-# -- logging ------------------------------------------------------------------
+# logging levels
 option(LOG_NO_TRACE "Disable trace logging" OFF)
 message(STATUS "LOG_NO_TRACE: ${LOG_NO_TRACE}")
 if (LOG_NO_TRACE)
@@ -208,15 +188,20 @@ message(STATUS "LOG_NO_ERROR: ${LOG_NO_ERROR}")
 if (LOG_NO_ERROR)
     add_definitions(-DLOG_NO_ERROR)
 endif()
-# -- logging ------------------------------------------------------------------
-# -- logger -------------------------------------------------------------------
-option(SYNC_LOGGER "" OFF)
-message(STATUS "SYNC LOGGER: ${SYNC_LOGGER}")
+# TODO: find a way how to applay those defines at the query compile time
+# -----------------------------------------------------------------------------
+
+# logger type
+# the default logger is sync logger
+# on: cmake ... -DSYNC_LOGGER=OFF ... async logger is going to be used
+option(SYNC_LOGGER "Sync logger" ON)
+message(STATUS "SYNC_LOGGER: ${SYNC_LOGGER}")
 if (SYNC_LOGGER)
     add_definitions(-DSYNC_LOGGER)
 endif()
-# -- logger -------------------------------------------------------------------
-# -- assert -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
+# assert
 option(RUNTIME_ASSERT "Enable runtime assertions" ON)
 message(STATUS "RUNTIME_ASSERT: ${RUNTIME_ASSERT}")
 if(RUNTIME_ASSERT)
@@ -228,49 +213,52 @@ message(STATUS "THROW_EXCEPTION_ON_ERROR: ${THROW_EXCEPTION_ON_ERROR}")
 if(THROW_EXCEPTION_ON_ERROR)
     add_definitions(-DTHROW_EXCEPTION_ON_ERROR)
 endif()
-# -- assert -------------------------------------------------------------------
-# -- ndebug -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
+# ndebug
 option(NDEBUG "No debug" OFF)
-message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also append this flag)")
+message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \
+append this flag)")
 if(NDEBUG)
     add_definitions( -DNDEBUG )
 endif()
-# -- ndebug -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
 # -- GLIBCXX_DEBUG ------------------------------------------------------------
 # glibcxx debug (useful for gdb)
 # the problem is that the query engine doesn't work as it should work if
-# this flag is present
+# this flag is present (TODO: figure out why)
 option(GLIBCXX_DEBUG "glibc debug" OFF)
-message(STATUS "GLIBCXX_DEBUG: ${GLIBCXX_DEBUG} (solves problem with _M_dataplus member during a debugging process")
+message(STATUS "GLIBCXX_DEBUG: ${GLIBCXX_DEBUG} (solves problem with \
+_M_dataplus member during a debugging process)")
 if(GLIBCXX_DEBUG)
     set(CMAKE_CXX_FLAGS_DEBUG "-D_GLIBCXX_DEBUG ${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 # -----------------------------------------------------------------------------
-# -- binaries -----------------------------------------------------------------
+
+# option binaries
+# memgraph
 option(MEMGRAPH "Build memgraph binary" ON)
 message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
+# proof of concept
 option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
-option(TOOLS "Build tool executables" ON)
-message(STATUS "TOOLS binaries: ${TOOLS}")
+# tests
+option(ALL_TESTS "Add all test binaries" ON)
+message(STATUS "Add all test binaries: ${ALL_TESTS}")
+option(BENCHMARK_TESTS "Add benchmark test binaries" OFF)
+message(STATUS "Add benchmark test binaries: ${BENCHMARK_TESTS}")
+option(CONCURRENT_TESTS "Add concurrent test binaries" OFF)
+message(STATUS "Add concurrent test binaries: ${CONCURRENT_TESTS}")
+option(INTEGRATION_TESTS "Add integration test binaries" OFF)
+message(STATUS "Add integration test binaries: ${INTEGRATION_TESTS}")
+option(MANUAL_TESTS "Add manual test binaries" OFF)
+message(STATUS "Add manual test binaries: ${MANUAL_TESTS}")
+option(UNIT_TESTS "Add unit test binaries" OFF)
+message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
+# -----------------------------------------------------------------------------
 
-option(TESTS "Build test binaries" ON)
-message(STATUS "TESTS binaries: ${TESTS}")
-
-option(BENCHMARK "Build benchmark test binaries" ON)
-message(STATUS "BENCHMARK test binaries: ${BENCHMARK}")
-option(CONCURRENT "Build concurrent test binaries" ON)
-message(STATUS "CONCURRENT test binaries: ${CONCURRENT}")
-option(INTEGRATION "Build integration test binaries" ON)
-message(STATUS "INTEGRATION test binaries: ${INTEGRATION}")
-option(MANUAL "Build manual test binaries" ON)
-message(STATUS "MANUAL test binaries: ${MANUAL}")
-option(UNIT "Build unit test binaries" ON)
-message(STATUS "UNIT test binaries: ${UNIT}")
-# -- binaries -----------------------------------------------------------------
-# -- configure defines --------------------------------------------------------
-
-# -- includes -----------------------------------------------------------------
+# includes
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
@@ -285,14 +273,17 @@ include_directories(${r3_source_dir}/include)
 
 # creates build/libcypher_lib.a
 add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
+# -----------------------------------------------------------------------------
 
-# REST API preprocessor
-EXECUTE_PROCESS(
-    COMMAND python link_resources.py
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
-)
+# TODO: remove from here (isolate HTTP server)
+# # REST API preprocessor
+# EXECUTE_PROCESS(
+#     COMMAND python link_resources.py
+#     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
+# )
+# # ---------------------------------------------------------------------------
 
-# TODO: create separate static library from bolt code
+# all memgraph src files
 set(memgraph_src_files
     ${src_dir}/config/config.cpp
     ${src_dir}/dbms/dbms.cpp
@@ -364,53 +355,29 @@ set(memgraph_src_files
     ${src_dir}/storage/edge_accessor.cpp
     ${src_dir}/storage/record_accessor.cpp
 )
+# -----------------------------------------------------------------------------
 
 # STATIC library used by memgraph executables
-add_library(memgraph STATIC ${memgraph_src_files})
+add_library(memgraph_lib STATIC ${memgraph_src_files})
+# -----------------------------------------------------------------------------
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
-
-# TODO: test build & run logic T190
-
-include_directories(${catch_source_dir}/include)
-
-# tests
-if (TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
+# -----------------------------------------------------------------------------
 
 # proof of concepts
 if (POC)
     add_subdirectory(poc)
 endif()
+# -----------------------------------------------------------------------------
 
-# benchmark test binaries
-if (BENCHMARK)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/benchmark)
+# tests
+if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST 
+        OR MANUAL_TESTS OR UNIT_TESTS)
+    add_subdirectory(tests)
 endif()
-
-# concurrent test binaries
-if (CONCURRENT)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/concurrent)
-endif()
-
-# integration test binaries
-if (INTEGRATION)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/integration)
-endif()
-
-# integration test binaries
-if (MANUAL)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/manual)
-endif()
-
-# integration test binaries
-if (UNIT)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/tests/unit)
-endif()
+# -----------------------------------------------------------------------------
 
 # memgraph build name
 execute_process(
@@ -430,19 +397,17 @@ string(STRIP ${COMMIT_NO} COMMIT_NO)
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
     "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
-
-message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Debug flags: ${CMAKE_CXX_FLAGS_DEBUG}")
-message(STATUS "Release flags: ${CMAKE_CXX_FLAGS_RELEASE}")
+# -----------------------------------------------------------------------------
 
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
 
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
+
     if (UNIX)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
         # target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
@@ -451,3 +416,4 @@ if (MEMGRAPH)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
     endif (UNIX)
 endif()
+# -----------------------------------------------------------------------------

@@ -31,7 +31,7 @@ foreach(test_cpp ${test_type_cpps})
     # threads (cross-platform)
     target_link_libraries(${target_name} Threads::Threads)
     # memgraph lib
-    target_link_libraries(${target_name} memgraph)
+    target_link_libraries(${target_name} memgraph_lib)
     # fmt format lib
     target_link_libraries(${target_name} ${fmt_static_lib})
     # yaml parser lib
