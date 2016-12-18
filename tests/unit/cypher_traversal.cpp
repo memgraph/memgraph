@@ -19,7 +19,7 @@ auto load_queries()
 {
     std::vector<std::string> queries;
 
-    fs::path queries_path = "data/queries/cypher";
+    fs::path queries_path = "../data/queries/cypher";
     std::string query_file_extension = "cypher";
 
     for (auto& directory_entry :

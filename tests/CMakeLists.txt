@@ -6,11 +6,21 @@ enable_testing()
 
 include_directories(${catch_source_dir}/include)
 
-# copy unit test data
+# copy test data
 file(COPY ${CMAKE_SOURCE_DIR}/tests/data
      DESTINATION ${CMAKE_BINARY_DIR}/tests)
-file(COPY ${CMAKE_SOURCE_DIR}/tests/data
-     DESTINATION ${CMAKE_BINARY_DIR}/tests/unit)
+
+# move test data data to the build directory
+if (UNIX)
+    set(test_data "tests/data")
+    set(test_data_src "${CMAKE_SOURCE_DIR}/${test_data}")
+	set(test_data_dst "${CMAKE_BINARY_DIR}/${test_data}")
+	add_custom_target (test_data
+		COMMAND rm -rf ${test_data_dst}
+        COMMAND cp -r ${test_data_src} ${test_data_dst}
+	)
+endif (UNIX)
+# -----------------------------------------------------------------------------
 
 # benchmark test binaries
 if (ALL_TESTS OR BENCHMARK_TESTS)

@@ -40,19 +40,6 @@ set(cxx_standard 14)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 # -----------------------------------------------------------------------------
 
-# custom targets
-# move test data data to the build directory
-if (UNIX)
-    set(test_data "tests/data")
-    set(test_data_src "${CMAKE_SOURCE_DIR}/${test_data}")
-	set(test_data_dst "${CMAKE_BINARY_DIR}/${test_data}")
-	add_custom_target (test_data
-		COMMAND rm -rf ${test_data_dst}
-        COMMAND cp -r ${test_data_src} ${test_data_dst}
-	)
-endif (UNIX)
-# -----------------------------------------------------------------------------
-
 # dir variables
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
