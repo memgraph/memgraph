@@ -14,7 +14,7 @@ TEST(BlockAllocatorTest, UnusedVsReleaseSize)
 TEST(BlockAllocatorTest, CountMallocAndFreeCalls)
 {
     // TODO: implementation
-    EXPECT_EQ(true, true);
+    EXPECT_EQ(true, false);
 }
 
 int main(int argc, char **argv)
