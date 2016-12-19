@@ -6,4 +6,6 @@ class NotYetImplemented : public BasicException
 {
 public:
     using BasicException::BasicException;
+
+    NotYetImplemented() : BasicException("") {}
 };

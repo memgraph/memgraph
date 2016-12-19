@@ -26,18 +26,19 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
+    # filesystem
+    target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)
     target_link_libraries(${target_name} Threads::Threads)
-    # google-benchmark
-    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
     # memgraph lib
     target_link_libraries(${target_name} memgraph_lib)
     # fmt format lib
     target_link_libraries(${target_name} ${fmt_static_lib})
     # yaml parser lib
     target_link_libraries(${target_name} ${yaml_static_lib})
-
-    # register test
-    add_test(${target_name} ${exec_name})
+    # cypher lib
+    target_link_libraries(${target_name} cypher_lib)
+    # dynamic lib
+    target_link_libraries(${target_name} dl)
 
 endforeach()

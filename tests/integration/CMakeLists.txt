@@ -4,7 +4,7 @@ find_package(Threads REQUIRED)
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
 # get all cpp abs file names recursively starting from current directory
-file(GLOB_RECURSE test_type_cpps *.cpp)
+file(GLOB test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
 # for each cpp file build binary and register test
@@ -26,10 +26,10 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
+    # filesystem
+    target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)
     target_link_libraries(${target_name} Threads::Threads)
-    # google-benchmark
-    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
     # memgraph lib
     target_link_libraries(${target_name} memgraph_lib)
     # fmt format lib
