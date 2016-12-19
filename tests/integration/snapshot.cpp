@@ -1,11 +1,17 @@
 #include <random>
 
+#include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "_hardcoded_query/basic.hpp"
+#include "query/preprocesor.hpp"
 #include "query/strip/stripper.hpp"
 #include "storage/indexes/indexes.hpp"
+#include "utils/assert.hpp"
+#include "utils/signals/handler.hpp"
+#include "utils/stacktrace/log.hpp"
 #include "utils/sysinfo/memory.hpp"
+
+QueryPreprocessor preprocessor;
 
 // Returns uniform random size_t generator from range [0,n>
 auto rand_gen(size_t n)
@@ -17,32 +23,28 @@ auto rand_gen(size_t n)
 
 void run(size_t n, std::string &query, Db &db)
 {
-    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
+    auto qf       = hardcode::load_basic_functions(db);
+    auto stripped = preprocessor.preprocess(query);
 
-    auto qf = hardcode::load_basic_functions(db);
+    logging::info("Running query {} [{}] x {}.", query, stripped.hash, n);
 
-    auto stripped = stripper.strip(query);
-    std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
-              << std::endl;
     for (int i = 0; i < n; i++)
     {
         properties_t vec = stripped.arguments;
-        assert(qf[stripped.hash](std::move(vec)));
+        permanent_assert(qf[stripped.hash](std::move(vec)), "Query aborted");
     }
 }
 
 void add_edge(size_t n, Db &db)
 {
-    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
-    auto qf       = hardcode::load_basic_functions(db);
+    auto qf = hardcode::load_basic_functions(db);
 
     std::string query = "MATCH (n1), (n2) WHERE ID(n1)=0 AND "
                         "ID(n2)=1 CREATE (n1)<-[r:IS {age: "
                         "25,weight: 70}]-(n2) RETURN r";
+    auto stripped = preprocessor.preprocess(query);
 
-    auto stripped = stripper.strip(query);
-    std::cout << "Running query [" << stripped.hash << "] for " << n
-              << " time to add edge." << std::endl;
+    logging::info("Running query {} [{}] x {}.", query, stripped.hash, n);
 
     std::vector<int64_t> vertices;
     for (auto &v : db.graph.vertices.access())
@@ -56,7 +58,7 @@ void add_edge(size_t n, Db &db)
         properties_t vec = stripped.arguments;
         vec[0]           = Property(Int64(vertices[rand()]), Flags::Int64);
         vec[1]           = Property(Int64(vertices[rand()]), Flags::Int64);
-        assert(qf[stripped.hash](std::move(vec)));
+        permanent_assert(qf[stripped.hash](std::move(vec)), "Query aborted");
     }
 }
 
@@ -66,7 +68,8 @@ void add_property(Db &db, StoredProperty<TypeGroupVertex> &prop)
 
     t.vertex_access().fill().for_all([&](auto va) { va.set(prop); });
 
-    assert(t.commit());
+    permanent_assert(t.commit(), "add property query aborted");
+    ;
 }
 
 void add_property_different_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
@@ -81,7 +84,7 @@ void add_property_different_int(Db &db, PropertyFamily<TypeGroupVertex> &f)
         i++;
     });
 
-    assert(t.commit());
+    permanent_assert(t.commit(), "add property different int aborted");
 }
 
 size_t size(Db &db, IndexHolder<TypeGroupVertex, std::nullptr_t> &h)
@@ -102,8 +105,8 @@ size_t size(Db &db, IndexHolder<TypeGroupVertex, std::nullptr_t> &h)
 
 void assert_empty(Db &db)
 {
-    assert(db.graph.vertices.access().size() == 0);
-    assert(db.graph.edges.access().size() == 0);
+    permanent_assert(db.graph.vertices.access().size() == 0, "Db isn't empty");
+    permanent_assert(db.graph.edges.access().size() == 0, "Db isn't empty");
 }
 
 void clean_vertex(Db &db)
@@ -178,6 +181,11 @@ int main(void)
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
 
+    SignalHandler::register_handler(Signal::SegmentationFault, []() {
+        log_stacktrace("SegmentationFault signal raised");
+        std::exit(EXIT_FAILURE);
+    });
+
     size_t cvl_n = 1000;
 
     std::string create_vertex_label =
@@ -187,9 +195,8 @@ int main(void)
     std::string delete_label_vertices = "MATCH (n:LABEL) DELETE n";
     std::string delete_all_vertices   = "MATCH (n) DELETE n";
 
-    // ******************************* TEST 1 ********************************//
     {
-        std::cout << "TEST1" << std::endl;
+        logging::info("TEST 1");
         // make snapshot of empty db
         // add vertexs
         // add edges
@@ -203,11 +210,11 @@ int main(void)
         clear_database(db);
         db.snap_engine.import();
         assert_empty(db);
+        logging::info("END of TEST 1");
     }
 
-    // ******************************* TEST 2 ********************************//
     {
-        std::cout << "TEST2" << std::endl;
+        logging::info("TEST 2");
         // add vertexs
         // add edges
         // make snapshot of db
@@ -223,13 +230,12 @@ int main(void)
         db.snap_engine.import();
         {
             Db db2("snapshot");
-            assert(equal(db, db2));
+            permanent_assert(equal(db, db2), "Dbs aren't equal");
         }
     }
 
-    // ******************************* TEST 3 ********************************//
     {
-        std::cout << "TEST3" << std::endl;
+        logging::info("TEST 3");
         // add vertexs
         // add edges
         // make snapshot of db
@@ -240,13 +246,12 @@ int main(void)
         db.snap_engine.make_snapshot();
         {
             Db db2("not_snapshot");
-            assert(!equal(db, db2));
+            permanent_assert(!equal(db, db2), "Dbs are equal");
         }
     }
 
-    // ******************************* TEST 4 ********************************//
     {
-        std::cout << "TEST4" << std::endl;
+        logging::info("TEST 4");
         // add vertices LABEL
         // add properties
         // add vertices LABEL
@@ -265,14 +270,17 @@ int main(void)
             IndexLocation{VertexSide, Option<std::string>("prop"),
                           Option<std::string>(), Option<std::string>()},
             IndexType{false, None}};
-        assert(db.indexes().add_index(idef));
-        assert(cvl_n == size(db, family.index));
+        permanent_assert(db.indexes().add_index(idef), "Index isn't added");
+        permanent_assert(cvl_n == size(db, family.index),
+                         "Index size isn't valid");
         db.snap_engine.make_snapshot();
         {
             Db db2("snapshot");
-            assert(cvl_n == size(db, db2.graph.vertices
-                                         .property_family_find_or_create("prop")
-                                         .index));
+            permanent_assert(
+                cvl_n == size(db, db2.graph.vertices
+                                      .property_family_find_or_create("prop")
+                                      .index),
+                "Index size isn't valid");
         }
     }
 

@@ -2,6 +2,7 @@
 
 #include <cassert>
 
+#include "utils/assert.hpp"
 #include "storage/vertex_record.hpp"
 #include "storage/edge_type/edge_type.hpp"
 
@@ -10,10 +11,12 @@ void EdgeAccessor::remove() const
     RecordAccessor::remove();
 
     auto from_va = from();
-    assert(from_va.fill());
+    auto from_va_is_full = from_va.fill();
+    runtime_assert(from_va_is_full, "From Vertex Accessor is empty");
 
     auto to_va = to();
-    assert(to_va.fill());
+    auto to_va_is_full = to_va.fill();
+    permanent_assert(to_va_is_full, "To Vertex Accessor is empty");
 
     from_va.update().record->data.out.remove(vlist);
     to_va.update().record->data.in.remove(vlist);
