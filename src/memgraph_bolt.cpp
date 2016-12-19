@@ -22,8 +22,7 @@ static constexpr const char* port = "7687";
 
 void throw_and_stacktace(std::string message) {
   Stacktrace stacktrace;
-  stacktrace.dump(message);
-  logger.info(message);
+  logger.info(stacktrace.dump());
 }
 
 int main(void) {

@@ -58,17 +58,18 @@ public:
         return lines.size();
     }
 
-    void dump(std::ostream& stream) {
-      std::string message;
-      dump(message);
-      stream << message;
+    template <class Stream>
+    void dump(Stream& stream) {
+      stream << dump();
     }
     
-    void dump(std::string& message) {
+    std::string dump() {
+      std::string message;
       for (int i = 0; i < size(); i++) {
         message.append(fmt::format("at {} ({}) \n", lines[i].function, 
           lines[i].location));    
       }
+      return message;
     }
 
 private:

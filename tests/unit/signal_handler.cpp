@@ -12,11 +12,7 @@ TEST_CASE("SignalHandler Segmentation Fault Test") {
   SignalHandler::register_handler(Signal::SegmentationFault, []() {
     std::cout << "Segmentation Fault" << std::endl;
     Stacktrace stacktrace;
-
-    std::string message;
-    stacktrace.dump(message);
-    std::cout << message << std::endl;
-
+    std::cout << stacktrace.dump() << std::endl;
   });
 
   std::raise(SIGSEGV);
