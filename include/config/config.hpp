@@ -31,6 +31,7 @@ inline size_t to_int(std::string &&s) { return stoull(s); }
 
 // code uses this define for key access
 // _KEY_ is value from all possible keys that are listed above
+#define CONFIG_INIT() config::Config<config::MemgraphConfig>::instance().initialize()
 #define CONFIG(_KEY_) config::Config<config::MemgraphConfig>::instance()[_KEY_]
 
 #define CONFIG_INTEGER(_KEY_) config::to_int(CONFIG(_KEY_))

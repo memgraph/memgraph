@@ -9,6 +9,7 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "utils/config/config.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace.hpp"
 #include "utils/terminate_handler.hpp"
@@ -56,6 +57,8 @@ int main(void) {
     throw_and_stacktace("Abort signal raised");
     exit(1);
   });
+
+  // CONFIG call
 
   io::Socket socket;
 

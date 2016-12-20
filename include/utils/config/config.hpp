@@ -1,63 +1,77 @@
 #pragma once
 
-#include <cstring>
-#include <string>
-#include <stdexcept>
 #include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+#include <pwd.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 // TODO: isolate from caller (caller shouldn't know that his dependency is)
 // yaml-cpp
+#include "utils/command_line/arguments.hpp"
 #include "yaml-cpp/yaml.h"
 
-namespace config
-{
-
+namespace config {
+  
 template <class Definition>
-class Config
-{
-private:
-    YAML::Node _config;
+class Config {
+ private:
+  using KeyValueMap = std::map<std::string, std::string>;
 
-    Config()
-    {
-        // config places:             priority
-        //     1. default system         |     (/etc/name/config)
-        //     2. default user           |     (/home/user/.name/config)
-        //     3. ENV var                |     (PATH)
-        //     4. program argument      \ /    (PATH)
-       
-        if (const char* env_path = std::getenv(Definition::env_config_key))
-        {
-            _config = YAML::LoadFile(env_path);
-            // TODO: error handling
-        } 
-        else
-        {
-            _config = YAML::LoadFile(Definition::default_file_path);
-            // TODO: error handling
-        }
+  KeyValueMap dict;
 
-        // TODO:
-        //     * default system
-        //     * default user
-        //     * program argument
+  void load_configuration(std::string path) {
+    try {
+      YAML::Node node = YAML::LoadFile(path);
+    
+      for (YAML::const_iterator it = node.begin(); it != node.end(); ++it) {
+        dict[it->first.as<std::string>()] = it->second.as<std::string>();
+      }
+    } catch (std::exception ex) {
+      // configuration doesn't exist or invalid!!!
     }
+  }
 
-public:
-    static Config<Definition>& instance()
-    {
-        static Config<Definition> config;
-        return config;
-    }
+  Config() {
+    // config places:             priority
+    //     1. default system         |     (/etc/memgraph/config)
+    //     2. default user           |     (/home/user/.memgraph/config)
+    //     3. ENV var                |     (PATH)
+    //     4. program argument      \ /    (PATH)
 
-    void register_program_arguments()
-    {
-    }
+    // default system configuration
+    load_configuration(Definition::default_file_path);
 
-    std::string operator[](const char* key)
-    {
-        return _config[key].template as<std::string>();
+    // default user configuration
+    // fetches user configuration folder
+    std::string homedir;
+    if ((homedir = getenv("HOME")) == "") {
+      homedir = getpwuid(getuid())->pw_dir;
     }
+    homedir += "/.memgraph/config.yaml";
+    load_configuration(homedir);
+
+    // environment variable configuratoin
+    if (const char* env_path = std::getenv(Definition::env_config_key))
+      load_configuration(env_path);
+
+    // TODO add program arguments here
+    // Define how will we pass program args and which ones are we using and how.
+    // ProgramArguments::instance().get_arg();
+  }
+
+ public:
+  static Config<Definition>& instance() {
+    static Config<Definition> config;
+    return config;
+  }
+
+  std::string operator[](const char* key) {
+    return dict[key];
+  }
 };
-
 }
