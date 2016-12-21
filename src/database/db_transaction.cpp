@@ -23,7 +23,8 @@ void clean_version_lists(A &&acc, Id oldest_active)
         {
             // TODO: Optimization, iterator with remove method.
             bool succ = acc.remove(vlist.first);
-            assert(succ); // There is other cleaner here
+            // There is other cleaner here
+            runtime_assert(succ, "Remove has failed");
         }
     }
 }
@@ -56,7 +57,7 @@ void DbTransaction::clean_vertex_section()
 
 bool DbTransaction::update_indexes()
 {
-    logger.debug("index_updates: {}, instance: {}, transaction: {}",
+    logger.trace("index_updates: {}, instance: {}, transaction: {}",
                  index_updates.size(), static_cast<void *>(this), trans.id);
 
     while (!index_updates.empty())
@@ -107,7 +108,7 @@ void DbTransaction::to_update_index(typename TG::vlist_t *vlist,
                                     typename TG::record_t *record)
 {
     index_updates.emplace_back(make_index_update(vlist, record));
-    logger.debug("update_index, updates_no: {}, instance: {}, transaction: {}",
+    logger.trace("update_index, updates_no: {}, instance: {}, transaction: {}",
                  index_updates.size(), static_cast<void *>(this), trans.id);
 }
 
