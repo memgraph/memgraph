@@ -20,9 +20,6 @@ Db &Dbms::active(const std::string &name)
     // create db if it doesn't exist
     auto it = acc.find(name);
     if (it == acc.end()) {
-
-        // It doesn't exist.
-        Snapshoter &snap = snapshoter;
         it = acc.emplace(name, std::forward_as_tuple(name),
                          std::forward_as_tuple(name))
                  .first;

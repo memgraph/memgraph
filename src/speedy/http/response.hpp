@@ -21,7 +21,7 @@ class Response
     using response_t = Response<Req, Res>;
 
 public:
-    Response(connection_t& connection);
+    explicit Response(connection_t& connection);
     
     void send(const std::string& body);
     void send(Status code, const std::string& body);

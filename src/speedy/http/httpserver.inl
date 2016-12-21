@@ -9,8 +9,8 @@ namespace http
 static BlockAllocator<65536> buffer_allocator;
 
 template <class Req, class Res>
-HttpServer<Req, Res>::HttpServer(uv::UvLoop& loop)
-    : loop(loop), stream(loop) {}
+HttpServer<Req, Res>::HttpServer(uv::UvLoop& l)
+    : loop(l), stream(l) {}
 
 template <class Req, class Res>
 void HttpServer<Req, Res>::listen(const Ipv4& ip, request_cb_t callback)

@@ -58,13 +58,13 @@ int main(void) {
     exit(1);
   });
 
-  // CONFIG call
+  // TODO CONFIG call
 
   io::Socket socket;
 
   try {
     socket = io::Socket::bind(interface, port);
-  } catch (io::NetworkError e) {
+  } catch (const io::NetworkError& e) {
     logger.error("Cannot bind to socket on {} at {}", interface, port);
     logger.error("{}", e.what());
 

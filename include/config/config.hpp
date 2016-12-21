@@ -2,6 +2,9 @@
 
 #include "utils/config/config.hpp"
 
+#include <string>
+#include <set>
+
 namespace config
 {
 
@@ -15,6 +18,7 @@ class MemgraphConfig
 public:
     static const char *env_config_key;
     static const char *default_file_path;
+    static std::set<std::string> arguments;
 };
 
 // -- all possible Memgraph's keys --
@@ -31,6 +35,8 @@ inline size_t to_int(std::string &&s) { return stoull(s); }
 
 // code uses this define for key access
 // _KEY_ is value from all possible keys that are listed above
+#define CONFIG_REGISTER_ARGS(ARGC, ARGV) \
+  config::Config<config::MemgraphConfig>::instance().register_args(ARGC, ARGV);
 #define CONFIG(_KEY_) config::Config<config::MemgraphConfig>::instance()[_KEY_]
 
 #define CONFIG_INTEGER(_KEY_) config::to_int(CONFIG(_KEY_))

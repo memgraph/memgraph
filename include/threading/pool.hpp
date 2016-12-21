@@ -14,7 +14,7 @@ class Pool : Lockable<std::mutex>
 public:
     using sptr = std::shared_ptr<Pool>;
 
-    Pool(size_t n = std::thread::hardware_concurrency()) : alive(true)
+    explicit Pool(size_t n = std::thread::hardware_concurrency()) : alive(true)
     {
         threads.reserve(n);
 

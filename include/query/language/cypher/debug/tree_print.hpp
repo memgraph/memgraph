@@ -24,7 +24,7 @@ public:
         class Entry
         {
         public:
-            Entry(Printer &printer) : printer(printer), valid(true)
+            explicit Entry(Printer &printer) : printer(printer), valid(true)
             {
                 printer.level++;
 
@@ -77,7 +77,8 @@ public:
         size_t level = 0;
     };
 
-    PrintVisitor(std::ostream &stream) : printer(stream, "Printing AST") {}
+    explicit PrintVisitor(std::ostream &stream)
+      : printer(stream, "Printing AST") {}
 
     void visit(ast::Start &start) override
     {

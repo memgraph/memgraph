@@ -92,7 +92,7 @@ public:
         r3::route* route;
     };
 
-    R3(size_t capacity)
+    explicit R3(size_t capacity)
     {
         root = r3::r3_tree_create(capacity);
     }
@@ -104,10 +104,8 @@ public:
 
     R3(R3&) = delete;
 
-    R3(R3&& other)
+    R3(R3&& other) : routes(std::move(other.routes), root(other.root)
     {
-        this->routes = std::move(other.routes);
-        this->root = other.root;
         other.root = nullptr;
     }
 

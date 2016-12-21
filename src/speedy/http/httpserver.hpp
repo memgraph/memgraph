@@ -22,7 +22,7 @@ class HttpServer
 public:
     using request_cb_t = std::function<void(Req&, Res&)>;
 
-    HttpServer(uv::UvLoop& loop);
+    explicit HttpServer(uv::UvLoop& loop);
 
     void listen(const Ipv4& ip, request_cb_t callback);
 

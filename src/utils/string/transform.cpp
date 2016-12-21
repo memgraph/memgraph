@@ -3,6 +3,7 @@
 namespace utils
 {
 
+// TODO CPPCheck -> function never used
 void str_tolower(std::string& s)
 {
     //  en_US.utf8 localization

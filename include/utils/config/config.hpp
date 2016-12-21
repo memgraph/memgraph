@@ -48,8 +48,8 @@ class Config {
 
     // default user configuration
     // fetches user configuration folder
-    std::string homedir;
-    if ((homedir = getenv("HOME")) == "") {
+    std::string homedir = std::getenv("HOME"); 
+    if ((homedir == "") {
       homedir = getpwuid(getuid())->pw_dir;
     }
     homedir += "/.memgraph/config.yaml";
@@ -58,16 +58,21 @@ class Config {
     // environment variable configuratoin
     if (const char* env_path = std::getenv(Definition::env_config_key))
       load_configuration(env_path);
-
-    // TODO add program arguments here
-    // Define how will we pass program args and which ones are we using and how.
-    // ProgramArguments::instance().get_arg();
   }
 
  public:
   static Config<Definition>& instance() {
     static Config<Definition> config;
     return config;
+  }
+
+  void register_args(int argc, char** argv) {
+    REGISTER_ARGS(argc, argv);
+
+    for (const auto& argument : Definition::arguments) {
+      dict[argument] = GET_ARG("-" + argument, dict[argument]).get_string();
+    }
+
   }
 
   std::string operator[](const char* key) {
