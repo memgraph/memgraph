@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "utils/exceptions/out_of_memory.hpp"
+#include "utils/likely.hpp"
 #include "utils/memory/block_allocator.hpp"
 
 // http://en.cppreference.com/w/cpp/language/new
