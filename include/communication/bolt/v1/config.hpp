@@ -7,8 +7,11 @@ namespace bolt
 
 namespace config
 {
-    static constexpr size_t N = 65535; /* chunk size */
-    static constexpr size_t C = N + 2; /* end mark */
+    /** chunk size */
+    static constexpr size_t N = 65535; 
+
+    /** end mark */
+    static constexpr size_t C = N + 2;
 }
 
 }
