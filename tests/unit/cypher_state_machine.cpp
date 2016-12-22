@@ -1,13 +1,12 @@
 #include <iostream>
 
+#include "gtest/gtest.h"
+
 #include "query/backend/cpp_old/entity_search.hpp"
 #include "utils/assert.hpp"
 #include "utils/underlying_cast.hpp"
 
-using std::cout;
-using std::endl;
-
-int main()
+TEST(CypherStateMachine, Basic)
 {
     // initialize cypher state machine
     CypherStateMachine csm;
@@ -31,6 +30,10 @@ int main()
     // check minimum cost
     permanent_assert(csm.min("n") == entity_search::search_label_index,
                      "Search place should be label index");
+}
 
-    return 0;
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

@@ -1,5 +1,4 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
 #include <iostream>
 #include <string>
@@ -8,7 +7,7 @@
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace/stacktrace.hpp"
 
-TEST_CASE("SignalHandler Segmentation Fault Test")
+TEST(SignalHandler, SegmentationFaultTest)
 {
     SignalHandler::register_handler(Signal::SegmentationFault, []() {
         std::cout << "Segmentation Fault" << std::endl;
@@ -17,4 +16,10 @@ TEST_CASE("SignalHandler Segmentation Fault Test")
     });
 
     std::raise(SIGSEGV);
+}
+
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
