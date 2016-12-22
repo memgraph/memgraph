@@ -1,22 +1,17 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
+#include <functional>
+
+#include "data_structures/bloom/bloom_filter.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
 
-#include "data_structures/bloom/bloom_filter.hpp"
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wwritable-strings"
-
 using StringHashFunction = std::function<uint64_t(const std::string &)>;
 
-TEST_CASE("BloomFilter Test")
+TEST(BloomFilterTest, InsertContains)
 {
     StringHashFunction hash1 = fnv64<std::string>;
     StringHashFunction hash2 = fnv1a64<std::string>;
-
-    auto c                                = [](auto x) -> int { return x % 4; };
     std::vector<StringHashFunction> funcs = {hash1, hash2};
 
     BloomFilter<std::string, 64> bloom(funcs);
@@ -24,19 +19,21 @@ TEST_CASE("BloomFilter Test")
     std::string test  = "test";
     std::string kifla = "kifla";
 
-    std::cout << hash1(test) << std::endl;
-    std::cout << hash2(test) << std::endl;
-
-    std::cout << hash1(kifla) << std::endl;
-    std::cout << hash2(kifla) << std::endl;
-
-    std::cout << bloom.contains(test) << std::endl;
+    bool contains_test = bloom.contains(test);
+    ASSERT_EQ(contains_test, false);
     bloom.insert(test);
-    std::cout << bloom.contains(test) << std::endl;
+    contains_test = bloom.contains(test);
+    ASSERT_EQ(contains_test, true);
 
-    std::cout << bloom.contains(kifla) << std::endl;
+    bool contains_kifla = bloom.contains(kifla);
+    ASSERT_EQ(contains_kifla, false);
     bloom.insert(kifla);
-    std::cout << bloom.contains(kifla) << std::endl;
+    contains_kifla = bloom.contains(kifla);
+    ASSERT_EQ(contains_kifla, true);
 }
 
-#pragma clang diagnostic pop
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

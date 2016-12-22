@@ -26,6 +26,8 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
+    # gtest
+    target_link_libraries(${target_name} gtest gtest_main)
     # threads (cross-platform)
     target_link_libraries(${target_name} Threads::Threads)
     # memgraph lib

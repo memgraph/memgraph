@@ -1,42 +1,48 @@
 #include "common.h"
 
-constexpr size_t THREADS_NO = std::min(max_no_threads, 4);
-constexpr size_t key_range = 1e4;
+constexpr size_t THREADS_NO    = std::min(max_no_threads, 4);
+constexpr size_t key_range     = 1e4;
 constexpr size_t op_per_thread = 1e5;
 // Depending on value there is a possiblity of numerical overflow
-constexpr size_t max_number = 10;
+constexpr size_t max_number               = 10;
 constexpr size_t no_insert_for_one_delete = 2;
 
-// This test checks MultiIterator remove method ].
-// Each thread removes all duplicate data on random key. So removes are joint
-// and scattered on same
-// key values.
-// Calls of remove method are interleaved with insert calls which always
-// succeed.
+/**
+ * This test checks MultiIterator remove method. Each thread removes all
+ * duplicate data for a random key. So removes are joined and scattered on the
+ * same key values. Calls of remove method are interleaved with insert calls
+ * which always succeed.
+ */
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         multimap_t skiplist;
 
         auto futures = run<std::pair<long long, std::vector<long long>>>(
             THREADS_NO, skiplist, [](auto acc, auto index) {
-                auto rand = rand_gen(key_range);
-                auto rand_op = rand_gen_bool(no_insert_for_one_delete);
+                auto rand           = rand_gen(key_range);
+                auto rand_op        = rand_gen_bool(no_insert_for_one_delete);
                 long long downcount = op_per_thread;
                 std::vector<long long> set(key_range, 0);
                 long long sum = 0;
 
-                do {
+                do
+                {
                     size_t num = rand();
-                    auto data = rand() % max_number;
-                    if (rand_op()) {
+                    auto data  = rand() % max_number;
+                    if (rand_op())
+                    {
                         auto it = acc.find_multi(num);
-                        if (it.has_value()) {
+                        if (it.has_value())
+                        {
                             it++;
-                            while (it.has_value()) {
+                            while (it.has_value())
+                            {
                                 auto data_r = it->second;
-                                if (it.remove()) {
+                                if (it.remove())
+                                {
                                     downcount--;
                                     set[num]--;
                                     sum -= data_r;
@@ -47,7 +53,9 @@ int main()
                                 it++;
                             }
                         }
-                    } else {
+                    }
+                    else
+                    {
                         acc.insert(num, data);
                         downcount--;
                         set[num]++;
@@ -59,10 +67,12 @@ int main()
             });
 
         long set[key_range] = {0};
-        long long sums = 0;
-        for (auto &data : collect(futures)) {
+        long long sums      = 0;
+        for (auto &data : collect(futures))
+        {
             sums += data.second.first;
-            for (int i = 0; i < key_range; i++) {
+            for (int i = 0; i < key_range; i++)
+            {
                 set[i] += data.second.second[i];
             }
         }
@@ -70,7 +80,8 @@ int main()
         auto accessor = skiplist.access();
         check_multi_iterator(accessor, key_range, set);
 
-        for (auto &e : accessor) {
+        for (auto &e : accessor)
+        {
             set[e.first]--;
             sums -= e.second;
         }

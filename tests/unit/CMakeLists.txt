@@ -44,6 +44,7 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} dl)
 
     # register test
-    add_test(${target_name} ${exec_name})
+    add_test(${target_name} ${exec_name}
+        --gtest_output=xml:${CMAKE_BINARY_DIR}/test_results/${target_name}.xml)
 
 endforeach()

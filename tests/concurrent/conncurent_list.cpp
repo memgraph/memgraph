@@ -8,7 +8,7 @@ constexpr size_t max_number               = 10;
 constexpr size_t no_find_per_change       = 2;
 constexpr size_t no_insert_for_one_delete = 1;
 
-// This test simulates behavior of transactions.
+// This test simulates behavior of a transactions.
 // Each thread makes a series of finds interleaved with method which change.
 // Exact ratio of finds per change and insert per delete can be regulated with
 // no_find_per_change and no_insert_for_one_delete.
