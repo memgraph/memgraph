@@ -8,6 +8,8 @@ constexpr size_t max_number = 10;
 constexpr size_t no_find_per_change = 5;
 constexpr size_t no_insert_for_one_delete = 1;
 
+// TODO: document the test
+
 // This test simulates behavior of transactions.
 // Each thread makes a series of finds interleaved with method which change.
 // Exact ratio of finds per change and insert per delete can be regulated with
@@ -15,6 +17,7 @@ constexpr size_t no_insert_for_one_delete = 1;
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         map_t skiplist;
 

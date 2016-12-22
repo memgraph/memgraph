@@ -5,12 +5,15 @@ constexpr size_t key_range = 1e4;
 constexpr size_t op_per_thread = 1e5;
 constexpr size_t no_insert_for_one_delete = 2;
 
+// TODO: document the test
+
 // This test checks set.
 // Each thread removes random data. So removes are joint.
 // Calls of remove method are interleaved with insert calls.
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         set_t skiplist;
 

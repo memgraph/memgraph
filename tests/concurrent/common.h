@@ -302,6 +302,7 @@ void memory_check(size_t no_threads, std::function<void()> f)
     permanent_assert(true, "Memory leak");
 }
 
+// TODO: move this inside logging/default
 // Initializes loging faccilityes
 void init_log()
 {

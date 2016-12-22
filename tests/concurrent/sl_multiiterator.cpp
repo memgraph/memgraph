@@ -7,13 +7,16 @@ constexpr size_t op_per_thread = 1e5;
 constexpr size_t max_number = 10;
 constexpr size_t no_insert_for_one_delete = 1;
 
-// This test checks MultiIterator from multimap.
-// Each thread removes random data. So removes are joint.
-// Calls of remove method are interleaved with insert calls which always
-// succeed.
+/**
+ * This test checks MultiIterator from multimap.
+ * Each thread removes random data. So removes are joint.
+ * Calls of remove method are interleaved with insert calls which always
+ * succeed.
+ */
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         multimap_t skiplist;
 
