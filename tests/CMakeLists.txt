@@ -6,7 +6,8 @@ enable_testing()
 
 include_directories(${catch_source_dir}/include)
 
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
 
 # copy test data
 file(COPY ${CMAKE_SOURCE_DIR}/tests/data
