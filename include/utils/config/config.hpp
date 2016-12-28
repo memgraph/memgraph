@@ -49,7 +49,7 @@ class Config {
     // default user configuration
     // fetches user configuration folder
     std::string homedir = std::getenv("HOME"); 
-    if ((homedir == "") {
+    if ((homedir == "")) {
       homedir = getpwuid(getuid())->pw_dir;
     }
     homedir += "/.memgraph/config.yaml";
@@ -70,7 +70,7 @@ class Config {
     REGISTER_ARGS(argc, argv);
 
     for (const auto& argument : Definition::arguments) {
-      dict[argument] = GET_ARG("-" + argument, dict[argument]).get_string();
+      dict[argument] = GET_ARG("--" + argument, dict[argument]).get_string();
     }
 
   }

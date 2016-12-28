@@ -26,7 +26,7 @@ void throw_and_stacktace(std::string message) {
   logger.info(stacktrace.dump());
 }
 
-int main(void) {
+int main(int argc, char** argv) {
   // TODO figure out what is the relationship between this and signals
   // that are configured below
   std::set_terminate(&terminate_handler);
@@ -58,7 +58,8 @@ int main(void) {
     exit(1);
   });
 
-  // TODO CONFIG call
+  
+   CONFIG_REGISTER_ARGS(argc, argv);
 
   io::Socket socket;
 
