@@ -2,33 +2,34 @@
 
 #include <utility>
 
-/*  @brief Calls a cleanup function on scope exit
+/**  
+ * @brief Calls a cleanup function on scope exit
  *
- *  consider this example:
+ * consider this example:
  *
- *  void hard_worker()
- *  {
- *      resource.enable();
- *      do_stuff();          // throws exception
- *      resource.disable();
- *  }
+ * void hard_worker()
+ * {
+ *     resource.enable();
+ *     do_stuff();          // throws exception
+ *     resource.disable();
+ * }
  *
- *  if do_stuff throws an exception, resource.disable is never called
- *  and the app is left in an inconsistent state. ideally, you would like
- *  to call resource.disable regardles of the exception being thrown.
- *  OnScopeExit makes this possible and very convenient via a 'Auto' macro
+ * if do_stuff throws an exception, resource.disable is never called
+ * and the app is left in an inconsistent state. ideally, you would like
+ * to call resource.disable regardles of the exception being thrown.
+ * OnScopeExit makes this possible and very convenient via a 'Auto' macro
  *
- *  void hard_worker()
- *  {
- *      resource.enable();
- *      Auto(resource.disable());
- *      do_stuff();          // throws exception
- *  }
+ * void hard_worker()
+ * {
+ *     resource.enable();
+ *     Auto(resource.disable());
+ *     do_stuff();          // throws exception
+ * }
  *
- *  now, resource.disable will be called every time it goes out of scope
- *  regardless of the exception
+ * now, resource.disable will be called every time it goes out of scope
+ * regardless of the exception
  *
- *  @tparam F Lambda which holds a wrapper function around the cleanup code
+ * @tparam F Lambda which holds a wrapper function around the cleanup code
  */
 template <class F>
 class OnScopeExit
