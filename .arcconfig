@@ -1,4 +1,4 @@
 {
   "project_id" : "memgraph",
-  "conduit_uri" : "https://memgraph.phacility.com"
+  "conduit_uri" : "https://phabricator.memgraph.io"
 }
