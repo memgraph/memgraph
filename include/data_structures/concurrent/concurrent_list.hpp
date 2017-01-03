@@ -70,7 +70,7 @@ private:
         {
             assert(list != nullptr);
             // Increment number of iterators accessing list.
-            list->count++;
+            list->active_threads_no_++;
             // Start from the begining of list.
             reset();
         }
@@ -99,7 +99,7 @@ private:
             // Fetch could be relaxed
             // There exist possibility that no one will delete garbage at this
             // time but it will be deleted at some other time.
-            if (list->count.fetch_sub(1) == 1 && // I am the last one accessing
+            if (list->active_threads_no_.fetch_sub(1) == 1 && // I am the last one accessing
                 head_rem != nullptr &&           // There is some garbage
                 cas<Node *>(list->removed, head_rem,
                             nullptr) // No new garbage was added.
@@ -177,6 +177,8 @@ private:
                 store(node->next, next);
                 // Then try to set as head.
             } while (!cas(list->head, next, node));
+
+            list->count_.fetch_add(1);
         }
 
         // True only if this call removed the element. Only reason for fail is
@@ -200,6 +202,7 @@ private:
                 }
                 // Add to list of to be garbage collected.
                 store(curr->next_rem, swap(list->removed, curr));
+                list->count_.fetch_sub(1);
                 return true;
             }
             return false;
@@ -321,10 +324,14 @@ public:
 
     ConstIterator cend() { return ConstIterator(); }
 
-    std::size_t size() { return count.load(std::memory_order_consume); }
+    std::size_t active_threads_no() { return active_threads_no_.load(); }
+    std::size_t size() { return count_.load(); }
 
 private:
-    std::atomic<std::size_t> count{0};
+    // TODO: use lazy GC or something else as a garbage collection strategy
+    //       use the same principle as in skiplist
+    std::atomic<std::size_t> active_threads_no_{0};
+    std::atomic<std::size_t> count_{0};
     std::atomic<Node *> head{nullptr};
     std::atomic<Node *> removed{nullptr};
 };

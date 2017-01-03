@@ -1,11 +1,13 @@
 #include "common.h"
 
-constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
-constexpr size_t key_range = 1e4;
+constexpr size_t THREADS_NO    = std::min(max_no_threads, 8);
+constexpr size_t key_range     = 1e4;
 constexpr size_t op_per_thread = 1e5;
 // Depending on value there is a possiblity of numerical overflow
-constexpr size_t max_number = 10;
+constexpr size_t max_number               = 10;
 constexpr size_t no_insert_for_one_delete = 1;
+
+// TODO: document the test
 
 // This test checks multimap.
 // Each thread removes random data. So removes are joint.
@@ -14,29 +16,35 @@ constexpr size_t no_insert_for_one_delete = 1;
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         multimap_t skiplist;
         std::atomic<long long> size(0);
 
         auto futures = run<std::pair<long long, std::vector<long long>>>(
             THREADS_NO, skiplist, [&size](auto acc, auto index) {
-                auto rand = rand_gen(key_range);
-                auto rand_op = rand_gen_bool(no_insert_for_one_delete);
+                auto rand           = rand_gen(key_range);
+                auto rand_op        = rand_gen_bool(no_insert_for_one_delete);
                 long long downcount = op_per_thread;
                 std::vector<long long> set(key_range, 0);
                 long long sum = 0;
 
-                do {
+                do
+                {
                     size_t num = rand();
-                    auto data = num % max_number;
-                    if (rand_op()) {
-                        if (acc.remove(num)) {
+                    auto data  = num % max_number;
+                    if (rand_op())
+                    {
+                        if (acc.remove(num))
+                        {
                             downcount--;
                             set[num]--;
                             sum -= data;
                             size--;
                         }
-                    } else {
+                    }
+                    else
+                    {
                         acc.insert(num, data);
                         downcount--;
                         set[num]++;
@@ -49,11 +57,13 @@ int main()
             });
 
         long set[key_range] = {0};
-        long long sums = 0;
+        long long sums      = 0;
         long long size_calc = 0;
-        for (auto &data : collect(futures)) {
+        for (auto &data : collect(futures))
+        {
             sums += data.second.first;
-            for (int i = 0; i < key_range; i++) {
+            for (int i = 0; i < key_range; i++)
+            {
                 set[i] += data.second.second[i];
                 size_calc += data.second.second[i];
             }
@@ -64,15 +74,18 @@ int main()
         check_order<multimap_t>(accessor);
 
         auto bef_it = accessor.end();
-        for (int i = 0; i < key_range; i++) {
+        for (int i = 0; i < key_range; i++)
+        {
             auto it = accessor.find(i);
-            if (set[i] > 0) {
+            if (set[i] > 0)
+            {
                 permanent_assert(it != accessor.end(),
                                  "Multimap doesn't contain necessary element "
                                      << i);
 
                 if (bef_it == accessor.end()) bef_it = accessor.find(i);
-                for (int j = 0; j < set[i]; j++) {
+                for (int j = 0; j < set[i]; j++)
+                {
                     permanent_assert(
                         bef_it != accessor.end(),
                         "Previous iterator doesn't iterate through same "
@@ -89,7 +102,8 @@ int main()
                     bef_it++;
                 }
 
-                for (int j = 0; j < set[i]; j++) {
+                for (int j = 0; j < set[i]; j++)
+                {
                     permanent_assert(it != accessor.end(),
                                      "Iterator doesn't iterate through same "
                                      "key entrys. Expected "
@@ -110,7 +124,8 @@ int main()
             }
         }
 
-        for (auto &e : accessor) {
+        for (auto &e : accessor)
+        {
             set[e.first]--;
             sums -= e.second;
         }

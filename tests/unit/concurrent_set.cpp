@@ -1,32 +1,27 @@
 #include <iostream>
 
+#include "gtest/gtest.h"
+
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
-using std::cout;
-using std::endl;
-
 void print_skiplist(const ConcurrentSet<int>::Accessor &skiplist)
 {
-    cout << "---- skiplist set now has: ";
-
+    logging::info("Skiplist set now has:");
     for (auto &item : skiplist)
-        cout << item << ", ";
-
-    cout << "----" << endl;
+        logging::info("{}", item);
 }
 
-int main(void)
+TEST(ConcurrentSet, Mix)
 {
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
+
     ConcurrentSet<int> set;
 
     auto accessor = set.access();
-
-    cout << std::boolalpha;
 
     permanent_assert(accessor.insert(1).second == true,
                      "added non-existing 1? (true)");
@@ -57,6 +52,10 @@ int main(void)
     permanent_assert(accessor.insert(4).second == true, "add 4");
 
     print_skiplist(accessor);
+}
 
-    return 0;
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

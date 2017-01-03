@@ -6,6 +6,8 @@ constexpr size_t op_per_thread = 1e5;
 constexpr size_t max_number = 10;
 constexpr size_t no_insert_for_one_delete = 2;
 
+// TODO: document the test
+
 // This test checks remove method under pressure.
 // Threads will try to insert and remove keys aproximetly in the same order.
 // This will force threads to compete intensly with each other.
@@ -13,6 +15,7 @@ constexpr size_t no_insert_for_one_delete = 2;
 int main()
 {
     init_log();
+
     memory_check(THREADS_NO, [] {
         map_t skiplist;
 

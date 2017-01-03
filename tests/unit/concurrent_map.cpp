@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include "gtest/gtest.h"
+
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
@@ -7,26 +9,18 @@
 #include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
-using std::cout;
-using std::endl;
-
 using skiplist_t = ConcurrentMap<int, int>;
 
 void print_skiplist(const skiplist_t::Accessor &skiplist)
 {
-    cout << "---- skiplist now has: ";
+    logging::info("Skiplist now has: ");
 
     for (auto &kv : skiplist)
-        cout << "(" << kv.first << ", " << kv.second << ") ";
-
-    cout << "----" << endl;
+        logging::info("    ({}, {})", kv.first, kv.second);
 }
 
-int main(void)
+TEST(ConcurrentMapSkiplist, Mix)
 {
-    logging::init_async();
-    logging::log->pipe(std::make_unique<Stdout>());
-
     skiplist_t skiplist;
     auto accessor = skiplist.access();
 
@@ -71,6 +65,13 @@ int main(void)
                      "insert unique element");
 
     print_skiplist(accessor);
+}
 
-    return 0;
+int main(int argc, char **argv)
+{
+    logging::init_async();
+    logging::log->pipe(std::make_unique<Stdout>());
+
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

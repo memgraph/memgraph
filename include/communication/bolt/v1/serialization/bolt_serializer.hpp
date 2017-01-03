@@ -27,7 +27,7 @@ class BoltSerializer
 public:
     BoltSerializer(Stream &stream) : encoder(stream) {}
 
-    /* Serializes the vertex accessor into the packstream format
+    /** Serializes the vertex accessor into the packstream format
      *
      * struct[size = 3] Vertex [signature = 0x4E] {
      *     Integer            node_id;
@@ -64,7 +64,7 @@ public:
         }
     }
 
-    /* Serializes the vertex accessor into the packstream format
+    /** Serializes the vertex accessor into the packstream format
      *
      * struct[size = 5] Edge [signature = 0x52] {
      *     Integer            edge_id;
@@ -79,7 +79,7 @@ public:
 
     void write_null() { encoder.write_null(); }
 
-    void write(const Null &v) { encoder.write_null(); }
+    void write(const Null &) { encoder.write_null(); }
 
     void write(const Bool &prop) { encoder.write_bool(prop.value()); }
 

@@ -10,9 +10,10 @@
 namespace bolt
 {
 
-// compiled queries have to use this class in order to return results
-// query code should not know about bolt protocol
-
+/**
+ * compiled queries have to use this class in order to return results
+ * query code should not know about bolt protocol
+ */
 template <class Socket>
 class RecordStream
 {

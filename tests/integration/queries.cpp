@@ -8,6 +8,7 @@
 #include "utils/string/file.hpp"
 #include "utils/variadic/variadic.hpp"
 #include "utils/command_line/arguments.hpp"
+#include "stream/print_record_stream.hpp"
 
 Logger logger;
 
@@ -15,10 +16,14 @@ int main(int argc, char *argv[])
 {
     auto arguments = all_arguments(argc, argv);
 
+    PrintRecordStream stream(std::cout);
+
     // POSSIBILITIES: basic, dressipi
     auto suite_name = get_argument(arguments, "-s", "basic");
     // POSSIBILITIES: query_execution, hash_generation
     auto work_mode = get_argument(arguments, "-w", "query_execution");
+    // POSSIBILITIES: mg_basic.txt, dressipi_basic.txt, dressipi_graph.txt
+    auto query_set_filename = get_argument(arguments, "-q", "mg_basic.txt");
 
     // init logging
     logging::init_sync();
@@ -39,7 +44,7 @@ int main(int argc, char *argv[])
     auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
 
     // load quries
-    std::string file_path = "data/queries/core/" + suite_name + ".txt";
+    std::string file_path = "data/queries/core/" + query_set_filename;
     auto queries          = utils::read_lines(file_path.c_str());
 
     // execute all queries

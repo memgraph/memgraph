@@ -1,12 +1,17 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
 #include "template_engine/engine.hpp"
 
-TEST_CASE("Template Engine - basic placeholder replacement")
+TEST(TemplateEngine, BasicPlaceholderReplacement)
 {
     auto rendered = template_engine::render("{{one}} {{two}}",
                                             {{"one", "two"}, {"two", "one"}});
 
-    REQUIRE(rendered == "two one");
+    ASSERT_EQ(rendered, "two one");
+}
+
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

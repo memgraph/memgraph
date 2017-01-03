@@ -1,5 +1,7 @@
 #pragma once
 
+#include <experimental/filesystem>
+
 #include "database/db.hpp"
 #include "logging/default.hpp"
 #include "query/exception/query_engine.hpp"
@@ -12,6 +14,8 @@
  * query -> code_loader -> query_stripper -> [code_generator]
  * -> [code_compiler] -> code_executor
  */
+
+namespace fs = std::experimental::filesystem;
 
 // query engine has to be aware of the Stream because Stream
 // is passed to the dynamic shared library
@@ -42,6 +46,17 @@ public:
         } catch (std::exception &e) {
             throw e;
         }
+    }
+
+    // preload functionality
+    auto load(const uint64_t hash, const fs::path& path)
+    {
+        program_loader.load(hash, path);
+    }
+
+    auto load(const std::string& query)
+    {
+        program_loader.load(query);
     }
 
 protected:

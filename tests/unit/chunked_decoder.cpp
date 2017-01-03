@@ -5,15 +5,16 @@
 #include <iostream>
 #include <vector>
 
+#include "gtest/gtest.h"
+
 #include "communication/bolt/v1/transport/chunked_decoder.hpp"
 
 using byte = unsigned char;
 
 void print_hex(byte x) { printf("%02X ", static_cast<byte>(x)); }
 
-class DummyStream
+struct DummyStream
 {
-public:
     void write(const byte *values, size_t n)
     {
         data.insert(data.end(), values, values + n);
@@ -35,25 +36,33 @@ static constexpr size_t N = std::extent<decltype(chunks)>::value;
 
 std::string decoded = "A quick brown fox jumps over a lazy dog";
 
-int main(void)
+TEST(ChunkedDecoderTest, WriteString)
 {
-    // DummyStream stream;
-    // Decoder decoder(stream);
+    DummyStream stream;
+    Decoder decoder(stream);
 
-    // for(size_t i = 0; i < N; ++i)
-    // {
-    //     auto& chunk = chunks[i];
-    //     auto finished = decoder.decode(chunk.data(), chunk.size());
+    for(size_t i = 0; i < N; ++i)
+    {
+        auto & chunk = chunks[i];
+        logging::info("Chunk size: {}", chunk.size());
 
-    //     // break early if finished
-    //     if(finished)
-    //         break;
-    // }
+        const byte* start = chunk.data();
+        auto finished = decoder.decode(start, chunk.size());
 
-    // assert(decoded.size() == stream.data.size());
+        // break early if finished
+        if(finished)
+            break;
+    }
 
-    // for(size_t i = 0; i < decoded.size(); ++i)
-    //     assert(decoded[i] == stream.data[i]);
-
-    return 0;
+    // check validity
+    ASSERT_EQ(decoded.size(), stream.data.size());
+    for(size_t i = 0; i < decoded.size(); ++i)
+        ASSERT_EQ(decoded[i], stream.data[i]);
 }
+
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
+

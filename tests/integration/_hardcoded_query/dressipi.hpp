@@ -633,6 +633,10 @@ auto load_dressipi_functions(Db &db)
         return t.commit();
     };
 
+    // Query: MATCH (a:garment)-[:default_outfit]-(b:garment)-[:default_outfit]-(c:garment)-[:default_outfit]-(d:garment)-[:default_outfit]-(a:garment)-[:default_outfit]-(c:garment), (b:garment)-[:default_outfit]-(d:garment) WHERE a.garment_id = 1234 RETURN a.garment_id, b.garment_id, c.garment_id, d.garment_id ORDER BY (a.score + b.score + c.score + d.score) DESC LIMIT 10
+    // Hash: 11856262817829095719
+    // TODO: automate
+
     return functions;
 }
 }

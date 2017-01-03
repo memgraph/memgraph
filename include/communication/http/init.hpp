@@ -1,3 +1,3 @@
 #pragma once
 
-/* HTTP & HTTPS implementation */
+/* TODO: HTTP & HTTPS implementations */

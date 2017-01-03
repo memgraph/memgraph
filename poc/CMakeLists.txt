@@ -1,45 +1,37 @@
-cmake_minimum_required(VERSION 3.1)
+find_package(Threads REQUIRED)
 
-project(memgraph_poc)
+# get all cpp abs file names recursively starting from current directory
+file(GLOB poc_cpps *.cpp)
+message(STATUS "Available poc cpp files are: ${poc_cpps}")
 
 include_directories(${CMAKE_SOURCE_DIR}/poc)
-include_directories(${CMAKE_SOURCE_DIR}/queries)
 
-add_executable(poc_astar astar.cpp)
-target_link_libraries(poc_astar memgraph)
-target_link_libraries(poc_astar Threads::Threads)
-target_link_libraries(poc_astar ${fmt_static_lib})
-target_link_libraries(poc_astar ${yaml_static_lib})
+# for each cpp file build binary
+foreach(poc_cpp ${poc_cpps})
 
-add_executable(powerlinx_profile profile.cpp)
-target_link_libraries(powerlinx_profile memgraph)
-target_link_libraries(powerlinx_profile Threads::Threads)
-target_link_libraries(powerlinx_profile ${fmt_static_lib})
-target_link_libraries(powerlinx_profile ${yaml_static_lib})
+    # get exec name (remove extension from the abs path)
+    get_filename_component(exec_name ${poc_cpp} NAME_WE)
 
-add_executable(csv_import csv_import.cpp)
-target_link_libraries(csv_import memgraph)
-target_link_libraries(csv_import Threads::Threads)
-target_link_libraries(csv_import ${fmt_static_lib})
-target_link_libraries(csv_import ${yaml_static_lib})
+    # set target name in format {project_name}_{test_type}_{exec_name}
+    set(target_name ${project_name}_poc_${exec_name})
 
-add_executable(add_double add_double.cpp)
-target_link_libraries(add_double memgraph)
-target_link_libraries(add_double Threads::Threads)
-target_link_libraries(add_double ${fmt_static_lib})
-target_link_libraries(add_double ${yaml_static_lib})
+    # build exec file
+    add_executable(${target_name} ${poc_cpp} isolation/header.cpp)
+    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
 
-add_executable(astar_query astar_query.cpp)
-target_link_libraries(astar_query memgraph)
-target_link_libraries(astar_query Threads::Threads)
-target_link_libraries(astar_query ${fmt_static_lib})
-target_link_libraries(astar_query ${yaml_static_lib})
+    # OUTPUT_NAME sets the real name of a target when it is built and can be
+    # used to help create two targets of the same name even though CMake
+    # requires unique logical target names
+    set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
-add_executable(size_aligment size_aligment.cpp)
-target_link_libraries(size_aligment memgraph)
-target_link_libraries(size_aligment Threads::Threads)
-target_link_libraries(size_aligment ${fmt_static_lib})
-target_link_libraries(size_aligment ${yaml_static_lib})
+    # link libraries
+    # threads (cross-platform)
+    target_link_libraries(${target_name} Threads::Threads)
+    # memgraph lib
+    target_link_libraries(${target_name} memgraph_lib)
+    # fmt format lib
+    target_link_libraries(${target_name} ${fmt_static_lib})
+    # yaml parser lib
+    target_link_libraries(${target_name} ${yaml_static_lib})
 
-add_executable(isolation isolation.cpp isolation/header.cpp)
-target_link_libraries(isolation ${fmt_static_lib})
+endforeach()

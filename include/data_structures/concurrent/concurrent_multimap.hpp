@@ -5,9 +5,12 @@
 
 using std::pair;
 
-// Multi thread safe multi map based on skiplist.
-// K - type of key.
-// T - type of data.
+/**
+ * Multi thread safe multi map based on skiplist.
+ *
+ * @tparam K is a type of key.
+ * @tparam T is a type of data.
+ */
 template <typename K, typename T>
 class ConcurrentMultiMap
 {

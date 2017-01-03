@@ -1,18 +1,17 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
 #include "data_structures/concurrent/concurrent_list.hpp"
 
-TEST_CASE("Conncurent List insert")
+TEST(ConncurentList, Insert)
 {
     ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.reset();
-    REQUIRE(*it == 32);
+    ASSERT_EQ(*it, 32);
 }
 
-TEST_CASE("Conncurent List iterate")
+TEST(ConncurentList, Iterate)
 {
     ConcurrentList<int> list;
     auto it = list.begin();
@@ -22,33 +21,33 @@ TEST_CASE("Conncurent List iterate")
     it.push(0);
     it.reset();
 
-    REQUIRE(*it == 0);
+    ASSERT_EQ(*it, 0);
     it++;
-    REQUIRE(*it == 9);
+    ASSERT_EQ(*it, 9);
     it++;
-    REQUIRE(*it == 7);
+    ASSERT_EQ(*it, 7);
     it++;
-    REQUIRE(*it == 32);
+    ASSERT_EQ(*it, 32);
     it++;
-    REQUIRE(it == list.end());
+    ASSERT_EQ(it, list.end());
 }
 
-TEST_CASE("Conncurent List head remove")
+TEST(ConncurentList, RemoveHead)
 {
     ConcurrentList<int> list;
     auto it = list.begin();
     it.push(32);
     it.reset();
 
-    REQUIRE(it.remove());
-    REQUIRE(it.is_removed());
-    REQUIRE(!it.remove());
+    ASSERT_EQ(it.remove(), true);
+    ASSERT_EQ(it.is_removed(), true);
+    ASSERT_EQ(!it.remove(), true);
 
     it.reset();
-    REQUIRE(it == list.end());
+    ASSERT_EQ(it, list.end());
 }
 
-TEST_CASE("Conncurent List remove")
+TEST(ConncurentList, Remove)
 {
     ConcurrentList<int> list;
     auto it = list.begin();
@@ -60,16 +59,22 @@ TEST_CASE("Conncurent List remove")
 
     it++;
     it++;
-    REQUIRE(it.remove());
-    REQUIRE(it.is_removed());
-    REQUIRE(!it.remove());
+    ASSERT_EQ(it.remove(), true);
+    ASSERT_EQ(it.is_removed(), true);
+    ASSERT_EQ(!it.remove(), true);
 
     it.reset();
-    REQUIRE(*it == 0);
+    ASSERT_EQ(*it, 0);
     it++;
-    REQUIRE(*it == 9);
+    ASSERT_EQ(*it, 9);
     it++;
-    REQUIRE(*it == 32);
+    ASSERT_EQ(*it, 32);
     it++;
-    REQUIRE(it == list.end());
+    ASSERT_EQ(it, list.end());
+}
+
+int main(int argc, char **argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

@@ -1,128 +1,51 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(memgraph_tests)
+project(${project_name}_tests)
 
-set(src_dir ${CMAKE_SOURCE_DIR}/src)
+enable_testing()
 
 include_directories(${catch_source_dir}/include)
 
-# TODO: modular approach (REFACTOR)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
 
-## UNIT TESTS
-
-# find unit tests
-file(GLOB_RECURSE unit_test_files ${CMAKE_HOME_DIRECTORY}/tests/unit/*.cpp)
-get_file_names("${unit_test_files}" file_names)
-set(unit_test_names "${file_names}")
-message(STATUS "Available unit tests are: ${unit_test_names}")
-
-# copy unit test data
+# copy test data
 file(COPY ${CMAKE_SOURCE_DIR}/tests/data
      DESTINATION ${CMAKE_BINARY_DIR}/tests)
 
-# build unit tests
-foreach(test ${unit_test_names})
-    set(test_name unit_${test})
-    add_executable(${test_name} unit/${test}.cpp ${src_dir}/template_engine/engine.cpp)
-    target_link_libraries(${test_name} memgraph)
-    # TODO: separate dependencies
-    target_link_libraries(${test_name} stdc++fs)
-    target_link_libraries(${test_name} cypher_lib)
-    target_link_libraries(${test_name} Threads::Threads)
-    target_link_libraries(${test_name} ${fmt_static_lib})
-    target_link_libraries(${test_name} ${yaml_static_lib})
-    add_test(NAME ${test_name} COMMAND ${test_name})
-    set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
-endforeach()
+# move test data data to the build directory
+if (UNIX)
+    set(test_data "tests/data")
+    set(test_data_src "${CMAKE_SOURCE_DIR}/${test_data}")
+	set(test_data_dst "${CMAKE_BINARY_DIR}/${test_data}")
+	add_custom_target (test_data
+		COMMAND rm -rf ${test_data_dst}
+        COMMAND cp -r ${test_data_src} ${test_data_dst}
+	)
+endif (UNIX)
+# -----------------------------------------------------------------------------
 
-## CONCURRENCY TESTS
+# benchmark test binaries
+if (ALL_TESTS OR BENCHMARK_TESTS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
+endif()
 
-# find concurrency tests
-file(GLOB_RECURSE concurrency_test_files
-     ${CMAKE_HOME_DIRECTORY}/tests/concurrent/*.cpp)
-get_file_names("${concurrency_test_files}" file_names)
-set(concurrency_test_names "${file_names}")
-message(STATUS "Available concurrency tests are: ${concurrency_test_names}")
+# concurrent test binaries
+if (ALL_TESTS OR CONCURRENT_TESTS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
+endif()
 
-# build concurrency tests
-foreach(test ${concurrency_test_names})
-    set(test_name concurrent_${test})
-    add_executable(${test_name} concurrent/${test}.cpp)
-    target_link_libraries(${test_name} memgraph)
-    target_link_libraries(${test_name} Threads::Threads)
-    target_link_libraries(${test_name} ${fmt_static_lib})
-    target_link_libraries(${test_name} ${yaml_static_lib})
-    add_test(NAME ${test_name} COMMAND ${test_name})
-    set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 14)
-endforeach()
+# integration test binaries
+if (ALL_TESTS OR INTEGRATION_TESTS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/integration)
+endif()
 
-## INTEGRATION TESTS
+# manual test binaries
+if (ALL_TESTS OR MANUAL_TESTS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
+endif()
 
-# test hard coded queries
-add_executable(integration_queries integration/queries.cpp)
-target_link_libraries(integration_queries stdc++fs)
-target_link_libraries(integration_queries memgraph)
-target_link_libraries(integration_queries Threads::Threads)
-target_link_libraries(integration_queries ${fmt_static_lib})
-target_link_libraries(integration_queries ${yaml_static_lib})
-add_test(NAME integration_queries COMMAND integration_queries)
-set_property(TARGET integration_queries PROPERTY CXX_STANDARD 14)
-
-# test cleaning methods
-add_executable(cleaning integration/cleaning.cpp)
-target_link_libraries(cleaning memgraph)
-target_link_libraries(cleaning Threads::Threads)
-target_link_libraries(cleaning ${fmt_static_lib})
-target_link_libraries(cleaning ${yaml_static_lib})
-add_test(NAME cleaning COMMAND cleaning)
-set_property(TARGET cleaning PROPERTY CXX_STANDARD 14)
-
-# test snapshot validity
-add_executable(snapshot integration/snapshot.cpp)
-target_link_libraries(snapshot memgraph)
-target_link_libraries(snapshot Threads::Threads)
-target_link_libraries(snapshot ${fmt_static_lib})
-target_link_libraries(snapshot ${yaml_static_lib})
-add_test(NAME snapshot COMMAND snapshot)
-set_property(TARGET snapshot PROPERTY CXX_STANDARD 14)
-
-# test index validity
-add_executable(index integration/index.cpp)
-target_link_libraries(index memgraph)
-target_link_libraries(index Threads::Threads)
-target_link_libraries(index ${fmt_static_lib})
-target_link_libraries(index ${yaml_static_lib})
-add_test(NAME index COMMAND index)
-set_property(TARGET index PROPERTY CXX_STANDARD 14)
-
-## MANUAL TESTS
-
-# cypher_ast
-add_executable(manual_cypher_ast manual/cypher_ast.cpp)
-target_link_libraries(manual_cypher_ast stdc++fs)
-target_link_libraries(manual_cypher_ast memgraph)
-target_link_libraries(manual_cypher_ast Threads::Threads)
-target_link_libraries(manual_cypher_ast ${fmt_static_lib})
-target_link_libraries(manual_cypher_ast ${yaml_static_lib})
-target_link_libraries(manual_cypher_ast cypher_lib)
-set_property(TARGET manual_cypher_ast PROPERTY CXX_STANDARD 14)
-
-# query_engine
-add_executable(manual_query_engine manual/query_engine.cpp)
-target_link_libraries(manual_query_engine stdc++fs)
-target_link_libraries(manual_query_engine memgraph)
-target_link_libraries(manual_query_engine ${fmt_static_lib})
-target_link_libraries(manual_query_engine ${yaml_static_lib})
-target_link_libraries(manual_query_engine dl)
-target_link_libraries(manual_query_engine cypher_lib)
-target_link_libraries(manual_query_engine Threads::Threads)
-set_property(TARGET manual_query_engine PROPERTY CXX_STANDARD 14)
-
-# query_hasher
-add_executable(manual_query_hasher manual/query_hasher.cpp)
-target_link_libraries(manual_query_hasher stdc++fs)
-target_link_libraries(manual_query_hasher memgraph)
-target_link_libraries(manual_query_hasher ${fmt_static_lib})
-target_link_libraries(manual_query_hasher ${yaml_static_lib})
-target_link_libraries(manual_query_hasher Threads::Threads)
-set_property(TARGET manual_query_hasher PROPERTY CXX_STANDARD 14)
+# unit test binaries
+if (ALL_TESTS OR UNIT_TESTS)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
+endif()

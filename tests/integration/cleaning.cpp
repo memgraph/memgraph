@@ -1,19 +1,24 @@
 #include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "query/preprocesor.hpp"
 #include "query/strip/stripper.hpp"
+#include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
 
-template <class S, class Q>
-void run(size_t n, std::string &query, S &stripper, Q &qf)
+QueryPreprocessor preprocessor;
+
+template <class Q>
+void run(size_t n, std::string &query, Q &qf)
 {
-    auto stripped = stripper.strip(query);
-    std::cout << "Running query [" << stripped.hash << "] for " << n << " time."
-              << std::endl;
+    auto stripped = preprocessor.preprocess(query);
+
+    logging::info("Running query [{}] x {}.", stripped.hash, n);
+
     for (int i = 0; i < n; i++)
     {
         properties_t vec = stripped.arguments;
-        assert(qf[stripped.hash](std::move(vec)));
+        permanent_assert(qf[stripped.hash](std::move(vec)), "Query failed!");
     }
 }
 
@@ -29,13 +34,10 @@ int main(void)
     logging::init_async();
     logging::log->pipe(std::make_unique<Stdout>());
 
-    size_t entities_number = 1000;
-
     Db db("cleaning");
 
-    auto query_functions = hardcode::load_basic_functions(db);
-
-    auto stripper = make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL);
+    size_t entities_number = 1000;
+    auto query_functions   = hardcode::load_basic_functions(db);
 
     std::string create_vertex_label =
         "CREATE (n:LABEL {name: \"cleaner_test\"}) RETURN n";
@@ -49,17 +51,21 @@ int main(void)
     // clean vertices
     // delete vertices a
     // clean vertices
-    run(entities_number, create_vertex_label, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number);
+    run(entities_number, create_vertex_label, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match");
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == entities_number);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match (after cleaning)");
 
-    run(1, delete_label_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number);
+    run(1, delete_label_vertices, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match (delete label vertices)");
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == 0);
+    permanent_assert(db.graph.vertices.access().size() == 0,
+                     "Db should be empty");
 
     // ******************************* TEST 2 ********************************//
     // add vertices a
@@ -68,26 +74,33 @@ int main(void)
     // delete vertices a
     // clean vertices
     // delete vertices all
-    run(entities_number, create_vertex_label, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number);
+    run(entities_number, create_vertex_label, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match");
 
-    run(entities_number, create_vertex_other, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number * 2);
-
-    clean_vertex(db);
-    assert(db.graph.vertices.access().size() == entities_number * 2);
-
-    run(1, delete_label_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number * 2);
+    run(entities_number, create_vertex_other, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number * 2,
+                     "Entities number doesn't match");
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == entities_number);
+    permanent_assert(db.graph.vertices.access().size() == entities_number * 2,
+                     "Entities number doesn't match");
 
-    run(1, delete_all_vertices, stripper, query_functions);
-    assert(db.graph.vertices.access().size() == entities_number);
+    run(1, delete_label_vertices, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number * 2,
+                     "Entities number doesn't match");
 
     clean_vertex(db);
-    assert(db.graph.vertices.access().size() == 0);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match");
+
+    run(1, delete_all_vertices, query_functions);
+    permanent_assert(db.graph.vertices.access().size() == entities_number,
+                     "Entities number doesn't match");
+
+    clean_vertex(db);
+    permanent_assert(db.graph.vertices.access().size() == 0,
+                     "Db should be empty");
 
     // TODO: more tests
 

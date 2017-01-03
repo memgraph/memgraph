@@ -14,9 +14,13 @@ using std::endl;
 
 // Dressipi astar query of 4 clicks.
 
+// TODO: push down appropriate
 using Stream = std::ostream;
 
+// TODO: figure out from the pattern in a query
 constexpr size_t max_depth = 3;
+
+// TODO: from query LIMIT 10
 constexpr size_t limit     = 10;
 
 class Node
@@ -79,10 +83,12 @@ void astar(DbAccessor &t, plan_args_t &args, Stream &stream)
     auto cmp = [](Node *left, Node *right) { return left->cost > right->cost; };
     std::priority_queue<Node *, std::vector<Node *>, decltype(cmp)> queue(cmp);
 
+    // TODO: internal id independent
     auto start_vr = t.vertex_find(Id(args[0].as<Int64>().value()));
     if (!start_vr.is_present())
     {
-        // stream.write_failure({{}});
+        // TODO: stream failure
+
         return;
     }
 
@@ -96,15 +102,19 @@ void astar(DbAccessor &t, plan_args_t &args, Stream &stream)
         auto now = queue.top();
         queue.pop();
 
-        if (max_depth <= now->depth)
+        if (now->depth >= max_depth)
         {
-            // stream.write_success_empty();
-            // best.push_back(now);
+            // TODO: stream the result
+
             count++;
+
             if (count >= limit)
             {
+                // the limit was reached -> STOP the execution
                 break;
             }
+            
+            // if the limit wasn't reached -> POP the next vertex
             continue;
         }
 
@@ -129,6 +139,8 @@ public:
     bool run(Db &db, plan_args_t &args, Stream &stream) override
     {
         DbAccessor t(db);
+
+        // TODO: find node
 
         astar(t, args, stream);
 
