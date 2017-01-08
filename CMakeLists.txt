@@ -188,17 +188,23 @@ if (SYNC_LOGGER)
 endif()
 # -----------------------------------------------------------------------------
 
-# assert
+# custom assert control parameters
+
+# Runtime assert, if value is OFF runtime asserts will be inactive during
+# runtime. Default value is ON.
 option(RUNTIME_ASSERT "Enable runtime assertions" ON)
 message(STATUS "RUNTIME_ASSERT: ${RUNTIME_ASSERT}")
 if(RUNTIME_ASSERT)
     add_definitions(-DRUNTIME_ASSERT_ON)
 endif()
 
-option(THROW_EXCEPTION_ON_ERROR "Throw exception on error" ON)
-message(STATUS "THROW_EXCEPTION_ON_ERROR: ${THROW_EXCEPTION_ON_ERROR}")
-if(THROW_EXCEPTION_ON_ERROR)
-    add_definitions(-DTHROW_EXCEPTION_ON_ERROR)
+# by default on custom assert only the message, filename and line number will be
+# printed on stderr, if STACKTRACE_ASSERT is ON the whole stacktrace is going to
+# be printed on stderr
+option(STACKTRACE_ASSERT "Dump stacktrace on custom assert" OFF)
+message(STATUS "STACKTRACE_ASSERT: ${STACKTRACE_ASSERT}")
+if(STACKTRACE_ASSERT)
+    add_definitions(-DSTACKTRACE_ASSERT_ON)
 endif()
 # -----------------------------------------------------------------------------
 

@@ -1,10 +1,10 @@
 #pragma once
 
-#include <cassert>
 #include <fmt/format.h>
 
 #include "logging/log.hpp"
 #include "logging/levels.hpp"
+#include "utils/assert.hpp"
 
 class Logger
 {
@@ -54,7 +54,7 @@ public:
     template <class Level, class... Args>
     void emit(Args&&... args)
     {
-        assert(log != nullptr);
+        runtime_assert(log != nullptr, "Log object has to be defined.");
 
         auto message = std::make_unique<Message<Level>>(
             Timestamp::now(), name, fmt::format(std::forward<Args>(args)...)
