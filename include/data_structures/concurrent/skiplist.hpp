@@ -12,7 +12,7 @@
 
 #include "data_structures/concurrent/skiplist_gc.hpp"
 
-/* @brief Concurrent lock-based skiplist with fine grained locking
+/** @brief Concurrent lock-based skiplist with fine grained locking
  *
  * From Wikipedia:
  *    "A skip list is a data structure that allows fast search within an
@@ -97,11 +97,13 @@ template <class T, size_t H = 32, class lock_t = SpinLock>
 class SkipList : private Lockable<lock_t>
 {
 public:
-    // computes the height for the new node from the interval [1...H]
-    // with p(k) = (1/2)^k for all k from the interval
+    /**
+     * computes the height for the new node from the interval [1...H]
+     * with p(k) = (1/2)^k for all k from the interval
+     */
     static thread_local FastBinomial<H> rnd;
 
-    /* @brief Wrapper class for flags used in the implementation
+    /** @brief Wrapper class for flags used in the implementation
      *
      * MARKED flag is used to logically delete a node.
      * FULLY_LINKED is used to mark the node as fully inserted, i.e. linked
@@ -224,12 +226,14 @@ public:
 
         Placeholder<T> data;
 
-        // this creates an array of the size zero. we can't put any sensible
-        // value here since we don't know what size it will be untill the
-        // node is allocated. we could make it a Node** but then we would
-        // have two memory allocations, one for node and one for the forward
-        // list. this way we avoid expensive malloc/free calls and also cache
-        // thrashing when following a pointer on the heap
+        /** 
+         * this creates an array of the size zero. we can't put any sensible
+         * value here since we don't know what size it will be untill the
+         * node is allocated. we could make it a Node** but then we would
+         * have two memory allocations, one for node and one for the forward
+         * list. this way we avoid expensive malloc/free calls and also cache
+         * thrashing when following a pointer on the heap
+         */
         std::atomic<Node *> tower[0];
     };
 
@@ -441,6 +445,7 @@ public:
         }
 
     private:
+        // TODO: figure why start is unused
         static int update_path(SkipList *skiplist, int start, const K &item,
                                Node *preds[], Node *succs[])
         {
@@ -664,14 +669,18 @@ private:
         return (node == nullptr) || item < node->value();
     }
 
-    // Returns first occurence of item if there exists one.
+    /**
+     * Returns first occurence of item if there exists one.
+     */
     template <class K>
     ConstIterator find(const K &item) const
     {
         return const_cast<SkipList *>(this)->find_node<ConstIterator, K>(item);
     }
 
-    // Returns first occurence of item if there exists one.
+    /**
+     * Returns first occurence of item if there exists one.
+     */
     template <class K>
     Iterator find(const K &item)
     {
@@ -689,7 +698,9 @@ private:
         }
     }
 
-    // Returns iterator on searched element or the first larger element.
+    /**
+     * Returns iterator on searched element or the first larger element.
+     */
     template <class It, class K>
     It find_or_larger(const K &item)
     {
@@ -758,8 +769,11 @@ private:
         return valid;
     }
 
-    // Inserts non unique data into list.
-    // NOTE: Uses modified logic from insert method.
+    /**
+     * Inserts non unique data into list.
+     *
+     * NOTE: Uses modified logic from insert method.
+     */
     Iterator insert_non_unique(T &&data, Node *preds[], Node *succs[])
     {
         while (true) {
@@ -823,9 +837,12 @@ private:
         }
     }
 
-    // Insert unique data
-    // F - type of funct which will create new node if needed. Recieves height
-    // of node.
+    /**
+     * Insert unique data
+     *
+     * F - type of funct which will create new node if needed. Recieves height
+     * of node.
+     */
     std::pair<Iterator, bool> insert(Node *preds[], Node *succs[], T &&data)
     {
         while (true) {
@@ -857,8 +874,11 @@ private:
         }
     }
 
-    // Insert unique data
-    // NOTE: This is almost all duplicate code from insert.
+    /**
+     * Insert unique data
+     *
+     * NOTE: This is almost all duplicate code from insert.
+     */
     template <class K, class... Args>
     std::pair<Iterator, bool> emplace(Node *preds[], Node *succs[], K &key,
                                       Args &&... args)
@@ -893,9 +913,11 @@ private:
         }
     }
 
-    // Inserts data to specified locked location.
+    /**
+     * Inserts data to specified locked location.
+     */
     Iterator insert_here(Node *new_node, Node *preds[], Node *succs[],
-                         int height, guard_t guards[])
+                         int height, guard_t guards[]) // TODO: querds unused
     {
         // Node::create(std::move(data), height)
         // link the predecessors and successors, e.g.
@@ -921,10 +943,12 @@ private:
                !node->flags.is_marked();
     }
 
-    // Remove item found with fp with arguments skiplist,preds and succs.
-    // fp has to fill preds and succs which reflect location of item or return
-    // -1 as in not found otherwise returns level on which the item was first
-    // found.
+    /**
+     * Removes item found with fp with arguments skiplist, preds and succs.
+     * fp has to fill preds and succs which reflect location of item or return
+     * -1 as in not found otherwise returns level on which the item was first
+     * found.
+     */
     template <class K>
     bool remove(const K &item, Node *preds[], Node *succs[],
                 int (*fp)(SkipList *, int, const K &, Node *[], Node *[]))
@@ -966,7 +990,9 @@ private:
         }
     }
 
-    // number of elements
+    /**
+     * number of elements
+     */
     std::atomic<size_t> count{0};
     Node *header;
     SkiplistGC<Node> gc;

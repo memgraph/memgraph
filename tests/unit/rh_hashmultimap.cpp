@@ -1,5 +1,4 @@
-#define CATCH_CONFIG_MAIN
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
 #include "data_structures/map/rh_hashmultimap.hpp"
 
@@ -22,43 +21,43 @@ void cross_validate(RhHashMultiMap<int, Data> &map,
 void cross_validate_weak(RhHashMultiMap<int, Data> &map,
                          std::multimap<int, Data *> &s_map);
 
-TEST_CASE("Robin hood hashmultimap basic functionality")
+TEST(RobinHoodHashmultimap, BasicFunctionality)
 {
     RhHashMultiMap<int, Data> map;
 
-    REQUIRE(map.size() == 0);
+    ASSERT_EQ(map.size(), 0);
     map.add(new Data(0));
-    REQUIRE(map.size() == 1);
+    ASSERT_EQ(map.size(), 1);
 }
 
-TEST_CASE("Robin hood hashmultimap insert/get check")
+TEST(RobinHoodHashmultimap, InsertGetCheck)
 {
     RhHashMultiMap<int, Data> map;
 
-    REQUIRE(map.find(0) == map.end());
+    ASSERT_EQ(map.find(0), map.end());
     auto ptr0 = new Data(0);
     map.add(ptr0);
-    REQUIRE(map.find(0) != map.end());
-    REQUIRE(*map.find(0) == ptr0);
+    ASSERT_NE(map.find(0), map.end());
+    ASSERT_EQ(*map.find(0), ptr0);
 }
 
-TEST_CASE("Robin hood hashmultimap extreme same key valus full")
+TEST(RobinHoodHashmultimap, ExtremeSameKeyValusFull)
 {
     RhHashMultiMap<int, Data> map;
 
     for (int i = 0; i < 128; i++) {
         map.add(new Data(7));
     }
-    REQUIRE(map.size() == 128);
-    REQUIRE(map.find(7) != map.end());
-    REQUIRE(map.find(0) == map.end());
+    ASSERT_EQ(map.size(), 128);
+    ASSERT_NE(map.find(7), map.end());
+    ASSERT_EQ(map.find(0), map.end());
     auto ptr0 = new Data(0);
     map.add(ptr0);
-    REQUIRE(map.find(0) != map.end());
-    REQUIRE(*map.find(0) == ptr0);
+    ASSERT_NE(map.find(0), map.end());
+    ASSERT_EQ(*map.find(0), ptr0);
 }
 
-TEST_CASE("Robin hood hashmultimap extreme same key valus full with remove")
+TEST(RobinHoodHashmultimap, ExtremeSameKeyValusFullWithRemove)
 {
     RhHashMultiMap<int, Data> map;
 
@@ -67,25 +66,25 @@ TEST_CASE("Robin hood hashmultimap extreme same key valus full with remove")
     }
     auto ptr = new Data(7);
     map.add(ptr);
-    REQUIRE(map.size() == 128);
-    REQUIRE(!map.remove(new Data(0)));
-    REQUIRE(map.remove(ptr));
+    ASSERT_EQ(map.size(), 128);
+    ASSERT_EQ(!map.remove(new Data(0)), true);
+    ASSERT_EQ(map.remove(ptr), true);
 }
 
-TEST_CASE("Robin hood hasmultihmap remove functionality")
+TEST(RobinHoodHasmultihmap, RemoveFunctionality)
 {
     RhHashMultiMap<int, Data> map;
 
-    REQUIRE(map.find(0) == map.end());
+    ASSERT_EQ(map.find(0), map.end());
     auto ptr0 = new Data(0);
     map.add(ptr0);
-    REQUIRE(map.find(0) != map.end());
-    REQUIRE(*map.find(0) == ptr0);
-    REQUIRE(map.remove(ptr0));
-    REQUIRE(map.find(0) == map.end());
+    ASSERT_NE(map.find(0), map.end());
+    ASSERT_EQ(*map.find(0), ptr0);
+    ASSERT_EQ(map.remove(ptr0), true);
+    ASSERT_EQ(map.find(0), map.end());
 }
 
-TEST_CASE("Robin hood hashmultimap double insert")
+TEST(RobinHoodHashmultimap, DoubleInsert)
 {
     RhHashMultiMap<int, Data> map;
 
@@ -103,48 +102,48 @@ TEST_CASE("Robin hood hashmultimap double insert")
             ptr1 = nullptr;
             continue;
         }
-        REQUIRE(false);
+        ASSERT_EQ(true, false);
     }
 }
 
-TEST_CASE("Robin hood hashmultimap")
+TEST(RobinHoodHashmultimap, FindAddFind)
 {
     RhHashMultiMap<int, Data> map;
 
     for (int i = 0; i < 128; i++) {
-        REQUIRE(map.find(i) == map.end());
+        ASSERT_EQ(map.find(i), map.end());
         map.add(new Data(i));
-        REQUIRE(map.find(i) != map.end());
+        ASSERT_NE(map.find(i), map.end());
     }
 
     for (int i = 0; i < 128; i++) {
-        REQUIRE(map.find(i) != map.end());
-        REQUIRE(map.find(i)->get_key() == i);
+        ASSERT_NE(map.find(i), map.end());
+        ASSERT_EQ(map.find(i)->get_key(), i);
     }
 }
 
-TEST_CASE("Robin hood hashmultimap iterate")
+TEST(RobinHoodHashmultimap, Iterate)
 {
     RhHashMultiMap<int, Data> map;
 
     for (int i = 0; i < 128; i++) {
-        REQUIRE(map.find(i) == map.end());
+        ASSERT_EQ(map.find(i), map.end());
         map.add(new Data(i));
-        REQUIRE(map.find(i) != map.end());
+        ASSERT_NE(map.find(i), map.end());
     }
 
     bool seen[128] = {false};
     for (auto e : map) {
         auto key = e->get_key();
-        REQUIRE(!seen[key]);
+        ASSERT_EQ(!seen[key], true);
         seen[key] = true;
     }
     for (int i = 0; i < 128; i++) {
-        REQUIRE(seen[i]);
+        ASSERT_EQ(seen[i], true);
     }
 }
 
-TEST_CASE("Robin hood hashmultimap checked")
+TEST(RobinHoodHashmultimap, Checked)
 {
     RhHashMultiMap<int, Data> map;
     std::multimap<int, Data *> s_map;
@@ -159,7 +158,7 @@ TEST_CASE("Robin hood hashmultimap checked")
     cross_validate(map, s_map);
 }
 
-TEST_CASE("Robin hood hashmultimap checked rand")
+TEST(RobinHoodHashmultimap, CheckedRand)
 {
     RhHashMultiMap<int, Data> map;
     std::multimap<int, Data *> s_map;
@@ -174,7 +173,7 @@ TEST_CASE("Robin hood hashmultimap checked rand")
     cross_validate(map, s_map);
 }
 
-TEST_CASE("Robin hood hashmultimap with remove data checked")
+TEST(RobinHoodHashmultimap, WithRemoveDataChecked)
 {
     RhHashMultiMap<int, Data> map;
     std::multimap<int, Data *> s_map;
@@ -185,10 +184,10 @@ TEST_CASE("Robin hood hashmultimap with remove data checked")
         if ((std::rand() % 2) == 0) {
             auto it = s_map.find(key);
             if (it == s_map.end()) {
-                REQUIRE(map.find(key) == map.end());
+                ASSERT_EQ(map.find(key), map.end());
             } else {
                 s_map.erase(it);
-                REQUIRE(map.remove(it->second));
+                ASSERT_EQ(map.remove(it->second), true);
             }
         } else {
             auto data = new Data(key);
@@ -210,7 +209,7 @@ void cross_validate(RhHashMultiMap<int, Data> &map,
         while (it != s_map.end() && it->second != e) {
             it++;
         }
-        REQUIRE(it != s_map.end());
+        ASSERT_NE(it, s_map.end());
     }
 
     for (auto e : s_map) {
@@ -219,7 +218,7 @@ void cross_validate(RhHashMultiMap<int, Data> &map,
         while (it != map.end() && *it != e.second) {
             it++;
         }
-        REQUIRE(it != map.end());
+        ASSERT_NE(it, map.end());
     }
 }
 
@@ -238,7 +237,7 @@ void cross_validate_weak(RhHashMultiMap<int, Data> &map,
                 it++;
                 count--;
             }
-            REQUIRE(count == 0);
+            ASSERT_EQ(count, 0);
             key = e->get_key();
             count = 1;
         }
@@ -250,7 +249,7 @@ void cross_validate_weak(RhHashMultiMap<int, Data> &map,
             it++;
             count--;
         }
-        REQUIRE(count == 0);
+        ASSERT_EQ(count, 0);
     }
 
     for (auto e : s_map) {
@@ -263,7 +262,7 @@ void cross_validate_weak(RhHashMultiMap<int, Data> &map,
                 it++;
                 count--;
             }
-            REQUIRE(count == 0);
+            ASSERT_EQ(count, 0);
             key = e.first;
             count = 1;
         }
@@ -275,6 +274,6 @@ void cross_validate_weak(RhHashMultiMap<int, Data> &map,
             it++;
             count--;
         }
-        REQUIRE(count == 0);
+        ASSERT_EQ(count, 0);
     }
 }

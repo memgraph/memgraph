@@ -1,4 +1,6 @@
 #pragma once
 
-/* Memgraph Communication protocol
+/* Memgraph communication protocol
  * gate is the first name proposal for the protocol */
+
+// TODO

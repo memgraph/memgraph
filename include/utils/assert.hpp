@@ -25,9 +25,12 @@
 
 // parmanant exception will always be executed
 #define permanent_assert(condition, message)                                   \
-    if (!(condition)) {                                                        \
+    if (!(condition))                                                          \
+    {                                                                          \
         std::ostringstream s;                                                  \
         s << message;                                                          \
+        std::cout << s.str() << std::endl;                                     \
+        std::exit(EXIT_FAILURE);                                               \
     }
 //         assert_error_handler_(__FILE__, __LINE__, s.str().c_str());
 

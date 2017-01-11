@@ -38,6 +38,9 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} ${yaml_static_lib})
 
     # register test
-    add_test(${target_name} ${exec_name})
+    set(output_path
+        ${CMAKE_BINARY_DIR}/test_results/benchmark/${target_name}.json)
+    add_test(${target_name} ${exec_name} 
+             --benchmark_out_format=json --benchmark_out=${output_path})
 
 endforeach()

@@ -26,6 +26,8 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
+    # gtest
+    target_link_libraries(${target_name} gtest gtest_main)
     # filesystem
     target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)
@@ -42,6 +44,7 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} dl)
 
     # register test
-    add_test(${target_name} ${exec_name})
+    set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
+    add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
 
 endforeach()

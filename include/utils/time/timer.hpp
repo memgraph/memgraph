@@ -1,14 +1,12 @@
 #pragma once
 
-#include <chrono>
 #include <iostream>
 #include <ratio>
 #include <utility>
 
-#define time_now() std::chrono::high_resolution_clock::now()
+#include "utils/time/time.hpp"
 
-using ns = std::chrono::nanoseconds;
-using ms = std::chrono::milliseconds;
+#define time_now() std::chrono::high_resolution_clock::now()
 
 template <typename DurationUnit = std::chrono::nanoseconds>
 auto to_duration(const std::chrono::duration<long, std::nano> &delta)
