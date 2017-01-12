@@ -48,6 +48,12 @@ using os_mask_t = int;
  */
 using in_event_t                  = struct inotify_event;
 constexpr uint64_t IN_HEADER_SIZE = sizeof(struct inotify_event);
+/**
+ * The reason why here is 10 is because the memory space for the data
+ * has to be upfront reserved (C API). I've picked up 10 because it seems like
+ * a reasonable size and doesn't have to be configurable before compile or run
+ * time.
+ */
 constexpr uint64_t IN_BUFF_LEN    = 10 * (IN_HEADER_SIZE + NAME_MAX + 1);
 
 /**
@@ -153,7 +159,7 @@ public:
         inotify_fd_ = inotify_init();
         if (inotify_fd_ == -1)
             throw FSWatcherException("Unable to initialize inotify\n");
-        os_linux::set_non_blocking(inotify_fd_);
+        linux_os::set_non_blocking(inotify_fd_);
     }
 
     ~FSWatcher()

@@ -62,7 +62,7 @@ TEST(FSWatcherTest, CreateDeleteLoop)
 
     // time distance between two actions should be big enough otherwise
     // one event will hide another one
-    ms action_delta = watcher.check_interval() * 2;
+    ms action_delta = watcher.check_interval() * 3;
 
     // watchers
     watcher.watch(WatchDescriptor(working_dir, FSEventType::Created),
@@ -100,7 +100,7 @@ TEST(FSWatcherTest, ModifiyLoop)
     // parameters
     int iterations  = 10;
     int modified_no = 0;
-    ms action_delta = watcher.check_interval() * 2;
+    ms action_delta = watcher.check_interval() * 3;
 
     watcher.watch(WatchDescriptor(working_dir, FSEventType::Modified),
                   [&](FSEvent) { modified_no++; });

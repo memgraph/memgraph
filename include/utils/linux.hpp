@@ -19,7 +19,7 @@
 #include "utils/exceptions/not_yet_implemented.hpp"
 #include "utils/likely.hpp"
 
-namespace os_linux
+namespace linux_os
 {
     class LinuxException : public BasicException
     {
