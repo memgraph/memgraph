@@ -60,8 +60,10 @@ TEST(FSWatcherTest, CreateDeleteLoop)
     int created_no  = 0;
     int deleted_no  = 0;
 
-    // time distance between two actions should be big enough otherwise
-    // one event will hide another one
+    // 3 is here because the test has to ensure that there is enough time
+    // between events in order to catch all relevant events (watcher takes a
+    // sleep between two undelying calls and if there is no enough time
+    // some events can be overriden)
     ms action_delta = watcher.check_interval() * 3;
 
     // watchers
@@ -100,6 +102,11 @@ TEST(FSWatcherTest, ModifiyLoop)
     // parameters
     int iterations  = 10;
     int modified_no = 0;
+
+    // 3 is here because the test has to ensure that there is enough time
+    // between events in order to catch all relevant events (watcher takes a
+    // sleep between two undelying calls and if there is no enough time
+    // some events can be overriden)
     ms action_delta = watcher.check_interval() * 3;
 
     watcher.watch(WatchDescriptor(working_dir, FSEventType::Modified),
