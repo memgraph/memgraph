@@ -12,8 +12,8 @@ namespace http
 static BlockAllocator<sizeof(uv_write_t)> write_req_allocator;
 
 template <class Req, class Res>
-Response<Req, Res>::Response(connection_t& connection)
-    : status(Status::Ok), connection(connection), buffer() {}
+Response<Req, Res>::Response(connection_t& conn)
+    : status(Status::Ok), connection(conn), buffer() {}
 
 template <class Req, class Res>
 void Response<Req, Res>::send(Status status, const std::string& body)

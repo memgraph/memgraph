@@ -9,19 +9,26 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "utils/config/config.hpp"
 #include "utils/signals/handler.hpp"
-#include "utils/terminate_handler.hpp"
 #include "utils/stacktrace/log.hpp"
+#include "utils/terminate_handler.hpp"
 
 static bolt::Server<bolt::Worker> *serverptr;
 
 Logger logger;
 
-// TODO: load from configuration
+// TODO: load from config
 static constexpr const char *interface = "0.0.0.0";
 static constexpr const char *port      = "7687";
 
-int main(void)
+void throw_and_stacktace(std::string message)
+{
+    Stacktrace stacktrace;
+    logger.info(stacktrace.dump());
+}
+
+int main(int argc, char **argv)
 {
 // logging init
 #ifdef SYNC_LOGGER
@@ -31,14 +38,14 @@ int main(void)
 #endif
     logging::log->pipe(std::make_unique<Stdout>());
 
-    // logger init
+    // get logger
     logger = logging::log->logger("Main");
     logger.info("{}", logging::log->type());
 
-    // unhandled exception handler
+    // unhandled exception handler init
     std::set_terminate(&terminate_handler);
 
-    // signal handling
+    // signal handling init
     SignalHandler::register_handler(Signal::SegmentationFault, []() {
         log_stacktrace("SegmentationFault signal raised");
         std::exit(EXIT_FAILURE);
@@ -51,6 +58,9 @@ int main(void)
         log_stacktrace("Abort signal raised");
         std::exit(EXIT_FAILURE);
     });
+
+    // register args
+    CONFIG_REGISTER_ARGS(argc, argv);
 
     // initialize socket
     io::Socket socket;

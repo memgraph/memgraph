@@ -10,7 +10,7 @@ using namespace std;
 template <class T>
 class ListNode {
 public:
-    ListNode(T value) : value(value) {}
+    explicit ListNode(T value) : value(value) {}
 
     std::atomic<T> value;
     std::atomic<ListNode<T>*> prev;

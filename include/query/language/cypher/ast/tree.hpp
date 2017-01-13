@@ -13,12 +13,9 @@ public:
     Ast() = default;
     Ast(const Ast&) = delete;
 
-    Ast(Ast&& other)
+    Ast(Ast&& other) : root(other.root), items(std::move(other.items))
     {
-        this->root = other.root;
         other.root = nullptr;
-
-        this->items = std::move(other.items);
     }
 
     Ast& operator=(Ast&& other)
