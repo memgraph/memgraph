@@ -22,3 +22,6 @@ release/libs/
 release/barrier/
 release/barrier_*
 build/compiled/
+cmake-build-*
+.idea
+cmake/DownloadProject/
