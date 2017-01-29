@@ -1,28 +1,37 @@
 #pragma once
 
+#include <vector>
 #include <memory>
 
-template <class uintXX_t = uint32_t,
-          class allocator = std::allocator<uintXX_t>>
+template <class uintXX_t = uint32_t>
+/**
+ * UnionFind data structure. Provides means of connectivity
+ * setting and checking in logarithmic complexity. Memory
+ * complexity is linear.
+ */
 class UnionFind
 {
 public:
-    UnionFind(uintXX_t n) : N(n), n(n)
+    /**
+     * Constructor, creates a UnionFind structure of fixed size.
+     *
+     * @param n Number of elements in the data structure.
+     */
+    UnionFind(uintXX_t n) : set_count(n), count(n), parent(n)
     {
-        count = alloc.allocate(n);
-        parent = alloc.allocate(n);
-
         for(auto i = 0; i < n; ++i)
             count[i] = 1, parent[i] = i;
     }
 
-    ~UnionFind()
-    {
-        alloc.deallocate(count, N);
-        alloc.deallocate(parent, N);
-    }
-
-    // this is O(lg* n)
+    /**
+     * Connects two elements (and thereby the sets they belong
+     * to). If they are already connected the function has no effect.
+     *
+     * Has O(alpha(n)) time complexity.
+     *
+     * @param p First element.
+     * @param q Second element.
+     */
     void connect(uintXX_t p, uintXX_t q)
     {
         auto rp = root(p);
@@ -39,16 +48,41 @@ public:
             parent[rq] = rp, count[rp] += count[rq];
 
         // update the number of groups
-        n--;
+        set_count--;
     }
 
-    // O(lg* n)
+    /**
+     * Indicates if two elements are connected. Has O(alpha(n)) time
+     * complexity.
+     *
+     * @param p First element.
+     * @param q Second element.
+     * @return See above.
+     */
     bool find(uintXX_t p, uintXX_t q)
     {
         return root(p) == root(q);
     }
 
-    // O(lg* n)
+    /**
+     * Returns the number of disjoint sets in this UnionFind.
+     *
+     * @return See above.
+     */
+    uintXX_t size() const
+    {
+        return set_count;
+    }
+
+private:
+    uintXX_t set_count;
+
+    // array of subtree counts
+    std::vector<uintXX_t> count;
+
+    // array of tree indices
+    std::vector<uintXX_t> parent;
+    
     uintXX_t root(uintXX_t p)
     {
         auto r = p;
@@ -64,21 +98,4 @@ public:
 
         return r;
     }
-
-    uintXX_t size() const
-    {
-        return n;
-    }
-
-private:
-    allocator alloc;
-
-    const uintXX_t N;
-    uintXX_t n;
-
-    // array of subtree counts
-    uintXX_t* count;
-
-    // array of tree indices
-    uintXX_t* parent;
 };
