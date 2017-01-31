@@ -1,4 +1,5 @@
 #include <random>
+#include <set>
 #include <vector>
 
 // namespace ::utils
@@ -68,6 +69,16 @@ template <class RandomGenerator>
 auto generate_vector(RandomGenerator &gen, int size) {
   std::vector<decltype(gen.next())> elements(size);
   for (int i = 0; i < size; i++) elements[i] = gen.next();
+  return elements;
+}
+
+// IMPORTANT
+// be careful with RandomGenerator ranges and set size
+// condition must be valid: size(set) << range(RandomGenerator)
+template <class RandomGenerator>
+auto generate_set(RandomGenerator &gen, int size) {
+  std::set<decltype(gen.next())> elements;
+  while (elements.size() < size) elements.insert(gen.next());
   return elements;
 }
 
