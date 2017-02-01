@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <stdexcept>
 
 #include "utils/auto_scope.hpp"
@@ -18,6 +19,12 @@ public:
     template <class... Args>
     BasicException(const std::string &format, Args &&... args) noexcept
         : BasicException(fmt::format(format, std::forward<Args>(args)...))
+    {
+    }
+
+    template <class... Args>
+    BasicException(const char* format, Args &&... args) noexcept
+        : BasicException(fmt::format(std::string(format), std::forward<Args>(args)...))
     {
     }
 

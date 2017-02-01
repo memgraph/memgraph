@@ -1,25 +1,29 @@
 #pragma once
 
-template <class Derived, class Other = Derived>
-struct TotalOrdering
-{
-  friend constexpr bool operator!=(const Derived &a, const Other &b)
-  {
+/**
+ * Implements all the logical comparison operators based on '=='
+ * and '<' operators.
+ *
+ * @tparam TLhs First operand type.
+ * @tparam TRhs Second operand type. Defaults to the same type
+ * as first operand.
+ * @tparam TReturn Return type, defaults to bool.
+ */
+template<typename TLhs, typename TRhs=TLhs, typename TReturn=bool>
+struct TotalOrdering {
+  friend constexpr TReturn operator!=(const TLhs &a, const TRhs &b) {
     return !(a == b);
   }
 
-  friend constexpr bool operator<=(const Derived &a, const Other &b)
-  {
+  friend constexpr TReturn operator<=(const TLhs &a, const TRhs &b) {
     return a < b || a == b;
   }
 
-  friend constexpr bool operator>(const Derived &a, const Other &b)
-  {
+  friend constexpr TReturn operator>(const TLhs &a, const TRhs &b) {
     return !(a <= b);
   }
 
-  friend constexpr bool operator>=(const Derived &a, const Other &b)
-  {
+  friend constexpr TReturn operator>=(const TLhs &a, const TRhs &b) {
     return !(a < b);
   }
 };

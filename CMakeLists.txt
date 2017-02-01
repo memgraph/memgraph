@@ -309,6 +309,8 @@ set(memgraph_src_files
     ${src_dir}/storage/label/labels_writer.cpp
     ${src_dir}/storage/edge_type/edge_type.cpp
     ${src_dir}/storage/edge_type/edge_type_store.cpp
+    ${src_dir}/storage/model/typed_value.cpp
+    ${src_dir}/storage/model/typed_value_store.cpp
     ${src_dir}/storage/model/properties/null.cpp
     ${src_dir}/storage/model/properties/bool.cpp
     ${src_dir}/storage/model/properties/int32.cpp
