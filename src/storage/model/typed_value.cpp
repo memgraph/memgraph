@@ -4,54 +4,56 @@
 #include <fmt/format.h>
 
 #include "storage/model/typed_value.hpp"
+#include "utils/assert.hpp"
 
 // Value extraction template instantiations
 template<>
 bool TypedValue::Value<bool>() const {
-  assert(type_ == TypedValue::Type::Bool);
+  runtime_assert(type_ == TypedValue::Type::Bool, "Incompatible template param and type");
   return bool_v;
 }
 
 template<>
-string TypedValue::Value<string>() const {
-  assert(type_ == TypedValue::Type::String);
+std::string TypedValue::Value<std::string>() const {
+  runtime_assert(type_ == TypedValue::Type::String, "Incompatible template param and type");
   return *string_v;
 }
 
 template<>
 int TypedValue::Value<int>() const {
-  assert(type_ == TypedValue::Type::Int);
+  runtime_assert(type_ == TypedValue::Type::Int, "Incompatible template param and type");
   return int_v;
 }
 
 template<>
 float TypedValue::Value<float>() const {
-  assert(type_ == TypedValue::Type::Float);
+  runtime_assert(type_ == TypedValue::Type::Float, "Incompatible template param and type");
   return float_v;
 }
 
 TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   switch (other.type_) {
-
     case TypedValue::Type::Null:
-      break;
+      return;
 
     case TypedValue::Type::Bool:
       this->bool_v = other.bool_v;
-      break;
+      return;
 
     case TypedValue::Type::String:
-      new(&string_v) std::shared_ptr<string>(other.string_v);
-      break;
+      new(&string_v) std::shared_ptr<std::string>(other.string_v);
+      return;
 
     case Type::Int:
       this->int_v = other.int_v;
-      break;
+      return;
 
     case Type::Float:
       this->float_v = other.float_v;
-      break;
+      return;
   }
+
+  permanent_fail("Unsupported TypedValue::Type");
 }
 
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
@@ -67,6 +69,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
     case TypedValue::Type::Float:
       return os << "float";
   }
+  permanent_fail("Unsupported TypedValue::Type");
 }
 
 std::ostream &operator<<(std::ostream &os, const TypedValue &property) {
@@ -82,6 +85,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &property) {
     case TypedValue::Type::Float:
       return os << property.Value<float>();
   }
+  permanent_fail("Unsupported TypedValue::Type");
 }
 
 TypedValue &TypedValue::operator=(TypedValue &&other) {
@@ -94,20 +98,19 @@ TypedValue &TypedValue::operator=(TypedValue &&other) {
       case TypedValue::Type::Null:
       case TypedValue::Type::Bool:
         this->bool_v = other.bool_v;
-        break;
+        return *this;
       case TypedValue::Type::String:
         this->string_v = std::move(other.string_v);
-        break;
+        return *this;
       case TypedValue::Type::Int:
         this->int_v = other.int_v;
-        break;
+        return *this;
       case TypedValue::Type::Float:
         this->float_v = other.float_v;
-        break;
+        return *this;
     }
   }
-
-  return *this;
+  permanent_fail("Unsupported TypedValue::Type");
 }
 
 const TypedValue TypedValue::Null = TypedValue();
@@ -117,19 +120,17 @@ TypedValue::~TypedValue() {
   switch (type_) {
     // destructor for primitive types does nothing
     case Type::Null:
-      break;
     case Type::Bool:
-      break;
     case Type::Int:
-      break;
     case Type::Float:
-      break;
+      return;
 
       // destructor for shared pointer must release
     case Type::String:
-      string_v.~shared_ptr<string>();
-      break;
+      string_v.~shared_ptr<std::string>();
+      return;
   }
+  permanent_fail("Unsupported TypedValue::Type");
 }
 
 /**
@@ -145,11 +146,9 @@ float ToFloat(const TypedValue& prop) {
       return (float)prop.Value<int>();
     case TypedValue::Type::Float:
       return prop.Value<float>();
-    case TypedValue::Type::Null:
-    case TypedValue::Type::String:
-    case TypedValue::Type::Bool:
-      // TODO switch to production-exception
-      assert(false);
+
+    default:
+      permanent_fail("Unsupported TypedValue::Type");
   }
 }
 
@@ -164,7 +163,7 @@ TypedValue operator<(const TypedValue& a, const TypedValue& b) {
     if (a.type_ != b.type_)
       throw TypedValueException("Invalid equality operand types({} + {})", a.type_, b.type_);
     else
-      return a.Value<string>() < b.Value<string>();
+      return a.Value<std::string>() < b.Value<std::string>();
   }
 
   // at this point we only have int and float
@@ -183,7 +182,7 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
     if (a.type_ != b.type_)
       throw TypedValueException("Invalid equality operand types({} + {})", a.type_, b.type_);
     else
-      return a.Value<string>() == b.Value<string>();
+      return a.Value<std::string>() == b.Value<std::string>();
   }
 
   if (a.type_ == TypedValue::Type::Bool || b.type_ == TypedValue::Type::Bool) {
@@ -206,30 +205,11 @@ TypedValue operator!(const TypedValue& a) {
       return TypedValue::Null;
     case TypedValue::Type::Bool:
       return TypedValue(!a.Value<bool>());
-    case TypedValue::Type::Int:
-    case TypedValue::Type::Float:
-    case TypedValue::Type::String:
+
+    default:
       throw TypedValueException("Invalid logical not operand type (!{})", a.type_);
   }
 }
-
-
-/*
- * Derived comparsion operators.
- */
-//TypedValue operator!=(const TypedValue& a, const TypedValue& b) {
-//  return !(a == b);
-//}
-//
-//TypedValue operator>(const TypedValue& a, const TypedValue& b) {
-//  return (a < b) && (a != b);
-//}
-//TypedValue operator>=(const TypedValue& a, const TypedValue& b) {
-//  return operator!(a < b);
-//}
-//TypedValue operator<=(const TypedValue& a, const TypedValue& b){
-//  return (a < b) || (a == b);
-//}
 
 /**
  * Turns a numeric or string property into a string.
@@ -240,15 +220,15 @@ TypedValue operator!(const TypedValue& a) {
 std::string PropToString(const TypedValue& prop) {
   switch (prop.type_) {
     case TypedValue::Type::String:
-      return prop.Value<string>();
+      return prop.Value<std::string>();
     case TypedValue::Type::Int:
       return std::to_string(prop.Value<int>());
     case TypedValue::Type::Float:
       return fmt::format("{}", prop.Value<float>());
+
+    // unsupported situations
     default:
-      // TODO change to release-assert
-      // This should never happen
-      assert(false);
+      permanent_fail("Unsupported TypedValue::Type");
   }
 }
 
@@ -260,8 +240,8 @@ TypedValue operator-(const TypedValue &a) {
       return -a.Value<int>();
     case TypedValue::Type::Float:
       return -a.Value<float>();
-    case TypedValue::Type::Bool:
-    case TypedValue::Type::String:
+
+    default:
       throw TypedValueException("Invalid unary minus operand type (-{})", a.type_);
   }
 }
@@ -277,7 +257,8 @@ TypedValue operator-(const TypedValue &a) {
  *  @param op_name Name of the operation, used only for exception description,
  *  if raised.
  */
-inline void EnsureArithmeticallyOk(const TypedValue& a, const TypedValue& b, bool string_ok, const string& op_name) {
+inline void EnsureArithmeticallyOk(const TypedValue& a, const TypedValue& b,
+                                   bool string_ok, const std::string& op_name) {
   if (a.type_ == TypedValue::Type::Bool || b.type_ == TypedValue::Type::Bool)
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type_, b.type_);
 
