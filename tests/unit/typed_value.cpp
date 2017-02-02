@@ -40,6 +40,7 @@ void EXPECT_PROP_NE(const TypedValue& a, const TypedValue& b)  {
 }
 
 TEST(TypedValue, CreationTypes) {
+  EXPECT_TRUE(TypedValue::Null.type_ == TypedValue::Type::Null);
 
   EXPECT_TRUE(TypedValue(true).type_ == TypedValue::Type::Bool);
   EXPECT_TRUE(TypedValue(false).type_ == TypedValue::Type::Bool);
@@ -58,8 +59,8 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(true).Value<bool>(), true);
   EXPECT_EQ(TypedValue(false).Value<bool>(), false);
 
-  EXPECT_EQ(TypedValue(std::string("bla")).Value<string>(), "bla");
-  EXPECT_EQ(TypedValue("bla2").Value<string>(), "bla2");
+  EXPECT_EQ(TypedValue(std::string("bla")).Value<std::string>(), "bla");
+  EXPECT_EQ(TypedValue("bla2").Value<std::string>(), "bla2");
 
   EXPECT_EQ(TypedValue(55).Value<int>(), 55);
 
@@ -90,7 +91,9 @@ TEST(TypedValue, Less) {
   for (int i = 0; i < props.size() + 1; ++i) {
     if (props.at(i).type_ == TypedValue::Type::Bool)
       continue;
-    EXPECT_THROW(props.at(i) < TypedValue(true), TypedValueException);
+    // the comparison should raise an exception
+    // cast to (void) so the compiler does not complain about unused comparison result
+    EXPECT_THROW((void)(props.at(i) < TypedValue(true)), TypedValueException);
   }
 
   // not_bool_type < Null = Null
@@ -183,13 +186,13 @@ TEST(TypedValue, Sum) {
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int>(), 5);
   EXPECT_FLOAT_EQ((TypedValue(2.5f) + TypedValue(1.25f)).Value<float>(), 3.75);
-  EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<string>(), "onetwo");
+  EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<std::string>(), "onetwo");
 
   // sum of string and numbers
-  EXPECT_EQ((TypedValue("one") + TypedValue(1)).Value<string>(), "one1");
-  EXPECT_EQ((TypedValue(1) + TypedValue("one")).Value<string>(), "1one");
-  EXPECT_EQ((TypedValue("one") + TypedValue(3.2f)).Value<string>(), "one3.2");
-  EXPECT_EQ((TypedValue(3.2f) + TypedValue("one")).Value<string>(), "3.2one");
+  EXPECT_EQ((TypedValue("one") + TypedValue(1)).Value<std::string>(), "one1");
+  EXPECT_EQ((TypedValue(1) + TypedValue("one")).Value<std::string>(), "1one");
+  EXPECT_EQ((TypedValue("one") + TypedValue(3.2f)).Value<std::string>(), "one3.2");
+  EXPECT_EQ((TypedValue(3.2f) + TypedValue("one")).Value<std::string>(), "3.2one");
 }
 
 TEST(TypedValue, Difference) {
@@ -250,13 +253,21 @@ TEST(TypedValue, TypeIncompatibility) {
       EXPECT_EQ(props.at(i).type_== props.at(j).type_, i == j);
 }
 
+/**
+ * Logical operations (logical and, or) are only legal on bools
+ * and nulls. This function ensures that the given
+ * logical operation throws exceptions when either operand
+ * is not bool or null.
+ *
+ * @param op The logical operation to test.
+ */
 void TestLogicalThrows(std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
   TypedValueStore props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
     auto p1 = props.at(i);
     for (int j = 0; j < props.size() + 1; ++j) {
       auto p2 = props.at(j);
-      // skip situations when p1 and p2 are either bool or null
+      // skip situations when both p1 and p2 are either bool or null
       auto p1_ok = p1.type_ == TypedValue::Type::Bool || p1.type_ == TypedValue::Type::Null;
       auto p2_ok = p2.type_ == TypedValue::Type::Bool || p2.type_ == TypedValue::Type::Null;
       if (p1_ok && p2_ok)
@@ -268,7 +279,7 @@ void TestLogicalThrows(std::function<TypedValue(const TypedValue&, const TypedVa
 }
 
 TEST(TypedValue, LogicalAnd) {
-//  TestLogicalThrows([](const TypedValue& p1, const TypedValue& p2) {return p1 && p2;});
+  TestLogicalThrows([](const TypedValue& p1, const TypedValue& p2) {return p1 && p2;});
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) && TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));

@@ -10,8 +10,6 @@
 #include "utils/total_ordering.hpp"
 #include "utils/exceptions/basic_exception.hpp"
 
-using std::string;
-
 /**
  * Encapsulation of a value and it's type encapsulated in a class that has no
  * compiled-time info about that type.
@@ -45,11 +43,11 @@ public:
   TypedValue(float value) : type_(Type::Float) { float_v = value; }
 
   /// constructors for non-primitive types (shared pointers)
-  TypedValue(const string &value) : type_(Type::String) {
-    new (&string_v) std::shared_ptr<string>(new string(value));
+  TypedValue(const std::string &value) : type_(Type::String) {
+    new (&string_v) std::shared_ptr<std::string>(new std::string(value));
   }
   TypedValue(const char* value) : type_(Type::String) {
-    new (&string_v) std::shared_ptr<string>(new string(value));
+    new (&string_v) std::shared_ptr<std::string>(new std::string(value));
   }
 
   // assignment ops

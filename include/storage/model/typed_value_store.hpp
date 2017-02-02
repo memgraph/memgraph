@@ -41,17 +41,7 @@ public:
    * @param value  The value to set.
    */
   template<typename TValue>
-  void set(const TKey &key, const TValue &value) {
-    for (auto& kv: props_)
-      if (kv.first == key) {
-        kv.second = TypedValue(value);
-        return;
-      }
-
-    // there is no value for the given key, add new
-    // TODO consider vector size increment optimization
-    props_.push_back(std::move(std::make_pair(key, value)));
-  }
+  void set(const TKey &key, const TValue &value);
 
   /**
    * Set overriding for character constants. Forces conversion
@@ -62,9 +52,7 @@ public:
    * value at the same key (if there was one) is replaced.
    * @param value  The value to set.
    */
-  void set(const TKey &key, const char *value) {
-    set(key, std::string(value));
-  }
+  void set(const TKey &key, const char *value);
 
   /**
    * Removes the TypedValue for the given key.
