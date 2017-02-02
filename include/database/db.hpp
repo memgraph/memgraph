@@ -18,77 +18,76 @@ class Indexes;
 /**
  * Main class which represents Database concept in code.
  */
-class Db
-{
+class Db {
 public:
-    using sptr = std::shared_ptr<Db>;
+  using sptr = std::shared_ptr<Db>;
 
-    /**
-     * This constructor will create a database with the name "default"
-     *
-     * NOTE: explicit is here to prevent compiler from evaluating const char *
-     * into a bool.
-     *
-     * @param import_snapshot will in constructor import latest snapshot
-     *                        into the db.
-     */
-    explicit Db(bool import_snapshot = true);
+  /**
+   * This constructor will create a database with the name "default"
+   *
+   * NOTE: explicit is here to prevent compiler from evaluating const char *
+   * into a bool.
+   *
+   * @param import_snapshot will in constructor import latest snapshot
+   *                        into the db.
+   */
+  explicit Db(bool import_snapshot = true);
 
-    /**
-     * Construct database with a custom name.
-     *
-     * @param name database name
-     * @param import_snapshot will in constructor import latest snapshot
-     *                        into the db.
-     */
-    Db(const char *name, bool import_snapshot = true);
+  /**
+   * Construct database with a custom name.
+   *
+   * @param name database name
+   * @param import_snapshot will in constructor import latest snapshot
+   *                        into the db.
+   */
+  Db(const char *name, bool import_snapshot = true);
 
-    /**
-     * Construct database with a custom name.
-     *
-     * @param name database name
-     * @param import_snapshot will in constructor import latest snapshot
-     *                        into the db.
-     */
-    Db(const std::string &name, bool import_snapshot = true);
+  /**
+   * Construct database with a custom name.
+   *
+   * @param name database name
+   * @param import_snapshot will in constructor import latest snapshot
+   *                        into the db.
+   */
+  Db(const std::string &name, bool import_snapshot = true);
 
-    /**
-     * Database object can't be copied.
-     */
-    Db(const Db &db) = delete;
+  /**
+   * Database object can't be copied.
+   */
+  Db(const Db &db) = delete;
 
 private:
-    /** database name */
-    const std::string name_;
+  /** database name */
+  const std::string name_;
 
 public:
-    /** transaction engine related to this database */
-    tx::Engine tx_engine;
+  /** transaction engine related to this database */
+  tx::Engine tx_engine;
 
-    /** graph related to this database */
-    Graph graph;
+  /** graph related to this database */
+  Graph graph;
 
-    /** garbage collector related to this database*/
-    Garbage garbage = {tx_engine};
+  /** garbage collector related to this database*/
+  Garbage garbage = {tx_engine};
 
-    /**
-     * snapshot engine related to this database
-     *
-     * \b IMPORTANT: has to be initialized after name
-     * */
-    SnapshotEngine snap_engine = {*this};
+  /**
+   * snapshot engine related to this database
+   *
+   * \b IMPORTANT: has to be initialized after name
+   * */
+  SnapshotEngine snap_engine = {*this};
 
-    /**
-     * Creates Indexes for this database.
-     */
-    Indexes indexes();
-    // TODO: Indexes should be created only once somwhere Like Db or layer
-    // between Db and Dbms.
+  /**
+   * Creates Indexes for this database.
+   */
+  Indexes indexes();
+  // TODO: Indexes should be created only once somwhere Like Db or layer
+  // between Db and Dbms.
 
-    /**
-     * Returns a name of the database.
-     *
-     * @return database name
-     */
-    std::string const &name() const;
+  /**
+   * Returns a name of the database.
+   *
+   * @return database name
+   */
+  std::string const &name() const;
 };
