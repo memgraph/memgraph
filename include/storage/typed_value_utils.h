@@ -6,7 +6,7 @@
 #pragma once
 
 #include <ostream>
-#include "storage/model/typed_value_store.hpp"
+#include "storage/typed_value_store.hpp"
 
 
 /**

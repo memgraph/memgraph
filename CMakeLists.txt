@@ -303,33 +303,8 @@ set(memgraph_src_files
     ${src_dir}/snapshot/snapshot_decoder.cpp
     ${src_dir}/storage/vertices.cpp
     ${src_dir}/storage/edges.cpp
-    ${src_dir}/storage/label/label.cpp
-    ${src_dir}/storage/label/label_collection.cpp
-    ${src_dir}/storage/label/label_store.cpp
-    ${src_dir}/storage/label/labels_writer.cpp
-    ${src_dir}/storage/edge_type/edge_type.cpp
-    ${src_dir}/storage/edge_type/edge_type_store.cpp
-    ${src_dir}/storage/model/typed_value.cpp
-    ${src_dir}/storage/model/typed_value_store.cpp
-    ${src_dir}/storage/model/properties/null.cpp
-    ${src_dir}/storage/model/properties/bool.cpp
-    ${src_dir}/storage/model/properties/int32.cpp
-    ${src_dir}/storage/model/properties/int64.cpp
-    ${src_dir}/storage/model/properties/float.cpp
-    ${src_dir}/storage/model/properties/double.cpp
-    ${src_dir}/storage/model/properties/string.cpp
-    ${src_dir}/storage/model/properties/array.cpp
-    ${src_dir}/storage/model/properties/property.cpp
-    ${src_dir}/storage/model/properties/properties.cpp
-    ${src_dir}/storage/model/properties/stored_property.cpp
-    ${src_dir}/storage/model/properties/property_family.cpp
-    ${src_dir}/storage/indexes/indexes.cpp
-    ${src_dir}/storage/indexes/index_base.cpp
-    ${src_dir}/storage/indexes/index_record.cpp
-    ${src_dir}/storage/indexes/index_update.cpp
-    ${src_dir}/storage/indexes/index_holder.cpp
-    ${src_dir}/storage/indexes/impl/unique_ordered_index.cpp
-    ${src_dir}/storage/indexes/impl/nonunique_unordered_index.cpp
+    ${src_dir}/storage/typed_value.cpp
+    ${src_dir}/storage/typed_value_store.cpp
     ${src_dir}/storage/locking/record_lock.cpp
     ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp

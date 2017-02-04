@@ -10,8 +10,8 @@
 
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "communication/bolt/v1/serialization/record_stream.hpp"
-#include "database/db.hpp"
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
+#include "database/graph_db.hpp"
 #include "database/db_accessor.hpp"
 #include "database/db_accessor.hpp"
 #include "io/network/socket.hpp"

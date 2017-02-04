@@ -1,6 +1,6 @@
 #pragma once
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "threading/thread.hpp"
 
 class Thread;

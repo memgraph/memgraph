@@ -1,6 +1,6 @@
 #pragma once
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "database/db_transaction.hpp"
 #include "utils/border.hpp"
 #include "utils/iterator/iterator.hpp"

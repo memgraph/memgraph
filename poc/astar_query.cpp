@@ -11,7 +11,7 @@
 
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "data_structures/map/rh_hashmap.hpp"
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "database/db_accessor.cpp"
 #include "database/db_accessor.hpp"
 #include "import/csv_import.hpp"

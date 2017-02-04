@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "logging/default.hpp"
 #include "threading/thread.hpp"
 

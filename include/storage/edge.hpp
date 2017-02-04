@@ -1,38 +1,17 @@
 #pragma once
 
+#include "database/graph_db.hpp"
 #include "mvcc/record.hpp"
-#include "storage/model/edge_model.hpp"
-#include "utils/string_buffer.hpp"
-#include "storage/model/properties/json_writer.hpp"
-#include "utils/handle_write.hpp"
+#include "mvcc/version_list.hpp"
+#include "storage/typed_value_store.hpp"
 
-class Edge : public mvcc::Record<Edge>
-{
-    using buffer_t        = utils::StringBuffer;
-    using props_writer_t  = JsonWriter<buffer_t>;
+// forward declare Vertex because there is a circular usage Edge <-> Vertex
+class Vertex;
 
+class Edge : public mvcc::Record<Edge> {
 public:
-    class Accessor;
-
-    Edge() = default;
-    Edge(const EdgeModel &data) : data(data) {}
-    Edge(EdgeModel &&data) : data(std::move(data)) {}
-
-    Edge(const Edge &) = delete;
-    Edge(Edge &&) = delete;
-
-    Edge &operator=(const Edge &) = delete;
-    Edge &operator=(Edge &&) = delete;
-
-    EdgeModel data;
-
-    template <typename Stream>
-    void stream_repr(Stream &stream) const
-    {
-        auto props  = handle_write<buffer_t, props_writer_t>(data.props);
-
-        stream << "Edge(cre = " << tx.cre() << ", "
-               << "exp = " << tx.exp() << ", "
-               << "props = " << props.str() << ")";
-    }
+  mvcc::VersionList<Vertex>* from_;
+  mvcc::VersionList<Vertex>* to_;
+  GraphDb::EdgeType edge_type_;
+  TypedValueStore properties_;
 };

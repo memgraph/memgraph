@@ -1,4 +1,4 @@
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "database/db_accessor.hpp"
 
 DbAccessor::DbAccessor(Db &db)

@@ -1,7 +1,7 @@
 #include <cstring>
 #include <ctime>
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "import/csv_import.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"

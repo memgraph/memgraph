@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/exception/plan_execution.hpp"
 #include "query/plan/program.hpp"

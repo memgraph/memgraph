@@ -1,5 +1,5 @@
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "_hardcoded_query/basic.hpp"

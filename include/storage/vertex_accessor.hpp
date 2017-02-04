@@ -1,64 +1,34 @@
 #pragma once
 
-#include "storage/label/label_collection.hpp"
+#include <set>
+
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "utils/iterator/iterator.hpp"
+#include "database/graph_db.hpp"
 
-class Vertices;
 class EdgeAccessor;
 
-// There exists circular dependecy with EdgeAccessor.
-class VertexAccessor : public RecordAccessor<TypeGroupVertex, VertexAccessor>
-{
-    friend EdgeAccessor;
-
+class VertexAccessor : public RecordAccessor<Vertex, VertexAccessor> {
 public:
-    using RecordAccessor::RecordAccessor;
+  using RecordAccessor::RecordAccessor;
 
-    using record_t      = Vertex;
-    using record_list_t = VertexRecord;
+  size_t out_degree() const;
 
-    // Removes self and all edges connected to it.
-    void remove() const;
+  size_t in_degree() const;
 
-    // Returns number of out edges.
-    size_t out_degree() const;
+  bool add_label(GraphDb::Label label);
 
-    // Returns number of in edges.
-    size_t in_degree() const;
+  size_t remove_label(GraphDb::Label label);
 
-    // Returns number of all edges.
-    size_t degree() const;
+  bool has_label(GraphDb::Label label) const;
 
-    // True if vertex isn't connected to any other vertex.
-    bool isolated() const;
+  const std::set<GraphDb::Label>& labels() const;
 
-    // False if it already has the label.
-    bool add_label(const Label &label);
+  // TODO add in/out functions that return (collection|iterator) over EdgeAccessor
 
-    // False if it doesn't have the label.
-    bool remove_label(const Label &label);
+  // returns if remove was possible due to connections
+  bool remove() const;
 
-    // Checks if it has the label.
-    bool has_label(const Label &label) const;
-
-    // Returns container with all labels.
-    const std::vector<label_ref_t> &labels() const;
-
-    auto out() const;
-
-    auto in() const;
-
-    // True if there exists edge between other vertex and this vertex.
-    bool in_contains(VertexAccessor const &other) const;
-
-    template <typename Stream>
-    void stream_repr(Stream& stream) const
-    {
-        if (!this->record)
-            return;
-
-        this->record->stream_repr(stream);
-    }
+  void detach_remove() const;
 };

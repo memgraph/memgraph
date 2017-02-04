@@ -4,7 +4,7 @@
 #include "debug/log.hpp"
 #include "utils/ioc/container.hpp"
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 
 #include "api/resources/include.hpp"
 #include "speedy/speedy.hpp"

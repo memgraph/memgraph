@@ -1,45 +1,32 @@
 #include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 
-#include <cassert>
-
-#include "utils/assert.hpp"
-#include "storage/vertex_record.hpp"
-#include "storage/edge_type/edge_type.hpp"
-
-void EdgeAccessor::remove() const
-{
-    RecordAccessor::remove();
-
-    auto from_va = from();
-    auto from_va_is_full = from_va.fill();
-    runtime_assert(from_va_is_full, "From Vertex Accessor is empty");
-
-    auto to_va = to();
-    auto to_va_is_full = to_va.fill();
-    permanent_assert(to_va_is_full, "To Vertex Accessor is empty");
-
-    from_va.update().record->data.out.remove(vlist);
-    to_va.update().record->data.in.remove(vlist);
+void EdgeAccessor::set_edge_type(GraphDb::EdgeType edge_type) {
+  this->record_->edge_type_ = edge_type;
 }
 
-void EdgeAccessor::edge_type(const EdgeType &edge_type)
-{
-    this->record->data.edge_type = &edge_type;
+GraphDb::EdgeType EdgeAccessor::edge_type() const {
+  return this->record_->edge_type_;
 }
 
-const EdgeType &EdgeAccessor::edge_type() const
-{
-    assert(this->record->data.edge_type != nullptr);
-    runtime_assert(this->record->data.edge_type != nullptr, "EdgeType is null");
-    return *this->record->data.edge_type;
+VertexAccessor EdgeAccessor::from() const {
+  return VertexAccessor(this->record_->from_, this->db_trans_);
 }
 
-VertexAccessor EdgeAccessor::from() const
-{
-    return VertexAccessor(this->vlist->from(), this->db);
+VertexAccessor EdgeAccessor::to() const {
+  return VertexAccessor(this->record_->to_, this->db_trans_);
 }
 
-VertexAccessor EdgeAccessor::to() const
-{
-    return VertexAccessor(this->vlist->to(), this->db);
+void EdgeAccessor::remove() const {
+  // remove this edge's reference from the "from" vertex
+  auto& vertex_from_out = from().update().record_->out_;
+  std::remove(vertex_from_out.begin(), vertex_from_out.end(), record_->from_);
+
+  // remove this edge's reference from the "to" vertex
+  auto& vertex_to_in = to().update().record_->in_;
+  std::remove(vertex_to_in.begin(), vertex_to_in.end(), record_->to_);
+
+  // remove this record from the database via MVCC
+  vlist_->remove(record_, db_trans_.trans);
 }
+

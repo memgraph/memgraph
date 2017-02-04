@@ -1,7 +1,7 @@
 #pragma once
 
 #include "communication/communication.hpp"
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "database/db_accessor.hpp"
 #include "query/strip/stripped.hpp"
 

@@ -1,6 +1,6 @@
 #include <algorithm>
 
-#include "storage/model/typed_value_store.hpp"
+#include "storage/typed_value_store.hpp"
 
 const TypedValue& TypedValueStore::at(const TKey &key) const {
   for (const auto& kv : props_)

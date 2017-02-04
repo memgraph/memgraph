@@ -2,7 +2,7 @@
 
 #include <experimental/filesystem>
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "logging/default.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/plan/program.hpp"

@@ -1,6 +1,6 @@
 #include "database/db_transaction.hpp"
 
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "serialization/serialization.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_type/edge_type.hpp"

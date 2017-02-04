@@ -2,7 +2,7 @@
 
 #include "config/config.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/db.hpp"
+#include "database/graph_db.hpp"
 #include "dbms/cleaner.hpp"
 #include "snapshot/snapshoter.hpp"
 

@@ -1,42 +1,18 @@
 #pragma once
 
+#include "database/graph_db.hpp"
 #include "mvcc/record.hpp"
-#include "storage/label/labels_writer.hpp"
-#include "storage/model/properties/json_writer.hpp"
-#include "storage/model/vertex_model.hpp"
-#include "utils/handle_write.hpp"
-#include "utils/string_buffer.hpp"
+#include "mvcc/version_list.hpp"
+#include "storage/typed_value_store.hpp"
 
-class Vertex : public mvcc::Record<Vertex>
-{
-    using buffer_t        = utils::StringBuffer;
-    using props_writer_t  = JsonWriter<buffer_t>;
-    using labels_writer_t = LabelsWriter<buffer_t>;
+// forward declare Edge because there is a circular usage Edge <-> Vertex
+class Edge;
+
+class Vertex : public mvcc::Record<Vertex> {
 
 public:
-    class Accessor;
-
-    Vertex() = default;
-    Vertex(const VertexModel &data) : data(data) {}
-    Vertex(VertexModel &&data) : data(std::move(data)) {}
-
-    Vertex(const Vertex &) = delete;
-    Vertex(Vertex &&)      = delete;
-
-    Vertex &operator=(const Vertex &) = delete;
-    Vertex &operator=(Vertex &&) = delete;
-
-    VertexModel data;
-
-    template <typename Stream>
-    void stream_repr(Stream &stream) const
-    {
-        auto props  = handle_write<buffer_t, props_writer_t>(data.props);
-        auto labels = handle_write<buffer_t, labels_writer_t>(data.labels);
-
-        stream << "Vertex(cre = " << tx.cre() << ", "
-               << "exp = " << tx.exp() << ", "
-               << "props = " << props.str() << ", "
-               << "labels = " << labels.str() << ")";
-    }
+  std::vector<mvcc::VersionList<Edge> *> out_;
+  std::vector<mvcc::VersionList<Edge> *> in_;
+  std::set<GraphDb::Label> labels_;
+  TypedValueStore properties_;
 };

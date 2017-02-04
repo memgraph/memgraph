@@ -3,7 +3,7 @@
 #include <cmath>
 #include <fmt/format.h>
 
-#include "storage/model/typed_value.hpp"
+#include "storage/typed_value.hpp"
 #include "utils/assert.hpp"
 
 // Value extraction template instantiations

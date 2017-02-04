@@ -17,7 +17,7 @@ namespace mvcc {
     using uptr = std::unique_ptr<VersionList<T>>;
     using item_t = T;
 
-    VersionList(Id id) : id(id) {}
+    VersionList() = default;
 
     VersionList(const VersionList &) = delete;
 
@@ -178,8 +178,6 @@ namespace mvcc {
       lock_and_validate(record, t);
       record->mark_deleted(t);
     }
-
-    const Id id;
 
   private:
     void lock_and_validate(T *record, tx::Transaction &t) {
