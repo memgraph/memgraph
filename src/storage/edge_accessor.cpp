@@ -10,23 +10,29 @@ GraphDb::EdgeType EdgeAccessor::edge_type() const {
 }
 
 VertexAccessor EdgeAccessor::from() const {
-  return VertexAccessor(this->record_->from_, this->db_trans_);
+  return VertexAccessor(this->record_->from_, this->trans_);
 }
 
 VertexAccessor EdgeAccessor::to() const {
-  return VertexAccessor(this->record_->to_, this->db_trans_);
+  return VertexAccessor(this->record_->to_, this->trans_);
 }
 
-void EdgeAccessor::remove() const {
+void EdgeAccessor::remove() {
   // remove this edge's reference from the "from" vertex
-  auto& vertex_from_out = from().update().record_->out_;
-  std::remove(vertex_from_out.begin(), vertex_from_out.end(), record_->from_);
+  auto vertex_from = from();
+  vertex_from.update();
+  std::remove(vertex_from.record_->out_.begin(),
+              vertex_from.record_->out_.end(),
+              vlist_);
 
   // remove this edge's reference from the "to" vertex
-  auto& vertex_to_in = to().update().record_->in_;
-  std::remove(vertex_to_in.begin(), vertex_to_in.end(), record_->to_);
+  auto vertex_to = to();
+  vertex_to.update();
+  std::remove(vertex_to.record_->in_.begin(),
+              vertex_to.record_->in_.end(),
+              vlist_);
 
   // remove this record from the database via MVCC
-  vlist_->remove(record_, db_trans_.trans);
+  vlist_->remove(record_, trans_);
 }
 

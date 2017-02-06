@@ -14,11 +14,11 @@ public:
 
   void set_edge_type(GraphDb::EdgeType edge_type);
 
-  EdgeType edge_type() const;
+  GraphDb::EdgeType edge_type() const;
 
   VertexAccessor from() const;
 
   VertexAccessor to() const;
 
-  void remove() const;
+  void remove();
 };

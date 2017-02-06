@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 
 #include "utils/total_ordering.hpp"
-#include "storage/unique_object_store.h"
+#include "storage/unique_object_store.hpp"
 
 /**
  * Wraps an int and implements total ordering. Used for testing the

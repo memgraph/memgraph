@@ -10,10 +10,12 @@ size_t VertexAccessor::in_degree() const {
 }
 
 bool VertexAccessor::add_label(GraphDb::Label label) {
+  update();
   return this->record_->labels_.emplace(label).second;
 }
 
 size_t VertexAccessor::remove_label(GraphDb::Label label) {
+  update();
   return this->record_->labels_.erase(label);
 }
 
@@ -26,25 +28,34 @@ const std::set<GraphDb::Label> &VertexAccessor::labels() const {
   return this->record_->labels_;
 }
 
-bool VertexAccessor::remove() const {
+bool VertexAccessor::remove() {
   // TODO consider if this works well with MVCC
   if (out_degree() > 0 || in_degree() > 0)
     return false;
 
-  vlist_->remove(record_, db_trans_.trans);
+  vlist_->remove(record_, trans_);
   return true;
 }
 
-void VertexAccessor::detach_remove() const {
+void VertexAccessor::detach_remove() {
   // removing edges via accessors is both safe
   // and it should remove all the pointers in the relevant
   // vertices (including this one)
   for (auto edge_vlist : record_->out_)
-    EdgeAccessor(edge_vlist, db_trans_).remove();
+    EdgeAccessor(edge_vlist, trans_).remove();
 
   for (auto edge_vlist : record_->in_)
-    EdgeAccessor(edge_vlist, db_trans_).remove();
+    EdgeAccessor(edge_vlist, trans_).remove();
 
-  vlist_->remove(record_, db_trans_.trans);
+  vlist_->remove(record_, trans_);
 }
 
+void VertexAccessor::attach_in(mvcc::VersionList<Edge>* edge_vlist, PassKey<GraphDb>) {
+  update();
+  this->record_->in_.emplace_back(edge_vlist);
+}
+
+void VertexAccessor::attach_out(mvcc::VersionList<Edge>* edge_vlist, PassKey<GraphDb>) {
+  update();
+  this->record_->out_.emplace_back(edge_vlist);
+}

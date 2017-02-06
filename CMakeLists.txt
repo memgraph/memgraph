@@ -280,7 +280,7 @@ add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
 set(memgraph_src_files
     ${src_dir}/config/config.cpp
     ${src_dir}/dbms/dbms.cpp
-    ${src_dir}/dbms/cleaner.cpp
+#    ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/string/transform.cpp
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
@@ -297,17 +297,17 @@ set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
-    ${src_dir}/snapshot/snapshot_engine.cpp
-    ${src_dir}/snapshot/snapshoter.cpp
-    ${src_dir}/snapshot/snapshot_encoder.cpp
-    ${src_dir}/snapshot/snapshot_decoder.cpp
-    ${src_dir}/storage/vertices.cpp
-    ${src_dir}/storage/edges.cpp
+#    ${src_dir}/snapshot/snapshot_engine.cpp
+#    ${src_dir}/snapshot/snapshoter.cpp
+#    ${src_dir}/snapshot/snapshot_encoder.cpp
+#    ${src_dir}/snapshot/snapshot_decoder.cpp
     ${src_dir}/storage/typed_value.cpp
     ${src_dir}/storage/typed_value_store.cpp
     ${src_dir}/storage/locking/record_lock.cpp
-    ${src_dir}/storage/garbage/garbage.cpp
+#    ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
+        ${src_dir}/storage/edge_accessor.cpp
+#        ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/transactions/transaction_read.cpp
@@ -319,11 +319,8 @@ set(memgraph_src_files
     ${src_dir}/logging/default.cpp
     ${src_dir}/logging/log.cpp
     ${src_dir}/io/network/tls.cpp
-    ${src_dir}/database/db.cpp
-    ${src_dir}/database/db_transaction.cpp
-    ${src_dir}/database/db_accessor.cpp
-    ${src_dir}/storage/edge_accessor.cpp
-    ${src_dir}/storage/record_accessor.cpp
+    ${src_dir}/database/graph_db.cpp
+    ${src_dir}/database/graph_db_accessor.cpp
 )
 # -----------------------------------------------------------------------------
 

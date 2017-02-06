@@ -9,7 +9,7 @@
 
 #include "logging/default.hpp"
 
-Cleaning::Cleaning(ConcurrentMap<std::string, Db> &dbs, size_t cleaning_cycle)
+Cleaning::Cleaning(ConcurrentMap<std::string, GraphDb> &dbs, size_t cleaning_cycle)
     : dbms(dbs), cleaning_cycle(cleaning_cycle)
 {
     // Start the cleaning thread

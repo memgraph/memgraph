@@ -28,7 +28,24 @@ public:
   // TODO add in/out functions that return (collection|iterator) over EdgeAccessor
 
   // returns if remove was possible due to connections
-  bool remove() const;
+  bool remove();
 
-  void detach_remove() const;
+  void detach_remove();
+
+  /**
+   * Adds the given Edge version list to this Vertex's incoming edges.
+   *
+   * @param edge_vlist  The Edge to add.
+   * @param pass_key  Ensures only GraphDb has access to this method.
+   */
+  void attach_in(mvcc::VersionList<Edge>* edge_vlist, PassKey<GraphDb> pass_key);
+
+  /**
+   * Adds the given Edge version list to this Vertex's outgoing edges.
+   *
+   * @param edge_vlist  The Edge to add.
+   * @param pass_key  Ensures only GraphDb has access to this method.
+   */
+  void attach_out(mvcc::VersionList<Edge>* edge_vlist, PassKey<GraphDb> pass_key);
+
 };

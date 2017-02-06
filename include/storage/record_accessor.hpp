@@ -1,10 +1,10 @@
 #pragma once
 
-#include "database/db_transaction.hpp"
 #include "mvcc/version_list.hpp"
 #include "transactions/transaction.hpp"
 #include "storage/typed_value.hpp"
 #include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "utils/pass_key.hpp"
 
 template <typename TRecord, typename TDerived>
@@ -12,33 +12,18 @@ class RecordAccessor {
 
 public:
 
-  RecordAccessor(mvcc::VersionList<TRecord>* vlist, DbTransaction &db_trans)
-      : vlist_(vlist), db_trans_(db_trans) {
-    assert(vlist_ != nullptr);
+  RecordAccessor(mvcc::VersionList<TRecord>* vlist, tx::Transaction &trans)
+      : vlist_(vlist), trans_(trans) {
+    record_ = vlist->find(trans_);
   }
 
-  RecordAccessor(TRecord *t, mvcc::VersionList<TRecord> *vlist, DbTransaction &db_trans)
-      : record_(t), vlist_(vlist), db_trans_(db_trans) {
-    assert(record_ != nullptr);
-    assert(vlist_ != nullptr);
-  }
-
-  // TODO: Test this
-  TDerived update() const {
-    assert(!empty());
-
-    if (record_->is_visible_write(db_trans_.trans)) {
-      // TODO: VALIDATE THIS BRANCH. THEN ONLY THIS TRANSACTION CAN SEE
-      // THIS DATA WHICH MEANS THAT IT CAN CHANGE IT.
-      return TDerived(record_, vlist_, db_trans_);
-
-    } else {
-      auto new_record_ = vlist_->update(db_trans_.trans);
-
-      // TODO: Validate that update of record in this accessor is correct.
-      const_cast<RecordAccessor *>(this)->record_ = new_record;
-      return TDerived(new_record, vlist_, db_trans_);
-    }
+  /**
+   * Indicates if this record is visible to the current transaction.
+   *
+   * @return
+   */
+  bool is_visible() const {
+    return record_ != nullptr;
   }
 
   TypedValue at(GraphDb::Property key) const {
@@ -47,11 +32,12 @@ public:
 
   template <typename TValue>
   void set(GraphDb::Property key, TValue value) {
-    // TODO should update be called here?!?!
+    update();
     record_->props_.set(key, value);
   }
 
-  size_t erase(GraphDb::Property key) const {
+  size_t erase(GraphDb::Property key) {
+    update();
     return record_->props_.erase(key);
   }
 
@@ -78,13 +64,29 @@ public:
    * @param pass_key Ignored.
    * @return The version list of this accessor.
    */
-  mvcc::VersionList<TRecord>* vlist(Passkey<GraphDb> pass_key) {
+  mvcc::VersionList<TRecord>* vlist(PassKey<GraphDbAccessor> pass_key) const {
     return vlist_;
   }
 
-
 protected:
-  TRecord* record_{nullptr};
+
+  /**
+   * Ensures this accessor is fit for updating functions.
+   *
+   * IMPORTANT:  This function should be called from any
+   * method that will change the record (in terms of the
+   * property graph data).
+   */
+  void update() {
+    // TODO consider renaming this to something more indicative
+    // of the underlying MVCC functionality (like "new_version" or so)
+    if (record_->is_visible_write(trans_))
+      return;
+    else
+      record_ = vlist_->update(trans_);
+  }
+
   mvcc::VersionList<TRecord>* vlist_;
-  DbTransaction& db_trans_;
+  tx::Transaction& trans_;
+  TRecord* record_;
 };

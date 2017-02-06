@@ -25,7 +25,7 @@ namespace mvcc {
      * Note: use only at the beginning of the "other's" lifecycle since this
      * constructor doesn't move the RecordLock, but only the head pointer
      */
-    VersionList(VersionList &&other) : id(other.id) {
+    VersionList(VersionList &&other) {
       this->head = other.head.load();
       other.head = nullptr;
     }

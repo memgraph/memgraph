@@ -42,8 +42,11 @@ public:
         encoder.write_struct_header(3);
         encoder.write(underlying_cast(pack::Node));
 
-        // write the identifier for the node
-        encoder.write_integer(vertex.id());
+        // IMPORTANT: here we write a hardcorded 0 because we don't
+        // use internal IDs, but need to give something to Bolt
+        // note that OpenCypther has no id(x) function, so the client
+        // should not be able to do anything with this value anyway
+        encoder.write_integer(0);
 
         // write the list of labels
         auto labels = vertex.labels();
@@ -67,9 +70,9 @@ public:
     /** Serializes the vertex accessor into the packstream format
      *
      * struct[size = 5] Edge [signature = 0x52] {
-     *     Integer            edge_id;
-     *     Integer            start_node_id;
-     *     Integer            end_node_id;
+     *     Integer            edge_id;          // IMPORTANT: always 0 since we don't do IDs
+     *     Integer            start_node_id;    // IMPORTANT: always 0 since we don't do IDs
+     *     Integer            end_node_id;      // IMPORTANT: always 0 since we don't do IDs
      *     String             type;
      *     Map<String, Value> properties;
      * }
