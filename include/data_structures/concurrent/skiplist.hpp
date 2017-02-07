@@ -145,7 +145,11 @@ class SkipList : private Lockable<lock_t> {
     }
 
     static Node *create(const T &item, uint8_t height) {
-      return create(height, item);
+      auto node = allocate(height);
+
+      // we have raw memory and we need to construct an object
+      // of type Node on it
+      return new (node) Node(item, height);
     }
 
     static Node *create(T &&item, uint8_t height) {
@@ -186,6 +190,10 @@ class SkipList : private Lockable<lock_t> {
     template <class... Args>
     Node(uint8_t height, Args &&... args) : Node(height) {
       this->data.emplace(std::forward<Args>(args)...);
+    }
+
+    Node(const T &data, uint8_t height) : Node(height) {
+      this->data.set(data);
     }
 
     Node(T &&data, uint8_t height) : Node(height) {
@@ -937,6 +945,42 @@ class SkipList : private Lockable<lock_t> {
 
       return insert_here(Node::create(std::move(data), height), preds, succs,
                          height, guards);
+    }
+  }
+
+  /**
+   * Insert unique data
+   *
+   * F - type of funct which will create new node if needed. Recieves height
+   * of node.
+   */
+  // TODO this code is not DRY w.r.t. the other insert function (rvalue ref)
+  std::pair<Iterator, bool> insert(Node *preds[], Node *succs[], const T &data) {
+    while (true) {
+      // TODO: before here was data.first
+      auto level = find_path(this, H - 1, data, preds, succs);
+
+      if (level != -1) {
+        auto found = succs[level];
+
+        if (found->flags.is_marked()) continue;
+
+        while (!found->flags.is_fully_linked()) usleep(250);
+
+        return {Iterator{succs[level]}, false};
+      }
+
+      auto height = rnd();
+      guard_t guards[H];
+
+      // try to acquire the locks for predecessors up to the height of
+      // the new node. release the locks and try again if someone else
+      // has the locks
+      if (!lock_nodes<true>(height, guards, preds, succs)) continue;
+
+      return {insert_here(Node::create(data, height), preds, succs,
+                          height, guards),
+              true};
     }
   }
 

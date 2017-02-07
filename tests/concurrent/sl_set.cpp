@@ -15,7 +15,7 @@ int main()
     init_log();
 
     memory_check(THREADS_NO, [] {
-        set_t skiplist;
+        ConcurrentSet<std::string> skiplist;
 
         auto futures = run<std::vector<long>>(
             THREADS_NO, skiplist, [](auto acc, auto index) {
@@ -25,14 +25,16 @@ int main()
                 std::vector<long> set(key_range);
 
                 do {
-                    size_t num = rand();
+                    int num = rand();
+                    std::string num_str = std::to_string(num);
                     if (rand_op()) {
-                        if (acc.remove(num)) {
+                        if (acc.remove(num_str)) {
                             downcount--;
                             set[num]--;
                         }
                     } else {
-                        if (acc.insert(num).second) {
+                        std::string num_str = std::to_string(num);
+                        if (acc.insert(num_str).second) {
                             downcount--;
                             set[num]++;
                         }
@@ -52,12 +54,12 @@ int main()
         auto accessor = skiplist.access();
         for (int i = 0; i < key_range; i++) {
             permanent_assert(set[i] == 0 || set[i] == 1 ||
-                                 (set[i] == 1) ^ accessor.contains(i),
+                                 (set[i] == 1) ^ accessor.contains(std::to_string(i)),
                              "Set doesn't hold it's guarantees.");
         }
 
         for (auto &e : accessor) {
-            set[e]--;
+            set[std::stoi(e)]--;
         }
 
         check_zero(key_range, set, "Set");
