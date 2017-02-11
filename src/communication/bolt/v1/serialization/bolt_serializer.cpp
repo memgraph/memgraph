@@ -5,32 +5,92 @@
 #include "communication/bolt/v1/transport/socket_stream.hpp"
 #include "io/network/socket.hpp"
 
-template <class Stream>
-void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge)
-{
-    // write signatures for the edge struct and edge data type
-    encoder.write_struct_header(5);
-    encoder.write(underlying_cast(pack::Relationship));
+template<class Stream>
+void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
 
-    // write the identifier for the node
-    encoder.write_integer(edge.id());
+  // write signatures for the node struct and node data type
+  encoder.write_struct_header(3);
+  encoder.write(underlying_cast(pack::Node));
 
-    encoder.write_integer(edge.from().id());
-    encoder.write_integer(edge.to().id());
+  // IMPORTANT: here we write a hardcoded 0 because we don't
+  // use internal IDs, but need to give something to Bolt
+  // note that OpenCypher has no id(x) function, so the client
+  // should not be able to do anything with this value anyway
+  encoder.write_integer(0); // uID
 
-    // write the type of the edge
-    encoder.write_string(edge.edge_type());
+  // write the list of labels
+  auto labels = vertex.labels();
+  encoder.write_list_header(labels.size());
+  for (auto label : labels)
+    encoder.write_string(vertex.db_accessor().label_name(label));
 
-    // write the property map
-    auto props = edge.properties();
-
-    encoder.write_map_header(props.size());
-
-    for (auto &prop : props) {
-        write(prop.key.family_name());
-        prop.accept(*this);
-    }
+  // write the properties
+  const TypedValueStore &props = vertex.Properties();
+  encoder.write_map_header(props.size());
+  props.Accept([&vertex](const TypedValueStore::TKey &prop_name, const TypedValue &value) {
+    write(vertex.db_accessor().property_name(prop_name));
+    write(value);
+  });
 }
 
-template class bolt::BoltSerializer<bolt::BoltEncoder<
+template<class Stream>
+void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
+  // write signatures for the edge struct and edge data type
+  encoder.write_struct_header(5);
+  encoder.write(underlying_cast(pack::Relationship));
+
+  // IMPORTANT: here we write a hardcoded 0 because we don't
+  // use internal IDs, but need to give something to Bolt
+  // note that OpenCypher has no id(x) function, so the client
+  // should not be able to do anything with this value anyway
+  encoder.write_integer(0);
+  encoder.write_integer(0);
+  encoder.write_integer(0);
+
+  // write the type of the edge
+  encoder.write_string(edge.edge_type());
+
+  // write the property map
+  const TypedValueStore& props = edge.Properties();
+  encoder.write_map_header(props.size());
+  props.Accept([&edge](const TypedValueStore::TKey &prop_name, const TypedValue &value) {
+    write(edge.db_accessor().property_name(prop_name));
+    write(value);
+  });
+}
+
+template<class Stream>
+void bolt::BoltSerializer<Stream>::write(const TypedValue& value) {
+
+  switch (value.type_) {
+    case TypedValue::Type::Null:
+      encoder.write_null();
+      return;
+    case TypedValue::Type::Bool:
+      encoder.write_bool(value.Value<bool>());
+      return;
+    case TypedValue::Type::String:
+      encoder.write_string(value.Value<std::string>());
+      return;
+    case TypedValue::Type::Int:
+      encoder.write_integer(value.Value<int>());
+      return;
+    case TypedValue::Type::Float:
+      encoder.write_double(value.Value<float>());
+      return;
+  }
+}
+
+template<class Stream>
+void bolt::BoltSerializer<Stream>::write_failure(const std::map<std::string, std::string> &data) {
+  encoder.message_failure();
+  encoder.write_map_header(data.size());
+  for (auto const &kv : data) {
+    write(kv.first);
+    write(kv.second);
+  }
+}
+
+template
+class bolt::BoltSerializer<bolt::BoltEncoder<
     bolt::ChunkedEncoder<bolt::ChunkedBuffer<bolt::SocketStream<io::Socket>>>>>;

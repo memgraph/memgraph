@@ -4,6 +4,7 @@
 #include "transactions/engine.hpp"
 #include "mvcc/version_list.hpp"
 #include "utils/pass_key.hpp"
+#include "data_structures/concurrent/concurrent_set.hpp"
 #include "storage/unique_object_store.hpp"
 
 // forward declaring Edge and Vertex because they use
@@ -26,9 +27,9 @@ class GraphDb {
 public:
 
   // definitions for what data types are used for a Label, Property, EdgeType
-  using Label = uint32_t;
-  using EdgeType = uint32_t;
-  using Property = uint32_t;
+  using Label = std::string*;
+  using EdgeType = std::string*;
+  using Property = std::string*;
 
   /**
    * This constructor will create a database with the name "default"
@@ -83,7 +84,7 @@ public:
   SkipList<mvcc::VersionList<Vertex>*> vertices_;
 
   // unique object stores
-  UniqueObjectStore<std::string, Label> labels_;
-  UniqueObjectStore<std::string, EdgeType> edge_types_;
-  UniqueObjectStore<std::string, Property> properties_;
+  ConcurrentSet<std::string> labels_;
+  ConcurrentSet<std::string> edge_types_;
+  ConcurrentSet<std::string> properties_;
 };

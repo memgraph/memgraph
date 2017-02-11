@@ -3,14 +3,14 @@
 // Created by Florijan Stamenkovic on 03.02.17.
 //
 
-#pragma
+#pragma once
 
 #include "graph_db.hpp"
 #include "transactions/transaction.hpp"
 
 
 class GraphDbAccessor {
-  GraphDbAccessor(GraphDb& db) : db_(db), transaction_(db.tx_engine.begin()) {}
+  GraphDbAccessor(GraphDb& db);
 
 public:
   /**
@@ -37,10 +37,26 @@ public:
   GraphDb::Label label(const std::string& label_name);
 
   /**
+   * Obtains the label name (a string) for the given label.
+   *
+   * @param label a Label.
+   * @return  See above.
+   */
+  std::string& label_name(const GraphDb::Label label) const;
+
+  /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
   GraphDb::EdgeType edge_type(const std::string& edge_type_name);
+
+  /**
+   * Obtains the edge type name (a string) for the given edge type.
+   *
+   * @param edge_type an EdgeType.
+   * @return  See above.
+   */
+  std::string& edge_type_name(const GraphDb::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
@@ -48,12 +64,20 @@ public:
    */
   GraphDb::Property property(const std::string& property_name);
 
+  /**
+   * Obtains the property name (a string) for the given property.
+   *
+   * @param property a Property.
+   * @return  See above.
+   */
+  std::string& property_name(const GraphDb::Property property) const;
+
   /** The current transaction */
-  tx::Transaction const transaction_;
+  tx::Transaction transaction_;
 
 private:
   GraphDb& db_;
 
   // for privileged access to some RecordAccessor functionality (and similar)
-  const PassKey<GraphDb> pass_key;
+  const PassKey<GraphDbAccessor> pass_key;
 };

@@ -13,5 +13,5 @@ public:
   mvcc::VersionList<Vertex>* from_;
   mvcc::VersionList<Vertex>* to_;
   GraphDb::EdgeType edge_type_;
-  TypedValueStore properties_;
+  TypedValueStore<GraphDb::Property> properties_;
 };

@@ -20,7 +20,7 @@ class Transaction : public TransactionRead
 public:
     Transaction(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
     Transaction(const Transaction &) = delete;
-    Transaction(Transaction &&) = delete;
+    Transaction(Transaction &&) = default;
 
     // Returns copy of transaction_read
     TransactionRead transaction_read();
