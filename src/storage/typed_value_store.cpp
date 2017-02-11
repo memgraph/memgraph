@@ -43,7 +43,7 @@ void TypedValueStore::set(const TKey &key, const char *value) {
   set(key, std::string(value));
 }
 
-size_t TypedValueStore::erase(const TKey &key) {
+size_t TypedValueStore::erase(const TKey &key) const {
   auto found = std::find_if(props_.begin(), props_.end(), [&key](std::pair<TKey, TypedValue> &kv){return kv.first == key;});
   if (found != props_.end()) {
     props_.erase(found);

@@ -52,9 +52,9 @@ FILE(COPY ${include_dir}/transactions/engine.hpp DESTINATION ${build_include_dir
 FILE(COPY ${include_dir}/transactions/transaction_store.hpp DESTINATION ${build_include_dir}/transactions)
 FILE(COPY ${include_dir}/transactions/transaction_read.hpp DESTINATION ${build_include_dir}/transactions)
 
-FILE(COPY ${include_dir}/storage/typed_value.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/typed_value_store.hpp DESTINATION ${build_include_dir}/storage/model)
-FILE(COPY ${include_dir}/storage/typed_value_utils.hpp DESTINATION ${build_include_dir}/storage/model)
+FILE(COPY ${include_dir}/storage/typed_value.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/typed_value_store.hpp DESTINATION ${build_include_dir}/storage)
+FILE(COPY ${include_dir}/storage/typed_value_utils.hpp DESTINATION ${build_include_dir}/storage)
 
 FILE(COPY ${include_dir}/storage/garbage/delete_sensitive.hpp DESTINATION ${build_include_dir}/storage/garbage)
 FILE(COPY ${include_dir}/storage/garbage/garbage.hpp DESTINATION ${build_include_dir}/storage/garbage)

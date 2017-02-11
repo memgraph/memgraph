@@ -12,12 +12,10 @@
 
 #include "logging/default.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
-class Session : public io::tcp::Stream<io::Socket>
-{
-public:
+  class Session : public io::tcp::Stream<io::Socket> {
+  public:
     using Decoder = BoltDecoder;
     using OutputStream = communication::OutputStream;
 
@@ -26,10 +24,12 @@ public:
     bool alive() const;
 
     void execute(const byte *data, size_t len);
+
     void close();
 
     Bolt &bolt;
-    Db &active_db();
+
+    GraphDb &active_db();
 
     Decoder decoder;
     OutputStream output_stream{socket};
@@ -37,7 +37,7 @@ public:
     bool connected{false};
     State *state;
 
-protected:
+  protected:
     Logger logger;
-};
+  };
 }

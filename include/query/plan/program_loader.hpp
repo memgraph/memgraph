@@ -7,7 +7,6 @@
 
 #include "config/config.hpp"
 #include "logging/default.hpp"
-#include "query/backend/cpp_old/cypher.hpp"
 #include "query/dynamic_lib.hpp"
 #include "query/frontend/cypher.hpp"
 #include "query/plan/compiler.hpp"
@@ -99,9 +98,7 @@ private:
     QueryPreprocessor preprocessor;
 
     // TODO: compile time switch between frontends and backends
-    using frontend_t = cypher::Frontend;
-    using backend_t = CypherBackend<Stream>;
-    PlanGenerator<frontend_t, backend_t> plan_generator;
+    PlanGenerator<cypher::Frontend, CypherBackend<Stream>> plan_generator;
 
     PlanCompiler plan_compiler;
 

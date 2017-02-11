@@ -10,13 +10,13 @@
  * using a key of type Properties::TKey.
  *
  * The underlying implementation is not necessarily std::map.
+ *
+  * @tparam TKey The type of key used in this value store.
  */
+template <typename TKey = uint32_t>
 class TypedValueStore {
 public:
   using sptr = std::shared_ptr<TypedValueStore>;
-
-  /** The type of key used to get and set properties */
-  using TKey = uint32_t;
 
   /**
    * Returns a TypedValue (by reference) at the given key.
@@ -65,7 +65,7 @@ public:
   /**
    * @return The number of Properties in this collection.
    */
-  size_t size();
+  size_t size() const;
 
 
   /**

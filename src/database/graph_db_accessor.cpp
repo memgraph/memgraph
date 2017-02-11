@@ -1,5 +1,8 @@
+#include <database/creation_exception.hpp>
 #include "database/graph_db_accessor.hpp"
 
+
+GraphDbAccessor::GraphDbAccessor(GraphDb& db) : db_(db), transaction_(std::move(db.tx_engine.begin())) {}
 
 VertexAccessor GraphDbAccessor::insert_vertex() {
   auto vertex_vlist = new mvcc::VersionList<Vertex>();
@@ -32,8 +35,6 @@ EdgeAccessor GraphDbAccessor::insert_edge(
   // TODO connect the vertices to edge
   from.add_to_out(edge_vlist, pass_key);
   to.add_to_in(edge_vlist, pass_key);
-//  from.vlist(pass_key).out_.emplace(edge_vlist);
-//  to.vlist(pass_key).in_.emplace(edge_vlist);
 
   // TODO make this configurable
   for (int i = 0; i < 5; ++i) {
@@ -47,13 +48,25 @@ EdgeAccessor GraphDbAccessor::insert_edge(
 }
 
 GraphDb::Label GraphDbAccessor::label(const std::string& label_name) {
-  return db_.labels_.GetKey(label_name);
+  return &(*db_.labels_.access().insert(label_name).first);
+}
+
+std::string& GraphDbAccessor::label_name(const GraphDb::Label label) const {
+  return *label;
 }
 
 GraphDb::EdgeType GraphDbAccessor::edge_type(const std::string& edge_type_name){
-  return db_.edge_types_.GetKey(edge_type_name);
+  return &(*db_.edge_types_.access().insert(edge_type_name).first);
+}
+
+std::string& GraphDbAccessor::edge_type_name(const GraphDb::EdgeType edge_type) const {
+  return *edge_type;
 }
 
 GraphDb::Property GraphDbAccessor::property(const std::string& property_name) {
-  return db_.properties_.GetKey(property_name);
+  return &(*db_.properties_.access().insert(property_name).first);
+}
+
+std::string& GraphDbAccessor::property_name(const GraphDb::Property property) const {
+  return *property;
 }

@@ -1,49 +1,37 @@
 #pragma once
 
 #include "mvcc/version_list.hpp"
-#include "transactions/transaction.hpp"
 #include "storage/typed_value.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "utils/pass_key.hpp"
 
-template <typename TRecord, typename TDerived>
+template<typename TRecord, typename TDerived>
 class RecordAccessor {
 
 public:
 
-  RecordAccessor(mvcc::VersionList<TRecord>* vlist, tx::Transaction &trans)
-      : vlist_(vlist), trans_(trans) {
-    record_ = vlist->find(trans_);
+  RecordAccessor(mvcc::VersionList<TRecord> *vlist, GraphDbAccessor *db_accessor)
+      : vlist_(vlist), db_accessor_(db_accessor) {
+    record_ = vlist->find(db_accessor->transaction_);
   }
 
-  /**
-   * Indicates if this record is visible to the current transaction.
-   *
-   * @return
-   */
-  bool is_visible() const {
-    return record_ != nullptr;
+  template<typename TValue>
+  void PropsSet(GraphDb::Property key, TValue value) {
+    update()->props_.set(key, value);
   }
 
-  TypedValue at(GraphDb::Property key) const {
-    return record_->props_.at(key);
+  size_t PropsErase(GraphDb::Property key) {
+    return update()->props_.erase(key);
   }
 
-  template <typename TValue>
-  void set(GraphDb::Property key, TValue value) {
-    update();
-    record_->props_.set(key, value);
+  const TypedValueStore<GraphDb::Property> &Properties() const {
+    return view().properties_;
   }
 
-  size_t erase(GraphDb::Property key) {
-    update();
-    return record_->props_.erase(key);
-  }
-
-  void Accept(std::function<void(const GraphDb::Property key, const TypedValue& prop)> handler,
-              std::function<void()> finish = {}) const {
-    record_->props_.Accept(handler, finish);
+  void PropertiesAccept(std::function<void(const GraphDb::Property key, const TypedValue &prop)> handler,
+                        std::function<void()> finish = {}) const {
+    view()->props_.Accept(handler, finish);
   }
 
   // Assumes same transaction
@@ -64,29 +52,57 @@ public:
    * @param pass_key Ignored.
    * @return The version list of this accessor.
    */
-  mvcc::VersionList<TRecord>* vlist(PassKey<GraphDbAccessor> pass_key) const {
+  mvcc::VersionList<TRecord> *vlist(PassKey<GraphDbAccessor> pass_key) const {
     return vlist_;
+  }
+
+  /**
+   * Returns a GraphDB accessor of this record accessor.
+   *
+   * @return
+   */
+  const GraphDbAccessor &db_accessor() const {
+    return db_accessor_;
   }
 
 protected:
 
   /**
-   * Ensures this accessor is fit for updating functions.
+   * Returns the update-ready version of the record.
    *
-   * IMPORTANT:  This function should be called from any
-   * method that will change the record (in terms of the
-   * property graph data).
+   * @return See above.
    */
-  void update() {
+  TRecord *update() {
     // TODO consider renaming this to something more indicative
     // of the underlying MVCC functionality (like "new_version" or so)
-    if (record_->is_visible_write(trans_))
-      return;
-    else
-      record_ = vlist_->update(trans_);
+
+    if (!record_->is_visible_write(db_accessor_->transaction_))
+      record_ = vlist_->update(db_accessor_->transaction_);
+
+    return record_;
   }
 
-  mvcc::VersionList<TRecord>* vlist_;
-  tx::Transaction& trans_;
-  TRecord* record_;
+  /**
+   * Returns a version of the record that is only for viewing.
+   *
+   * @return See above.
+   */
+  const TRecord *view() const {
+    return record_;
+  }
+
+  // The record (edge or vertex) this accessor provides access to.
+  mvcc::VersionList<TRecord> *vlist_;
+
+  // The database accessor for which this record accessor is created
+  // Provides means of getting to the transaction and database functions.
+  GraphDbAccessor *db_accessor_;
+
+private:
+  /* The version of the record currently used in this transaction. Defaults to the
+   * latest viewable version (set in the constructor). After the first update done
+   * through this accessor a new, editable version, is created for this transaction,
+   * and set as the value of this variable.
+   */
+  TRecord *record_;
 };

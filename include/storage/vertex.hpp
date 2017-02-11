@@ -14,5 +14,5 @@ public:
   std::vector<mvcc::VersionList<Edge> *> out_;
   std::vector<mvcc::VersionList<Edge> *> in_;
   std::set<GraphDb::Label> labels_;
-  TypedValueStore properties_;
+  TypedValueStore<GraphDb::Property> properties_;
 };
