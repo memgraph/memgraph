@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-
 #include "storage/typed_value_store.hpp"
 
 /*

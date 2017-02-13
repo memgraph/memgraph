@@ -8,7 +8,6 @@ template<typename Stream>
 class IPlanCPU {
 public:
   virtual bool run(GraphDbAccessor &db_accessor, TypedValueStore<>& args, Stream &stream) = 0;
-
   virtual ~IPlanCPU() {}
 };
 
