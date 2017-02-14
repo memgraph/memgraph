@@ -87,7 +87,7 @@ State *Executor::run(Session &session, Query &query)
     logger.debug("[ActiveDB] '{}'", db.name());
 
     auto is_successfully_executed =
-        query_engine.execute(query.statement, db, session.output_stream);
+        query_engine.Run(query.statement, db, session.output_stream);
 
     if (!is_successfully_executed)
     {

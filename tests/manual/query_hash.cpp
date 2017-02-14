@@ -1,0 +1,42 @@
+#include <iostream>
+#include <vector>
+
+#include "query/language/cypher/common.hpp"
+#include "query/preprocessor.hpp"
+#include "utils/command_line/arguments.hpp"
+#include "utils/type_discovery.hpp"
+#include "utils/variadic/variadic.hpp"
+#include "utils/string/file.hpp"
+
+using utils::println;
+
+/**
+ * Useful when somebody wants to get a hash for some query.
+ *
+ * Usage:
+ *     ./query_hash -q "CREATE (n {name: \"test\n"}) RETURN n"
+ */
+int main(int argc, char **argv)
+{
+    // init args
+    REGISTER_ARGS(argc, argv);
+
+    // take query from input args
+    auto query = GET_ARG("-q", "CREATE (n) RETURN n").get_string();
+
+    // run preprocessing
+    QueryPreprocessor preprocessor;
+    auto preprocessed = preprocessor.preprocess(query);
+
+    // print query, stripped query, hash and variable values (propertie values)
+    println("Query: ", query);
+    println("Stripped query: ", preprocessed.query);
+    println("Query hash: ", preprocessed.hash);
+    println("Property values:");
+    for (auto property : preprocessed.arguments) {
+        println("    ", property);
+    }
+    println("");
+
+    return 0;
+}

@@ -1,17 +1,17 @@
+// TODO: refactor (backlog task)
+
 #include <random>
 
 #include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocesor.hpp"
-#include "query/strip/stripper.hpp"
+#include "query/preprocessor.hpp"
+#include "query/stripper.hpp"
 #include "storage/indexes/indexes.hpp"
 #include "utils/assert.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace/log.hpp"
 #include "utils/sysinfo/memory.hpp"
-
-QueryPreprocessor preprocessor;
 
 // Returns uniform random size_t generator from range [0,n>
 auto rand_gen(size_t n)
@@ -24,6 +24,7 @@ auto rand_gen(size_t n)
 void run(size_t n, std::string &query, Db &db)
 {
     auto qf       = hardcode::load_basic_functions(db);
+    QueryPreprocessor preprocessor;
     auto stripped = preprocessor.preprocess(query);
 
     logging::info("Running query [{}] x {}.", stripped.hash, n);
@@ -42,6 +43,7 @@ void add_edge(size_t n, Db &db)
     std::string query = "MATCH (n1), (n2) WHERE ID(n1)=0 AND "
                         "ID(n2)=1 CREATE (n1)<-[r:IS {age: "
                         "25,weight: 70}]-(n2) RETURN r";
+    QueryPreprocessor preprocessor;
     auto stripped = preprocessor.preprocess(query);
 
     logging::info("Running query [{}] (add edge) x {}", stripped.hash, n);
@@ -196,7 +198,7 @@ bool equal(Db &a, Db &b)
 
 int main(void)
 {
-    logging::init_async();
+    logging::init_sync();
     logging::log->pipe(std::make_unique<Stdout>());
 
     SignalHandler::register_handler(Signal::SegmentationFault, []() {

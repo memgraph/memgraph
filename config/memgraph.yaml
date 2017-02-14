@@ -6,13 +6,10 @@
 # (where the executable is runned)
 
 # path to the codes which will be compiled
-compile_cpu_path: "./compiled/cpu/"
+compile_path: "./compiled/"
 
 # path to the template (cpp) for codes generation
-template_cpu_cpp_path: "./template/template_code_cpu_cpp"
-
-# path to the template (hpp) for codes generation
-template_cpu_hpp_path: "./template/template_code_cpu.hpp"
+template_cpp_path: "./template/template_code_cpp"
 
 # path to the folder with snapshots
 snapshots_path: "snapshots"

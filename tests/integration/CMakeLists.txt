@@ -26,6 +26,8 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
+    target_link_libraries(${target_name} dl)
+    target_link_libraries(${target_name} cypher_lib)
     # filesystem
     target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)

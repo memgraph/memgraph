@@ -1,6 +1,6 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocesor.hpp"
+#include "query/preprocessor.hpp"
 #include "utils/time/timer.hpp"
 
 #include "benchmark/benchmark_api.h"
@@ -27,7 +27,7 @@ int main(int argc, char **argv)
 
     QueryPreprocessor processor;
     using std::placeholders::_1;
-    std::function<QueryStripped(const std::string &query)> preprocess =
+    std::function<StrippedQuery<QueryPreprocessor::HashT>(const std::string &query)> preprocess =
         std::bind(&QueryPreprocessor::preprocess, &processor, _1);
 
     auto tests = dataset["benchmark_queries"].as<std::vector<std::string>>();

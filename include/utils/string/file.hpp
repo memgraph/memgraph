@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cerrno>
-// TODO: remove experimental from here once that becomes possible
-#include <experimental/filesystem>
 #include <fstream>
 #include <ostream>
 #include <stdexcept>
@@ -11,7 +9,8 @@
 
 #include <fmt/format.h>
 
-// TODO: remove experimental from here once it becomes possible
+// TODO: remove experimental from here once that becomes possible
+#include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
 namespace utils

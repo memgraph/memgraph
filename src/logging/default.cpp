@@ -9,6 +9,7 @@ namespace logging
 {
 
 // per object log source
+// TODO: discussion
 std::unique_ptr<Log> log;
 
 void init_async()

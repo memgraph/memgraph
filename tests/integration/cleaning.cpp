@@ -1,16 +1,17 @@
+// TODO: refactor (backlog task)
+
 #include "_hardcoded_query/basic.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocesor.hpp"
-#include "query/strip/stripper.hpp"
+#include "query/preprocessor.hpp"
+#include "query/stripper.hpp"
 #include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
-
-QueryPreprocessor preprocessor;
 
 template <class Q>
 void run(size_t n, std::string &query, Q &qf)
 {
+    QueryPreprocessor preprocessor;
     auto stripped = preprocessor.preprocess(query);
 
     logging::info("Running query [{}] x {}.", stripped.hash, n);
@@ -31,7 +32,7 @@ void clean_vertex(Db &db)
 
 int main(void)
 {
-    logging::init_async();
+    logging::init_sync();
     logging::log->pipe(std::make_unique<Stdout>());
 
     Db db("cleaning");
