@@ -43,6 +43,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 # dir variables
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
+set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
 set(include_dir ${CMAKE_SOURCE_DIR}/include)
 set(build_include_dir ${CMAKE_BINARY_DIR}/include)
 set(test_include_dir ${CMAKE_BINARY_DIR}/tests/include)
@@ -92,10 +93,21 @@ FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
 # copy query_engine's templates file
 FILE(COPY ${src_dir}/query_engine/template
      DESTINATION ${CMAKE_BINARY_DIR}/tests)
+FILE(COPY ${src_dir}/query_engine/template
+     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
+FILE(COPY ${src_dir}/query_engine/template
+     DESTINATION ${CMAKE_BINARY_DIR}/tests/manual)
 FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
 # create destination folder for compiled queries
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled/cpu)
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled/cpu)
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled)
+FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled)
+# copy hardcoded queries
+FILE(COPY ${tests_dir}/integration/hardcoded_query
+     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
+FILE(COPY ${tests_dir}/integration/stream
+     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
 # -----------------------------------------------------------------------------
 
 # copy files needed for query engine (headers)

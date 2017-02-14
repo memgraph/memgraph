@@ -2,6 +2,7 @@
 
 #include "storage/type_group_edge.hpp"
 #include "storage/type_group_vertex.hpp"
+#include "utils/assert.hpp"
 
 template <class T>
 PropertyFamily<T>::PropertyFamily(std::string const &name_v)
@@ -13,7 +14,7 @@ PropertyFamily<T>::PropertyFamily(std::string const &name_v)
 template <class T>
 PropertyFamily<T>::PropertyFamily(std::string &&name_v)
     : name_v(std::move(name_v))
-{
+{    
     null_type = &get(Flags::Null);
 }
 

@@ -4,13 +4,12 @@
 #include "query/util.hpp"
 #include "query/plan_interface.hpp"
 #include "storage/model/properties/all.hpp"
-#include "storage/edge_x_vertex.hpp"
 #include "using.hpp"
 
 using std::cout;
 using std::endl;
 
-// Query:
+// Query: MATCH (p:profile {profile_id: 1}) DELETE p
 
 class CPUPlan : public PlanInterface<Stream>
 {
@@ -18,6 +17,22 @@ public:
 
     bool run(Db &db, const PlanArgsT &args, Stream &stream) override
     {
+        DbAccessor t(db);
+
+        indices_t indices = {{"profile_id", 0}};
+        auto properties   = query_properties(indices, args);
+
+        auto &label = t.label_find_or_create("profile");
+
+        label.index()
+            .for_range(t)
+            .properties_filter(t, properties)
+            .for_all([&](auto va) { va.remove(); });
+
+        stream.write_empty_fields();
+        stream.write_meta("w");
+
+        return t.commit();
 
     }
 

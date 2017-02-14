@@ -1,3 +1,10 @@
+/**
+ * DEPRICATED!
+ *
+ * TODO: print AST (just for one query) using Antlr's visitor or listener
+ * the new file name should be opencypher_ast.cpp
+ */
+
 #include <cstdlib>
 #include <vector>
 #include <vector>

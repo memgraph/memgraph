@@ -32,8 +32,8 @@ FILE(COPY ${include_dir}/storage/type_group_vertex.hpp DESTINATION ${build_inclu
 FILE(COPY ${include_dir}/storage/edge_x_vertex.hpp DESTINATION ${build_include_dir}/storage)
 
 FILE(COPY ${include_dir}/query/util.hpp DESTINATION ${build_include_dir}/query)
-FILE(COPY ${include_dir}/query/i_plan_cpu.hpp DESTINATION ${build_include_dir}/query)
-FILE(COPY ${include_dir}/query/strip/stripped.hpp DESTINATION ${build_include_dir}/query/strip)
+FILE(COPY ${include_dir}/query/plan_interface.hpp DESTINATION ${build_include_dir}/query)
+FILE(COPY ${include_dir}/query/stripper.hpp DESTINATION ${build_include_dir}/query)
 
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_map.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)
 FILE(COPY ${include_dir}/data_structures/concurrent/concurrent_set.hpp DESTINATION ${build_include_dir}/data_structures/concurrent)

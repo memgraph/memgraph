@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <iostream>
 
 #include "utils/exceptions/not_yet_implemented.hpp"
 
@@ -21,27 +22,27 @@ public:
 
     void write_success_empty()
     {
-        stream << "SUCCESS EMPTY\n";
+       stream << "SUCCESS EMPTY\n";
     }
 
     void write_ignored()
     {
-        stream << "IGNORED\n"; 
+       stream << "IGNORED\n"; 
     }
 
     void write_empty_fields()
     {
-        stream << "EMPTY FIELDS\n"; 
+       stream << "EMPTY FIELDS\n"; 
     }
 
     void write_fields(const std::vector<std::string> &fields)
     {
-        stream << "FIELDS:";
-        for (auto &field : fields)
-        {
-            stream << " " << field;
-        }
-        stream << '\n';
+       stream << "FIELDS:";
+       for (auto &field : fields)
+       {
+           stream << " " << field;
+       }
+       stream << '\n';
     }
 
     void write_field(const std::string &field)
@@ -61,7 +62,7 @@ public:
 
     void write_meta(const std::string &type)
     {
-        stream << "Meta: " << type;
+        stream << "Meta: " << type << std::endl;
     }
 
     void write_failure(const std::map<std::string, std::string> &data)
@@ -81,7 +82,8 @@ public:
 
     void write_vertex_record(const VertexAccessor& va)
     {
-        throw NotYetImplemented();
+        va.stream_repr(stream);
+        stream << std::endl;
     }
 
     void write(const EdgeAccessor &edge)
@@ -96,13 +98,11 @@ public:
 
     void write(const StoredProperty<TypeGroupEdge> &prop)
     {
-    //    prop.accept(serializer);
         throw NotYetImplemented();
     }
 
     void write(const StoredProperty<TypeGroupVertex> &prop)
     {
-    //   prop.accept(serializer);
         throw NotYetImplemented();
     }
 

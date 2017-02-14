@@ -45,16 +45,17 @@ class ProgramArguments {
 
   bool is_valid() {
     for (const auto &arg : required_arguments_)
-      for (const auto &a : arguments_)
         if (!arguments_.count(arg)) return false;
     return true;
   }
 
- protected:
-  ProgramArguments() {}
-  ~ProgramArguments() {}
+  ProgramArguments() {
+  }
 
  public:
+  ~ProgramArguments() {
+  }
+
   class Argument {
    private:
     std::string arg_;

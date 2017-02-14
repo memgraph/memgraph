@@ -15,7 +15,7 @@ public:
     CypherBackend() : logger(logging::log->logger("CypherBackend"))
     {
         // load template file
-        std::string template_path = CONFIG(config::TEMPLATE_CPU_CPP_PATH);
+        std::string template_path = CONFIG(config::TEMPLATE_CPP_PATH);
         template_text = utils::read_text(fs::path(template_path));
     }
 
@@ -38,7 +38,7 @@ public:
 
         // save the code
         std::string generated = template_engine::render(
-            template_text.str(), {{"class_name", "CodeCPU"},
+            template_text.str(), {{"class_name", "CPUPlan"},
                             {"stripped_hash", std::to_string(stripped_hash)},
                             {"query", query},
                             {"stream", type_name<Stream>().to_string()},

@@ -54,18 +54,37 @@ constexpr uint64_t IN_HEADER_SIZE = sizeof(struct inotify_event);
  * a reasonable size and doesn't have to be configurable before compile or run
  * time.
  */
-constexpr uint64_t IN_BUFF_LEN    = 10 * (IN_HEADER_SIZE + NAME_MAX + 1);
+constexpr uint64_t IN_BUFF_SLOT_LEN = IN_HEADER_SIZE + NAME_MAX + 1;
+constexpr uint64_t IN_BUFF_LEN      = 10 * IN_BUFF_SLOT_LEN;
 
 /**
  * File System Event Type - abstraction for underlying event types
  */
 enum class FSEventType : os_mask_t
 {
-    Created  = IN_CREATE,
-    Modified = IN_MODIFY,
-    Deleted  = IN_DELETE,
-    All      = Created | Modified | Deleted
+    Accessed        = IN_ACCESS,
+    MetadataChanged = IN_ATTRIB,
+    CloseWrite      = IN_CLOSE_WRITE,
+    CloseNowrite    = IN_CLOSE_NOWRITE,
+    Created         = IN_CREATE,
+    Deleted         = IN_DELETE,
+    DeletedSelf     = IN_DELETE_SELF,
+    Modified        = IN_MODIFY,
+    Renamed         = IN_MOVE_SELF,
+    MovedFrom       = IN_MOVED_FROM,
+    MovedTo         = IN_MOVED_TO,
+    Close           = IN_CLOSE,
+    Opened          = IN_OPEN,
+    Ignored         = IN_IGNORED,
+    All = Accessed | MetadataChanged | CloseWrite | CloseNowrite | Created |
+          Deleted | DeletedSelf | Modified | Renamed | MovedFrom | MovedTo |
+          Close | Opened | Ignored
 };
+
+inline FSEventType operator|(FSEventType lhs, FSEventType rhs)
+{
+    return (FSEventType)(underlying_cast(lhs) | underlying_cast(rhs));
+}
 
 /**
  * @struct FSEventBase
@@ -156,6 +175,8 @@ public:
     FSWatcher(ms check_interval = ms(100))
         : Loggable("FSWatcher"), check_interval_(check_interval)
     {
+        logger.debug("Inotify header length: {}", IN_HEADER_SIZE);
+        logger.debug("Inotify buffer length: {}", IN_BUFF_LEN);
         inotify_fd_ = inotify_init();
         if (inotify_fd_ == -1)
             throw FSWatcherException("Unable to initialize inotify\n");
@@ -286,6 +307,8 @@ public:
      */
     void start()
     {
+        if (is_running_.load()) return;
+
         is_running_.store(true);
 
         // run separate thread
@@ -313,9 +336,20 @@ public:
                     auto in_event        = reinterpret_cast<in_event_t *>(p);
                     auto in_event_length = IN_HEADER_SIZE + in_event->len;
 
+                    // sometimes inotify system returns event->len that is
+                    // longer then the length of the buffer
+                    // TODO: figure out why (it is not easy)
+                    if (((p - buffer_) + in_event_length) > IN_BUFF_LEN) break;
+                    // here should be an assertion
+                    // runtime_assert(in_event_length <= IN_BUFF_SLOT_LEN,
+                    //                "Inotify event length cannot be bigger
+                    //                than "
+                    //                "Inotify slot length");
+
                     // skip if in_event is undefined OR is equal to IN_IGNORED
                     if ((in_event->len == 0 && in_event->mask == 0) ||
-                        in_event->mask == IN_IGNORED)
+                        in_event->mask == IN_IGNORED ||
+                        in_event_length == IN_HEADER_SIZE) // skip empty paths
                     {
                         p += in_event_length;
                         continue;

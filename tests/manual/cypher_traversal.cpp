@@ -1,3 +1,9 @@
+/**
+ * DEPRICATED!
+ *
+ * TODO: remove once when Antlr will be integrated
+ */
+
 #include <iostream>
 #include <cassert>
 #include <fstream>

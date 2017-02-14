@@ -85,7 +85,8 @@ public:
 
     Accessor access() { return Accessor(&skiplist); }
 
-    const Accessor access() const { return Accessor(&skiplist); }
+    // TODO: 
+    // const Accessor access() const { return Accessor(&skiplist); }
 
 private:
     list skiplist;
