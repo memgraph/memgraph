@@ -34,7 +34,7 @@ int main(int argc, char **argv)
     println("Query hash: ", preprocessed.hash);
     println("Property values:");
     for (auto property : preprocessed.arguments) {
-        println("    ", property);
+        println("    ", property.second);
     }
     println("");
 

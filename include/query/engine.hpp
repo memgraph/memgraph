@@ -3,11 +3,13 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
+#include "utils/exceptions/not_yet_implemented.hpp"
+#include "config/config.hpp"
+
 #include "database/graph_db.hpp"
 #include "logging/loggable.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/plan_compiler.hpp"
-#include "query/plan_generator.hpp"
 #include "query/plan_interface.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/dynamic_lib.hpp"
@@ -15,8 +17,6 @@ namespace fs = std::experimental::filesystem;
 
 // TODO: replace with openCypher and Antlr
 #include "query/frontend/cypher.hpp"
-// TODO: depricated
-#include "query/backend/cpp_old/cypher.hpp"
 
 /**
  * Responsible for query execution.
@@ -34,7 +34,6 @@ class QueryEngine : public Loggable
 {
 private:
     using QueryPlanLib = DynamicLib<QueryPlanTrait<Stream>>;
-    using HashT        = QueryPreprocessor::HashT;
 
 public:
     QueryEngine() : Loggable("QueryEngine") {}
@@ -149,7 +148,7 @@ private:
      *
      * @return runnable query plan
      */
-    auto LoadCypher(const StrippedQuery<HashT> &stripped)
+    auto LoadCypher(const StrippedQuery &stripped)
     {
         auto plans_accessor = query_plans.access();
 
@@ -169,8 +168,9 @@ private:
         // generate query plan
         auto generated_path =
             fs::path(CONFIG(config::COMPILE_PATH) + std::to_string(stripped.hash) + ".cpp");
-        plan_generator.generate_plan(stripped.query, stripped.hash,
-                                     generated_path);
+        // TODO implement CPP generator
+        // plan_generator.generate_plan(stripped.query, stripped.hash, generated_path);
+        throw NotYetImplemented();
         return LoadCpp(generated_path, stripped.hash);
     }
 
@@ -183,7 +183,7 @@ private:
      *
      * @return runnable query plan
      */
-    auto LoadCpp(const fs::path &path_cpp, const QueryPreprocessor::HashT hash)
+    auto LoadCpp(const fs::path &path_cpp, const HashType hash)
     {
         auto plans_accessor = query_plans.access();
 
@@ -216,8 +216,7 @@ private:
     }
 
     QueryPreprocessor preprocessor;
-    PlanGenerator<cypher::Frontend, CypherBackend<Stream>> plan_generator;
     PlanCompiler plan_compiler;
-    ConcurrentMap<QueryPreprocessor::HashT, std::unique_ptr<QueryPlanLib>>
+    ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>>
         query_plans;
 };

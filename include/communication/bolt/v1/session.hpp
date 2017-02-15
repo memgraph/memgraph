@@ -29,7 +29,7 @@ namespace bolt {
 
     Bolt &bolt;
 
-    GraphDb &active_db();
+    GraphDbAccessor active_db();
 
     Decoder decoder;
     OutputStream output_stream{socket};

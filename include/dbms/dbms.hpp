@@ -3,27 +3,36 @@
 #include "config/config.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
+
 //#include "dbms/cleaner.hpp"
 //#include "snapshot/snapshoter.hpp"
 
 class Dbms
 {
 public:
-    Dbms() { create_default(); }
+    Dbms() {
+      // create the default database and set is a active
+      active("default");
+    }
 
-    // returns active database
-    GraphDb &active();
+    /**
+     * Returns an accessor to the active database.
+     */
+    GraphDbAccessor active();
 
-    // set active database
-    // if active database doesn't exist creates one
-    GraphDb &active(const std::string &name);
+    /**
+     * Set the database with the given name to be active.
+     * If there is no database with the given name,
+     * it's created.
+     *
+     * @return an accessor to the database with the given name.
+     */
+    GraphDbAccessor active(const std::string &name);
 
     // TODO: DELETE action
 
 private:
-    // creates default database
-    GraphDb &create_default() { return active("default"); }
-
     // dbs container
     ConcurrentMap<std::string, GraphDb> dbs;
 

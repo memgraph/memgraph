@@ -7,11 +7,11 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/model/typed_value.hpp"
-#include "storage/model/typed_value_store.hpp"
+#include "storage/typed_value.hpp"
+#include "storage/typed_value_store.hpp"
 
-TypedValueStore MakePropsAllTypes() {
-  TypedValueStore props;
+TypedValueStore<> MakePropsAllTypes() {
+  TypedValueStore<> props;
   props.set(0, true);
   props.set(1, "something");
   props.set(2, 42);
@@ -87,7 +87,7 @@ TEST(TypedValue, Equals) {
 
 TEST(TypedValue, Less) {
   // not_bool_type < bool -> exception
-  TypedValueStore props = MakePropsAllTypes();
+  TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
     if (props.at(i).type_ == TypedValue::Type::Bool)
       continue;
@@ -157,7 +157,7 @@ TEST(TypedValue, UnaryMinus) {
  */
 void ExpectArithmeticThrowsAndNull(bool string_ok, std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
   // arithmetic ops that raise
-  TypedValueStore props = MakePropsAllTypes();
+  TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
     EXPECT_THROW(op(TypedValue(true), props.at(i)), TypedValueException);
     EXPECT_THROW(op(props.at(i), TypedValue(true)), TypedValueException);
@@ -243,7 +243,7 @@ TEST(TypedValue, Modulo) {
 }
 
 TEST(TypedValue, TypeIncompatibility) {
-  TypedValueStore props = MakePropsAllTypes();
+  TypedValueStore<> props = MakePropsAllTypes();
 
   // iterate over all the props, plus one, what will return
   // the Null property, which must be incompatible with all
@@ -262,7 +262,7 @@ TEST(TypedValue, TypeIncompatibility) {
  * @param op The logical operation to test.
  */
 void TestLogicalThrows(std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
-  TypedValueStore props = MakePropsAllTypes();
+  TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
     auto p1 = props.at(i);
     for (int j = 0; j < props.size() + 1; ++j) {

@@ -23,6 +23,18 @@ template <class T>
 class Record : public Version<T>
 {
 public:
+
+  Record() = default;
+
+  // The copy constructor ignores tx, cmd, hints and super because
+  // they contain atomic variables that can't be copied
+  // it's still useful to have this copy constructor so that subclass
+  // data can easily be copied
+  // TODO maybe disable the copy-constructor and instead use a
+  // data variable in the version_list update() function (and similar)
+  // like it was in Dominik's implementation
+  Record(const Record &other) {}
+
     // tx.cre is the id of the transaction that created the record
     // and tx.exp is the id of the transaction that deleted the record
     // these values are used to determine the visibility of the record

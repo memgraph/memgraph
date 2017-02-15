@@ -1,28 +1,19 @@
 #pragma once
 
-#include "storage/model/properties/property.hpp"
-
-/*
- * Query Plan Arguments Type
- */
-using PlanArgsT = std::vector<Property>;
+#include "storage/typed_value_store.hpp"
+#include "utils/hashing/fnv.hpp"
 
 /*
 * StrippedQuery contains:
 *     * stripped query
 *     * plan arguments stripped from query
 *     * hash of stripped query
-*
-* @tparam THash a type of query hash
 */
-template <typename THash>
-struct StrippedQuery
-{
-   StrippedQuery(const std::string &&query, PlanArgsT &&arguments, THash hash)
+struct StrippedQuery {
+
+   StrippedQuery(const std::string &&query, TypedValueStore<> &&arguments, HashType hash)
        : query(std::forward<const std::string>(query)),
-         arguments(std::forward<PlanArgsT>(arguments)), hash(hash)
-   {
-   }
+         arguments(std::forward<TypedValueStore<>>(arguments)), hash(hash) {}
 
    /**
     * Copy constructor is deleted because we don't want to make unecessary
@@ -46,10 +37,10 @@ struct StrippedQuery
    /**
     * Stripped arguments
     */
-   const PlanArgsT arguments;
+   const TypedValueStore<> arguments;
 
    /**
     * Hash based on stripped query.
     */
-   const THash hash;
+   const HashType hash;
 };

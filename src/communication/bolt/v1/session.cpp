@@ -43,5 +43,5 @@ void Session::close()
     bolt.close(this);
 }
 
-GraphDb &Session::active_db() { return bolt.dbms.active(); }
+GraphDbAccessor Session::active_db() { return bolt.dbms.active(); }
 }

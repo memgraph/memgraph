@@ -1,4 +1,5 @@
 #include "../integration/query_engine_common.hpp"
+#include "dbms/dbms.hpp"
 
 #include "utils/fswatcher.hpp"
 
@@ -16,13 +17,14 @@ int main(int argc, char *argv[])
 
     // init engine
     auto log = init_logging("ManualQueryEngine");
-    Db db;
+    Dbms dbms;
+    auto db_accessor = dbms.active();
     StreamT stream(std::cout);
     QueryEngineT query_engine;
     // IMPORTANT: PrintRecordStream can be replaces with a smarter
     // object that can test the results
 
-    WarmUpEngine(log, query_engine, db, stream);
+    WarmUpEngine(log, query_engine, db_accessor, stream);
 
     // init watcher
     FSWatcher watcher;
@@ -51,7 +53,7 @@ int main(int argc, char *argv[])
                     query_engine.Unload(query);
                     try {
                         query_engine.ReloadCustom(query, event.path);
-                        query_engine.Run(query, db, stream);
+                        query_engine.Run(query, db_accessor, stream);
                     } catch (PlanCompilationException& e) {
                         log.info("Query compilation failed: {}", e.what());
                     } catch (std::exception& e) {

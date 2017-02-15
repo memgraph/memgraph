@@ -100,9 +100,9 @@ public:
     }
 
     // TODO: hash function should be a template parameter
-    auto hash = fnv(stripped_query);
-    return StrippedQuery<HashT>(std::move(stripped_query),
-                                std::move(stripped_arguments), hash);
+    HashType hash = fnv(stripped_query);
+    return StrippedQuery(std::move(stripped_query),
+                         std::move(stripped_arguments), hash);
   }
 
 private:

@@ -2,6 +2,7 @@
 
 #include "storage/typed_value_store.hpp"
 
+template <typename TKey>
 const TypedValue& TypedValueStore::at(const TKey &key) const {
   for (const auto& kv : props_)
     if (kv.first == key)
@@ -10,7 +11,7 @@ const TypedValue& TypedValueStore::at(const TKey &key) const {
   return TypedValue::Null;
 }
 
-template<typename TValue>
+template<typename TKey, typename TValue>
 void TypedValueStore::set(const TKey &key, const TValue &value) {
   for (auto& kv: props_)
     if (kv.first == key) {

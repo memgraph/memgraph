@@ -5,6 +5,9 @@
 #include "communication/bolt/v1/transport/socket_stream.hpp"
 #include "io/network/socket.hpp"
 
+#include "database/graph_db.hpp"
+#include "storage/typed_value_store.hpp"
+
 template<class Stream>
 void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
 
@@ -25,11 +28,11 @@ void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
     encoder.write_string(vertex.db_accessor().label_name(label));
 
   // write the properties
-  const TypedValueStore &props = vertex.Properties();
+  const TypedValueStore<GraphDb::Property> &props = vertex.Properties();
   encoder.write_map_header(props.size());
-  props.Accept([&vertex](const TypedValueStore::TKey &prop_name, const TypedValue &value) {
-    write(vertex.db_accessor().property_name(prop_name));
-    write(value);
+  props.Accept([this, &vertex](const GraphDb::Property prop, const TypedValue &value) {
+    this->encoder.write(vertex.db_accessor().property_name(prop));
+    this->write(value);
   });
 }
 
@@ -48,14 +51,14 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   encoder.write_integer(0);
 
   // write the type of the edge
-  encoder.write_string(edge.edge_type());
+  encoder.write(edge.db_accessor().edge_type_name(edge.edge_type()));
 
   // write the property map
-  const TypedValueStore& props = edge.Properties();
+  const TypedValueStore<GraphDb::Property>& props = edge.Properties();
   encoder.write_map_header(props.size());
-  props.Accept([&edge](const TypedValueStore::TKey &prop_name, const TypedValue &value) {
-    write(edge.db_accessor().property_name(prop_name));
-    write(value);
+  props.Accept([this, &edge](GraphDb::Property prop, const TypedValue &value) {
+    this->encoder.write(edge.db_accessor().property_name(prop));
+    this->write(value);
   });
 }
 

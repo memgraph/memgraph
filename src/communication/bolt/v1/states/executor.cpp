@@ -1,5 +1,6 @@
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
+#include "database/graph_db_accessor.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"
@@ -83,11 +84,11 @@ State *Executor::run(Session &session, Query &query)
 {
     logger.trace("[Run] '{}'", query.statement);
 
-    auto &db = session.active_db();
-    logger.debug("[ActiveDB] '{}'", db.name());
+    auto db_accessor = session.active_db();
+    logger.debug("[ActiveDB] '{}'", db_accessor.name());
 
     auto is_successfully_executed =
-        query_engine.Run(query.statement, db, session.output_stream);
+        query_engine.Run(query.statement, db_accessor, session.output_stream);
 
     if (!is_successfully_executed)
     {

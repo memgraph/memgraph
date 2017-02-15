@@ -10,15 +10,45 @@
 
 
 class GraphDbAccessor {
-  GraphDbAccessor(GraphDb& db);
 
 public:
+
+  /**
+   * Creates an accessor for the given database.
+   *
+   * @param db The database
+   */
+  GraphDbAccessor(GraphDb& db);
+
+  /**
+   * Returns the name of the database of this accessor.
+   */
+  const std::string& name() const;
+
   /**
    * Creates a new Vertex and returns an accessor to it.
    *
    * @return See above.
    */
   VertexAccessor insert_vertex();
+
+  /**
+   * Removes the vertex of the given accessor. If the vertex has any outgoing
+   * or incoming edges, it is not deleted. See `detach_remove_vertex` if you
+   * want to remove a vertex regardless of connectivity.
+   *
+   * @param vertex_accessor Accessor to vertex.
+   * @return  If or not the vertex was deleted.
+   */
+  bool remove_vertex(VertexAccessor &vertex_accessor);
+
+  /**
+   * Removes the vertex of the given accessor along with all it's outgoing
+   * and incoming connections.
+   *
+   * @param vertex_accessor  Accessor to a vertex.
+   */
+  void detach_remove_vertex(VertexAccessor &vertex_accessor);
 
   /**
    * Creates a new Edge and returns an accessor to it.
@@ -29,6 +59,13 @@ public:
    * @return  An accessor to the edge.
    */
   EdgeAccessor insert_edge(VertexAccessor& from, VertexAccessor& to, GraphDb::EdgeType type);
+
+  /**
+   * Removes an edge from the graph.
+   *
+   * @param edge_accessor  The accessor to an edge.
+   */
+  void remove_edge(EdgeAccessor& edge_accessor);
 
   /**
    * Obtains the Label for the label's name.
@@ -77,7 +114,4 @@ public:
 
 private:
   GraphDb& db_;
-
-  // for privileged access to some RecordAccessor functionality (and similar)
-  const PassKey<GraphDbAccessor> pass_key;
 };

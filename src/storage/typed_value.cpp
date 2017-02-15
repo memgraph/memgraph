@@ -72,18 +72,18 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
   permanent_fail("Unsupported TypedValue::Type");
 }
 
-std::ostream &operator<<(std::ostream &os, const TypedValue &property) {
-  switch (property.type_) {
+std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
+  switch (value.type_) {
     case TypedValue::Type::Null:
       return os << "Null";
     case TypedValue::Type::Bool:
-      return os << (property.Value<bool>() ? "true" : "false");
+      return os << (value.Value<bool>() ? "true" : "false");
     case TypedValue::Type::String:
-      return os << property.Value<std::string>();
+      return os << value.Value<std::string>();
     case TypedValue::Type::Int:
-      return os << property.Value<int>();
+      return os << value.Value<int>();
     case TypedValue::Type::Float:
-      return os << property.Value<float>();
+      return os << value.Value<float>();
   }
   permanent_fail("Unsupported TypedValue::Type");
 }
@@ -134,18 +134,18 @@ TypedValue::~TypedValue() {
 }
 
 /**
- * Returns the float value of a property.
- * The property MUST be either Float or Int.
+ * Returns the float value of a value.
+ * The value MUST be either Float or Int.
  *
- * @param prop
+ * @param value
  * @return
  */
-float ToFloat(const TypedValue& prop) {
-  switch (prop.type_) {
+float ToFloat(const TypedValue& value) {
+  switch (value.type_) {
     case TypedValue::Type::Int:
-      return (float)prop.Value<int>();
+      return (float)value.Value<int>();
     case TypedValue::Type::Float:
-      return prop.Value<float>();
+      return value.Value<float>();
 
     default:
       permanent_fail("Unsupported TypedValue::Type");
@@ -212,19 +212,19 @@ TypedValue operator!(const TypedValue& a) {
 }
 
 /**
- * Turns a numeric or string property into a string.
+ * Turns a numeric or string value into a string.
  *
- * @param prop Property.
+ * @param value a value.
  * @return A string.
  */
-std::string PropToString(const TypedValue& prop) {
-  switch (prop.type_) {
+std::string ValueToString(const TypedValue &value) {
+  switch (value.type_) {
     case TypedValue::Type::String:
-      return prop.Value<std::string>();
+      return value.Value<std::string>();
     case TypedValue::Type::Int:
-      return std::to_string(prop.Value<int>());
+      return std::to_string(value.Value<int>());
     case TypedValue::Type::Float:
-      return fmt::format("{}", prop.Value<float>());
+      return fmt::format("{}", value.Value<float>());
 
     // unsupported situations
     default:
@@ -247,11 +247,11 @@ TypedValue operator-(const TypedValue &a) {
 }
 
 /**
- * Raises a PropertyException if the given properties do not support arithmetic
+ * Raises a TypedValueException if the given values do not support arithmetic
  * operations. If they do, nothing happens.
  *
- * @param a First prop.
- * @param b Second prop.
+ * @param a First value.
+ * @param b Second value.
  * @param string_ok If or not for the given operation it's valid to work with
  *  String values (typically it's OK only for sum).
  *  @param op_name Name of the operation, used only for exception description,
@@ -277,7 +277,7 @@ TypedValue operator+(const TypedValue& a, const TypedValue& b){
   // no more Bool nor Null, summing works on anything from here onward
 
   if (a.type_ == TypedValue::Type::String || b.type_ == TypedValue::Type::String)
-    return PropToString(a) + PropToString(b);
+    return ValueToString(a) + ValueToString(b);
 
   // at this point we only have int and float
   if (a.type_ == TypedValue::Type::Float || b.type_ == TypedValue::Type::Float){

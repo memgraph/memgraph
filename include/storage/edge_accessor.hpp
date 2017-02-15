@@ -20,5 +20,5 @@ public:
 
   VertexAccessor to() const;
 
-  void remove();
+//  void remove();
 };

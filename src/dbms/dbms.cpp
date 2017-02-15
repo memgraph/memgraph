@@ -1,21 +1,10 @@
 #include "dbms/dbms.hpp"
 
-// returns active database
-GraphDb &Dbms::active()
-{
-    GraphDb *active = active_db.load(std::memory_order_acquire);
-    if (UNLIKELY(active == nullptr)) {
-        // There is no active database.
-        return create_default();
-    } else {
-        return *active;
-    }
+GraphDbAccessor Dbms::active() {
+    return GraphDbAccessor(*active_db.load(std::memory_order_acquire));
 }
 
-// set active database
-// if active database doesn't exist create one
-GraphDb &Dbms::active(const std::string &name)
-{
+GraphDbAccessor Dbms::active(const std::string &name) {
     auto acc = dbs.access();
     // create db if it doesn't exist
     auto it = acc.find(name);
@@ -28,5 +17,5 @@ GraphDb &Dbms::active(const std::string &name)
     // set and return active db
     auto &db = it->second;
     active_db.store(&db, std::memory_order_release);
-    return db;
+    return GraphDbAccessor(db);
 }

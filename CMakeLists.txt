@@ -314,7 +314,6 @@ set(memgraph_src_files
 #    ${src_dir}/snapshot/snapshot_encoder.cpp
 #    ${src_dir}/snapshot/snapshot_decoder.cpp
     ${src_dir}/storage/typed_value.cpp
-    ${src_dir}/storage/typed_value_store.cpp
     ${src_dir}/storage/locking/record_lock.cpp
 #    ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/vertex_accessor.cpp
@@ -330,7 +329,6 @@ set(memgraph_src_files
     ${src_dir}/logging/logs/async_log.cpp
     ${src_dir}/logging/default.cpp
     ${src_dir}/logging/log.cpp
-    ${src_dir}/io/network/tls.cpp
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
 )
@@ -388,7 +386,7 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
 
     if (UNIX)
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
+#        target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
         # target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
         target_link_libraries(${MEMGRAPH_BUILD_NAME} ${fmt_static_lib})
         target_link_libraries(${MEMGRAPH_BUILD_NAME} ${yaml_static_lib})

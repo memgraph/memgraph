@@ -28,8 +28,6 @@ private:
     using QueryStripperT = QueryStripper<int, int, int, int>;
 
 public:
-    using HashT = QueryStripperT::HashT;
-
     QueryPreprocessor() : Loggable("QueryPreprocessor"),
         stripper(make_query_stripper(TK_LONG, TK_FLOAT, TK_STR, TK_BOOL))
     {

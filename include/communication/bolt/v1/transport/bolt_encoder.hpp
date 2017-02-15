@@ -140,6 +140,10 @@ public:
         }
     }
 
+    void write(const std::string& str) {
+      write_string(str);
+    }
+
     void write_string(const std::string &str)
     {
         write_string(str.c_str(), str.size());

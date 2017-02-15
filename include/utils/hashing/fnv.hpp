@@ -22,6 +22,8 @@ uint64_t fnv(const T& data)
     return fnv1a64<T>(data);
 }
 
+using HashType = uint64_t;
+
 #elif
 
 template <class T>
@@ -29,6 +31,8 @@ uint32_t fnv(const T& data)
 {
     return fnv1a32<T>(data);
 }
+
+using HashType = uint32_t;
 
 #endif
 

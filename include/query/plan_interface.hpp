@@ -25,7 +25,7 @@ public:
      *
      * @return bool status after execution (success OR fail)
      */
-    virtual bool run(GraphDbAccessor &db_accessor, const PlanArgsT &args, Stream &stream) = 0;
+    virtual bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args, Stream &stream) = 0;
 
     /**
      * Virtual destructor in base class.

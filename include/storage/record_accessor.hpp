@@ -11,18 +11,36 @@ class RecordAccessor {
 
 public:
 
-  RecordAccessor(mvcc::VersionList<TRecord> *vlist, GraphDbAccessor *db_accessor)
-      : vlist_(vlist), db_accessor_(db_accessor) {
-    record_ = vlist->find(db_accessor->transaction_);
+  /**
+   * The GraphDbAccessor is friend to this accessor so it can
+   * operate on it's data (mvcc version-list and the record itself).
+   * This is legitemate because GraphDbAccessor creates RecordAccessors
+   * and is semantically their parent/owner. It is necessary because
+   * the GraphDbAccessor handles insertions and deletions, and these
+   * operations modify data intensively.
+   */
+  friend GraphDbAccessor;
+
+  RecordAccessor(mvcc::VersionList<TRecord>& vlist,
+                 GraphDbAccessor& db_accessor)
+      : vlist_(vlist), record_(vlist_.find(db_accessor.transaction_)), db_accessor_(db_accessor) {
+    assert(record_ != nullptr);
+  }
+
+  RecordAccessor(mvcc::VersionList<TRecord>& vlist,
+                 TRecord& record,
+                 GraphDbAccessor& db_accessor)
+      : vlist_(vlist), record_(&record), db_accessor_(db_accessor) {
+    assert(record_ != nullptr);
   }
 
   template<typename TValue>
   void PropsSet(GraphDb::Property key, TValue value) {
-    update()->props_.set(key, value);
+    update().props_.set(key, value);
   }
 
   size_t PropsErase(GraphDb::Property key) {
-    return update()->props_.erase(key);
+    return update().props_.erase(key);
   }
 
   const TypedValueStore<GraphDb::Property> &Properties() const {
@@ -31,7 +49,7 @@ public:
 
   void PropertiesAccept(std::function<void(const GraphDb::Property key, const TypedValue &prop)> handler,
                         std::function<void()> finish = {}) const {
-    view()->props_.Accept(handler, finish);
+    view().props_.Accept(handler, finish);
   }
 
   // Assumes same transaction
@@ -47,21 +65,20 @@ public:
   }
 
   /**
-   * Exposes the version list only to the GraphDb.
+   * Returns a GraphDB accessor of this record accessor.
    *
-   * @param pass_key Ignored.
-   * @return The version list of this accessor.
+   * @return See above.
    */
-  mvcc::VersionList<TRecord> *vlist(PassKey<GraphDbAccessor> pass_key) const {
-    return vlist_;
+  GraphDbAccessor& db_accessor() {
+    return db_accessor_;
   }
 
   /**
-   * Returns a GraphDB accessor of this record accessor.
+   * Returns a const GraphDB accessor of this record accessor.
    *
-   * @return
+   * @return See above.
    */
-  const GraphDbAccessor &db_accessor() const {
+  const GraphDbAccessor& db_accessor() const {
     return db_accessor_;
   }
 
@@ -72,14 +89,13 @@ protected:
    *
    * @return See above.
    */
-  TRecord *update() {
+  TRecord& update() {
     // TODO consider renaming this to something more indicative
     // of the underlying MVCC functionality (like "new_version" or so)
+    if (!record_->is_visible_write(db_accessor_.transaction_))
+      record_ = vlist_.update(record_, db_accessor_.transaction_);
 
-    if (!record_->is_visible_write(db_accessor_->transaction_))
-      record_ = vlist_->update(db_accessor_->transaction_);
-
-    return record_;
+    return *record_;
   }
 
   /**
@@ -87,22 +103,26 @@ protected:
    *
    * @return See above.
    */
-  const TRecord *view() const {
-    return record_;
+  const TRecord& view() const {
+    return *record_;
   }
 
   // The record (edge or vertex) this accessor provides access to.
-  mvcc::VersionList<TRecord> *vlist_;
+  // Immutable, set in the constructor and never changed.
+  mvcc::VersionList<TRecord>& vlist_;
 
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
-  GraphDbAccessor *db_accessor_;
+  // Immutable, set in the constructor and never changed.
+  GraphDbAccessor& db_accessor_;
 
 private:
   /* The version of the record currently used in this transaction. Defaults to the
    * latest viewable version (set in the constructor). After the first update done
    * through this accessor a new, editable version, is created for this transaction,
    * and set as the value of this variable.
+   *
+   * Stored as a pointer due to it's mutability (the update() function changes it).
    */
-  TRecord *record_;
+  TRecord* record_;
 };

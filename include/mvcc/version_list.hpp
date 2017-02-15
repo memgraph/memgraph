@@ -118,12 +118,16 @@ namespace mvcc {
       return r;
     }
 
-    T *insert(tx::Transaction &t) {
+    /**
+     * @Args forwarded to the constructor of T
+     */
+    template <typename... Args>
+    T *insert(tx::Transaction &t, Args&&... args) {
       assert(head == nullptr);
 
       // create a first version of the record
       // TODO replace 'new' with something better
-      auto v1 = new T();
+      auto v1 = new T(std::forward<Args>(args)...);
 
       // mark the record as created by the transaction t
       v1->mark_created(t);
@@ -150,8 +154,7 @@ namespace mvcc {
       // It could be done with unique_ptr but while this could mean memory
       // leak on exception, unique_ptr could mean use after free. Memory
       // leak is less dangerous.
-      auto updated = new T();
-      updated->data = record->data;
+      auto updated = new T(*record);
 
       updated->mark_created(t);
       record->mark_deleted(t);

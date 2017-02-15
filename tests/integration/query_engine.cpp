@@ -1,4 +1,5 @@
 #include "query_engine_common.hpp"
+#include "dbms/dbms.hpp"
 
 using namespace std::chrono_literals;
 using namespace tests::integration;
@@ -23,13 +24,14 @@ int main(int argc, char *argv[])
      * init engine
      */
     auto log = init_logging("IntegrationQueryEngine");
-    Db db;
+    Dbms dbms;
     StreamT stream(std::cout);
     QueryEngineT query_engine;
     // IMPORTANT: PrintRecordStream can be replaces with a smarter
     // object that can test the results
-    
-    WarmUpEngine(log, query_engine, db, stream);
+
+    auto db_accessor = dbms.active();
+    WarmUpEngine(log, query_engine, db_accessor, stream);
 
     return 0;
 }

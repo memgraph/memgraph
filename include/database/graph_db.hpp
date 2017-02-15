@@ -32,26 +32,6 @@ public:
   using Property = std::string*;
 
   /**
-   * This constructor will create a database with the name "default"
-   *
-   * NOTE: explicit is here to prevent compiler from evaluating const char *
-   * into a bool.
-   *
-   * @param import_snapshot will in constructor import latest snapshot
-   *                        into the db.
-   */
-  explicit GraphDb(bool import_snapshot = true);
-
-  /**
-   * Construct database with a custom name.
-   *
-   * @param name database name
-   * @param import_snapshot will in constructor import latest snapshot
-   *                        into the db.
-   */
-  GraphDb(const char *name, bool import_snapshot = true);
-
-  /**
    * Construct database with a custom name.
    *
    * @param name database name
@@ -80,8 +60,8 @@ public:
   const std::string name_;
 
   // main storage for the graph
-  SkipList<mvcc::VersionList<Edge>*> edges_;
   SkipList<mvcc::VersionList<Vertex>*> vertices_;
+  SkipList<mvcc::VersionList<Edge>*> edges_;
 
   // unique object stores
   ConcurrentSet<std::string> labels_;
