@@ -11,6 +11,7 @@ namespace mvcc {
 
   template<class T>
   class VersionList {
+    // TODO what is this Accessor? Dead code?
     friend class Accessor;
 
   public:

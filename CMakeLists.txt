@@ -316,6 +316,7 @@ set(memgraph_src_files
     ${src_dir}/storage/typed_value.cpp
     ${src_dir}/storage/locking/record_lock.cpp
 #    ${src_dir}/storage/garbage/garbage.cpp
+        ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
         ${src_dir}/storage/edge_accessor.cpp
 #        ${src_dir}/storage/record_accessor.cpp

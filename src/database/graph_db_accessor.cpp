@@ -1,4 +1,4 @@
-#include <database/creation_exception.hpp>
+#include "database/creation_exception.hpp"
 #include "database/graph_db_accessor.hpp"
 
 #include "storage/vertex.hpp"
@@ -20,7 +20,7 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
   Vertex *vertex = vertex_vlist->insert(transaction_);
 
   // insert the newly created record into the main storage
-  // TODO make the number of tries configurable configurable
+  // TODO make the number of tries configurable
   for (int i = 0; i < 5; ++i) {
     bool success = db_.vertices_.access().insert(vertex_vlist).second;
     if (success)
@@ -37,9 +37,6 @@ bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
     return false;
 
   vertex_accessor.vlist_.remove(&vertex_accessor.update(), transaction_);
-
-  // TODO remove the vertex from the main storage once it gets garbage collected
-
   return true;
 }
 
@@ -55,8 +52,22 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor &vertex_accessor) {
 
   // mvcc removal of the vertex
   vertex_accessor.vlist_.remove(&vertex_accessor.update(), transaction_);
+}
 
-  // TODO remove the vertex from the main storage once it gets garbage collected
+std::vector<VertexAccessor> GraphDbAccessor::vertices() {
+  auto sl_accessor = db_.vertices_.access();
+
+  std::vector<VertexAccessor> accessors;
+  accessors.reserve(sl_accessor.size());
+
+  for (auto vlist : sl_accessor){
+    auto record = vlist->find(transaction_);
+    if (record == nullptr)
+      continue;
+    accessors.emplace_back(*vlist, *record, *this);
+   }
+
+  return accessors;
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(
@@ -84,21 +95,37 @@ EdgeAccessor GraphDbAccessor::insert_edge(
   throw CreationException("Unable to create an Edge after 5 attempts");
 }
 
+/**
+ * Removes the given edge pointer from a vector of pointers.
+ * Does NOT maintain edge pointer ordering (for efficiency).
+ */
+void swap_out_edge(std::vector<mvcc::VersionList<Edge>*> &edges, mvcc::VersionList<Edge> *edge) {
+  auto found = std::find(edges.begin(), edges.end(), edge);
+  assert(found != edges.end());
+  std::swap(*found, edges.back());
+  edges.pop_back();
+}
+
 void GraphDbAccessor::remove_edge(EdgeAccessor& edge_accessor) {
-  // remove this edge's reference from the "from" vertex
-  auto& vertex_from = edge_accessor.from().update();
-  std::remove(vertex_from.out_.begin(),
-              vertex_from.out_.end(),
-              &edge_accessor.vlist_);
-
-  // remove this edge's reference from the "to" vertex
-  auto& vertex_to = edge_accessor.to().update();
-  std::remove(vertex_to.in_.begin(),
-              vertex_to.in_.end(),
-              &edge_accessor.vlist_);
-
-  // remove this record from the database via MVCC
+  swap_out_edge(edge_accessor.from().update().out_, &edge_accessor.vlist_);
+  swap_out_edge(edge_accessor.to().update().in_, &edge_accessor.vlist_);
   edge_accessor.vlist_.remove(&edge_accessor.update(), transaction_);
+}
+
+std::vector<EdgeAccessor> GraphDbAccessor::edges() {
+  auto sl_accessor = db_.edges_.access();
+
+  std::vector<EdgeAccessor> accessors;
+  accessors.reserve(sl_accessor.size());
+
+  for (auto vlist : sl_accessor){
+    auto record = vlist->find(transaction_);
+    if (record == nullptr)
+      continue;
+    accessors.emplace_back(*vlist, *record, *this);
+  }
+
+  return accessors;
 }
 
 GraphDb::Label GraphDbAccessor::label(const std::string& label_name) {

@@ -128,7 +128,6 @@ public:
 
     if (finish)
       finish();
-
   }
 
 private:

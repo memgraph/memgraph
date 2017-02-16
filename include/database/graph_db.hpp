@@ -21,6 +21,9 @@ class EdgeAccessor;
 
 /**
  * Main class which represents Database concept in code.
+ * This class is essentially a data structure. It exposes
+ * all the data publicly, and should therefore not be directly
+ * exposed to client functions. The GraphDbAccessor is used for that.
  */
 class GraphDb {
 

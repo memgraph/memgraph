@@ -9,6 +9,14 @@
 #include "transactions/transaction.hpp"
 
 
+/**
+ * An accessor for the database object: exposes functions
+ * for operating on the database. All the functions in
+ * this class should be self-sufficient: for example the
+ * function for creating
+ * a new Vertex should take care of all the book-keeping around
+ * the creation.
+ */
 class GraphDbAccessor {
 
 public:
@@ -51,6 +59,13 @@ public:
   void detach_remove_vertex(VertexAccessor &vertex_accessor);
 
   /**
+   * Returns accessors to all the vertices in the graph.
+   * TODO: switch to the Iterator library and map function.
+   * @return
+   */
+  std::vector<VertexAccessor> vertices();
+
+  /**
    * Creates a new Edge and returns an accessor to it.
    *
    * @param from The 'from' vertex.
@@ -66,6 +81,13 @@ public:
    * @param edge_accessor  The accessor to an edge.
    */
   void remove_edge(EdgeAccessor& edge_accessor);
+
+  /**
+   * Returns accessors to all the edges in the graph.
+   * TODO: switch to the Iterator library and map function.
+   * @return
+   */
+  std::vector<EdgeAccessor> edges();
 
   /**
    * Obtains the Label for the label's name.
