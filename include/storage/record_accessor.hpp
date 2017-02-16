@@ -76,20 +76,23 @@ public:
    */
   size_t PropsErase(GraphDb::Property key);
 
+  /**
+   * Returns the properties of this record.
+   * @return
+   */
   const TypedValueStore<GraphDb::Property> &Properties() const;
 
   void PropertiesAccept(std::function<void(const GraphDb::Property key, const TypedValue &prop)> handler,
                         std::function<void()> finish = {}) const;
 
-  // Assumes same transaction
   friend bool operator==(const RecordAccessor &a, const RecordAccessor &b) {
-    // TODO consider the legitimacy of this comparison
+    assert(&a.db_accessor_ == &b.db_accessor_); // assume the same db_accessor / transaction
     return &a.vlist_ == &b.vlist_;
   }
 
   friend bool operator!=(const RecordAccessor &a, const RecordAccessor &b) {
-    // TODO consider the legitimacy of this comparison
-    return a != b;
+    assert(&a.db_accessor_ == &b.db_accessor_); // assume the same db_accessor / transaction
+    return !(a == b);
   }
 
   /**

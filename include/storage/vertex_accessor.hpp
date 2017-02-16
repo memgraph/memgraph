@@ -61,7 +61,7 @@ public:
    * Returns all the Labels of the Vertex.
    * @return
    */
-  const std::set<GraphDb::Label>& labels() const;
+  const std::vector<GraphDb::Label>& labels() const;
 
   /**
    * Returns EdgeAccessors for all incoming edges.

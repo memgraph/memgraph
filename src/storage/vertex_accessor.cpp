@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "storage/util.hpp"
@@ -11,19 +13,33 @@ size_t VertexAccessor::in_degree() const {
 }
 
 bool VertexAccessor::add_label(GraphDb::Label label) {
-  return update().labels_.emplace(label).second;
+  auto &labels_view = view().labels_;
+  auto found = std::find(labels_view.begin(), labels_view.end(), label);
+  if (found!= labels_view.end())
+    return false;
+
+  // not a duplicate label, add it
+  update().labels_.emplace_back(label);
+  return true;
 }
 
 size_t VertexAccessor::remove_label(GraphDb::Label label) {
-  return update().labels_.erase(label);
+  auto &labels = update().labels_;
+  auto found = std::find(labels.begin(), labels.end(), label);
+  if (found == labels.end())
+    return 0;
+
+  std::swap(*found, labels.back());
+  labels.pop_back();
+  return 1;
 }
 
 bool VertexAccessor::has_label(GraphDb::Label label) const {
-  auto &label_set = this->view().labels_;
-  return label_set.find(label) != label_set.end();
+  auto &labels = this->view().labels_;
+  return std::find(labels.begin(), labels.end(), label) != labels.end();
 }
 
-const std::set<GraphDb::Label>& VertexAccessor::labels() const {
+const std::vector<GraphDb::Label>& VertexAccessor::labels() const {
   return this->view().labels_;
 }
 

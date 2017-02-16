@@ -1,6 +1,5 @@
 #pragma once
 
-#include <set>
 #include <vector>
 
 #include "database/graph_db.hpp"
@@ -16,6 +15,6 @@ class Vertex : public mvcc::Record<Vertex> {
 public:
   std::vector<mvcc::VersionList<Edge>*> out_;
   std::vector<mvcc::VersionList<Edge>*> in_;
-  std::set<GraphDb::Label> labels_;
+  std::vector<GraphDb::Label> labels_;
   TypedValueStore<GraphDb::Property> properties_;
 };
