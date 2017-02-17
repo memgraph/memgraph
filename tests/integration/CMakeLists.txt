@@ -27,7 +27,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # link libraries
     target_link_libraries(${target_name} dl)
-    target_link_libraries(${target_name} cypher_lib)
     # filesystem
     target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)
@@ -38,6 +37,8 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} ${fmt_static_lib})
     # yaml parser lib
     target_link_libraries(${target_name} ${yaml_static_lib})
+	# antlr
+	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
 
     # register test
     add_test(${target_name} ${exec_name})

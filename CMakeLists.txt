@@ -5,12 +5,14 @@ cmake_minimum_required(VERSION 3.1)
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
 
+if(NOT UNIX)
+    message(FATAL "Unsupported operating system.")
+endif()
+
 # choose a compiler 
-# NOTE: must be choosen before use of project() or enable_language()
-if (UNIX)
+# NOTE: must be choosen before use of project() or enable_language() ----------
 set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
-endif (UNIX)
 # -----------------------------------------------------------------------------
 
 # set project name
@@ -50,11 +52,28 @@ set(test_include_dir ${CMAKE_BINARY_DIR}/tests/include)
 set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
 # -----------------------------------------------------------------------------
 
-# setup external dependencies
-# lemon & lempar
-set(lemon_dir ${libs_dir}/lemon)
-# lexertl
-set(lexertl_dir ${libs_dir}/lexertl)
+# build flags -----------------------------------------------------------------
+# release flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+#debug flags
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
+
+# compiler specific flags
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    # set(CMAKE_CXX_FLAGS_DEBUG "-Wl,--export-dynamic ${CMAKE_CXX_FLAGS_DEBUG}")
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    # set(CMAKE_CXX_FLAGS_DEBUG "-rdynamic ${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+
+# default build type is debug
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(CMAKE_BUILD_TYPE "debug")
+endif()
+message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
+# -----------------------------------------------------------------------------
+
+# setup external dependencies -------------------------------------------------
+add_subdirectory(libs)
 # fmt
 set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
@@ -62,31 +81,8 @@ set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
 set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
-# Catch (C++ Automated Test Cases in Headers)
-set(catch_source_dir "${libs_dir}/Catch")
-# -----------------------------------------------------------------------------
-
-# load cmake modules: cmake/*.cmake
-include(gtest)
-include(gbenchmark)
-# -----------------------------------------------------------------------------
-
-# build memgraph's cypher grammar
-# copy grammar file to the build directory
-FILE(COPY ${include_dir}/query/language/cypher/cypher.y
-     DESTINATION ${CMAKE_BINARY_DIR})
-# build cypher parser (only c file - cypher.c)
-EXECUTE_PROCESS(
-    COMMAND ${lemon_dir}/lemon ${CMAKE_BINARY_DIR}/cypher.y -s
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-# change cypher parser c extension to cpp (cypher.c -> cypher.cpp)
-FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.c ${CMAKE_BINARY_DIR}/cypher.cpp)
-# add include file (cypher.h) to build include dir
-SET(cypher_build_include_dir ${build_include_dir}/cypher)
-FILE(MAKE_DIRECTORY ${cypher_build_include_dir})
-FILE(RENAME ${CMAKE_BINARY_DIR}/cypher.h ${cypher_build_include_dir}/cypher.h)
-# -----------------------------------------------------------------------------
+# antlr
+set(antlr_static_lib ${CMAKE_SOURCE_DIR}/dist/libantlr4-runtime.a)
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
@@ -111,7 +107,8 @@ FILE(COPY ${tests_dir}/integration/stream
 # -----------------------------------------------------------------------------
 
 # copy files needed for query engine (headers)
-include(copy_includes)
+# TODO: copy includes for runtime compilation
+# include(copy_includes)
 # -----------------------------------------------------------------------------
 
 # linter setup (clang-tidy)
@@ -137,27 +134,7 @@ if(CLANG_TIDY)
 endif()
 # -----------------------------------------------------------------------------
 
-# TODO: add specific flags
-# release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-#debug flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-
-# compiler specific flags
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    # set(CMAKE_CXX_FLAGS_DEBUG "-Wl,--export-dynamic ${CMAKE_CXX_FLAGS_DEBUG}")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # set(CMAKE_CXX_FLAGS_DEBUG "-rdynamic ${CMAKE_CXX_FLAGS_DEBUG}")
-endif()
-
-# default build type is debug
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
-    set(CMAKE_BUILD_TYPE "debug")
-endif()
-message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
-# -----------------------------------------------------------------------------
-
-# logging levels
+# logging levels --------------------------------------------------------------
 option(LOG_NO_TRACE "Disable trace logging" OFF)
 message(STATUS "LOG_NO_TRACE: ${LOG_NO_TRACE}")
 if (LOG_NO_TRACE)
@@ -187,7 +164,6 @@ message(STATUS "LOG_NO_ERROR: ${LOG_NO_ERROR}")
 if (LOG_NO_ERROR)
     add_definitions(-DLOG_NO_ERROR)
 endif()
-# TODO: find a way how to applay those defines at the query compile time
 # -----------------------------------------------------------------------------
 
 # logger type
@@ -269,24 +245,54 @@ include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
 include_directories(${yaml_include_dir})
-include_directories(${http_parser_source_dir})
-include_directories(${lexertl_dir})
-include_directories(${libuv_source_dir}/include)
-include_directories(${rapidjson_source_dir}/include)
-include_directories(${r3_source_dir}/include)
 # -----------------------------------------------------------------------------
 
-# creates build/libcypher_lib.a
-add_library(cypher_lib STATIC ${CMAKE_BINARY_DIR}/cypher.cpp)
-# -----------------------------------------------------------------------------
+# openCypher parser -----------------------------------------------------------
+set(antlr_src ${CMAKE_SOURCE_DIR}/libs/antlr4/runtime/Cpp/runtime/src)
+set(opencypher_frontend ${CMAKE_SOURCE_DIR}/src/query/frontend/opencypher)
+set(opencypher_generated ${opencypher_frontend}/generated)
+set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
 
-# TODO: remove from here (isolate HTTP server)
-# # REST API preprocessor
-# EXECUTE_PROCESS(
-#     COMMAND python link_resources.py
-#     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/api
-# )
-# # ---------------------------------------------------------------------------
+# enumerate all files that are generated from antlr
+set(antlr_opencypher_generated_src
+   ${opencypher_frontend}/generated/CypherLexer.cpp 
+   ${opencypher_frontend}/generated/CypherParser.cpp
+   ${opencypher_frontend}/generated/CypherBaseVisitor.cpp
+   ${opencypher_frontend}/generated/CypherVisitor.cpp
+)
+
+# set generated flag to true
+# foreach(src_file ${antlr_opencypher_generated_src})
+#       set_source_files_properties(
+#           ${src_file}
+#           PROPERTIES
+#           GENERATED TRUE
+#           )
+# endforeach(src_file ${antlr_opencypher_generated_src})
+
+# add custom target for generation
+add_custom_target(generate_opencypher_parser
+   COMMAND
+   ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
+   COMMAND 
+   java -jar ${CMAKE_BINARY_DIR}/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlrcpptest ${opencypher_grammar}
+   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+   DEPENDS ${opencypher_grammar}
+   )
+
+# include antlr header files
+include_directories(
+  ${antlr_src}
+  ${antlr_src}/misc
+  ${antlr_src}/atn
+  ${antlr_src}/dfa
+  ${antlr_src}/tree
+  ${antlr_src}/support
+)
+
+add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
+target_link_libraries(antlr_opencypher_parser_lib ${antlr_static_lib})
+# -----------------------------------------------------------------------------
 
 # all memgraph src files
 set(memgraph_src_files
@@ -316,10 +322,10 @@ set(memgraph_src_files
     ${src_dir}/storage/typed_value.cpp
     ${src_dir}/storage/locking/record_lock.cpp
 #    ${src_dir}/storage/garbage/garbage.cpp
-        ${src_dir}/storage/record_accessor.cpp
+    ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
-        ${src_dir}/storage/edge_accessor.cpp
-#        ${src_dir}/storage/record_accessor.cpp
+    ${src_dir}/storage/edge_accessor.cpp
+#    ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/transactions/transaction_read.cpp
@@ -357,6 +363,11 @@ if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
 endif()
 # -----------------------------------------------------------------------------
 
+execute_process(
+    COMMAND python recursive_include.py --root ${src_dir} --start ${src_dir}/query/plan_interface.hpp --copy ${CMAKE_BINARY_DIR}/include
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
+)
+
 # memgraph build name
 execute_process(
     OUTPUT_VARIABLE COMMIT_BRANCH
@@ -384,14 +395,20 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} cypher_lib)
-
-    if (UNIX)
-#        target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
-        # target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} ${fmt_static_lib})
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} ${yaml_static_lib})
-        target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
-    endif (UNIX)
+#    target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
+#    target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${fmt_static_lib})
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${yaml_static_lib})
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${antlr_static_lib})
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
 endif()
+# add_dependencies(${MEMGRAPH_BUILD_NAME} generate_opencypher_parser)
 # -----------------------------------------------------------------------------
+
+# make CLion aware of all source files so we get refactoring etc
+# TODO: fix snapshots and everything from src and then add custom target
+#file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp ${CMAKE_SOURCE_DIR}/src/*.cpp)
+#add_executable(__refactor_target ${__SOURCES})
+#target_link_libraries(__refactor_target memgraph_lib stdc++fs Threads::Threads ${fmt_static_lib} ${yaml_static_lib} ${antlr_static_lib} antlr_opencypher_parser_lib dl)
+#add_dependencies(__refactor_target generate_opencypher_parser)

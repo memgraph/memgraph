@@ -2,3 +2,4 @@
 !.gitignore
 !setup.sh
 !cleanup.sh
+!CMakeLists.txt

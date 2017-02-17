@@ -1,8 +1,0 @@
-*.o
-cypher.cpp
-cypher.h
-cypher.hpp
-parser
-cypher.out
-parser
-sqlite.y

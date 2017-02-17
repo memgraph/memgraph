@@ -1,4 +1,4 @@
-#include "threading/thread.hpp"
+#include "thread.hpp"
 
 Thread::Thread(Thread &&other)
 {

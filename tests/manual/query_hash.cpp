@@ -1,7 +1,8 @@
 #include <iostream>
 #include <vector>
 
-#include "query/language/cypher/common.hpp"
+#include "logging/default.hpp"
+#include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
@@ -18,6 +19,9 @@ using utils::println;
  */
 int main(int argc, char **argv)
 {
+    logging::init_sync();
+    logging::log->pipe(std::make_unique<Stdout>());
+
     // init args
     REGISTER_ARGS(argc, argv);
 

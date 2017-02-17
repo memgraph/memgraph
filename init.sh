@@ -20,4 +20,8 @@ cd libs
 ./setup.sh
 cd ..
 
+cd build
+wget http://www.antlr.org/download/antlr-4.6-complete.jar
+cd ..
+
 echo "DONE"

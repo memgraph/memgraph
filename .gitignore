@@ -25,3 +25,4 @@ build/compiled/
 cmake-build-*
 .idea
 cmake/DownloadProject/
+dist/

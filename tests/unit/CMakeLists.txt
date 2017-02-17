@@ -38,8 +38,8 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} ${fmt_static_lib})
     # yaml parser lib
     target_link_libraries(${target_name} ${yaml_static_lib})
-    # cypher lib
-    target_link_libraries(${target_name} cypher_lib)
+	# antlr
+	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
     # dynamic lib
     target_link_libraries(${target_name} dl)
 
