@@ -1,8 +1,8 @@
+#define LOG_NO_INFO 1
+
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
-#include "utils/time/timer.hpp"
-
 #include "benchmark/benchmark_api.h"
 #include "yaml-cpp/yaml.h"
 

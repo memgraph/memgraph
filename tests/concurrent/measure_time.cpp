@@ -8,6 +8,7 @@
 #include "utils/timer/timer.hpp"
 
 using namespace std::chrono_literals;
+using namespace utils;
 
 /**
  * Creates a test timer which will log timeout message at the timeout event.

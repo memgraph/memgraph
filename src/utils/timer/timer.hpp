@@ -8,12 +8,15 @@
 
 #include "logging/default.hpp"
 
+namespace utils {
+
 /**
  * @class Timer
  *
- * @brief The timer contains counter and handler.
+ * @brief The timer contains counter and handler which is executed when the time
+ * exceedes.
  *
- * With every clock interval the counter should be decresed for
+ * With every clock interval the counter should be decreased for
  * delta count. Delta count is one for now but it should be a variable in the
  * near future. The handler is function that will be called when counter
  * becomes zero or smaller than zero.
@@ -151,3 +154,4 @@ class TimerScheduler {
   std::thread run_thread;
   std::atomic<bool> is_running;
 };
+}
