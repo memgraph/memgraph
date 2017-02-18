@@ -192,9 +192,7 @@ class SkipList : private Lockable<lock_t> {
       this->data.emplace(std::forward<Args>(args)...);
     }
 
-    Node(const T &data, uint8_t height) : Node(height) {
-      this->data.set(data);
-    }
+    Node(const T &data, uint8_t height) : Node(height) { this->data.set(data); }
 
     Node(T &&data, uint8_t height) : Node(height) {
       this->data.set(std::move(data));
@@ -391,8 +389,7 @@ class SkipList : private Lockable<lock_t> {
             pred = node, node = pred->forward(level);
           }
 
-          if (level_found == -1 && !less(prev, node))
-            level_found = level;
+          if (level_found == -1 && !less(prev, node)) level_found = level;
 
           preds_[level] = pred;
         }
@@ -955,7 +952,8 @@ class SkipList : private Lockable<lock_t> {
    * of node.
    */
   // TODO this code is not DRY w.r.t. the other insert function (rvalue ref)
-  std::pair<Iterator, bool> insert(Node *preds[], Node *succs[], const T &data) {
+  std::pair<Iterator, bool> insert(Node *preds[], Node *succs[],
+                                   const T &data) {
     while (true) {
       // TODO: before here was data.first
       auto level = find_path(this, H - 1, data, preds, succs);
@@ -978,9 +976,9 @@ class SkipList : private Lockable<lock_t> {
       // has the locks
       if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
-      return {insert_here(Node::create(data, height), preds, succs,
-                          height, guards),
-              true};
+      return {
+          insert_here(Node::create(data, height), preds, succs, height, guards),
+          true};
     }
   }
 

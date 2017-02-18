@@ -16,7 +16,7 @@
 #include "gtest/gtest.h"
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/default.cpp" 
+#include "logging/default.cpp"
 #include "utils/random/generator.h"
 
 using utils::random::NumberGenerator;
@@ -350,7 +350,6 @@ TEST(SkipListReverseIteratorTest, RandomIteratorsElementLowerThanFirst) {
   ASSERT_EQ(rend, rbegin);
 }
 
-
 /*
   Tests Skiplist ReverseIterator when concurrently inserting an element while
   iterating. The inserted element should also be traversed.
@@ -360,12 +359,12 @@ TEST(SkipListReverseIteratorTest, InsertWhileIteratingTest) {
   auto accessor = skiplist.access();
   int number_of_elements = 1024 * 16;
 
-  for (int i = 1; i < number_of_elements; i+=2) accessor.insert(std::move(i));
+  for (int i = 1; i < number_of_elements; i += 2) accessor.insert(std::move(i));
 
   auto rbegin = accessor.rbegin();
   auto rend = accessor.rend();
 
-  for (int i = 0; i < number_of_elements; i+=2) accessor.insert(std::move(i));
+  for (int i = 0; i < number_of_elements; i += 2) accessor.insert(std::move(i));
 
   int element = number_of_elements - 1;
   while (rbegin != rend) {
@@ -374,7 +373,6 @@ TEST(SkipListReverseIteratorTest, InsertWhileIteratingTest) {
     element--;
   }
 }
-
 
 /*
   Tests Skiplist ReverseIterator when concurrently deleting an element while
@@ -397,7 +395,7 @@ TEST(SkipListReverseIteratorTest, DeleteWhileIteratingTest) {
   ASSERT_EQ(element, *rbegin);
 
   // delete elements
-  for (int i = 0; i < number_of_elements; i+=2) accessor.remove(i);
+  for (int i = 0; i < number_of_elements; i += 2) accessor.remove(i);
 
   // check if still points to the same after delete
   ASSERT_EQ(element, *rbegin);
@@ -405,15 +403,15 @@ TEST(SkipListReverseIteratorTest, DeleteWhileIteratingTest) {
 
   // check all deleted elements after
   while (rbegin != rend && element > 0) {
-    ASSERT_EQ(element-1, *rbegin);
+    ASSERT_EQ(element - 1, *rbegin);
     rbegin++;
-    element-=2;
+    element -= 2;
   }
 }
 
 int main(int argc, char** argv) {
-  logging::init_sync();                                                       
-  logging::log->pipe(std::make_unique<Stdout>()); 
+  logging::init_sync();
+  logging::log->pipe(std::make_unique<Stdout>());
 
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

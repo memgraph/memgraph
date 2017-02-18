@@ -1,243 +1,216 @@
 #pragma once
 
-#include <atomic>
 #include <unistd.h>
+#include <atomic>
 
-#include "threading/sync/lockable.hpp"
 #include "memory/hp.hpp"
+#include "threading/sync/lockable.hpp"
 
-namespace lockfree
-{
+namespace lockfree {
 
 template <class T, size_t sleep_time = 250>
-class List : Lockable<SpinLock>
-{
-public:
-    List() = default;
+class List : Lockable<SpinLock> {
+ public:
+  List() = default;
 
-    List(List&) = delete;
-    List(List&&) = delete;
+  List(List&) = delete;
+  List(List&&) = delete;
 
-    void operator=(List&) = delete;
+  void operator=(List&) = delete;
 
-    class read_iterator
-    {
-    public:
-        // constructor
-        read_iterator(T* curr) : 
-            curr(curr),
-            hazard_ref(std::move(memory::HP::get().insert(curr))) {}
+  class read_iterator {
+   public:
+    // constructor
+    read_iterator(T* curr)
+        : curr(curr), hazard_ref(std::move(memory::HP::get().insert(curr))) {}
 
-        // no copy constructor
-        read_iterator(read_iterator& other) = delete;
+    // no copy constructor
+    read_iterator(read_iterator& other) = delete;
 
-        // move constructor
-        read_iterator(read_iterator&& other) :
-            curr(other.curr),
-            hazard_ref(std::move(other.hazard_ref)) {}
-  
-        T& operator*() { return *curr; }
-        T* operator->() { return curr; }
+    // move constructor
+    read_iterator(read_iterator&& other)
+        : curr(other.curr), hazard_ref(std::move(other.hazard_ref)) {}
 
-        operator T*() { return curr; }
+    T& operator*() { return *curr; }
+    T* operator->() { return curr; }
 
-        read_iterator& operator++()
-        {
-            auto& hp = memory::HP::get();
-            hazard_ref = std::move(hp.insert(curr->next.load()));
+    operator T*() { return curr; }
 
-            curr = curr->next.load();
-            return *this;
-        }
-  
-        read_iterator& operator++(int)
-        {
-            return operator++();
-        }
+    read_iterator& operator++() {
+      auto& hp = memory::HP::get();
+      hazard_ref = std::move(hp.insert(curr->next.load()));
 
-        bool has_next()
-        {
-            if (curr->next == nullptr)
-                return false;
-            return true;
-        }
-  
-    private:
-        T* curr;
-        memory::HP::reference hazard_ref;
-    };
-  
-    class read_write_iterator
-    {
-        friend class List<T, sleep_time>;
-
-    public:
-        read_write_iterator(T* prev, T* curr) :
-            prev(prev),
-            curr(curr),
-            hazard_ref(std::move(memory::HP::get().insert(curr))) {}
-      
-         // no copy constructor
-        read_write_iterator(read_write_iterator& other) = delete;
-
-        // move constructor
-        read_write_iterator(read_write_iterator&& other) :
-            prev(other.prev),
-            curr(other.curr),
-            hazard_ref(std::move(other.hazard_ref)) {}
- 
-        T& operator*() { return *curr; }
-        T* operator->() { return curr; }
-
-        operator T*() { return curr; }
-
-        read_write_iterator& operator++()
-        {
-            auto& hp = memory::HP::get();
-            hazard_ref = std::move(hp.insert(curr->next.load()));
-
-            prev = curr;
-            curr = curr->next.load();
-            return *this;
-        }
-  
-        read_write_iterator& operator++(int)
-        {
-            return operator++();
-        }
-  
-    private:
-        T* prev;
-        T* curr;
-        memory::HP::reference hazard_ref;
-    };
-
-    read_iterator begin()
-    {
-        return read_iterator(head.load());
+      curr = curr->next.load();
+      return *this;
     }
 
-    read_write_iterator rw_begin()
-    {
-        return read_write_iterator(nullptr, head.load());
+    read_iterator& operator++(int) { return operator++(); }
+
+    bool has_next() {
+      if (curr->next == nullptr) return false;
+      return true;
     }
 
-    void push_front(T* node)
-    {
-        // we want to push an item to front of a list like this
-        // HEAD --> [1] --> [2] --> [3] --> ...
-        
-        // read the value of head atomically and set the node's next pointer
-        // to point to the same location as head
+   private:
+    T* curr;
+    memory::HP::reference hazard_ref;
+  };
 
-        // HEAD --------> [1] --> [2] --> [3] --> ...
-        //                 |
-        //                 |
-        //      NODE ------+
+  class read_write_iterator {
+    friend class List<T, sleep_time>;
 
-        T* h = node->next = head.load();
+   public:
+    read_write_iterator(T* prev, T* curr)
+        : prev(prev),
+          curr(curr),
+          hazard_ref(std::move(memory::HP::get().insert(curr))) {}
 
-        // atomically do: if the value of node->next is equal to current value
-        // of head, make the head to point to the node.
-        // if this fails (another thread has just made progress), update the
-        // value of node->next to the current value of head and retry again
-        // until you succeed
+    // no copy constructor
+    read_write_iterator(read_write_iterator& other) = delete;
 
-        // HEAD ----|CAS|----------> [1] --> [2] --> [3] --> ...
-        //  |         |               |
-        //  |         v               |
-        //  +-------|CAS|---> NODE ---+
+    // move constructor
+    read_write_iterator(read_write_iterator&& other)
+        : prev(other.prev),
+          curr(other.curr),
+          hazard_ref(std::move(other.hazard_ref)) {}
 
-        while(!head.compare_exchange_weak(h, node))
-        {
-            node->next.store(h);
-            usleep(sleep_time);
-        }
+    T& operator*() { return *curr; }
+    T* operator->() { return curr; }
 
-        // the final state of the list after compare-and-swap looks like this
+    operator T*() { return curr; }
 
-        // HEAD          [1] --> [2] --> [3] --> ...
-        //  |             |
-        //  |             |
-        //  +---> NODE ---+
+    read_write_iterator& operator++() {
+      auto& hp = memory::HP::get();
+      hazard_ref = std::move(hp.insert(curr->next.load()));
+
+      prev = curr;
+      curr = curr->next.load();
+      return *this;
     }
 
-    bool remove(read_write_iterator& it)
-    {
-        // acquire an exclusive guard.
-        // we only care about push_front and iterator performance so we can
-        // we only care about push_front and iterator performance so we can
-        // tradeoff some remove speed for better reads and inserts. remove is
-        // used exclusively by the GC thread(s) so it can be slower
-        auto guard = acquire_unique();
+    read_write_iterator& operator++(int) { return operator++(); }
 
-        // even though concurrent removes are synchronized, we need to worry
-        // about concurrent reads (solved by using atomics) and concurrent 
-        // inserts to head (VERY dangerous, suffers from ABA problem, solved
-        // by simply not deleting the head node until it gets pushed further
-        // down the list)
+   private:
+    T* prev;
+    T* curr;
+    memory::HP::reference hazard_ref;
+  };
 
-        // check if we're deleting the head node. we can't do that because of
-        // the ABA problem so just return false for now. the logic behind this
-        // is that this node will move further down the list next time the
-        // garbage collector traverses this list and therefore it will become
-        // deletable
-        if(it.prev == nullptr) {
-            std::cout << "prev null" << std::endl;
-            return false;
-        }
+  read_iterator begin() { return read_iterator(head.load()); }
 
-        //  HEAD --> ... --> [i] --> [i + 1] --> [i + 2] --> ...
-        //                  
-        //                  prev       curr        next
+  read_write_iterator rw_begin() {
+    return read_write_iterator(nullptr, head.load());
+  }
 
-        auto prev = it.prev;
-        auto curr = it.curr;
-        auto next = curr->next.load(std::memory_order_acquire);
+  void push_front(T* node) {
+    // we want to push an item to front of a list like this
+    // HEAD --> [1] --> [2] --> [3] --> ...
 
-        // effectively remove the curr node from the list
+    // read the value of head atomically and set the node's next pointer
+    // to point to the same location as head
 
-        //                    +---------------------+
-        //                    |                     |
-        //                    |                     v
-        //  HEAD --> ... --> [i]     [i + 1] --> [i + 2] --> ...
-        //                  
-        //                  prev       curr        next
+    // HEAD --------> [1] --> [2] --> [3] --> ...
+    //                 |
+    //                 |
+    //      NODE ------+
 
-        prev->next.store(next, std::memory_order_release);
+    T* h = node->next = head.load();
 
-        // curr is now removed from the list so no iterators will be able
-        // to reach it at this point, but we still need to check the hazard
-        // pointers and wait until everyone who currently holds a reference to
-        // it has stopped using it before we can physically delete it
-       
-        // TODO: test more appropriate 
-        auto& hp = memory::HP::get();
+    // atomically do: if the value of node->next is equal to current value
+    // of head, make the head to point to the node.
+    // if this fails (another thread has just made progress), update the
+    // value of node->next to the current value of head and retry again
+    // until you succeed
 
-        while(hp.find(reinterpret_cast<uintptr_t>(curr)))
-            sleep(sleep_time);
-        
-        delete curr;
-        
-        return true;
+    // HEAD ----|CAS|----------> [1] --> [2] --> [3] --> ...
+    //  |         |               |
+    //  |         v               |
+    //  +-------|CAS|---> NODE ---+
+
+    while (!head.compare_exchange_weak(h, node)) {
+      node->next.store(h);
+      usleep(sleep_time);
     }
 
-private:
-    std::atomic<T*> head { nullptr };
+    // the final state of the list after compare-and-swap looks like this
+
+    // HEAD          [1] --> [2] --> [3] --> ...
+    //  |             |
+    //  |             |
+    //  +---> NODE ---+
+  }
+
+  bool remove(read_write_iterator& it) {
+    // acquire an exclusive guard.
+    // we only care about push_front and iterator performance so we can
+    // we only care about push_front and iterator performance so we can
+    // tradeoff some remove speed for better reads and inserts. remove is
+    // used exclusively by the GC thread(s) so it can be slower
+    auto guard = acquire_unique();
+
+    // even though concurrent removes are synchronized, we need to worry
+    // about concurrent reads (solved by using atomics) and concurrent
+    // inserts to head (VERY dangerous, suffers from ABA problem, solved
+    // by simply not deleting the head node until it gets pushed further
+    // down the list)
+
+    // check if we're deleting the head node. we can't do that because of
+    // the ABA problem so just return false for now. the logic behind this
+    // is that this node will move further down the list next time the
+    // garbage collector traverses this list and therefore it will become
+    // deletable
+    if (it.prev == nullptr) {
+      std::cout << "prev null" << std::endl;
+      return false;
+    }
+
+    //  HEAD --> ... --> [i] --> [i + 1] --> [i + 2] --> ...
+    //
+    //                  prev       curr        next
+
+    auto prev = it.prev;
+    auto curr = it.curr;
+    auto next = curr->next.load(std::memory_order_acquire);
+
+    // effectively remove the curr node from the list
+
+    //                    +---------------------+
+    //                    |                     |
+    //                    |                     v
+    //  HEAD --> ... --> [i]     [i + 1] --> [i + 2] --> ...
+    //
+    //                  prev       curr        next
+
+    prev->next.store(next, std::memory_order_release);
+
+    // curr is now removed from the list so no iterators will be able
+    // to reach it at this point, but we still need to check the hazard
+    // pointers and wait until everyone who currently holds a reference to
+    // it has stopped using it before we can physically delete it
+
+    // TODO: test more appropriate
+    auto& hp = memory::HP::get();
+
+    while (hp.find(reinterpret_cast<uintptr_t>(curr))) sleep(sleep_time);
+
+    delete curr;
+
+    return true;
+  }
+
+ private:
+  std::atomic<T*> head{nullptr};
 };
 
 template <class T, size_t sleep_time>
 bool operator==(typename List<T, sleep_time>::read_iterator& a,
-                typename List<T, sleep_time>::read_iterator& b)
-{
-    return a->curr == b->curr;
+                typename List<T, sleep_time>::read_iterator& b) {
+  return a->curr == b->curr;
 }
 
 template <class T, size_t sleep_time>
 bool operator!=(typename List<T, sleep_time>::read_iterator& a,
-                typename List<T, sleep_time>::read_iterator& b)
-{
-    return !operator==(a, b);
+                typename List<T, sleep_time>::read_iterator& b) {
+  return !operator==(a, b);
 }
-
 }

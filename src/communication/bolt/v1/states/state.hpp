@@ -1,30 +1,27 @@
 #pragma once
 
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 
 #include "logging/default.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
 class Session;
 
-class State
-{
-public:
-    using uptr = std::unique_ptr<State>;
+class State {
+ public:
+  using uptr = std::unique_ptr<State>;
 
-    State() = default;
-    State(Logger logger) : logger(logger) {}
+  State() = default;
+  State(Logger logger) : logger(logger) {}
 
-    virtual ~State() = default;
+  virtual ~State() = default;
 
-    virtual State* run(Session& session) = 0;
+  virtual State* run(Session& session) = 0;
 
-protected:
-    Logger logger;
+ protected:
+  Logger logger;
 };
-
 }

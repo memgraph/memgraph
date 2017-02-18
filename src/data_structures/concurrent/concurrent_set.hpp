@@ -5,13 +5,13 @@
 
 // Multi thread safe set based on skiplist.
 // T - type of data.
-template<class T>
+template <class T>
 class ConcurrentSet {
   typedef SkipList<T> list;
   typedef typename SkipList<T>::Iterator list_it;
   typedef typename SkipList<T>::ConstIterator list_it_con;
 
-public:
+ public:
   ConcurrentSet() {}
 
   class Accessor : public AccessorBase<T> {
@@ -19,10 +19,10 @@ public:
 
     using AccessorBase<T>::AccessorBase;
 
-  private:
+   private:
     using AccessorBase<T>::accessor;
 
-  public:
+   public:
     std::pair<list_it, bool> insert(const T &item) {
       return accessor.insert(item);
     }
@@ -36,19 +36,19 @@ public:
     list_it find(const T &item) { return accessor.find(item); }
 
     // Returns iterator to item or first larger if it doesn't exist.
-    template<class K>
+    template <class K>
     list_it_con find_or_larger(const K &item) const {
       return accessor.find_or_larger(item);
     }
 
     // Returns iterator to item or first larger if it doesn't exist.
-    template<class K>
+    template <class K>
     list_it find_or_larger(const K &item) {
       return accessor.find_or_larger(item);
     }
 
     // Returns iterator to item or first larger if it doesn't exist.
-    template<class K>
+    template <class K>
     list_it_con cfind_or_larger(const K &item) {
       return accessor.template find_or_larger<list_it_con, K>(item);
     }
@@ -64,6 +64,6 @@ public:
 
   const Accessor access() const { return Accessor(&skiplist); }
 
-private:
+ private:
   list skiplist;
 };

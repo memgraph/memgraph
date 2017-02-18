@@ -8,7 +8,6 @@
 #include "graph_db.hpp"
 #include "transactions/transaction.hpp"
 
-
 /**
  * An accessor for the database object: exposes functions
  * for operating on the database. All the functions in
@@ -18,9 +17,7 @@
  * the creation.
  */
 class GraphDbAccessor {
-
-public:
-
+ public:
   /**
    * Creates an accessor for the given database.
    *
@@ -48,7 +45,7 @@ public:
    * @param vertex_accessor Accessor to vertex.
    * @return  If or not the vertex was deleted.
    */
-  bool remove_vertex(VertexAccessor &vertex_accessor);
+  bool remove_vertex(VertexAccessor& vertex_accessor);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing
@@ -56,7 +53,7 @@ public:
    *
    * @param vertex_accessor  Accessor to a vertex.
    */
-  void detach_remove_vertex(VertexAccessor &vertex_accessor);
+  void detach_remove_vertex(VertexAccessor& vertex_accessor);
 
   /**
    * Returns accessors to all the vertices in the graph.
@@ -73,7 +70,8 @@ public:
    * @param type Edge type.
    * @return  An accessor to the edge.
    */
-  EdgeAccessor insert_edge(VertexAccessor& from, VertexAccessor& to, GraphDb::EdgeType type);
+  EdgeAccessor insert_edge(VertexAccessor& from, VertexAccessor& to,
+                           GraphDb::EdgeType type);
 
   /**
    * Removes an edge from the graph.
@@ -134,6 +132,6 @@ public:
   /** The current transaction */
   tx::Transaction transaction_;
 
-private:
+ private:
   GraphDb& db_;
 };

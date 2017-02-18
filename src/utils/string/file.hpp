@@ -13,45 +13,42 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
-namespace utils
-{
+namespace utils {
 
 /*
  * Type safe text object.
  */
-class Text
-{
-public:
-    Text() = default;
-    explicit Text(const std::string &text) : text_(text) {}
+class Text {
+ public:
+  Text() = default;
+  explicit Text(const std::string& text) : text_(text) {}
 
-    // text could be huge and copy operationt would be too expensive
-    Text(const Text& other) = delete;
-    Text& operator=(const Text& other) = delete;
+  // text could be huge and copy operationt would be too expensive
+  Text(const Text& other) = delete;
+  Text& operator=(const Text& other) = delete;
 
-    // the object is movable
-    Text (Text&& other) = default;
-    Text& operator=(Text&& other)
-    {
-        text_ = std::move(other.text_);
-        return *this;
-    }
+  // the object is movable
+  Text(Text&& other) = default;
+  Text& operator=(Text&& other) {
+    text_ = std::move(other.text_);
+    return *this;
+  }
 
-    const std::string &str() const { return text_; }
+  const std::string& str() const { return text_; }
 
-private:
-    std::string text_;
+ private:
+  std::string text_;
 };
 
 /*
  * Reads the whole text from a file at the path.
  */
-Text read_text(const fs::path &path);
+Text read_text(const fs::path& path);
 
 /*
  * Reads all the lines from a file at the path.
  */
-std::vector<std::string> read_lines(const fs::path &path);
+std::vector<std::string> read_lines(const fs::path& path);
 
 // TODO: lazy implementation of read_lines functionality (line by line)
 
@@ -60,6 +57,5 @@ std::vector<std::string> read_lines(const fs::path &path);
 /*
  * Write text in a file at the path.
  */
-void write(const Text &text, const fs::path &path);
-
+void write(const Text& text, const fs::path& path);
 }

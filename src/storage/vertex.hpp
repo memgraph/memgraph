@@ -11,8 +11,7 @@
 class Edge;
 
 class Vertex : public mvcc::Record<Vertex> {
-
-public:
+ public:
   std::vector<mvcc::VersionList<Edge>*> out_;
   std::vector<mvcc::VersionList<Edge>*> in_;
   std::vector<GraphDb::Label> labels_;

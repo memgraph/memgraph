@@ -1,15 +1,14 @@
 #pragma once
 
+#include <strings.h>
 #include <cstdlib>
 #include <cstdlib>
 #include <iostream>
 #include <string>
-#include <strings.h>
 #include "storage/model/properties/all.hpp"
 
-bool string2bool(const char *v)
-{
-    return strcasecmp(v, "true") == 0 || atoi(v) != 0;
+bool string2bool(const char *v) {
+  return strcasecmp(v, "true") == 0 || atoi(v) != 0;
 }
 
 bool to_bool(const char *str) { return string2bool(str); }

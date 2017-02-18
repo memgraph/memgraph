@@ -1,8 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <vector>
-#include <algorithm>
 
 #include "typed_value.hpp"
 

@@ -4,13 +4,10 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 
-namespace io
-{
+namespace io {
 
-class NetworkError : public BasicException
-{
-public:
-    using BasicException::BasicException;
+class NetworkError : public BasicException {
+ public:
+  using BasicException::BasicException;
 };
-
 }

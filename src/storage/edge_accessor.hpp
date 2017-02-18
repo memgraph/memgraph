@@ -1,10 +1,10 @@
 #pragma once
 
+#include "database/graph_db.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "utils/assert.hpp"
 #include "utils/reference_wrapper.hpp"
-#include "database/graph_db.hpp"
 
 // forward declaring the VertexAccessor because it's returned
 // by some functions
@@ -18,7 +18,7 @@ class VertexAccessor;
  * takes care of MVCC versioning.
  */
 class EdgeAccessor : public RecordAccessor<Edge> {
-public:
+ public:
   using RecordAccessor::RecordAccessor;
 
   /**
@@ -44,5 +44,5 @@ public:
    */
   VertexAccessor to() const;
 
-//  void remove();
+  //  void remove();
 };

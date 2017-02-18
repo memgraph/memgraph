@@ -2,21 +2,17 @@
 
 #include "communication/bolt/v1/states/message_parser.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
-class Init : public MessageParser<Init>
-{
-public:
-    struct Message
-    {
-        std::string client_name;
-    };
+class Init : public MessageParser<Init> {
+ public:
+  struct Message {
+    std::string client_name;
+  };
 
-    Init();
+  Init();
 
-    State* parse(Session& session, Message& message);
-    State* execute(Session& session, Message& message);
+  State* parse(Session& session, Message& message);
+  State* execute(Session& session, Message& message);
 };
-
 }

@@ -7,19 +7,17 @@
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace/stacktrace.hpp"
 
-TEST(SignalHandler, SegmentationFaultTest)
-{
-    SignalHandler::register_handler(Signal::SegmentationFault, []() {
-        std::cout << "Segmentation Fault" << std::endl;
-        Stacktrace stacktrace;
-        std::cout << stacktrace.dump() << std::endl;
-    });
+TEST(SignalHandler, SegmentationFaultTest) {
+  SignalHandler::register_handler(Signal::SegmentationFault, []() {
+    std::cout << "Segmentation Fault" << std::endl;
+    Stacktrace stacktrace;
+    std::cout << stacktrace.dump() << std::endl;
+  });
 
-    std::raise(SIGSEGV);
+  std::raise(SIGSEGV);
 }
 
-int main(int argc, char **argv)
-{
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

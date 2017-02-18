@@ -2,7 +2,7 @@
 
 #include <utility>
 
-/**  
+/**
  * @brief Calls a cleanup function on scope exit
  *
  * consider this example:
@@ -32,28 +32,26 @@
  * @tparam F Lambda which holds a wrapper function around the cleanup code
  */
 template <class F>
-class OnScopeExit
-{
-public:
-   OnScopeExit(F& f) : f(f) {}
+class OnScopeExit {
+ public:
+  OnScopeExit(F& f) : f(f) {}
 
-   ~OnScopeExit()
-   {
-       // calls the cleanup function
-       f();
-   }
+  ~OnScopeExit() {
+    // calls the cleanup function
+    f();
+  }
 
-private:
-   F& f;
+ private:
+  F& f;
 };
 
 #define TOKEN_PASTEx(x, y) x##y
 #define TOKEN_PASTE(x, y) TOKEN_PASTEx(x, y)
 
-#define Auto_INTERNAL(Destructor, counter) \
-    auto TOKEN_PASTE(auto_func_, counter) = [&]() { Destructor; }; \
-        OnScopeExit<decltype(TOKEN_PASTE(auto_func_, counter))> \
-            TOKEN_PASTE(auto_, counter)(TOKEN_PASTE(auto_func_, counter));
+#define Auto_INTERNAL(Destructor, counter)                             \
+  auto TOKEN_PASTE(auto_func_, counter) = [&]() { Destructor; };       \
+  OnScopeExit<decltype(TOKEN_PASTE(auto_func_, counter))> TOKEN_PASTE( \
+      auto_, counter)(TOKEN_PASTE(auto_func_, counter));
 
 #define Auto(Destructor) Auto_INTERNAL(Destructor, __COUNTER__)
 

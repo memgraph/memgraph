@@ -2,22 +2,20 @@
 
 #include "gtest/gtest.h"
 
-#include "dbms/dbms.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "dbms/dbms.hpp"
 
+#include "storage/edge_accessor.hpp"
 #include "storage/typed_value.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "storage/edge_accessor.hpp"
-
 
 TEST(RecordAccessor, Properties) {
-
   Dbms dbms;
   GraphDbAccessor dba = dbms.active();
 
   auto vertex = dba.insert_vertex();
-  auto &properties = vertex.Properties();
+  auto& properties = vertex.Properties();
 
   auto property = dba.property("PropName");
   auto property_other = dba.property("Other");
@@ -46,7 +44,6 @@ TEST(RecordAccessor, DbAccessor) {
 }
 
 TEST(RecordAccessor, RecordEquality) {
-
   Dbms dbms;
   GraphDbAccessor dba = dbms.active();
 
@@ -62,11 +59,10 @@ TEST(RecordAccessor, RecordEquality) {
 }
 
 TEST(RecordAccessor, VertexLabels) {
-
   Dbms dbms;
   GraphDbAccessor dba = dbms.active();
   auto v1 = dba.insert_vertex();
-  auto &labels = v1.labels();
+  auto& labels = v1.labels();
 
   EXPECT_EQ(v1.labels().size(), 0);
 
@@ -138,9 +134,7 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   EXPECT_EQ(v2.in().size(), 1);
   EXPECT_EQ(v2.out().size(), 0);
 
-  for (auto e : v1.out())
-    EXPECT_EQ(edge, e);
+  for (auto e : v1.out()) EXPECT_EQ(edge, e);
 
-  for (auto e : v2.in())
-    EXPECT_EQ(edge, e);
+  for (auto e : v2.in()) EXPECT_EQ(edge, e);
 }

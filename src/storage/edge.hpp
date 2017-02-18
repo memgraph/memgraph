@@ -9,10 +9,8 @@
 class Vertex;
 
 class Edge : public mvcc::Record<Edge> {
-public:
-
-  Edge(mvcc::VersionList<Vertex>& from,
-       mvcc::VersionList<Vertex>& to,
+ public:
+  Edge(mvcc::VersionList<Vertex>& from, mvcc::VersionList<Vertex>& to,
        GraphDb::EdgeType edge_type)
       : from_(from), to_(to), edge_type_(edge_type) {}
 

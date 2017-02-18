@@ -4,22 +4,20 @@
 #include "dbms/dbms.hpp"
 #include "io/network/socket.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
 class Session;
 
-class Bolt
-{
-    friend class Session;
+class Bolt {
+  friend class Session;
 
-public:
-    Bolt();
+ public:
+  Bolt();
 
-    Session *create_session(io::Socket &&socket);
-    void close(Session *session);
+  Session *create_session(io::Socket &&socket);
+  void close(Session *session);
 
-    States states;
-    Dbms dbms;
+  States states;
+  Dbms dbms;
 };
 }

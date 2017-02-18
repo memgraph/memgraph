@@ -1,7 +1,3 @@
 #pragma once
 
-enum class LockStatus
-{
-    Acquired,
-    AlreadyHeld
-};
+enum class LockStatus { Acquired, AlreadyHeld };

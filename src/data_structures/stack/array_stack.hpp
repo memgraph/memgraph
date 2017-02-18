@@ -1,8 +1,6 @@
 #pragma once
 
 template <class T>
-class ArrayStack
-{
-
-private:
+class ArrayStack {
+ private:
 };

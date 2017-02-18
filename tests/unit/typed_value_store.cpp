@@ -11,7 +11,6 @@
 using std::string;
 
 TEST(TypedValueStore, At) {
-
   std::string some_string = "something";
 
   TypedValueStore<> props;
@@ -63,7 +62,6 @@ TEST(TypedValueStore, Replace) {
 }
 
 TEST(TypedValueStore, Size) {
-
   TypedValueStore<> props;
   EXPECT_EQ(props.size(), 0);
 
@@ -74,8 +72,7 @@ TEST(TypedValueStore, Size) {
   props.set(1, true);
   EXPECT_EQ(props.size(), 2);
 
-  for (int i = 0; i < 100; ++i)
-    props.set(i + 20, true);
+  for (int i = 0; i < 100; ++i) props.set(i + 20, true);
   EXPECT_EQ(props.size(), 102);
 
   props.erase(0);
@@ -87,16 +84,13 @@ TEST(TypedValueStore, Size) {
 }
 
 TEST(TypedValueStore, Accept) {
-
   int count_props = 0;
   int count_finish = 0;
 
   auto handler = [&](const uint32_t key, const TypedValue& prop) {
     count_props += 1;
   };
-  auto finish = [&]() {
-    count_finish += 1;
-  };
+  auto finish = [&]() { count_finish += 1; };
 
   TypedValueStore<uint32_t> props;
   props.Accept(handler, finish);

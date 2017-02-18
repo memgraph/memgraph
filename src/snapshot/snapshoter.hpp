@@ -10,26 +10,24 @@ class SnapshotEncoder;
 class SnapshotDecoder;
 
 // Captures snapshots.
-class Snapshoter
-{
+class Snapshoter {
+ public:
+  // How much sec is between snapshots
+  // snapshot_folder is path to common folder for all snapshots.
+  Snapshoter(ConcurrentMap<std::string, Db> &dbs, size_t snapshot_cycle);
 
-public:
-    // How much sec is between snapshots
-    // snapshot_folder is path to common folder for all snapshots.
-    Snapshoter(ConcurrentMap<std::string, Db> &dbs, size_t snapshot_cycle);
+  ~Snapshoter();
 
-    ~Snapshoter();
+ private:
+  void run();
 
-private:
-    void run();
+  // Makes snapshot of given type
+  void make_snapshots();
 
-    // Makes snapshot of given type
-    void make_snapshots();
+  Logger logger;
 
-    Logger logger;
-
-    const size_t snapshot_cycle;
-    std::unique_ptr<Thread> thread = {nullptr};
-    ConcurrentMap<std::string, Db> &dbms;
-    std::atomic<bool> snapshoting = {true};
+  const size_t snapshot_cycle;
+  std::unique_ptr<Thread> thread = {nullptr};
+  ConcurrentMap<std::string, Db> &dbms;
+  std::atomic<bool> snapshoting = {true};
 };

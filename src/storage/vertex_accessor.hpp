@@ -1,11 +1,11 @@
 #pragma once
 
-#include <vector>
 #include <set>
+#include <vector>
 
+#include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
-#include "database/graph_db.hpp"
 
 // forward declaring the EdgeAccessor because it's returned
 // by some functions
@@ -19,7 +19,7 @@ class EdgeAccessor;
  * takes care of MVCC versioning.
  */
 class VertexAccessor : public RecordAccessor<Vertex> {
-public:
+ public:
   using RecordAccessor::RecordAccessor;
 
   /**

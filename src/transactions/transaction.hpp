@@ -11,29 +11,26 @@
 #include "transactions/snapshot.hpp"
 #include "transactions/transaction_read.hpp"
 
-namespace tx
-{
+namespace tx {
 
-class Transaction : public TransactionRead
-{
+class Transaction : public TransactionRead {
+ public:
+  Transaction(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
+  Transaction(const Transaction &) = delete;
+  Transaction(Transaction &&) = default;
 
-public:
-    Transaction(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
-    Transaction(const Transaction &) = delete;
-    Transaction(Transaction &&) = default;
+  // Returns copy of transaction_read
+  TransactionRead transaction_read();
 
-    // Returns copy of transaction_read
-    TransactionRead transaction_read();
+  // Blocks until all transactions from snapshot finish. After this method,
+  // snapshot will be empty.
+  void wait_for_active();
 
-    // Blocks until all transactions from snapshot finish. After this method,
-    // snapshot will be empty.
-    void wait_for_active();
+  void take_lock(RecordLock &lock);
+  void commit();
+  void abort();
 
-    void take_lock(RecordLock &lock);
-    void commit();
-    void abort();
-
-private:
-    LockStore<RecordLock> locks;
+ private:
+  LockStore<RecordLock> locks;
 };
 }

@@ -17,11 +17,9 @@
  */
 template <class ForwardIt, class UnaryPredicate, class Action>
 ForwardIt action_remove_if(ForwardIt first, ForwardIt last, UnaryPredicate p,
-                        Action a)
-{
-    auto it = std::remove_if(first, last, p);
-    if (it == last)
-        return it;
-    std::for_each(it, last, a);
-    return it;
+                           Action a) {
+  auto it = std::remove_if(first, last, p);
+  if (it == last) return it;
+  std::for_each(it, last, a);
+  return it;
 }

@@ -2,8 +2,7 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 
-class QueryEngineException : public BasicException
-{
-public:
-    using BasicException::BasicException;
+class QueryEngineException : public BasicException {
+ public:
+  using BasicException::BasicException;
 };

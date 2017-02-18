@@ -2,8 +2,7 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 
-class DecoderException : public BasicException
-{
-public:
-    using BasicException::BasicException;
+class DecoderException : public BasicException {
+ public:
+  using BasicException::BasicException;
 };

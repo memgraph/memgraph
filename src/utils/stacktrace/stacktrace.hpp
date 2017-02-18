@@ -7,97 +7,87 @@
 
 #include "utils/auto_scope.hpp"
 
-class Stacktrace
-{
-public:
-    class Line
-    {
-    public:
-        Line(const std::string &original) : original(original) {}
+class Stacktrace {
+ public:
+  class Line {
+   public:
+    Line(const std::string &original) : original(original) {}
 
-        Line(const std::string &original, const std::string &function,
-             const std::string &location)
-            : original(original), function(function), location(location)
-        {
-        }
+    Line(const std::string &original, const std::string &function,
+         const std::string &location)
+        : original(original), function(function), location(location) {}
 
-        std::string original, function, location;
-    };
+    std::string original, function, location;
+  };
 
-    static constexpr size_t stacktrace_depth = 128;
+  static constexpr size_t stacktrace_depth = 128;
 
-    Stacktrace()
-    {
-        void *addresses[stacktrace_depth];
-        auto depth = backtrace(addresses, stacktrace_depth);
+  Stacktrace() {
+    void *addresses[stacktrace_depth];
+    auto depth = backtrace(addresses, stacktrace_depth);
 
-        // will this leak if backtrace_symbols throws?
-        char **symbols = nullptr;
-        Auto(free(symbols));
+    // will this leak if backtrace_symbols throws?
+    char **symbols = nullptr;
+    Auto(free(symbols));
 
-        symbols = backtrace_symbols(addresses, depth);
+    symbols = backtrace_symbols(addresses, depth);
 
-        // skip the first one since it will be Stacktrace::Stacktrace()
-        for (int i = 1; i < depth; ++i)
-            lines.emplace_back(format(symbols[i]));
+    // skip the first one since it will be Stacktrace::Stacktrace()
+    for (int i = 1; i < depth; ++i) lines.emplace_back(format(symbols[i]));
+  }
+
+  auto begin() { return lines.begin(); }
+  auto begin() const { return lines.begin(); }
+  auto cbegin() const { return lines.cbegin(); }
+
+  auto end() { return lines.end(); }
+  auto end() const { return lines.end(); }
+  auto cend() const { return lines.cend(); }
+
+  const Line &operator[](size_t idx) const { return lines[idx]; }
+
+  size_t size() const { return lines.size(); }
+
+  template <class Stream>
+  void dump(Stream &stream) {
+    stream << dump();
+  }
+
+  std::string dump() {
+    std::string message;
+    for (size_t i = 0; i < size(); i++) {
+      message.append(
+          fmt::format("at {} ({}) \n", lines[i].function, lines[i].location));
     }
+    return message;
+  }
 
-    auto begin() { return lines.begin(); }
-    auto begin() const { return lines.begin(); }
-    auto cbegin() const { return lines.cbegin(); }
+ private:
+  std::vector<Line> lines;
 
-    auto end() { return lines.end(); }
-    auto end() const { return lines.end(); }
-    auto cend() const { return lines.cend(); }
+  Line format(const std::string &original) {
+    using namespace abi;
+    auto line = original;
 
-    const Line &operator[](size_t idx) const { return lines[idx]; }
+    auto begin = line.find('(');
+    auto end = line.find('+');
 
-    size_t size() const { return lines.size(); }
+    if (begin == std::string::npos || end == std::string::npos)
+      return {original};
 
-    template <class Stream>
-    void dump(Stream &stream)
-    {
-        stream << dump();
-    }
+    line[end] = '\0';
 
-    std::string dump()
-    {
-        std::string message;
-        for (size_t i = 0; i < size(); i++)
-        {
-            message.append(fmt::format("at {} ({}) \n", lines[i].function,
-                                       lines[i].location));
-        }
-        return message;
-    }
+    int s;
+    auto demangled =
+        __cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
 
-private:
-    std::vector<Line> lines;
+    auto location = line.substr(0, begin);
 
-    Line format(const std::string &original)
-    {
-        using namespace abi;
-        auto line = original;
+    auto function =
+        demangled
+            ? std::string(demangled)
+            : fmt::format("{}()", original.substr(begin + 1, end - begin - 1));
 
-        auto begin = line.find('(');
-        auto end   = line.find('+');
-
-        if (begin == std::string::npos || end == std::string::npos)
-            return {original};
-
-        line[end] = '\0';
-
-        int s;
-        auto demangled =
-            __cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
-
-        auto location = line.substr(0, begin);
-
-        auto function =
-            demangled ? std::string(demangled)
-                      : fmt::format("{}()", original.substr(begin + 1,
-                                                            end - begin - 1));
-
-        return {original, function, location};
-    }
+    return {original, function, location};
+  }
 };

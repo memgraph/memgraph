@@ -2,13 +2,10 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
-class StreamError : BasicException
-{
-public:
-    using BasicException::BasicException;
+class StreamError : BasicException {
+ public:
+  using BasicException::BasicException;
 };
-
 }

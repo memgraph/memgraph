@@ -9,26 +9,21 @@
 // Parses boolean.
 // TG - Type group
 template <class TG>
-class BoolFiller : public Filler
-{
+class BoolFiller : public Filler {
+ public:
+  BoolFiller(typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key)
+      : key(key) {}
 
-public:
-    BoolFiller(typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key)
-        : key(key)
-    {
+  // Fills skeleton with data from str. Returns error description if
+  // error occurs.
+  Option<std::string> fill(ElementSkeleton &data, char *str) final {
+    if (str[0] != '\0') {
+      data.add_property(StoredProperty<TG>(Bool(to_bool(str)), key));
     }
 
-    // Fills skeleton with data from str. Returns error description if
-    // error occurs.
-    Option<std::string> fill(ElementSkeleton &data, char *str) final
-    {
-        if (str[0] != '\0') {
-            data.add_property(StoredProperty<TG>(Bool(to_bool(str)), key));
-        }
+    return make_option<std::string>();
+  }
 
-        return make_option<std::string>();
-    }
-
-private:
-    typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
+ private:
+  typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey key;
 };

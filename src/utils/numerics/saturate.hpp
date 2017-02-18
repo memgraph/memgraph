@@ -2,8 +2,7 @@
 
 #include <type_traits>
 
-namespace num
-{
+namespace num {
 
 constexpr std::size_t size_t_HIGHEST_BIT_SETED =
     ((std::size_t)1) << ((sizeof(std::size_t) * 8) - 1);

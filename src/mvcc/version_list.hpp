@@ -9,197 +9,197 @@
 
 namespace mvcc {
 
-  template<class T>
-  class VersionList {
-    // TODO what is this Accessor? Dead code?
-    friend class Accessor;
+template <class T>
+class VersionList {
+  // TODO what is this Accessor? Dead code?
+  friend class Accessor;
 
-  public:
-    using uptr = std::unique_ptr<VersionList<T>>;
-    using item_t = T;
+ public:
+  using uptr = std::unique_ptr<VersionList<T>>;
+  using item_t = T;
 
-    VersionList() = default;
+  VersionList() = default;
 
-    VersionList(const VersionList &) = delete;
+  VersionList(const VersionList &) = delete;
 
-    /* @brief Move constructs the version list
-     * Note: use only at the beginning of the "other's" lifecycle since this
-     * constructor doesn't move the RecordLock, but only the head pointer
-     */
-    VersionList(VersionList &&other) {
-      this->head = other.head.load();
-      other.head = nullptr;
+  /* @brief Move constructs the version list
+   * Note: use only at the beginning of the "other's" lifecycle since this
+   * constructor doesn't move the RecordLock, but only the head pointer
+   */
+  VersionList(VersionList &&other) {
+    this->head = other.head.load();
+    other.head = nullptr;
+  }
+
+  ~VersionList() { delete head.load(); }
+
+  friend std::ostream &operator<<(std::ostream &stream,
+                                  const VersionList<T> &vlist) {
+    stream << "VersionList" << std::endl;
+
+    auto record = vlist.head.load();
+
+    while (record != nullptr) {
+      stream << "-- " << *record << std::endl;
+      record = record->next();
     }
 
-    ~VersionList() { delete head.load(); }
+    return stream;
+  }
 
-    friend std::ostream &operator<<(std::ostream &stream,
-                                    const VersionList<T> &vlist) {
-      stream << "VersionList" << std::endl;
+  auto gc_lock_acquire() { return std::unique_lock<RecordLock>(lock); }
 
-      auto record = vlist.head.load();
+  // Frees all records which are deleted by transaction older than given id.
+  // EXPECTS THAT THERE IS NO ACTIVE TRANSACTION WITH ID LESS THAN GIVEN ID.
+  // EXPECTS THAT THERE WON'T BE SIMULATAIUS CALLS FROM DIFFERENT THREADS OF
+  // THIS METHOD.
+  // True if this whole version list isn't needed any more. There is still
+  // possibilty that someone is reading it at this moment but he cant change
+  // it or get anything from it.
+  // TODO: Validate this method
+  bool gc_deleted(const Id &id) {
+    auto r = head.load(std::memory_order_seq_cst);
+    T *bef = nullptr;
 
-      while (record != nullptr) {
-        stream << "-- " << *record << std::endl;
-        record = record->next();
+    //    nullptr
+    //       |
+    //     [v1]      ...
+    //       |
+    //     [v2] <------+
+    //       |         |
+    //     [v3] <------+
+    //       |         |  Jump backwards until you find a first old deleted
+    //   [VerList] ----+  version, or you reach the end of the list
+    //
+    while (r != nullptr && !r->is_deleted_before(id)) {
+      bef = r;
+      r = r->next(std::memory_order_seq_cst);
+    }
+
+    if (bef == nullptr) {
+      // if r==nullptr he is needed and it is expecting insert.
+      // if r!=nullptr vertex has been explicitly deleted. It can't be
+      // updated because for update, visible record is needed and at this
+      // point whe know that there is no visible record for any
+      // transaction. Also it cant be inserted because head isn't nullptr.
+      // Remove also requires visible record. Find wont return any record
+      // because none is visible.
+      return r != nullptr;
+    } else {
+      if (r != nullptr) {
+        // Bef is possible visible to some transaction but r is not and
+        // the implementation of this version list guarantees that
+        // record r and older records aren't accessed.
+        bef->next(nullptr, std::memory_order_seq_cst);
+        delete r;  // THIS IS ISSUE IF MULTIPLE THREADS TRY TO DO THIS
       }
 
-      return stream;
+      return false;
     }
+  }
 
-    auto gc_lock_acquire() { return std::unique_lock<RecordLock>(lock); }
+  void vacuum() {}
 
-    // Frees all records which are deleted by transaction older than given id.
-    // EXPECTS THAT THERE IS NO ACTIVE TRANSACTION WITH ID LESS THAN GIVEN ID.
-    // EXPECTS THAT THERE WON'T BE SIMULATAIUS CALLS FROM DIFFERENT THREADS OF
-    // THIS METHOD.
-    // True if this whole version list isn't needed any more. There is still
-    // possibilty that someone is reading it at this moment but he cant change
-    // it or get anything from it.
-    // TODO: Validate this method
-    bool gc_deleted(const Id &id) {
-      auto r = head.load(std::memory_order_seq_cst);
-      T *bef = nullptr;
+  T *find(const tx::TransactionRead &t) const {
+    auto r = head.load(std::memory_order_seq_cst);
 
-      //    nullptr
-      //       |
-      //     [v1]      ...
-      //       |
-      //     [v2] <------+
-      //       |         |
-      //     [v3] <------+
-      //       |         |  Jump backwards until you find a first old deleted
-      //   [VerList] ----+  version, or you reach the end of the list
-      //
-      while (r != nullptr && !r->is_deleted_before(id)) {
-        bef = r;
-        r = r->next(std::memory_order_seq_cst);
-      }
+    //    nullptr
+    //       |
+    //     [v1]      ...
+    //       |
+    //     [v2] <------+
+    //       |         |
+    //     [v3] <------+
+    //       |         |  Jump backwards until you find a first visible
+    //   [VerList] ----+  version, or you reach the end of the list
+    //
+    while (r != nullptr && !r->visible(t))
+      r = r->next(std::memory_order_seq_cst);
 
-      if (bef == nullptr) {
-        // if r==nullptr he is needed and it is expecting insert.
-        // if r!=nullptr vertex has been explicitly deleted. It can't be
-        // updated because for update, visible record is needed and at this
-        // point whe know that there is no visible record for any
-        // transaction. Also it cant be inserted because head isn't nullptr.
-        // Remove also requires visible record. Find wont return any record
-        // because none is visible.
-        return r != nullptr;
-      } else {
-        if (r != nullptr) {
-          // Bef is possible visible to some transaction but r is not and
-          // the implementation of this version list guarantees that
-          // record r and older records aren't accessed.
-          bef->next(nullptr, std::memory_order_seq_cst);
-          delete r; // THIS IS ISSUE IF MULTIPLE THREADS TRY TO DO THIS
-        }
+    return r;
+  }
 
-        return false;
-      }
-    }
+  /**
+   * @Args forwarded to the constructor of T
+   */
+  template <typename... Args>
+  T *insert(tx::Transaction &t, Args &&... args) {
+    assert(head == nullptr);
 
-    void vacuum() {}
+    // create a first version of the record
+    // TODO replace 'new' with something better
+    auto v1 = new T(std::forward<Args>(args)...);
 
-    T *find(const tx::TransactionRead &t) const {
-      auto r = head.load(std::memory_order_seq_cst);
+    // mark the record as created by the transaction t
+    v1->mark_created(t);
 
-      //    nullptr
-      //       |
-      //     [v1]      ...
-      //       |
-      //     [v2] <------+
-      //       |         |
-      //     [v3] <------+
-      //       |         |  Jump backwards until you find a first visible
-      //   [VerList] ----+  version, or you reach the end of the list
-      //
-      while (r != nullptr && !r->visible(t))
-        r = r->next(std::memory_order_seq_cst);
+    head.store(v1, std::memory_order_seq_cst);
 
-      return r;
-    }
+    return v1;
+  }
 
-    /**
-     * @Args forwarded to the constructor of T
-     */
-    template <typename... Args>
-    T *insert(tx::Transaction &t, Args&&... args) {
-      assert(head == nullptr);
+  T *update(tx::Transaction &t) {
+    assert(head != nullptr);
+    auto record = find(t);
 
-      // create a first version of the record
-      // TODO replace 'new' with something better
-      auto v1 = new T(std::forward<Args>(args)...);
+    // check if we found any visible records
+    if (!record) return nullptr;
 
-      // mark the record as created by the transaction t
-      v1->mark_created(t);
+    return update(record, t);
+  }
 
-      head.store(v1, std::memory_order_seq_cst);
+  T *update(T *record, tx::Transaction &t) {
+    assert(record != nullptr);
+    lock_and_validate(record, t);
 
-      return v1;
-    }
+    // It could be done with unique_ptr but while this could mean memory
+    // leak on exception, unique_ptr could mean use after free. Memory
+    // leak is less dangerous.
+    auto updated = new T(*record);
 
-    T *update(tx::Transaction &t) {
-      assert(head != nullptr);
-      auto record = find(t);
+    updated->mark_created(t);
+    record->mark_deleted(t);
 
-      // check if we found any visible records
-      if (!record) return nullptr;
+    updated->next(record, std::memory_order_seq_cst);
+    head.store(updated, std::memory_order_seq_cst);
 
-      return update(record, t);
-    }
+    return updated;
+  }
 
-    T *update(T *record, tx::Transaction &t) {
-      assert(record != nullptr);
-      lock_and_validate(record, t);
+  bool remove(tx::Transaction &t) {
+    assert(head != nullptr);
+    auto record = find(t);
 
-      // It could be done with unique_ptr but while this could mean memory
-      // leak on exception, unique_ptr could mean use after free. Memory
-      // leak is less dangerous.
-      auto updated = new T(*record);
+    if (!record) return false;
 
-      updated->mark_created(t);
-      record->mark_deleted(t);
+    // TODO: Is this lock and validate necessary
+    lock_and_validate(record, t);
+    return remove(record, t), true;
+  }
 
-      updated->next(record, std::memory_order_seq_cst);
-      head.store(updated, std::memory_order_seq_cst);
+  void remove(T *record, tx::Transaction &t) {
+    assert(record != nullptr);
+    lock_and_validate(record, t);
+    record->mark_deleted(t);
+  }
 
-      return updated;
-    }
+ private:
+  void lock_and_validate(T *record, tx::Transaction &t) {
+    assert(record != nullptr);
 
-    bool remove(tx::Transaction &t) {
-      assert(head != nullptr);
-      auto record = find(t);
+    // take a lock on this node
+    t.take_lock(lock);
 
-      if (!record) return false;
+    // if the record hasn't been deleted yet or the deleting transaction
+    // has aborted, it's ok to modify it
+    if (!record->tx.exp() || !record->exp_committed(t)) return;
 
-      // TODO: Is this lock and validate necessary
-      lock_and_validate(record, t);
-      return remove(record, t), true;
-    }
+    // if it committed, then we have a serialization conflict
+    assert(record->hints.load().exp.is_committed());
+    throw SerializationError();
+  }
 
-    void remove(T *record, tx::Transaction &t) {
-      assert(record != nullptr);
-      lock_and_validate(record, t);
-      record->mark_deleted(t);
-    }
-
-  private:
-    void lock_and_validate(T *record, tx::Transaction &t) {
-      assert(record != nullptr);
-
-      // take a lock on this node
-      t.take_lock(lock);
-
-      // if the record hasn't been deleted yet or the deleting transaction
-      // has aborted, it's ok to modify it
-      if (!record->tx.exp() || !record->exp_committed(t)) return;
-
-      // if it committed, then we have a serialization conflict
-      assert(record->hints.load().exp.is_committed());
-      throw SerializationError();
-    }
-
-    std::atomic<T *> head{nullptr};
-    RecordLock lock;
-  };
+  std::atomic<T *> head{nullptr};
+  RecordLock lock;
+};
 }

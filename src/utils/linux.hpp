@@ -12,43 +12,37 @@
 // http://stackoverflow.com/questions/5616092/non-blocking-call-for-reading-descriptor
 // http://stackoverflow.com/questions/2917881/how-to-implement-a-timeout-in-read-function-call
 
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include "utils/exceptions/basic_exception.hpp"
 #include "utils/exceptions/not_yet_implemented.hpp"
 #include "utils/likely.hpp"
 
-namespace linux_os
-{
-    class LinuxException : public BasicException
-    {
-        using BasicException::BasicException;
-    };
+namespace linux_os {
+class LinuxException : public BasicException {
+  using BasicException::BasicException;
+};
 
-    /**
-     * Sets non blocking flag to a file descriptor.
-     */
-    void set_non_blocking(int fd)
-    {
-        auto flags = fcntl(fd, F_GETFL, 0);
+/**
+ * Sets non blocking flag to a file descriptor.
+ */
+void set_non_blocking(int fd) {
+  auto flags = fcntl(fd, F_GETFL, 0);
 
-        if(UNLIKELY(flags == -1))
-            throw LinuxException("Cannot read flags from file descriptor.");
+  if (UNLIKELY(flags == -1))
+    throw LinuxException("Cannot read flags from file descriptor.");
 
-        flags |= O_NONBLOCK;
+  flags |= O_NONBLOCK;
 
-        auto status = fcntl(fd, F_SETFL, flags);
+  auto status = fcntl(fd, F_SETFL, flags);
 
-        if(UNLIKELY(status == -1))
-            throw LinuxException("Can't set NON_BLOCK flag to file descriptor");
-    }
+  if (UNLIKELY(status == -1))
+    throw LinuxException("Can't set NON_BLOCK flag to file descriptor");
+}
 
-    /**
-     * Reads a file descriptor with timeout.
-     */
-    void tread()
-    {
-        throw NotYetImplemented();
-    }
+/**
+ * Reads a file descriptor with timeout.
+ */
+void tread() { throw NotYetImplemented(); }
 }

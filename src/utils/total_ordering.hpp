@@ -9,7 +9,7 @@
  * as first operand.
  * @tparam TReturn Return type, defaults to bool.
  */
-template<typename TLhs, typename TRhs=TLhs, typename TReturn=bool>
+template <typename TLhs, typename TRhs = TLhs, typename TReturn = bool>
 struct TotalOrdering {
   friend constexpr TReturn operator!=(const TLhs &a, const TRhs &b) {
     return !(a == b);

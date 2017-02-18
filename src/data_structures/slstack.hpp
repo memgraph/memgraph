@@ -2,31 +2,27 @@
 
 #include <stack>
 
-#include "threading/sync/spinlock.hpp"
 #include "threading/sync/lockable.hpp"
+#include "threading/sync/spinlock.hpp"
 
 template <class T>
-class SpinLockStack : Lockable<SpinLock>
-{
-public:
+class SpinLockStack : Lockable<SpinLock> {
+ public:
+  T pop() {
+    auto guard = acquire();
 
-    T pop()
-    {
-        auto guard = acquire();
+    T elem = stack.top();
+    stack.pop();
 
-        T elem = stack.top();
-        stack.pop();
+    return elem;
+  }
 
-        return elem;
-    }
+  void push(const T& elem) {
+    auto guard = acquire();
 
-    void push(const T& elem)
-    {
-        auto guard = acquire();
+    stack.push(elem);
+  }
 
-        stack.push(elem);
-    }
-
-private:
-    std::stack<T> stack;
+ private:
+  std::stack<T> stack;
 };

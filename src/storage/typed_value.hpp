@@ -1,14 +1,14 @@
 #pragma once
 
-#include <memory>
-#include <string>
 #include <cassert>
 #include <iostream>
+#include <memory>
+#include <string>
 #include <vector>
 
-#include "utils/underlying_cast.hpp"
-#include "utils/total_ordering.hpp"
 #include "utils/exceptions/basic_exception.hpp"
+#include "utils/total_ordering.hpp"
+#include "utils/underlying_cast.hpp"
 
 /**
  * Encapsulation of a value and it's type encapsulated in a class that has no
@@ -18,21 +18,13 @@
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
 class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
-
-private:
+ private:
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
 
-public:
-
+ public:
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned {
-    Null,
-    String,
-    Bool,
-    Int,
-    Float
-  };
+  enum class Type : unsigned { Null, String, Bool, Int, Float };
 
   // single static reference to Null, used whenever Null should be returned
   static const TypedValue Null;
@@ -43,7 +35,7 @@ public:
   TypedValue(float value) : type_(Type::Float) { float_v = value; }
 
   /// constructors for non-primitive types (shared pointers)
-  TypedValue(const std::string &value) : type_(Type::String) {
+  TypedValue(const std::string& value) : type_(Type::String) {
     new (&string_v) std::shared_ptr<std::string>(new std::string(value));
   }
   TypedValue(const char* value) : type_(Type::String) {
@@ -54,7 +46,7 @@ public:
   TypedValue& operator=(TypedValue& other);
   TypedValue& operator=(TypedValue&& other);
 
-   TypedValue(const TypedValue& other);
+  TypedValue(const TypedValue& other);
   ~TypedValue();
 
   /**
@@ -65,7 +57,8 @@ public:
    * @tparam T Type to interpret the value as.
    * @return The value as type T.
    */
-  template <typename T> T Value() const;
+  template <typename T>
+  T Value() const;
 
   friend std::ostream& operator<<(std::ostream& stream, const TypedValue& prop);
 
@@ -74,7 +67,7 @@ public:
    */
   const Type type_;
 
-private:
+ private:
   // storage for the value of the property
   union {
     bool bool_v;
@@ -90,8 +83,7 @@ private:
  * of incompatible Types.
  */
 class TypedValueException : public BasicException {
-
-public:
+ public:
   using ::BasicException::BasicException;
 };
 
@@ -114,4 +106,4 @@ TypedValue operator&&(const TypedValue& a, const TypedValue& b);
 TypedValue operator||(const TypedValue& a, const TypedValue& b);
 
 // stream output
-std::ostream &operator<<(std::ostream &os, const TypedValue::Type type);
+std::ostream& operator<<(std::ostream& os, const TypedValue::Type type);

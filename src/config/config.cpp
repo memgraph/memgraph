@@ -1,7 +1,6 @@
 #include "config/config.hpp"
 
-namespace config
-{
+namespace config {
 
 const char *MemgraphConfig::env_config_key = "MEMGRAPH_CONFIG";
 const char *MemgraphConfig::default_file_path = "/etc/memgraph/config.yaml";
@@ -11,8 +10,6 @@ const char *MemgraphConfig::default_file_path = "/etc/memgraph/config.yaml";
 // Example:
 // --cleaning_cycle_sec or -ccs, etc.
 std::set<std::string> MemgraphConfig::arguments = {
-  "cleaning_cycle_sec",
-  "snapshot_cycle_sec",
+    "cleaning_cycle_sec", "snapshot_cycle_sec",
 };
-
 }

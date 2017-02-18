@@ -16,7 +16,7 @@
 #include "yaml-cpp/yaml.h"
 
 namespace config {
-  
+
 template <class Definition>
 class Config {
  private:
@@ -27,7 +27,7 @@ class Config {
   void load_configuration(std::string path) {
     try {
       YAML::Node node = YAML::LoadFile(path);
-    
+
       for (YAML::const_iterator it = node.begin(); it != node.end(); ++it) {
         dict[it->first.as<std::string>()] = it->second.as<std::string>();
       }
@@ -48,7 +48,7 @@ class Config {
 
     // default user configuration
     // fetches user configuration folder
-    std::string homedir = std::getenv("HOME"); 
+    std::string homedir = std::getenv("HOME");
     if ((homedir == "")) {
       homedir = getpwuid(getuid())->pw_dir;
     }
@@ -72,11 +72,8 @@ class Config {
     for (const auto& argument : Definition::arguments) {
       dict[argument] = GET_ARG("--" + argument, dict[argument]).get_string();
     }
-
   }
 
-  std::string operator[](const char* key) {
-    return dict[key];
-  }
+  std::string operator[](const char* key) { return dict[key]; }
 };
 }

@@ -1,25 +1,22 @@
 #include "gtest/gtest.h"
 
-#include "dbms/dbms.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "dbms/dbms.hpp"
 
-#include "storage/vertex_accessor.hpp"
 #include "storage/edge_accessor.hpp"
-
+#include "storage/vertex_accessor.hpp"
 
 size_t CountVertices(GraphDbAccessor &db_accessor) {
   size_t r_val = 0;
-  for (auto va : db_accessor.vertices())
-    r_val++;
+  for (auto va : db_accessor.vertices()) r_val++;
 
   return r_val;
 }
 
 size_t CountEdges(GraphDbAccessor &db_accessor) {
   size_t r_val = 0;
-  for (auto va : db_accessor.edges())
-    r_val++;
+  for (auto va : db_accessor.edges()) r_val++;
 
   return r_val;
 }
@@ -127,8 +124,7 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
   GraphDbAccessor dba2 = dbms.active();
   EXPECT_EQ(CountEdges(dba2), 2);
   for (auto edge : dba2.edges())
-    if (edge.edge_type() == dba2.edge_type("hates"))
-      dba2.remove_edge(edge);
+    if (edge.edge_type() == dba2.edge_type("hates")) dba2.remove_edge(edge);
 
   // current state: (v1) - [:likes] -> (v2), (v3)
   dba2.transaction_.commit();
@@ -157,7 +153,6 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
 }
 
 TEST(GraphDbAccessorTest, DetachRemoveVertex) {
-
   Dbms dbms;
   GraphDbAccessor dba1 = dbms.active();
 
@@ -187,8 +182,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
 
   EXPECT_EQ(CountVertices(dba2), 2);
   EXPECT_EQ(CountEdges(dba2), 1);
-  for (auto va : dba2.vertices())
-    EXPECT_FALSE(dba2.remove_vertex(va));
+  for (auto va : dba2.vertices()) EXPECT_FALSE(dba2.remove_vertex(va));
 
   dba2.transaction_.commit();
   GraphDbAccessor dba3 = dbms.active();
@@ -208,8 +202,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
 
   // remove the last vertex, it has no connections
   // so that should work
-  for (auto va : dba4.vertices())
-    EXPECT_TRUE(dba4.remove_vertex(va));
+  for (auto va : dba4.vertices()) EXPECT_TRUE(dba4.remove_vertex(va));
 
   dba4.transaction_.commit();
   GraphDbAccessor dba5 = dbms.active();
@@ -259,8 +252,7 @@ TEST(GraphDbAccessorTest, Properties) {
   EXPECT_NE(prop, dbms.active().property("surname"));
 }
 
-int main(int argc, char **argv)
-{
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

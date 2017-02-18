@@ -40,9 +40,10 @@ class QueryStripper : public Loggable {
    * Strips the input query (openCypher query).
    *
    * @param query input query
-   * @param separator char that is added between all literals in the stripped query
-   *        because after stripping compiler frontend will use the stripped query to
-   *        AST and literals have to be separated
+   * @param separator char that is added between all literals in the stripped
+   *    query because after stripping compiler frontend will use the stripped
+   *    query to AST and literals have to be separated
+   *
    * @return stripped query, stripped arguments and stripped query hash as a
    *        single object of class StrippedQuery
    */

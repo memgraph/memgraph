@@ -8,7 +8,6 @@
 #include <ostream>
 #include "storage/typed_value_store.hpp"
 
-
 /**
  * Writes all of the values from the given store in JSON format
  * to the given output stream.
@@ -17,11 +16,11 @@
  * @param ostream The stream to write to.
  */
 void TypedValuesToJson(const TypedValueStore& store,
-                       std::ostream& ostream=std::cout) {
-
+                       std::ostream& ostream = std::cout) {
   bool first = true;
 
-  auto write_key = [&ostream, &first](const TypedValueStore::TKey &key) -> std::ostream& {
+  auto write_key = [&ostream,
+                    &first](const TypedValueStore::TKey& key) -> std::ostream& {
     if (first) {
       ostream << '{';
       first = false;

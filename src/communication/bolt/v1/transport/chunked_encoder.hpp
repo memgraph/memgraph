@@ -8,85 +8,76 @@
 #include "logging/default.hpp"
 #include "utils/likely.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
 template <class Stream>
-class ChunkedEncoder
-{
-    static constexpr size_t N = bolt::config::N;
-    static constexpr size_t C = bolt::config::C;
+class ChunkedEncoder {
+  static constexpr size_t N = bolt::config::N;
+  static constexpr size_t C = bolt::config::C;
 
-public:
-    using byte = unsigned char;
+ public:
+  using byte = unsigned char;
 
-    ChunkedEncoder(Stream &stream)
-        : logger(logging::log->logger("Chunked Encoder")), stream(stream)
-    {
+  ChunkedEncoder(Stream &stream)
+      : logger(logging::log->logger("Chunked Encoder")), stream(stream) {}
+
+  static constexpr size_t chunk_size = N - 2;
+
+  void write(byte value) {
+    if (UNLIKELY(pos == N)) write_chunk();
+
+    chunk[pos++] = value;
+  }
+
+  void write(const byte *values, size_t n) {
+    logger.trace("write {} bytes", n);
+
+    while (n > 0) {
+      auto size = n < N - pos ? n : N - pos;
+
+      std::memcpy(chunk.data() + pos, values, size);
+
+      pos += size;
+      n -= size;
+
+      // TODO: see how bolt splits message over more TCP packets,
+      // test for more TCP packets
+      if (pos == N) write_chunk();
     }
+  }
 
-    static constexpr size_t chunk_size = N - 2;
+  void write_chunk() {
+    write_chunk_header();
 
-    void write(byte value)
-    {
-        if (UNLIKELY(pos == N)) write_chunk();
+    // write two zeros to signal message end
+    chunk[pos++] = 0x00;
+    chunk[pos++] = 0x00;
 
-        chunk[pos++] = value;
-    }
+    flush();
+  }
 
-    void write(const byte *values, size_t n)
-    {
-        logger.trace("write {} bytes", n);
+ private:
+  Logger logger;
+  std::reference_wrapper<Stream> stream;
 
-        while (n > 0) {
-            auto size = n < N - pos ? n : N - pos;
+  std::array<byte, C> chunk;
+  size_t pos{2};
 
-            std::memcpy(chunk.data() + pos, values, size);
+  void write_chunk_header() {
+    // write the size of the chunk
+    uint16_t size = pos - 2;
 
-            pos += size;
-            n -= size;
+    // write the higher byte
+    chunk[0] = size >> 8;
 
-            // TODO: see how bolt splits message over more TCP packets,
-            // test for more TCP packets
-            if (pos == N) write_chunk();
-        }
-    }
+    // write the lower byte
+    chunk[1] = size & 0xFF;
+  }
 
-    void write_chunk()
-    {
-        write_chunk_header();
-
-        // write two zeros to signal message end
-        chunk[pos++] = 0x00;
-        chunk[pos++] = 0x00;
-
-        flush();
-    }
-
-private:
-    Logger logger;
-    std::reference_wrapper<Stream> stream;
-
-    std::array<byte, C> chunk;
-    size_t pos{2};
-
-    void write_chunk_header()
-    {
-        // write the size of the chunk
-        uint16_t size = pos - 2;
-
-        // write the higher byte
-        chunk[0] = size >> 8;
-
-        // write the lower byte
-        chunk[1] = size & 0xFF;
-    }
-
-    void flush()
-    {
-        // write chunk to the stream
-        stream.get().write(chunk.data(), pos);
-        pos = 2;
-    }
+  void flush() {
+    // write chunk to the stream
+    stream.get().write(chunk.data(), pos);
+    pos = 2;
+  }
 };
 }

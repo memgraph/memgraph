@@ -7,8 +7,7 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
-namespace utils
-{
+namespace utils {
 
 /**
  * Loads all file paths in the specified directory. Optionally
@@ -23,38 +22,35 @@ namespace utils
  * @return std::vector of paths founded in the directory
  */
 inline auto LoadFilePaths(const fs::path &directory,
-                          const std::string &extension = "")
-{
-    // result container
-    std::vector<fs::path> file_paths;
+                          const std::string &extension = "") {
+  // result container
+  std::vector<fs::path> file_paths;
 
-    for (auto &directory_entry : fs::recursive_directory_iterator(directory))
-    {
+  for (auto &directory_entry : fs::recursive_directory_iterator(directory)) {
+    auto path = directory_entry.path().string();
 
-        auto path = directory_entry.path().string();
+    // skip directories
+    if (!fs::is_regular_file(directory_entry)) continue;
 
-        // skip directories
-        if (!fs::is_regular_file(directory_entry)) continue;
-
-        // if extension isn't defined then put all file paths from the directory
-        // to the result set
-        if (!extension.empty()) {
-            // skip paths that don't have appropriate extension
-             auto file_extension = path.substr(path.find_last_of(".") + 1);
-             if (file_extension != extension) continue;
-        }
-
-        file_paths.emplace_back(path);
-
-        // skip paths that don't have appropriate extension
-        auto file_extension = path.substr(path.find_last_of(".") + 1);
-        if (file_extension != extension) continue;
-
-        // path has the right extension and can be placed in the result
-        // container
-        file_paths.emplace_back(path);
+    // if extension isn't defined then put all file paths from the directory
+    // to the result set
+    if (!extension.empty()) {
+      // skip paths that don't have appropriate extension
+      auto file_extension = path.substr(path.find_last_of(".") + 1);
+      if (file_extension != extension) continue;
     }
 
-    return file_paths;
+    file_paths.emplace_back(path);
+
+    // skip paths that don't have appropriate extension
+    auto file_extension = path.substr(path.find_last_of(".") + 1);
+    if (file_extension != extension) continue;
+
+    // path has the right extension and can be placed in the result
+    // container
+    file_paths.emplace_back(path);
+  }
+
+  return file_paths;
 }
 }

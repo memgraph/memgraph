@@ -3,15 +3,12 @@
 #include "communication/bolt/v1/session.hpp"
 #include "communication/bolt/v1/states/state.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
-class Error : public State
-{
-public:
-    Error();
+class Error : public State {
+ public:
+  Error();
 
-    State *run(Session &session) override;
+  State *run(Session &session) override;
 };
-
 }

@@ -3,27 +3,21 @@
 #include <sstream>
 #include <string>
 
-namespace utils
-{
+namespace utils {
 
 template <typename It>
-std::string intercalate(It first, It last,
-                        const std::string& separator)
-{
-    if(first == last)
-        return "";
+std::string intercalate(It first, It last, const std::string& separator) {
+  if (first == last) return "";
 
-    std::stringstream ss;
-    It second(first);
+  std::stringstream ss;
+  It second(first);
 
-    // append the first N-1 elements with a separator
-    for(second++; second != last; ++first, ++second)
-        ss << *first << separator;
+  // append the first N-1 elements with a separator
+  for (second++; second != last; ++first, ++second) ss << *first << separator;
 
-    // append the last element
-    ss << *first;
+  // append the last element
+  ss << *first;
 
-    return ss.str();
+  return ss.str();
 }
-
 }

@@ -2,8 +2,8 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
-#include <vector>
 #include <functional>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -27,15 +27,15 @@ void EXPECT_PROP_TRUE(const TypedValue& a) {
   EXPECT_TRUE(a.type_ == TypedValue::Type::Bool && a.Value<bool>());
 }
 
-void EXPECT_PROP_EQ(const TypedValue& a, const TypedValue& b)  {
+void EXPECT_PROP_EQ(const TypedValue& a, const TypedValue& b) {
   EXPECT_PROP_TRUE(a == b);
 }
 
-void EXPECT_PROP_ISNULL(const TypedValue& a)  {
+void EXPECT_PROP_ISNULL(const TypedValue& a) {
   EXPECT_TRUE(a.type_ == TypedValue::Type::Null);
 }
 
-void EXPECT_PROP_NE(const TypedValue& a, const TypedValue& b)  {
+void EXPECT_PROP_NE(const TypedValue& a, const TypedValue& b) {
   EXPECT_PROP_TRUE(a != b);
 }
 
@@ -45,7 +45,8 @@ TEST(TypedValue, CreationTypes) {
   EXPECT_TRUE(TypedValue(true).type_ == TypedValue::Type::Bool);
   EXPECT_TRUE(TypedValue(false).type_ == TypedValue::Type::Bool);
 
-  EXPECT_TRUE(TypedValue(std::string("form string class")).type_ == TypedValue::Type::String);
+  EXPECT_TRUE(TypedValue(std::string("form string class")).type_ ==
+              TypedValue::Type::String);
   EXPECT_TRUE(TypedValue("form c-string").type_ == TypedValue::Type::String);
 
   EXPECT_TRUE(TypedValue(0).type_ == TypedValue::Type::Int);
@@ -89,18 +90,17 @@ TEST(TypedValue, Less) {
   // not_bool_type < bool -> exception
   TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
-    if (props.at(i).type_ == TypedValue::Type::Bool)
-      continue;
+    if (props.at(i).type_ == TypedValue::Type::Bool) continue;
     // the comparison should raise an exception
-    // cast to (void) so the compiler does not complain about unused comparison result
+    // cast to (void) so the compiler does not complain about unused comparison
+    // result
     EXPECT_THROW((void)(props.at(i) < TypedValue(true)), TypedValueException);
   }
 
   // not_bool_type < Null = Null
   props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
-    if (props.at(i).type_ == TypedValue::Type::Bool)
-      continue;
+    if (props.at(i).type_ == TypedValue::Type::Bool) continue;
     EXPECT_PROP_ISNULL(props.at(i) < TypedValue::Null);
   }
 
@@ -144,7 +144,6 @@ TEST(TypedValue, UnaryMinus) {
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
 }
 
-
 /**
  * Performs a series of tests on properties of all types. The tests
  * evaluate how arithmetic operators behave w.r.t. exception throwing
@@ -155,7 +154,9 @@ TEST(TypedValue, UnaryMinus) {
  * @param op  The operation lambda. Takes two values and resturns
  *  the results.
  */
-void ExpectArithmeticThrowsAndNull(bool string_ok, std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
+void ExpectArithmeticThrowsAndNull(
+    bool string_ok,
+    std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
   // arithmetic ops that raise
   TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
@@ -170,10 +171,8 @@ void ExpectArithmeticThrowsAndNull(bool string_ok, std::function<TypedValue(cons
   // null resulting ops
   props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
-    if (props.at(i).type_ == TypedValue::Type::Bool)
-      continue;
-    if (!string_ok && props.at(i).type_ == TypedValue::Type::String)
-      continue;
+    if (props.at(i).type_ == TypedValue::Type::Bool) continue;
+    if (!string_ok && props.at(i).type_ == TypedValue::Type::String) continue;
 
     EXPECT_PROP_ISNULL(op(props.at(i), TypedValue::Null));
     EXPECT_PROP_ISNULL(op(TypedValue::Null, props.at(i)));
@@ -181,22 +180,27 @@ void ExpectArithmeticThrowsAndNull(bool string_ok, std::function<TypedValue(cons
 }
 
 TEST(TypedValue, Sum) {
-  ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue& b) { return a + b; });
+  ExpectArithmeticThrowsAndNull(
+      true, [](const TypedValue& a, const TypedValue& b) { return a + b; });
 
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int>(), 5);
   EXPECT_FLOAT_EQ((TypedValue(2.5f) + TypedValue(1.25f)).Value<float>(), 3.75);
-  EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<std::string>(), "onetwo");
+  EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<std::string>(),
+            "onetwo");
 
   // sum of string and numbers
   EXPECT_EQ((TypedValue("one") + TypedValue(1)).Value<std::string>(), "one1");
   EXPECT_EQ((TypedValue(1) + TypedValue("one")).Value<std::string>(), "1one");
-  EXPECT_EQ((TypedValue("one") + TypedValue(3.2f)).Value<std::string>(), "one3.2");
-  EXPECT_EQ((TypedValue(3.2f) + TypedValue("one")).Value<std::string>(), "3.2one");
+  EXPECT_EQ((TypedValue("one") + TypedValue(3.2f)).Value<std::string>(),
+            "one3.2");
+  EXPECT_EQ((TypedValue(3.2f) + TypedValue("one")).Value<std::string>(),
+            "3.2one");
 }
 
 TEST(TypedValue, Difference) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue& b) { return a - b; });
+  ExpectArithmeticThrowsAndNull(
+      false, [](const TypedValue& a, const TypedValue& b) { return a - b; });
 
   // difference of props of the same type
   EXPECT_EQ((TypedValue(2) - TypedValue(3)).Value<int>(), -1);
@@ -208,7 +212,8 @@ TEST(TypedValue, Difference) {
 }
 
 TEST(TypedValue, Divison) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue& b) { return a / b; });
+  ExpectArithmeticThrowsAndNull(
+      false, [](const TypedValue& a, const TypedValue& b) { return a / b; });
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(4), TypedValue(2));
@@ -221,22 +226,28 @@ TEST(TypedValue, Divison) {
 }
 
 TEST(TypedValue, Multiplication) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue& b) { return a * b; });
+  ExpectArithmeticThrowsAndNull(
+      false, [](const TypedValue& a, const TypedValue& b) { return a * b; });
 
   EXPECT_PROP_EQ(TypedValue(10) * TypedValue(2), TypedValue(20));
-  EXPECT_FLOAT_EQ((TypedValue(12.5f) * TypedValue(6.6f)).Value<float>(), 12.5f * 6.6f);
-  EXPECT_FLOAT_EQ((TypedValue(10) * TypedValue(4.5f)).Value<float>(), 10 * 4.5f);
-  EXPECT_FLOAT_EQ((TypedValue(10.2f) * TypedValue(4)).Value<float>(), 10.2f * 4);
+  EXPECT_FLOAT_EQ((TypedValue(12.5f) * TypedValue(6.6f)).Value<float>(),
+                  12.5f * 6.6f);
+  EXPECT_FLOAT_EQ((TypedValue(10) * TypedValue(4.5f)).Value<float>(),
+                  10 * 4.5f);
+  EXPECT_FLOAT_EQ((TypedValue(10.2f) * TypedValue(4)).Value<float>(),
+                  10.2f * 4);
 }
 
 TEST(TypedValue, Modulo) {
-  ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue& b) { return a % b; });
+  ExpectArithmeticThrowsAndNull(
+      false, [](const TypedValue& a, const TypedValue& b) { return a % b; });
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(4), TypedValue(2));
 
   EXPECT_PROP_EQ(TypedValue(10.0f) % TypedValue(2.0f), TypedValue(0.0f));
-  EXPECT_FLOAT_EQ((TypedValue(10.0f) % TypedValue(3.25f)).Value<float>(), 0.25f);
+  EXPECT_FLOAT_EQ((TypedValue(10.0f) % TypedValue(3.25f)).Value<float>(),
+                  0.25f);
 
   EXPECT_FLOAT_EQ((TypedValue(10) % TypedValue(4.0f)).Value<float>(), 2.0f);
   EXPECT_FLOAT_EQ((TypedValue(10.0f) % TypedValue(4)).Value<float>(), 2.0f);
@@ -250,7 +261,7 @@ TEST(TypedValue, TypeIncompatibility) {
   // the others
   for (int i = 0; i < props.size() + 1; ++i)
     for (int j = 0; j < props.size() + 1; ++j)
-      EXPECT_EQ(props.at(i).type_== props.at(j).type_, i == j);
+      EXPECT_EQ(props.at(i).type_ == props.at(j).type_, i == j);
 }
 
 /**
@@ -261,17 +272,19 @@ TEST(TypedValue, TypeIncompatibility) {
  *
  * @param op The logical operation to test.
  */
-void TestLogicalThrows(std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
+void TestLogicalThrows(
+    std::function<TypedValue(const TypedValue&, const TypedValue&)> op) {
   TypedValueStore<> props = MakePropsAllTypes();
   for (int i = 0; i < props.size() + 1; ++i) {
     auto p1 = props.at(i);
     for (int j = 0; j < props.size() + 1; ++j) {
       auto p2 = props.at(j);
       // skip situations when both p1 and p2 are either bool or null
-      auto p1_ok = p1.type_ == TypedValue::Type::Bool || p1.type_ == TypedValue::Type::Null;
-      auto p2_ok = p2.type_ == TypedValue::Type::Bool || p2.type_ == TypedValue::Type::Null;
-      if (p1_ok && p2_ok)
-        continue;
+      auto p1_ok = p1.type_ == TypedValue::Type::Bool ||
+                   p1.type_ == TypedValue::Type::Null;
+      auto p2_ok = p2.type_ == TypedValue::Type::Bool ||
+                   p2.type_ == TypedValue::Type::Null;
+      if (p1_ok && p2_ok) continue;
 
       EXPECT_THROW(op(p1, p2), TypedValueException);
     }
@@ -279,14 +292,16 @@ void TestLogicalThrows(std::function<TypedValue(const TypedValue&, const TypedVa
 }
 
 TEST(TypedValue, LogicalAnd) {
-  TestLogicalThrows([](const TypedValue& p1, const TypedValue& p2) {return p1 && p2;});
+  TestLogicalThrows(
+      [](const TypedValue& p1, const TypedValue& p2) { return p1 && p2; });
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) && TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));
 }
 
 TEST(TypedValue, LogicalOr) {
-  TestLogicalThrows([](const TypedValue& p1, const TypedValue& p2) {return p1 || p2;});
+  TestLogicalThrows(
+      [](const TypedValue& p1, const TypedValue& p2) { return p1 || p2; });
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));

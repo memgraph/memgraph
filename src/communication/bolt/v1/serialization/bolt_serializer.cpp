@@ -8,9 +8,8 @@
 #include "database/graph_db.hpp"
 #include "storage/typed_value_store.hpp"
 
-template<class Stream>
+template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
-
   // write signatures for the node struct and node data type
   encoder.write_struct_header(3);
   encoder.write(underlying_cast(pack::Node));
@@ -19,7 +18,7 @@ void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
   // use internal IDs, but need to give something to Bolt
   // note that OpenCypher has no id(x) function, so the client
   // should not be able to do anything with this value anyway
-  encoder.write_integer(0); // uID
+  encoder.write_integer(0);  // uID
 
   // write the list of labels
   auto labels = vertex.labels();
@@ -30,13 +29,14 @@ void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
   // write the properties
   const TypedValueStore<GraphDb::Property> &props = vertex.Properties();
   encoder.write_map_header(props.size());
-  props.Accept([this, &vertex](const GraphDb::Property prop, const TypedValue &value) {
-    this->encoder.write(vertex.db_accessor().property_name(prop));
-    this->write(value);
-  });
+  props.Accept(
+      [this, &vertex](const GraphDb::Property prop, const TypedValue &value) {
+        this->encoder.write(vertex.db_accessor().property_name(prop));
+        this->write(value);
+      });
 }
 
-template<class Stream>
+template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   // write signatures for the edge struct and edge data type
   encoder.write_struct_header(5);
@@ -54,7 +54,7 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   encoder.write(edge.db_accessor().edge_type_name(edge.edge_type()));
 
   // write the property map
-  const TypedValueStore<GraphDb::Property>& props = edge.Properties();
+  const TypedValueStore<GraphDb::Property> &props = edge.Properties();
   encoder.write_map_header(props.size());
   props.Accept([this, &edge](GraphDb::Property prop, const TypedValue &value) {
     this->encoder.write(edge.db_accessor().property_name(prop));
@@ -62,9 +62,8 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   });
 }
 
-template<class Stream>
-void bolt::BoltSerializer<Stream>::write(const TypedValue& value) {
-
+template <class Stream>
+void bolt::BoltSerializer<Stream>::write(const TypedValue &value) {
   switch (value.type_) {
     case TypedValue::Type::Null:
       encoder.write_null();
@@ -84,8 +83,9 @@ void bolt::BoltSerializer<Stream>::write(const TypedValue& value) {
   }
 }
 
-template<class Stream>
-void bolt::BoltSerializer<Stream>::write_failure(const std::map<std::string, std::string> &data) {
+template <class Stream>
+void bolt::BoltSerializer<Stream>::write_failure(
+    const std::map<std::string, std::string> &data) {
   encoder.message_failure();
   encoder.write_map_header(data.size());
   for (auto const &kv : data) {
@@ -94,6 +94,5 @@ void bolt::BoltSerializer<Stream>::write_failure(const std::map<std::string, std
   }
 }
 
-template
-class bolt::BoltSerializer<bolt::BoltEncoder<
+template class bolt::BoltSerializer<bolt::BoltEncoder<
     bolt::ChunkedEncoder<bolt::ChunkedBuffer<bolt::SocketStream<io::Socket>>>>>;

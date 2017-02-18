@@ -7,12 +7,12 @@ namespace fs = std::experimental::filesystem;
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "logging/loggable.hpp"
+#include "query/backend/cpp/generator.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/backend/cpp/generator.hpp"
 #include "query/plan_compiler.hpp"
-#include "query/plan_interface.hpp"
 #include "query/plan_generator.hpp"
+#include "query/plan_interface.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/dynamic_lib.hpp"
 
@@ -193,6 +193,7 @@ class QueryEngine : public Loggable {
 
   QueryPreprocessor preprocessor;
   PlanCompiler plan_compiler;
-  PlanGenerator<frontend::opencypher::Parser, backend::cpp::Generator> plan_generator;
+  PlanGenerator<frontend::opencypher::Parser, backend::cpp::Generator>
+      plan_generator;
   ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>> query_plans;
 };

@@ -12,7 +12,6 @@
  * be created. Typically due to database overload.
  */
 class CreationException : public BasicException {
-public:
+ public:
   using BasicException::BasicException;
 };
-

@@ -5,10 +5,10 @@
 
 #pragma once
 
-#include <memory>
-#include <map>
-#include <atomic>
 #include <stdint.h>
+#include <atomic>
+#include <map>
+#include <memory>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 
@@ -32,8 +32,7 @@
  */
 template <typename TObject, typename TKey = uint32_t>
 class UniqueObjectStore {
-
-public:
+ public:
   // Key is the type returned by this class, it's a template param
   using Key = TKey;
 
@@ -52,13 +51,11 @@ public:
    * @return Key See above.
    */
   Key GetKey(const TObject &obj) {
-
     auto accessor = storage_.access();
 
     // try to find an existing key
     auto found = accessor.find(obj);
-    if (found != accessor.end())
-      return found->second;
+    if (found != accessor.end()) return found->second;
 
     // failed to find an existing key, create and insert a new one
     // return insertion result (either the new key, or an existing one
@@ -66,12 +63,13 @@ public:
     return accessor.insert(obj, next_key_counter_++).first->second;
   }
 
-private:
+ private:
   // maps objects to keys with support for concurrent writes
   ConcurrentMap<TObject, Key> storage_;
 
   // counter of keys that have been generated
   // note that this is not necessary the count of all keys being used since
-  // it's possible that Keys were generated and then discarded due to concurrency
+  // it's possible that Keys were generated and then discarded due to
+  // concurrency
   std::atomic<Key> next_key_counter_;
 };

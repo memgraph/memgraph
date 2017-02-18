@@ -1,11 +1,11 @@
 #pragma once
 
-#include "data_structures/concurrent/skiplist.hpp"
-#include "transactions/engine.hpp"
-#include "mvcc/version_list.hpp"
-#include "utils/pass_key.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
+#include "data_structures/concurrent/skiplist.hpp"
+#include "mvcc/version_list.hpp"
 #include "storage/unique_object_store.hpp"
+#include "transactions/engine.hpp"
+#include "utils/pass_key.hpp"
 
 // forward declaring Edge and Vertex because they use
 // GraphDb::Label etc., and therefore include this header
@@ -26,13 +26,11 @@ class EdgeAccessor;
  * exposed to client functions. The GraphDbAccessor is used for that.
  */
 class GraphDb {
-
-public:
-
+ public:
   // definitions for what data types are used for a Label, Property, EdgeType
-  using Label = std::string*;
-  using EdgeType = std::string*;
-  using Property = std::string*;
+  using Label = std::string *;
+  using EdgeType = std::string *;
+  using Property = std::string *;
 
   /**
    * Construct database with a custom name.
@@ -52,19 +50,19 @@ public:
   tx::Engine tx_engine;
 
   /** garbage collector related to this database*/
-// TODO bring back garbage collection
-//  Garbage garbage = {tx_engine};
+  // TODO bring back garbage collection
+  //  Garbage garbage = {tx_engine};
 
-// TODO bring back shapshot engine
-//  SnapshotEngine snap_engine = {*this};
+  // TODO bring back shapshot engine
+  //  SnapshotEngine snap_engine = {*this};
 
   // database name
   // TODO consider if this is even necessary
   const std::string name_;
 
   // main storage for the graph
-  SkipList<mvcc::VersionList<Vertex>*> vertices_;
-  SkipList<mvcc::VersionList<Edge>*> edges_;
+  SkipList<mvcc::VersionList<Vertex> *> vertices_;
+  SkipList<mvcc::VersionList<Edge> *> edges_;
 
   // unique object stores
   ConcurrentSet<std::string> labels_;

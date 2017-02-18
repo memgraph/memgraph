@@ -3,54 +3,50 @@
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "mvcc/id.hpp"
 
-namespace tx
-{
+namespace tx {
 
-class CommitLog
-{
-public:
-    struct Info
-    {
-        enum Status
-        {
-            ACTIVE = 0,    // 00
-            COMMITTED = 1, // 01
-            ABORTED = 2,   // 10
-        };
-
-        bool is_active() const { return flags & ACTIVE; }
-
-        bool is_committed() const { return flags & COMMITTED; }
-
-        bool is_aborted() const { return flags & ABORTED; }
-
-        operator uint8_t() const { return flags; }
-
-        uint8_t flags;
+class CommitLog {
+ public:
+  struct Info {
+    enum Status {
+      ACTIVE = 0,     // 00
+      COMMITTED = 1,  // 01
+      ABORTED = 2,    // 10
     };
 
-    CommitLog() = default;
-    CommitLog(CommitLog &) = delete;
-    CommitLog(CommitLog &&) = delete;
+    bool is_active() const { return flags & ACTIVE; }
 
-    CommitLog operator=(CommitLog) = delete;
+    bool is_committed() const { return flags & COMMITTED; }
 
-    Info fetch_info(const Id &id) { return Info{log.at(2 * id, 2)}; }
+    bool is_aborted() const { return flags & ABORTED; }
 
-    bool is_active(const Id &id) { return fetch_info(id).is_active(); }
+    operator uint8_t() const { return flags; }
 
-    bool is_committed(const Id &id) { return fetch_info(id).is_committed(); }
+    uint8_t flags;
+  };
 
-    void set_committed(const Id &id) { log.set(2 * id); }
+  CommitLog() = default;
+  CommitLog(CommitLog &) = delete;
+  CommitLog(CommitLog &&) = delete;
 
-    bool is_aborted(const Id &id) { return fetch_info(id).is_aborted(); }
+  CommitLog operator=(CommitLog) = delete;
 
-    void set_aborted(const Id &id) { log.set(2 * id + 1); }
+  Info fetch_info(const Id &id) { return Info{log.at(2 * id, 2)}; }
 
-private:
-    // TODO: Searching the log will take more and more time the more and more
-    // transactoins are done. This could be awerted if DynamicBitset is changed
-    // to point to largest chunk instead of the smallest.
-    DynamicBitset<uint8_t, 32768> log;
+  bool is_active(const Id &id) { return fetch_info(id).is_active(); }
+
+  bool is_committed(const Id &id) { return fetch_info(id).is_committed(); }
+
+  void set_committed(const Id &id) { log.set(2 * id); }
+
+  bool is_aborted(const Id &id) { return fetch_info(id).is_aborted(); }
+
+  void set_aborted(const Id &id) { log.set(2 * id + 1); }
+
+ private:
+  // TODO: Searching the log will take more and more time the more and more
+  // transactoins are done. This could be awerted if DynamicBitset is changed
+  // to point to largest chunk instead of the smallest.
+  DynamicBitset<uint8_t, 32768> log;
 };
 }

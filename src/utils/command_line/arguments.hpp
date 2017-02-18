@@ -45,16 +45,14 @@ class ProgramArguments {
 
   bool is_valid() {
     for (const auto &arg : required_arguments_)
-        if (!arguments_.count(arg)) return false;
+      if (!arguments_.count(arg)) return false;
     return true;
   }
 
-  ProgramArguments() {
-  }
+  ProgramArguments() {}
 
  public:
-  ~ProgramArguments() {
-  }
+  ~ProgramArguments() {}
 
   class Argument {
    private:

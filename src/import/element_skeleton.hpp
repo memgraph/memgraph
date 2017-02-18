@@ -3,16 +3,15 @@
 #include <cassert>
 
 #include "database/db_accessor.hpp"
-#include "storage/vertex_accessor.hpp"
 #include "storage/model/typed_value.hpp"
 #include "storage/model/typed_value_store.hpp"
+#include "storage/vertex_accessor.hpp"
 
 // Holder for element data which he can then insert as a vertex or edge into the
 // database depending on the available data and called add_* method.
 class ElementSkeleton {
-
-public:
-  ElementSkeleton(DbAccessor &db) : db(db) {};
+ public:
+  ElementSkeleton(DbAccessor &db) : db(db){};
 
   void add_property(StoredProperty<TypeGroupVertex> &&prop) {
     properties_v.push_back(std::move(prop));
@@ -22,9 +21,7 @@ public:
     properties_e.push_back(std::move(prop));
   }
 
-  void set_element_id(size_t id) {
-    el_id = make_option<size_t>(std::move(id));
-  }
+  void set_element_id(size_t id) { el_id = make_option<size_t>(std::move(id)); }
 
   void add_label(Label const &label) { labels.push_back(&label); }
 
@@ -91,7 +88,7 @@ public:
   // Returns import local id.
   Option<size_t> element_id() { return el_id; }
 
-private:
+ private:
   DbAccessor &db;
 
   Option<size_t> el_id;

@@ -1,72 +1,62 @@
 #pragma once
 
-#include <vector>
-#include <memory>
-#include <thread>
 #include <atomic>
 #include <cassert>
+#include <memory>
+#include <thread>
+#include <vector>
 
-#include "io/network/server.hpp"
 #include "communication/bolt/v1/bolt.hpp"
+#include "io/network/server.hpp"
 #include "logging/default.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
 template <class Worker>
-class Server : public io::Server<Server<Worker>>
-{
-public:
-    Server(io::Socket&& socket)
-        : io::Server<Server<Worker>>(std::forward<io::Socket>(socket)),
-          logger(logging::log->logger("bolt::Server")) {}
+class Server : public io::Server<Server<Worker>> {
+ public:
+  Server(io::Socket&& socket)
+      : io::Server<Server<Worker>>(std::forward<io::Socket>(socket)),
+        logger(logging::log->logger("bolt::Server")) {}
 
-    void start(size_t n)
-    {
-        workers.reserve(n);
+  void start(size_t n) {
+    workers.reserve(n);
 
-        for(size_t i = 0; i < n; ++i)
-        {
-            workers.push_back(std::make_shared<Worker>(bolt));
-            workers.back()->start(alive);
-        }
-
-        while(alive)
-        {
-            this->wait_and_process_events();
-        }
+    for (size_t i = 0; i < n; ++i) {
+      workers.push_back(std::make_shared<Worker>(bolt));
+      workers.back()->start(alive);
     }
 
-    void shutdown()
-    {
-        alive.store(false);
-
-        for(auto& worker : workers)
-            worker->thread.join();
+    while (alive) {
+      this->wait_and_process_events();
     }
+  }
 
-    void on_connect()
-    {
-        assert(idx < workers.size());
+  void shutdown() {
+    alive.store(false);
 
-        logger.trace("on connect");
+    for (auto& worker : workers) worker->thread.join();
+  }
 
-        if(UNLIKELY(!workers[idx]->accept(this->socket)))
-            return;
+  void on_connect() {
+    assert(idx < workers.size());
 
-        idx = idx == workers.size() - 1 ? 0 : idx + 1;
-    }
+    logger.trace("on connect");
 
-    void on_wait_timeout() {}
+    if (UNLIKELY(!workers[idx]->accept(this->socket))) return;
 
-private:
-    Bolt bolt;
+    idx = idx == workers.size() - 1 ? 0 : idx + 1;
+  }
 
-    std::vector<typename Worker::sptr> workers;
-    std::atomic<bool> alive {true};
+  void on_wait_timeout() {}
 
-    int idx {0};
-    Logger logger;
+ private:
+  Bolt bolt;
+
+  std::vector<typename Worker::sptr> workers;
+  std::atomic<bool> alive{true};
+
+  int idx{0};
+  Logger logger;
 };
-
 }

@@ -13,14 +13,12 @@ using byte = unsigned char;
 
 void print_hex(byte x) { printf("%02X ", static_cast<byte>(x)); }
 
-struct DummyStream
-{
-    void write(const byte *values, size_t n)
-    {
-        data.insert(data.end(), values, values + n);
-    }
+struct DummyStream {
+  void write(const byte *values, size_t n) {
+    data.insert(data.end(), values, values + n);
+  }
 
-    std::vector<byte> data;
+  std::vector<byte> data;
 };
 
 using Decoder = bolt::ChunkedDecoder<DummyStream>;
@@ -36,33 +34,28 @@ static constexpr size_t N = std::extent<decltype(chunks)>::value;
 
 std::string decoded = "A quick brown fox jumps over a lazy dog";
 
-TEST(ChunkedDecoderTest, WriteString)
-{
-    DummyStream stream;
-    Decoder decoder(stream);
+TEST(ChunkedDecoderTest, WriteString) {
+  DummyStream stream;
+  Decoder decoder(stream);
 
-    for(size_t i = 0; i < N; ++i)
-    {
-        auto & chunk = chunks[i];
-        logging::info("Chunk size: {}", chunk.size());
+  for (size_t i = 0; i < N; ++i) {
+    auto &chunk = chunks[i];
+    logging::info("Chunk size: {}", chunk.size());
 
-        const byte* start = chunk.data();
-        auto finished = decoder.decode(start, chunk.size());
+    const byte *start = chunk.data();
+    auto finished = decoder.decode(start, chunk.size());
 
-        // break early if finished
-        if(finished)
-            break;
-    }
+    // break early if finished
+    if (finished) break;
+  }
 
-    // check validity
-    ASSERT_EQ(decoded.size(), stream.data.size());
-    for(size_t i = 0; i < decoded.size(); ++i)
-        ASSERT_EQ(decoded[i], stream.data[i]);
+  // check validity
+  ASSERT_EQ(decoded.size(), stream.data.size());
+  for (size_t i = 0; i < decoded.size(); ++i)
+    ASSERT_EQ(decoded[i], stream.data[i]);
 }
 
-int main(int argc, char **argv)
-{
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
-

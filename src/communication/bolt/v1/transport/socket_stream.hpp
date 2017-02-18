@@ -1,39 +1,33 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 #include <cstdio>
+#include <vector>
 
-#include "io/network/socket.hpp"
 #include "communication/bolt/v1/transport/stream_error.hpp"
+#include "io/network/socket.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
 template <typename Stream>
-class SocketStream
-{
-public:
-    using byte = uint8_t;
+class SocketStream {
+ public:
+  using byte = uint8_t;
 
-    SocketStream(Stream& socket) : socket(socket) {}
+  SocketStream(Stream& socket) : socket(socket) {}
 
-    void write(const byte* data, size_t n)
-    {
-        while(n > 0)
-        {
-            auto written = socket.get().write(data, n);
+  void write(const byte* data, size_t n) {
+    while (n > 0) {
+      auto written = socket.get().write(data, n);
 
-            if(UNLIKELY(written == -1))
-                throw StreamError("Can't write to stream");
+      if (UNLIKELY(written == -1)) throw StreamError("Can't write to stream");
 
-            n -= written;
-            data += written;
-        }
+      n -= written;
+      data += written;
     }
+  }
 
-private:
-    std::reference_wrapper<Stream> socket;
+ private:
+  std::reference_wrapper<Stream> socket;
 };
-
 }

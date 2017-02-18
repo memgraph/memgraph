@@ -29,38 +29,29 @@ int THREADS, INSERT_PERC, DELETE_PERC, CONTAINS_PERC, RANGE_START, RANGE_END;
 // ConcurrentMap Becnhmark Test using percentages for Insert, Delete, Find
 template <class K, class V>
 static void Rape(benchmark::State &state, ConcurrentMap<int, int> *map,
-                 const std::vector<std::pair<K, V>> &elements)
-{
-    int number_of_elements = state.range(0);
+                 const std::vector<std::pair<K, V>> &elements) {
+  int number_of_elements = state.range(0);
 
-    while (state.KeepRunning())
-    {
-        auto accessor = map->access();
+  while (state.KeepRunning()) {
+    auto accessor = map->access();
 
-        for (int start = 0; start < state.range(0); start++)
-        {
-            float current_percentage =
-                (float)start / (float)number_of_elements * 100;
-            if (current_percentage < (float)INSERT_PERC)
-            {
-                accessor.insert(elements[start].first, elements[start].second);
-            }
-            else if (current_percentage < (float)CONTAINS_PERC + INSERT_PERC)
-            {
-                accessor.contains(elements[start].first);
-            }
-            else
-            {
-                accessor.remove(elements[start].first);
-            }
-        }
+    for (int start = 0; start < state.range(0); start++) {
+      float current_percentage = (float)start / (float)number_of_elements * 100;
+      if (current_percentage < (float)INSERT_PERC) {
+        accessor.insert(elements[start].first, elements[start].second);
+      } else if (current_percentage < (float)CONTAINS_PERC + INSERT_PERC) {
+        accessor.contains(elements[start].first);
+      } else {
+        accessor.remove(elements[start].first);
+      }
     }
+  }
 
-    state.SetComplexityN(state.range(0));
+  state.SetComplexityN(state.range(0));
 }
 
 auto BM_Rape = [](benchmark::State &state, auto *map, auto &elements) {
-    Rape(state, map, elements);
+  Rape(state, map, elements);
 };
 
 /*
@@ -85,51 +76,48 @@ auto BM_Rape = [](benchmark::State &state, auto *map, auto &elements) {
     * Number of threads
         -threads number
 */
-void parse_arguments(int argc, char **argv)
-{
-    REGISTER_ARGS(argc, argv);
+void parse_arguments(int argc, char **argv) {
+  REGISTER_ARGS(argc, argv);
 
-    INSERT_PERC   = GET_ARG("-insert", "50").get_int();
-    DELETE_PERC   = GET_ARG("-delete", "20").get_int();
-    CONTAINS_PERC = GET_ARG("-find", "30").get_int();
+  INSERT_PERC = GET_ARG("-insert", "50").get_int();
+  DELETE_PERC = GET_ARG("-delete", "20").get_int();
+  CONTAINS_PERC = GET_ARG("-find", "30").get_int();
 
-    if (INSERT_PERC + DELETE_PERC + CONTAINS_PERC != 100)
-    {
-        std::cout << "Invalid percentage" << std::endl;
-        std::cout << "Percentage must sum to 100" << std::endl;
-        exit(-1);
-    }
+  if (INSERT_PERC + DELETE_PERC + CONTAINS_PERC != 100) {
+    std::cout << "Invalid percentage" << std::endl;
+    std::cout << "Percentage must sum to 100" << std::endl;
+    exit(-1);
+  }
 
-    RANGE_START = GET_ARG("-start", "0").get_int();
+  RANGE_START = GET_ARG("-start", "0").get_int();
 
-    RANGE_END = GET_ARG("-end", "1000000000").get_int();
+  RANGE_END = GET_ARG("-end", "1000000000").get_int();
 
-    THREADS = std::min(GET_ARG("-threads", "1").get_int(),
-                       (int)std::thread::hardware_concurrency());
+  THREADS = std::min(GET_ARG("-threads", "1").get_int(),
+                     (int)std::thread::hardware_concurrency());
 }
 
-int main(int argc, char **argv)
-{
-    logging::init_async();
-    logging::log->pipe(std::make_unique<Stdout>());
+int main(int argc, char **argv) {
+  logging::init_async();
+  logging::log->pipe(std::make_unique<Stdout>());
 
-    parse_arguments(argc, argv);
+  parse_arguments(argc, argv);
 
-    IntegerGenerator int_gen(RANGE_START, RANGE_END);
-    PairGenerator<IntegerGenerator, IntegerGenerator> pair_gen(&int_gen,
-                                                               &int_gen);
+  IntegerGenerator int_gen(RANGE_START, RANGE_END);
+  PairGenerator<IntegerGenerator, IntegerGenerator> pair_gen(&int_gen,
+                                                             &int_gen);
 
-    ConcurrentMap<int, int> map;
-    auto elements = utils::random::generate_vector(pair_gen, MAX_ELEMENTS);
+  ConcurrentMap<int, int> map;
+  auto elements = utils::random::generate_vector(pair_gen, MAX_ELEMENTS);
 
-    benchmark::RegisterBenchmark("Rape", BM_Rape, &map, elements)
-        ->RangeMultiplier(MULTIPLIER)
-        ->Range(1, MAX_ELEMENTS)
-        ->Complexity(benchmark::oN)
-        ->Threads(THREADS);
+  benchmark::RegisterBenchmark("Rape", BM_Rape, &map, elements)
+      ->RangeMultiplier(MULTIPLIER)
+      ->Range(1, MAX_ELEMENTS)
+      ->Complexity(benchmark::oN)
+      ->Threads(THREADS);
 
-    benchmark::Initialize(&argc, argv);
-    benchmark::RunSpecifiedBenchmarks();
+  benchmark::Initialize(&argc, argv);
+  benchmark::RunSpecifiedBenchmarks();
 
-    return 0;
+  return 0;
 }

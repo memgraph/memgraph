@@ -2,23 +2,21 @@
 
 #include "utils/config/config.hpp"
 
-#include <string>
 #include <set>
+#include <string>
 
-namespace config
-{
+namespace config {
 
 // this class is used as a Definition class of config::Config class from utils
 // number of elements should be small,
 // it depends on implementation of config::Config class
 // in other words number of fields in Definition class should be related
 // to the number of config keys
-class MemgraphConfig
-{
-public:
-    static const char *env_config_key;
-    static const char *default_file_path;
-    static std::set<std::string> arguments;
+class MemgraphConfig {
+ public:
+  static const char *env_config_key;
+  static const char *default_file_path;
+  static std::set<std::string> arguments;
 };
 
 // -- all possible Memgraph's keys --

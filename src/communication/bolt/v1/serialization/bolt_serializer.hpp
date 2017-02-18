@@ -10,48 +10,49 @@
 
 namespace bolt {
 
-  template<class Stream>
-  class BoltSerializer {
+template <class Stream>
+class BoltSerializer {
+ public:
+  BoltSerializer(Stream &stream) : encoder(stream) {}
 
-  public:
-    BoltSerializer(Stream &stream) : encoder(stream) {}
+  /** Serializes the vertex accessor into the packstream format
+   *
+   * struct[size = 3] Vertex [signature = 0x4E] {
+   *     Integer            node_id;
+   *     List<String>       labels;
+   *     Map<String, Value> properties;
+   * }
+   *
+   */
+  void write(const VertexAccessor &vertex);
 
-    /** Serializes the vertex accessor into the packstream format
-     *
-     * struct[size = 3] Vertex [signature = 0x4E] {
-     *     Integer            node_id;
-     *     List<String>       labels;
-     *     Map<String, Value> properties;
-     * }
-     *
-     */
-    void write(const VertexAccessor &vertex);
+  /** Serializes the edge accessor into the packstream format
+   *
+   * struct[size = 5] Edge [signature = 0x52] {
+   *     Integer            edge_id;          // IMPORTANT: always 0 since we
+   * don't do IDs
+   *     Integer            start_node_id;    // IMPORTANT: always 0 since we
+   * don't do IDs
+   *     Integer            end_node_id;      // IMPORTANT: always 0 since we
+   * don't do IDs
+   *     String             type;
+   *     Map<String, Value> properties;
+   * }
+   *
+   */
+  void write(const EdgeAccessor &edge);
 
-    /** Serializes the edge accessor into the packstream format
-     *
-     * struct[size = 5] Edge [signature = 0x52] {
-     *     Integer            edge_id;          // IMPORTANT: always 0 since we don't do IDs
-     *     Integer            start_node_id;    // IMPORTANT: always 0 since we don't do IDs
-     *     Integer            end_node_id;      // IMPORTANT: always 0 since we don't do IDs
-     *     String             type;
-     *     Map<String, Value> properties;
-     * }
-     *
-     */
-    void write(const EdgeAccessor &edge);
+  // TODO document
+  void write_failure(const std::map<std::string, std::string> &data);
 
-    // TODO document
-    void write_failure(const std::map<std::string, std::string> &data);
+  /**
+   * Writes a TypedValue (typically a property value in the edge or vertex).
+   *
+   * @param value The value to write.
+   */
+  void write(const TypedValue &value);
 
-    /**
-     * Writes a TypedValue (typically a property value in the edge or vertex).
-     *
-     * @param value The value to write.
-     */
-    void write(const TypedValue& value);
-
-  protected:
-    Stream &encoder;
-
-  };
+ protected:
+  Stream &encoder;
+};
 }

@@ -10,15 +10,12 @@
  * @param db_accessor A database accessor to create the record accessors with.
  */
 template <typename TAccessor, typename TCollection>
-std::vector<TAccessor> make_accessors(
-    const TCollection &records,
-    GraphDbAccessor &db_accessor) {
-
+std::vector<TAccessor> make_accessors(const TCollection &records,
+                                      GraphDbAccessor &db_accessor) {
   std::vector<TAccessor> accessors;
   accessors.reserve(records.size());
 
-  for (auto record : records)
-    accessors.emplace_back(*record, db_accessor);
+  for (auto record : records) accessors.emplace_back(*record, db_accessor);
 
   return accessors;
 }

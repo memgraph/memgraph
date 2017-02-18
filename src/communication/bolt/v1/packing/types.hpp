@@ -1,42 +1,39 @@
 #pragma once
 
-namespace bolt
-{
+namespace bolt {
 
-enum class PackType
-{
-    /** denotes absence of a value */
-    Null,
+enum class PackType {
+  /** denotes absence of a value */
+  Null,
 
-    /** denotes a type with two possible values (t/f) */
-    Boolean,
+  /** denotes a type with two possible values (t/f) */
+  Boolean,
 
-    /** 64-bit signed integral number */
-    Integer,
+  /** 64-bit signed integral number */
+  Integer,
 
-    /** 64-bit floating point number */
-    Float,
+  /** 64-bit floating point number */
+  Float,
 
-    /** binary data */
-    Bytes,
+  /** binary data */
+  Bytes,
 
-    /** unicode string */
-    String,
+  /** unicode string */
+  String,
 
-    /** collection of values */
-    List,
+  /** collection of values */
+  List,
 
-    /** collection of zero or more key/value pairs */
-    Map,
+  /** collection of zero or more key/value pairs */
+  Map,
 
-    /** zero or more packstream values */
-    Struct,
+  /** zero or more packstream values */
+  Struct,
 
-    /** denotes stream value end */
-    EndOfStream,
+  /** denotes stream value end */
+  EndOfStream,
 
-    /** reserved for future use */
-    Reserved
+  /** reserved for future use */
+  Reserved
 };
-
 }

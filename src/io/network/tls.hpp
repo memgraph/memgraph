@@ -2,32 +2,28 @@
 
 #include <string>
 
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 
-namespace io
-{
+namespace io {
 
-class Tls
-{
-public:
-    class Context
-    {
-    public:
-        Context();
-        ~Context();
+class Tls {
+ public:
+  class Context {
+   public:
+    Context();
+    ~Context();
 
-        Context& cert(const std::string& path);
-        Context& key(const std::string& path);
+    Context& cert(const std::string& path);
+    Context& key(const std::string& path);
 
-        operator SSL_CTX*() const { return ctx; }
+    operator SSL_CTX*() const { return ctx; }
 
-    private:
-        SSL_CTX* ctx;
-    };
+   private:
+    SSL_CTX* ctx;
+  };
 
-    static void initialize();
-    static void cleanup();
+  static void initialize();
+  static void cleanup();
 };
-
 }

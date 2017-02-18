@@ -1,5 +1,5 @@
-#include <iostream>
 #include <signal.h>
+#include <iostream>
 #include <thread>
 #include <vector>
 
@@ -26,114 +26,101 @@ std::atomic<bool> alive{true};
 
 void exiting() { LOG_DEBUG("Exiting..."); }
 
-void sigint_handler(int)
-{
-
-    exiting();
-    std::exit(0);
+void sigint_handler(int) {
+  exiting();
+  std::exit(0);
 }
 
 #define MAXEVENTS 64
 
-int main(void)
-{
-    // std::atexit(exiting);
-    signal(SIGINT, sigint_handler);
+int main(void) {
+  // std::atexit(exiting);
+  signal(SIGINT, sigint_handler);
 
-    for (size_t i = 0; i < workers.size(); ++i)
-    {
-        auto &w = workers[i];
+  for (size_t i = 0; i < workers.size(); ++i) {
+    auto &w = workers[i];
 
-        threads[i] = std::thread([i, &w]() {
-            while (alive)
-            {
-                LOG_DEBUG("waiting for events on thread " << i);
-                w.wait_and_process_events();
-            }
-        });
-    }
+    threads[i] = std::thread([i, &w]() {
+      while (alive) {
+        LOG_DEBUG("waiting for events on thread " << i);
+        w.wait_and_process_events();
+      }
+    });
+  }
 
-    /* size_t WORKERS = std::thread::hardware_concurrency(); */
+  /* size_t WORKERS = std::thread::hardware_concurrency(); */
 
-    /* std::vector<io::Worker> workers; */
-    /* workers.resize(WORKERS); */
+  /* std::vector<io::Worker> workers; */
+  /* workers.resize(WORKERS); */
 
-    /* for(size_t i = 0; i < WORKERS; ++i) */
-    /* { */
-    /*     workers.push_back(std::move(io::Worker())); */
-    /*     workers.back().start(); */
-    /* } */
+  /* for(size_t i = 0; i < WORKERS; ++i) */
+  /* { */
+  /*     workers.push_back(std::move(io::Worker())); */
+  /*     workers.back().start(); */
+  /* } */
 
-    int idx = 0;
+  int idx = 0;
 
-    auto socket = io::Socket::bind("0.0.0.0", "7474");
-    socket.set_non_blocking();
-    socket.listen(1024);
+  auto socket = io::Socket::bind("0.0.0.0", "7474");
+  socket.set_non_blocking();
+  socket.listen(1024);
 
-    int efd, s;
-    struct epoll_event event;
-    struct epoll_event *events;
+  int efd, s;
+  struct epoll_event event;
+  struct epoll_event *events;
 
-    efd = epoll_create1(0);
-    if (efd == -1)
-    {
-        perror("epoll_create");
-        abort();
-    }
+  efd = epoll_create1(0);
+  if (efd == -1) {
+    perror("epoll_create");
+    abort();
+  }
 
-    event.data.fd = socket;
-    event.events  = EPOLLIN | EPOLLET;
-    s             = epoll_ctl(efd, EPOLL_CTL_ADD, socket, &event);
-    if (s == -1)
-    {
-        perror("epoll_ctl");
-        abort();
-    }
+  event.data.fd = socket;
+  event.events = EPOLLIN | EPOLLET;
+  s = epoll_ctl(efd, EPOLL_CTL_ADD, socket, &event);
+  if (s == -1) {
+    perror("epoll_ctl");
+    abort();
+  }
 
-    /* Buffer where events are returned */
-    events = static_cast<struct epoll_event *>(calloc(MAXEVENTS, sizeof event));
+  /* Buffer where events are returned */
+  events = static_cast<struct epoll_event *>(calloc(MAXEVENTS, sizeof event));
 
-    /* The event loop */
-    while (1)
-    {
-        int n, i;
+  /* The event loop */
+  while (1) {
+    int n, i;
 
-        LOG_DEBUG("acceptor waiting for events");
-        n = epoll_wait(efd, events, MAXEVENTS, -1);
+    LOG_DEBUG("acceptor waiting for events");
+    n = epoll_wait(efd, events, MAXEVENTS, -1);
 
-        LOG_DEBUG("acceptor recieved " << n << " connection requests");
+    LOG_DEBUG("acceptor recieved " << n << " connection requests");
 
-        for (i = 0; i < n; i++)
-        {
-            if ((events[i].events & EPOLLERR) ||
-                (events[i].events & EPOLLHUP) ||
-                (!(events[i].events & EPOLLIN)))
-            {
-                /* An error has occured on this fd, or the socket is not
-                   ready for reading (why were we notified then?) */
-                fprintf(stderr, "epoll error\n");
-                close(events[i].data.fd);
-                continue;
-            }
+    for (i = 0; i < n; i++) {
+      if ((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP) ||
+          (!(events[i].events & EPOLLIN))) {
+        /* An error has occured on this fd, or the socket is not
+           ready for reading (why were we notified then?) */
+        fprintf(stderr, "epoll error\n");
+        close(events[i].data.fd);
+        continue;
+      }
 
-            else if (socket == events[i].data.fd)
-            {
-                /* We have a notification on the listening socket, which
-                   means one or more incoming connections. */
-                while (true)
-                {
-                    LOG_DEBUG("trying to accept connection on thread " << idx);
-                    if (!workers[idx].accept(socket)) break;
+      else if (socket == events[i].data.fd) {
+        /* We have a notification on the listening socket, which
+           means one or more incoming connections. */
+        while (true) {
+          LOG_DEBUG("trying to accept connection on thread " << idx);
+          if (!workers[idx].accept(socket)) break;
 
-                    LOG_DEBUG("Accepted a new connection on thread " << idx);
-                    idx = (idx + 1) % workers.size();
-                    break;
-                }
-            }
+          LOG_DEBUG("Accepted a new connection on thread " << idx);
+          idx = (idx + 1) % workers.size();
+          break;
         }
+      }
     }
+  }
 
-    free(events);
+  free(events);
 
-    return 0;
+  return 0;
 }

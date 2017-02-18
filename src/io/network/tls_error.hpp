@@ -2,13 +2,10 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 
-namespace io
-{
+namespace io {
 
-class TlsError : public BasicException
-{
-public:
-    using BasicException::BasicException;
+class TlsError : public BasicException {
+ public:
+  using BasicException::BasicException;
 };
-
 }

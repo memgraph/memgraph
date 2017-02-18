@@ -11,37 +11,36 @@
 //
 //
 // End goal would be to enforce these rules during compile time.
-class GraphDecoder
-{
-public:
-    // Starts reading vertex.
-    Id vertex_start();
+class GraphDecoder {
+ public:
+  // Starts reading vertex.
+  Id vertex_start();
 
-    // Returns number of stored labels.
-    size_t label_count();
+  // Returns number of stored labels.
+  size_t label_count();
 
-    // Wiil read label into given storage.
-    std::string const &label();
+  // Wiil read label into given storage.
+  std::string const &label();
 
-    // Ends reading vertex
-    void vertex_end() {}
+  // Ends reading vertex
+  void vertex_end() {}
 
-    // Starts reading edge. Return from to ids of connected vertices.
-    std::pair<Id, Id> edge_start();
+  // Starts reading edge. Return from to ids of connected vertices.
+  std::pair<Id, Id> edge_start();
 
-    // Reads edge_type into given storage.
-    std::string const &edge_type();
+  // Reads edge_type into given storage.
+  std::string const &edge_type();
 
-    // Ends reading edge.
-    void edge_end() {}
+  // Ends reading edge.
+  void edge_end() {}
 
-    // Returns number of stored propertys.
-    size_t property_count();
+  // Returns number of stored propertys.
+  size_t property_count();
 
-    // Reads property name into given storage.
-    std::string const &property_name();
+  // Reads property name into given storage.
+  std::string const &property_name();
 
-    // Reads property and calls T::handle for that property .
-    template <class T>
-    T property();
+  // Reads property and calls T::handle for that property .
+  template <class T>
+  T property();
 };

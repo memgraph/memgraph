@@ -1,12 +1,10 @@
 #pragma once
 
-#include <string>
-#include <locale>
 #include <algorithm>
+#include <locale>
+#include <string>
 
-namespace utils
-{
+namespace utils {
 
 void str_tolower(std::string& s);
-
 }

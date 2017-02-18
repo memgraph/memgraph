@@ -1,44 +1,38 @@
 #pragma once
 
-#include "communication/bolt/v1/states/state.hpp"
 #include "communication/bolt/v1/session.hpp"
+#include "communication/bolt/v1/states/state.hpp"
 #include "query/engine.hpp"
 
-namespace bolt
-{
+namespace bolt {
 
-class Executor : public State
-{
-    struct Query
-    {
-        std::string statement;
-    };
+class Executor : public State {
+  struct Query {
+    std::string statement;
+  };
 
-public:
-    Executor();
+ public:
+  Executor();
 
-    State* run(Session& session) override final;
+  State* run(Session& session) override final;
 
-protected:
-    /* Execute an incoming query
-     *
-     */
-    State* run(Session& session, Query& query);
+ protected:
+  /* Execute an incoming query
+   *
+   */
+  State* run(Session& session, Query& query);
 
-    /* Send all remaining results to the client
-     *
-     */
-    void pull_all(Session& session);
+  /* Send all remaining results to the client
+   *
+   */
+  void pull_all(Session& session);
 
-    /* Discard all remaining results
-     *
-     */
-    void discard_all(Session& session);
+  /* Discard all remaining results
+   *
+   */
+  void discard_all(Session& session);
 
-private:
-    QueryEngine<communication::OutputStream> query_engine;
-
+ private:
+  QueryEngine<communication::OutputStream> query_engine;
 };
-
 }
-

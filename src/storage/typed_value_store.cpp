@@ -3,17 +3,16 @@
 #include "storage/typed_value_store.hpp"
 
 template <typename TKey>
-const TypedValue& TypedValueStore::at(const TKey &key) const {
-  for (const auto& kv : props_)
-    if (kv.first == key)
-      return kv.second;
+const TypedValue &TypedValueStore::at(const TKey &key) const {
+  for (const auto &kv : props_)
+    if (kv.first == key) return kv.second;
 
   return TypedValue::Null;
 }
 
-template<typename TKey, typename TValue>
+template <typename TKey, typename TValue>
 void TypedValueStore::set(const TKey &key, const TValue &value) {
-  for (auto& kv: props_)
+  for (auto &kv : props_)
     if (kv.first == key) {
       kv.second = TypedValue(value);
       return;
@@ -26,7 +25,8 @@ void TypedValueStore::set(const TKey &key, const TValue &value) {
 
 // instantiations of the TypedValueStore::set function
 // instances must be made for all of the supported C++ types
-template void TypedValueStore::set<std::string>(const TKey &key, const std::string &value);
+template void TypedValueStore::set<std::string>(const TKey &key,
+                                                const std::string &value);
 template void TypedValueStore::set<bool>(const TKey &key, const bool &value);
 template void TypedValueStore::set<int>(const TKey &key, const int &value);
 template void TypedValueStore::set<float>(const TKey &key, const float &value);
@@ -45,7 +45,9 @@ void TypedValueStore::set(const TKey &key, const char *value) {
 }
 
 size_t TypedValueStore::erase(const TKey &key) const {
-  auto found = std::find_if(props_.begin(), props_.end(), [&key](std::pair<TKey, TypedValue> &kv){return kv.first == key;});
+  auto found = std::find_if(
+      props_.begin(), props_.end(),
+      [&key](std::pair<TKey, TypedValue> &kv) { return kv.first == key; });
   if (found != props_.end()) {
     props_.erase(found);
     return 1;
@@ -53,19 +55,14 @@ size_t TypedValueStore::erase(const TKey &key) const {
   return 0;
 }
 
-size_t TypedValueStore::size() {
-  return props_.size();
-}
+size_t TypedValueStore::size() { return props_.size(); }
 
-void TypedValueStore::Accept(std::function<void(const TypedValueStore::TKey, const TypedValue &)> handler,
-                        std::function<void()> finish) const {
+void TypedValueStore::Accept(
+    std::function<void(const TypedValueStore::TKey, const TypedValue &)>
+        handler,
+    std::function<void()> finish) const {
   if (handler)
-    for (const auto& prop : props_)
-      handler(prop.first, prop.second);
+    for (const auto &prop : props_) handler(prop.first, prop.second);
 
-  if (finish)
-    finish();
-
+  if (finish) finish();
 }
-
-
