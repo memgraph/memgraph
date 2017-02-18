@@ -17,7 +17,7 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "logging/default.cpp"
-#include "utils/random/generator.h"
+#include "utils/random/random_generator.hpp"
 
 using utils::random::NumberGenerator;
 using IntegerGenerator = NumberGenerator<std::uniform_int_distribution<int>,

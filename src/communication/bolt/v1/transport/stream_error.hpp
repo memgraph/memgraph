@@ -1,11 +1,11 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
 namespace bolt {
 
-class StreamError : BasicException {
+class StreamError : StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };
 }

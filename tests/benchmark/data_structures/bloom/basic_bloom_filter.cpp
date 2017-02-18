@@ -8,7 +8,7 @@
 #include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
-#include "utils/random/generator.h"
+#include "utils/random/random_generator.hpp"
 
 using utils::random::StringGenerator;
 using StringHashFunction = std::function<uint64_t(const std::string &)>;

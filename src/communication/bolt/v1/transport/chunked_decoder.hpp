@@ -5,7 +5,7 @@
 #include <functional>
 
 #include "logging/default.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/likely.hpp"
 #include "utils/types/byte.hpp"
 
@@ -14,9 +14,9 @@ namespace bolt {
 template <class Stream>
 class ChunkedDecoder {
  public:
-  class DecoderError : public BasicException {
+  class DecoderError : public StacktraceException {
    public:
-    using BasicException::BasicException;
+    using StacktraceException::StacktraceException;
   };
 
   ChunkedDecoder(Stream &stream) : stream(stream) {}

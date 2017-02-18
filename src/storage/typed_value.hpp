@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
@@ -82,9 +82,9 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
  * trying to perform operations (such as addition) on TypedValues
  * of incompatible Types.
  */
-class TypedValueException : public BasicException {
+class TypedValueException : public StacktraceException {
  public:
-  using ::BasicException::BasicException;
+  using ::StacktraceException::StacktraceException;
 };
 
 // comparison operators

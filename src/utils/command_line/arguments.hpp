@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/option.hpp"
 
 #define REGISTER_ARGS(argc, argv) \
@@ -29,10 +29,10 @@ namespace {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-function"
 
-class ProgramArgumentException : public BasicException {
+class ProgramArgumentException : public StacktraceException {
  public:
   ProgramArgumentException(const std::string &mess)
-      : BasicException("ProgramArgumentException: " + mess + ".") {}
+      : StacktraceException("ProgramArgumentException: " + mess + ".") {}
 };
 
 class ProgramArguments {

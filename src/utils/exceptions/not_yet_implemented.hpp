@@ -1,10 +1,10 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
-class NotYetImplemented : public BasicException {
+class NotYetImplemented : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 
-  NotYetImplemented() : BasicException("") {}
+  NotYetImplemented() : StacktraceException("") {}
 };

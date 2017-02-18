@@ -1,8 +1,8 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
-class PlanExecutionException : public BasicException {
+class PlanExecutionException : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };

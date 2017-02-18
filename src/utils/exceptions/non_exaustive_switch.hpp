@@ -1,8 +1,8 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
-class NonExhaustiveSwitch : public BasicException {
+class NonExhaustiveSwitch : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };

@@ -9,9 +9,9 @@
 
 namespace io {
 
-class EpollError : BasicException {
+class EpollError : StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };
 
 class Epoll {

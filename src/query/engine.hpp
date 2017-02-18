@@ -79,9 +79,9 @@ class QueryEngine : public Loggable {
       logger.error("QueryEngineException: {}", std::string(e.what()));
       throw e;
     } catch (std::exception &e) {
-      throw BasicException(e.what());
+      throw StacktraceException(e.what());
     } catch (...) {
-      throw BasicException("unknown query engine exception");
+      throw StacktraceException("unknown query engine exception");
     }
   }
 

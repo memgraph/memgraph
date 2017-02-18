@@ -7,7 +7,7 @@
 
 #include "fmt/format.h"
 #include "logging/default.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
 using std::cout;
 using std::endl;
@@ -18,9 +18,9 @@ using std::endl;
 // but sometimes that might be a problem
 namespace {
 
-class CodeLineFormatException : public BasicException {
+class CodeLineFormatException : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };
 
 template <typename... Args>

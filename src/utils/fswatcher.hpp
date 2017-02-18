@@ -23,7 +23,7 @@ namespace fs = std::experimental::filesystem;
 #include "logging/loggable.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/linux.hpp"
 #include "utils/underlying_cast.hpp"
 
@@ -131,9 +131,9 @@ struct FSEvent : public FSEventBase {
 /**
  * Custom FSWatcher Exception
  */
-class FSWatcherException : public BasicException {
+class FSWatcherException : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };
 
 /**

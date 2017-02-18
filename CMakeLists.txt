@@ -86,14 +86,16 @@ set(antlr_static_lib ${CMAKE_SOURCE_DIR}/dist/libantlr4-runtime.a)
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
-# copy query_engine's templates file
-FILE(COPY ${src_dir}/query_engine/template
-     DESTINATION ${CMAKE_BINARY_DIR}/tests)
-FILE(COPY ${src_dir}/query_engine/template
-     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
-FILE(COPY ${src_dir}/query_engine/template
-     DESTINATION ${CMAKE_BINARY_DIR}/tests/manual)
-FILE(COPY ${src_dir}/query_engine/template DESTINATION ${CMAKE_BINARY_DIR})
+# copy query_engine template file
+set(query_engine_template_file ${src_dir}/query/plan_template_cpp)
+FILE(COPY ${query_engine_template_file}
+    DESTINATION ${CMAKE_BINARY_DIR}/tests/template)
+FILE(COPY ${query_engine_template_file}
+    DESTINATION ${CMAKE_BINARY_DIR}/tests/integration/template)
+FILE(COPY ${query_engine_template_file}
+    DESTINATION ${CMAKE_BINARY_DIR}/tests/manual/template)
+FILE(COPY ${query_engine_template_file}
+	DESTINATION ${CMAKE_BINARY_DIR}/template)
 # create destination folder for compiled queries
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)

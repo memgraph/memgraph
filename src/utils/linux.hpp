@@ -15,13 +15,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "utils/exceptions/basic_exception.hpp"
 #include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/likely.hpp"
 
 namespace linux_os {
-class LinuxException : public BasicException {
-  using BasicException::BasicException;
+class LinuxException : public StacktraceException {
+  using StacktraceException::StacktraceException;
 };
 
 /**

@@ -4,7 +4,6 @@
 #include <cassert>
 #include <thread>
 
-#include "id.hpp"
 #include "utils/underlying_cast.hpp"
 
 class Thread {

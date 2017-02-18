@@ -1,30 +1,50 @@
+//
+// Created by buda on 18/02/17.
+//
 #pragma once
 
-#include <fmt/format.h>
-#include <fmt/ostream.h>
 #include <stdexcept>
 
-#include "utils/auto_scope.hpp"
-#include "utils/stacktrace/stacktrace.hpp"
-
+/**
+ * @brief BasicException
+ *
+ * Just a wrapper around std::exception.
+ */
 class BasicException : public std::exception {
  public:
-  BasicException(const std::string &message) noexcept : message_(message) {
-    Stacktrace stacktrace;
-    message_.append(stacktrace.dump());
-  }
+  /** Constructor (C strings).
+   *
+   *  @param message C-style string error message.
+   *                 The string contents are copied upon construction.
+   *                 Hence, responsibility for deleting the char* lies
+   *                 with the caller.
+   */
+  explicit BasicException(const char* message) : msg_(message) {}
 
-  template <class... Args>
-  BasicException(const std::string &format, Args &&... args) noexcept
-      : BasicException(fmt::format(format, std::forward<Args>(args)...)) {}
+  /**
+   * Constructor (C++ STL strings).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(const std::string& message) : msg_(message) {}
 
-  template <class... Args>
-  BasicException(const char *format, Args &&... args) noexcept
-      : BasicException(fmt::format(std::string(format),
-                                   std::forward<Args>(args)...)) {}
+  /**
+   * Destructor. Virtual to allow for subclassing.
+   */
+  virtual ~BasicException() {}
 
-  const char *what() const noexcept override { return message_.c_str(); }
+  /**
+   * Returns a pointer to the (constant) error description.
+   *
+   * @return A pointer to a const char*. The underlying memory
+   *         is in possession of the BasicException object. Callers must
+   *         not attempt to free the memory.
+   */
+  const char* what() const noexcept override { return msg_.c_str(); }
 
- private:
-  std::string message_;
+ protected:
+  /**
+   * Error message.
+   */
+  std::string msg_;
 };

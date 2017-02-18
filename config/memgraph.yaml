@@ -9,7 +9,7 @@
 compile_path: "./compiled/"
 
 # path to the template (cpp) for codes generation
-template_cpp_path: "./template/template_code_cpp"
+template_cpp_path: "./template/plan_template_cpp"
 
 # path to the folder with snapshots
 snapshots_path: "snapshots"

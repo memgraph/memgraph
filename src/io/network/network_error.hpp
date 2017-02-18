@@ -2,12 +2,12 @@
 
 #include <stdexcept>
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions/stacktrace_exception.hpp"
 
 namespace io {
 
-class NetworkError : public BasicException {
+class NetworkError : public StacktraceException {
  public:
-  using BasicException::BasicException;
+  using StacktraceException::StacktraceException;
 };
 }

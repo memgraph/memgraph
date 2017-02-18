@@ -9,16 +9,15 @@
 #include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
-using skiplist_t = ConcurrentMap<int, int>;
+using concurrent_map_t = ConcurrentMap<int, int>;
 
-void print_skiplist(const skiplist_t::Accessor &skiplist) {
-  logging::info("Skiplist now has: ");
-
-  for (auto &kv : skiplist) logging::info("    ({}, {})", kv.first, kv.second);
+void print_skiplist(const concurrent_map_t::Accessor &map) {
+  logging::info("Map now has: ");
+  for (auto &kv : map) logging::info("    ({}, {})", kv.first, kv.second);
 }
 
 TEST(ConcurrentMapSkiplist, Mix) {
-  skiplist_t skiplist;
+  concurrent_map_t skiplist;
   auto accessor = skiplist.access();
 
   // insert 10

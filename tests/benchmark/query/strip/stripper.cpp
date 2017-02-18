@@ -1,9 +1,9 @@
 #define LOG_NO_INFO 1
 
+#include "benchmark/benchmark_api.h"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
-#include "benchmark/benchmark_api.h"
 #include "yaml-cpp/yaml.h"
 
 auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {

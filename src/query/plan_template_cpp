@@ -10,25 +10,19 @@ using std::endl;
 
 // Query: {{query}}
 
-class {{class_name}} : public PlanInterface<{{stream}}>
-{
+class {{class_name}} : public PlanInterface<{{stream}}> {
 public:
-
-    bool run(Db &db, const PlanArgsT &args,
-             {{stream}} &stream) override
-    {
-{{code}}
+    bool run(Db &db, const PlanArgsT &args, {{stream}} &stream) override {
+        {{code}}
     }
 
     ~{{class_name}}() {}
 };
 
-extern "C" PlanInterface<{{stream}}>* produce()
-{
+extern "C" PlanInterface<{{stream}}>* produce() {
     return new {{class_name}}();
 }
 
-extern "C" void destruct(PlanInterface<{{stream}}>* p)
-{
+extern "C" void destruct(PlanInterface<{{stream}}>* p) {
     delete p;
 }

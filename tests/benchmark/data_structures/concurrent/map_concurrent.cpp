@@ -5,7 +5,7 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "utils/random/generator.h"
+#include "utils/random/random_generator.hpp"
 
 #include "benchmark/benchmark_api.h"
 

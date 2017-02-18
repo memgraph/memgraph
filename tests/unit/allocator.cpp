@@ -1,8 +1,8 @@
-#include "catch.hpp"
+#include "gtest/gtest.h"
 
 #include "utils/memory/allocator.hpp"
 
-TEST_CASE("A block of integers can be allocated") {
+TEST(AllocatorTest, ABlockOfIntegersCanBeAllocated) {
   constexpr int N = 100;
 
   fast_allocator<int> a;
@@ -12,13 +12,13 @@ TEST_CASE("A block of integers can be allocated") {
   for (int i = 0; i < N; ++i) xs[i] = i;
 
   // can we read them back?
-  for (int i = 0; i < N; ++i) REQUIRE(xs[i] == i);
+  for (int i = 0; i < N; ++i) ASSERT_EQ(xs[i], i);
 
   // we should be able to free the memory
   a.deallocate(xs, N);
 }
 
-TEST_CASE("Allocator should work with structures") {
+TEST(AllocatorTest, AllocatorShouldWorkWithStructures) {
   struct TestObject {
     TestObject(int a, int b, int c, int d) : a(a), b(b), c(c), d(d) {}
 
@@ -27,19 +27,21 @@ TEST_CASE("Allocator should work with structures") {
 
   fast_allocator<TestObject> a;
 
-  SECTION("Allocate a single object") {
+  // allocate a single object
+  {
     auto* test = a.allocate(1);
     *test = TestObject(1, 2, 3, 4);
 
-    REQUIRE(test->a == 1);
-    REQUIRE(test->b == 2);
-    REQUIRE(test->c == 3);
-    REQUIRE(test->d == 4);
+    ASSERT_EQ(test->a, 1);
+    ASSERT_EQ(test->b, 2);
+    ASSERT_EQ(test->c, 3);
+    ASSERT_EQ(test->d, 4);
 
     a.deallocate(test, 1);
   }
 
-  SECTION("Allocate a block of structures") {
+  // Allocate a block of structures
+  {
     constexpr int N = 8;
     auto* tests = a.allocate(N);
 
@@ -47,12 +49,17 @@ TEST_CASE("Allocator should work with structures") {
     for (int i = 0; i < N; ++i) tests[i] = TestObject(i, i, i, i);
 
     for (int i = 0; i < N; ++i) {
-      REQUIRE(tests[i].a == i);
-      REQUIRE(tests[i].b == i);
-      REQUIRE(tests[i].c == i);
-      REQUIRE(tests[i].d == i);
+      ASSERT_EQ(tests[i].a, i);
+      ASSERT_EQ(tests[i].b, i);
+      ASSERT_EQ(tests[i].c, i);
+      ASSERT_EQ(tests[i].d, i);
     }
 
     a.deallocate(tests, N);
   }
+}
+
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
