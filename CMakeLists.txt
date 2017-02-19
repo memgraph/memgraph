@@ -409,8 +409,16 @@ endif()
 # -----------------------------------------------------------------------------
 
 # make CLion aware of all source files so we get refactoring etc
-# TODO: fix snapshots and everything from src and then add custom target
-#file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp ${CMAKE_SOURCE_DIR}/src/*.cpp)
-#add_executable(__refactor_target ${__SOURCES})
-#target_link_libraries(__refactor_target memgraph_lib stdc++fs Threads::Threads ${fmt_static_lib} ${yaml_static_lib} ${antlr_static_lib} antlr_opencypher_parser_lib dl)
-#add_dependencies(__refactor_target generate_opencypher_parser)
+file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp ${CMAKE_SOURCE_DIR}/src/*.cpp)
+# TODO: those files have to be refactored (snapshot & cleaner related)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_engine.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_decoder.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_encoder.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshoter.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/dbms/cleaner.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/storage/garbage/garbage.cpp)
+# TODO: figure out why the file isn't compilable it should be (typed_value_store.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/storage/typed_value_store.cpp)
+list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/io/network/tls.cpp)
+add_executable(__refactor_target ${__SOURCES})
+target_link_libraries(__refactor_target memgraph_lib stdc++fs Threads::Threads ${fmt_static_lib} ${yaml_static_lib} ${antlr_static_lib} antlr_opencypher_parser_lib dl)
