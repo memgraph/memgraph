@@ -261,7 +261,7 @@ add_custom_target(generate_opencypher_parser
    COMMAND
    ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
    COMMAND 
-   java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlrcpptest ${opencypher_grammar}
+   java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_grammar}
    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
    DEPENDS ${opencypher_grammar}
    )

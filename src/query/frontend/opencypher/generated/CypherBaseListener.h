@@ -8,7 +8,7 @@
 #include "CypherListener.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 /**
  * This class provides an empty implementation of CypherListener,
@@ -263,4 +263,4 @@ public:
 
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

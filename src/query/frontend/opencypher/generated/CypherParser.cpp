@@ -9,7 +9,7 @@
 #include "CypherParser.h"
 
 using namespace antlrcpp;
-using namespace antlrcpptest;
+using namespace antlropencypher;
 using namespace antlr4;
 
 CypherParser::CypherParser(TokenStream *input) : Parser(input) {

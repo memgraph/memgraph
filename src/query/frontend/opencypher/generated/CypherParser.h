@@ -7,7 +7,7 @@
 #include "antlr4-runtime.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 
 class  CypherParser : public antlr4::Parser {
@@ -1655,4 +1655,4 @@ private:
   static Initializer _init;
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

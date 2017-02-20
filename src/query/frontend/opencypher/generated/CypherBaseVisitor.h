@@ -8,7 +8,7 @@
 #include "CypherVisitor.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 /**
  * This class provides an empty implementation of CypherVisitor, which can be
@@ -336,4 +336,4 @@ public:
 
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

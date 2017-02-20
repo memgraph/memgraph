@@ -7,7 +7,7 @@
 #include "antlr4-runtime.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 
 class  CypherLexer : public antlr4::Lexer {
@@ -73,4 +73,4 @@ private:
   static Initializer _init;
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

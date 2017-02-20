@@ -5,4 +5,4 @@
 
 #include "CypherListener.h"
 
-using namespace antlrcpptest;
+using namespace antlropencypher;

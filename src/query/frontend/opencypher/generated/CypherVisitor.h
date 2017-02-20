@@ -8,7 +8,7 @@
 #include "CypherParser.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 /**
  * This class defines an abstract visitor for a parse tree
@@ -181,4 +181,4 @@ public:
 
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

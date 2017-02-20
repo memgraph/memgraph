@@ -7,7 +7,7 @@
 
 using namespace antlr4;
 
-using namespace antlrcpptest;
+using namespace antlropencypher;
 
 CypherLexer::CypherLexer(CharStream* input) : Lexer(input) {
   _interpreter = new atn::LexerATNSimulator(this, _atn, _decisionToDFA,

@@ -19,7 +19,7 @@
 #include "query/frontend/opencypher/generated/CypherParser.h"
 
 using namespace antlr4;
-using namespace antlrcpptest;
+using namespace antlropencypher;
 
 /**
  * @brief QueryStripper

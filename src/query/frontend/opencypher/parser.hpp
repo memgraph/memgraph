@@ -9,7 +9,7 @@
 namespace frontend {
 namespace opencypher {
 
-using namespace antlrcpptest;
+using namespace antlropencypher;
 using namespace antlr4;
 
 /**

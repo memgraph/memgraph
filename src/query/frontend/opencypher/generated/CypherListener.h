@@ -8,7 +8,7 @@
 #include "CypherParser.h"
 
 
-namespace antlrcpptest {
+namespace antlropencypher {
 
 /**
  * This interface defines an abstract listener for a parse tree produced by CypherParser.
@@ -256,4 +256,4 @@ public:
 
 };
 
-}  // namespace antlrcpptest
+}  // namespace antlropencypher

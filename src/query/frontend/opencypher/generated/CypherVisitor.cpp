@@ -5,4 +5,4 @@
 
 #include "CypherVisitor.h"
 
-using namespace antlrcpptest;
+using namespace antlropencypher;
