@@ -4,7 +4,7 @@
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
 
-using namespace antlrcpptest;
+using namespace antlropencypher;
 using namespace antlr4;
 
 int main(int, const char **a) {
