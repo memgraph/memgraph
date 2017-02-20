@@ -8,9 +8,6 @@ add_subdirectory(antlr4/runtime/Cpp)
 # setup google benchmark
 add_subdirectory(benchmark)
 
-# setup cppitertools
-include_directories(cppitertools)
-
 # setup fmt format
 # fmt uses google test but if fmt isn't top project (here it isn't) fmt tests
 # are disabled (reasonable configuration)
@@ -24,3 +21,11 @@ add_subdirectory(googletest)
 # to override an option use option :)
 option(YAML_CPP_BUILD_TOOLS "" OFF)
 add_subdirectory(yaml-cpp)
+
+# setup cppitertools
+include_directories(cppitertools)
+# CLion compatiblity; the target won't be built
+file(GLOB __CPPITERTOOLS_SOURCES __main.cpp
+                                 ${CMAKE_SOURCE_DIR}/libs/cppitertools/*.hpp)
+add_executable(__cppitertools_target ${__CPPITERTOOLS_SOURCES})
+set_target_properties(__cppitertools_target PROPERTIES EXCLUDE_FROM_ALL 1)

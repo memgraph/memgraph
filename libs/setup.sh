@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # antlr
+wget http://www.antlr.org/download/antlr-4.6-complete.jar
 git clone https://github.com/antlr/antlr4.git
 antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
 cd antlr4

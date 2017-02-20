@@ -108,11 +108,6 @@ FILE(COPY ${tests_dir}/integration/stream
      DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
 # -----------------------------------------------------------------------------
 
-# copy files needed for query engine (headers)
-# TODO: copy includes for runtime compilation
-# include(copy_includes)
-# -----------------------------------------------------------------------------
-
 # linter setup (clang-tidy)
 # all source files for linting
 FILE(GLOB_RECURSE LINTER_SRC_FILES
@@ -263,21 +258,12 @@ set(antlr_opencypher_generated_src
    ${opencypher_frontend}/generated/CypherVisitor.cpp
 )
 
-# set generated flag to true
-# foreach(src_file ${antlr_opencypher_generated_src})
-#       set_source_files_properties(
-#           ${src_file}
-#           PROPERTIES
-#           GENERATED TRUE
-#           )
-# endforeach(src_file ${antlr_opencypher_generated_src})
-
 # add custom target for generation
 add_custom_target(generate_opencypher_parser
    COMMAND
    ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
    COMMAND 
-   java -jar ${CMAKE_BINARY_DIR}/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlrcpptest ${opencypher_grammar}
+   java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlrcpptest ${opencypher_grammar}
    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
    DEPENDS ${opencypher_grammar}
    )
@@ -393,15 +379,14 @@ set(MEMGRAPH_BUILD_NAME
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-
+    set_property(TARGET ${MEMGRAPH_BUILD_NAME} PROPERTY CXX_STANDARD ${cxx_standard})
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
 #    target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
 #    target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${fmt_static_lib})
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${yaml_static_lib})
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} ${antlr_static_lib})
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
+	target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
 endif()
@@ -409,16 +394,8 @@ endif()
 # -----------------------------------------------------------------------------
 
 # make CLion aware of all source files so we get refactoring etc
-file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp ${CMAKE_SOURCE_DIR}/src/*.cpp)
-# TODO: those files have to be refactored (snapshot & cleaner related)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_engine.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_decoder.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshot_encoder.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/snapshot/snapshoter.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/dbms/cleaner.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/storage/garbage/garbage.cpp)
-# TODO: figure out why the file isn't compilable it should be (typed_value_store.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/storage/typed_value_store.cpp)
-list(REMOVE_ITEM __SOURCES ${CMAKE_SOURCE_DIR}/src/io/network/tls.cpp)
+# this target won't be built
+file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp
+                            ${CMAKE_SOURCE_DIR}/src/*.cpp)
 add_executable(__refactor_target ${__SOURCES})
-target_link_libraries(__refactor_target memgraph_lib stdc++fs Threads::Threads ${fmt_static_lib} ${yaml_static_lib} ${antlr_static_lib} antlr_opencypher_parser_lib dl)
+set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)

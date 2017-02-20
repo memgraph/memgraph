@@ -33,9 +33,9 @@ foreach(test_cpp ${test_type_cpps})
     # memgraph lib
     target_link_libraries(${target_name} memgraph_lib)
     # fmt format lib
-    target_link_libraries(${target_name} ${fmt_static_lib})
+    target_link_libraries(${target_name} fmt)
     # yaml parser lib
-    target_link_libraries(${target_name} ${yaml_static_lib})
+    target_link_libraries(${target_name} yaml-cpp)
 	# antlr
 	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
 
