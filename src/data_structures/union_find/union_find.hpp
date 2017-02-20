@@ -6,7 +6,7 @@
 template <class uintXX_t = uint32_t>
 /**
  * UnionFind data structure. Provides means of connectivity
- * setting and checking in logarithmic complexity. Memory
+ * setting and checking in O(alpha(n)) amortized complexity. Memory
  * complexity is linear.
  */
 class UnionFind {
@@ -16,15 +16,15 @@ class UnionFind {
    *
    * @param n Number of elements in the data structure.
    */
-  UnionFind(uintXX_t n) : set_count(n), count(n), parent(n) {
-    for (auto i = 0; i < n; ++i) count[i] = 1, parent[i] = i;
+  UnionFind(uintXX_t n) : set_count(n), rank(n), parent(n) {
+    for (auto i = 0; i < n; ++i) rank[i] = 0, parent[i] = i;
   }
 
   /**
    * Connects two elements (and thereby the sets they belong
    * to). If they are already connected the function has no effect.
    *
-   * Has O(alpha(n)) time complexity.
+   * Has O(alpha(n)) amortized time complexity.
    *
    * @param p First element.
    * @param q Second element.
@@ -36,18 +36,21 @@ class UnionFind {
     // if roots are equal, we don't have to do anything
     if (rp == rq) return;
 
-    // merge the smaller subtree to the root of the larger subtree
-    if (count[rp] < count[rq])
-      parent[rp] = rq, count[rp] += count[rp];
+    // merge the subtree with the smaller rank to the root of the subtree with
+    // the larger rank
+    if (rank[rp] < rank[rq])
+      parent[rp] = rq;
+    else if (rank[rp] > rank[rq])
+      parent[rq] = rp;
     else
-      parent[rq] = rp, count[rp] += count[rq];
+      parent[rq] = rp, rank[rp] += 1;
 
     // update the number of groups
     set_count--;
   }
 
   /**
-   * Indicates if two elements are connected. Has O(alpha(n)) time
+   * Indicates if two elements are connected. Has amortized O(alpha(n)) time
    * complexity.
    *
    * @param p First element.
@@ -66,8 +69,8 @@ class UnionFind {
  private:
   uintXX_t set_count;
 
-  // array of subtree counts
-  std::vector<uintXX_t> count;
+  // array of subtree ranks
+  std::vector<uintXX_t> rank;
 
   // array of tree indices
   std::vector<uintXX_t> parent;
