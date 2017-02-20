@@ -81,8 +81,6 @@ set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
 set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
-# antlr
-set(antlr_static_lib ${CMAKE_SOURCE_DIR}/dist/libantlr4-runtime.a)
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
@@ -219,7 +217,7 @@ endif()
 option(MEMGRAPH "Build memgraph binary" ON)
 message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 # proof of concept
-option(POC "Build proof of concept binaries" ON)
+option(POC "Build proof of concept binaries" OFF)
 message(STATUS "POC binaries: ${POC}")
 # tests
 option(ALL_TESTS "Add all test binaries" ON)
@@ -279,7 +277,7 @@ include_directories(
 )
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
-target_link_libraries(antlr_opencypher_parser_lib ${antlr_static_lib})
+target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
 # -----------------------------------------------------------------------------
 
 # all memgraph src files
