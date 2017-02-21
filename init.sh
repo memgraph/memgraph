@@ -1,21 +1,11 @@
 #!/bin/bash
 
-if ! type "wget" > /dev/null; then
-    echo >&2 "Please install wget or set it in your path. Aborting."; exit 1;
-fi
+# install all dependencies on debian based operating systems
+for pkg in wget git cmake uuid-dev clang-3.8; do
+    dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
+done
 
-if ! type "git" > /dev/null; then
-    echo >&2 "Please install git or set it in your path. Aborting."; exit 1;
-fi
-
-if ! type "cmake" > /dev/null; then
-    echo >&2 "Please install cmake or set it in your path. Aborting."; exit 1;
-fi
-
-cd cmake
-./setup.sh
-cd ..
-
+# setup libs (download)
 cd libs
 ./setup.sh
 cd ..

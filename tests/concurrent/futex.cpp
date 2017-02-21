@@ -9,12 +9,16 @@
 Futex futex;
 int x = 0;
 
-void test_lock(int id) {
+/**
+ * @param thread id
+ */
+void test_lock(int) {
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> dis(0, 1000);
 
-  for (int i = 0; i < 5000000; ++i) {
+  // TODO: create long running test
+  for (int i = 0; i < 5; ++i) {
     {
       std::unique_lock<Futex> guard(futex);
       x++;
