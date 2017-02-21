@@ -1,0 +1,1 @@
+CREATE (n {garment_id: 1234, garment_category_id: 1}) RETURN n;

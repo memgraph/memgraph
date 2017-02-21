@@ -5,8 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "utils/exceptions/not_yet_implemented.hpp"
-
 class PrintRecordStream {
  private:
   std::ostream &stream;
@@ -43,22 +41,7 @@ class PrintRecordStream {
   }
 
   void write_failure(const std::map<std::string, std::string> &data) {
-    throw NotYetImplemented();
   }
 
-  void write_count(const size_t count) { throw NotYetImplemented(); }
-
-  void write(const VertexAccessor &vertex) { throw NotYetImplemented(); }
-
-  void write_vertex_record(const VertexAccessor &va) {
-    throw NotYetImplemented();
-  }
-
-  void write(const EdgeAccessor &edge) { throw NotYetImplemented(); }
-
-  void write_edge_record(const EdgeAccessor &ea) { throw NotYetImplemented(); }
-
-  void send() { throw NotYetImplemented(); }
-
-  void chunk() { throw NotYetImplemented(); }
+  void write_count(const size_t count) { }
 };

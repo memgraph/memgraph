@@ -105,9 +105,6 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
       break;
     }
   }
-  permanent_assert(query_hashes.size() == engine.Size(),
-                   "Query engine doesn't contain appropriate number of query "
-                   "implementations");
 }
 
 /**
@@ -152,7 +149,7 @@ auto WarmUpEngine(Logger &log, QueryEngineT &engine,
                   GraphDbAccessor &db_accessor, StreamT &stream) {
   // path to a file with queries
   auto queries_file = fs::path(
-      GET_ARG("-q", "../data/queries/core/mg_basic_000.txt").get_string());
+      GET_ARG("-q", "../data/queries/core/mg_basic_002.txt").get_string());
   // forlder with query implementations
   auto implementations_folder =
       fs::path(GET_ARG("-i", "../integration/hardcoded_query").get_string());

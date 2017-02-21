@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
   auto log = init_logging("ManualQueryEngine");
   Dbms dbms;
   auto db_accessor = dbms.active();
-  StreamT stream(std::cout);
+  StreamT stream(std::cout);  // inject path to data queries
   QueryEngineT query_engine;
   // IMPORTANT: PrintRecordStream can be replaces with a smarter
   // object that can test the results
@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
 
   int i = 0;
   watcher.watch(
-      WatchDescriptor(implementations_folder, FSEventType::CloseNowrite),
+      WatchDescriptor(implementations_folder, FSEventType::All),
       [&](FSEvent event) {
         i++;  // bacause only close_no_write could be detected and this
         // call will cause close no write again
