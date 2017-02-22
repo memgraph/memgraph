@@ -12,7 +12,7 @@ template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
   // write signatures for the node struct and node data type
   encoder.write_struct_header(3);
-  encoder.write(underlying_cast(pack::Node));
+  encoder.write(underlying_cast(pack::Code::Node));
 
   // IMPORTANT: here we write a hardcoded 0 because we don't
   // use internal IDs, but need to give something to Bolt
@@ -40,7 +40,7 @@ template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   // write signatures for the edge struct and edge data type
   encoder.write_struct_header(5);
-  encoder.write(underlying_cast(pack::Relationship));
+  encoder.write(underlying_cast(pack::Code::Relationship));
 
   // IMPORTANT: here we write a hardcoded 0 because we don't
   // use internal IDs, but need to give something to Bolt

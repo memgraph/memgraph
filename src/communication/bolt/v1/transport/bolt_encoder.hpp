@@ -26,6 +26,7 @@ class BoltEncoder {
   }
 
   void write(byte value) { write_byte(value); }
+  void write(pack::Code value) { write_byte(static_cast<byte>(value)); }
 
   void write_byte(byte value) {
     logger.trace("write byte: {}", value);
@@ -34,7 +35,7 @@ class BoltEncoder {
 
   void write(const byte *values, size_t n) { stream.write(values, n); }
 
-  void write_null() { stream.write(pack::Null); }
+  void write_null() { stream.write(static_cast<byte>(pack::Code::Null)); }
 
   void write(bool value) { write_bool(value); }
 
@@ -45,9 +46,9 @@ class BoltEncoder {
       write_false();
   }
 
-  void write_true() { stream.write(pack::True); }
+  void write_true() { stream.write(pack::Code::True); }
 
-  void write_false() { stream.write(pack::False); }
+  void write_false() { stream.write(pack::Code::False); }
 
   template <class T>
   void write_value(T value) {
@@ -59,16 +60,16 @@ class BoltEncoder {
     if (value >= minus_2_to_the_4 && value < plus_2_to_the_7) {
       write(static_cast<byte>(value));
     } else if (value >= minus_2_to_the_7 && value < minus_2_to_the_4) {
-      write(pack::Int8);
+      write(pack::Code::Int8);
       write(static_cast<byte>(value));
     } else if (value >= minus_2_to_the_15 && value < plus_2_to_the_15) {
-      write(pack::Int16);
+      write(pack::Code::Int16);
       write_value(static_cast<int16_t>(value));
     } else if (value >= minus_2_to_the_31 && value < plus_2_to_the_31) {
-      write(pack::Int32);
+      write(pack::Code::Int32);
       write_value(static_cast<int32_t>(value));
     } else {
-      write(pack::Int64);
+      write(pack::Code::Int64);
       write_value(value);
     }
   }
@@ -76,55 +77,57 @@ class BoltEncoder {
   void write(double value) { write_double(value); }
 
   void write_double(double value) {
-    write(pack::Float64);
+    write(pack::Code::Float64);
     write_value(*reinterpret_cast<const int64_t *>(&value));
   }
 
   void write_map_header(size_t size) {
     if (size < 0x10) {
-      write(static_cast<byte>(pack::TinyMap | size));
+      write(static_cast<byte>(static_cast<size_t>(pack::Code::TinyMap) | size));
     } else if (size <= 0xFF) {
-      write(pack::Map8);
+      write(pack::Code::Map8);
       write(static_cast<byte>(size));
     } else if (size <= 0xFFFF) {
-      write(pack::Map16);
+      write(pack::Code::Map16);
       write_value<uint16_t>(size);
     } else {
-      write(pack::Map32);
+      write(pack::Code::Map32);
       write_value<uint32_t>(size);
     }
   }
 
-  void write_empty_map() { write(pack::TinyMap); }
+  void write_empty_map() { write(pack::Code::TinyMap); }
 
   void write_list_header(size_t size) {
     if (size < 0x10) {
-      write(static_cast<byte>(pack::TinyList | size));
+      write(
+          static_cast<byte>(static_cast<size_t>(pack::Code::TinyList) | size));
     } else if (size <= 0xFF) {
-      write(pack::List8);
+      write(pack::Code::List8);
       write(static_cast<byte>(size));
     } else if (size <= 0xFFFF) {
-      write(pack::List16);
+      write(pack::Code::List16);
       write_value<uint16_t>(size);
     } else {
-      write(pack::List32);
+      write(pack::Code::List32);
       write_value<uint32_t>(size);
     }
   }
 
-  void write_empty_list() { write(pack::TinyList); }
+  void write_empty_list() { write(pack::Code::TinyList); }
 
   void write_string_header(size_t size) {
     if (size < 0x10) {
-      write(static_cast<byte>(pack::TinyString | size));
+      write(
+          static_cast<byte>(static_cast<byte>(pack::Code::TinyString) | size));
     } else if (size <= 0xFF) {
-      write(pack::String8);
+      write(pack::Code::String8);
       write(static_cast<byte>(size));
     } else if (size <= 0xFFFF) {
-      write(pack::String16);
+      write(pack::Code::String16);
       write_value<uint16_t>(size);
     } else {
-      write(pack::String32);
+      write(pack::Code::String32);
       write_value<uint32_t>(size);
     }
   }
@@ -142,12 +145,13 @@ class BoltEncoder {
 
   void write_struct_header(size_t size) {
     if (size < 0x10) {
-      write(static_cast<byte>(pack::TinyStruct | size));
+      write(static_cast<byte>(static_cast<size_t>(pack::Code::TinyStruct) |
+                              size));
     } else if (size <= 0xFF) {
-      write(pack::Struct8);
+      write(pack::Code::Struct8);
       write(static_cast<byte>(size));
     } else {
-      write(pack::Struct16);
+      write(pack::Code::Struct16);
       write_value<uint16_t>(size);
     }
   }
