@@ -27,7 +27,7 @@ foreach(test_cpp ${test_type_cpps})
 
     # link libraries
     # gtest
-    target_link_libraries(${target_name} gtest gtest_main)
+    target_link_libraries(${target_name} gtest gtest_main gmock)
     # filesystem
     target_link_libraries(${target_name} stdc++fs)
     # threads (cross-platform)

@@ -236,11 +236,11 @@ message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
 # -----------------------------------------------------------------------------
 
 # includes
-include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
 include_directories(${yaml_include_dir})
+include_directories(${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
