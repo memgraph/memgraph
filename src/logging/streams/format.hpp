@@ -5,15 +5,12 @@
 
 #include "logging/log.hpp"
 
-// TODO: in c++17 replace with logging::format
-namespace logging {
-namespace format {
+namespace logging::format {
+// TODO: read formats from the config
 static const std::string out = "{} {:<5} [{}] {}\n";
 static const std::string err = out;
-
-// TODO: configurable formats
 }
-
+namespace logging {
 class Formatter {
  public:
   static std::string format(const std::string &format,

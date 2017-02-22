@@ -38,8 +38,9 @@ find_package(Threads REQUIRED)
 # -----------------------------------------------------------------------------
 
 # c++14
+# TODO: set here 17 once it will be available in the cmake version (3.8)
 set(cxx_standard 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z")
 # -----------------------------------------------------------------------------
 
 # dir variables
@@ -54,9 +55,9 @@ set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
 
 # build flags -----------------------------------------------------------------
 # release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -Wno-c++1z-extensions")
 #debug flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -Wno-c++1z-extensions")
 
 # compiler specific flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
