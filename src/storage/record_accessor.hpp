@@ -87,6 +87,16 @@ class RecordAccessor {
           handler,
       std::function<void()> finish = {}) const;
 
+  /**
+   * This should be used with care as it's comparing vlist_ pointer records and
+   * not actual values inside RecordAccessors.
+   */
+  friend bool operator<(const RecordAccessor& a, const RecordAccessor& b) {
+    assert(&a.db_accessor_ ==
+           &b.db_accessor_);  // assume the same db_accessor / transaction
+    return &a.vlist_ < &b.vlist_;
+  }
+
   friend bool operator==(const RecordAccessor& a, const RecordAccessor& b) {
     assert(&a.db_accessor_ ==
            &b.db_accessor_);  // assume the same db_accessor / transaction

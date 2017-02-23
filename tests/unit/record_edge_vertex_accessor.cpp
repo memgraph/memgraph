@@ -58,6 +58,41 @@ TEST(RecordAccessor, RecordEquality) {
   EXPECT_NE(e1, e2);
 }
 
+TEST(RecordAccessor, RecordLessThan) {
+  Dbms dbms;
+  GraphDbAccessor dba = dbms.active();
+
+  auto v1 = dba.insert_vertex();
+  auto v2 = dba.insert_vertex();
+  EXPECT_NE(v1, v2);
+  EXPECT_TRUE(v1 < v2 || v2 < v1);
+  EXPECT_FALSE(v1 < v1);
+  EXPECT_FALSE(v2 < v2);
+  auto e1 = dba.insert_edge(v1, v2, dba.edge_type("type"));
+  auto e2 = dba.insert_edge(v1, v2, dba.edge_type("type"));
+  EXPECT_NE(e1, e2);
+  EXPECT_TRUE(e1 < e2 || e2 < e1);
+  EXPECT_FALSE(e1 < e1);
+  EXPECT_FALSE(e2 < e2);
+
+  std::vector<VertexAccessor> vertices = dba.vertices();
+  std::vector<VertexAccessor*> A;
+  for (int i = 0; i < vertices.size(); ++i) A.push_back(&vertices[i]);
+  std::sort(A.begin(), A.end(),
+            [](const VertexAccessor* a, const VertexAccessor* b) -> bool {
+              return *a < *b;
+            });
+
+  std::vector<VertexAccessor*> B;
+  for (int i = 0; i < vertices.size(); ++i) B.push_back(&vertices[i]);
+  std::sort(B.begin(), B.end(),
+            [](const VertexAccessor* a, const VertexAccessor* b) -> bool {
+              return *a < *b;
+            });
+
+  for (int i = 0; i < A.size(); ++i) EXPECT_EQ(*A[i], *B[i]);
+}
+
 TEST(RecordAccessor, VertexLabels) {
   Dbms dbms;
   GraphDbAccessor dba = dbms.active();
