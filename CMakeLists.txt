@@ -9,6 +9,13 @@ if(NOT UNIX)
     message(FATAL "Unsupported operating system.")
 endif()
 
+#look for ccache and set it up
+find_program(CCACHE_FOUND ccache)
+if(CCACHE_FOUND)
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
+  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+endif(CCACHE_FOUND)
+
 # choose a compiler 
 # NOTE: must be choosen before use of project() or enable_language() ----------
 set(CMAKE_C_COMPILER "clang")
