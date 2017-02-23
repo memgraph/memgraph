@@ -11,7 +11,6 @@ namespace fs = std::experimental::filesystem;
 #include "query/exception/query_engine.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan_compiler.hpp"
-#include "query/plan_generator.hpp"
 #include "query/plan_interface.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/dynamic_lib.hpp"
@@ -147,7 +146,9 @@ class QueryEngine : public Loggable {
     auto generated_path = fs::path(CONFIG(config::COMPILE_PATH) +
                                    std::to_string(stripped.hash) + ".cpp");
 
-    plan_generator.generate_plan(stripped.query, stripped.hash, generated_path);
+    frontend::opencypher::Parser parser(stripped.query);
+    backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
+                            generated_path);
     return LoadCpp(generated_path, stripped.hash);
   }
 
@@ -193,7 +194,5 @@ class QueryEngine : public Loggable {
 
   QueryPreprocessor preprocessor;
   PlanCompiler plan_compiler;
-  PlanGenerator<frontend::opencypher::Parser, backend::cpp::Generator>
-      plan_generator;
   ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>> query_plans;
 };

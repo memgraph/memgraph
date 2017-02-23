@@ -21,8 +21,9 @@ BASE_FLAGS = [
     '-I./include',
     '-I./libs/fmt',
     '-I./libs/yaml-cpp',
-    '-I./build/googletest-src/googletest/include',
-    '-I./build/googlebenchmark-src/include',
+    '-I./libs/googletest/googletest/include',
+    '-I./libs/googletest/googlemock/include',
+    '-I./libs/benchmark/include',
     '-I./libs/antlr4/runtime/Cpp/runtime/src'
 ]
 

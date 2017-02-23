@@ -5,6 +5,7 @@
 #include "antlr4-runtime.h"
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
+#include "utils/exceptions/basic_exception.hpp"
 
 namespace frontend {
 namespace opencypher {
@@ -12,8 +13,15 @@ namespace opencypher {
 using namespace antlropencypher;
 using namespace antlr4;
 
+class SyntaxException : BasicException {
+ public:
+  SyntaxException() : BasicException("") {}
+};
+
 /**
  * Generates openCypher AST
+ * This thing must me a class since parser.cypher() returns pointer and there is
+ * no way for us to get ownership over the object.
  */
 class Parser {
  public:
@@ -21,18 +29,23 @@ class Parser {
    * @param query incomming query that has to be compiled into query plan
    *        the first step is to generate AST
    */
-  auto generate_ast(const std::string &query) {
-    // get tokens
-    ANTLRInputStream input(query.c_str());
-    CypherLexer lexer(&input);
-    CommonTokenStream tokens(&lexer);
-
-    // generate ast
-    CypherParser parser(&tokens);
-    tree::ParseTree *tree = parser.cypher();
-
-    return tree;
+  Parser(const std::string query) : query_(std::move(query)) {
+    if (parser_.getNumberOfSyntaxErrors()) {
+      throw SyntaxException();
+    }
   }
+
+  auto tree() { return tree_; }
+
+ private:
+  std::string query_;
+  ANTLRInputStream input_{query_.c_str()};
+  CypherLexer lexer_{&input_};
+  CommonTokenStream tokens_{&lexer_};
+
+  // generate ast
+  CypherParser parser_{&tokens_};
+  tree::ParseTree *tree_{parser_.cypher()};
 };
 }
 }
