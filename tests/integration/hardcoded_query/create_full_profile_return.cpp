@@ -2,8 +2,8 @@
 #include <string>
 
 #include "query/plan_interface.hpp"
-#include "query/util.hpp"
-#include "storage/model/properties/all.hpp"
+#include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 #include "using.hpp"
 
 using std::cout;
@@ -13,24 +13,16 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(Db &db, const PlanArgsT &args, Stream &stream) override {
-    DbAccessor t(db);
-
-    auto profile_id = t.vertex_property_key("profile_id", args[0].key.flags());
-    auto partner_id = t.vertex_property_key("partner_id", args[1].key.flags());
-
-    auto va = t.vertex_insert();
-    va.set(profile_id, std::move(args[0]));
-    va.set(partner_id, std::move(args[1]));
-
-    auto &profile = t.label_find_or_create("profile");
-    va.add_label(profile);
-
+  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+           Stream &stream) {
+    auto v = db_accessor.insert_vertex();
+    v.PropsSet(db_accessor.property("profile_id"), args.at(0));
+    v.PropsSet(db_accessor.property("partner_id"), args.at(1));
+    v.add_label(db_accessor.label("profile"));
     stream.write_field("p");
-    stream.write_vertex_record(va);
-    stream.write_meta("w");
-
-    return t.commit();
+    stream.write_vertex_record(v);
+    stream.write_meta("rw");
+    return db_accessor.transaction_.commit();
   }
 
   ~CPUPlan() {}

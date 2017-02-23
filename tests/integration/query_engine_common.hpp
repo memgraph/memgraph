@@ -82,18 +82,26 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
   auto plan_paths = LoadFilePaths(path, "cpp");
   // query mark will be used to extract queries from files (because we want
   // to be independent to a query hash)
-  auto query_mark = std::string("// Query: ");
+  auto comment = std::string("// ");
+  auto query_mark = comment + std::string("Query: ");
   for (auto &plan_path : plan_paths) {
     auto lines = read_lines(plan_path);
     // find the line with a query in order
     // be able to place it in the dynamic libs container (base on query
     // hash)
-    for (auto &line : lines) {
+    for (int i = 0; i < (int)lines.size(); ++i) {
       // find query in the line
+      auto &line = lines[i];
       auto pos = line.find(query_mark);
       // if query doesn't exist pass
       if (pos == std::string::npos) continue;
       auto query = trim(line.substr(pos + query_mark.size()));
+      while (i + 1 < (int)lines.size() &&
+             lines[i + 1].find(comment) != std::string::npos) {
+        query += trim(
+            lines[i + 1].substr(lines[i + 1].find(comment) + comment.length()));
+        ++i;
+      }
       // load/compile implementations only for the queries which are
       // contained in queries_file
       // it doesn't make sense to compile something which won't be runned

@@ -2,8 +2,8 @@
 #include <string>
 
 #include "query/plan_interface.hpp"
-#include "query/util.hpp"
-#include "storage/model/properties/all.hpp"
+#include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 #include "using.hpp"
 
 using std::cout;
@@ -13,37 +13,29 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(Db &db, const PlanArgsT &args, Stream &stream) override {
-    DbAccessor t(db);
-
-    indices_t indices = {{"garment_id", 0}};
-    auto properties = query_properties(indices, args);
-
-    auto &label = t.label_find_or_create("garment");
-
+  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+           Stream &stream) {
     stream.write_field("labels(g)");
-
-    label.index()
-        .for_range(t)
-        .properties_filter(t, properties)
-        .for_all([&](auto va) -> void {
-          va.stream_repr(std::cout);
-          auto &ff_label = t.label_find_or_create("FF");
-          va.add_label(ff_label);
-          auto &labels = va.labels();
-
-          stream.write_record();
-          stream.write_list_header(1);
-          stream.write_list_header(labels.size());
-          for (auto &label : labels) {
-            stream.write(label.get().str());
-          }
-          stream.chunk();
-        });
-
+    for (auto vertex : db_accessor.vertices()) {
+      if (vertex.has_label(db_accessor.label("garment"))) {
+        auto prop = vertex.PropsAt(db_accessor.property("garment_id"));
+        if (prop.type_ == TypedValue::Type::Null) continue;
+        auto cmp = prop == args.at(0);
+        if (cmp.type_ != TypedValue::Type::Bool) continue;
+        if (cmp.Value<bool>() != true) continue;
+        vertex.add_label(db_accessor.label("FF"));
+        auto &labels = vertex.labels();
+        stream.write_record();
+        stream.write_list_header(1);
+        stream.write_list_header(labels.size());
+        for (const GraphDb::Label &label : labels) {
+          stream.write(label);
+        }
+        stream.chunk();
+      }
+    }
     stream.write_meta("rw");
-
-    return t.commit();
+    return db_accessor.transaction_.commit();
   }
 
   ~CPUPlan() {}

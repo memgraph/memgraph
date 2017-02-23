@@ -9,7 +9,8 @@
 using std::cout;
 using std::endl;
 
-// Query: CREATE (g:garment {garment_id: 1234, garment_category_id:1}) RETURN g
+// Query: CREATE (g:garment {garment_id: 1234, garment_category_id:
+// 1,reveals:30}) RETURN g
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
@@ -19,6 +20,7 @@ class CPUPlan : public PlanInterface<Stream> {
     v.add_label(db_accessor.label("garment"));
     v.PropsSet(db_accessor.property("garment_id"), args.at(0));
     v.PropsSet(db_accessor.property("garment_category_id"), args.at(1));
+    v.PropsSet(db_accessor.property("reveals"), args.at(2));
     stream.write_field("g");
     stream.write_vertex_record(v);
     stream.write_meta("rw");
