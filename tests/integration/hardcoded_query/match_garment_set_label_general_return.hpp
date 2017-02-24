@@ -28,5 +28,6 @@ bool run_general_query(GraphDbAccessor &db_accessor,
     }
   }
   stream.write_meta("rw");
-  return db_accessor.transaction_.commit();
+  db_accessor.transaction_.commit();
+  return true;
 }

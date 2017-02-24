@@ -22,7 +22,8 @@ class CPUPlan : public PlanInterface<Stream> {
     stream.write_field("g");
     stream.write_vertex_record(v);
     stream.write_meta("rw");
-    return db_accessor.transaction_.commit();
+    db_accessor.transaction_.commit();
+    return true;
   }
 
   ~CPUPlan() {}
