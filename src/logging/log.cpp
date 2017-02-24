@@ -6,7 +6,7 @@
 
 Logger Log::logger(const std::string &name) {
   // TODO: once when properties are refactored enable this
-  // runtime_assert(this != nullptr,
+  // debug_assert(this != nullptr,
   //                "This shouldn't be null. This method is "
   //                "called before the log object is created. "
   //                "E.g. static variables before main method.");

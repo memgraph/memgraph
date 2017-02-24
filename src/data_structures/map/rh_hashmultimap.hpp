@@ -3,6 +3,7 @@
 #include <cstring>
 #include <functional>
 #include "data_structures/map/rh_common.hpp"
+#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 #include "utils/likely.hpp"
 #include "utils/option.hpp"
@@ -122,7 +123,7 @@ class RhHashMultiMap : public RhBase<K, D, init_size_pow2> {
 
   // Inserts element with the given key.
   void add(const K &key_in, D *data) {
-    assert(key_in == data->get_key());
+    debug_assert(key_in == data->get_key(), "Key doesn't match data key.");
 
     if (count < capacity) {
       auto key = std::ref(key_in);

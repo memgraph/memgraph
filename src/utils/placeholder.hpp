@@ -38,7 +38,7 @@ class Placeholder {
   bool is_initialized() { return initialized; }
 
   T &get() noexcept {
-    runtime_assert(initialized, "Placeholder object not initialized");
+    debug_assert(initialized, "Placeholder object not initialized");
     return *data._M_ptr();
   }
 
@@ -46,7 +46,7 @@ class Placeholder {
    * @return const reference to object.
    */
   const T &get() const noexcept {
-    runtime_assert(initialized, "Placeholder object not initialized");
+    debug_assert(initialized, "Placeholder object not initialized");
     return *data._M_ptr();
   }
 

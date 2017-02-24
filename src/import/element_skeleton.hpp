@@ -1,11 +1,10 @@
 #pragma once
 
-#include <cassert>
-
 #include "database/db_accessor.hpp"
 #include "storage/model/typed_value.hpp"
 #include "storage/model/typed_value_store.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/assert.hpp"
 
 // Holder for element data which he can then insert as a vertex or edge into the
 // database depending on the available data and called add_* method.
@@ -36,7 +35,7 @@ class ElementSkeleton {
   }
 
   VertexAccessor add_vertex() {
-    assert(properties_e.empty());
+    debug_assert(properties_e.empty(), "Properties aren't empty.");
 
     auto va = db.vertex_insert();
 
@@ -55,15 +54,15 @@ class ElementSkeleton {
   // Return error msg if unsuccessful
   Option<std::string> add_edge() {
     if (!from_va.is_present()) {
-      return make_option(std::string("From field must be seted"));
+      return make_option(std::string("From field must be set"));
     }
     if (!to_va.is_present()) {
-      return make_option(std::string("To field must be seted"));
+      return make_option(std::string("To field must be set"));
     }
     if (!type.is_present()) {
-      return make_option(std::string("Type field must be seted"));
+      return make_option(std::string("Type field must be set"));
     }
-    assert(properties_v.empty());
+    debug_assert(properties_v.empty(), "Properties aren't empty.");
 
     auto ve = db.edge_insert(from_va.get(), to_va.get());
     ve.edge_type(*type.get());

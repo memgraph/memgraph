@@ -1,8 +1,8 @@
 #pragma once
 
 #include <atomic>
-#include <cassert>
 #include <utility>
+#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 
 // TODO: reimplement this. It's correct but somewhat inefecient and it could be
@@ -63,7 +63,7 @@ class ConcurrentList {
     IteratorBase() : list(nullptr), curr(nullptr) {}
 
     IteratorBase(ConcurrentList *list) : list(list) {
-      assert(list != nullptr);
+      debug_assert(list != nullptr, "List is nullptr.");
       // Increment number of iterators accessing list.
       list->active_threads_no_++;
       // Start from the begining of list.
@@ -113,11 +113,11 @@ class ConcurrentList {
     IteratorBase &operator=(IteratorBase &&other) = delete;
 
     T &operator*() const {
-      assert(valid());
+      debug_assert(valid(), "Not valid data.");
       return curr->data;
     }
     T *operator->() const {
-      assert(valid());
+      debug_assert(valid(), "Not valid data.");
       return &(curr->data);
     }
 
@@ -125,7 +125,7 @@ class ConcurrentList {
 
     // Iterating is wait free.
     It &operator++() {
-      assert(valid());
+      debug_assert(valid(), "Not valid data.");
       do {
         prev = curr;
         curr = load(curr->next);
@@ -137,7 +137,7 @@ class ConcurrentList {
     It &operator++(int) { return operator++(); }
 
     bool is_removed() {
-      assert(valid());
+      debug_assert(valid(), "Not valid data.");
       return load(curr->removed);
     }
 
@@ -176,7 +176,7 @@ class ConcurrentList {
     // This can be improved with combinig the removed flag with prev.next or
     // curr.next
     bool remove() {
-      assert(valid());
+      debug_assert(valid(), "Not valid data.");
       // Try to logically remove it.
       if (cas(curr->removed, false, true)) {
         // I removed it!!!

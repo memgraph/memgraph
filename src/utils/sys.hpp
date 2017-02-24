@@ -8,7 +8,6 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <cassert>
 #include <fstream>
 
 namespace sys {

@@ -9,28 +9,28 @@
 // Value extraction template instantiations
 template <>
 bool TypedValue::Value<bool>() const {
-  runtime_assert(type_ == TypedValue::Type::Bool,
+  debug_assert(type_ == TypedValue::Type::Bool,
                  "Incompatible template param and type");
   return bool_v;
 }
 
 template <>
 std::string TypedValue::Value<std::string>() const {
-  runtime_assert(type_ == TypedValue::Type::String,
+  debug_assert(type_ == TypedValue::Type::String,
                  "Incompatible template param and type");
   return *string_v;
 }
 
 template <>
 int TypedValue::Value<int>() const {
-  runtime_assert(type_ == TypedValue::Type::Int,
+  debug_assert(type_ == TypedValue::Type::Int,
                  "Incompatible template param and type");
   return int_v;
 }
 
 template <>
 float TypedValue::Value<float>() const {
-  runtime_assert(type_ == TypedValue::Type::Float,
+  debug_assert(type_ == TypedValue::Type::Float,
                  "Incompatible template param and type");
   return float_v;
 }

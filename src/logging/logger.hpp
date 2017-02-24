@@ -36,7 +36,7 @@ class Logger {
 
   template <class Level, class... Args>
   void emit(Args&&... args) {
-    runtime_assert(log != nullptr, "Log object has to be defined.");
+    debug_assert(log != nullptr, "Log object has to be defined.");
 
     auto message = std::make_unique<Message<Level>>(
         Timestamp::now(), name, fmt::format(std::forward<Args>(args)...));

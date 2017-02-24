@@ -1,9 +1,9 @@
 #pragma once
 
-#include <cassert>
 #include <cstring>
 #include <string>
 
+#include "utils/assert.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/total_ordering_with.hpp"
 
@@ -18,17 +18,17 @@ class WeakString {
   constexpr WeakString(const char* str, size_t len) : str(str), len(len) {}
 
   const char& operator[](size_t idx) const {
-    assert(idx < len);
+    debug_assert(idx < len, "Index not smaller than length.");
     return str[idx];
   }
 
   const char& front() const {
-    assert(len > 0);
+    debug_assert(len > 0, "String is empty.");
     return str[0];
   }
 
   const char& back() const {
-    assert(len > 0);
+    debug_assert(len > 0, "String is empty.");
     return str[len - 1];
   }
 

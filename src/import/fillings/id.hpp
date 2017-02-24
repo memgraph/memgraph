@@ -1,6 +1,7 @@
 #pragma once
 
 #include "import/fillings/filler.hpp"
+#include "utils/assert.hpp"
 
 // Parses import local Id.
 // TG - Type group
@@ -14,7 +15,9 @@ class IdFiller : public Filler {
   IdFiller(
       Option<typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey> key)
       : key(key) {
-    assert(!key.is_present() || key.get().prop_type() == Type(Flags::Int64));
+    debug_assert(
+        !key.is_present() || key.get().prop_type() == Type(Flags::Int64),
+        "Invalid key property type.");
   }
 
   // Fills skeleton with data from str. Returns error description if

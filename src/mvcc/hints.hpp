@@ -4,6 +4,7 @@
 #include <atomic>
 
 #include "transactions/commit_log.hpp"
+#include "utils/assert.hpp"
 
 namespace mvcc {
 
@@ -66,7 +67,9 @@ class Hints {
   };
 
  public:
-  Hints() : cre(bits), exp(bits) { assert(bits.is_lock_free()); }
+  Hints() : cre(bits), exp(bits) {
+    debug_assert(bits.is_lock_free(), "Bits are not lock free.");
+  }
 
   union HintBits {
     uint8_t bits;

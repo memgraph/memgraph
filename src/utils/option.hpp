@@ -1,9 +1,9 @@
 #pragma once
 
 #include <ext/aligned_buffer.h>
-#include <cassert>
 #include <cstring>
 #include <utility>
+#include "utils/assert.hpp"
 
 // Optional object storage. It maybe has and maybe
 // dosent have objet of type T.
@@ -85,7 +85,7 @@ class Option {
   bool is_present() const { return initialized; }
 
   T &get() noexcept {
-    assert(initialized);
+    debug_assert(initialized, "Not initialized.");
     return *data._M_ptr();
   }
 
@@ -107,7 +107,7 @@ class Option {
   }
 
   const T &get() const noexcept {
-    assert(initialized);
+    debug_assert(initialized, "Not initialized.");
     return *data._M_ptr();
   }
 
@@ -148,7 +148,7 @@ class Option {
   }
 
   T take() {
-    assert(initialized);
+    debug_assert(initialized, "Not initialized.");
     initialized = false;
     return std::move(*data._M_ptr());
   }

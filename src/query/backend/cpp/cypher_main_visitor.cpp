@@ -1,6 +1,5 @@
 #include "query/backend/cpp/cypher_main_visitor.hpp"
 
-#include <cassert>
 #include <climits>
 #include <string>
 #include <unordered_map>
@@ -8,6 +7,7 @@
 #include <vector>
 
 #include "query/backend/cpp/compiler_structures.hpp"
+#include "utils/assert.hpp"
 
 namespace {
 // List of unnamed tokens visitor needs to use. This should be reviewed on every
@@ -148,7 +148,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
     CypherParser::RelationshipDetailContext *) {
-  assert(false);
+  debug_assert(false, "Unimplemented.");
   return 0;
 }
 

@@ -1,6 +1,7 @@
 #include "storage/record_accessor.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
+#include "utils/assert.hpp"
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
@@ -8,7 +9,7 @@ RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
     : vlist_(vlist),
       record_(vlist_.find(db_accessor.transaction_)),
       db_accessor_(db_accessor) {
-  assert(record_ != nullptr);
+  debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
 template <typename TRecord>
@@ -16,7 +17,7 @@ RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         TRecord &record,
                                         GraphDbAccessor &db_accessor)
     : vlist_(vlist), record_(&record), db_accessor_(db_accessor) {
-  assert(record_ != nullptr);
+  debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
 template <typename TRecord>

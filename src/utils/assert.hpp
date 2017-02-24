@@ -1,6 +1,6 @@
 /**
  * Permanent Assert -> always active
- * Runtime Assert -> active only if RUNTIME_ASSERT_ON is present
+ * Debug Assert -> active only if DEBUG_ASSERT_ON is present
  */
 #pragma once
 
@@ -50,10 +50,10 @@
  * define which controls when the assertion will be active          \
  *                                                                  \
  * could be used wherever the standard C assert is used but         \
- * the user should not forget about RUNTIME_ASSERT_ON define        \
+ * the user should not forget about DEBUG_ASSERT_ON define          \
  */
-#ifdef RUNTIME_ASSERT_ON
-#define runtime_assert(condition, message) permanent_assert(condition, message)
+#ifdef DEBUG_ASSERT_ON
+#define debug_assert(condition, message) permanent_assert(condition, message)
 #else
-#define runtime_assert(condition, message)
+#define debug_assert(condition, message)
 #endif

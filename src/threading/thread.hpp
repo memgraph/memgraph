@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <cassert>
 #include <thread>
 
 #include "utils/underlying_cast.hpp"

@@ -7,6 +7,7 @@
 #include "memory/freelist.hpp"
 #include "memory/lazy_gc.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "utils/assert.hpp"
 
 template <class T, class lock_t = SpinLock>
 class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>,
@@ -27,7 +28,7 @@ class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>,
     // take freelist if there is no more threads
     {
       auto lock = this->acquire_unique();
-      assert(this->count > 0);
+      debug_assert(this->count > 0, "Count is equal to zero.");
       --this->count;
       if (this->count == 0) {
         freelist.swap(local_freelist);

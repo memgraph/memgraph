@@ -2,7 +2,6 @@
 
 #include <unistd.h>
 #include <atomic>
-#include <cassert>
 #include <iostream>
 
 namespace memory {

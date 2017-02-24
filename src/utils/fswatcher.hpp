@@ -111,7 +111,7 @@ struct FSEventBase {
 struct WatchDescriptor : public FSEventBase {
   WatchDescriptor(const fs::path &directory, const FSEventType type)
       : FSEventBase(directory, type) {
-    runtime_assert(fs::is_directory(path),
+    debug_assert(fs::is_directory(path),
                    "The path parameter should be directory");
   }
 };
@@ -318,7 +318,7 @@ class FSWatcher : public Loggable {
           // TODO: figure out why (it is not easy)
           if (((p - buffer_) + in_event_length) > IN_BUFF_LEN) break;
           // here should be an assertion
-          // runtime_assert(in_event_length <= IN_BUFF_SLOT_LEN,
+          // debug_assert(in_event_length <= IN_BUFF_SLOT_LEN,
           //                "Inotify event length cannot be bigger
           //                than "
           //                "Inotify slot length");

@@ -1,10 +1,10 @@
 #pragma once
 
 #include <atomic>
-#include <cassert>
 
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "utils/assert.hpp"
 
 template <class block_t = uint8_t, size_t chunk_size = 32768>
 class DynamicBitset : Lockable<SpinLock> {
@@ -21,17 +21,17 @@ class DynamicBitset : Lockable<SpinLock> {
     }
 
     block_t at(size_t k, size_t n, std::memory_order order) {
-      assert(k + n - 1 < size);
+      debug_assert(k + n - 1 < size, "Invalid index.");
       return (block.load(order) >> k) & bitmask(n);
     }
 
     void set(size_t k, size_t n, std::memory_order order) {
-      assert(k + n - 1 < size);
+      debug_assert(k + n - 1 < size, "Invalid index.");
       block.fetch_or(bitmask(n) << k, order);
     }
 
     void clear(size_t k, size_t n, std::memory_order order) {
-      assert(k + n - 1 < size);
+      debug_assert(k + n - 1 < size, "Invalid index.");
       block.fetch_and(~(bitmask(n) << k), order);
     }
 
@@ -130,7 +130,7 @@ class DynamicBitset : Lockable<SpinLock> {
       chunk->next.store(new Chunk());
     }
 
-    assert(chunk != nullptr);
+    debug_assert(chunk != nullptr, "Chunk is nullptr.");
     return *chunk;
   }
 

@@ -1,7 +1,7 @@
 #pragma once
-#include <cassert>
 #include <cstring>
 #include <functional>
+#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 
@@ -93,17 +93,20 @@ class RhBase {
     IteratorBase(IteratorBase &&) = default;
 
     D *operator*() {
-      assert(index < map->capacity && map->array[index].valid());
+      debug_assert(index < map->capacity && map->array[index].valid(),
+                   "Either index is invalid or data is not valid.");
       return map->array[index].ptr();
     }
 
     D *operator->() {
-      assert(index < map->capacity && map->array[index].valid());
+      debug_assert(index < map->capacity && map->array[index].valid(),
+                   "Either index is invalid or data is not valid.");
       return map->array[index].ptr();
     }
 
     It &operator++() {
-      assert(index < map->capacity && map->array[index].valid());
+      debug_assert(index < map->capacity && map->array[index].valid(),
+                   "Either index is invalid or data is not valid.");
       auto mask = map->mask();
       do {
         advanced++;

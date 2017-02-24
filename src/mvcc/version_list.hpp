@@ -6,6 +6,7 @@
 #include "memory/lazy_gc.hpp"
 #include "mvcc/serialization_error.hpp"
 #include "storage/locking/record_lock.hpp"
+#include "utils/assert.hpp"
 
 namespace mvcc {
 
@@ -124,7 +125,7 @@ class VersionList {
    */
   template <typename... Args>
   T *insert(tx::Transaction &t, Args &&... args) {
-    assert(head == nullptr);
+    debug_assert(head == nullptr, "Head is not nullptr on creation.");
 
     // create a first version of the record
     // TODO replace 'new' with something better
@@ -139,7 +140,7 @@ class VersionList {
   }
 
   T *update(tx::Transaction &t) {
-    assert(head != nullptr);
+    debug_assert(head != nullptr, "Head is nullptr on update.");
     auto record = find(t);
 
     // check if we found any visible records
@@ -149,7 +150,7 @@ class VersionList {
   }
 
   T *update(T *record, tx::Transaction &t) {
-    assert(record != nullptr);
+    debug_assert(record != nullptr, "Record is nullptr on update.");
     lock_and_validate(record, t);
 
     // It could be done with unique_ptr but while this could mean memory
@@ -167,7 +168,7 @@ class VersionList {
   }
 
   bool remove(tx::Transaction &t) {
-    assert(head != nullptr);
+    debug_assert(head != nullptr, "Head is nullptr on removal.");
     auto record = find(t);
 
     if (!record) return false;
@@ -178,14 +179,15 @@ class VersionList {
   }
 
   void remove(T *record, tx::Transaction &t) {
-    assert(record != nullptr);
+    debug_assert(record != nullptr, "Record is nullptr on removal.");
     lock_and_validate(record, t);
     record->mark_deleted(t);
   }
 
  private:
   void lock_and_validate(T *record, tx::Transaction &t) {
-    assert(record != nullptr);
+    debug_assert(record != nullptr,
+                 "Record is nullptr on lock and validation.");
 
     // take a lock on this node
     t.take_lock(lock);
@@ -195,7 +197,8 @@ class VersionList {
     if (!record->tx.exp() || !record->exp_committed(t)) return;
 
     // if it committed, then we have a serialization conflict
-    assert(record->hints.load().exp.is_committed());
+    debug_assert(record->hints.load().exp.is_committed(),
+                 "Serialization conflict.");
     throw SerializationError();
   }
 

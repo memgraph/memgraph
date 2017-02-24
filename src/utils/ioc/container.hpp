@@ -1,9 +1,9 @@
 #pragma once
 
-#include <cassert>
 #include <map>
 #include <memory>
 #include <vector>
+#include "utils/assert.hpp"
 
 namespace ioc {
 
@@ -26,7 +26,7 @@ class Container {
     Instance(std::shared_ptr<T>&& item) : item(item) {}
 
     std::shared_ptr<T> get() override {
-      assert(item != nullptr);
+      debug_assert(item != nullptr, "Item is nullptr.");
       return item;
     }
 
@@ -48,11 +48,11 @@ class Container {
   template <class T>
   std::shared_ptr<T> resolve() {
     auto it = items.find(key<T>());
-    assert(it != items.end());
+    debug_assert(it != items.end(), "Key not found.");
 
     // try to cast Holdable* to Item<T>*
     auto item = dynamic_cast<Item<T>*>(it->second.get());
-    assert(item != nullptr);
+    debug_assert(item != nullptr, "Item is nullptr.");
 
     return item->get();
   }

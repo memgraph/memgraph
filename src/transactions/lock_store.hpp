@@ -1,9 +1,9 @@
 #pragma once
 
-#include <cassert>
 #include <memory>
 #include <vector>
 #include "storage/locking/lock_status.hpp"
+#include "utils/assert.hpp"
 
 namespace tx {
 
@@ -15,7 +15,7 @@ class LockStore {
 
     template <class... Args>
     LockHolder(T *lock, Args &&... args) noexcept : lock(lock) {
-      assert(lock != nullptr);
+      debug_assert(lock != nullptr, "Lock is nullptr.");
       auto status = lock->lock(std::forward<Args>(args)...);
 
       if (status != LockStatus::Acquired) lock = nullptr;

@@ -31,6 +31,7 @@
 #include "storage/model/properties/all.hpp"
 #include "storage/model/properties/flags.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/assert.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/option.hpp"
 
@@ -180,7 +181,7 @@ class CSVImporter : public BaseImporter {
   template <class TG>
   typename PropertyFamily<TG>::PropertyType::PropertyFamilyKey property_key(
       const char *name, Flags type) {
-    assert(false);
+    debug_assert(false, "Fail.");
   }
 
   // Returns filler for name:type in header_part. None if error occured.

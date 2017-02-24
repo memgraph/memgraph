@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utils/assert.hpp"
 #include "utils/option.hpp"
 
 namespace iter {
@@ -16,22 +17,22 @@ class RangeIterator {
       : value(iter.next()), iter(Option<I>(std::move(iter))) {}
 
   T &operator*() {
-    assert(value.is_present());
+    debug_assert(value.is_present(), "No value.");
     return value.get();
   }
 
   T *operator->() {
-    assert(value.is_present());
+    debug_assert(value.is_present(), "No value.");
     return &value.get();
   }
 
   operator T &() {
-    assert(value.is_present());
+    debug_assert(value.is_present(), "No value.");
     return value.get();
   }
 
   RangeIterator &operator++() {
-    assert(iter.is_present());
+    debug_assert(iter.is_present(), "No value.");
     value = iter.get().next();
     return (*this);
   }

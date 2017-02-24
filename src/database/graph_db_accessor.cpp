@@ -5,6 +5,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/assert.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb& db)
     : db_(db), transaction_(std::move(db.tx_engine.begin())) {}
@@ -93,7 +94,7 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor& from,
 void swap_out_edge(std::vector<mvcc::VersionList<Edge>*>& edges,
                    mvcc::VersionList<Edge>* edge) {
   auto found = std::find(edges.begin(), edges.end(), edge);
-  assert(found != edges.end());
+  debug_assert(found != edges.end(), "Edge doesn't exist.");
   std::swap(*found, edges.back());
   edges.pop_back();
 }

@@ -1,7 +1,8 @@
 #include "thread.hpp"
+#include "utils/assert.hpp"
 
 Thread::Thread(Thread &&other) {
-  assert(thread_id == UNINITIALIZED);
+  debug_assert(thread_id == UNINITIALIZED, "Thread was initialized before.");
   thread_id = other.thread_id;
   thread = std::move(other.thread);
 }

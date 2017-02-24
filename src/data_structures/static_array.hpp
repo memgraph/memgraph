@@ -30,13 +30,13 @@ class static_array {
 
   // returns element reference on specific index
   T &operator[](size_t index) {
-    runtime_assert(index < N, "Index " << index << " must be less than " << N);
+    debug_assert(index < N, "Index " << index << " must be less than " << N);
     return data[index];
   }
 
   // returns const element reference on specific index
   const T &operator[](size_t index) const {
-    runtime_assert(index < N, "Index " << index << " must be less than " << N);
+    debug_assert(index < N, "Index " << index << " must be less than " << N);
     return data[index];
   }
 

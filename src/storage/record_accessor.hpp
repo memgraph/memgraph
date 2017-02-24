@@ -92,20 +92,23 @@ class RecordAccessor {
    * not actual values inside RecordAccessors.
    */
   friend bool operator<(const RecordAccessor& a, const RecordAccessor& b) {
-    assert(&a.db_accessor_ ==
-           &b.db_accessor_);  // assume the same db_accessor / transaction
+    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+                 "Not in the same transaction.");  // assume the same
+                                                   // db_accessor / transaction
     return &a.vlist_ < &b.vlist_;
   }
 
   friend bool operator==(const RecordAccessor& a, const RecordAccessor& b) {
-    assert(&a.db_accessor_ ==
-           &b.db_accessor_);  // assume the same db_accessor / transaction
+    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+                 "Not in the same transaction.");  // assume the same
+                                                   // db_accessor / transaction
     return &a.vlist_ == &b.vlist_;
   }
 
   friend bool operator!=(const RecordAccessor& a, const RecordAccessor& b) {
-    assert(&a.db_accessor_ ==
-           &b.db_accessor_);  // assume the same db_accessor / transaction
+    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+                 "Not in the same transaction.");  // assume the same
+                                                   // db_accessor / transaction
     return !(a == b);
   }
 

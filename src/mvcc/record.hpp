@@ -144,7 +144,8 @@ class Record : public Version<T> {
 
     if (info.is_committed()) return hints.set_committed(), true;
 
-    assert(info.is_aborted());
+    debug_assert(info.is_aborted(),
+                 "Info isn't aborted, but function would return as aborted.");
     return hints.set_aborted(), false;
   }
 };

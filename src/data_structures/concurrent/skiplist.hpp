@@ -1,10 +1,10 @@
 #pragma once
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <memory>
 
+#include "utils/assert.hpp"
 #include "utils/placeholder.hpp"
 #include "utils/random/fast_binomial.hpp"
 
@@ -242,28 +242,28 @@ class SkipList : private Lockable<lock_t> {
     IteratorBase(const IteratorBase &) = default;
 
     T &operator*() {
-      assert(node != nullptr);
+      debug_assert(node != nullptr, "Node is nullptr.");
       return node->value();
     }
 
     T *operator->() {
-      assert(node != nullptr);
+      debug_assert(node != nullptr, "Node is nullptr.");
       return &node->value();
     }
 
     operator T &() {
-      assert(node != nullptr);
+      debug_assert(node != nullptr, "Node is nullptr.");
       return node->value();
     }
 
     It &operator++() {
-      assert(node != nullptr);
+      debug_assert(node != nullptr, "Node is nullptr.");
       node = node->forward(0);
       return this->derived();
     }
 
     bool has_next() {
-      assert(node != nullptr);
+      debug_assert(node != nullptr, "Node is nullptr.");
       return node->forward(0) != nullptr;
     }
 
@@ -329,22 +329,22 @@ class SkipList : private Lockable<lock_t> {
     }
 
     T &operator*() {
-      assert(node_ != nullptr);
+      debug_assert(node_ != nullptr, "Node is nullptr.");
       return node_->value();
     }
 
     T *operator->() {
-      assert(node_ != nullptr);
+      debug_assert(node_ != nullptr, "Node is nullptr.");
       return &node_->value();
     }
 
     operator T &() {
-      assert(node_ != nullptr);
+      debug_assert(node_ != nullptr, "Node is nullptr.");
       return node_->value();
     }
 
     ReverseIterator &operator++() {
-      assert(node_ != nullptr);
+      debug_assert(node_ != nullptr, "Node is nullptr.");
       do {
         next();
       } while (node_->flags.is_marked());
@@ -436,24 +436,24 @@ class SkipList : private Lockable<lock_t> {
     MultiIterator(const MultiIterator &) = default;
 
     T &operator*() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       return succs[0]->value();
     }
 
     T *operator->() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       return &succs[0]->value();
     }
 
     operator T &() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       return succs[0]->value();
     }
 
     bool has_value() { return succs[0] != nullptr; }
 
     MultiIterator &operator++() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       // NOTE: This whole method can be optimized if it's valid to expect
       // height
       // of 1 on same key elements.
@@ -500,14 +500,14 @@ class SkipList : private Lockable<lock_t> {
     }
 
     bool is_removed() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       return succs[0]->flags.is_marked();
     }
 
     // True if this call successfuly removed value. ITERATOR IS'T ADVANCED.
     // False may mean that data has already been removed.
     bool remove() {
-      assert(succs[0] != nullptr);
+      debug_assert(succs[0] != nullptr, "Node is nullptr.");
       // Calls skiplist remove method.
 
       return skiplist->template remove<K>(
@@ -529,7 +529,8 @@ class SkipList : private Lockable<lock_t> {
       // true. That way that doesnt have to be done in constructor and
       // ++ operator.
       int level_found = succs[0]->height - 1;
-      assert(succs[0] == succs[level_found]);
+
+      debug_assert(succs[0] == succs[level_found], "Node is initialized.");
 
       for (auto it = MultiIterator<K>(skiplist, item); it.has_value(); it++) {
         if (it.succs[0] == succs[0]) {  // Found it
@@ -567,7 +568,7 @@ class SkipList : private Lockable<lock_t> {
     friend class SkipList;
 
     Accessor(SkipList *skiplist) : skiplist(skiplist) {
-      assert(skiplist != nullptr);
+      debug_assert(skiplist != nullptr, "Skiplist is nullptr.");
 
       skiplist->gc.add_ref();
     }

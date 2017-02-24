@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <cassert>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -9,6 +8,7 @@
 #include "communication/bolt/v1/bolt.hpp"
 #include "io/network/server.hpp"
 #include "logging/default.hpp"
+#include "utils/assert.hpp"
 
 namespace bolt {
 
@@ -39,7 +39,7 @@ class Server : public io::Server<Server<Worker>> {
   }
 
   void on_connect() {
-    assert(idx < workers.size());
+    debug_assert(idx < workers.size(), "Invalid worker id.");
 
     logger.trace("on connect");
 
