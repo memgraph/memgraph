@@ -1,9 +1,6 @@
 #pragma once
 
 #include <fstream>
-
-// TODO: remove experimental from here once that becomes possible (C++17
-// standard)
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 

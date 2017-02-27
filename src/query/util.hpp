@@ -5,9 +5,16 @@
 #include <sstream>
 #include <string>
 
+#include <experimental/filesystem>
+#include <utils/exceptions/basic_exception.hpp>
 #include "fmt/format.h"
 #include "logging/default.hpp"
 #include "utils/exceptions/stacktrace_exception.hpp"
+namespace fs = std::experimental::filesystem;
+#include "utils/file.hpp"
+#include "utils/string/file.hpp"
+#include "utils/string/trim.hpp"
+#include "utils/types/byte.hpp"
 
 using std::cout;
 using std::endl;
@@ -17,6 +24,31 @@ using std::endl;
 // http://stackoverflow.com/questions/2727582/multiple-definition-in-header-file
 // but sometimes that might be a problem
 namespace {
+
+std::string extract_query(const fs::path &path) {
+  auto comment_mark = std::string("// ");
+  auto query_mark = comment_mark + std::string("Query: ");
+  auto lines = utils::read_lines(path);
+  // find the line with a query (the query can be split across multiple
+  // lines)
+  for (int i = 0; i < (int)lines.size(); ++i) {
+    // find query in the line
+    auto &line = lines[i];
+    auto pos = line.find(query_mark);
+    // if query doesn't exist pass
+    if (pos == std::string::npos) continue;
+    auto query = utils::trim(line.substr(pos + query_mark.size()));
+    while (i + 1 < (int)lines.size() &&
+           lines[i + 1].find(comment_mark) != std::string::npos) {
+      query += utils::trim(lines[i + 1].substr(lines[i + 1].find(comment_mark) +
+                                               comment_mark.length()));
+      ++i;
+    }
+    return query;
+  }
+
+  throw BasicException("Unable to find query!");
+}
 
 class CodeLineFormatException : public StacktraceException {
  public:

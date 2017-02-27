@@ -390,15 +390,26 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
-#    target_link_libraries(${MEMGRAPH_BUILD_NAME} crypto)
-#    target_link_libraries(${MEMGRAPH_BUILD_NAME} ssl)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
 	target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
 endif()
-# add_dependencies(${MEMGRAPH_BUILD_NAME} generate_opencypher_parser)
-# -----------------------------------------------------------------------------
+
+# utility target to copy hardcoded queries
+# FROM: tests/integration/hardcoded_query TO: build/compiled/hardcode
+add_executable(__copy_hardcoded_queries ${src_dir}/copy_hardcoded_queries.cpp)
+set_property(TARGET __copy_hardcoded_queries PROPERTY CXX_STANDARD
+        ${cxx_standard})
+target_link_libraries(__copy_hardcoded_queries memgraph_lib)
+target_link_libraries(__copy_hardcoded_queries stdc++fs)
+target_link_libraries(__copy_hardcoded_queries fmt)
+target_link_libraries(__copy_hardcoded_queries Threads::Threads)
+target_link_libraries(__copy_hardcoded_queries antlr_opencypher_parser_lib)
+add_custom_target(copy_hardcoded_queries ./__copy_hardcoded_queries --src
+        ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query --dst
+        ${CMAKE_BINARY_DIR}/compiled/hardcode
+        WORKING_DIR ${CMAKE_BINARY_DIR})
 
 # make CLion aware of all source files so we get refactoring etc
 # this target won't be built
