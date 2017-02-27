@@ -1,10 +1,7 @@
 #include <iostream>
 #include <string>
 
-#include "query/util.hpp"
 #include "query/plan_interface.hpp"
-#include "storage/model/properties/all.hpp"
-#include "storage/edge_x_vertex.hpp"
 #include "using.hpp"
 
 using std::cout;
@@ -12,24 +9,17 @@ using std::endl;
 
 // Query:
 
-class CPUPlan : public PlanInterface<Stream>
-{
-public:
+class CPUPlan : public PlanInterface<Stream> {
+ public:
+  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+           Stream &stream) {
+    db_accessor.transaction_.commit();
+    return true;
+  }
 
-    bool run(Db &db, const PlanArgsT &args, Stream &stream) override
-    {
-
-    }
-
-    ~CPUPlan() {}
+  ~CPUPlan() {}
 };
 
-extern "C" PlanInterface<Stream>* produce()
-{
-    return new CPUPlan();
-}
+extern "C" PlanInterface<Stream> *produce() { return new CPUPlan(); }
 
-extern "C" void destruct(PlanInterface<Stream>* p)
-{
-    delete p;
-}
+extern "C" void destruct(PlanInterface<Stream> *p) { delete p; }
