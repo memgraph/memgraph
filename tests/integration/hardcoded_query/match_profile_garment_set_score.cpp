@@ -24,12 +24,13 @@ class CPUPlan : public PlanInterface<Stream> {
         if (prop.type_ == TypedValue::Type::Null) continue;
         auto cmp = prop == args.at(0);
         if (cmp.type_ != TypedValue::Type::Bool) continue;
+        if (cmp.Value<bool>() != true) continue;
 
         auto prop2 = g1.PropsAt(db_accessor.property("partner_id"));
-        if (prop.type_ == TypedValue::Type::Null) continue;
-        auto cmp2 = prop == args.at(1);
-        if (cmp.type_ != TypedValue::Type::Bool) continue;
-        if (cmp.Value<bool>() != true) continue;
+        if (prop2.type_ == TypedValue::Type::Null) continue;
+        auto cmp2 = prop2 == args.at(1);
+        if (cmp2.type_ != TypedValue::Type::Bool) continue;
+        if (cmp2.Value<bool>() != true) continue;
         g1_set.push_back(g1);
       }
     }
