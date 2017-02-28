@@ -48,6 +48,9 @@ class PlanCompiler : public Loggable {
 #ifdef LOG_NO_ERROR
     flags += " -DLOG_NO_ERROR";
 #endif
+#ifdef DEBUG_ASSERT_ON
+    flags += " -DDEBUG_ASSERT_ON";
+#endif
 
     // TODO: load from config (generate compile command)
     // generate compile command
@@ -60,9 +63,8 @@ class PlanCompiler : public Loggable {
         "-std=c++1y",    // compile flags
         in_file,         // input file
         "-o", out_file,  // ouput file
-        "-I./include",   // include paths
-        "-I../include", "-I../../include", "-I../../../include",
-        "-I../libs/fmt", "-I../../libs/fmt", "-I../../../libs/fmt",
+        "-I./include", "-I../include", "-I../../include", "-I../../../include",
+        "-I./libs/fmt", "-I../libs/fmt", "-I../../libs/fmt", "-I../../../libs/fmt",
         "-L./ -L../ -L../../", "-lmemgraph_pic",
         "-shared -fPIC"  // shared library flags
         );

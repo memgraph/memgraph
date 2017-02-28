@@ -65,7 +65,7 @@ class Bitset {
    *  @return intersection.
    */
   Bitset<TStore> Intersect(const Bitset<TStore> &other) {
-    debug_assert(this->blocks_.size() == other.size(),
+    debug_assert(this->blocks_.size() == other.blocks_.size(),
                  "Bitsets are not of equal size.");
     Bitset<TStore> ret(this->blocks_.size() * this->block_size_);
     for (int i = 0; i < (int)this->blocks_.size(); ++i) {
@@ -117,8 +117,12 @@ enum CliqueQuery { SCORE_AND_LIMIT, FIND_ALL };
 bool run_general_query(GraphDbAccessor &db_accessor,
                        const TypedValueStore<> &args, Stream &stream,
                        enum CliqueQuery query_type) {
-  stream.write_fields(
-      {"a.garment_id", "b.garment_id", "c.garment_id", "d.garment_id"});
+  if (query_type == CliqueQuery::FIND_ALL)
+    stream.write_fields(
+        {"a.garment_id", "b.garment_id", "c.garment_id", "d.garment_id"});
+  else
+    stream.write_fields({"a.garment_id", "b.garment_id", "c.garment_id",
+                         "d.garment_id", "score"});
   std::vector<VertexAccessor> vertices = db_accessor.vertices();
   std::vector<EdgeAccessor> edges = db_accessor.edges();
 
@@ -292,7 +296,6 @@ bool run_general_query(GraphDbAccessor &db_accessor,
     if (query_type == CliqueQuery::SCORE_AND_LIMIT)
       stream.write(calc_score(results[i]));
   }
-  stream.write_empty_fields();
   stream.write_meta("r");
   db_accessor.transaction_.commit();
   return true;

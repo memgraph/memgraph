@@ -13,7 +13,7 @@ namespace opencypher {
 using namespace antlropencypher;
 using namespace antlr4;
 
-class SyntaxException : BasicException {
+class SyntaxException : public BasicException {
  public:
   SyntaxException() : BasicException("") {}
 };

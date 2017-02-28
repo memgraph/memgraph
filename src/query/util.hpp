@@ -40,8 +40,8 @@ std::string extract_query(const fs::path &path) {
     auto query = utils::trim(line.substr(pos + query_mark.size()));
     while (i + 1 < (int)lines.size() &&
            lines[i + 1].find(comment_mark) != std::string::npos) {
-      query += utils::trim(lines[i + 1].substr(lines[i + 1].find(comment_mark) +
-                                               comment_mark.length()));
+      query += lines[i + 1].substr(lines[i + 1].find(comment_mark) +
+                                   comment_mark.length());
       ++i;
     }
     return query;

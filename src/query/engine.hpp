@@ -64,24 +64,15 @@ class QueryEngine : public Loggable {
    */
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
-    try {
-      auto preprocessed = preprocessor.preprocess(query);
-      auto plan = LoadCypher(preprocessed);
-      auto result = plan->run(db_accessor, preprocessed.arguments, stream);
-      if (UNLIKELY(!result)) {
-        // info because it might be something like deadlock in which
-        // case one thread is stopped and user has try again
-        logger.info("Unable to execute query (execution returned false)");
-      }
-      return result;
-    } catch (QueryEngineException &e) {
-      logger.error("QueryEngineException: {}", std::string(e.what()));
-      throw e;
-    } catch (std::exception &e) {
-      throw StacktraceException(e.what());
-    } catch (...) {
-      throw StacktraceException("unknown query engine exception");
+    auto preprocessed = preprocessor.preprocess(query);
+    auto plan = LoadCypher(preprocessed);
+    auto result = plan->run(db_accessor, preprocessed.arguments, stream);
+    if (UNLIKELY(!result)) {
+      // info because it might be something like deadlock in which
+      // case one thread is stopped and user has try again
+      logger.info("Unable to execute query (execution returned false)");
     }
+    return result;
   }
 
   /**

@@ -1,6 +1,7 @@
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 
 #ifdef BARRIER
 #include "barrier/barrier.cpp"
@@ -24,17 +25,35 @@ State *Executor::run(Session &session) {
 
     q.statement = session.decoder.read_string();
 
+    // TODO: refactor bolt exception handling (Ferencevic)
     try {
       return this->run(session, q);
-      // TODO: RETURN success MAYBE
+    } catch (const frontend::opencypher::SyntaxException &e) {
+      session.output_stream.write_failure(
+          {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
+      session.output_stream.send();
+      return session.bolt.states.error.get();
+    } catch (const backend::cpp::GeneratorException &e) {
+      session.output_stream.write_failure(
+          {{"code", "Memgraph.GeneratorException"},
+           {"message", "Unsupported query"}});
+      session.output_stream.send();
+      return session.bolt.states.error.get();
     } catch (const QueryEngineException &e) {
       session.output_stream.write_failure(
-          {{"code", "Memgraph.QueryEngineException"}, {"message", e.what()}});
+          {{"code", "Memgraph.QueryEngineException"},
+           {"message", "Query engine was unable to execute the query"}});
+      session.output_stream.send();
+      return session.bolt.states.error.get();
+    } catch (const StacktraceException &e) {
+      session.output_stream.write_failure(
+          {{"code", "Memgraph.StacktraceException"},
+           {"message", "Unknow exception"}});
       session.output_stream.send();
       return session.bolt.states.error.get();
     } catch (std::exception &e) {
       session.output_stream.write_failure(
-          {{"code", "Memgraph.Exception"}, {"message", e.what()}});
+          {{"code", "Memgraph.Exception"}, {"message", "unknow exception"}});
       session.output_stream.send();
       return session.bolt.states.error.get();
     }

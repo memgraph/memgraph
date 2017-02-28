@@ -12,6 +12,12 @@ namespace cpp {
 
 using namespace antlr4;
 
+class GeneratorException : public BasicException {
+ public:
+     using BasicException::BasicException;
+  GeneratorException() : BasicException("") {}
+};
+
 /**
  * Traverse Antlr tree::ParseTree generated from Cypher grammar and generate
  * C++.
@@ -23,9 +29,9 @@ class Generator {
    */
   Generator(tree::ParseTree *tree, const std::string &query,
             const uint64_t stripped_hash, const fs::path &path) {
+    throw GeneratorException("unsupported query");
     CypherMainVisitor visitor;
     visitor.visit(tree);
-    throw std::runtime_error("TODO: implementation");
   }
 };
 }

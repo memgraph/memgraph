@@ -386,7 +386,8 @@ set(MEMGRAPH_BUILD_NAME
 # memgraph main executable
 if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-    set_property(TARGET ${MEMGRAPH_BUILD_NAME} PROPERTY CXX_STANDARD ${cxx_standard})
+    set_property(TARGET ${MEMGRAPH_BUILD_NAME}
+                 PROPERTY CXX_STANDARD ${cxx_standard})
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
@@ -417,3 +418,26 @@ file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp
                             ${CMAKE_SOURCE_DIR}/src/*.cpp)
 add_executable(__refactor_target ${__SOURCES})
 set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
+
+# targets to check compilability of all hardcoded query plans
+# that is a first step in integration testing
+# integration testing phases should be
+#   1. compilation of all hardcoded query plans
+#   2. query plan execution agains empty database and injected OutputStream
+#   3. integration tests for all pilot/clients written in cucumber
+# the following targets address only the first phase
+file(GLOB __HARDCODED_SOURCES
+     ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
+foreach(file_path ${__HARDCODED_SOURCES})
+    get_filename_component(file_name ${file_path} NAME_WE)
+    set(target_name __${file_name}_hardcoded_target)
+    add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
+                                  ${file_path})
+    target_link_libraries(${target_name} memgraph_lib)
+    target_link_libraries(${target_name} fmt)
+    target_link_libraries(${target_name} Threads::Threads)
+    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
+    set_target_properties(${target_name}
+                          PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                          "${CMAKE_BINARY_DIR}/__hardcoded_targets")
+endforeach()
