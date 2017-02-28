@@ -11,7 +11,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     for (auto v : db_accessor.vertices()) db_accessor.detach_remove_vertex(v);
     stream.write_empty_fields();

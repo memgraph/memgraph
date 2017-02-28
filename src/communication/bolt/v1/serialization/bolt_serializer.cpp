@@ -6,7 +6,8 @@
 #include "io/network/socket.hpp"
 
 #include "database/graph_db.hpp"
-#include "storage/typed_value_store.hpp"
+#include "storage/property_value_store.hpp"
+#include <cassert>
 
 template <class Stream>
 void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
@@ -27,13 +28,13 @@ void bolt::BoltSerializer<Stream>::write(const VertexAccessor &vertex) {
     encoder.write_string(vertex.db_accessor().label_name(label));
 
   // write the properties
-  const TypedValueStore<GraphDb::Property> &props = vertex.Properties();
+  const PropertyValueStore<GraphDb::Property> &props = vertex.Properties();
   encoder.write_map_header(props.size());
-  props.Accept(
-      [this, &vertex](const GraphDb::Property prop, const TypedValue &value) {
-        this->encoder.write(vertex.db_accessor().property_name(prop));
-        this->write(value);
-      });
+  props.Accept([this, &vertex](const GraphDb::Property prop,
+                               const PropertyValue &value) {
+    this->encoder.write(vertex.db_accessor().property_name(prop));
+    this->write(value);
+  });
 }
 
 template <class Stream>
@@ -54,32 +55,36 @@ void bolt::BoltSerializer<Stream>::write(const EdgeAccessor &edge) {
   encoder.write(edge.db_accessor().edge_type_name(edge.edge_type()));
 
   // write the property map
-  const TypedValueStore<GraphDb::Property> &props = edge.Properties();
+  const PropertyValueStore<GraphDb::Property> &props = edge.Properties();
   encoder.write_map_header(props.size());
-  props.Accept([this, &edge](GraphDb::Property prop, const TypedValue &value) {
-    this->encoder.write(edge.db_accessor().property_name(prop));
-    this->write(value);
-  });
+  props.Accept(
+      [this, &edge](GraphDb::Property prop, const PropertyValue &value) {
+        this->encoder.write(edge.db_accessor().property_name(prop));
+        this->write(value);
+      });
 }
 
 template <class Stream>
-void bolt::BoltSerializer<Stream>::write(const TypedValue &value) {
-  switch (value.type_) {
-    case TypedValue::Type::Null:
+void bolt::BoltSerializer<Stream>::write(const PropertyValue &value) {
+  switch (value.type()) {
+    case PropertyValue::Type::Null:
       encoder.write_null();
       return;
-    case TypedValue::Type::Bool:
+    case PropertyValue::Type::Bool:
       encoder.write_bool(value.Value<bool>());
       return;
-    case TypedValue::Type::String:
+    case PropertyValue::Type::String:
       encoder.write_string(value.Value<std::string>());
       return;
-    case TypedValue::Type::Int:
+    case PropertyValue::Type::Int:
       encoder.write_integer(value.Value<int>());
       return;
-    case TypedValue::Type::Float:
-      encoder.write_double(value.Value<float>());
+    case PropertyValue::Type::Double:
+      encoder.write_double(value.Value<double>());
       return;
+    case PropertyValue::Type::List:
+      // Not implemented
+      assert(false);
   }
 }
 

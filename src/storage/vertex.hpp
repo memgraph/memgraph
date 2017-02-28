@@ -5,7 +5,7 @@
 #include "database/graph_db.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
-#include "storage/typed_value_store.hpp"
+#include "storage/property_value_store.hpp"
 
 // forward declare Edge because there is a circular usage Edge <-> Vertex
 class Edge;
@@ -15,5 +15,5 @@ class Vertex : public mvcc::Record<Vertex> {
   std::vector<mvcc::VersionList<Edge>*> out_;
   std::vector<mvcc::VersionList<Edge>*> in_;
   std::vector<GraphDb::Label> labels_;
-  TypedValueStore<GraphDb::Property> properties_;
+  PropertyValueStore<GraphDb::Property> properties_;
 };

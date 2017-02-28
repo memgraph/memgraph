@@ -24,7 +24,7 @@ class PlanInterface {
    *
    * @return bool status after execution (success OR fail)
    */
-  virtual bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  virtual bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
                    Stream &stream) = 0;
 
   /**

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "query/backend/cpp/typed_value.hpp"
 #include "query/plan_interface.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -15,27 +16,27 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     stream.write_field("s");
     auto profile = [&db_accessor, &args](const VertexAccessor &v) -> bool {
-      auto prop = v.PropsAt(db_accessor.property("profile_id"));
-      if (prop.type_ == TypedValue::Type::Null) return false;
+      TypedValue prop = v.PropsAt(db_accessor.property("profile_id"));
+      if (prop.type() == TypedValue::Type::Null) return false;
       auto cmp = prop == args.at(0);
-      if (cmp.type_ != TypedValue::Type::Bool) return false;
+      if (cmp.type() != TypedValue::Type::Bool) return false;
       if (cmp.Value<bool>() != true) return false;
 
-      auto prop2 = v.PropsAt(db_accessor.property("partner_id"));
-      if (prop2.type_ == TypedValue::Type::Null) return false;
+      TypedValue prop2 = v.PropsAt(db_accessor.property("partner_id"));
+      if (prop2.type() == TypedValue::Type::Null) return false;
       auto cmp2 = prop2 == args.at(1);
-      if (cmp2.type_ != TypedValue::Type::Bool) return false;
+      if (cmp2.type() != TypedValue::Type::Bool) return false;
       return cmp2.Value<bool>();
     };
     auto garment = [&db_accessor, &args](const VertexAccessor &v) -> bool {
-      auto prop = v.PropsAt(db_accessor.property("garment_id"));
-      if (prop.type_ == TypedValue::Type::Null) return false;
+      TypedValue prop = v.PropsAt(db_accessor.property("garment_id"));
+      if (prop.type() == TypedValue::Type::Null) return false;
       auto cmp = prop == args.at(2);
-      if (cmp.type_ != TypedValue::Type::Bool) return false;
+      if (cmp.type() != TypedValue::Type::Bool) return false;
       return cmp.Value<bool>();
     };
     for (auto edge : db_accessor.edges()) {

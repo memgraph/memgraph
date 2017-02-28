@@ -21,7 +21,7 @@ RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
 }
 
 template <typename TRecord>
-const TypedValue &RecordAccessor<TRecord>::PropsAt(
+const PropertyValue &RecordAccessor<TRecord>::PropsAt(
     GraphDb::Property key) const {
   return view().properties_.at(key);
 }
@@ -32,14 +32,14 @@ size_t RecordAccessor<TRecord>::PropsErase(GraphDb::Property key) {
 }
 
 template <typename TRecord>
-const TypedValueStore<GraphDb::Property> &RecordAccessor<TRecord>::Properties()
+const PropertyValueStore<GraphDb::Property> &RecordAccessor<TRecord>::Properties()
     const {
   return view().properties_;
 }
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::PropertiesAccept(
-    std::function<void(const GraphDb::Property key, const TypedValue &prop)>
+    std::function<void(const GraphDb::Property key, const PropertyValue &prop)>
         handler,
     std::function<void()> finish) const {
   view().properties_.Accept(handler, finish);

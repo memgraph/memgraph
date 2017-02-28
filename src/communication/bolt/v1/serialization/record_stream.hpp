@@ -118,7 +118,7 @@ class RecordStream {
     chunk();
   }
 
-  void write(const TypedValue &value) { serializer.write(value); }
+  void write(const PropertyValue &value) { serializer.write(value); }
 
   void send() { chunked_buffer.flush(); }
 

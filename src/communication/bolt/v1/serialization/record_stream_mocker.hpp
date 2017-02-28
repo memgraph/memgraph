@@ -61,7 +61,7 @@ class RecordStreamMocker {
   void write(const EdgeAccessor &edge) {
     messages_.back().second.write(antlrcpp::Any(edge));
   }
-  void write(const TypedValue &value) {
+  void write(const PropertyValue &value) {
     messages_.back().second.write(antlrcpp::Any(value));
   }
 

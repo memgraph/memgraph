@@ -5,11 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "query/backend/cpp/typed_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
 void write_properties(std::ostream &os, const GraphDbAccessor &access,
-                      const TypedValueStore<GraphDb::Property> &properties) {
+                      const PropertyValueStore<GraphDb::Property> &properties) {
   if (properties.size() > 0) {
     os << "{";
     for (auto x : properties) {

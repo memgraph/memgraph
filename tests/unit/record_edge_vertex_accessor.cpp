@@ -7,7 +7,7 @@
 #include "dbms/dbms.hpp"
 
 #include "storage/edge_accessor.hpp"
-#include "storage/typed_value.hpp"
+#include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
 
 TEST(RecordAccessor, Properties) {
@@ -19,17 +19,17 @@ TEST(RecordAccessor, Properties) {
 
   auto property = dba.property("PropName");
   auto property_other = dba.property("Other");
-  EXPECT_EQ(vertex.PropsAt(property).type_, TypedValue::Type::Null);
+  EXPECT_EQ(vertex.PropsAt(property).type(), PropertyValue::Type::Null);
 
   vertex.PropsSet(property, 42);
   EXPECT_EQ(vertex.PropsAt(property).Value<int>(), 42);
   EXPECT_EQ(properties.at(property).Value<int>(), 42);
-  EXPECT_EQ(vertex.PropsAt(property_other).type_, TypedValue::Type::Null);
-  EXPECT_EQ(properties.at(property_other).type_, TypedValue::Type::Null);
+  EXPECT_EQ(vertex.PropsAt(property_other).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(properties.at(property_other).type(), PropertyValue::Type::Null);
 
   vertex.PropsErase(property);
-  EXPECT_EQ(vertex.PropsAt(property).type_, TypedValue::Type::Null);
-  EXPECT_EQ(properties.at(property).type_, TypedValue::Type::Null);
+  EXPECT_EQ(vertex.PropsAt(property).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(properties.at(property).type(), PropertyValue::Type::Null);
 }
 
 TEST(RecordAccessor, DbAccessor) {

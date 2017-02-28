@@ -9,7 +9,7 @@
 
 #include "logging/loggable.hpp"
 #include "query/stripped.hpp"
-#include "storage/typed_value_store.hpp"
+#include "storage/property_value_store.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string/transform.hpp"
 #include "utils/variadic/variadic.hpp"
@@ -54,7 +54,7 @@ class QueryStripper : public Loggable {
     CommonTokenStream tokens(&lexer);
 
     // initialize data structures that will be populated
-    TypedValueStore<> stripped_arguments;
+    PropertyValueStore<> stripped_arguments;
     std::string stripped_query;
     stripped_query.reserve(query.size());
 

@@ -6,7 +6,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
-#include "storage/typed_value.hpp"
+#include "storage/property_value.hpp"
 
 namespace bolt {
 
@@ -46,11 +46,11 @@ class BoltSerializer {
   void write_failure(const std::map<std::string, std::string> &data);
 
   /**
-   * Writes a TypedValue (typically a property value in the edge or vertex).
+   * Writes a PropertyValue (typically a property value in the edge or vertex).
    *
    * @param value The value to write.
    */
-  void write(const TypedValue &value);
+  void write(const PropertyValue &value);
 
  protected:
   Stream &encoder;

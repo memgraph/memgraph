@@ -1,8 +1,8 @@
 #pragma once
 
 #include "database/db_accessor.hpp"
-#include "storage/model/typed_value.hpp"
-#include "storage/model/typed_value_store.hpp"
+#include "storage/model/property_value.hpp"
+#include "storage/model/property_value_store.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/assert.hpp"
 
@@ -95,6 +95,6 @@ class ElementSkeleton {
   Option<VertexAccessor> from_va;
   Option<EdgeType const *> type;
   std::vector<Label const *> labels;
-  TypedValueStore properties_e;
-  TypedValueStore properties_v;
+  PropertyValueStore properties_e;
+  PropertyValueStore properties_v;
 };

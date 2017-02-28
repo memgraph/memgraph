@@ -313,7 +313,7 @@ set(memgraph_src_files
 #    ${src_dir}/snapshot/snapshoter.cpp
 #    ${src_dir}/snapshot/snapshot_encoder.cpp
 #    ${src_dir}/snapshot/snapshot_decoder.cpp
-    ${src_dir}/storage/typed_value.cpp
+    ${src_dir}/storage/property_value.cpp
     ${src_dir}/storage/locking/record_lock.cpp
 #    ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/record_accessor.cpp
@@ -333,6 +333,7 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/query/backend/cpp/cypher_main_visitor.cpp
+    ${src_dir}/query/backend/cpp/typed_value.cpp
 )
 # -----------------------------------------------------------------------------
 

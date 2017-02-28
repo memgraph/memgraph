@@ -3,10 +3,10 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "mvcc/version_list.hpp"
-#include "storage/typed_value.hpp"
+#include "storage/property_value.hpp"
 #include "utils/pass_key.hpp"
 
-#include "storage/typed_value_store.hpp"
+#include "storage/property_value_store.hpp"
 
 /**
  * An accessor to a database record (an Edge or a Vertex).
@@ -54,7 +54,7 @@ class RecordAccessor {
    * @param key
    * @return
    */
-  const TypedValue& PropsAt(GraphDb::Property key) const;
+  const PropertyValue& PropsAt(GraphDb::Property key) const;
 
   /**
    * Sets a value on the record for the given property.
@@ -80,10 +80,10 @@ class RecordAccessor {
    * Returns the properties of this record.
    * @return
    */
-  const TypedValueStore<GraphDb::Property>& Properties() const;
+  const PropertyValueStore<GraphDb::Property>& Properties() const;
 
   void PropertiesAccept(
-      std::function<void(const GraphDb::Property key, const TypedValue& prop)>
+      std::function<void(const GraphDb::Property key, const PropertyValue& prop)>
           handler,
       std::function<void()> finish = {}) const;
 

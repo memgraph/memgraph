@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "query/backend/cpp/typed_value.hpp"
 #include "query/plan_interface.hpp"
 #include "using.hpp"
 
@@ -11,7 +12,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     db_accessor.transaction_.commit();
     return true;

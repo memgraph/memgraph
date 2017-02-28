@@ -1,6 +1,6 @@
 #pragma once
 
-#include "storage/typed_value_store.hpp"
+#include "storage/property_value_store.hpp"
 #include "utils/hashing/fnv.hpp"
 
 /*
@@ -10,10 +10,10 @@
 *     * hash of stripped query
 */
 struct StrippedQuery {
-  StrippedQuery(const std::string &&query, TypedValueStore<> &&arguments,
+  StrippedQuery(const std::string &&query, PropertyValueStore<> &&arguments,
                 HashType hash)
       : query(std::forward<const std::string>(query)),
-        arguments(std::forward<TypedValueStore<>>(arguments)),
+        arguments(std::forward<PropertyValueStore<>>(arguments)),
         hash(hash) {}
 
   /**
@@ -38,7 +38,7 @@ struct StrippedQuery {
   /**
    * Stripped arguments
    */
-  const TypedValueStore<> arguments;
+  const PropertyValueStore<> arguments;
 
   /**
    * Hash based on stripped query.

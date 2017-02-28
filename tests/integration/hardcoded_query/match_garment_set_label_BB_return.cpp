@@ -12,7 +12,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     return run_general_query(db_accessor, args, stream, "BB");
   }

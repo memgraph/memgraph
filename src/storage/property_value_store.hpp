@@ -4,7 +4,7 @@
 #include <map>
 #include <vector>
 
-#include "typed_value.hpp"
+#include "property_value.hpp"
 
 /**
  * A collection of properties accessed in a map-like way
@@ -15,33 +15,33 @@
   * @tparam TKey The type of key used in this value store.
  */
 template <typename TKey = uint32_t>
-class TypedValueStore {
+class PropertyValueStore {
  public:
-  using sptr = std::shared_ptr<TypedValueStore>;
+  using sptr = std::shared_ptr<PropertyValueStore>;
 
   /**
-   * Returns a TypedValue (by reference) at the given key.
+   * Returns a PropertyValue (by reference) at the given key.
    * If the key does not exist, the Null property is returned.
    *
    * This is NOT thread-safe, the reference might not be valid
    * when used in a multithreaded scenario.
    *
-   * @param key The key for which a TypedValue is sought.
+   * @param key The key for which a PropertyValue is sought.
    * @return  See above.
    */
-  const TypedValue &at(const TKey &key) const {
+  const PropertyValue &at(const TKey &key) const {
     for (const auto &kv : props_)
       if (kv.first == key) return kv.second;
 
-    return TypedValue::Null;
+    return PropertyValue::Null;
   }
 
   /**
-   * Sets the value for the given key. A new TypedValue instance
+   * Sets the value for the given key. A new PropertyValue instance
    * is created for the given value (which is of raw type).
    *
    * @tparam TValue Type of value. It must be one of the
-   * predefined possible TypedValue values (bool, string, int...)
+   * predefined possible PropertyValue values (bool, string, int...)
    * @param key  The key for which the property is set. The previous
    * value at the same key (if there was one) is replaced.
    * @param value  The value to set.
@@ -50,7 +50,7 @@ class TypedValueStore {
   void set(const TKey &key, const TValue &value) {
     for (auto &kv : props_)
       if (kv.first == key) {
-        kv.second = TypedValue(value);
+        kv.second = PropertyValue(value);
         return;
       }
 
@@ -71,7 +71,7 @@ class TypedValueStore {
   void set(const TKey &key, const char *value) { set(key, std::string(value)); }
 
   /**
-   * Removes the TypedValue for the given key.
+   * Removes the PropertyValue for the given key.
    *
    * @param key The key for which to remove the property.
    * @return  The number of removed properties (0 or 1).
@@ -79,7 +79,7 @@ class TypedValueStore {
   size_t erase(const TKey &key) {
     auto found = std::find_if(
         props_.begin(), props_.end(),
-        [&key](std::pair<TKey, TypedValue> &kv) { return kv.first == key; });
+        [&key](std::pair<TKey, PropertyValue> &kv) { return kv.first == key; });
 
     if (found != props_.end()) {
       props_.erase(found);
@@ -110,10 +110,10 @@ class TypedValueStore {
   /**
    * Accepts two functions.
    *
-   * @param handler  Called for each TypedValue in this collection.
+   * @param handler  Called for each PropertyValue in this collection.
    * @param finish Called once in the end.
    */
-  void Accept(std::function<void(const TKey, const TypedValue &)> handler,
+  void Accept(std::function<void(const TKey, const PropertyValue &)> handler,
               std::function<void()> finish = {}) const {
     if (handler)
       for (const auto &prop : props_) handler(prop.first, prop.second);
@@ -122,5 +122,5 @@ class TypedValueStore {
   }
 
  private:
-  std::vector<std::pair<TKey, TypedValue>> props_;
+  std::vector<std::pair<TKey, PropertyValue>> props_;
 };

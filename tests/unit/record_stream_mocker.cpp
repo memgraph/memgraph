@@ -20,11 +20,11 @@ TEST(RecordStreamMocker, Headers) {
 TEST(RecordStreamMocker, OneValue) {
   bolt::RecordStreamMocker rs;
   rs.write_field("n");
-  rs.write(TypedValue(5));
+  rs.write(PropertyValue(5));
   ASSERT_EQ(rs.count_message_columns("fields"), 1);
   std::vector<antlrcpp::Any> output = rs.get_message_column("fields", 0);
   ASSERT_EQ(output.size(), 1);
-  auto val = output[0].as<TypedValue>().Value<int>();
+  auto val = output[0].as<PropertyValue>().Value<int>();
   ASSERT_EQ(val, 5);
 }
 
@@ -33,14 +33,14 @@ TEST(RecordStreamMocker, OneListOfInts) {
   rs.write_field("n");
   std::vector<int> expected_output = {5, 4, 6, 7};
   rs.write_list_header(expected_output.size());
-  for (auto x : expected_output) rs.write(TypedValue(x));
+  for (auto x : expected_output) rs.write(PropertyValue(x));
   ASSERT_EQ(rs.count_message_columns("fields"), 1);
   std::vector<antlrcpp::Any> output = rs.get_message_column("fields", 0);
   ASSERT_EQ(output.size(), 1);
   std::vector<antlrcpp::Any> list = output[0].as<std::vector<antlrcpp::Any>>();
   ASSERT_EQ(list.size(), expected_output.size());
   for (int i = 0; i < list.size(); ++i) {
-    auto val = list[i].as<TypedValue>().Value<int>();
+    auto val = list[i].as<PropertyValue>().Value<int>();
     ASSERT_EQ(val, expected_output[i]);
   }
 }
@@ -53,18 +53,18 @@ TEST(RecordStreamMocker, OneListOfIntAndList) {
   rs.write_list_header(2);
   rs.write(expected_value);
   rs.write_list_header(4);
-  for (auto x : expected_output) rs.write(TypedValue(x));
+  for (auto x : expected_output) rs.write(PropertyValue(x));
 
   ASSERT_EQ(rs.count_message_columns("fields"), 1);
   std::vector<antlrcpp::Any> output = rs.get_message_column("fields", 0);
   ASSERT_EQ(output.size(), 1);
   std::vector<antlrcpp::Any> list = output[0].as<std::vector<antlrcpp::Any>>();
   ASSERT_EQ(list.size(), 2);
-  ASSERT_EQ(list[0].as<TypedValue>().Value<int>(), expected_value);
+  ASSERT_EQ(list[0].as<PropertyValue>().Value<int>(), expected_value);
 
   auto list_inside = list[1].as<std::vector<antlrcpp::Any>>();
   for (int i = 0; i < list_inside.size(); ++i) {
-    auto val = list_inside[i].as<TypedValue>().Value<int>();
+    auto val = list_inside[i].as<PropertyValue>().Value<int>();
     ASSERT_EQ(val, expected_output[i]);
   }
 }

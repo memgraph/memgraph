@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "query/backend/cpp/typed_value.hpp"
 #include "query/plan_interface.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -14,32 +15,32 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     stream.write_field("r");
     std::vector<VertexAccessor> g1_set, g2_set;
     for (auto g1 : db_accessor.vertices()) {
       if (g1.has_label(db_accessor.label("profile"))) {
-        auto prop = g1.PropsAt(db_accessor.property("profile_id"));
-        if (prop.type_ == TypedValue::Type::Null) continue;
+        auto prop = TypedValue(g1.PropsAt(db_accessor.property("profile_id")));
+        if (prop.type() == TypedValue::Type::Null) continue;
         auto cmp = prop == args.at(0);
-        if (cmp.type_ != TypedValue::Type::Bool) continue;
+        if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
 
-        auto prop2 = g1.PropsAt(db_accessor.property("partner_id"));
-        if (prop2.type_ == TypedValue::Type::Null) continue;
+        auto prop2 = TypedValue(g1.PropsAt(db_accessor.property("partner_id")));
+        if (prop2.type() == TypedValue::Type::Null) continue;
         auto cmp2 = prop2 == args.at(1);
-        if (cmp2.type_ != TypedValue::Type::Bool) continue;
+        if (cmp2.type() != TypedValue::Type::Bool) continue;
         if (cmp2.Value<bool>() != true) continue;
         g1_set.push_back(g1);
       }
     }
     for (auto g2 : db_accessor.vertices()) {
       if (g2.has_label(db_accessor.label("garment"))) {
-        auto prop = g2.PropsAt(db_accessor.property("garment_id"));
-        if (prop.type_ == TypedValue::Type::Null) continue;
+        auto prop = TypedValue(g2.PropsAt(db_accessor.property("garment_id")));
+        if (prop.type() == TypedValue::Type::Null) continue;
         auto cmp = prop == args.at(2);
-        if (cmp.type_ != TypedValue::Type::Bool) continue;
+        if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g2_set.push_back(g2);
       }

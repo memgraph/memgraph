@@ -13,7 +13,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const TypedValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
            Stream &stream) {
     auto v = db_accessor.insert_vertex();
     v.PropsSet(db_accessor.property("profile_id"), args.at(0));
