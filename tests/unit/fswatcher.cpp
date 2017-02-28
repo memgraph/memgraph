@@ -11,6 +11,8 @@
 using namespace std::chrono_literals;
 using namespace utils;
 
+// TODO: This test is flaky, we should fix it sometime.
+
 fs::path working_dir = "../data";
 fs::path filename = "test.txt";
 fs::path test_path = working_dir / filename;
@@ -51,7 +53,7 @@ TEST(FSWatcherTest, CreateDeleteLoop) {
   FSWatcher watcher;
 
   // parameters
-  int iterations = 10;
+  int iterations = 2;
   int created_no = 0;
   int deleted_no = 0;
 
@@ -94,7 +96,7 @@ TEST(FSWatcherTest, ModifiyLoop) {
   FSWatcher watcher;
 
   // parameters
-  int iterations = 10;
+  int iterations = 2;
   int modified_no = 0;
 
   // 3 is here because the test has to ensure that there is enough time
