@@ -1,3 +1,4 @@
+#define HARDCODED_OUTPUT_STREAM
 #include "../integration/query_engine_common.hpp"
 #include "dbms/dbms.hpp"
 
@@ -39,12 +40,23 @@ int main(int argc, char* argv[]) {
           // take only cpp files
           if (event.path.extension() != ".cpp") return;
 
-          auto query_mark = std::string("// Query: ");
+          auto comment = std::string("// ");
+          auto query_mark = comment + std::string("Query: ");
           auto lines = read_lines(event.path);
-          for (auto& line : lines) {
+          for (int i = 0; i < (int)lines.size(); ++i) {
+            // find query in the line
+            auto& line = lines[i];
             auto pos = line.find(query_mark);
+            // if query doesn't exist pass
             if (pos == std::string::npos) continue;
-            auto query = line.substr(pos + query_mark.size());
+            auto query = trim(line.substr(pos + query_mark.size()));
+            while (i + 1 < (int)lines.size() &&
+                   lines[i + 1].find(comment) != std::string::npos) {
+              query += lines[i + 1].substr(lines[i + 1].find(comment) +
+                                           comment.length());
+              ++i;
+            }
+
             log.info("Reload: {}", query);
             query_engine.Unload(query);
             try {

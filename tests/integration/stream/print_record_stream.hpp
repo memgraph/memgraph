@@ -63,7 +63,7 @@ class PrintRecordStream {
     stream << "Field: " << field << '\n';
   }
 
-  void write(const TypedValue &value) { stream << value; }
+  void write(const TypedValue &value) { stream << value << " "; }
   void write_list_header(size_t size) { stream << "List: " << size << '\n'; }
 
   void write_record() { stream << "Record\n"; }

@@ -53,7 +53,9 @@ class PlanCompiler : public Loggable {
     // generate compile command
     auto compile_command = utils::prints(
         "clang++" + flags,
+#ifdef HARDCODED_OUTPUT_STREAM
         "-DHARDCODED_OUTPUT_STREAM",
+#endif
         // "-std=c++1y -O2 -DNDEBUG",
         "-std=c++1y",    // compile flags
         in_file,         // input file

@@ -98,8 +98,8 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
       auto query = trim(line.substr(pos + query_mark.size()));
       while (i + 1 < (int)lines.size() &&
              lines[i + 1].find(comment) != std::string::npos) {
-        query += trim(
-            lines[i + 1].substr(lines[i + 1].find(comment) + comment.length()));
+        query +=
+            lines[i + 1].substr(lines[i + 1].find(comment) + comment.length());
         ++i;
       }
       // load/compile implementations only for the queries which are
