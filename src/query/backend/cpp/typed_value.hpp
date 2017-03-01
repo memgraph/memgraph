@@ -4,11 +4,17 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 #include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 #include "storage/property_value.hpp"
+#include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
+#include "traversal/path.hpp"
+
+typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
 
 /**
  * Encapsulation of a value and it's type encapsulated in a class that has no
@@ -24,7 +30,18 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
 
  public:
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned { Null, String, Bool, Int, Double, List };
+  enum class Type : unsigned {
+    Null,
+    Bool,
+    Int,
+    Double,
+    String,
+    List,
+    Map,
+    Vertex,
+    Edge,
+    Path
+  };
 
   // single static reference to Null, used whenever Null should be returned
   static const TypedValue Null;
@@ -37,7 +54,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   // conversion function to PropertyValue
   operator PropertyValue() const;
 
-  /// constructors for non-primitive types (shared pointers)
+  /// constructors for non-primitive types
   TypedValue(const std::string& value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
@@ -47,6 +64,17 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   TypedValue(const std::vector<TypedValue>& value) : type_(Type::List) {
     new (&list_v) std::vector<TypedValue>(value);
   }
+  TypedValue(const std::map<std::string, TypedValue>& value)
+      : type_(Type::Map) {
+    new (&map_v) std::map<std::string, TypedValue>(value);
+  }
+  TypedValue(const VertexAccessor& vertex) : type_(Type::Vertex) {
+    new (&vertex_v) VertexAccessor(vertex);
+  }
+  TypedValue(const EdgeAccessor& edge) : type_(Type::Edge) {
+    new (&edge_v) EdgeAccessor(edge);
+  }
+  TypedValue(const Path& path) : type_(Type::Path) { new (&path_v) Path(path); }
   TypedValue(const PropertyValue& value);
 
   // assignment ops
@@ -82,7 +110,12 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
     // because of data locality.
     std::string string_v;
     std::vector<TypedValue> list_v;
-    // Node, Edge, Path, Map missing.
+    // clang doesn't allow unordered_map to have incomplete type as value so we
+    // we use map.
+    std::map<std::string, TypedValue> map_v;
+    VertexAccessor vertex_v;
+    EdgeAccessor edge_v;
+    Path path_v;
   };
 
   /**

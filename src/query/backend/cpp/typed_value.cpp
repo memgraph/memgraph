@@ -12,32 +12,26 @@ TypedValue::TypedValue(const PropertyValue& value) {
     case PropertyValue::Type::Null:
       type_ = Type::Null;
       return;
-
     case PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = value.Value<bool>();
       return;
-
     case PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = value.Value<int>();
       return;
-
     case PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.Value<double>();
-
     case PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) std::string(value.Value<std::string>());
-
     case PropertyValue::Type::List:
       type_ = Type::List;
       auto vec = value.Value<std::vector<PropertyValue>>();
       new (&list_v) std::vector<TypedValue>(vec.begin(), vec.end());
       return;
   }
-
   permanent_fail("Unsupported PropertyValue::Type");
 }
 
@@ -56,6 +50,8 @@ TypedValue::operator PropertyValue() const {
     case TypedValue::Type::List:
       return PropertyValue(
           std::vector<PropertyValue>(list_v.begin(), list_v.end()));
+    default:
+      permanent_fail("Unsupported PropertyValue::Type");
   }
   permanent_fail("Unsupported PropertyValue::Type");
 }
@@ -66,13 +62,6 @@ bool TypedValue::Value<bool>() const {
   debug_assert(type_ == TypedValue::Type::Bool,
                "Incompatible template param and type");
   return bool_v;
-}
-
-template <>
-std::string TypedValue::Value<std::string>() const {
-  debug_assert(type_ == TypedValue::Type::String,
-               "Incompatible template param and type");
-  return string_v;
 }
 
 template <>
@@ -90,38 +79,79 @@ double TypedValue::Value<double>() const {
 }
 
 template <>
+std::string TypedValue::Value<std::string>() const {
+  debug_assert(type_ == TypedValue::Type::String,
+               "Incompatible template param and type");
+  return string_v;
+}
+
+template <>
 std::vector<TypedValue> TypedValue::Value<std::vector<TypedValue>>() const {
   debug_assert(type_ == TypedValue::Type::List,
                "Incompatible template param and type");
   return list_v;
 }
 
+template <>
+std::map<std::string, TypedValue>
+TypedValue::Value<std::map<std::string, TypedValue>>() const {
+  debug_assert(type_ == TypedValue::Type::Map,
+               "Incompatible template param and type");
+  return map_v;
+}
+
+template <>
+VertexAccessor TypedValue::Value<VertexAccessor>() const {
+  debug_assert(type_ == TypedValue::Type::Vertex,
+               "Incompatible template param and type");
+  return vertex_v;
+}
+
+template <>
+EdgeAccessor TypedValue::Value<EdgeAccessor>() const {
+  debug_assert(type_ == TypedValue::Type::Edge,
+               "Incompatible template param and type");
+  return edge_v;
+}
+
+template <>
+Path TypedValue::Value<Path>() const {
+  debug_assert(type_ == TypedValue::Type::Path,
+               "Incompatible template param and type");
+  return path_v;
+}
+
 TypedValue::TypedValue(const TypedValue& other) : type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       return;
-
     case TypedValue::Type::Bool:
       this->bool_v = other.bool_v;
       return;
-
-    case TypedValue::Type::String:
-      new (&string_v) std::string(other.string_v);
-      return;
-
     case Type::Int:
       this->int_v = other.int_v;
       return;
-
     case Type::Double:
       this->double_v = other.double_v;
       return;
-
+    case TypedValue::Type::String:
+      new (&string_v) std::string(other.string_v);
+      return;
     case Type::List:
       new (&list_v) std::vector<TypedValue>(other.list_v);
       return;
+    case Type::Map:
+      new (&map_v) std::map<std::string, TypedValue>(other.map_v);
+      return;
+    case Type::Vertex:
+      new (&vertex_v) VertexAccessor(other.vertex_v);
+      return;
+    case Type::Edge:
+      new (&edge_v) EdgeAccessor(other.edge_v);
+      return;
+    case Type::Path:
+      new (&path_v) Path(other.path_v);
   }
-
   permanent_fail("Unsupported TypedValue::Type");
 }
 
@@ -131,14 +161,22 @@ std::ostream& operator<<(std::ostream& os, const TypedValue::Type type) {
       return os << "null";
     case TypedValue::Type::Bool:
       return os << "bool";
-    case TypedValue::Type::String:
-      return os << "string";
     case TypedValue::Type::Int:
       return os << "int";
     case TypedValue::Type::Double:
       return os << "double";
+    case TypedValue::Type::String:
+      return os << "string";
     case TypedValue::Type::List:
       return os << "list";
+    case TypedValue::Type::Map:
+      return os << "map";
+    case TypedValue::Type::Vertex:
+      return os << "vertex";
+    case TypedValue::Type::Edge:
+      return os << "edge";
+    case TypedValue::Type::Path:
+      return os << "path";
   }
   permanent_fail("Unsupported TypedValue::Type");
 }
@@ -149,18 +187,30 @@ std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
       return os << "Null";
     case TypedValue::Type::Bool:
       return os << (value.Value<bool>() ? "true" : "false");
-    case TypedValue::Type::String:
-      return os << value.Value<std::string>();
     case TypedValue::Type::Int:
       return os << value.Value<int>();
     case TypedValue::Type::Double:
       return os << value.Value<double>();
+    case TypedValue::Type::String:
+      return os << value.Value<std::string>();
     case TypedValue::Type::List:
       os << "[";
       for (const auto& x : value.Value<std::vector<TypedValue>>()) {
         os << x << ",";
       }
       return os << "]";
+    case TypedValue::Type::Map:
+      os << "{";
+      for (const auto& x : value.Value<std::map<std::string, TypedValue>>()) {
+        os << x.first << ": " << x.second << ",";
+      }
+      return os << "}";
+    case TypedValue::Type::Vertex:
+      return os << value.Value<VertexAccessor>();
+    case TypedValue::Type::Edge:
+      return os << value.Value<EdgeAccessor>();
+    case TypedValue::Type::Path:
+      return os << value.Value<Path>();
   }
   permanent_fail("Unsupported PropertyValue::Type");
 }
@@ -176,17 +226,29 @@ TypedValue& TypedValue::operator=(const TypedValue& other) {
       case TypedValue::Type::Bool:
         this->bool_v = other.bool_v;
         return *this;
-      case TypedValue::Type::String:
-        new (&string_v) std::string(other.string_v);
-        return *this;
       case TypedValue::Type::Int:
         this->int_v = other.int_v;
         return *this;
       case TypedValue::Type::Double:
         this->double_v = other.double_v;
         return *this;
+      case TypedValue::Type::String:
+        new (&string_v) std::string(other.string_v);
+        return *this;
       case TypedValue::Type::List:
         new (&list_v) std::vector<TypedValue>(other.list_v);
+        return *this;
+      case TypedValue::Type::Map:
+        new (&map_v) std::map<std::string, TypedValue>(other.map_v);
+        return *this;
+      case TypedValue::Type::Vertex:
+        new (&vertex_v) VertexAccessor(other.vertex_v);
+        return *this;
+      case TypedValue::Type::Edge:
+        new (&edge_v) EdgeAccessor(other.edge_v);
+        return *this;
+      case TypedValue::Type::Path:
+        new (&path_v) Path(other.path_v);
         return *this;
     }
   }
@@ -215,6 +277,19 @@ TypedValue::~TypedValue() {
     case Type::List:
       using namespace std;
       list_v.~vector<TypedValue>();
+      return;
+    case Type::Map:
+      using namespace std;
+      map_v.~map<std::string, TypedValue>();
+      return;
+    case Type::Vertex:
+      vertex_v.~VertexAccessor();
+      return;
+    case Type::Edge:
+      edge_v.~EdgeAccessor();
+      return;
+    case Type::Path:
+      path_v.~Path();
       return;
   }
   permanent_fail("Unsupported TypedValue::Type");
