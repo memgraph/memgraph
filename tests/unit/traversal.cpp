@@ -135,7 +135,6 @@ auto Cartesian(TVisitable &&visitable) {
  * Specialization of the traversal_template::Cartesian function that accepts
  * multiple arguments.
  */
-// TODO (code-review) can this be specialized more elegantly?
 template<typename TVisitableFirst, typename... TVisitableOthers>
 auto Cartesian(TVisitableFirst &&first, TVisitableOthers &&... others) {
   return traversal_template::CartesianBinaryType<TVisitableFirst, decltype(Cartesian(

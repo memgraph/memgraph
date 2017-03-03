@@ -74,23 +74,6 @@ TEST(RecordAccessor, RecordLessThan) {
   EXPECT_TRUE(e1 < e2 || e2 < e1);
   EXPECT_FALSE(e1 < e1);
   EXPECT_FALSE(e2 < e2);
-
-  std::vector<VertexAccessor> vertices = dba.vertices();
-  std::vector<VertexAccessor*> A;
-  for (int i = 0; i < vertices.size(); ++i) A.push_back(&vertices[i]);
-  std::sort(A.begin(), A.end(),
-            [](const VertexAccessor* a, const VertexAccessor* b) -> bool {
-              return *a < *b;
-            });
-
-  std::vector<VertexAccessor*> B;
-  for (int i = 0; i < vertices.size(); ++i) B.push_back(&vertices[i]);
-  std::sort(B.begin(), B.end(),
-            [](const VertexAccessor* a, const VertexAccessor* b) -> bool {
-              return *a < *b;
-            });
-
-  for (int i = 0; i < A.size(); ++i) EXPECT_EQ(*A[i], *B[i]);
 }
 
 TEST(RecordAccessor, VertexLabels) {
@@ -164,10 +147,10 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   EXPECT_EQ(edge.to(), v2);
   EXPECT_NE(edge.to(), v1);
 
-  EXPECT_EQ(v1.in().size(), 0);
-  EXPECT_EQ(v1.out().size(), 1);
-  EXPECT_EQ(v2.in().size(), 1);
-  EXPECT_EQ(v2.out().size(), 0);
+  EXPECT_EQ(v1.in_degree(), 0);
+  EXPECT_EQ(v1.out_degree(), 1);
+  EXPECT_EQ(v2.in_degree(), 1);
+  EXPECT_EQ(v2.out_degree(), 0);
 
   for (auto e : v1.out()) EXPECT_EQ(edge, e);
 

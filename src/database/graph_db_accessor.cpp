@@ -49,21 +49,6 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor& vertex_accessor) {
   vertex_accessor.vlist_.remove(&vertex_accessor.update(), transaction_);
 }
 
-std::vector<VertexAccessor> GraphDbAccessor::vertices() {
-  auto sl_accessor = db_.vertices_.access();
-
-  std::vector<VertexAccessor> accessors;
-  accessors.reserve(sl_accessor.size());
-
-  for (auto vlist : sl_accessor) {
-    auto record = vlist->find(transaction_);
-    if (record == nullptr) continue;
-    accessors.emplace_back(*vlist, *record, *this);
-  }
-
-  return accessors;
-}
-
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor& from,
                                           VertexAccessor& to,
                                           GraphDb::EdgeType edge_type) {
@@ -103,21 +88,6 @@ void GraphDbAccessor::remove_edge(EdgeAccessor& edge_accessor) {
   swap_out_edge(edge_accessor.from().update().out_, &edge_accessor.vlist_);
   swap_out_edge(edge_accessor.to().update().in_, &edge_accessor.vlist_);
   edge_accessor.vlist_.remove(&edge_accessor.update(), transaction_);
-}
-
-std::vector<EdgeAccessor> GraphDbAccessor::edges() {
-  auto sl_accessor = db_.edges_.access();
-
-  std::vector<EdgeAccessor> accessors;
-  accessors.reserve(sl_accessor.size());
-
-  for (auto vlist : sl_accessor) {
-    auto record = vlist->find(transaction_);
-    if (record == nullptr) continue;
-    accessors.emplace_back(*vlist, *record, *this);
-  }
-
-  return accessors;
 }
 
 GraphDb::Label GraphDbAccessor::label(const std::string& label_name) {

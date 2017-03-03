@@ -1,4 +1,5 @@
 #include "storage/record_accessor.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 #include "utils/assert.hpp"

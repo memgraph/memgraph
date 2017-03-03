@@ -36,11 +36,3 @@ bool VertexAccessor::has_label(GraphDb::Label label) const {
 const std::vector<GraphDb::Label> &VertexAccessor::labels() const {
   return this->view().labels_;
 }
-
-std::vector<EdgeAccessor> VertexAccessor::in() {
-  return make_accessors<EdgeAccessor>(view().in_, db_accessor_);
-}
-
-std::vector<EdgeAccessor> VertexAccessor::out() {
-  return make_accessors<EdgeAccessor>(view().out_, db_accessor_);
-}

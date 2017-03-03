@@ -248,6 +248,7 @@ include_directories(${build_include_dir})
 include_directories(${fmt_source_dir})
 include_directories(${yaml_include_dir})
 include_directories(${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
+include_directories(${CMAKE_SOURCE_DIR}/libs)
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -360,7 +361,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 execute_process(
-    COMMAND python recursive_include.py --root ${src_dir} --start ${src_dir}/query/plan_interface.hpp --copy ${CMAKE_BINARY_DIR}/include
+    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} --start ${src_dir}/query/plan_interface.hpp --copy ${CMAKE_BINARY_DIR}/include
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
 )
 

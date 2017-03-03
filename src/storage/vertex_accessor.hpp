@@ -6,10 +6,9 @@
 #include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
+#include "storage/util.hpp"
 
-// forward declaring the EdgeAccessor because it's returned
-// by some functions
-class EdgeAccessor;
+#include "storage/edge_accessor.hpp"
 
 /**
  * Provides ways for the client programmer (i.e. code generated
@@ -64,13 +63,11 @@ class VertexAccessor : public RecordAccessor<Vertex> {
 
   /**
    * Returns EdgeAccessors for all incoming edges.
-   * @return
    */
-  std::vector<EdgeAccessor> in();
+  auto in() { return make_accessor_iterator<EdgeAccessor>(view().in_, db_accessor_); }
 
   /**
    * Returns EdgeAccessors for all outgoing edges.
-   * @return
    */
-  std::vector<EdgeAccessor> out();
+  auto out() { return make_accessor_iterator<EdgeAccessor>(view().out_, db_accessor_); }
 };

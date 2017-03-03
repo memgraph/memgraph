@@ -79,32 +79,32 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 
   auto va1 = dba.insert_vertex();
   auto va2 = dba.insert_vertex();
-  EXPECT_EQ(va1.in().size(), 0);
-  EXPECT_EQ(va1.out().size(), 0);
-  EXPECT_EQ(va2.in().size(), 0);
-  EXPECT_EQ(va2.out().size(), 0);
+  EXPECT_EQ(va1.in_degree(), 0);
+  EXPECT_EQ(va1.out_degree(), 0);
+  EXPECT_EQ(va2.in_degree(), 0);
+  EXPECT_EQ(va2.out_degree(), 0);
 
   // setup (v1) - [:likes] -> (v2)
   dba.insert_edge(va1, va2, dba.edge_type("likes"));
   EXPECT_EQ(CountEdges(dba), 1);
-  EXPECT_EQ(va1.out()[0].to(), va2);
-  EXPECT_EQ(va2.in()[0].from(), va1);
-  EXPECT_EQ(va1.in().size(), 0);
-  EXPECT_EQ(va1.out().size(), 1);
-  EXPECT_EQ(va2.in().size(), 1);
-  EXPECT_EQ(va2.out().size(), 0);
+  EXPECT_EQ(va1.out().begin()->to(), va2);
+  EXPECT_EQ(va2.in().begin()->from(), va1);
+  EXPECT_EQ(va1.in_degree(), 0);
+  EXPECT_EQ(va1.out_degree(), 1);
+  EXPECT_EQ(va2.in_degree(), 1);
+  EXPECT_EQ(va2.out_degree(), 0);
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
   auto va3 = dba.insert_vertex();
   dba.insert_edge(va3, va2, dba.edge_type("hates"));
   EXPECT_EQ(CountEdges(dba), 2);
-  EXPECT_EQ(va3.out()[0].to(), va2);
-  EXPECT_EQ(va1.in().size(), 0);
-  EXPECT_EQ(va1.out().size(), 1);
-  EXPECT_EQ(va2.in().size(), 2);
-  EXPECT_EQ(va2.out().size(), 0);
-  EXPECT_EQ(va3.in().size(), 0);
-  EXPECT_EQ(va3.out().size(), 1);
+  EXPECT_EQ(va3.out().begin()->to(), va2);
+  EXPECT_EQ(va1.in_degree(), 0);
+  EXPECT_EQ(va1.out_degree(), 1);
+  EXPECT_EQ(va2.in_degree(), 2);
+  EXPECT_EQ(va2.out_degree(), 0);
+  EXPECT_EQ(va3.in_degree(), 0);
+  EXPECT_EQ(va3.out_degree(), 1);
 }
 
 TEST(GraphDbAccessorTest, RemoveEdge) {
@@ -139,14 +139,14 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
     // ensure correct connectivity for all the vertices
     for (auto vertex : dba3.vertices()) {
       if (vertex == v1) {
-        EXPECT_EQ(vertex.in().size(), 0);
-        EXPECT_EQ(vertex.out().size(), 1);
+        EXPECT_EQ(vertex.in_degree(), 0);
+        EXPECT_EQ(vertex.out_degree(), 1);
       } else if (vertex == v2) {
-        EXPECT_EQ(vertex.in().size(), 1);
-        EXPECT_EQ(vertex.out().size(), 0);
+        EXPECT_EQ(vertex.in_degree(), 1);
+        EXPECT_EQ(vertex.out_degree(), 0);
       } else {
-        EXPECT_EQ(vertex.in().size(), 0);
-        EXPECT_EQ(vertex.out().size(), 0);
+        EXPECT_EQ(vertex.in_degree(), 0);
+        EXPECT_EQ(vertex.out_degree(), 0);
       }
     }
   }

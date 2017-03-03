@@ -6,6 +6,7 @@
 #include "io/network/socket.hpp"
 
 #include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "storage/property_value_store.hpp"
 #include <cassert>
 

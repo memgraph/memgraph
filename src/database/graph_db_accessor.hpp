@@ -5,8 +5,14 @@
 
 #pragma once
 
+#include "cppitertools/imap.hpp"
+#include "cppitertools/filter.hpp"
+
 #include "graph_db.hpp"
 #include "transactions/transaction.hpp"
+
+#include "storage/vertex_accessor.hpp"
+#include "storage/edge_accessor.hpp"
 
 /**
  * An accessor for the database object: exposes functions
@@ -56,11 +62,20 @@ class GraphDbAccessor {
   void detach_remove_vertex(VertexAccessor& vertex_accessor);
 
   /**
-   * Returns accessors to all the vertices in the graph.
-   * TODO: switch to the Iterator library and map function.
-   * @return
+   * Returns iterable over accessors to all the vertices in the graph
+   * visible to the current transaction.
    */
-  std::vector<VertexAccessor> vertices();
+  auto vertices() {
+    // filter out the accessors not visible to the current transaction
+    auto filtered = iter::filter([this](auto vlist) {
+      return vlist->find(this->transaction_) != nullptr;
+    }, db_.vertices_.access());
+
+    // return accessors of the filtered out vlists
+    return iter::imap([this](auto vlist) {
+      return VertexAccessor(*vlist, *this);
+    }, std::move(filtered));
+  }
 
   /**
    * Creates a new Edge and returns an accessor to it.
@@ -81,11 +96,20 @@ class GraphDbAccessor {
   void remove_edge(EdgeAccessor& edge_accessor);
 
   /**
-   * Returns accessors to all the edges in the graph.
-   * TODO: switch to the Iterator library and map function.
-   * @return
+   * Returns iterable over accessors to all the edges in the graph
+   * visible to the current transaction.
    */
-  std::vector<EdgeAccessor> edges();
+  auto edges() {
+    // filter out the accessors not visible to the current transaction
+    auto filtered = iter::filter([this](auto vlist) {
+      return vlist->find(transaction_) != nullptr;
+    }, db_.edges_.access());
+
+    // return accessors of the filtered out vlists
+    return iter::imap([this](auto vlist) {
+      return EdgeAccessor(*vlist, *this);
+    }, std::move(filtered));
+  }
 
   /**
    * Obtains the Label for the label's name.

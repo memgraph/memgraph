@@ -23,7 +23,6 @@ option(YAML_CPP_BUILD_TOOLS "" OFF)
 add_subdirectory(yaml-cpp)
 
 # setup cppitertools
-include_directories(cppitertools)
 # CLion compatiblity; the target won't be built
 file(GLOB __CPPITERTOOLS_SOURCES __main.cpp
                                  ${CMAKE_SOURCE_DIR}/libs/cppitertools/*.hpp)

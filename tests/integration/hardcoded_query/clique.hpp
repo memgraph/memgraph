@@ -124,8 +124,13 @@ bool run_general_query(GraphDbAccessor &db_accessor,
   else
     stream.write_fields({"a.garment_id", "b.garment_id", "c.garment_id",
                          "d.garment_id", "score"});
-  std::vector<VertexAccessor> vertices = db_accessor.vertices();
-  std::vector<EdgeAccessor> edges = db_accessor.edges();
+  // TODO dgleich: this code is very inefficient as it first makes a copy
+  // of all the vertices/edges, and filters aftwarwards. I warned about this
+  // happening in code review!!!
+  auto vertices_iterator = db_accessor.vertices();
+  auto edge_iterator = db_accessor.edges();
+  std::vector<VertexAccessor> vertices(vertices_iterator.begin(), vertices_iterator.end());
+  std::vector<EdgeAccessor> edges(edge_iterator.begin(), edge_iterator.end());
 
   std::vector<VertexAccessor *> vertices_indexed;
   std::vector<EdgeAccessor *> edges_indexed;
@@ -180,7 +185,7 @@ bool run_general_query(GraphDbAccessor &db_accessor,
    * @param edges edges from which to update bitset.
    */
   auto update = [&db_accessor, &query](Bitset<int64_t> &bitset,
-                                       const std::vector<EdgeAccessor> &edges) {
+                                       auto &&edges) {
     for (auto e : edges) {
       if (e.edge_type() != db_accessor.edge_type("default_outfit")) continue;
       const int from = query(e.from());

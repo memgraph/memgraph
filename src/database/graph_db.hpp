@@ -10,9 +10,7 @@
 // forward declaring Edge and Vertex because they use
 // GraphDb::Label etc., and therefore include this header
 class Vertex;
-class VertexAccessor;
 class Edge;
-class EdgeAccessor;
 
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new
 // layer would hold SnapshotEngine and his kind of concept objects. Some

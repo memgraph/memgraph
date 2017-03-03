@@ -1,12 +1,14 @@
 #pragma once
 
 #include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+//#include "database/graph_db_accessor.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
 #include "utils/pass_key.hpp"
 
 #include "storage/property_value_store.hpp"
+
+class GraphDbAccessor;
 
 /**
  * An accessor to a database record (an Edge or a Vertex).
