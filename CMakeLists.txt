@@ -40,6 +40,13 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 include(functions)
 # -----------------------------------------------------------------------------
 
+# We want out of source builds, so that cmake generated files don't get mixed
+# with source files. This allows for easier clean up.
+disallow_in_source_build()
+add_custom_target(clean_all
+                  COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/clean_all.cmake
+                  COMMENT "Removing all files in ${CMAKE_BINARY_DIR}")
+
 # threading
 find_package(Threads REQUIRED)
 # -----------------------------------------------------------------------------

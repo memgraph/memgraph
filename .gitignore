@@ -20,7 +20,7 @@ release/memgraph_*
 release/libs/
 release/barrier/
 release/barrier_*
-build/compiled/
+build/
 cmake-build-*
 .idea
 cmake/DownloadProject/
