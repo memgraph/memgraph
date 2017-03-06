@@ -5,7 +5,7 @@
 #include "network_common.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
-static constexpr const char port[] = "31337";
+static constexpr const char port[] = "40000";
 
 unsigned char data[SIZE];
 
