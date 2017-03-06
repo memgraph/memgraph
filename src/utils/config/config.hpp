@@ -74,6 +74,6 @@ class Config {
     }
   }
 
-  std::string operator[](const char* key) { return dict[key]; }
+  std::string& operator[](const char* key) { return dict[key]; }
 };
 }

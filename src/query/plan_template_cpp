@@ -1,9 +1,10 @@
 #include <iostream>
 #include <string>
 
-#include "query/util.hpp"
+#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "io/network/socket.hpp"
+#include "query/backend/cpp/typed_value.hpp"
 #include "query/plan_interface.hpp"
-#include "storage/model/properties/all.hpp"
 
 using std::cout;
 using std::endl;

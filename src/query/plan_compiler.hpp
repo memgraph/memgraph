@@ -64,8 +64,8 @@ class PlanCompiler : public Loggable {
         in_file,         // input file
         "-o", out_file,  // ouput file
         "-I./include", "-I../include", "-I../../include", "-I../../../include",
-        "-I./libs/fmt", "-I../libs/fmt", "-I../../libs/fmt", "-I../../../libs/fmt",
-        "-L./ -L../ -L../../", "-lmemgraph_pic",
+        "-I./libs/fmt", "-I../libs/fmt", "-I../../libs/fmt",
+        "-I../../../libs/fmt", "-L./ -L../ -L../../", "-lmemgraph_pic",
         "-shared -fPIC"  // shared library flags
         );
 

@@ -1,3 +1,6 @@
+#define HARDCODED_OUTPUT_STREAM
+
+#include "config/config.hpp"
 #include "dbms/dbms.hpp"
 #include "query_engine_common.hpp"
 
@@ -23,6 +26,9 @@ int main(int argc, char *argv[]) {
    * init engine
    */
   auto log = init_logging("IntegrationQueryEngine");
+  // Manually set config compile_path to avoid loading whole config file with
+  // the test.
+  CONFIG(config::COMPILE_PATH) = "../compiled/";
   Dbms dbms;
   StreamT stream(std::cout);
   QueryEngineT query_engine;
