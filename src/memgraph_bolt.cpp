@@ -1,9 +1,14 @@
 #include <signal.h>
 #include <iostream>
 
-#include "communication/bolt/v1/server/server.hpp"
-#include "communication/bolt/v1/server/worker.hpp"
+#include "dbms/dbms.hpp"
+#include "query/engine.hpp"
 
+#include "communication/bolt/v1/session.hpp"
+#include "communication/server.hpp"
+
+#include "io/network/network_endpoint.hpp"
+#include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 
 #include "logging/default.hpp"
@@ -14,7 +19,13 @@
 #include "utils/stacktrace/log.hpp"
 #include "utils/terminate_handler.hpp"
 
-static bolt::Server<bolt::Worker> *serverptr;
+using endpoint_t = io::network::NetworkEndpoint;
+using socket_t = io::network::Socket;
+using bolt_server_t =
+    communication::Server<bolt::Session<socket_t>, bolt::RecordStream<socket_t>,
+                          socket_t>;
+
+static bolt_server_t *serverptr;
 
 Logger logger;
 
@@ -60,28 +71,44 @@ int main(int argc, char **argv) {
   // register args
   CONFIG_REGISTER_ARGS(argc, argv);
 
-  // initialize socket
-  io::Socket socket;
+  // initialize endpoint
+  endpoint_t endpoint;
   try {
-    socket = io::Socket::bind(interface, port);
-  } catch (io::NetworkError e) {
-    logger.error("Cannot bind to socket on {} at {}", interface, port);
+    endpoint = endpoint_t(interface, port);
+  } catch (io::network::NetworkEndpointException &e) {
     logger.error("{}", e.what());
     std::exit(EXIT_FAILURE);
   }
-  socket.set_non_blocking();
-  socket.listen(1024);
+
+  // initialize socket
+  socket_t socket;
+  if (!socket.Bind(endpoint)) {
+    logger.error("Cannot bind to socket on {} at {}", interface, port);
+    std::exit(EXIT_FAILURE);
+  }
+  if (!socket.SetNonBlocking()) {
+    logger.error("Cannot set socket to non blocking!");
+    std::exit(EXIT_FAILURE);
+  }
+  if (!socket.Listen(1024)) {
+    logger.error("Cannot listen on socket!");
+    std::exit(EXIT_FAILURE);
+  }
+
   logger.info("Listening on {} at {}", interface, port);
 
+  Dbms dbms;
+  QueryEngine<bolt::RecordStream<socket_t>> query_engine;
+
   // initialize server
-  bolt::Server<bolt::Worker> server(std::move(socket));
+  bolt_server_t server(std::move(socket), dbms, query_engine);
   serverptr = &server;
 
   // server start with N threads
   // TODO: N should be configurable
   auto N = std::thread::hardware_concurrency();
   logger.info("Starting {} workers", N);
-  server.start(N);
+  server.Start(N);
 
   logger.info("Shutting down...");
   return EXIT_SUCCESS;

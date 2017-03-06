@@ -1,157 +1,150 @@
 #pragma once
 
-#include <cstdio>
-#include <cstring>
-#include <stdexcept>
-
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include "io/network/addrinfo.hpp"
-#include "utils/likely.hpp"
-
-#include "logging/default.hpp"
+#include "io/network/network_endpoint.hpp"
 
 #include <iostream>
 
-namespace io {
+namespace io::network {
 
+/**
+ * This class creates a network socket.
+ * It is used to connect/bind/listen on a NetworkEndpoint (address + port).
+ * It has wrappers for setting network socket flags and wrappers for
+ * reading/writing data from/to the socket.
+ */
 class Socket {
- protected:
-  Socket(int family, int socket_type, int protocol) {
-    socket = ::socket(family, socket_type, protocol);
-  }
-
  public:
-  using byte = uint8_t;
+  Socket();
+  Socket(const Socket& s);
+  Socket(Socket&& other);
+  Socket& operator=(Socket&& other);
+  ~Socket();
 
-  Socket(int socket = -1) : socket(socket) {}
+  /**
+   * Closes the socket if it is open.
+   */
+  void Close();
 
-  Socket(const Socket&) = delete;
+  /**
+   * Checks whether the socket is open.
+   *
+   * @return socket open status:
+   *             true if the socket is open
+   *             false if the socket is closed
+   */
+  bool IsOpen();
 
-  Socket(Socket&& other) { *this = std::forward<Socket>(other); }
+  /**
+   * Connects the socket to the specified endpoint.
+   *
+   * @param endpoint NetworkEndpoint to which to connect to
+   *
+   * @return connection success status:
+   *             true if the connect succeeded
+   *             false if the connect failed
+   */
+  bool Connect(NetworkEndpoint& endpoint);
 
-  ~Socket() {
-    if (socket == -1) return;
+  /**
+   * Binds the socket to the specified endpoint.
+   *
+   * @param endpoint NetworkEndpoint to which to bind to
+   *
+   * @return bind success status:
+   *             true if the bind succeeded
+   *             false if the bind failed
+   */
+  bool Bind(NetworkEndpoint& endpoint);
 
-#ifndef NDEBUG
-    logging::debug("DELETING SOCKET");
-#endif
+  /**
+   * Start listening on the bound socket.
+   *
+   * @param backlog maximum number of pending connections in the connection queue
+   *
+   * @return listen success status:
+   *             true if the listen succeeded
+   *             false if the listen failed
+   */
+  bool Listen(int backlog);
 
-    ::close(socket);
-  }
+  /**
+   * Accepts a new connection.
+   * This function accepts a new connection on a listening socket.
+   *
+   * @param s Socket object that will be instantiated with the new connection
+   *
+   * @return accept success status:
+   *             true if a new connection was accepted and the socket 's' was instantiated
+   *             false if a new connection accept failed
+   */
+  bool Accept(Socket* s);
 
-  void close() {
-    ::close(socket);
-    socket = -1;
-  }
+  /**
+   * Sets the socket to non-blocking.
+   *
+   * @return set non-blocking success status:
+   *             true if the socket was successfully set to non-blocking
+   *             false if the socket was not set to non-blocking
+   */
+  bool SetNonBlocking();
 
-  Socket& operator=(Socket&& other) {
-    this->socket = other.socket;
-    other.socket = -1;
-    return *this;
-  }
+  /**
+   * Enables TCP keep-alive on the socket.
+   *
+   * @return enable keep-alive success status:
+   *             true if keep-alive was successfully enabled on the socket
+   *             false if keep-alive was not enabled
+   */
+  bool SetKeepAlive();
 
-  bool is_open() { return socket != -1; }
+  // TODO: this will be removed
+  operator int();
 
-  static Socket connect(const std::string& addr, const std::string& port) {
-    return connect(addr.c_str(), port.c_str());
-  }
+  /**
+   * Returns the socket ID.
+   * The socket ID is its unix file descriptor number.
+   */
+  int id() const;
 
-  static Socket connect(const char* addr, const char* port) {
-    auto info = AddrInfo::get(addr, port);
+  /**
+   * Returns the currently active endpoint of the socket.
+   */
+  NetworkEndpoint& endpoint();
 
-    for (struct addrinfo* it = info; it != nullptr; it = it->ai_next) {
-      auto s = Socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+  /**
+   * Write data to the socket.
+   * Theese functions guarantee that all data will be written.
+   *
+   * @param str std::string to write to the socket
+   * @param data char* or uint8_t* to data that should be written
+   * @param len length of char* or uint8_t* data
+   *
+   * @return write success status:
+   *             true if write succeeded
+   *             false if write failed
+   */
+  bool Write(const std::string& str);
+  bool Write(const char* data, size_t len);
+  bool Write(const uint8_t* data, size_t len);
 
-      if (!s.is_open()) continue;
+  /**
+   * Read data from the socket.
+   * This function is a direct wrapper for the read function.
+   *
+   * @param buffer pointer to the read buffer
+   * @param len length of the read buffer
+   *
+   * @return read success status:
+   *             > 0 if data was read, means number of read bytes
+   *             == 0 if the client closed the connection
+   *             < 0 if an error has occurred
+   */
+  int Read(void* buffer, size_t len);
 
-      if (::connect(s, it->ai_addr, it->ai_addrlen) == 0) return s;
-    }
+ private:
+  Socket(int sock, NetworkEndpoint& endpoint);
 
-    throw NetworkError("Unable to connect to socket");
-  }
-
-  static Socket bind(const std::string& addr, const std::string& port) {
-    return bind(addr.c_str(), port.c_str());
-  }
-
-  static Socket bind(const char* addr, const char* port) {
-    auto info = AddrInfo::get(addr, port);
-
-    for (struct addrinfo* it = info; it != nullptr; it = it->ai_next) {
-      auto s = Socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-
-      if (!s.is_open()) continue;
-
-      int on = 1;
-      if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on))) continue;
-
-      if (::bind(s, it->ai_addr, it->ai_addrlen) == 0) return s;
-    }
-
-    throw NetworkError("Unable to bind to socket");
-  }
-
-  void set_non_blocking() {
-    auto flags = fcntl(socket, F_GETFL, 0);
-
-    if (UNLIKELY(flags == -1))
-      throw NetworkError("Cannot read flags from socket");
-
-    flags |= O_NONBLOCK;
-
-    auto status = fcntl(socket, F_SETFL, flags);
-
-    if (UNLIKELY(status == -1))
-      throw NetworkError("Cannot set NON_BLOCK flag to socket");
-  }
-
-  void listen(int backlog) {
-    auto status = ::listen(socket, backlog);
-
-    if (UNLIKELY(status == -1)) throw NetworkError("Cannot listen on socket");
-  }
-
-  Socket accept(struct sockaddr* addr, socklen_t* len) {
-    return Socket(::accept(socket, addr, len));
-  }
-
-  operator int() { return socket; }
-
-  int id() const { return socket; }
-
-  int write(const std::string& str) { return write(str.c_str(), str.size()); }
-
-  int write(const char* data, size_t len) {
-    return write(reinterpret_cast<const byte*>(data), len);
-  }
-
-  int write(const byte* data, size_t len) {
-// TODO: use logger
-#ifndef NDEBUG
-    std::stringstream stream;
-
-    for (size_t i = 0; i < len; ++i)
-      stream << fmt::format("{:02X} ", static_cast<byte>(data[i]));
-
-    auto str = stream.str();
-
-    logging::debug("[Write {}B] {}", len, str);
-#endif
-
-    return ::write(socket, data, len);
-  }
-
-  int read(void* buffer, size_t len) { return ::read(socket, buffer, len); }
-
- protected:
-  Logger logger;
-  int socket;
+  int socket_;
+  NetworkEndpoint endpoint_;
 };
 }

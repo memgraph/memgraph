@@ -3,82 +3,91 @@
 #include "io/network/stream_listener.hpp"
 #include "memory/literals.hpp"
 
-namespace io {
+namespace io::network {
 using namespace memory::literals;
 
+struct StreamBuffer {
+  char* ptr;
+  size_t len;
+};
+
+/**
+ * This class is used to get data from a socket that has been notified
+ * with a data available event.
+ */
 template <class Derived, class Stream>
 class StreamReader : public StreamListener<Derived, Stream> {
  public:
-  struct Buffer {
-    char* ptr;
-    size_t len;
-  };
-
   StreamReader(uint32_t flags = 0)
       : StreamListener<Derived, Stream>(flags),
-        logger(logging::log->logger("io::StreamReader")) {}
+        logger_(logging::log->logger("io::StreamReader")) {}
 
-  bool accept(Socket& socket) {
-    logger.trace("accept");
+  bool Accept(Socket& socket) {
+    logger_.trace("Accept");
 
     // accept a connection from a socket
-    auto s = socket.accept(nullptr, nullptr);
+    Socket s;
+    if (!socket.Accept(&s)) return false;
 
-    if (!s.is_open()) return false;
+    logger_.trace(
+        "Accepted a connection: scoket {}, address '{}', family {}, port {}",
+        s.id(), s.endpoint().address(), s.endpoint().family(),
+        s.endpoint().port());
 
-    // make the recieved socket non blocking
-    s.set_non_blocking();
+    if (!s.SetKeepAlive()) return false;
 
-    auto& stream = this->derived().on_connect(std::move(s));
+    auto& stream = this->derived().OnConnect(std::move(s));
 
     // we want to listen to an incoming event which is edge triggered and
     // we also want to listen on the hangup event
-    stream.event.events = EPOLLIN | EPOLLET | EPOLLRDHUP;
+    stream.event.events = EPOLLIN | EPOLLRDHUP;
 
     // add the connection to the event listener
-    this->add(stream);
+    this->Add(stream);
 
     return true;
   }
 
-  void on_data(Stream& stream) {
-    logger.trace("on data");
+  void OnData(Stream& stream) {
+    logger_.trace("On data");
 
     while (true) {
       if (UNLIKELY(!stream.alive())) {
-        stream.close();
+        logger_.trace("Calling OnClose because the stream isn't alive!");
+        this->derived().OnClose(stream);
         break;
       }
 
       // allocate the buffer to fill the data
-      auto buf = this->derived().on_alloc(stream);
+      auto buf = this->derived().OnAlloc(stream);
 
       // read from the buffer at most buf.len bytes
-      buf.len = stream.socket.read(buf.ptr, buf.len);
+      buf.len = stream.socket.Read(buf.ptr, buf.len);
 
       // check for read errors
       if (buf.len == -1) {
         // this means we have read all available data
-        if (LIKELY(errno == EAGAIN)) {
+        if (LIKELY(errno == EAGAIN || errno == EWOULDBLOCK)) {
           break;
         }
 
         // some other error occurred, check errno
-        this->derived().on_error(stream);
+        this->derived().OnError(stream);
         break;
       }
 
       // end of file, the client has closed the connection
       if (UNLIKELY(buf.len == 0)) {
-        stream.close();
+        logger_.trace("Calling OnClose because the socket is closed!");
+        this->derived().OnClose(stream);
         break;
       }
 
-      this->derived().on_read(stream, buf);
+      this->derived().OnRead(stream, buf);
     }
   }
 
  private:
-  Logger logger;
+  Logger logger_;
 };
 }

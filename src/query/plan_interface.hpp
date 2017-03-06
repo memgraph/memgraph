@@ -1,6 +1,5 @@
 #pragma once
 
-#include "communication/bolt/communication.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/stripped.hpp"
 

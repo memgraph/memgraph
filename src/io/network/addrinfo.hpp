@@ -1,36 +1,20 @@
 #pragma once
 
-#include <netdb.h>
-#include <cstring>
+namespace io::network {
 
-#include "io/network/network_error.hpp"
-#include "utils/underlying_cast.hpp"
-
-namespace io {
-
+/**
+ * Wrapper class for getaddrinfo.
+ * see: man 3 getaddrinfo
+ */
 class AddrInfo {
-  AddrInfo(struct addrinfo* info) : info(info) {}
+  AddrInfo(struct addrinfo* info);
 
  public:
-  ~AddrInfo() { freeaddrinfo(info); }
+  ~AddrInfo();
 
-  static AddrInfo get(const char* addr, const char* port) {
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(struct addrinfo));
+  static AddrInfo Get(const char* addr, const char* port);
 
-    hints.ai_family = AF_UNSPEC;      // IPv4 and IPv6
-    hints.ai_socktype = SOCK_STREAM;  // TCP socket
-    hints.ai_flags = AI_PASSIVE;
-
-    struct addrinfo* result;
-    auto status = getaddrinfo(addr, port, &hints, &result);
-
-    if (status != 0) throw NetworkError(gai_strerror(status));
-
-    return AddrInfo(result);
-  }
-
-  operator struct addrinfo*() { return info; }
+  operator struct addrinfo*();
 
  private:
   struct addrinfo* info;

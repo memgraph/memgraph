@@ -3,7 +3,6 @@
 #include "communication/bolt/v1/serialization/bolt_serializer.hpp"
 #include "communication/bolt/v1/transport/chunked_buffer.hpp"
 #include "communication/bolt/v1/transport/chunked_encoder.hpp"
-#include "communication/bolt/v1/transport/socket_stream.hpp"
 
 #include "logging/default.hpp"
 
@@ -145,13 +144,12 @@ class RecordStream {
   Logger logger;
 
  private:
-  using socket_t = SocketStream<Socket>;
-  using buffer_t = ChunkedBuffer<socket_t>;
+  using buffer_t = ChunkedBuffer<Socket>;
   using chunked_encoder_t = ChunkedEncoder<buffer_t>;
   using bolt_encoder_t = BoltEncoder<chunked_encoder_t>;
   using bolt_serializer_t = BoltSerializer<bolt_encoder_t>;
 
-  socket_t socket;
+  Socket &socket;
   buffer_t chunked_buffer{socket};
   chunked_encoder_t chunked_encoder{chunked_buffer};
   bolt_encoder_t bolt_encoder{chunked_encoder};

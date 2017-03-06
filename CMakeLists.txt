@@ -298,16 +298,11 @@ set(memgraph_src_files
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
     ${src_dir}/utils/numerics/saturate.cpp
-    ${src_dir}/communication/bolt/v1/bolt.cpp
-    ${src_dir}/communication/bolt/v1/states.cpp
-    ${src_dir}/communication/bolt/v1/session.cpp
-    ${src_dir}/communication/bolt/v1/states/error.cpp
-    ${src_dir}/communication/bolt/v1/states/executor.cpp
-    ${src_dir}/communication/bolt/v1/states/init.cpp
-    ${src_dir}/communication/bolt/v1/states/handshake.cpp
     ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
     ${src_dir}/communication/bolt/v1/transport/buffer.cpp
-    ${src_dir}/communication/bolt/v1/serialization/bolt_serializer.cpp
+    ${src_dir}/io/network/addrinfo.cpp
+    ${src_dir}/io/network/network_endpoint.cpp
+    ${src_dir}/io/network/socket.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
 #    ${src_dir}/snapshot/snapshot_engine.cpp

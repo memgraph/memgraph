@@ -4,7 +4,7 @@
 
 #include "utils/exceptions/stacktrace_exception.hpp"
 
-namespace io {
+namespace io::network {
 
 class NetworkError : public StacktraceException {
  public:

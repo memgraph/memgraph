@@ -33,7 +33,8 @@ class ChunkedBuffer {
   }
 
   void flush() {
-    stream.get().write(&buffer.front(), size);
+    // TODO: check for success
+    stream.get().Write(&buffer.front(), size);
 
     logger.trace("Flushed {} bytes", size);
 
