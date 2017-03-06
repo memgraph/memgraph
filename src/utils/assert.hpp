@@ -26,8 +26,8 @@
 #endif
 
 /**
- * parmanant assertion will always be active
- * when condition is satisfied program has to exit
+ * permanent assertion will always be active
+ * when condition is not satisfied program will exit
  *
  * a good use-case for this type of assert is during unit testing because
  * assert has to stay active all the time
@@ -40,17 +40,17 @@
     std::exit(EXIT_FAILURE);                 \
   }
 
-#define permanent_fail(message)                                     \
-  std::ostringstream s;                                             \
-  s << message;                                                     \
-  __handle_assert_message(s.str());                                 \
-  std::exit(EXIT_FAILURE);                                          \
-/**                                                                 \
- * runtime assertion is more like standart C assert but with custom \
- * define which controls when the assertion will be active          \
- *                                                                  \
- * could be used wherever the standard C assert is used but         \
- * the user should not forget about DEBUG_ASSERT_ON define          \
+#define permanent_fail(message)                                   \
+  std::ostringstream s;                                           \
+  s << message;                                                   \
+  __handle_assert_message(s.str());                               \
+  std::exit(EXIT_FAILURE);                                        \
+/**                                                               \
+ * debug assertion is more like standard C assert but with custom \
+ * define which controls when the assertion will be active        \
+ *                                                                \
+ * could be used wherever the standard C assert is used but       \
+ * the user should not forget about DEBUG_ASSERT_ON define        \
  */
 #ifdef DEBUG_ASSERT_ON
 #define debug_assert(condition, message) permanent_assert(condition, message)
