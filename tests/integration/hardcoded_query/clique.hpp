@@ -158,8 +158,8 @@ bool run_general_query(GraphDbAccessor &db_accessor,
       edges_indexed.push_back(&edges[i]);
   }
   const int n = vertices_indexed.size();
-  auto cmp_vertex = [](const VertexAccessor *a, const VertexAccessor *b)
-                        -> bool { return *a < *b; };
+  auto cmp_vertex = [](const VertexAccessor *a,
+                       const VertexAccessor *b) -> bool { return *a < *b; };
   auto cmp_edge = [](const EdgeAccessor *a, const EdgeAccessor *b) -> bool {
     if (a->from() != b->from()) return a->from() < b->from();
     return a->to() < b->to();
@@ -169,15 +169,15 @@ bool run_general_query(GraphDbAccessor &db_accessor,
    * @param v VertexAccessor to a vertex.
    * @return position of vertex or -1 if it doesn't exist.
    */
-  auto query =
-      [&vertices_indexed, &cmp_vertex](const VertexAccessor &v) -> int {
-        int pos = lower_bound(vertices_indexed.begin(), vertices_indexed.end(),
-                              &v, cmp_vertex) -
-                  vertices_indexed.begin();
-        if (pos == (int)vertices_indexed.size() || *vertices_indexed[pos] != v)
-          return -1;
-        return pos;
-      };
+  auto query = [&vertices_indexed,
+                &cmp_vertex](const VertexAccessor &v) -> int {
+    int pos = lower_bound(vertices_indexed.begin(), vertices_indexed.end(), &v,
+                          cmp_vertex) -
+              vertices_indexed.begin();
+    if (pos == (int)vertices_indexed.size() || *vertices_indexed[pos] != v)
+      return -1;
+    return pos;
+  };
   /**
    * Update bitset of neighbours. Set bit to 1 for index of every vertex
    * endpoint of edges with type default_outfit.
@@ -235,16 +235,15 @@ bool run_general_query(GraphDbAccessor &db_accessor,
    * @return EdgeAccessor* if it exists, nullptr otherwise.
    */
   auto get_edge = [&edges_indexed](
-                      const VertexAccessor &first,
-                      const VertexAccessor &second) -> EdgeAccessor *{
-    auto cmp_edge_to_pair =
-        [](const EdgeAccessor *edge,
-           const pair<const VertexAccessor *, const VertexAccessor *> &e)
-            -> bool {
-              if (edge->from() != *e.first) return edge->from() < *e.first;
-              if (edge->to() != *e.second) return edge->to() < *e.second;
-              return false;
-            };
+      const VertexAccessor &first,
+      const VertexAccessor &second) -> EdgeAccessor * {
+    auto cmp_edge_to_pair = [](
+        const EdgeAccessor *edge,
+        const pair<const VertexAccessor *, const VertexAccessor *> &e) -> bool {
+      if (edge->from() != *e.first) return edge->from() < *e.first;
+      if (edge->to() != *e.second) return edge->to() < *e.second;
+      return false;
+    };
     auto pos = lower_bound(edges_indexed.begin(), edges_indexed.end(),
                            std::make_pair(&first, &second), cmp_edge_to_pair) -
                edges_indexed.begin();
@@ -268,19 +267,18 @@ bool run_general_query(GraphDbAccessor &db_accessor,
    * @param V index of clique vertices in vertices_indexed.
    * @return score if profile_index exists, else 0.
    */
-  auto calc_score =
-      [&db_accessor, &vertices, &profile_index, &vertices_indexed, &get_edge](
-          const std::vector<int> &V) -> int {
-        int res = 0;
-        if (profile_index == -1) return 0;
-        for (auto x : V) {
-          auto edge = get_edge(vertices[profile_index], *vertices_indexed[x]);
-          if (edge == nullptr) continue;
-          auto prop = TypedValue(edge->PropsAt(db_accessor.property("score")));
-          if (prop.type() == TypedValue::Type::Int) res += prop.Value<int>();
-        }
-        return res;
-      };
+  auto calc_score = [&db_accessor, &vertices, &profile_index, &vertices_indexed,
+                     &get_edge](const std::vector<int> &V) -> int {
+    int res = 0;
+    if (profile_index == -1) return 0;
+    for (auto x : V) {
+      auto edge = get_edge(vertices[profile_index], *vertices_indexed[x]);
+      if (edge == nullptr) continue;
+      auto prop = TypedValue(edge->PropsAt(db_accessor.property("score")));
+      if (prop.type() == TypedValue::Type::Int) res += prop.Value<int>();
+    }
+    return res;
+  };
   if (query_type == CliqueQuery::SCORE_AND_LIMIT) {
     auto cmp_results = [&calc_score](const std::vector<int> &first,
                                      const std::vector<int> &second) {
@@ -305,6 +303,6 @@ bool run_general_query(GraphDbAccessor &db_accessor,
       stream.write(calc_score(results[i]));
   }
   stream.write_meta("r");
-  db_accessor.transaction_.commit();
+  db_accessor.commit();
   return true;
 }

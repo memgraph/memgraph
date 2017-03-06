@@ -34,7 +34,7 @@ class CPUPlan : public PlanInterface<Stream> {
       }
     }
     stream.write_meta("r");
-    db_accessor.transaction_.commit();
+    db_accessor.commit();
     return true;
   }
   ~CPUPlan() {}

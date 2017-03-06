@@ -5,14 +5,14 @@
 
 #pragma once
 
-#include "cppitertools/imap.hpp"
 #include "cppitertools/filter.hpp"
+#include "cppitertools/imap.hpp"
 
 #include "graph_db.hpp"
 #include "transactions/transaction.hpp"
 
-#include "storage/vertex_accessor.hpp"
 #include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 
 /**
  * An accessor for the database object: exposes functions
@@ -22,6 +22,7 @@
  * a new Vertex should take care of all the book-keeping around
  * the creation.
  */
+
 class GraphDbAccessor {
  public:
   /**
@@ -30,6 +31,7 @@ class GraphDbAccessor {
    * @param db The database
    */
   GraphDbAccessor(GraphDb& db);
+  ~GraphDbAccessor();
 
   /**
    * Returns the name of the database of this accessor.
@@ -67,14 +69,14 @@ class GraphDbAccessor {
    */
   auto vertices() {
     // filter out the accessors not visible to the current transaction
-    auto filtered = iter::filter([this](auto vlist) {
-      return vlist->find(this->transaction_) != nullptr;
-    }, db_.vertices_.access());
+    auto filtered = iter::filter(
+        [this](auto vlist) { return vlist->find(*transaction_) != nullptr; },
+        db_.vertices_.access());
 
     // return accessors of the filtered out vlists
-    return iter::imap([this](auto vlist) {
-      return VertexAccessor(*vlist, *this);
-    }, std::move(filtered));
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        std::move(filtered));
   }
 
   /**
@@ -101,14 +103,14 @@ class GraphDbAccessor {
    */
   auto edges() {
     // filter out the accessors not visible to the current transaction
-    auto filtered = iter::filter([this](auto vlist) {
-      return vlist->find(transaction_) != nullptr;
-    }, db_.edges_.access());
+    auto filtered = iter::filter(
+        [this](auto vlist) { return vlist->find(*transaction_) != nullptr; },
+        db_.edges_.access());
 
     // return accessors of the filtered out vlists
-    return iter::imap([this](auto vlist) {
-      return EdgeAccessor(*vlist, *this);
-    }, std::move(filtered));
+    return iter::imap(
+        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
+        std::move(filtered));
   }
 
   /**
@@ -153,9 +155,46 @@ class GraphDbAccessor {
    */
   std::string& property_name(const GraphDb::Property property) const;
 
-  /** The current transaction */
-  tx::Transaction transaction_;
+  /**
+   * Advances transaction's command id by 1.
+   */
+  void advance_command();
+
+  /**
+   * Commit transaction.
+   */
+  void commit();
+
+  /**
+   * Abort transaction.
+   */
+  void abort();
+
+  /**
+   * Init accessor record with vlist.
+   * @args accessor whose record to initialize.
+   */
+  template <typename TRecord>
+  void init_record(RecordAccessor<TRecord>& accessor) {
+    accessor.record_ = accessor.vlist_.find(*transaction_);
+  }
+
+  /**
+   * Update accessor record with vlist.
+   * @args accessor whose record to update if possible.
+   */
+  template <typename TRecord>
+  void update(RecordAccessor<TRecord>& accessor) {
+    if (!accessor.record_->is_visible_write(*transaction_))
+      accessor.record_ = accessor.vlist_.update(*transaction_);
+  }
 
  private:
   GraphDb& db_;
+
+  /** The current transaction */
+  tx::Transaction* const transaction_;
+
+  bool commited_{false};
+  bool aborted_{false};
 };

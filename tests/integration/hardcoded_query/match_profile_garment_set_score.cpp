@@ -53,7 +53,7 @@ class CPUPlan : public PlanInterface<Stream> {
         stream.write_edge_record(e);
       }
     stream.write_meta("rw");
-    db_accessor.transaction_.commit();
+    db_accessor.commit();
     return true;
   }
 

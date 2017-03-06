@@ -84,10 +84,10 @@ class RecordAccessor {
    */
   const PropertyValueStore<GraphDb::Property>& Properties() const;
 
-  void PropertiesAccept(
-      std::function<void(const GraphDb::Property key, const PropertyValue& prop)>
-          handler,
-      std::function<void()> finish = {}) const;
+  void PropertiesAccept(std::function<void(const GraphDb::Property key,
+                                           const PropertyValue& prop)>
+                            handler,
+                        std::function<void()> finish = {}) const;
 
   /**
    * This should be used with care as it's comparing vlist_ pointer records and

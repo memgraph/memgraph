@@ -26,7 +26,7 @@ class Engine : Lockable<SpinLock> {
   // Begins transaction and runs given functions in same atomic step.
   // Functions will be given Transaction&
   template <class... F>
-  Transaction &begin(F... fun) {
+  Transaction *begin(F... fun) {
     auto guard = this->acquire_unique();
 
     auto id = Id(counter.next());
@@ -37,7 +37,7 @@ class Engine : Lockable<SpinLock> {
 
     call(*t, fun...);
 
-    return *t;
+    return t;
   }
 
   Transaction &advance(const Id &id) {
@@ -48,6 +48,9 @@ class Engine : Lockable<SpinLock> {
     if (t == nullptr) throw TransactionError("transaction does not exist");
 
     // this is a new command
+    if (t->cid == 255)
+      throw TransactionError(
+          "Reached maximum number of commands in this transaction.");
     t->cid++;
 
     return *t;

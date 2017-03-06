@@ -7,9 +7,8 @@
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         GraphDbAccessor &db_accessor)
-    : vlist_(vlist),
-      record_(vlist_.find(db_accessor.transaction_)),
-      db_accessor_(db_accessor) {
+    : db_accessor_(db_accessor), vlist_(vlist), record_(nullptr) {
+  db_accessor_.init_record(*this);
   debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
@@ -17,7 +16,7 @@ template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         TRecord &record,
                                         GraphDbAccessor &db_accessor)
-    : vlist_(vlist), record_(&record), db_accessor_(db_accessor) {
+    : db_accessor_(db_accessor), vlist_(vlist), record_(&record) {
   debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
@@ -33,8 +32,8 @@ size_t RecordAccessor<TRecord>::PropsErase(GraphDb::Property key) {
 }
 
 template <typename TRecord>
-const PropertyValueStore<GraphDb::Property> &RecordAccessor<TRecord>::Properties()
-    const {
+const PropertyValueStore<GraphDb::Property>
+    &RecordAccessor<TRecord>::Properties() const {
   return view().properties_;
 }
 
@@ -58,9 +57,7 @@ const GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
-  if (!record_->is_visible_write(db_accessor_.transaction_))
-    record_ = vlist_.update(db_accessor_.transaction_);
-
+  db_accessor_.update(*this);
   return *record_;
 }
 

@@ -50,6 +50,8 @@ TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
   EXPECT_EQ(CountVertices(accessor), 1);
 
   EXPECT_TRUE(accessor.remove_vertex(va1));
+  EXPECT_EQ(CountVertices(accessor), 1);
+  accessor.advance_command();
   EXPECT_EQ(CountVertices(accessor), 0);
 }
 
@@ -59,14 +61,14 @@ TEST(GraphDbAccessorTest, RemoveVertexDifferentTransaction) {
   // first transaction creates a vertex
   GraphDbAccessor accessor1 = dbms.active();
   accessor1.insert_vertex();
-  accessor1.transaction_.commit();
+  accessor1.commit();
 
   // second transaction checks that it sees it, and deletes it
   GraphDbAccessor accessor2 = dbms.active();
   EXPECT_EQ(CountVertices(accessor2), 1);
   for (auto vertex_accessor : accessor2.vertices())
     accessor2.remove_vertex(vertex_accessor);
-  accessor2.transaction_.commit();
+  accessor2.commit();
 
   // third transaction checks that it does not see the vertex
   GraphDbAccessor accessor3 = dbms.active();
@@ -120,14 +122,14 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
   EXPECT_EQ(CountEdges(dba1), 2);
 
   // remove all [:hates] edges
-  dba1.transaction_.commit();
+  dba1.commit();
   GraphDbAccessor dba2 = dbms.active();
   EXPECT_EQ(CountEdges(dba2), 2);
   for (auto edge : dba2.edges())
     if (edge.edge_type() == dba2.edge_type("hates")) dba2.remove_edge(edge);
 
   // current state: (v1) - [:likes] -> (v2), (v3)
-  dba2.transaction_.commit();
+  dba2.commit();
   GraphDbAccessor dba3 = dbms.active();
   EXPECT_EQ(CountEdges(dba3), 1);
   EXPECT_EQ(CountVertices(dba3), 3);
@@ -177,14 +179,14 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   // DETACH REMOVE V3
   // new situation: (v1) - [:likes] -> (v2)
   dba1.detach_remove_vertex(va3);
-  dba1.transaction_.commit();
+  dba1.commit();
   GraphDbAccessor dba2 = dbms.active();
 
   EXPECT_EQ(CountVertices(dba2), 2);
   EXPECT_EQ(CountEdges(dba2), 1);
   for (auto va : dba2.vertices()) EXPECT_FALSE(dba2.remove_vertex(va));
 
-  dba2.transaction_.commit();
+  dba2.commit();
   GraphDbAccessor dba3 = dbms.active();
   EXPECT_EQ(CountVertices(dba3), 2);
   EXPECT_EQ(CountEdges(dba3), 1);
@@ -195,7 +197,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
     break;
   }
 
-  dba3.transaction_.commit();
+  dba3.commit();
   GraphDbAccessor dba4 = dbms.active();
   EXPECT_EQ(CountVertices(dba4), 1);
   EXPECT_EQ(CountEdges(dba4), 0);
@@ -204,7 +206,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   // so that should work
   for (auto va : dba4.vertices()) EXPECT_TRUE(dba4.remove_vertex(va));
 
-  dba4.transaction_.commit();
+  dba4.commit();
   GraphDbAccessor dba5 = dbms.active();
   EXPECT_EQ(CountVertices(dba5), 0);
   EXPECT_EQ(CountEdges(dba5), 0);

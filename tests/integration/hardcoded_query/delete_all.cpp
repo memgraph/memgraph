@@ -16,7 +16,7 @@ class CPUPlan : public PlanInterface<Stream> {
     for (auto v : db_accessor.vertices()) db_accessor.detach_remove_vertex(v);
     stream.write_empty_fields();
     stream.write_meta("rw");
-    db_accessor.transaction_.commit();
+    db_accessor.commit();
     return true;
   }
 

@@ -318,7 +318,6 @@ set(memgraph_src_files
 #    ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
-    ${src_dir}/transactions/transaction_read.cpp
     ${src_dir}/template_engine/engine.cpp
     ${src_dir}/logging/streams/stdout.cpp
     ${src_dir}/logging/levels.cpp

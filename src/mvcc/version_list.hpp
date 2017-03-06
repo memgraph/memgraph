@@ -101,7 +101,7 @@ class VersionList {
 
   void vacuum() {}
 
-  T *find(const tx::TransactionRead &t) const {
+  T *find(const tx::Transaction &t) const {
     auto r = head.load(std::memory_order_seq_cst);
 
     //    nullptr

@@ -7,16 +7,16 @@
 #include "transactions/engine.hpp"
 
 namespace tx {
+Transaction::Transaction(Engine &engine)
+    : Transaction(Id(), Snapshot<Id>(), engine) {}
+
+Transaction::Transaction(const Id &&id, const Snapshot<Id> &&snapshot,
+                         Engine &engine)
+    : id(id), cid(1), engine(engine), snapshot(std::move(snapshot)) {}
 
 Transaction::Transaction(const Id &id, const Snapshot<Id> &snapshot,
                          Engine &engine)
-    : TransactionRead(id, snapshot, engine) {}
-
-// Returns copy of transaction_id
-TransactionRead Transaction::transaction_read() {
-  TransactionRead const &t = *this;
-  return t;
-}
+    : id(id), cid(1), engine(engine), snapshot(snapshot) {}
 
 void Transaction::wait_for_active() {
   while (snapshot.size() > 0) {
@@ -33,4 +33,16 @@ void Transaction::take_lock(RecordLock &lock) { locks.take(&lock, id); }
 void Transaction::commit() { engine.commit(*this); }
 
 void Transaction::abort() { engine.abort(*this); }
+
+bool Transaction::all_finished() {
+  return !engine.clog.is_active(id) && snapshot.all_finished(engine);
+}
+
+bool Transaction::in_snapshot(const Id &id) const {
+  return snapshot.is_active(id);
+}
+
+Id Transaction::oldest_active() {
+  return snapshot.oldest_active().take_or(Id(id));
+}
 }
