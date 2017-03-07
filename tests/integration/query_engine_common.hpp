@@ -4,6 +4,7 @@
 #include <set>
 namespace fs = std::experimental::filesystem;
 #include "database/graph_db_accessor.hpp"
+#include "dbms/dbms.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.cpp"
 #include "query/engine.hpp"
@@ -120,15 +121,14 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
  *
  * @param log external logger reference
  * @param engine query engine
- * @param db_accessor a database accessor on which the query plans are executed
+ * @param dbms a database to execute queries on
  * @param path path a queries file
  * @param stream used by query plans to output the results
  *
  * @return void
  */
-auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine,
-                       GraphDbAccessor &db_accessor, const fs::path &path,
-                       StreamT &stream) {
+auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine, Dbms &dbms,
+                       const fs::path &path, StreamT &stream) {
   log.info("*** Execute the queries from the queries_file ***");
   // execute all queries from queries_file
   auto queries = utils::read_lines(path);
@@ -136,6 +136,9 @@ auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine,
     if (query.empty()) continue;
     permanent_assert(engine.Loaded(trim(query)),
                      "Implementation wasn't loaded");
+    // Create new db_accessor since one query is associated with one
+    // transaction.
+    auto db_accessor = dbms.active();
     engine.Run(query, db_accessor, stream);
   }
 }
@@ -148,17 +151,17 @@ auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine,
  *
  * @param log external logger reference
  * @param engine query engine
- * @param db_accessor a database accessor on which the query plans are executed
+ * @param dbms a database to execute queries on
  * @param stream used by query plans to output the results
  *
  * @return void
  */
-auto WarmUpEngine(Logger &log, QueryEngineT &engine,
-                  GraphDbAccessor &db_accessor, StreamT &stream) {
+auto WarmUpEngine(Logger &log, QueryEngineT &engine, Dbms &dbms,
+                  StreamT &stream) {
   // path to a file with queries
   auto queries_file = fs::path(
       GET_ARG("-q", "../data/queries/core/mg_basic_002.txt").get_string());
-  // forlder with query implementations
+  // folder with query implementations
   auto implementations_folder =
       fs::path(GET_ARG("-i", "../integration/hardcoded_query").get_string());
 
@@ -169,7 +172,7 @@ auto WarmUpEngine(Logger &log, QueryEngineT &engine,
   LoadQueryPlans(log, engine, query_hashes, implementations_folder);
 
   // execute all loaded query plasn
-  ExecuteQueryPlans(log, engine, db_accessor, queries_file, stream);
+  ExecuteQueryPlans(log, engine, dbms, queries_file, stream);
 }
 }
 }

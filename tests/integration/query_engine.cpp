@@ -35,8 +35,7 @@ int main(int argc, char *argv[]) {
   // IMPORTANT: PrintRecordStream can be replaces with a smarter
   // object that can test the results
 
-  auto db_accessor = dbms.active();
-  WarmUpEngine(log, query_engine, db_accessor, stream);
+  WarmUpEngine(log, query_engine, dbms, stream);
 
   return 0;
 }

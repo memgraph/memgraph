@@ -18,13 +18,12 @@ int main(int argc, char* argv[]) {
   // init engine
   auto log = init_logging("ManualQueryEngine");
   Dbms dbms;
-  auto db_accessor = dbms.active();
   StreamT stream(std::cout);  // inject path to data queries
   QueryEngineT query_engine;
   // IMPORTANT: PrintRecordStream can be replaces with a smarter
   // object that can test the results
 
-  WarmUpEngine(log, query_engine, db_accessor, stream);
+  WarmUpEngine(log, query_engine, dbms, stream);
 
   // init watcher
   FSWatcher watcher;
@@ -61,6 +60,7 @@ int main(int argc, char* argv[]) {
             query_engine.Unload(query);
             try {
               query_engine.ReloadCustom(query, event.path);
+              auto db_accessor = dbms.active();
               query_engine.Run(query, db_accessor, stream);
             } catch (PlanCompilationException& e) {
               log.info("Query compilation failed: {}", e.what());
