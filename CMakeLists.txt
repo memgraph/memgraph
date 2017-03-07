@@ -9,12 +9,15 @@ if(NOT UNIX)
     message(FATAL "Unsupported operating system.")
 endif()
 
-#look for ccache and set it up
-find_program(CCACHE_FOUND ccache)
-if(CCACHE_FOUND)
+# ccache setup
+# ccache isn't enabled all the time because it makes some problem
+# during the code coverage process
+option(USE_CCACHE "ccache:" ON)
+message(STATUS "CCache: ${USE_CCACHE}")
+if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-endif(CCACHE_FOUND)
+endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler 
 # NOTE: must be choosen before use of project() or enable_language() ----------

@@ -1,7 +1,9 @@
 #!/bin/bash
 
+echo "START"
+
 # install all dependencies on debian based operating systems
-for pkg in wget git cmake uuid-dev clang-3.8; do
+for pkg in wget git cmake uuid-dev clang-3.8 llvm-3.8 clang-format-3.8 doxygen; do
     dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
 done
 

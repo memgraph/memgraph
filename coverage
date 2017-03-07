@@ -1,0 +1,37 @@
+#!/bin/bash
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# coverage applies only on unit tests
+unit_test_dir='build/tests/unit'
+coverage_dir='build/coverage'
+coverage_file='coverage.info'
+
+# execute unit tests to generate coverage files
+pushd ${unit_test_dir}
+ctest -R unit
+popd
+
+# generate coverage info files for each unit test binary
+#   + exclude stl, tests and libs
+binary_path="${unit_test_dir}/CMakeFiles"
+all_coverage_info=""
+for dir in $binary_path/*.dir; do
+    pushd ${dir}
+    lcov --gcov-tool ${working_dir}/llvm-gcov -c -d . -o ${coverage_file}
+    lcov -r ${coverage_file} '/usr/*' '*/libs/*' -o ${coverage_file} 
+    all_coverage_info+=" -a ${working_dir}/${dir}/${coverage_file}"
+    popd
+done
+
+# merge all info files into total coverage info and generate html
+echo ${all_coverage_info}
+mkdir -p ${coverage_dir}
+pushd ${coverage_dir}
+lcov ${all_coverage_info} -o ${coverage_file}
+genhtml ${coverage_file}
+popd
+
+# generage coberatura xml file (compatible with Jenkins)
+python libs/lcov-to-cobertura-xml/lcov_cobertura/lcov_cobertura.py \
+    ${coverage_dir}/${coverage_file} -o ${coverage_dir}/coverage.xml
