@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# exit if any subcommand returns a non-zero status
+set -e
+
+## build memgraph
+
+# save the path where this script is
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+memgraph_src_dir=${script_dir}/dbms/memgraph
+memgraph_build_dir=${script_dir}/dbms/memgraph/build
+
+# compile memgraph
+cd ${memgraph_build_dir}
+cmake ..
+make -j8
+make copy_hardcoded_queries
+
+# setup dressipi
+cd ${script_dir}/tests/pilot_dressipi
+# setup ve
+if [ ! -d "ve3" ]; then
+    virtualenv -p python3 ve3
+    source ve3/bin/activate
+    pip3 install -r requirements.txt
+fi
+
+# binary is available after the build
+binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable -name "memgraph*")
+# get full path to memgraph config
+config_path="${memgraph_src_dir}/config/memgraph.yaml"
+# run memgraph
+MEMGRAPH_CONFIG=${config_path} ${binary_name} &
+
+# the script has to be carefull because one process has been detached
+set +e
+
+## run tests
+
+# run Dressipi test
+source ve3/bin/activate
+python run.py
+exit_code=$?
+
+# cleanup
+pkill -9 -f "${binary_name}"
+
+# return test status
+exit $exit_code

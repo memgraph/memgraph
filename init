@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# exit if any subcommand returns a non-zero status
+set -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# optional argument; if diff_id exists arcanist patch will be applied
+arcanist_diff_id=${1:-""}
+
+# install all dependencies on debian based operating systems
+for pkg in git arcanist python3-virtualenv python3-pip; do
+    dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
+done
+
+# TODO: use pullbot and read a password from program arg or env var
+#       (in order to use this script inside CI infrastructure)
+
+# clean tests folder
+tests_folder=${script_dir}/tests
+rm -rf ${tests_folder}/*
+
+# clone dressipi's tests
+cd ${tests_folder}
+git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
+
+# clean dbms folder
+dbms_folder=${script_dir}/dbms
+rm -rf ${dbms_folder}/*
+
+# clone memgraph & checkout right commit
+cd ${dbms_folder}
+git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
+memgraph_folder=${dbms_folder}/memgraph
+cd ${memgraph_folder}
+git checkout dev
+# optionally apply arcanist patch
+if [[ !  -z  ${arcanist_diff_id}  ]]; then
+    # nocommit is here because arc tries to commit the patch
+    # and it fails if user isn't set (inside CI infrastructure the user
+    # probably won't be defined because CI infrastructure doesn't push
+    # any code back to the repository)
+    arc parch ${arcanist_diff_id} --nocommit
+fi
+./init
