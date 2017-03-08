@@ -339,6 +339,7 @@ set(memgraph_src_files
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
     ${src_dir}/logging/streams/stdout.cpp
+    ${src_dir}/logging/streams/stderr.cpp
     ${src_dir}/logging/levels.cpp
     ${src_dir}/logging/logs/sync_log.cpp
     ${src_dir}/logging/logs/async_log.cpp
