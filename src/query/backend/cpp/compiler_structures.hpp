@@ -5,6 +5,9 @@
 #include "query/frontend/opencypher/generated/CypherParser.h"
 #include "utils/exceptions/basic_exception.hpp"
 
+namespace backend {
+namespace cpp {
+
 // TODO: Figure out what information to put in exception.
 // Error reporting is tricky since we get stripped query and position of error
 // in original query is not same as position of error in stripped query. Most
@@ -22,21 +25,17 @@ class SemanticException : BasicException {
 // enum VariableType { TYPED_VALUE, LIST, MAP, NODE, RELATIONSHIP, PATH };
 
 struct Node {
-  std::string output_identifier;
+  std::string output_id;
   std::vector<std::string> labels;
-  std::unordered_map<std::string,
-                     antlropencypher::CypherParser::ExpressionContext*>
-      properties;
+  std::unordered_map<std::string, std::string> properties;
 };
 
 struct Relationship {
   enum Direction { LEFT, RIGHT, BOTH };
-  std::string output_identifier;
+  std::string output_id;
   Direction direction = Direction::BOTH;
   std::vector<std::string> types;
-  std::unordered_map<std::string,
-                     antlropencypher::CypherParser::ExpressionContext*>
-      properties;
+  std::unordered_map<std::string, std::string> properties;
   bool has_range = false;
   // If has_range is false, lower and upper bound values are not important.
   // lower_bound can be larger than upper_bound and in that case there is no
@@ -46,7 +45,37 @@ struct Relationship {
 };
 
 struct PatternPart {
-  std::string output_identifier;
-  std::vector<Node> nodes;
-  std::vector<Relationship> relationships;
+  std::string output_id;
+  std::vector<std::string> nodes;
+  std::vector<std::string> relationships;
 };
+
+enum class Function {
+  LOGICAL_OR,
+  LOGICAL_XOR,
+  LOGICAL_AND,
+  LOGICAL_NOT,
+  EQ,
+  NE,
+  LT,
+  GT,
+  LE,
+  GE,
+  ADDITION,
+  SUBTRACTION,
+  MULTIPLICATION,
+  DIVISION,
+  MODULO,
+  UNARY_MINUS,
+  UNARY_PLUS,
+  PROPERTY_GETTER,
+  LITERAL,
+  PARAMETER
+};
+
+struct SimpleExpression {
+  Function function;
+  std::vector<std::string> arguments;
+};
+}
+}

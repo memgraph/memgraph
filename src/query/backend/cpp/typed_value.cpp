@@ -32,7 +32,7 @@ TypedValue::TypedValue(const PropertyValue& value) {
       new (&list_v) std::vector<TypedValue>(vec.begin(), vec.end());
       return;
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  permanent_fail("Unsupported type");
 }
 
 TypedValue::operator PropertyValue() const {
@@ -51,73 +51,86 @@ TypedValue::operator PropertyValue() const {
       return PropertyValue(
           std::vector<PropertyValue>(list_v.begin(), list_v.end()));
     default:
-      permanent_fail("Unsupported PropertyValue::Type");
+      throw TypedValueException(
+          "Unsupported conversion from TypedValue to PropertyValue");
   }
-  permanent_fail("Unsupported PropertyValue::Type");
 }
 
+// TODO: Refactor this. Value<bool> should be ValueBool. If we do it in that way
+// we could return reference for complex types and value for primitive types.
+// Other solution would be to add additional overloads for references, for
+// example Value<string&>.
 // Value extraction template instantiations
 template <>
 bool TypedValue::Value<bool>() const {
-  debug_assert(type_ == TypedValue::Type::Bool,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Bool) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return bool_v;
 }
 
 template <>
 int TypedValue::Value<int>() const {
-  debug_assert(type_ == TypedValue::Type::Int,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Int) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return int_v;
 }
 
 template <>
 double TypedValue::Value<double>() const {
-  debug_assert(type_ == TypedValue::Type::Double,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Double) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return double_v;
 }
 
 template <>
 std::string TypedValue::Value<std::string>() const {
-  debug_assert(type_ == TypedValue::Type::String,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::String) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return string_v;
 }
 
 template <>
 std::vector<TypedValue> TypedValue::Value<std::vector<TypedValue>>() const {
-  debug_assert(type_ == TypedValue::Type::List,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::List) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return list_v;
 }
 
 template <>
 std::map<std::string, TypedValue>
 TypedValue::Value<std::map<std::string, TypedValue>>() const {
-  debug_assert(type_ == TypedValue::Type::Map,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Map) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return map_v;
 }
 
 template <>
 VertexAccessor TypedValue::Value<VertexAccessor>() const {
-  debug_assert(type_ == TypedValue::Type::Vertex,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Vertex) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return vertex_v;
 }
 
 template <>
 EdgeAccessor TypedValue::Value<EdgeAccessor>() const {
-  debug_assert(type_ == TypedValue::Type::Edge,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Edge) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return edge_v;
 }
 
 template <>
 Path TypedValue::Value<Path>() const {
-  debug_assert(type_ == TypedValue::Type::Path,
-               "Incompatible template param and type");
+  if (type_ != TypedValue::Type::Path) {
+    throw TypedValueException("Incompatible template param and type");
+  }
   return path_v;
 }
 
@@ -308,9 +321,9 @@ double ToDouble(const TypedValue& value) {
       return (double)value.Value<int>();
     case TypedValue::Type::Double:
       return value.Value<double>();
-
     default:
-      permanent_fail("Unsupported TypedValue::Type");
+      throw TypedValueException(
+          "Unsupported TypedValue::Type conversion to double");
   }
 }
 
@@ -324,22 +337,25 @@ TypedValue operator<(const TypedValue& a, const TypedValue& b) {
 
   if (a.type() == TypedValue::Type::String ||
       b.type() == TypedValue::Type::String) {
-    if (a.type() != b.type())
+    if (a.type() != b.type()) {
       throw TypedValueException("Invalid equality operand types({} + {})",
                                 a.type(), b.type());
-    else
+    } else {
       return a.Value<std::string>() < b.Value<std::string>();
+    }
   }
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
-      b.type() == TypedValue::Type::Double)
+      b.type() == TypedValue::Type::Double) {
     return ToDouble(a) < ToDouble(b);
-  else
+  } else {
     return a.Value<int>() < b.Value<int>();
+  }
 }
 
-// TODO: 2 = "2" -> false, I don't this is handled correctly at the moment.
+// TODO: 2 = "2" -> false, I don't think this is handled correctly at the
+// moment.
 TypedValue operator==(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
     return TypedValue::Null;
@@ -349,7 +365,8 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
     if (a.type() == TypedValue::Type::List &&
         b.type() == TypedValue::Type::List) {
       // Potential optimisation: There is no need to copies of both lists to
-      // compare them. If operator becomes a friend of TypedValue class then we
+      // compare them. If operator becomes a friend of TypedValue class then
+      // we
       // can compare list_v-s directly.
       auto list1 = a.Value<std::vector<TypedValue>>();
       auto list2 = b.Value<std::vector<TypedValue>>();
@@ -361,7 +378,8 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
       }
       return true;
     }
-    // We are not compatible with neo4j at this point. In neo4j 2 = [2] compares
+    // We are not compatible with neo4j at this point. In neo4j 2 = [2]
+    // compares
     // to true. That is not the end of unselfishness of developers at neo4j so
     // they allow us to use as many braces as we want to get to the truth in
     // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
@@ -373,27 +391,30 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
 
   if (a.type() == TypedValue::Type::String ||
       b.type() == TypedValue::Type::String) {
-    if (a.type() != b.type())
+    if (a.type() != b.type()) {
       throw TypedValueException("Invalid equality operand types({} + {})",
                                 a.type(), b.type());
-    else
+    } else {
       return a.Value<std::string>() == b.Value<std::string>();
+    }
   }
 
   if (a.type() == TypedValue::Type::Bool ||
       b.type() == TypedValue::Type::Bool) {
-    if (a.type() != b.type())
+    if (a.type() != b.type()) {
       throw TypedValueException("Invalid equality operand types({} + {})",
                                 a.type(), b.type());
-    else
+    } else {
       return a.Value<bool>() == b.Value<bool>();
+    }
   }
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) == ToDouble(b);
-  } else
+  } else {
     return a.Value<int>() == b.Value<int>();
+  }
 }
 
 TypedValue operator!(const TypedValue& a) {
@@ -402,7 +423,6 @@ TypedValue operator!(const TypedValue& a) {
       return TypedValue::Null;
     case TypedValue::Type::Bool:
       return TypedValue(!a.Value<bool>());
-
     default:
       throw TypedValueException("Invalid logical not operand type (!{})",
                                 a.type());
@@ -423,10 +443,10 @@ std::string ValueToString(const TypedValue& value) {
       return std::to_string(value.Value<int>());
     case TypedValue::Type::Double:
       return fmt::format("{}", value.Value<double>());
-
     // unsupported situations
     default:
-      permanent_fail("Unsupported TypedValue::Type");
+      throw TypedValueException(
+          "Unsupported TypedValue::Type conversion to string");
   }
 }
 
@@ -438,7 +458,6 @@ TypedValue operator-(const TypedValue& a) {
       return -a.Value<int>();
     case TypedValue::Type::Double:
       return -a.Value<double>();
-
     default:
       throw TypedValueException("Invalid unary minus operand type (-{})",
                                 a.type());
@@ -501,8 +520,9 @@ TypedValue operator+(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) + ToDouble(b);
-  } else
+  } else {
     return a.Value<int>() + b.Value<int>();
+  }
 }
 
 TypedValue operator-(const TypedValue& a, const TypedValue& b) {
@@ -515,8 +535,9 @@ TypedValue operator-(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) - ToDouble(b);
-  } else
+  } else {
     return a.Value<int>() - b.Value<int>();
+  }
 }
 
 TypedValue operator/(const TypedValue& a, const TypedValue& b) {
@@ -529,8 +550,9 @@ TypedValue operator/(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) / ToDouble(b);
-  } else
+  } else {
     return a.Value<int>() / b.Value<int>();
+  }
 }
 
 TypedValue operator*(const TypedValue& a, const TypedValue& b) {
@@ -543,8 +565,9 @@ TypedValue operator*(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) * ToDouble(b);
-  } else
+  } else {
     return a.Value<int>() * b.Value<int>();
+  }
 }
 
 TypedValue operator%(const TypedValue& a, const TypedValue& b) {
@@ -557,8 +580,9 @@ TypedValue operator%(const TypedValue& a, const TypedValue& b) {
   if (a.type() == TypedValue::Type::Double ||
       b.type() == TypedValue::Type::Double) {
     return (double)fmod(ToDouble(a), ToDouble(b));
-  } else
+  } else {
     return a.Value<int>() % b.Value<int>();
+  }
 }
 
 inline bool IsLogicallyOk(const TypedValue& a) {
@@ -570,23 +594,41 @@ inline bool IsLogicallyOk(const TypedValue& a) {
 TypedValue operator&&(const TypedValue& a, const TypedValue& b) {
   if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
     if (a.type() == TypedValue::Type::Null ||
-        b.type() == TypedValue::Type::Null)
+        b.type() == TypedValue::Type::Null) {
       return TypedValue::Null;
-    else
+    } else {
       return a.Value<bool>() && b.Value<bool>();
-  } else
+    }
+  } else {
     throw TypedValueException("Invalid logical and operand types({} && {})",
                               a.type(), b.type());
+  }
 }
 
 TypedValue operator||(const TypedValue& a, const TypedValue& b) {
   if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
     if (a.type() == TypedValue::Type::Null ||
-        b.type() == TypedValue::Type::Null)
+        b.type() == TypedValue::Type::Null) {
       return TypedValue::Null;
-    else
+    } else {
       return a.Value<bool>() || b.Value<bool>();
-  } else
+    }
+  } else {
     throw TypedValueException("Invalid logical and operand types({} && {})",
                               a.type(), b.type());
+  }
+}
+
+TypedValue operator^(const TypedValue& a, const TypedValue& b) {
+  if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
+    if (a.type() == TypedValue::Type::Null ||
+        b.type() == TypedValue::Type::Null) {
+      return TypedValue::Null;
+    } else {
+      return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
+    }
+  } else {
+    throw TypedValueException("Invalid logical and operand types({} && {})",
+                              a.type(), b.type());
+  }
 }

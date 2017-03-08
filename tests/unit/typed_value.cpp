@@ -210,7 +210,6 @@ TEST(TypedValue, Sum) {
   std::vector<TypedValue> out3 = {1, 2, true, "a", 1, 2, true, "a"};
   EXPECT_PROP_EQ(
       (TypedValue(2) + TypedValue(in)).Value<std::vector<TypedValue>>(), out1);
-  std::cerr << (TypedValue(2) + TypedValue(in)) << "\n";
   EXPECT_PROP_EQ(
       (TypedValue(in) + TypedValue(2)).Value<std::vector<TypedValue>>(), out2);
   EXPECT_PROP_EQ(
@@ -321,4 +320,14 @@ TEST(TypedValue, LogicalOr) {
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));
+}
+
+TEST(TypedValue, LogicalXor) {
+  TestLogicalThrows(
+      [](const TypedValue& p1, const TypedValue& p2) { return p1 ^ p2; });
+  EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
+  EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(true), TypedValue(false));
+  EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(true), TypedValue(true));
+  EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(false), TypedValue(true));
+  EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(false), TypedValue(false));
 }

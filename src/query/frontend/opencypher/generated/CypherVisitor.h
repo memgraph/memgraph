@@ -1,5 +1,5 @@
 
-// Generated from /home/buda/Workspace/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
+// Generated from /home/mislav/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
 
 #pragma once
 
@@ -151,6 +151,8 @@ public:
     virtual antlrcpp::Any visitFunctionName(CypherParser::FunctionNameContext *context) = 0;
 
     virtual antlrcpp::Any visitListComprehension(CypherParser::ListComprehensionContext *context) = 0;
+
+    virtual antlrcpp::Any visitPatternComprehension(CypherParser::PatternComprehensionContext *context) = 0;
 
     virtual antlrcpp::Any visitPropertyLookup(CypherParser::PropertyLookupContext *context) = 0;
 

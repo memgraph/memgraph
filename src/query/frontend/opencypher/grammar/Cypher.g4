@@ -53,12 +53,12 @@ mergeAction : ( ON SP MATCH SP set )
 
 create : CREATE SP? pattern ;
 
-set : SET setItem ( ',' setItem )* ;
+set : SET SP? setItem ( ',' setItem )* ;
 
-setItem : ( propertyExpression '=' expression )
-        | ( variable '=' expression )
-        | ( variable '+=' expression )
-        | ( variable nodeLabels )
+setItem : ( propertyExpression SP? '=' SP? expression )
+        | ( variable SP? '=' SP? expression )
+        | ( variable SP? '+=' SP? expression )
+        | ( variable SP? nodeLabels )
         ;
 
 cypherDelete : ( DETACH SP )? DELETE SP? expression ( SP? ',' SP? expression )* ;
@@ -115,17 +115,17 @@ relationshipPattern : ( leftArrowHead SP? dash SP? relationshipDetail? SP? dash 
                     | ( dash SP? relationshipDetail? SP? dash )
                     ;
 
-relationshipDetail : '[' variable? '?'? relationshipTypes? rangeLiteral? properties? ']' ;
+relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? rangeLiteral? ( properties SP? )? ']' ;
 
 properties : mapLiteral
            | parameter
            ;
 
-relationshipTypes : ':' relTypeName ( SP? '|' ':'? SP? relTypeName )* ;
+relationshipTypes : ':' SP? relTypeName ( SP? '|' ':'? SP? relTypeName )* ;
 
 nodeLabels : nodeLabel ( SP? nodeLabel )* ;
 
-nodeLabel : ':' labelName ;
+nodeLabel : ':' SP? labelName ;
 
 rangeLiteral : '*' SP? ( integerLiteral SP? )? ( '..' SP? ( integerLiteral SP? )? )? ;
 
@@ -155,12 +155,13 @@ expression4 : ( ( '+' | '-' ) SP? )* expression3 ;
 
 expression3 : expression2 ( ( SP? '[' expression ']' ) | ( SP? '[' expression? '..' expression? ']' ) | ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2 ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
 
-expression2 : atom ( propertyLookup | nodeLabels )* ;
+expression2 : atom ( SP? ( propertyLookup | nodeLabels ) )* ;
 
 atom : literal
      | parameter
      | ( COUNT SP? '(' SP? '*' SP? ')' )
      | listComprehension
+     | patternComprehension
      | ( FILTER SP? '(' SP? filterExpression SP? ')' )
      | ( EXTRACT SP? '(' SP? filterExpression SP? ( SP? '|' expression )? ')' )
      | ( ALL SP? '(' SP? filterExpression SP? ')' )
@@ -212,7 +213,9 @@ functionName : UnescapedSymbolicName
 
 listComprehension : '[' SP? filterExpression ( SP? '|' SP? expression )? SP? ']' ;
 
-propertyLookup : SP? '.' SP? ( ( propertyKeyName ( '?' | '!' ) ) | propertyKeyName ) ;
+patternComprehension : '[' SP? ( variable SP? '=' SP? )? relationshipsPattern SP? ( WHERE SP? expression SP? )? '|' SP? expression SP? ']' ;
+
+propertyLookup : '.' SP? ( propertyKeyName ) ;
 
 variable : symbolicName ;
 
@@ -220,7 +223,7 @@ StringLiteral : ( '"' ( StringLiteral_0 | EscapedChar )* '"' )
               | ( '\'' ( StringLiteral_1 | EscapedChar )* '\'' )
               ;
 
-EscapedChar : '\\' ( '\\' | '\'' | '"' | ( 'B' | 'b' ) | ( 'F' | 'f' ) | ( 'N' | 'n' ) | ( 'R' | 'r' ) | ( 'T' | 't' ) | '_' | '%' | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit ) ) | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit ) ) ) ;
+EscapedChar : '\\' ( '\\' | '\'' | '"' | ( 'B' | 'b' ) | ( 'F' | 'f' ) | ( 'N' | 'n' ) | ( 'R' | 'r' ) | ( 'T' | 't' ) | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit ) ) | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit ) ) ) ;
 
 numberLiteral : doubleLiteral
               | integerLiteral
@@ -239,7 +242,7 @@ integerLiteral : HexInteger
                | DecimalInteger
                ;
 
-HexInteger : L_0X ( HexDigit )+ ;
+HexInteger : '0x' ( HexDigit )+ ;
 
 DecimalInteger : ZeroDigit
                | ( NonZeroDigit ( Digit )* )
@@ -493,7 +496,7 @@ WHITESPACE : SPACE
            ;
 
 Comment : ( '/*' ( Comment_1 | ( '*' Comment_2 ) )* '*/' )
-        | ( '//' Comment_3 CR? ( LF | EOF ) )
+        | ( '//' ( Comment_3 )* CR? ( LF | EOF ) )
         ;
 
 leftArrowHead : '<'
@@ -523,8 +526,6 @@ dash : '-'
      | '﹣'
      | '－'
      ;
-
-L_0X : ( '0' | '0' ) ( 'X' | 'x' )  ;
 
 fragment FF : [\f] ;
 

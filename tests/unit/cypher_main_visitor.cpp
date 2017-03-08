@@ -13,6 +13,8 @@ using namespace ::testing;
 
 namespace {
 
+using namespace backend::cpp;
+
 class ParserTables {
   template <typename T>
   auto FilterAnies(std::unordered_map<std::string, antlrcpp::Any> map) {
@@ -31,7 +33,7 @@ class ParserTables {
     auto *tree = parser.tree();
     CypherMainVisitor visitor;
     visitor.visit(tree);
-    identifiers_map_ = visitor.identifiers_map();
+    identifiers_map_ = visitor.ids_map().back();
     symbol_table_ = visitor.symbol_table();
     pattern_parts_ = FilterAnies<PatternPart>(symbol_table_);
     nodes_ = FilterAnies<Node>(symbol_table_);
@@ -51,7 +53,7 @@ void CompareNodes(std::pair<std::string, Node> node_entry,
                   std::vector<std::string> labels,
                   std::vector<std::string> property_keys) {
   auto node = node_entry.second;
-  ASSERT_EQ(node_entry.first, node.output_identifier);
+  ASSERT_EQ(node_entry.first, node.output_id);
   ASSERT_THAT(node.labels,
               UnorderedElementsAreArray(labels.begin(), labels.end()));
   std::vector<std::string> node_property_keys;
@@ -72,7 +74,7 @@ void CompareRelationships(
     std::vector<std::string> property_keys, bool has_range,
     int64_t lower_bound = 1LL, int64_t upper_bound = LLONG_MAX) {
   auto relationship = relationship_entry.second;
-  ASSERT_EQ(relationship_entry.first, relationship.output_identifier);
+  ASSERT_EQ(relationship_entry.first, relationship.output_id);
   ASSERT_EQ(relationship.direction, direction);
   ASSERT_THAT(relationship.types,
               UnorderedElementsAreArray(types.begin(), types.end()));
@@ -298,6 +300,55 @@ TEST(CompilerStructuresTest, PatternPartVariable) {
   auto output_identifier = parser.identifiers_map_["var"];
   ASSERT_NE(parser.pattern_parts_.find(output_identifier),
             parser.pattern_parts_.end());
+}
+
+// Multiple nodes with same variable and properties.
+TEST(CompilerStructuresTest, MultipleNodesWithVariableAndProperties) {
+  ASSERT_THROW(ParserTables parser("CREATE (a {b: 5})-[]-(a {c: 5})"),
+               SemanticException);
+}
+
+// Multiple nodes with same variable name.
+TEST(CompilerStructuresTest, MultipleNodesWithVariable) {
+  ParserTables parser("CREATE (a {b: 5, c: 5})-[]-(a)");
+  ASSERT_EQ(parser.identifiers_map_.size(), 1U);
+  ASSERT_EQ(parser.pattern_parts_.size(), 1U);
+  ASSERT_EQ(parser.relationships_.size(), 1U);
+  ASSERT_EQ(parser.nodes_.size(), 1U);
+  auto pattern_part = parser.pattern_parts_.begin()->second;
+  ASSERT_EQ(pattern_part.nodes.size(), 2U);
+  ASSERT_EQ(pattern_part.relationships.size(), 1U);
+  ASSERT_EQ(pattern_part.nodes[0], pattern_part.nodes[1]);
+}
+
+// Multiple relationships with same variable name and properties.
+TEST(CompilerStructuresTest, MultipleRelationshipsWithVariableAndProperties) {
+  ASSERT_THROW(ParserTables parser("CREATE ()-[e {a: 5}]-()-[e {c: 5}]-()"),
+               SemanticException);
+}
+
+// Multiple relationships with same variable name.
+TEST(CompilerStructuresTest, MultipleRelationshipsWithVariable) {
+  ParserTables parser("CREATE ()-[a {a: 5}]-()-[a]-()");
+  ASSERT_EQ(parser.identifiers_map_.size(), 1U);
+  ASSERT_EQ(parser.pattern_parts_.size(), 1U);
+  ASSERT_EQ(parser.relationships_.size(), 1U);
+  ASSERT_EQ(parser.nodes_.size(), 3U);
+  auto pattern_part = parser.pattern_parts_.begin()->second;
+  ASSERT_EQ(pattern_part.nodes.size(), 3U);
+  ASSERT_EQ(pattern_part.relationships.size(), 2U);
+  ASSERT_NE(pattern_part.nodes[0], pattern_part.nodes[1]);
+  ASSERT_NE(pattern_part.nodes[1], pattern_part.nodes[2]);
+  ASSERT_NE(pattern_part.nodes[0], pattern_part.nodes[2]);
+  ASSERT_EQ(pattern_part.relationships[0], pattern_part.relationships[1]);
+}
+
+// Different structures (nodes, realtionships, patterns) with same variable
+// name.
+TEST(CompilerStructuresTest, DifferentTypesWithVariable) {
+  ASSERT_THROW(ParserTables parser("CREATE a=(a)"), SemanticException);
+  ASSERT_THROW(ParserTables parser("CREATE (a)-[a]-()"), SemanticException);
+  ASSERT_THROW(ParserTables parser("CREATE a=()-[a]-()"), SemanticException);
 }
 }
 

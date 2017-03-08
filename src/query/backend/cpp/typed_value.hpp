@@ -16,6 +16,7 @@
 
 typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
 
+// TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Encapsulation of a value and it's type encapsulated in a class that has no
  * compiled-time info about that type.
@@ -151,6 +152,10 @@ TypedValue operator%(const TypedValue& a, const TypedValue& b);
 // binary bool operators
 TypedValue operator&&(const TypedValue& a, const TypedValue& b);
 TypedValue operator||(const TypedValue& a, const TypedValue& b);
+// binary bool xor, not power operator
+// Be careful: since ^ is binary operator and || and && are logical operators
+// they have different priority in c++.
+TypedValue operator^(const TypedValue& a, const TypedValue& b);
 
 // stream output
 std::ostream& operator<<(std::ostream& os, const TypedValue::Type type);

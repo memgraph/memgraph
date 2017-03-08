@@ -1,5 +1,5 @@
 
-// Generated from /home/buda/Workspace/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
+// Generated from /home/mislav/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
 
 #pragma once
 
@@ -213,6 +213,9 @@ public:
 
   virtual void enterListComprehension(CypherParser::ListComprehensionContext *ctx) = 0;
   virtual void exitListComprehension(CypherParser::ListComprehensionContext *ctx) = 0;
+
+  virtual void enterPatternComprehension(CypherParser::PatternComprehensionContext *ctx) = 0;
+  virtual void exitPatternComprehension(CypherParser::PatternComprehensionContext *ctx) = 0;
 
   virtual void enterPropertyLookup(CypherParser::PropertyLookupContext *ctx) = 0;
   virtual void exitPropertyLookup(CypherParser::PropertyLookupContext *ctx) = 0;

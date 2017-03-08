@@ -1,5 +1,5 @@
 
-// Generated from /home/buda/Workspace/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
+// Generated from /home/mislav/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
 
 #pragma once
 
@@ -20,20 +20,19 @@ public:
     T__26 = 27, T__27 = 28, T__28 = 29, T__29 = 30, T__30 = 31, T__31 = 32, 
     T__32 = 33, T__33 = 34, T__34 = 35, T__35 = 36, T__36 = 37, T__37 = 38, 
     T__38 = 39, T__39 = 40, T__40 = 41, T__41 = 42, T__42 = 43, T__43 = 44, 
-    T__44 = 45, T__45 = 46, T__46 = 47, T__47 = 48, T__48 = 49, StringLiteral = 50, 
-    EscapedChar = 51, HexInteger = 52, DecimalInteger = 53, OctalInteger = 54, 
-    HexLetter = 55, HexDigit = 56, Digit = 57, NonZeroDigit = 58, NonZeroOctDigit = 59, 
-    OctDigit = 60, ZeroDigit = 61, ExponentDecimalReal = 62, RegularDecimalReal = 63, 
-    UNION = 64, ALL = 65, OPTIONAL = 66, MATCH = 67, UNWIND = 68, AS = 69, 
-    MERGE = 70, ON = 71, CREATE = 72, SET = 73, DETACH = 74, DELETE = 75, 
-    REMOVE = 76, WITH = 77, DISTINCT = 78, RETURN = 79, ORDER = 80, BY = 81, 
-    L_SKIP = 82, LIMIT = 83, ASCENDING = 84, ASC = 85, DESCENDING = 86, 
-    DESC = 87, WHERE = 88, OR = 89, XOR = 90, AND = 91, NOT = 92, IN = 93, 
-    STARTS = 94, ENDS = 95, CONTAINS = 96, IS = 97, CYPHERNULL = 98, COUNT = 99, 
-    FILTER = 100, EXTRACT = 101, ANY = 102, NONE = 103, SINGLE = 104, TRUE = 105, 
-    FALSE = 106, UnescapedSymbolicName = 107, IdentifierStart = 108, IdentifierPart = 109, 
-    EscapedSymbolicName = 110, SP = 111, WHITESPACE = 112, Comment = 113, 
-    L_0X = 114
+    T__44 = 45, T__45 = 46, T__46 = 47, StringLiteral = 48, EscapedChar = 49, 
+    HexInteger = 50, DecimalInteger = 51, OctalInteger = 52, HexLetter = 53, 
+    HexDigit = 54, Digit = 55, NonZeroDigit = 56, NonZeroOctDigit = 57, 
+    OctDigit = 58, ZeroDigit = 59, ExponentDecimalReal = 60, RegularDecimalReal = 61, 
+    UNION = 62, ALL = 63, OPTIONAL = 64, MATCH = 65, UNWIND = 66, AS = 67, 
+    MERGE = 68, ON = 69, CREATE = 70, SET = 71, DETACH = 72, DELETE = 73, 
+    REMOVE = 74, WITH = 75, DISTINCT = 76, RETURN = 77, ORDER = 78, BY = 79, 
+    L_SKIP = 80, LIMIT = 81, ASCENDING = 82, ASC = 83, DESCENDING = 84, 
+    DESC = 85, WHERE = 86, OR = 87, XOR = 88, AND = 89, NOT = 90, IN = 91, 
+    STARTS = 92, ENDS = 93, CONTAINS = 94, IS = 95, CYPHERNULL = 96, COUNT = 97, 
+    FILTER = 98, EXTRACT = 99, ANY = 100, NONE = 101, SINGLE = 102, TRUE = 103, 
+    FALSE = 104, UnescapedSymbolicName = 105, IdentifierStart = 106, IdentifierPart = 107, 
+    EscapedSymbolicName = 108, SP = 109, WHITESPACE = 110, Comment = 111
   };
 
   enum {
@@ -55,11 +54,11 @@ public:
     RuleListLiteral = 57, RulePartialComparisonExpression = 58, RuleParenthesizedExpression = 59, 
     RuleRelationshipsPattern = 60, RuleFilterExpression = 61, RuleIdInColl = 62, 
     RuleFunctionInvocation = 63, RuleFunctionName = 64, RuleListComprehension = 65, 
-    RulePropertyLookup = 66, RuleVariable = 67, RuleNumberLiteral = 68, 
-    RuleMapLiteral = 69, RuleParameter = 70, RulePropertyExpression = 71, 
-    RulePropertyKeyName = 72, RuleIntegerLiteral = 73, RuleDoubleLiteral = 74, 
-    RuleSymbolicName = 75, RuleLeftArrowHead = 76, RuleRightArrowHead = 77, 
-    RuleDash = 78
+    RulePatternComprehension = 66, RulePropertyLookup = 67, RuleVariable = 68, 
+    RuleNumberLiteral = 69, RuleMapLiteral = 70, RuleParameter = 71, RulePropertyExpression = 72, 
+    RulePropertyKeyName = 73, RuleIntegerLiteral = 74, RuleDoubleLiteral = 75, 
+    RuleSymbolicName = 76, RuleLeftArrowHead = 77, RuleRightArrowHead = 78, 
+    RuleDash = 79
   };
 
   CypherParser(antlr4::TokenStream *input);
@@ -138,6 +137,7 @@ public:
   class FunctionInvocationContext;
   class FunctionNameContext;
   class ListComprehensionContext;
+  class PatternComprehensionContext;
   class PropertyLookupContext;
   class VariableContext;
   class NumberLiteralContext;
@@ -382,6 +382,7 @@ public:
     antlr4::tree::TerminalNode *SET();
     std::vector<SetItemContext *> setItem();
     SetItemContext* setItem(size_t i);
+    antlr4::tree::TerminalNode *SP();
 
     virtual void enterRule(antlr4::tree::ParseTreeListener *listener) override;
     virtual void exitRule(antlr4::tree::ParseTreeListener *listener) override;
@@ -398,6 +399,8 @@ public:
     virtual size_t getRuleIndex() const override;
     PropertyExpressionContext *propertyExpression();
     ExpressionContext *expression();
+    std::vector<antlr4::tree::TerminalNode *> SP();
+    antlr4::tree::TerminalNode* SP(size_t i);
     VariableContext *variable();
     NodeLabelsContext *nodeLabels();
 
@@ -785,6 +788,8 @@ public:
   public:
     RelationshipDetailContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
+    std::vector<antlr4::tree::TerminalNode *> SP();
+    antlr4::tree::TerminalNode* SP(size_t i);
     VariableContext *variable();
     RelationshipTypesContext *relationshipTypes();
     RangeLiteralContext *rangeLiteral();
@@ -856,6 +861,7 @@ public:
     NodeLabelContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     LabelNameContext *labelName();
+    antlr4::tree::TerminalNode *SP();
 
     virtual void enterRule(antlr4::tree::ParseTreeListener *listener) override;
     virtual void exitRule(antlr4::tree::ParseTreeListener *listener) override;
@@ -1143,6 +1149,8 @@ public:
     PropertyLookupContext* propertyLookup(size_t i);
     std::vector<NodeLabelsContext *> nodeLabels();
     NodeLabelsContext* nodeLabels(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> SP();
+    antlr4::tree::TerminalNode* SP(size_t i);
 
     virtual void enterRule(antlr4::tree::ParseTreeListener *listener) override;
     virtual void exitRule(antlr4::tree::ParseTreeListener *listener) override;
@@ -1163,6 +1171,7 @@ public:
     std::vector<antlr4::tree::TerminalNode *> SP();
     antlr4::tree::TerminalNode* SP(size_t i);
     ListComprehensionContext *listComprehension();
+    PatternComprehensionContext *patternComprehension();
     antlr4::tree::TerminalNode *FILTER();
     FilterExpressionContext *filterExpression();
     antlr4::tree::TerminalNode *EXTRACT();
@@ -1382,13 +1391,33 @@ public:
 
   ListComprehensionContext* listComprehension();
 
+  class  PatternComprehensionContext : public antlr4::ParserRuleContext {
+  public:
+    PatternComprehensionContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    RelationshipsPatternContext *relationshipsPattern();
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> SP();
+    antlr4::tree::TerminalNode* SP(size_t i);
+    VariableContext *variable();
+    antlr4::tree::TerminalNode *WHERE();
+
+    virtual void enterRule(antlr4::tree::ParseTreeListener *listener) override;
+    virtual void exitRule(antlr4::tree::ParseTreeListener *listener) override;
+
+    virtual antlrcpp::Any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  PatternComprehensionContext* patternComprehension();
+
   class  PropertyLookupContext : public antlr4::ParserRuleContext {
   public:
     PropertyLookupContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     PropertyKeyNameContext *propertyKeyName();
-    std::vector<antlr4::tree::TerminalNode *> SP();
-    antlr4::tree::TerminalNode* SP(size_t i);
+    antlr4::tree::TerminalNode *SP();
 
     virtual void enterRule(antlr4::tree::ParseTreeListener *listener) override;
     virtual void exitRule(antlr4::tree::ParseTreeListener *listener) override;

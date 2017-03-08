@@ -10,37 +10,42 @@
 // Value extraction template instantiations
 template <>
 bool PropertyValue::Value<bool>() const {
-  debug_assert(type_ == PropertyValue::Type::Bool,
-               "Incompatible template param and type");
+  if (type_ != PropertyValue::Type::Bool) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
   return bool_v;
 }
 
 template <>
 std::string PropertyValue::Value<std::string>() const {
-  debug_assert(type_ == PropertyValue::Type::String,
-               "Incompatible template param and type");
+  if (type_ != PropertyValue::Type::String) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
   return *string_v;
 }
 
 template <>
 int PropertyValue::Value<int>() const {
-  debug_assert(type_ == PropertyValue::Type::Int,
-               "Incompatible template param and type");
+  if (type_ != PropertyValue::Type::Int) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
   return int_v;
 }
 
 template <>
 double PropertyValue::Value<double>() const {
-  debug_assert(type_ == PropertyValue::Type::Double,
-               "Incompatible template param and type");
+  if (type_ != PropertyValue::Type::Double) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
   return double_v;
 }
 
 template <>
 std::vector<PropertyValue> PropertyValue::Value<std::vector<PropertyValue>>()
     const {
-  debug_assert(type_ == PropertyValue::Type::List,
-               "Incompatible template param and type");
+  if (type_ != PropertyValue::Type::List) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
   return *list_v;
 }
 

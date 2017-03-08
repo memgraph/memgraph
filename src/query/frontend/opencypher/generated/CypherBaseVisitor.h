@@ -1,5 +1,5 @@
 
-// Generated from /home/buda/Workspace/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
+// Generated from /home/mislav/code/memgraph/memgraph/src/query/frontend/opencypher/grammar/Cypher.g4 by ANTLR 4.6
 
 #pragma once
 
@@ -278,6 +278,10 @@ public:
   }
 
   virtual antlrcpp::Any visitListComprehension(CypherParser::ListComprehensionContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual antlrcpp::Any visitPatternComprehension(CypherParser::PatternComprehensionContext *ctx) override {
     return visitChildren(ctx);
   }
 
