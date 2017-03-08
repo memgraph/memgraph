@@ -17,7 +17,7 @@ benchmark_queries:
 
   - "MATCH (u:User) WITH {key: u} AS nodes DELETE nodes.key"
 
-  - "CREATE ()-[:T {id: 42, alive: true, name: kifla, height=4.2}]->()"
+  - "CREATE ()-[:T {id: 42, alive: true, name: kifla, height: 4.2}]->()"
 
   - "MATCH p = ()-[r:T]-() WHERE r.id = 42 DELETE r"
 

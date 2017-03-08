@@ -6,6 +6,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -16,26 +17,26 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     stream.write_field("s");
     auto profile = [&db_accessor, &args](const VertexAccessor &v) -> bool {
       TypedValue prop = v.PropsAt(db_accessor.property("profile_id"));
       if (prop.type() == TypedValue::Type::Null) return false;
-      auto cmp = prop == args.at(0);
+      auto cmp = prop == args.At(0);
       if (cmp.type() != TypedValue::Type::Bool) return false;
       if (cmp.Value<bool>() != true) return false;
 
       TypedValue prop2 = v.PropsAt(db_accessor.property("partner_id"));
       if (prop2.type() == TypedValue::Type::Null) return false;
-      auto cmp2 = prop2 == args.at(1);
+      auto cmp2 = prop2 == args.At(1);
       if (cmp2.type() != TypedValue::Type::Bool) return false;
       return cmp2.Value<bool>();
     };
     auto garment = [&db_accessor, &args](const VertexAccessor &v) -> bool {
       TypedValue prop = v.PropsAt(db_accessor.property("garment_id"));
       if (prop.type() == TypedValue::Type::Null) return false;
-      auto cmp = prop == args.at(2);
+      auto cmp = prop == args.At(2);
       if (cmp.type() != TypedValue::Type::Bool) return false;
       return cmp.Value<bool>();
     };
@@ -44,7 +45,7 @@ class CPUPlan : public PlanInterface<Stream> {
       auto to = edge.to();
       if (edge.edge_type() != db_accessor.edge_type("score")) continue;
       if ((profile(from) && garment(to)) || (profile(to) && garment(from))) {
-        edge.PropsSet(db_accessor.property("score"), args.at(3));
+        edge.PropsSet(db_accessor.property("score"), args.At(3));
         stream.write_edge_record(edge);
       }
     }

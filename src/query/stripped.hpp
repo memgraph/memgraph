@@ -1,7 +1,13 @@
 #pragma once
 
+#include <map>
+
+#include "query/backend/cpp/typed_value.hpp"
 #include "storage/property_value_store.hpp"
+
+#include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
+#include "parameters.hpp"
 
 /*
 * StrippedQuery contains:
@@ -10,14 +16,13 @@
 *     * hash of stripped query
 */
 struct StrippedQuery {
-  StrippedQuery(const std::string &&query, PropertyValueStore<> &&arguments,
+  StrippedQuery(const std::string &&query,
+                const Parameters &arguments,
                 HashType hash)
-      : query(std::forward<const std::string>(query)),
-        arguments(std::forward<PropertyValueStore<>>(arguments)),
-        hash(hash) {}
+      : query(query), arguments(arguments), hash(hash) {}
 
   /**
-   * Copy constructor is deleted because we don't want to make unecessary
+   * Copy constructor is deleted because we don't want to make unnecessary
    * copies of this object (copying of string and vector could be expensive)
    */
   StrippedQuery(const StrippedQuery &other) = delete;
@@ -38,7 +43,7 @@ struct StrippedQuery {
   /**
    * Stripped arguments
    */
-  const PropertyValueStore<> arguments;
+  const Parameters arguments;
 
   /**
    * Hash based on stripped query.

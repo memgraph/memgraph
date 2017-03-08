@@ -36,9 +36,8 @@ int main(int argc, char **argv) {
   println("Stripped query: ", preprocessed.query);
   println("Query hash: ", preprocessed.hash);
   println("Property values:");
-  for (auto property : preprocessed.arguments) {
-    println("    ", property.second);
-  }
+  for (int i = 0; i < preprocessed.arguments.Size(); ++i)
+    println("    ", preprocessed.arguments.At(i));
   println("");
 
   return 0;

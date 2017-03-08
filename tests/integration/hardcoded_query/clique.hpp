@@ -9,6 +9,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
 #include "utils/assert.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -116,7 +117,7 @@ class Bitset {
 enum CliqueQuery { SCORE_AND_LIMIT, FIND_ALL };
 
 bool run_general_query(GraphDbAccessor &db_accessor,
-                       const PropertyValueStore<> &args, Stream &stream,
+                       const Parameters &args, Stream &stream,
                        enum CliqueQuery query_type) {
   if (query_type == CliqueQuery::FIND_ALL)
     stream.write_fields(
@@ -129,7 +130,8 @@ bool run_general_query(GraphDbAccessor &db_accessor,
   // happening in code review!!!
   auto vertices_iterator = db_accessor.vertices();
   auto edge_iterator = db_accessor.edges();
-  std::vector<VertexAccessor> vertices(vertices_iterator.begin(), vertices_iterator.end());
+  std::vector<VertexAccessor> vertices(vertices_iterator.begin(),
+                                       vertices_iterator.end());
   std::vector<EdgeAccessor> edges(edge_iterator.begin(), edge_iterator.end());
 
   std::vector<VertexAccessor *> vertices_indexed;
@@ -142,11 +144,11 @@ bool run_general_query(GraphDbAccessor &db_accessor,
     if (query_type == CliqueQuery::SCORE_AND_LIMIT &&
         vertices[i].has_label(db_accessor.label("profile"))) {
       auto has_prop =
-          vertices[i].PropsAt(db_accessor.property("profile_id")) == args.at(0);
+          vertices[i].PropsAt(db_accessor.property("profile_id")) == args.At(0);
       if (has_prop.type() == TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
       has_prop =
-          vertices[i].PropsAt(db_accessor.property("partner_id")) == args.at(1);
+          vertices[i].PropsAt(db_accessor.property("partner_id")) == args.At(1);
       if (has_prop.type() == TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
       profile_index = i;
@@ -184,8 +186,7 @@ bool run_general_query(GraphDbAccessor &db_accessor,
    * @param bitset bitset to update.
    * @param edges edges from which to update bitset.
    */
-  auto update = [&db_accessor, &query](Bitset<int64_t> &bitset,
-                                       auto &&edges) {
+  auto update = [&db_accessor, &query](Bitset<int64_t> &bitset, auto &&edges) {
     for (auto e : edges) {
       if (e.edge_type() != db_accessor.edge_type("default_outfit")) continue;
       const int from = query(e.from());
@@ -208,7 +209,7 @@ bool run_general_query(GraphDbAccessor &db_accessor,
   for (int i = 0; i < n; ++i) {
     const VertexAccessor v = *vertices_indexed[i];
     auto cmp_res = v.PropsAt(db_accessor.property("garment_id")) ==
-                   args.at(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0);
+                   args.At(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0);
     if (cmp_res.type() != TypedValue::Type::Bool) continue;
     if (cmp_res.Value<bool>() != true) continue;
     auto neigh = connected[i].Ones();
@@ -288,7 +289,7 @@ bool run_general_query(GraphDbAccessor &db_accessor,
     reverse(results.begin(), results.end());
   }
   const int limit = query_type == CliqueQuery::SCORE_AND_LIMIT
-                        ? args.at((int)args.size() - 1).Value<int>()
+                        ? args.At((int)args.Size() - 1).Value<int>()
                         : (int)results.size();
   for (int i = 0; i < std::min(limit, (int)results.size()); ++i) {
     stream.write_record();

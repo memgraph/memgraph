@@ -1,6 +1,7 @@
 #pragma once
 
 #include "database/graph_db_accessor.hpp"
+
 #include "query/stripped.hpp"
 
 /**
@@ -18,12 +19,12 @@ class PlanInterface {
    * concrete execution plan.
    *
    * @param db_accessor Accessor for ihe database.
-   * @param args plan argument (vector of literal values from the query)
+   * @param args Plan arguments (including literals stripped from the query).
    * @param stream stream for results writing
    *
    * @return bool status after execution (success OR fail)
    */
-  virtual bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  virtual bool run(GraphDbAccessor &db_accessor, const Parameters &args,
                    Stream &stream) = 0;
 
   /**

@@ -31,8 +31,7 @@ int main(int argc, char **argv) {
   for (auto &test : tests) {
     auto *benchmark =
         benchmark::RegisterBenchmark(test.c_str(), BM_Strip, preprocess, test)
-            ->RangeMultiplier(2)
-            ->Range(1, 8 << 10)
+            ->Range(1, 1)
             ->Complexity(benchmark::oN);
   }
 

@@ -4,6 +4,7 @@
 #include "match_garment_set_label_general_return.hpp"
 #include "query/plan_interface.hpp"
 #include "using.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -12,7 +13,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     return run_general_query(db_accessor, args, stream, "AA");
   }

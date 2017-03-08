@@ -31,14 +31,10 @@ class QueryPreprocessor : public Loggable {
    * @return QueryStripped object
    */
   auto preprocess(const std::string &query) {
-    auto preprocessed = stripper.strip(query);
-
+    auto preprocessed = query::Strip(query);
     logger.info("stripped_query = {}", preprocessed.query);
     logger.info("query_hash = {}", preprocessed.hash);
 
     return preprocessed;
   }
-
- private:
-  QueryStripper stripper;
 };

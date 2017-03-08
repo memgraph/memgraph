@@ -6,6 +6,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -15,7 +16,7 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     stream.write_field("r");
     std::vector<VertexAccessor> g1_set, g2_set;
@@ -23,7 +24,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g1.has_label(db_accessor.label("garment"))) {
         TypedValue prop = g1.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.at(0);
+        auto cmp = prop == args.At(0);
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g1_set.push_back(g1);
@@ -33,7 +34,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g2.has_label(db_accessor.label("garment"))) {
         auto prop = g2.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == PropertyValue::Type::Null) continue;
-        auto cmp = prop == args.at(1);
+        auto cmp = prop == args.At(1);
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g2_set.push_back(g2);

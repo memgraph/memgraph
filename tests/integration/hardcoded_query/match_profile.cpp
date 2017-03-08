@@ -6,6 +6,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -14,20 +15,20 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     stream.write_field("p");
     for (auto vertex : db_accessor.vertices()) {
       if (vertex.has_label(db_accessor.label("profile"))) {
         TypedValue prop = vertex.PropsAt(db_accessor.property("profile_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.at(0);
+        auto cmp = prop == args.At(0);
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
 
         TypedValue prop2 = vertex.PropsAt(db_accessor.property("partner_id"));
         if (prop2.type() == TypedValue::Type::Null) continue;
-        auto cmp2 = prop2 == args.at(1);
+        auto cmp2 = prop2 == args.At(1);
         if (cmp2.type() != TypedValue::Type::Bool) continue;
         if (cmp2.Value<bool>() != true) continue;
         stream.write_vertex_record(vertex);

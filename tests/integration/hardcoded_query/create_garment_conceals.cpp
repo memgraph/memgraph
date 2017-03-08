@@ -5,6 +5,7 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
+#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -14,13 +15,13 @@ using std::endl;
 
 class CPUPlan : public PlanInterface<Stream> {
  public:
-  bool run(GraphDbAccessor &db_accessor, const PropertyValueStore<> &args,
+  bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     auto v = db_accessor.insert_vertex();
     v.add_label(db_accessor.label("garment"));
-    v.PropsSet(db_accessor.property("garment_id"), args.at(0));
-    v.PropsSet(db_accessor.property("garment_category_id"), args.at(1));
-    v.PropsSet(db_accessor.property("conceals"), args.at(2));
+    v.PropsSet(db_accessor.property("garment_id"), args.At(0));
+    v.PropsSet(db_accessor.property("garment_category_id"), args.At(1));
+    v.PropsSet(db_accessor.property("conceals"), args.At(2));
     stream.write_field("g");
     stream.write_vertex_record(v);
     stream.write_meta("rw");
