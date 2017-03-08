@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "data_structures/bitset/static_bitset.hpp"
 #include "communication/bolt/v1/serialization/record_stream.hpp"
 #include "io/network/socket.hpp"
 #include "query/backend/cpp/typed_value.hpp"

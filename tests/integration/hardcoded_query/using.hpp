@@ -10,3 +10,4 @@ using Stream = bolt::RecordStream<io::network::Socket>;
 #include "../stream/print_record_stream.hpp"
 using Stream = PrintRecordStream;
 #endif
+#include "data_structures/bitset/static_bitset.hpp"
