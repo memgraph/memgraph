@@ -4,6 +4,7 @@
 #include <experimental/filesystem>
 #include <stdexcept>
 #include <string>
+#include "utils/exceptions/dynamic_lib_exception.hpp"
 namespace fs = std::experimental::filesystem;
 
 #include "logging/loggable.hpp"
@@ -35,7 +36,7 @@ class DynamicLib : public Loggable {
       : Loggable("DynamicLib"), lib_path(lib_path), lib_object(nullptr) {
     // load dynamic lib
     dynamic_lib = dlopen(lib_path.c_str(), RTLD_NOW);
-    if (!dynamic_lib) throw std::runtime_error(dlerror());
+    if (!dynamic_lib) throw DynamicLibException(dlerror());
     dlerror(); /* Clear any existing error */
     logger.trace("dynamic lib at ADDRESS({}) was opened", dynamic_lib);
 
@@ -43,13 +44,13 @@ class DynamicLib : public Loggable {
     this->produce_method =
         (typename T::ProducePrototype)dlsym(dynamic_lib, "produce");
     const char *dlsym_produce_error = dlerror();
-    if (dlsym_produce_error) throw std::runtime_error(dlsym_produce_error);
+    if (dlsym_produce_error) throw DynamicLibException(dlsym_produce_error);
 
     // load destruct method
     this->destruct_method =
         (typename T::DestructPrototype)dlsym(dynamic_lib, "destruct");
     const char *dlsym_destruct_error = dlerror();
-    if (dlsym_destruct_error) throw std::runtime_error(dlsym_destruct_error);
+    if (dlsym_destruct_error) throw DynamicLibException(dlsym_destruct_error);
   }
 
   // becuase we are dealing with pointers
@@ -95,9 +96,8 @@ class DynamicLib : public Loggable {
       // http://stackoverflow.com/questions/6450828/segmentation-fault-when-using-dlclose-on-android-platform
       // // for now it is not crucial so I've created a task for that
       // // ! 0 is success
-      // int closing_status = dlclose(dynamic_lib);
-      // if (closing_status != 0)
-      //     throw std::runtime_error("dynamic lib closing error");
+      int closing_status = dlclose(dynamic_lib);
+      if (closing_status != 0) throw DynamicLibException(dlerror());
     } else {
       logger.trace("unload lib was called but lib ptr is null");
     }
