@@ -9,9 +9,14 @@ if(NOT UNIX)
     message(FATAL "Unsupported operating system.")
 endif()
 
+# Set `make clean` to ignore outputs of add_custom_command. If generated files
+# need to be cleaned, set ADDITIONAL_MAKE_CLEAN_FILES property.
+set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
+
 # ccache setup
 # ccache isn't enabled all the time because it makes some problem
 # during the code coverage process
+find_program(CCACHE_FOUND ccache)
 option(USE_CCACHE "ccache:" ON)
 message(STATUS "CCache: ${USE_CCACHE}")
 if(CCACHE_FOUND AND USE_CCACHE)
@@ -269,21 +274,25 @@ set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
 
 # enumerate all files that are generated from antlr
 set(antlr_opencypher_generated_src
-   ${opencypher_frontend}/generated/CypherLexer.cpp 
-   ${opencypher_frontend}/generated/CypherParser.cpp
-   ${opencypher_frontend}/generated/CypherBaseVisitor.cpp
-   ${opencypher_frontend}/generated/CypherVisitor.cpp
+   ${opencypher_generated}/CypherLexer.cpp 
+   ${opencypher_generated}/CypherParser.cpp
+   ${opencypher_generated}/CypherBaseVisitor.cpp
+   ${opencypher_generated}/CypherVisitor.cpp
 )
+
+# Provide a command to generate sources if missing. If this were a
+# custom_target, it would always run and we don't want that.
+add_custom_command(OUTPUT ${antlr_opencypher_generated_src}
+  COMMAND
+  ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
+  COMMAND
+  java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_grammar}
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+  DEPENDS ${opencypher_grammar})
 
 # add custom target for generation
 add_custom_target(generate_opencypher_parser
-   COMMAND
-   ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
-   COMMAND 
-   java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_grammar}
-   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-   DEPENDS ${opencypher_grammar}
-   )
+  DEPENDS ${antlr_opencypher_generated_src})
 
 # include antlr header files
 include_directories(
@@ -344,10 +353,12 @@ set(memgraph_src_files
 
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
+add_dependencies(memgraph_lib generate_opencypher_parser)
 # -----------------------------------------------------------------------------
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
+add_dependencies(memgraph_pic generate_opencypher_parser)
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 # -----------------------------------------------------------------------------
 
