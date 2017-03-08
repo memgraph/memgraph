@@ -9,14 +9,14 @@
 
 size_t CountVertices(GraphDbAccessor &db_accessor) {
   size_t r_val = 0;
-  for (auto va : db_accessor.vertices()) r_val++;
+  for ([[gnu::unused]] auto va : db_accessor.vertices()) r_val++;
 
   return r_val;
 }
 
 size_t CountEdges(GraphDbAccessor &db_accessor) {
   size_t r_val = 0;
-  for (auto va : db_accessor.edges()) r_val++;
+  for ([[gnu::unused]] auto va : db_accessor.edges()) r_val++;
 
   return r_val;
 }
