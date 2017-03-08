@@ -1,4 +1,5 @@
 #include <vector>
+#include <set>
 
 #include "gtest/gtest.h"
 
@@ -140,19 +141,29 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   GraphDbAccessor dba = dbms.active();
   auto v1 = dba.insert_vertex();
   auto v2 = dba.insert_vertex();
-  auto edge = dba.insert_edge(v1, v2, dba.edge_type("likes"));
+  auto v3 = dba.insert_vertex();
+  auto e12 = dba.insert_edge(v1, v2, dba.edge_type("likes"));
+  auto e23 = dba.insert_edge(v2, v3, dba.edge_type("hates"));
 
-  EXPECT_EQ(edge.from(), v1);
-  EXPECT_NE(edge.from(), v2);
-  EXPECT_EQ(edge.to(), v2);
-  EXPECT_NE(edge.to(), v1);
+  EXPECT_EQ(e12.from(), v1);
+  EXPECT_NE(e12.from(), v2);
+  EXPECT_NE(e12.from(), v3);
+  EXPECT_EQ(e12.to(), v2);
+  EXPECT_NE(e12.to(), v1);
+  EXPECT_NE(e12.to(), v3);
 
   EXPECT_EQ(v1.in_degree(), 0);
   EXPECT_EQ(v1.out_degree(), 1);
   EXPECT_EQ(v2.in_degree(), 1);
-  EXPECT_EQ(v2.out_degree(), 0);
+  EXPECT_EQ(v2.out_degree(), 1);
 
-  for (auto e : v1.out()) EXPECT_EQ(edge, e);
+  for (auto e : v1.out()) EXPECT_EQ(e12, e);
+  for (auto e : v2.in()) EXPECT_EQ(e12, e);
+  for (auto e : v2.out()) EXPECT_EQ(e23, e);
 
-  for (auto e : v2.in()) EXPECT_EQ(edge, e);
+  auto v2_in_out = v2.in_out();
+  std::set<EdgeAccessor> in_out_result(v2_in_out.begin(), v2_in_out.end());
+  EXPECT_EQ(in_out_result.size(), 2);
+  std::set<EdgeAccessor> in_out_expected{e12, e23};
+  EXPECT_EQ(in_out_result, in_out_expected);
 }

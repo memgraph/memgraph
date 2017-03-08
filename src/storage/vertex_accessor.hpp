@@ -3,6 +3,8 @@
 #include <set>
 #include <vector>
 
+#include "cppitertools/chain.hpp"
+
 #include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
@@ -70,4 +72,10 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * Returns EdgeAccessors for all outgoing edges.
    */
   auto out() { return make_accessor_iterator<EdgeAccessor>(view().out_, db_accessor_); }
+
+  /**
+   * Returns EdgeAccessors for all incoming AND outgoing edges.
+   * @return
+   */
+  auto in_out() { return iter::chain(in(), out()); }
 };
