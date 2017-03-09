@@ -255,6 +255,8 @@ option(MANUAL_TESTS "Add manual test binaries" OFF)
 message(STATUS "Add manual test binaries: ${MANUAL_TESTS}")
 option(UNIT_TESTS "Add unit test binaries" OFF)
 message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
+option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
+message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # -----------------------------------------------------------------------------
 
 # includes
