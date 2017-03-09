@@ -5,6 +5,7 @@
 #include "logging/default.hpp"
 #include "logging/loggable.hpp"
 #include "query/exception/plan_compilation.hpp"
+#include "query/plan_compiler_flags.hpp"
 #include "utils/string/join.hpp"
 
 // TODO:
@@ -27,45 +28,16 @@ class PlanCompiler : public Loggable {
    * @return void
    */
   void compile(const std::string &in_file, const std::string &out_file) {
-    std::string flags;
-
-// TODO: sync this with cmake configuration
-#ifdef NDEBUG
-    flags += " -DNDEBUG -O2";
-#endif
-#ifdef LOG_NO_TRACE
-    flags += " -DLOG_NO_TRACE";
-#endif
-#ifdef LOG_NO_DEBUG
-    flags += " -DLOG_NO_DEBUG";
-#endif
-#ifdef LOG_NO_INFO
-    flags += " -DLOG_NO_INFO";
-#endif
-#ifdef LOG_NO_WARN
-    flags += " -DLOG_NO_WARN";
-#endif
-#ifdef LOG_NO_ERROR
-    flags += " -DLOG_NO_ERROR";
-#endif
-#ifdef DEBUG_ASSERT_ON
-    flags += " -DDEBUG_ASSERT_ON";
-#endif
-
-    // TODO: load from config (generate compile command)
     // generate compile command
     auto compile_command = utils::prints(
-        "clang++" + flags,
+        "clang++", compile_flags,
 #ifdef HARDCODED_OUTPUT_STREAM
         "-DHARDCODED_OUTPUT_STREAM",
 #endif
-        // "-std=c++1y -O2 -DNDEBUG",
-        "-std=c++1y",    // compile flags
         in_file,         // input file
         "-o", out_file,  // ouput file
-        "-I./include", "-I../include", "-I../../include", "-I../../../include",
-        "-I./libs/fmt", "-I../libs/fmt", "-I../../libs/fmt",
-        "-I../../../libs/fmt", "-L./ -L../ -L../../", "-lmemgraph_pic",
+        include_dirs,
+        link_dirs, "-lmemgraph_pic",
         "-shared -fPIC"  // shared library flags
         );
 

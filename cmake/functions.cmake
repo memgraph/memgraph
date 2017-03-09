@@ -43,3 +43,45 @@ function(disallow_in_source_build)
                 "directory, e.g. 'build' and run cmake there.")
     endif()
 endfunction()
+
+# Takes a string of ';' separated VALUES and stores a new string in RESULT,
+# where ';' is replaced with given SEP.
+function(join values sep result)
+    # Match non escaped ';' and replace it with separator. This doesn't handle
+    # the case when backslash is escaped, e.g: "a\\\\;b" will produce "a;b".
+    string(REGEX REPLACE "([^\\]|^);" "\\1${sep}" tmp "${values}")
+    # Fix-up escapes by matching backslashes and removing them.
+    string(REGEX REPLACE "[\\](.)" "\\1" tmp "${tmp}")
+    set(${result} "${tmp}" PARENT_SCOPE)
+endfunction()
+
+# Returns a list of compile flags ready for gcc or clang.
+function(get_target_cxx_flags target result)
+    # First set the CMAKE_CXX_FLAGS variables, then append directory and target
+    # options in that order. Definitions come last, directory then target.
+    string(TOUPPER ${CMAKE_BUILD_TYPE} build_type)
+    set(flags "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${build_type}}")
+    get_directory_property(dir_opts DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                           COMPILE_OPTIONS)
+    if(dir_opts)
+        join("${dir_opts}" " " dir_opts)
+        string(APPEND flags " " ${dir_opts})
+    endif()
+    get_target_property(opts ${target} COMPILE_OPTIONS)
+    if(opts)
+        join("${opts}" " " opts)
+        string(APPEND flags " " ${opts})
+    endif()
+    get_directory_property(dir_defs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                           COMPILE_DEFINITIONS)
+    if(dir_defs)
+        join("${dir_defs}" " -D" dir_defs)
+        string(APPEND flags " -D" ${dir_defs})
+    endif()
+    get_target_property(defs ${target} COMPILE_DEFINITIONS)
+    if(defs)
+        join("${defs}" " -D" defs)
+        string(APPEND flags " -D" ${defs})
+    endif()
+    set(${result} ${flags} PARENT_SCOPE)
+endfunction()
