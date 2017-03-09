@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstdint>
 
 #include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/total_ordering.hpp"
@@ -50,6 +51,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   // constructors for primitive types
   TypedValue(bool value) : type_(Type::Bool) { bool_v = value; }
   TypedValue(int value) : type_(Type::Int) { int_v = value; }
+  TypedValue(int64_t value) : type_(Type::Int) { int_v = value; }
   TypedValue(double value) : type_(Type::Double) { double_v = value; }
 
   // conversion function to PropertyValue
@@ -102,7 +104,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   // storage for the value of the property
   union {
     bool bool_v;
-    int int_v;
+    int64_t int_v;
     double double_v;
     // Since this is used in query runtime, size of union is not critical so
     // string and vector are used instead of pointers. It requires copy of data,

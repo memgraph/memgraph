@@ -18,7 +18,7 @@ TypedValue::TypedValue(const PropertyValue& value) {
       return;
     case PropertyValue::Type::Int:
       type_ = Type::Int;
-      int_v = value.Value<int>();
+      int_v = value.Value<int64_t>();
       return;
     case PropertyValue::Type::Double:
       type_ = Type::Double;
@@ -70,7 +70,7 @@ bool TypedValue::Value<bool>() const {
 }
 
 template <>
-int TypedValue::Value<int>() const {
+int64_t TypedValue::Value<int64_t>() const {
   if (type_ != TypedValue::Type::Int) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -201,7 +201,7 @@ std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
     case TypedValue::Type::Bool:
       return os << (value.Value<bool>() ? "true" : "false");
     case TypedValue::Type::Int:
-      return os << value.Value<int>();
+      return os << value.Value<int64_t>();
     case TypedValue::Type::Double:
       return os << value.Value<double>();
     case TypedValue::Type::String:
@@ -318,7 +318,7 @@ TypedValue::~TypedValue() {
 double ToDouble(const TypedValue& value) {
   switch (value.type()) {
     case TypedValue::Type::Int:
-      return (double)value.Value<int>();
+      return (double)value.Value<int64_t>();
     case TypedValue::Type::Double:
       return value.Value<double>();
     default:
@@ -350,7 +350,7 @@ TypedValue operator<(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) < ToDouble(b);
   } else {
-    return a.Value<int>() < b.Value<int>();
+    return a.Value<int64_t>() < b.Value<int64_t>();
   }
 }
 
@@ -413,7 +413,7 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) == ToDouble(b);
   } else {
-    return a.Value<int>() == b.Value<int>();
+    return a.Value<int64_t>() == b.Value<int64_t>();
   }
 }
 
@@ -440,7 +440,7 @@ std::string ValueToString(const TypedValue& value) {
     case TypedValue::Type::String:
       return value.Value<std::string>();
     case TypedValue::Type::Int:
-      return std::to_string(value.Value<int>());
+      return std::to_string(value.Value<int64_t>());
     case TypedValue::Type::Double:
       return fmt::format("{}", value.Value<double>());
     // unsupported situations
@@ -455,7 +455,7 @@ TypedValue operator-(const TypedValue& a) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::Int:
-      return -a.Value<int>();
+      return -a.Value<int64_t>();
     case TypedValue::Type::Double:
       return -a.Value<double>();
     default:
@@ -521,7 +521,7 @@ TypedValue operator+(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) + ToDouble(b);
   } else {
-    return a.Value<int>() + b.Value<int>();
+    return a.Value<int64_t>() + b.Value<int64_t>();
   }
 }
 
@@ -536,7 +536,7 @@ TypedValue operator-(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) - ToDouble(b);
   } else {
-    return a.Value<int>() - b.Value<int>();
+    return a.Value<int64_t>() - b.Value<int64_t>();
   }
 }
 
@@ -551,7 +551,7 @@ TypedValue operator/(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) / ToDouble(b);
   } else {
-    return a.Value<int>() / b.Value<int>();
+    return a.Value<int64_t>() / b.Value<int64_t>();
   }
 }
 
@@ -566,7 +566,7 @@ TypedValue operator*(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) * ToDouble(b);
   } else {
-    return a.Value<int>() * b.Value<int>();
+    return a.Value<int64_t>() * b.Value<int64_t>();
   }
 }
 
@@ -581,7 +581,7 @@ TypedValue operator%(const TypedValue& a, const TypedValue& b) {
       b.type() == TypedValue::Type::Double) {
     return (double)fmod(ToDouble(a), ToDouble(b));
   } else {
-    return a.Value<int>() % b.Value<int>();
+    return a.Value<int64_t>() % b.Value<int64_t>();
   }
 }
 

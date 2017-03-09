@@ -61,7 +61,7 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(std::string("bla")).Value<std::string>(), "bla");
   EXPECT_EQ(TypedValue("bla2").Value<std::string>(), "bla2");
 
-  EXPECT_EQ(TypedValue(55).Value<int>(), 55);
+  EXPECT_EQ(TypedValue(55).Value<int64_t>(), 55);
 
   EXPECT_FLOAT_EQ(TypedValue(66.6).Value<double>(), 66.6);
 }
@@ -139,7 +139,7 @@ TEST(TypedValue, LogicalNot) {
 TEST(TypedValue, UnaryMinus) {
   EXPECT_TRUE((-TypedValue::Null).type() == TypedValue::Type::Null);
 
-  EXPECT_PROP_EQ((-TypedValue(2).Value<int>()), -2);
+  EXPECT_PROP_EQ((-TypedValue(2).Value<int64_t>()), -2);
   EXPECT_FLOAT_EQ((-TypedValue(2.0).Value<double>()), -2.0);
 
   EXPECT_THROW(-TypedValue(true), TypedValueException);
@@ -192,7 +192,7 @@ TEST(TypedValue, Sum) {
       true, [](const TypedValue& a, const TypedValue& b) { return a + b; });
 
   // sum of props of the same type
-  EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int>(), 5);
+  EXPECT_EQ((TypedValue(2) + TypedValue(3)).Value<int64_t>(), 5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) + TypedValue(1.25)).Value<double>(), 3.75);
   EXPECT_EQ((TypedValue("one") + TypedValue("two")).Value<std::string>(),
             "onetwo");
@@ -221,7 +221,7 @@ TEST(TypedValue, Difference) {
       false, [](const TypedValue& a, const TypedValue& b) { return a - b; });
 
   // difference of props of the same type
-  EXPECT_EQ((TypedValue(2) - TypedValue(3)).Value<int>(), -1);
+  EXPECT_EQ((TypedValue(2) - TypedValue(3)).Value<int64_t>(), -1);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2.25)).Value<double>(), 0.25);
 
   // implicit casting

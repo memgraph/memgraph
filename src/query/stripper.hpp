@@ -3,5 +3,5 @@
 #include "query/stripped.hpp"
 
 namespace query {
-  StrippedQuery Strip(const std::string &query);
+StrippedQuery Strip(const std::string &query);
 };

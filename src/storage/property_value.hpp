@@ -32,6 +32,7 @@ class PropertyValue {
   // constructors for primitive types
   PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
   PropertyValue(int value) : type_(Type::Int) { int_v = value; }
+  PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
   PropertyValue(double value) : type_(Type::Double) { double_v = value; }
 
   /// constructors for non-primitive types (shared pointers)
@@ -71,7 +72,7 @@ class PropertyValue {
   // storage for the value of the property
   union {
     bool bool_v;
-    int int_v;
+    int64_t int_v;
     double double_v;
     std::shared_ptr<std::string> string_v;
     // We support lists of values of different types, neo4j supports lists of

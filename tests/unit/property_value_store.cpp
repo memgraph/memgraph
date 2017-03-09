@@ -19,7 +19,7 @@ TEST(PropertyValueStore, At) {
   props.set(0, some_string);
   EXPECT_EQ(PropertyValue(props.at(0)).Value<string>(), some_string);
   props.set(120, 42);
-  EXPECT_EQ(PropertyValue(props.at(120)).Value<int>(), 42);
+  EXPECT_EQ(PropertyValue(props.at(120)).Value<int64_t>(), 42);
 }
 
 TEST(PropertyValueStore, AtNull) {
@@ -56,7 +56,7 @@ TEST(PropertyValueStore, Remove) {
 TEST(PropertyValueStore, Replace) {
   PropertyValueStore<> props;
   props.set(10, 42);
-  EXPECT_EQ(props.at(10).Value<int>(), 42);
+  EXPECT_EQ(props.at(10).Value<int64_t>(), 42);
   props.set(10, 0.25f);
   EXPECT_EQ(props.at(10).type(), PropertyValue::Type::Double);
   EXPECT_FLOAT_EQ(props.at(10).Value<double>(), 0.25);
@@ -119,7 +119,7 @@ TEST(PropertyValueStore, InsertRetrieveList) {
   auto l = p.Value<std::vector<PropertyValue>>();
   EXPECT_EQ(l.size(), 5);
   EXPECT_EQ(l[0].type(), PropertyValue::Type::Int);
-  EXPECT_EQ(l[0].Value<int>(), 1);
+  EXPECT_EQ(l[0].Value<int64_t>(), 1);
   EXPECT_EQ(l[1].type(), PropertyValue::Type::Bool);
   EXPECT_EQ(l[1].Value<bool>(), true);
   EXPECT_EQ(l[2].type(), PropertyValue::Type::Double);

@@ -25,7 +25,7 @@ std::string PropertyValue::Value<std::string>() const {
 }
 
 template <>
-int PropertyValue::Value<int>() const {
+int64_t PropertyValue::Value<int64_t>() const {
   if (type_ != PropertyValue::Type::Int) {
     throw PropertyValueException("Incompatible template param and type");
   }
@@ -105,7 +105,7 @@ std::ostream& operator<<(std::ostream& os, const PropertyValue& value) {
     case PropertyValue::Type::String:
       return os << value.Value<std::string>();
     case PropertyValue::Type::Int:
-      return os << value.Value<int>();
+      return os << value.Value<int64_t>();
     case PropertyValue::Type::Double:
       return os << value.Value<double>();
     case PropertyValue::Type::List:

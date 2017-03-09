@@ -22,8 +22,8 @@ TEST(RecordAccessor, Properties) {
   EXPECT_EQ(vertex.PropsAt(property).type(), PropertyValue::Type::Null);
 
   vertex.PropsSet(property, 42);
-  EXPECT_EQ(vertex.PropsAt(property).Value<int>(), 42);
-  EXPECT_EQ(properties.at(property).Value<int>(), 42);
+  EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 42);
+  EXPECT_EQ(properties.at(property).Value<int64_t>(), 42);
   EXPECT_EQ(vertex.PropsAt(property_other).type(), PropertyValue::Type::Null);
   EXPECT_EQ(properties.at(property_other).type(), PropertyValue::Type::Null);
 

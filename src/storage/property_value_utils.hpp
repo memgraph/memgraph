@@ -16,19 +16,19 @@
  * @param ostream The stream to write to.
  */
 void PropertyValuesToJson(const PropertyValueStore& store,
-                       std::ostream& ostream = std::cout) {
+                          std::ostream& ostream = std::cout) {
   bool first = true;
 
-  auto write_key = [&ostream,
-                    &first](const PropertyValueStore::TKey& key) -> std::ostream& {
-    if (first) {
-      ostream << '{';
-      first = false;
-    } else
-      ostream << ',';
+  auto write_key =
+      [&ostream, &first](const PropertyValueStore::TKey& key) -> std::ostream& {
+        if (first) {
+          ostream << '{';
+          first = false;
+        } else
+          ostream << ',';
 
-    return ostream << '"' << key << "\":";
-  };
+        return ostream << '"' << key << "\":";
+      };
 
   auto handler = [&ostream, &write_key](const PropertyValueStore::TKey& key,
                                         const PropertyValue& value) {
@@ -42,7 +42,7 @@ void PropertyValuesToJson(const PropertyValueStore& store,
         write_key(key) << '"' << value.Value<std::string>() << '"';
         break;
       case PropertyValue::Type::Int:
-        write_key(key) << value.Value<int>();
+        write_key(key) << value.Value<int64_t>();
         break;
       case PropertyValue::Type::Float:
         write_key(key) << value.Value<float>();

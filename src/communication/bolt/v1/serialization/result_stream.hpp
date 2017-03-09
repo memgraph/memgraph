@@ -14,18 +14,18 @@ namespace bolt {
  *
  * @tparam TChunkedEncoder Type of chunked encoder used.
  */
- // TODO templatisation on TChunkedEncoder might not be desired
+// TODO templatisation on TChunkedEncoder might not be desired
 // but makes the code a bit easer to understand because we know
 // that this class uses a BoltEncoder (and not some arbitrary template)
 // it helps the programmer, the compiler and the IDE
 template <typename TChunkedEncoder>
 class RecordStream {
  public:
-// TODO add logging to this class
+  // TODO add logging to this class
 
-  RecordStream(BoltEncoder<TChunkedEncoder> &bolt_encoder) :
-      bolt_encoder_(bolt_encoder), serializer_(bolt_encoder) {}
-  
+  RecordStream(BoltEncoder<TChunkedEncoder> &bolt_encoder)
+      : bolt_encoder_(bolt_encoder), serializer_(bolt_encoder) {}
+
   void Header(const std::vector<std::string> &fields) {
     bolt_encoder_.message_success();
     bolt_encoder_.write_map_header(1);
@@ -65,7 +65,7 @@ class RecordStream {
     Chunk();
   }
 
-private:
+ private:
   BoltEncoder<TChunkedEncoder> bolt_encoder_;
   BoltSerializer<BoltEncoder<TChunkedEncoder>> serializer_;
 
@@ -82,7 +82,7 @@ private:
         bolt_encoder_.write(value.Value<bool>());
         break;
       case TypedValue::Type::Int:
-        bolt_encoder_.write(value.Value<int>());
+        bolt_encoder_.write(value.Value<int64_t>());
         break;
       case TypedValue::Type::Double:
         bolt_encoder_.write(value.Value<double>());
@@ -103,14 +103,14 @@ private:
         serializer_.write(value.Value<EdgeAccessor>());
         break;
       default:
-        throw std::runtime_error("Serialization not implemented for given type");
+        throw std::runtime_error(
+            "Serialization not implemented for given type");
     }
   }
 
   void Write(const std::vector<TypedValue> &values) {
     bolt_encoder_.write_list_header(values.size());
-    for (const auto &value : values)
-      Write(value);
+    for (const auto &value : values) Write(value);
   }
 
   void Write(const std::map<std::string, TypedValue> &values) {

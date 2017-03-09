@@ -119,7 +119,7 @@ class BoltSerializer {
         encoder.write_string(value.Value<std::string>());
         return;
       case PropertyValue::Type::Int:
-        encoder.write_integer(value.Value<int>());
+        encoder.write_integer(value.Value<int64_t>());
         return;
       case PropertyValue::Type::Double:
         encoder.write_double(value.Value<double>());
