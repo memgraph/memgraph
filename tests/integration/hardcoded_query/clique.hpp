@@ -203,7 +203,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     reverse(results.begin(), results.end());
   }
   const int limit = query_type == CliqueQuery::SCORE_AND_LIMIT
-                        ? args.at((int)args.size() - 1).Value<int64_t>()
+                        ? args.At((int)args.Size() - 1).Value<int64_t>()
                         : (int)results.size();
   for (int i = 0; i < std::min(limit, (int)results.size()); ++i) {
     stream.write_record();

@@ -24,21 +24,21 @@ TEST(QueryStripper, NoLiterals) {
 TEST(QueryStripper, DecimalInteger) {
   StrippedQuery stripped = query::Strip("RETURN 42");
   EXPECT_EQ(stripped.arguments.Size(), 1);
-  EXPECT_EQ(stripped.arguments.At(0).Value<int>(), 42);
+  EXPECT_EQ(stripped.arguments.At(0).Value<int64_t>(), 42);
   EXPECT_EQ(stripped.query, "return $stripped_arg_0 ");
 }
 
 TEST(QueryStripper, OctalInteger) {
   StrippedQuery stripped = query::Strip("RETURN 010");
   EXPECT_EQ(stripped.arguments.Size(), 1);
-  EXPECT_EQ(stripped.arguments.At(0).Value<int>(), 8);
+  EXPECT_EQ(stripped.arguments.At(0).Value<int64_t>(), 8);
   EXPECT_EQ(stripped.query, "return $stripped_arg_0 ");
 }
 
 TEST(QueryStripper, HexInteger) {
   StrippedQuery stripped = query::Strip("RETURN 0xa");
   EXPECT_EQ(stripped.arguments.Size(), 1);
-  EXPECT_EQ(stripped.arguments.At(0).Value<int>(), 10);
+  EXPECT_EQ(stripped.arguments.At(0).Value<int64_t>(), 10);
   EXPECT_EQ(stripped.query, "return $stripped_arg_0 ");
 }
 
