@@ -1,4 +1,6 @@
+#ifndef NDEBUG
 #define NDEBUG
+#endif
 
 #include <chrono>
 
@@ -39,7 +41,8 @@ TEST(Network, SessionLeak) {
 
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
-    clients.push_back(std::thread(client_run, i, interface, port, data, testlen, testlen));
+    clients.push_back(
+        std::thread(client_run, i, interface, port, data, testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }
 
@@ -53,7 +56,8 @@ TEST(Network, SessionLeak) {
   server_thread.join();
 }
 
-// run with "valgrind --leak-check=full ./network_session_leak" to check for memory leaks
+// run with "valgrind --leak-check=full ./network_session_leak" to check for
+// memory leaks
 int main(int argc, char **argv) {
   logging::init_sync();
   logging::log->pipe(std::make_unique<Stdout>());

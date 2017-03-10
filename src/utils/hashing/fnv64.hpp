@@ -23,7 +23,7 @@ uint64_t fnv64(const T& data) {
 }
 
 template <>
-uint64_t fnv64(const std::string& data) {
+__attribute__((unused)) uint64_t fnv64(const std::string& data) {
   return fnv64((const unsigned char*)data.c_str(), data.size());
 }
 
@@ -42,7 +42,7 @@ uint64_t fnv1a64(const T& data) {
 }
 
 template <>
-uint64_t fnv1a64(const std::string& data) {
+__attribute__((unused)) uint64_t fnv1a64(const std::string& data) {
   return fnv1a64((const unsigned char*)data.c_str(), data.size());
 }
 }

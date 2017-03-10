@@ -1,4 +1,6 @@
+#ifndef NDEBUG
 #define NDEBUG
+#endif
 
 #include "network_common.hpp"
 
@@ -33,7 +35,8 @@ TEST(Network, Server) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < N; ++i)
-    clients.push_back(std::thread(client_run, i, interface, port, data, 30000, SIZE));
+    clients.push_back(
+        std::thread(client_run, i, interface, port, data, 30000, SIZE));
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();

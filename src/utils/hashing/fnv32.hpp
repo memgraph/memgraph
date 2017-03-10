@@ -23,7 +23,7 @@ uint32_t fnv32(const T& data) {
 }
 
 template <>
-uint32_t fnv32(const std::string& data) {
+__attribute__((unused)) uint32_t fnv32(const std::string& data) {
   return fnv32((const unsigned char*)data.c_str(), data.size());
 }
 
@@ -42,7 +42,7 @@ uint32_t fnv1a32(const T& data) {
 }
 
 template <>
-uint32_t fnv1a32(const std::string& data) {
+__attribute__((unused)) uint32_t fnv1a32(const std::string& data) {
   return fnv1a32((const unsigned char*)data.c_str(), data.size());
 }
 }
