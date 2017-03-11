@@ -1,19 +1,22 @@
+#include <algorithm>
 #include <climits>
 #include <string>
-#include <vector>
 #include <unordered_map>
-#include <algorithm>
+#include <vector>
+
 #include "antlr4-runtime.h"
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
-#include "query/backend/cpp/cypher_main_visitor.cpp"
+#include "query/context.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "gtest/gtest.h"
 
 using namespace ::testing;
 
 namespace {
 
-using namespace backend::cpp;
+using query::Context;
+using namespace query::frontend;
 
 class ParserTables {
   template <typename T>
@@ -27,7 +30,7 @@ class ParserTables {
     return filtered;
   }
 
- public:
+public:
   ParserTables(const std::string &query) {
     frontend::opencypher::Parser parser(query);
     auto *tree = parser.tree();
@@ -86,7 +89,8 @@ void CompareRelationships(
       relationship_property_keys,
       UnorderedElementsAreArray(property_keys.begin(), property_keys.end()));
   ASSERT_EQ(relationship.has_range, has_range);
-  if (!has_range) return;
+  if (!has_range)
+    return;
   ASSERT_EQ(relationship.lower_bound, lower_bound);
   ASSERT_EQ(relationship.upper_bound, upper_bound);
 }
