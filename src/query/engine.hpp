@@ -7,7 +7,6 @@ namespace fs = std::experimental::filesystem;
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "logging/loggable.hpp"
-#include "query/backend/cpp/generator.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan_compiler.hpp"
@@ -137,8 +136,8 @@ private:
                                    std::to_string(stripped.hash) + ".cpp");
 
     frontend::opencypher::Parser parser(stripped.query);
-    backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
-                            generated_path);
+    // backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
+    //                         generated_path);
     return LoadCpp(generated_path, stripped.hash);
   }
 

@@ -5,6 +5,7 @@
 #include "logging/streams/stdout.cpp"
 #include "query/entry.hpp"
 #include "query/backend/cpp/typed_value.hpp"
+#include "query/frontend/logical/operator.hpp"
 
 using std::cout;
 using std::cin;
@@ -20,8 +21,8 @@ int main(int argc, char* argv[]) {
 
   // init db context
   Dbms dbms;
-  ConsoleResultStream stream;
-  query::Engine<ConsoleResultStream> query_engine;
+  query::ConsoleResultStream stream;
+  query::Engine<query::ConsoleResultStream> query_engine;
 
   // initialize the database
   auto dba = dbms.active();

@@ -82,7 +82,7 @@ class ScanAll : public LogicalOperator {
       for (auto label : node_part->labels_) {
         if (!vertex.has_label(label)) return false;
       }
-      frame[symbol_table[node_part->identifier_].position_] = vertex;
+      frame[symbol_table[*node_part->identifier_].position_] = vertex;
       return true;
     }
   };

@@ -281,6 +281,9 @@ private:
   antlrcpp::Any
   visitIntegerLiteral(CypherParser::IntegerLiteralContext *ctx) override;
 
+public:
+  std::shared_ptr<Query> query() { return query_; }
+
 private:
   Context &ctx_;
   int next_ident_id_;

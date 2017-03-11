@@ -18,10 +18,10 @@ std::shared_ptr<LogicalOperator> GenMatch(
     throw std::runtime_error("Not implemented");
   }
   auto& pattern = match.patterns_[0];
-  if (pattern->node_parts_.size() != 1) {
+  if (pattern->parts_.size() != 1) {
     throw std::runtime_error("Not implemented");
   }
-  auto& node_part = pattern->node_parts_[0];
+  auto node_part = std::dynamic_pointer_cast<NodePart>(pattern->parts_[0]);
   return std::make_shared<ScanAll>(node_part);
 }
 

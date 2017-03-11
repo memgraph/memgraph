@@ -10,6 +10,7 @@ class TypedcheckedTree {};
 class LogicalPlan {};
 
 class Context;
+class Query;
 
 class LogicalPlanGenerator {
 public:
@@ -48,6 +49,6 @@ private:
 
 class HighLevelAstConversion {
 public:
-  void Apply(Context &ctx, antlr4::tree::ParseTree *tree);
+  std::shared_ptr<Query> Apply(Context &ctx, antlr4::tree::ParseTree *tree);
 };
 }

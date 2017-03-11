@@ -61,12 +61,12 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
           {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
       output_stream.send();
       return ERROR;
-    } catch (const backend::cpp::GeneratorException &e) {
-      output_stream.write_failure(
-          {{"code", "Memgraph.GeneratorException"},
-           {"message", "Unsupported query"}});
-      output_stream.send();
-      return ERROR;
+    // } catch (const backend::cpp::GeneratorException &e) {
+    //   output_stream.write_failure(
+    //       {{"code", "Memgraph.GeneratorException"},
+    //        {"message", "Unsupported query"}});
+    //   output_stream.send();
+    //   return ERROR;
     } catch (const QueryEngineException &e) {
       output_stream.write_failure(
           {{"code", "Memgraph.QueryEngineException"},
