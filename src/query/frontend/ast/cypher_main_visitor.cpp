@@ -1,4 +1,4 @@
-#include "query/backend/cpp/cypher_main_visitor.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 
 #include <climits>
 #include <string>
