@@ -1,17 +1,17 @@
 #pragma once
 
-#include <string>
-#include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
 #include "antlr4-runtime.h"
 #include "query/backend/cpp/compiler_structures.hpp"
+#include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
+#include <string>
 
-namespace backend {
-namespace cpp {
+namespace query {
+namespace frontend {
 
 using antlropencypher::CypherParser;
 
 class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
- private:
+private:
   // Return new output code id.
   // TODO: Should we generate ids with more readable names: node_1,
   // relationship_5, temporary_2...?
@@ -21,8 +21,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   }
 
   template <typename TExpression>
-  antlrcpp::Any LeftAssociativeOperatorExpression(
-      std::vector<TExpression *> children, std::vector<Function> ops) {
+  antlrcpp::Any
+  LeftAssociativeOperatorExpression(std::vector<TExpression *> children,
+                                    std::vector<Function> ops) {
     assert(children.size());
     std::vector<std::string> children_ids;
 
@@ -41,8 +42,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   }
 
   template <typename TExpression>
-  antlrcpp::Any LeftAssociativeOperatorExpression(
-      std::vector<TExpression *> children, Function op) {
+  antlrcpp::Any
+  LeftAssociativeOperatorExpression(std::vector<TExpression *> children,
+                                    Function op) {
     return LeftAssociativeOperatorExpression(
         children, std::vector<Function>((int)children.size() - 1, op));
   }
@@ -53,8 +55,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   *
   * @return string - node id.
   */
-  antlrcpp::Any visitNodePattern(
-      CypherParser::NodePatternContext *ctx) override;
+  antlrcpp::Any
+  visitNodePattern(CypherParser::NodePatternContext *ctx) override;
 
   /**
   * @return vector<string> labels.
@@ -75,8 +77,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   /**
   * @return string.
   */
-  antlrcpp::Any visitSymbolicName(
-      CypherParser::SymbolicNameContext *ctx) override;
+  antlrcpp::Any
+  visitSymbolicName(CypherParser::SymbolicNameContext *ctx) override;
 
   /**
   * @return vector<PatternPart> pattern.
@@ -90,16 +92,16 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   *
   * @return string - pattern part id.
   */
-  antlrcpp::Any visitPatternPart(
-      CypherParser::PatternPartContext *ctx) override;
+  antlrcpp::Any
+  visitPatternPart(CypherParser::PatternPartContext *ctx) override;
 
   /**
   * Creates PatternPart.
   *
   * @return PatternPart.
   */
-  antlrcpp::Any visitPatternElement(
-      CypherParser::PatternElementContext *ctx) override;
+  antlrcpp::Any
+  visitPatternElement(CypherParser::PatternElementContext *ctx) override;
 
   /**
   * @return pair<string, string> - node and relationship ids.
@@ -125,14 +127,14 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   /**
   * @return vector<string>.
   */
-  antlrcpp::Any visitRelationshipTypes(
-      CypherParser::RelationshipTypesContext *ctx) override;
+  antlrcpp::Any
+  visitRelationshipTypes(CypherParser::RelationshipTypesContext *ctx) override;
 
   /**
   * @return pair<int64_t, int64_t>.
   */
-  antlrcpp::Any visitRangeLiteral(
-      CypherParser::RangeLiteralContext *ctx) override;
+  antlrcpp::Any
+  visitRangeLiteral(CypherParser::RangeLiteralContext *ctx) override;
 
   /**
   * Top level expression.
@@ -146,40 +148,40 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression12(
-      CypherParser::Expression12Context *ctx) override;
+  antlrcpp::Any
+  visitExpression12(CypherParser::Expression12Context *ctx) override;
 
   /**
   * XOR.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression11(
-      CypherParser::Expression11Context *ctx) override;
+  antlrcpp::Any
+  visitExpression11(CypherParser::Expression11Context *ctx) override;
 
   /**
   * AND.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression10(
-      CypherParser::Expression10Context *ctx) override;
+  antlrcpp::Any
+  visitExpression10(CypherParser::Expression10Context *ctx) override;
 
   /**
   * NOT.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression9(
-      CypherParser::Expression9Context *ctx) override;
+  antlrcpp::Any
+  visitExpression9(CypherParser::Expression9Context *ctx) override;
 
   /**
   * Comparisons.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression8(
-      CypherParser::Expression8Context *ctx) override;
+  antlrcpp::Any
+  visitExpression8(CypherParser::Expression8Context *ctx) override;
 
   /**
   * Never call this. Everything related to generating code for comparison
@@ -193,48 +195,48 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression7(
-      CypherParser::Expression7Context *ctx) override;
+  antlrcpp::Any
+  visitExpression7(CypherParser::Expression7Context *ctx) override;
 
   /**
   * Multiplication, division, modding.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression6(
-      CypherParser::Expression6Context *ctx) override;
+  antlrcpp::Any
+  visitExpression6(CypherParser::Expression6Context *ctx) override;
 
   /**
   * Power.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression5(
-      CypherParser::Expression5Context *ctx) override;
+  antlrcpp::Any
+  visitExpression5(CypherParser::Expression5Context *ctx) override;
 
   /**
   * Unary minus and plus.
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression4(
-      CypherParser::Expression4Context *ctx) override;
+  antlrcpp::Any
+  visitExpression4(CypherParser::Expression4Context *ctx) override;
 
   /**
   * Element of a list, range of a list...
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression3(
-      CypherParser::Expression3Context *ctx) override;
+  antlrcpp::Any
+  visitExpression3(CypherParser::Expression3Context *ctx) override;
 
   /**
   * Property lookup, test for node labels existence...
   *
   * @return string - expression id.
   */
-  antlrcpp::Any visitExpression2(
-      CypherParser::Expression2Context *ctx) override;
+  antlrcpp::Any
+  visitExpression2(CypherParser::Expression2Context *ctx) override;
 
   /**
   * Literals, params, list comprehension...
@@ -265,10 +267,10 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   /**
   * @return int64_t.
   */
-  antlrcpp::Any visitIntegerLiteral(
-      CypherParser::IntegerLiteralContext *ctx) override;
+  antlrcpp::Any
+  visitIntegerLiteral(CypherParser::IntegerLiteralContext *ctx) override;
 
- public:
+public:
   // TODO: These temporary getters should eventually be replaced with
   // something
   // else once we figure out where and how those strctures will be used.
@@ -278,7 +280,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   const auto &ids_map() const { return ids_map_; }
   const auto &symbol_table() const { return symbol_table_; }
 
- private:
+private:
   // Mapping of ids (nodes, relationships, values, lists ...) from
   // query
   // code to id that is used in generated code;
