@@ -22,7 +22,7 @@ std::shared_ptr<LogicalOperator> GenMatch(
     throw std::runtime_error("Not implemented");
   }
   auto& node_part = pattern->node_parts_[0];
-  return std::shared_ptr<LogicalOperator>(new ScanAll(node_part));
+  return std::make_shared<ScanAll>(node_part);
 }
 
 std::shared_ptr<LogicalOperator> GenReturn(
@@ -31,7 +31,7 @@ std::shared_ptr<LogicalOperator> GenReturn(
   if (!current_op) {
     throw std::runtime_error("Not implemented");
   }
-  return std::shared_ptr<LogicalOperator>(new Produce(current_op, ret.exprs_));
+  return std::make_shared<Produce>(current_op, ret.exprs_);
 }
 
 std::shared_ptr<LogicalOperator> Apply(Query& query)

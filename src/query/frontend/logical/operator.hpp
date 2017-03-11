@@ -89,7 +89,7 @@ class ScanAll : public LogicalOperator {
 
  public:
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
-    return std::unique_ptr<Cursor>(new ScanAllCursor(*this, db));
+    return std::make_unique<ScanAllCursor>(*this, db);
   }
 
  private:
@@ -111,7 +111,7 @@ class Produce : public LogicalOperator {
   }
 
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
-    return std::unique_ptr<Cursor>(new ProduceCursor(*this, db));
+    return std::make_unique<ProduceCursor>(*this, db);
   }
 
   std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) override {
