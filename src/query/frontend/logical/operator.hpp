@@ -69,6 +69,7 @@ class ScanAll : public LogicalOperator {
     return std::unique_ptr<Cursor>(cursor);
   }
 
+ private:
   friend class ScanAll::ScanAllCursor;
   std::shared_ptr<NodePart> node_part_;
 };
@@ -93,6 +94,11 @@ class Produce : public LogicalOperator {
    private:
     Produce& parent_;
   };
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor) override {
+    return std::unique_ptr<Cursor>(new ProduceCursor(*this));
+  }
+ private:
   std::vector<std::shared_ptr<Expr>> exprs_;
 };
 }

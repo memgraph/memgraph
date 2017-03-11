@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "query/backend/cpp/compiler_structures.hpp"
-#include "query/backend/cpp/named_antlr_tokens.hpp"
+#include "query/frontend/ast/named_antlr_tokens.hpp"
 #include "utils/assert.hpp"
 
 namespace backend {

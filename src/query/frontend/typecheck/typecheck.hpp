@@ -8,14 +8,14 @@ namespace query {
 
 class TypeCheckVisitor : public TreeVisitorBase {
  public:
-  TypeCheckVisitor(SymbolTable& symbol_table) : symbol_table_(symbol_table_) {}
+  TypeCheckVisitor(SymbolTable& symbol_table) : symbol_table_(symbol_table) {}
 
   // Start of the tree is a Query.
   void Visit(Query& query) override {}
   // Expressions
   void Visit(Ident& ident) override {
     Symbol symbol;
-    } if (scope_.in_pattern) {
+    if (scope_.in_pattern) {
       symbol = GetOrCreateSymbol(ident.identifier_);
     } else {
       if (!HasSymbol(ident.identifier_))
@@ -60,11 +60,13 @@ class TypeCheckVisitor : public TreeVisitorBase {
 
   Symbol GetOrCreateSymbol(const std::string& name)
   {
-    auto search = scope_.variables.find(name)
+    auto search = scope_.variables.find(name);
     if (search != scope_.variables.end()) {
-      return *search;
+      return search->second;
     }
-    scope_.variables[name] = symbol_table_.CreateSymbol(name);
+    auto symbol = symbol_table_.CreateSymbol(name);
+    scope_.variables[name] = symbol;
+    return symbol;
   }
   SymbolTable& symbol_table_;
   Scope scope_;

@@ -107,7 +107,7 @@ class Clause : public Tree {};
 
 class Pattern : public Tree {
 public:
-  std::vector<std::unique_ptr<Part>> node_parts_;
+  std::vector<std::shared_ptr<NodePart>> node_parts_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
     for (auto& node_part : node_parts_) {
@@ -146,7 +146,7 @@ public:
 
 class Return : public Clause {
 public:
-  std::vector<std::unique_ptr<Expr>> exprs_;
+  std::vector<std::shared_ptr<Expr>> exprs_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
     for (auto& expr : exprs_) {
