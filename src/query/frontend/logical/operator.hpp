@@ -18,7 +18,7 @@ class Cursor {
 class LogicalOperator {
  public:
   auto children() { return children_; };
-  virtual uptr<Cursor> MakeCursor(GraphDbAccessor db) = 0;
+  virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) = 0;
   virtual ~LogicalOperator() {}
 
  protected:
@@ -61,18 +61,18 @@ class ScanAll : public LogicalOperator {
   };
 
  public:
-  uptr<Cursor> MakeCursor(GraphDbAccessor db) override {
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
     Cursor* cursor = new ScanAllCursor(*this, db);
-    return uptr<Cursor>(cursor);
+    return std::unique_ptr<Cursor>(cursor);
   }
 
   friend class ScanAll::ScanAllCursor;
-  sptr<NodePart> node_part_;
+  std::shared_ptr<NodePart> node_part_;
 };
 
 class Produce : public LogicalOperator {
  public:
-  Produce(sptr<LogicalOperator> op, std::vector<sptr<Expr>> exprs)
+  Produce(std::shared_ptr<LogicalOperator> op, std::vector<std::shared_ptr<Expr>> exprs)
       : exprs_(exprs) {
     children_.emplace_back(op);
   }
@@ -90,6 +90,6 @@ class Produce : public LogicalOperator {
    private:
     Produce& parent_;
   };
-  std::vector<sptr<Expr>> exprs_;
+  std::vector<std::shared_ptr<Expr>> exprs_;
 };
 }
