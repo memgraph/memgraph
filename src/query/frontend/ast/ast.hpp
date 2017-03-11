@@ -13,6 +13,7 @@ class SymbolTable;
 
 // Forward declares for TreeVisitorBase
 class Query;
+class NamedExpr;
 class Ident;
 class Match;
 class Return;
@@ -27,6 +28,9 @@ class TreeVisitorBase {
   virtual void Visit(Query& query) = 0;
   virtual void PostVisit(Query& query) {}
   // Expressions
+  virtual void PreVisit(NamedExpr&) {}
+  virtual void Visit(NamedExpr&) = 0;
+  virtual void PostVisit(NamedExpr&) {}
   virtual void PreVisit(Ident& ident) {}
   virtual void Visit(Ident& ident) = 0;
   virtual void PostVisit(Ident& ident) {}
@@ -82,6 +86,13 @@ class NamedExpr : public Tree {
   std::shared_ptr<Ident> ident_;
   std::shared_ptr<Expr> expr_;
   void Evaluate(Frame& frame, SymbolTable& symbol_table);
+  void Accept(TreeVisitorBase& visitor) override {
+    visitor.PreVisit(*this);
+    ident_->Accept(visitor);
+    expr_->Accept(visitor);
+    visitor.Visit(*this);
+    visitor.PostVisit(*this);
+  }
 };
 
 class NodePart : public Part {
@@ -153,7 +164,7 @@ class Match : public Clause {
 
 class Return : public Clause {
  public:
-  std::vector<std::shared_ptr<Expr>> exprs_;
+  std::vector<std::shared_ptr<NamedExpr>> exprs_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
     for (auto& expr : exprs_) {
