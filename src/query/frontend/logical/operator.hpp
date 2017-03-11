@@ -55,14 +55,15 @@ class ScanAll : public LogicalOperator {
       for (auto label : node_part->labels_) {
         if (!vertex.has_label(label)) return false;
       }
-      frame[symbol_table[parent_.node_part_->identifier_].position_] = vertex;
+      frame[symbol_table[node_part->identifier_].position_] = vertex;
       return true;
     }
   };
 
  public:
   uptr<Cursor> MakeCursor(GraphDbAccessor db) override {
-    return new ScanAllCursor(*this, db);
+    Cursor* cursor = new ScanAllCursor(*this, db);
+    return uptr<Cursor>(cursor);
   }
 
   friend class ScanAll::ScanAllCursor;
@@ -77,6 +78,18 @@ class Produce : public LogicalOperator {
   }
 
  private:
+  class ProduceCursor : public Cursor {
+   public:
+    ProduceCursor(Produce& parent) : parent_(parent) {}
+    bool pull(Frame &frame, SymbolTable& symbol_table) override {
+      for (auto expr : parent_.exprs_) {
+        frame[symbol_table[*expr].position_] = expr->Evaluate(frame, symbol_table);
+      }
+      return true;
+    }
+   private:
+    Produce& parent_;
+  };
   std::vector<sptr<Expr>> exprs_;
 };
 }

@@ -4,6 +4,8 @@
 
 #include "query/backend/cpp/typed_value.hpp"
 
+namespace query {
+
 class Frame {
  public:
   Frame(int size) : size_(size), elems_(size_) {}
@@ -16,3 +18,4 @@ class Frame {
   std::vector<TypedValue> elems_;
 };
 
+}

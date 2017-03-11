@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "database/graph_db.hpp"
+#include "query/backend/cpp/typed_value.hpp"
 
 namespace query {
 
@@ -12,6 +13,9 @@ using sptr = std::shared_ptr<T>;
 
 template <typename T>
 using uptr = std::unique_ptr<T>;
+
+class Frame;
+class SymbolTable;
 
 class Tree {
 public:
@@ -22,11 +26,14 @@ private:
 };
 
 class Expr : public Tree {
+ public:
+  virtual TypedValue Evaluate(Frame&, SymbolTable&) = 0;
 };
 
-class Ident : public Tree {
+class Ident : public Expr {
 public:
-    std::string identifier_;
+  std::string identifier_;
+  TypedValue Evaluate(Frame& frame, SymbolTable& symbol_table) override;
 };
 
 class Part {

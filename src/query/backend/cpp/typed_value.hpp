@@ -25,7 +25,7 @@ typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
 class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
- private:
+ public:
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
 

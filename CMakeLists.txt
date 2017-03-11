@@ -350,6 +350,7 @@ set(memgraph_src_files
     ${src_dir}/query/stripper.cpp
     ${src_dir}/query/backend/cpp/cypher_main_visitor.cpp
     ${src_dir}/query/backend/cpp/typed_value.cpp
+    ${src_dir}/query/frontend/ast/ast.cpp
 )
 # -----------------------------------------------------------------------------
 
