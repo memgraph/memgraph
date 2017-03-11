@@ -9,6 +9,24 @@
 #include "query/frontend/typecheck/symbol_table.hpp"
 
 namespace query {
+
+class ConsoleResultStream : public Loggable {
+ public:
+  ConsoleResultStream() : Loggable("ConsoleResultStream") {}
+
+  void Header(const std::vector<std::string>&) { logger.info("header"); }
+
+  void Result(std::vector<TypedValue>& values) {
+    for (auto value : values) {
+      logger.info("    result");
+    }
+  }
+
+  void Summary(const std::map<std::string, TypedValue>&) {
+    logger.info("summary");
+  }
+};
+
 class Cursor {
  public:
   virtual bool pull(Frame&, SymbolTable&) = 0;
@@ -19,6 +37,10 @@ class LogicalOperator {
  public:
   auto children() { return children_; };
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) = 0;
+  virtual void WriteHeader(ConsoleResultStream&) {}
+  virtual std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) {
+    return {};
+  }
   virtual ~LogicalOperator() {}
 
  protected:
@@ -32,8 +54,10 @@ class ScanAll : public LogicalOperator {
  private:
   class ScanAllCursor : public Cursor {
    public:
-    ScanAllCursor(ScanAll& parent, GraphDbAccessor db)
-        : parent_(parent), db_(db), vertices_(db.vertices()),
+    ScanAllCursor(ScanAll& self, GraphDbAccessor db)
+        : self_(self),
+          db_(db),
+          vertices_(db.vertices()),
           vertices_it_(vertices_.begin()) {}
 
     bool pull(Frame& frame, SymbolTable& symbol_table) override {
@@ -47,14 +71,14 @@ class ScanAll : public LogicalOperator {
     }
 
    private:
-    ScanAll& parent_;
+    ScanAll& self_;
     GraphDbAccessor db_;
     decltype(db_.vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
 
     bool evaluate(Frame& frame, SymbolTable& symbol_table,
                   VertexAccessor& vertex) {
-      auto node_part = parent_.node_part_;
+      auto node_part = self_.node_part_;
       for (auto label : node_part->labels_) {
         if (!vertex.has_label(label)) return false;
       }
@@ -65,8 +89,7 @@ class ScanAll : public LogicalOperator {
 
  public:
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
-    Cursor* cursor = new ScanAllCursor(*this, db);
-    return std::unique_ptr<Cursor>(cursor);
+    return std::make_unique<Cursor>(ScanAllCursor(*this, db));
   }
 
  private:
@@ -76,29 +99,56 @@ class ScanAll : public LogicalOperator {
 
 class Produce : public LogicalOperator {
  public:
-  Produce(std::shared_ptr<LogicalOperator> op, std::vector<std::shared_ptr<Expr>> exprs)
-      : exprs_(exprs) {
-    children_.emplace_back(op);
+  Produce(std::shared_ptr<LogicalOperator> input,
+          std::vector<std::shared_ptr<NamedExpr>> exprs)
+      : input_(input), exprs_(exprs) {
+    children_.emplace_back(input);
   }
+
+  void WriteHeader(ConsoleResultStream& stream) override {
+    // TODO: write real result
+    stream.Header({"n"});
+  }
+
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
+    return std::make_unique<Cursor>(ProduceCursor(*this, db));
+  }
+
+  std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) override {
+    std::vector<Symbol> result(exprs_.size());
+    for (auto named_expr : exprs_) {
+        result.emplace_back(symbol_table[*named_expr->ident_]);
+    }
+    return result;
+}
 
  private:
   class ProduceCursor : public Cursor {
    public:
-    ProduceCursor(Produce& parent) : parent_(parent) {}
-    bool pull(Frame &frame, SymbolTable& symbol_table) override {
-      for (auto expr : parent_.exprs_) {
-        frame[symbol_table[*expr].position_] = expr->Evaluate(frame, symbol_table);
+    ProduceCursor(Produce& self, GraphDbAccessor db)
+        : self_(self), self_cursor_(self_.MakeCursor(db)) {}
+    bool pull(Frame& frame, SymbolTable& symbol_table) override {
+      if (self_cursor_->pull(frame, symbol_table)) {
+        for (auto expr : self_.exprs_) {
+          expr->Evaluate(frame, symbol_table);
+        }
+        return true;
       }
-      return true;
+      return false;
     }
+
    private:
-    Produce& parent_;
+    Produce& self_;
+    std::unique_ptr<Cursor> self_cursor_;
   };
+
  public:
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor) override {
     return std::unique_ptr<Cursor>(new ProduceCursor(*this));
   }
+
  private:
-  std::vector<std::shared_ptr<Expr>> exprs_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<std::shared_ptr<NamedExpr>> exprs_;
 };
 }

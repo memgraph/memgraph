@@ -50,24 +50,24 @@ class TreeVisitorBase {
 };
 
 class Tree {
-public:
+ public:
   Tree(const int uid) : uid_(uid) {}
   int uid() const { return uid_; }
   virtual void Accept(TreeVisitorBase& visitor) = 0;
 
-private:
+ private:
   const int uid_;
 };
 
 class Expr : public Tree {
-public:
-  virtual TypedValue Evaluate(Frame &, SymbolTable &) = 0;
+ public:
+  virtual TypedValue Evaluate(Frame&, SymbolTable&) = 0;
 };
 
 class Ident : public Expr {
-public:
+ public:
   std::string identifier_;
-  TypedValue Evaluate(Frame &frame, SymbolTable &symbol_table) override;
+  TypedValue Evaluate(Frame& frame, SymbolTable& symbol_table) override;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
     visitor.Visit(*this);
@@ -77,8 +77,15 @@ public:
 
 class Part : public Tree {};
 
+class NamedExpr : public Tree {
+ public:
+  std::shared_ptr<Ident> ident_;
+  std::shared_ptr<Expr> expr_;
+  void Evaluate(Frame& frame, SymbolTable& symbol_table);
+};
+
 class NodePart : public Part {
-public:
+ public:
   Ident identifier_;
   // TODO: Mislav call GraphDb::label(label_name) to populate labels_!
   std::vector<GraphDb::Label> labels_;
@@ -92,7 +99,7 @@ public:
 };
 
 class EdgePart : public Part {
-public:
+ public:
   Ident identifier_;
   // TODO: finish this: properties, types...
   void Accept(TreeVisitorBase& visitor) override {
@@ -106,7 +113,7 @@ public:
 class Clause : public Tree {};
 
 class Pattern : public Tree {
-public:
+ public:
   std::vector<std::shared_ptr<NodePart>> node_parts_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
@@ -119,7 +126,7 @@ public:
 };
 
 class Query : public Tree {
-public:
+ public:
   std::vector<std::unique_ptr<Clause>> clauses_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
@@ -132,7 +139,7 @@ public:
 };
 
 class Match : public Clause {
-public:
+ public:
   std::vector<std::unique_ptr<Pattern>> patterns_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);
@@ -145,7 +152,7 @@ public:
 };
 
 class Return : public Clause {
-public:
+ public:
   std::vector<std::shared_ptr<Expr>> exprs_;
   void Accept(TreeVisitorBase& visitor) override {
     visitor.PreVisit(*this);

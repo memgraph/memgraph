@@ -10,23 +10,6 @@ using std::cout;
 using std::cin;
 using std::endl;
 
-class ConsoleResultStream : public Loggable {
- public:
-  ConsoleResultStream() : Loggable("ConsoleResultStream") {}
-
-  void Header(const std::vector<std::string>&) { logger.info("header"); }
-
-  void Result(std::vector<TypedValue>& values) {
-    for (auto value : values) {
-      logger.info("    result");
-    }
-  }
-
-  void Summary(const std::map<std::string, TypedValue>&) {
-    logger.info("summary");
-  }
-};
-
 int main(int argc, char* argv[]) {
   // init arguments
   REGISTER_ARGS(argc, argv);
