@@ -27,16 +27,18 @@ class LogicalOperator {
 
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(sptr<NodePart> node_part) : node_part_(node_part) {}
+  ScanAll(std::shared_ptr<NodePart> node_part) : node_part_(node_part) {}
 
  private:
   class ScanAllCursor : public Cursor {
    public:
     ScanAllCursor(ScanAll& parent, GraphDbAccessor db)
-        : parent_(parent), db_(db), vertices_(db.vertices()) {}
+        : parent_(parent), db_(db), vertices_(db.vertices()),
+          vertices_it_(vertices_.begin()) {}
+
     bool pull(Frame& frame, SymbolTable& symbol_table) override {
-      while (vertices_ != vertices_.end()) {
-        auto& vertex = *vertices_++;
+      while (vertices_it_ != vertices_.end()) {
+        auto vertex = *vertices_it_++;
         if (evaluate(frame, symbol_table, vertex)) {
           return true;
         }
@@ -48,6 +50,7 @@ class ScanAll : public LogicalOperator {
     ScanAll& parent_;
     GraphDbAccessor db_;
     decltype(db_.vertices()) vertices_;
+    decltype(vertices_.begin()) vertices_it_;
 
     bool evaluate(Frame& frame, SymbolTable& symbol_table,
                   VertexAccessor& vertex) {
