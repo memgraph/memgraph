@@ -25,3 +25,4 @@ cmake-build-*
 .idea
 cmake/DownloadProject/
 dist/
+src/query/frontend/opencypher/generated/

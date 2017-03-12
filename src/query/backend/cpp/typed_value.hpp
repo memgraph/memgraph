@@ -96,7 +96,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   T Value() const;
 
-  friend std::ostream& operator<<(std::ostream& stream, const TypedValue& prop);
+  friend std::ostream& operator<<(std::ostream& stream, const TypedValue&prop);
 
  private:
   // storage for the value of the property

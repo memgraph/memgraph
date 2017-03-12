@@ -1,5 +1,7 @@
 #pragma once
 
+#include <iostream>
+
 #include "utils/exceptions/basic_exception.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/typecheck/symbol_table.hpp"
@@ -19,6 +21,7 @@ class TypeCheckVisitor : public TreeVisitorBase {
   void Visit(NamedExpr& named_expr) override {}
   void Visit(Ident& ident) override {
     Symbol symbol;
+    std::cout << ident.identifier_ << std::endl;
     if (scope_.in_named_expr) {
       // TODO: Handle this better, so that the `with` variables aren't
       // shadowed.

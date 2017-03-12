@@ -55,6 +55,8 @@ private:
   antlrcpp::Any
   visitCypherMatch(CypherParser::CypherMatchContext *ctx) override;
 
+antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
+
   antlrcpp::Any
   visitReturnItems(CypherParser::ReturnItemsContext *ctx) override;
 

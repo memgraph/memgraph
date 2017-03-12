@@ -31,7 +31,7 @@ std::shared_ptr<LogicalOperator> GenReturn(
   if (!current_op) {
     throw std::runtime_error("Not implemented");
   }
-  return std::make_shared<Produce>(current_op, ret.exprs_);
+  return std::make_shared<Produce>(current_op, ret.named_exprs_);
 }
 
 std::shared_ptr<LogicalOperator> Apply(Query& query)

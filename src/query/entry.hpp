@@ -43,7 +43,7 @@ class Engine {
     logical_plan->WriteHeader(stream);
     auto symbols = logical_plan->OutputSymbols(symbol_table);
     while (cursor->pull(frame, symbol_table)) {
-      std::vector<TypedValue> values(symbols.size());
+      std::vector<TypedValue> values;
       for (auto symbol : symbols) {
         values.emplace_back(frame[symbol.position_]);
       }

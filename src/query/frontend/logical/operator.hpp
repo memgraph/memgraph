@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <sstream>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
@@ -18,7 +19,8 @@ class ConsoleResultStream : public Loggable {
 
   void Result(std::vector<TypedValue>& values) {
     for (auto value : values) {
-      logger.info("    result");
+      auto va = value.Value<VertexAccessor>();
+      logger.info("    {}", va.labels().size());
     }
   }
 
@@ -36,7 +38,7 @@ class Cursor {
 class LogicalOperator {
  public:
   auto children() { return children_; };
-  virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) = 0;
+  virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) = 0;
   virtual void WriteHeader(ConsoleResultStream&) {}
   virtual std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) {
     return {};
@@ -54,7 +56,7 @@ class ScanAll : public LogicalOperator {
  private:
   class ScanAllCursor : public Cursor {
    public:
-    ScanAllCursor(ScanAll& self, GraphDbAccessor db)
+    ScanAllCursor(ScanAll& self, GraphDbAccessor& db)
         : self_(self),
           db_(db),
           vertices_(db.vertices()),
@@ -72,7 +74,7 @@ class ScanAll : public LogicalOperator {
 
    private:
     ScanAll& self_;
-    GraphDbAccessor db_;
+    GraphDbAccessor& db_;
     decltype(db_.vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
 
@@ -88,7 +90,7 @@ class ScanAll : public LogicalOperator {
   };
 
  public:
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
     return std::make_unique<ScanAllCursor>(*this, db);
   }
 
@@ -110,23 +112,23 @@ class Produce : public LogicalOperator {
     stream.Header({"n"});
   }
 
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor db) override {
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
     return std::make_unique<ProduceCursor>(*this, db);
   }
 
   std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) override {
-    std::vector<Symbol> result(exprs_.size());
+    std::vector<Symbol> result;
     for (auto named_expr : exprs_) {
-        result.emplace_back(symbol_table[*named_expr->ident_]);
+      result.emplace_back(symbol_table[*named_expr->ident_]);
     }
     return result;
-}
+  }
 
  private:
   class ProduceCursor : public Cursor {
    public:
-    ProduceCursor(Produce& self, GraphDbAccessor db)
-        : self_(self), self_cursor_(self_.MakeCursor(db)) {}
+    ProduceCursor(Produce& self, GraphDbAccessor& db)
+        : self_(self), self_cursor_(self_.input_->MakeCursor(db)) {}
     bool pull(Frame& frame, SymbolTable& symbol_table) override {
       if (self_cursor_->pull(frame, symbol_table)) {
         for (auto expr : self_.exprs_) {

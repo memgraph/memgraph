@@ -41,10 +41,9 @@ namespace {
 
 antlrcpp::Any
 CypherMainVisitor::visitSingleQuery(CypherParser::SingleQueryContext *ctx) {
-  auto children = ctx->children;
-  query_ = std::make_shared<Query>(ctx_.next_uid());
-  for (auto *child : children) {
-    query_->clauses_.push_back(child->accept(this));
+query_ = std::make_shared<Query>(ctx_.next_uid());
+  for (auto *child : ctx->clause()) {
+    query_->clauses_.push_back(child->accept(this).as<std::shared_ptr<Clause>>());
   }
   return query_;
 }
@@ -57,7 +56,11 @@ CypherMainVisitor::visitCypherMatch(CypherParser::CypherMatchContext *ctx) {
   }
   match->patterns_ =
       ctx->pattern()->accept(this).as<std::vector<std::shared_ptr<Pattern>>>();
-  return match;
+  return std::shared_ptr<Clause>(std::move(match));
+}
+
+antlrcpp::Any CypherMainVisitor::visitReturnBody(CypherParser::ReturnBodyContext *ctx) {
+return ctx->returnItems()->accept(this);
 }
 
 antlrcpp::Any
@@ -66,7 +69,7 @@ CypherMainVisitor::visitReturnItems(CypherParser::ReturnItemsContext *ctx) {
   for (auto *item : ctx->returnItem()) {
     return_clause->named_exprs_.push_back(item->accept(this));
   }
-  return return_clause;
+  return std::shared_ptr<Clause>(std::move(return_clause));
 }
 
 antlrcpp::Any
@@ -85,7 +88,7 @@ CypherMainVisitor::visitReturnItem(CypherParser::ReturnItemContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
-  auto node = new NodePart(ctx_.next_uid());
+  auto node = std::make_shared<NodePart>(ctx_.next_uid());
   if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
     node->identifier_ =
@@ -107,7 +110,7 @@ CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
     //                          .as<std::unordered_map<std::string,
     //                          std::string>>();
   }
-  return (Part *)node;
+  return std::shared_ptr<Part>(std::move(node));
 }
 
 antlrcpp::Any
@@ -179,7 +182,7 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(
   if (ctx->patternElement()) {
     return ctx->patternElement()->accept(this);
   }
-  auto pattern = std::shared_ptr<Pattern>();
+  auto pattern = std::make_shared<Pattern>(ctx_.next_uid());
   pattern->parts_.push_back(
       ctx->nodePattern()->accept(this).as<std::shared_ptr<Part>>());
   for (auto *pattern_element_chain : ctx->patternElementChain()) {
@@ -287,7 +290,7 @@ CypherMainVisitor::visitRangeLiteral(CypherParser::RangeLiteralContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitExpression(CypherParser::ExpressionContext *ctx) {
-  return visitChildren(ctx);
+    return visitChildren(ctx);
 }
 
 //// OR.
@@ -513,7 +516,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return ctx->parenthesizedExpression()->accept(this);
   } else if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
-    return std::make_shared<Ident>(ctx_.next_uid(), variable);
+    return std::shared_ptr<Expr>(std::make_shared<Ident>(ctx_.next_uid(),
+                                                         kUserIdentPrefix +
+      variable));
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.

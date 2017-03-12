@@ -187,10 +187,9 @@ public:
 class Return : public Clause {
 public:
   Return(int uid) : Clause(uid) {}
-  std::vector<std::shared_ptr<NamedExpr>> exprs_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
-    for (auto &expr : exprs_) {
+    for (auto &expr : named_exprs_) {
       expr->Accept(visitor);
     }
     visitor.Visit(*this);
