@@ -25,8 +25,8 @@ public:
 
 class Identifier : public Expression {
 public:
-  Identifier(int uid, const std::string &identifier)
-      : Expression(uid), identifier_(identifier) {}
+  Identifier(int uid, const std::string &name)
+      : Expression(uid), name_(name) {}
 
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
@@ -34,7 +34,7 @@ public:
     visitor.PostVisit(*this);
   }
 
-  std::string identifier_;
+  std::string name_;
 };
 
 class NamedExpression : public Tree {
