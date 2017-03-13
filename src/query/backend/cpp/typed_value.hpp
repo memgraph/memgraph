@@ -1,19 +1,19 @@
 #pragma once
 
+#include <cstdint>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
-#include <map>
-#include <cstdint>
 
+#include "storage/edge_accessor.hpp"
+#include "storage/property_value.hpp"
+#include "storage/vertex_accessor.hpp"
+#include "traversal/path.hpp"
 #include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
-#include "storage/property_value.hpp"
-#include "storage/edge_accessor.hpp"
-#include "storage/vertex_accessor.hpp"
-#include "traversal/path.hpp"
 
 typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
 
@@ -26,11 +26,11 @@ typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
 class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
- public:
+public:
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
 
- public:
+public:
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
@@ -58,32 +58,32 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   operator PropertyValue() const;
 
   /// constructors for non-primitive types
-  TypedValue(const std::string& value) : type_(Type::String) {
+  TypedValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
-  TypedValue(const char* value) : type_(Type::String) {
+  TypedValue(const char *value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
-  TypedValue(const std::vector<TypedValue>& value) : type_(Type::List) {
+  TypedValue(const std::vector<TypedValue> &value) : type_(Type::List) {
     new (&list_v) std::vector<TypedValue>(value);
   }
-  TypedValue(const std::map<std::string, TypedValue>& value)
+  TypedValue(const std::map<std::string, TypedValue> &value)
       : type_(Type::Map) {
     new (&map_v) std::map<std::string, TypedValue>(value);
   }
-  TypedValue(const VertexAccessor& vertex) : type_(Type::Vertex) {
+  TypedValue(const VertexAccessor &vertex) : type_(Type::Vertex) {
     new (&vertex_v) VertexAccessor(vertex);
   }
-  TypedValue(const EdgeAccessor& edge) : type_(Type::Edge) {
+  TypedValue(const EdgeAccessor &edge) : type_(Type::Edge) {
     new (&edge_v) EdgeAccessor(edge);
   }
-  TypedValue(const Path& path) : type_(Type::Path) { new (&path_v) Path(path); }
-  TypedValue(const PropertyValue& value);
+  TypedValue(const Path &path) : type_(Type::Path) { new (&path_v) Path(path); }
+  TypedValue(const PropertyValue &value);
 
   // assignment ops
-  TypedValue& operator=(const TypedValue& other);
+  TypedValue &operator=(const TypedValue &other);
 
-  TypedValue(const TypedValue& other);
+  TypedValue(const TypedValue &other);
   ~TypedValue();
 
   Type type() const { return type_; }
@@ -95,12 +95,12 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
    * @tparam T Type to interpret the value as.
    * @return The value as type T.
    */
-  template <typename T>
-  T Value() const;
+  template <typename T> T &Value();
+  template <typename T> const T &Value() const;
 
-  friend std::ostream& operator<<(std::ostream& stream, const TypedValue&prop);
+  friend std::ostream &operator<<(std::ostream &stream, const TypedValue &prop);
 
- private:
+private:
   // storage for the value of the property
   union {
     bool bool_v;
@@ -133,31 +133,31 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
  * of incompatible Types.
  */
 class TypedValueException : public StacktraceException {
- public:
+public:
   using ::StacktraceException::StacktraceException;
 };
 
 // comparison operators
 // they return TypedValue because Null can be returned
-TypedValue operator==(const TypedValue& a, const TypedValue& b);
-TypedValue operator<(const TypedValue& a, const TypedValue& b);
-TypedValue operator!(const TypedValue& a);
+TypedValue operator==(const TypedValue &a, const TypedValue &b);
+TypedValue operator<(const TypedValue &a, const TypedValue &b);
+TypedValue operator!(const TypedValue &a);
 
 // arithmetic operators
-TypedValue operator-(const TypedValue& a);
-TypedValue operator+(const TypedValue& a, const TypedValue& b);
-TypedValue operator-(const TypedValue& a, const TypedValue& b);
-TypedValue operator/(const TypedValue& a, const TypedValue& b);
-TypedValue operator*(const TypedValue& a, const TypedValue& b);
-TypedValue operator%(const TypedValue& a, const TypedValue& b);
+TypedValue operator-(const TypedValue &a);
+TypedValue operator+(const TypedValue &a, const TypedValue &b);
+TypedValue operator-(const TypedValue &a, const TypedValue &b);
+TypedValue operator/(const TypedValue &a, const TypedValue &b);
+TypedValue operator*(const TypedValue &a, const TypedValue &b);
+TypedValue operator%(const TypedValue &a, const TypedValue &b);
 
 // binary bool operators
-TypedValue operator&&(const TypedValue& a, const TypedValue& b);
-TypedValue operator||(const TypedValue& a, const TypedValue& b);
+TypedValue operator&&(const TypedValue &a, const TypedValue &b);
+TypedValue operator||(const TypedValue &a, const TypedValue &b);
 // binary bool xor, not power operator
 // Be careful: since ^ is binary operator and || and && are logical operators
 // they have different priority in c++.
-TypedValue operator^(const TypedValue& a, const TypedValue& b);
+TypedValue operator^(const TypedValue &a, const TypedValue &b);
 
 // stream output
-std::ostream& operator<<(std::ostream& os, const TypedValue::Type type);
+std::ostream &operator<<(std::ostream &os, const TypedValue::Type type);
