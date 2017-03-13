@@ -7,7 +7,6 @@ namespace fs = std::experimental::filesystem;
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "logging/loggable.hpp"
-#include "query/backend/cpp/generator.hpp"
 #include "query/exception/query_engine.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan_compiler.hpp"
@@ -26,12 +25,11 @@ namespace fs = std::experimental::filesystem;
  *         the results should be returned (more optimal then just return
  *         the whole result set)
  */
-template <typename Stream>
-class QueryEngine : public Loggable {
- private:
+template <typename Stream> class QueryEngine : public Loggable {
+private:
   using QueryPlanLib = DynamicLib<QueryPlanTrait<Stream>>;
 
- public:
+public:
   QueryEngine() : Loggable("QueryEngine") {}
 
   /**
@@ -104,12 +102,12 @@ class QueryEngine : public Loggable {
    *
    * @return size_t the number of loaded query plans
    */
-  auto Size() {  // TODO: const once whan ConcurrentMap::Accessor becomes const
+  auto Size() { // TODO: const once whan ConcurrentMap::Accessor becomes const
     return query_plans.access().size();
   }
   // return query_plans.access().size(); }
 
- private:
+private:
   /**
    * Loads query plan eather from hardcoded folder or from the file that is
    * generated in this method.
@@ -138,8 +136,8 @@ class QueryEngine : public Loggable {
                                    std::to_string(stripped.hash) + ".cpp");
 
     frontend::opencypher::Parser parser(stripped.query);
-    backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
-                            generated_path);
+    // backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
+    //                         generated_path);
     return LoadCpp(generated_path, stripped.hash);
   }
 
@@ -176,7 +174,7 @@ class QueryEngine : public Loggable {
     // TODO: underlying object has to be live during query execution
     //       fix that when Antler will be introduced into the database
 
-    auto query_plan_instance = query_plan->instance();  // because of move
+    auto query_plan_instance = query_plan->instance(); // because of move
     plans_accessor.insert(hash, std::move(query_plan));
 
     // return an instance of runnable code (PlanInterface)
