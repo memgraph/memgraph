@@ -18,10 +18,10 @@ std::shared_ptr<LogicalOperator> GenMatch(
     throw std::runtime_error("Not implemented");
   }
   auto& pattern = match.patterns_[0];
-  if (pattern->parts_.size() != 1) {
+  if (pattern->atoms_.size() != 1) {
     throw std::runtime_error("Not implemented");
   }
-  auto node_part = std::dynamic_pointer_cast<NodePart>(pattern->parts_[0]);
+  auto node_part = std::dynamic_pointer_cast<NodeAtom>(pattern->atoms_[0]);
   return std::make_shared<ScanAll>(node_part);
 }
 
@@ -31,7 +31,7 @@ std::shared_ptr<LogicalOperator> GenReturn(
   if (!current_op) {
     throw std::runtime_error("Not implemented");
   }
-  return std::make_shared<Produce>(current_op, ret.named_exprs_);
+  return std::make_shared<Produce>(current_op, ret.named_expressions_);
 }
 
 std::shared_ptr<LogicalOperator> Apply(Query& query)

@@ -31,7 +31,7 @@ class ConsoleResultStream : public Loggable {
 
 class Cursor {
  public:
-  virtual bool pull(Frame&, SymbolTable&) = 0;
+  virtual bool Pull(Frame&, SymbolTable&) = 0;
   virtual ~Cursor() {}
 };
 
@@ -51,21 +51,20 @@ class LogicalOperator {
 
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(std::shared_ptr<NodePart> node_part) : node_part_(node_part) {}
+  ScanAll(std::shared_ptr<NodeAtom> node_atom) : node_atom(node_atom) {}
 
  private:
   class ScanAllCursor : public Cursor {
    public:
     ScanAllCursor(ScanAll& self, GraphDbAccessor& db)
         : self_(self),
-          db_(db),
           vertices_(db.vertices()),
           vertices_it_(vertices_.begin()) {}
 
-    bool pull(Frame& frame, SymbolTable& symbol_table) override {
+    bool Pull(Frame& frame, SymbolTable& symbol_table) override {
       while (vertices_it_ != vertices_.end()) {
         auto vertex = *vertices_it_++;
-        if (evaluate(frame, symbol_table, vertex)) {
+        if (Evaluate(frame, symbol_table, vertex)) {
           return true;
         }
       }
@@ -74,17 +73,17 @@ class ScanAll : public LogicalOperator {
 
    private:
     ScanAll& self_;
-    GraphDbAccessor& db_;
-    decltype(db_.vertices()) vertices_;
+    decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
 
-    bool evaluate(Frame& frame, SymbolTable& symbol_table,
+    bool Evaluate(Frame& frame, SymbolTable& symbol_table,
                   VertexAccessor& vertex) {
-      auto node_part = self_.node_part_;
-      for (auto label : node_part->labels_) {
+      auto node_atom = self_.node_atom;
+      for (auto label : node_atom->labels_) {
+        // TODO: Move this to filter operator
         if (!vertex.has_label(label)) return false;
       }
-      frame[symbol_table[*node_part->identifier_].position_] = vertex;
+      frame[symbol_table[*node_atom->identifier_].position_] = vertex;
       return true;
     }
   };
@@ -96,14 +95,14 @@ class ScanAll : public LogicalOperator {
 
  private:
   friend class ScanAll::ScanAllCursor;
-  std::shared_ptr<NodePart> node_part_;
+  std::shared_ptr<NodeAtom> node_atom;
 };
 
 class Produce : public LogicalOperator {
  public:
   Produce(std::shared_ptr<LogicalOperator> input,
-          std::vector<std::shared_ptr<NamedExpr>> exprs)
-      : input_(input), exprs_(exprs) {
+          std::vector<std::shared_ptr<NamedExpression>> named_expressions)
+      : input_(input), named_expressions_(named_expressions) {
     children_.emplace_back(input);
   }
 
@@ -118,8 +117,8 @@ class Produce : public LogicalOperator {
 
   std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) override {
     std::vector<Symbol> result;
-    for (auto named_expr : exprs_) {
-      result.emplace_back(symbol_table[*named_expr->ident_]);
+    for (auto named_expr : named_expressions_) {
+      result.emplace_back(symbol_table[*named_expr]);
     }
     return result;
   }
@@ -129,10 +128,11 @@ class Produce : public LogicalOperator {
    public:
     ProduceCursor(Produce& self, GraphDbAccessor& db)
         : self_(self), self_cursor_(self_.input_->MakeCursor(db)) {}
-    bool pull(Frame& frame, SymbolTable& symbol_table) override {
-      if (self_cursor_->pull(frame, symbol_table)) {
-        for (auto expr : self_.exprs_) {
-          expr->Evaluate(frame, symbol_table);
+    bool Pull(Frame& frame, SymbolTable& symbol_table) override {
+      if (self_cursor_->Pull(frame, symbol_table)) {
+        for (auto named_expr : self_.named_expressions_) {
+          ExpressionEvaluator evaluator(frame, symbol_table);
+          named_expr->Accept(evaluator);
         }
         return true;
       }
@@ -146,6 +146,6 @@ class Produce : public LogicalOperator {
 
  private:
   std::shared_ptr<LogicalOperator> input_;
-  std::vector<std::shared_ptr<NamedExpr>> exprs_;
+  std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
 };
 }
