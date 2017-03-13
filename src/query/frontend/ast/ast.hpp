@@ -4,55 +4,9 @@
 #include <vector>
 
 #include "database/graph_db.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 
 namespace query {
-
-class Frame;
-class SymbolTable;
-
-// Forward declares for TreeVisitorBase
-class Query;
-class NamedExpr;
-class Ident;
-class Match;
-class Return;
-class Pattern;
-class NodePart;
-class EdgePart;
-
-class TreeVisitorBase {
-public:
-  virtual ~TreeVisitorBase() {}
-  // Start of the tree is a Query.
-  virtual void PreVisit(Query &) {}
-  virtual void Visit(Query &query) = 0;
-  virtual void PostVisit(Query &) {}
-  // Expressions
-  virtual void PreVisit(NamedExpr &) {}
-  virtual void Visit(NamedExpr &) = 0;
-  virtual void PostVisit(NamedExpr &) {}
-  virtual void PreVisit(Ident &) {}
-  virtual void Visit(Ident &ident) = 0;
-  virtual void PostVisit(Ident &) {}
-  // Clauses
-  virtual void PreVisit(Match &) {}
-  virtual void Visit(Match &match) = 0;
-  virtual void PostVisit(Match &) {}
-  virtual void PreVisit(Return &) {}
-  virtual void Visit(Return &ret) = 0;
-  virtual void PostVisit(Return &) {}
-  // Pattern and its subparts.
-  virtual void PreVisit(Pattern &) {}
-  virtual void Visit(Pattern &pattern) = 0;
-  virtual void PostVisit(Pattern &) {}
-  virtual void PreVisit(NodePart &) {}
-  virtual void Visit(NodePart &node_part) = 0;
-  virtual void PostVisit(NodePart &) {}
-  virtual void PreVisit(EdgePart &) {}
-  virtual void Visit(EdgePart &edge_part) = 0;
-  virtual void PostVisit(EdgePart &) {}
-};
 
 class Tree {
 public:
@@ -64,18 +18,16 @@ private:
   const int uid_;
 };
 
-class Expr : public Tree {
+class Expression : public Tree {
 public:
-  Expr(int uid) : Tree(uid) {}
-  virtual TypedValue Evaluate(Frame &, SymbolTable &) = 0;
+  Expression(int uid) : Tree(uid) {}
 };
 
-class Ident : public Expr {
+class Identifier : public Expression {
 public:
-  Ident(int uid, const std::string &identifier)
-      : Expr(uid), identifier_(identifier) {}
+  Identifier(int uid, const std::string &identifier)
+      : Expression(uid), identifier_(identifier) {}
 
-  TypedValue Evaluate(Frame &frame, SymbolTable &symbol_table) override;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
     visitor.Visit(*this);
@@ -85,30 +37,28 @@ public:
   std::string identifier_;
 };
 
-class NamedExpr : public Tree {
+class NamedExpression : public Tree {
 public:
-  NamedExpr(int uid) : Tree(uid) {}
-  void Evaluate(Frame &frame, SymbolTable &symbol_table);
+  NamedExpression(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
-    ident_->Accept(visitor);
-    expr_->Accept(visitor);
+    expression_->Accept(visitor);
     visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
 
-  std::shared_ptr<Ident> ident_;
-  std::shared_ptr<Expr> expr_;
+  std::string name_;
+  std::shared_ptr<Expression> expression_;
 };
 
-class Part : public Tree {
+class PatternAtom : public Tree {
 public:
-  Part(int uid) : Tree(uid) {}
+  PatternAtom(int uid) : Tree(uid) {}
 };
 
-class NodePart : public Part {
+class NodeAtom : public PatternAtom {
 public:
-  NodePart(int uid) : Part(uid) {}
+  NodeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
     identifier_->Accept(visitor);
@@ -116,15 +66,15 @@ public:
     visitor.PostVisit(*this);
   }
 
-  std::shared_ptr<Ident> identifier_;
+  std::shared_ptr<Identifier> identifier_;
   std::vector<GraphDb::Label> labels_;
 };
 
-class EdgePart : public Part {
+class EdgeAtom : public PatternAtom {
 public:
   enum class Direction { LEFT, RIGHT, BOTH };
 
-  EdgePart(int uid) : Part(uid) {}
+  EdgeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
     identifier_->Accept(visitor);
@@ -133,7 +83,7 @@ public:
   }
 
   Direction direction = Direction::BOTH;
-  std::shared_ptr<Ident> identifier_;
+  std::shared_ptr<Identifier> identifier_;
 };
 
 class Clause : public Tree {
@@ -146,14 +96,14 @@ public:
   Pattern(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
-    for (auto &part : parts_) {
+    for (auto &part : atoms_) {
       part->Accept(visitor);
     }
     visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
-  std::shared_ptr<Ident> identifier_;
-  std::vector<std::shared_ptr<Part>> parts_;
+  std::shared_ptr<Identifier> identifier_;
+  std::vector<std::shared_ptr<PatternAtom>> atoms_;
 };
 
 class Query : public Tree {
@@ -189,14 +139,14 @@ public:
   Return(int uid) : Clause(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
-    for (auto &expr : named_exprs_) {
+    for (auto &expr : named_expressions_) {
       expr->Accept(visitor);
     }
     visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
 
-  std::shared_ptr<Ident> identifier_;
-  std::vector<std::shared_ptr<NamedExpr>> named_exprs_;
+  std::shared_ptr<Identifier> identifier_;
+  std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
 };
 }
