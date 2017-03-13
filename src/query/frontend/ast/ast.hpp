@@ -23,6 +23,7 @@ class EdgePart;
 
 class TreeVisitorBase {
 public:
+  virtual ~TreeVisitorBase() {}
   // Start of the tree is a Query.
   virtual void PreVisit(Query &) {}
   virtual void Visit(Query &query) = 0;
@@ -71,7 +72,6 @@ public:
 
 class Ident : public Expr {
 public:
-  Ident(int) = delete;
   Ident(int uid, const std::string &identifier)
       : Expr(uid), identifier_(identifier) {}
 
@@ -83,11 +83,6 @@ public:
   }
 
   std::string identifier_;
-};
-
-class Part : public Tree {
-public:
-  Part(int uid) : Tree(uid) {}
 };
 
 class NamedExpr : public Tree {
@@ -104,6 +99,11 @@ public:
 
   std::shared_ptr<Ident> ident_;
   std::shared_ptr<Expr> expr_;
+};
+
+class Part : public Tree {
+public:
+  Part(int uid) : Tree(uid) {}
 };
 
 class NodePart : public Part {
