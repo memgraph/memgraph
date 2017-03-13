@@ -25,8 +25,7 @@ public:
 
 class Identifier : public Expression {
 public:
-  Identifier(int uid, const std::string &name)
-      : Expression(uid), name_(name) {}
+  Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
 
   void Accept(TreeVisitorBase &visitor) override {
     visitor.PreVisit(*this);
@@ -145,8 +144,6 @@ public:
     visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
-
-  std::shared_ptr<Identifier> identifier_;
   std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
 };
 }

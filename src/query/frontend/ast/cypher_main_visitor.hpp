@@ -52,10 +52,15 @@ private:
   antlrcpp::Any
   visitSingleQuery(CypherParser::SingleQueryContext *ctx) override;
 
+  antlrcpp::Any visitClause(CypherParser::ClauseContext *ctx) override;
+
   antlrcpp::Any
   visitCypherMatch(CypherParser::CypherMatchContext *ctx) override;
 
-antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
+  antlrcpp::Any
+  visitCypherReturn(CypherParser::CypherReturnContext *ctx) override;
+
+  antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
 
   antlrcpp::Any
   visitReturnItems(CypherParser::ReturnItemsContext *ctx) override;
