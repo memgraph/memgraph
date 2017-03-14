@@ -10,3 +10,26 @@ to be executed:
                      # test queries
 
 TODO: automate further
+
+## TCK Engine
+
+Python script used to run tck tests against memgraph. To run script execute:
+
+    1. python3 tck_engine/test_executor.py
+
+Script uses Behave to run Cucumber tests.
+
+The following tck tests have been changed:
+	
+    1. Tests where example injection did not work. Behave stores the first row 
+       in Cucumber tables as headings and the example injection is not working in
+       headings. To correct this behavior, one row was added to tables where
+       injection was used.
+
+    2. Tests where the results were not always in the same order. Query does not
+       specify the result order, but tests specified it. It led to the test failure. 
+       To correct tests, tag "the result should be" was changed with a 
+       tag "the result should be (ignoring element order for lists)".
+
+Comparability.feature tests are failing because integers are compared to strings
+what is not allowed in openCypher.
