@@ -11,24 +11,6 @@
 
 namespace query {
 
-class ConsoleResultStream : public Loggable {
- public:
-  ConsoleResultStream() : Loggable("ConsoleResultStream") {}
-
-  void Header(const std::vector<std::string>&) { logger.info("header"); }
-
-  void Result(std::vector<TypedValue>& values) {
-    for (auto value : values) {
-      auto va = value.Value<VertexAccessor>();
-      logger.info("    {}", va.labels().size());
-    }
-  }
-
-  void Summary(const std::map<std::string, TypedValue>&) {
-    logger.info("summary");
-  }
-};
-
 class Cursor {
  public:
   virtual bool Pull(Frame&, SymbolTable&) = 0;
@@ -39,10 +21,6 @@ class LogicalOperator {
  public:
   auto children() { return children_; };
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) = 0;
-  virtual void WriteHeader(ConsoleResultStream&) {}
-  virtual std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) {
-    return {};
-  }
   virtual ~LogicalOperator() {}
 
  protected:
@@ -106,22 +84,11 @@ class Produce : public LogicalOperator {
     children_.emplace_back(input);
   }
 
-  void WriteHeader(ConsoleResultStream& stream) override {
-    // TODO: write real result
-    stream.Header({"n"});
-  }
-
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
     return std::make_unique<ProduceCursor>(*this, db);
   }
 
-  std::vector<Symbol> OutputSymbols(SymbolTable& symbol_table) override {
-    std::vector<Symbol> result;
-    for (auto named_expr : named_expressions_) {
-      result.emplace_back(symbol_table[*named_expr]);
-    }
-    return result;
-  }
+  const auto& named_expressions() { return named_expressions_; }
 
  private:
   class ProduceCursor : public Cursor {
