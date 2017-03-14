@@ -9,7 +9,6 @@ neo4j-driver==1.1.2
 packaging==16.8
 parse==1.8.0
 parse-type==0.3.4
-pkg-resources==0.0.0
 pyparsing==2.2.0
 PyYAML==3.12
 six==1.10.0

@@ -5,17 +5,17 @@ import os
 
 def parse_args():
     argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--root", default="tests/openCypher_M05/tck/features", 
+    argp.add_argument("--root", default="tck_engine/tests/openCypher_M05/tck/features", 
             help="Path to folder where tests are located, default is openCypher_M05/tck/features.")
-    argp.add_argument("--graphs-root", default="tests/openCypher_M05/tck/graphs", 
+    argp.add_argument("--graphs-root", default="tck_engine/tests/openCypher_M05/tck/graphs", 
             help="Path to folder where files with graphs queries are located, default is openCypher_M05/tck/graphs.")
     argp.add_argument("--stop", action="store_true", help="Stop testing after first fail.")
     argp.add_argument("--no-side-effects", action="store_true", help="Check for side effects in tests.")
-    argp.add_argument("--database", default="neo4j", choices=["neo4j", "memgraph"], help="Default is neo4j.")
-    argp.add_argument("--database-username", default="neo4j", help="Default is neo4j.")
-    argp.add_argument("--database-password", default="memgraph", help="Default is memgraph.")
-    argp.add_argument("--database-uri", default="bolt://localhost:7687", help="Default is bolt://localhost:7687.")
-    argp.add_argument("--output-folder", default="results/", help="Test result output folder, default is results/.")
+    argp.add_argument("--db", default="neo4j", choices=["neo4j", "memgraph"], help="Default is neo4j.")
+    argp.add_argument("--db-user", default="neo4j", help="Default is neo4j.")
+    argp.add_argument("--db-pass", default="memgraph", help="Default is memgraph.")
+    argp.add_argument("--db-uri", default="bolt://localhost:7687", help="Default is bolt://localhost:7687.")
+    argp.add_argument("--output-folder", default="tck_engine/results/", help="Test result output folder, default is results/.")
     argp.add_argument("--logging", default="DEBUG", choices=["INFO", "DEBUG"], help="Logging level, default is DEBUG.")
     return argp.parse_args()
 
@@ -47,13 +47,13 @@ def main():
     if args.no_side_effects:
         behave_options.append("--no-side-effects")
     behave_options.append("--database")
-    behave_options.append(args.database)
+    behave_options.append(args.db)
     behave_options.append("--database-password")
-    behave_options.append(args.database_password)
+    behave_options.append(args.db_pass)
     behave_options.append("--database-username")
-    behave_options.append(args.database_username)
+    behave_options.append(args.db_user)
     behave_options.append("--database-uri")
-    behave_options.append(args.database_uri)
+    behave_options.append(args.db_uri)
     behave_options.append("--graphs-root")
     behave_options.append(args.graphs_root)
     behave_options.append("--output-folder")
