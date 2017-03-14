@@ -5,9 +5,9 @@ import os
 
 def parse_args():
     argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--root", default="openCypher_M05/tck/features", 
+    argp.add_argument("--root", default="tests/openCypher_M05/tck/features", 
             help="Path to folder where tests are located, default is openCypher_M05/tck/features.")
-    argp.add_argument("--graphs-root", default="openCypher_M05/tck/graphs", 
+    argp.add_argument("--graphs-root", default="tests/openCypher_M05/tck/graphs", 
             help="Path to folder where files with graphs queries are located, default is openCypher_M05/tck/graphs.")
     argp.add_argument("--stop", action="store_true", help="Stop testing after first fail.")
     argp.add_argument("--no-side-effects", action="store_true", help="Check for side effects in tests.")

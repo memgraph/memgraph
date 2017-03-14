@@ -33,3 +33,10 @@ The following tck tests have been changed:
 
 Comparability.feature tests are failing because integers are compared to strings
 what is not allowed in openCypher.
+
+## KPI Service
+
+Flask application used to get results from executing tests with TCK Engine. 
+Application can be ran executing:
+	
+    1. python3 kpi_service/kpi_service.py
