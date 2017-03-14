@@ -1,10 +1,11 @@
 #include "dbms/dbms.hpp"
 
-GraphDbAccessor Dbms::active() {
-  return GraphDbAccessor(*active_db.load(std::memory_order_acquire));
+std::unique_ptr<GraphDbAccessor> Dbms::active() {
+  return std::make_unique<GraphDbAccessor>(
+      *active_db.load(std::memory_order_acquire));
 }
 
-GraphDbAccessor Dbms::active(const std::string &name) {
+std::unique_ptr<GraphDbAccessor> Dbms::active(const std::string &name) {
   auto acc = dbs.access();
   // create db if it doesn't exist
   auto it = acc.find(name);
@@ -17,5 +18,5 @@ GraphDbAccessor Dbms::active(const std::string &name) {
   // set and return active db
   auto &db = it->second;
   active_db.store(&db, std::memory_order_release);
-  return GraphDbAccessor(db);
+  return std::make_unique<GraphDbAccessor>(db);
 }

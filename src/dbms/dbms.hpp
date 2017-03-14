@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "config/config.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
@@ -18,7 +20,7 @@ class Dbms {
   /**
    * Returns an accessor to the active database.
    */
-  GraphDbAccessor active();
+  std::unique_ptr<GraphDbAccessor> active();
 
   /**
    * Set the database with the given name to be active.
@@ -27,7 +29,7 @@ class Dbms {
    *
    * @return an accessor to the database with the given name.
    */
-  GraphDbAccessor active(const std::string &name);
+  std::unique_ptr<GraphDbAccessor> active(const std::string &name);
 
   // TODO: DELETE action
 

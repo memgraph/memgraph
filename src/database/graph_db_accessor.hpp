@@ -33,6 +33,15 @@ class GraphDbAccessor {
   GraphDbAccessor(GraphDb& db);
   ~GraphDbAccessor();
 
+  // the GraphDbAccessor can NOT be copied nor moved because
+  // 1. it ensures transaction cleanup once it's destructed
+  // 2. it will contain index and side-effect bookkeeping data
+  //    which is unique to the transaction (shared_ptr works but slower)
+  GraphDbAccessor(const GraphDbAccessor &other) = delete;
+  GraphDbAccessor(GraphDbAccessor &&other) = delete;
+  GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
+  GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
+
   /**
    * Returns the name of the database of this accessor.
    */

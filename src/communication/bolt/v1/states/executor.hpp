@@ -37,10 +37,10 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
       logger.trace("[Run] '{}'", query.statement);
 
       auto db_accessor = dmbs.active();
-      logger.debug("[ActiveDB] '{}'", db_accessor.name());
+      logger.debug("[ActiveDB] '{}'", db_accessor->name());
 
       auto is_successfully_executed =
-          query_engine.Run(query.statement, db_accessor, output_stream);
+          query_engine.Run(query.statement, *db_accessor, output_stream);
 
       if (!is_successfully_executed) {
         output_stream.write_failure(
