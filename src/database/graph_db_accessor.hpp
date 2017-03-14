@@ -176,7 +176,7 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   void init_record(RecordAccessor<TRecord>& accessor) {
-    accessor.record_ = accessor.vlist_.find(*transaction_);
+    accessor.record_ = accessor.vlist_->find(*transaction_);
   }
 
   /**
@@ -186,7 +186,7 @@ class GraphDbAccessor {
   template <typename TRecord>
   void update(RecordAccessor<TRecord>& accessor) {
     if (!accessor.record_->is_visible_write(*transaction_))
-      accessor.record_ = accessor.vlist_.update(*transaction_);
+      accessor.record_ = accessor.vlist_->update(*transaction_);
   }
 
  private:

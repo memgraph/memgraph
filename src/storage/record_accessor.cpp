@@ -7,8 +7,8 @@
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         GraphDbAccessor &db_accessor)
-    : db_accessor_(db_accessor), vlist_(vlist), record_(nullptr) {
-  db_accessor_.init_record(*this);
+    : db_accessor_(&db_accessor), vlist_(&vlist), record_(nullptr) {
+  db_accessor.init_record(*this);
   debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
@@ -16,7 +16,7 @@ template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         TRecord &record,
                                         GraphDbAccessor &db_accessor)
-    : db_accessor_(db_accessor), vlist_(vlist), record_(&record) {
+    : db_accessor_(&db_accessor), vlist_(&vlist), record_(&record) {
   debug_assert(record_ != nullptr, "Record is nullptr.");
 }
 
@@ -46,18 +46,13 @@ void RecordAccessor<TRecord>::PropertiesAccept(
 }
 
 template <typename TRecord>
-GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() {
-  return db_accessor_;
-}
-
-template <typename TRecord>
-const GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
-  return db_accessor_;
+GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
+  return *db_accessor_;
 }
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
-  db_accessor_.update(*this);
+  db_accessor().update(*this);
   return *record_;
 }
 

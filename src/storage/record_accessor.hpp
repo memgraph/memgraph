@@ -51,6 +51,12 @@ class RecordAccessor {
   RecordAccessor(mvcc::VersionList<TRecord>& vlist, TRecord& record,
                  GraphDbAccessor& db_accessor);
 
+  // this class is default copyable, movable and assignable
+  RecordAccessor(const RecordAccessor &other) = default;
+  RecordAccessor(RecordAccessor &&other) = default;
+  RecordAccessor &operator=(const RecordAccessor &other) = default;
+  RecordAccessor &operator=(RecordAccessor &&other) = default;
+
   /**
    * Gets the property for the given key.
    * @param key
@@ -94,21 +100,21 @@ class RecordAccessor {
    * not actual values inside RecordAccessors.
    */
   friend bool operator<(const RecordAccessor& a, const RecordAccessor& b) {
-    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+    debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
-    return &a.vlist_ < &b.vlist_;
+    return a.vlist_ < b.vlist_;
   }
 
   friend bool operator==(const RecordAccessor& a, const RecordAccessor& b) {
-    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+    debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
-    return &a.vlist_ == &b.vlist_;
+    return a.vlist_ == b.vlist_;
   }
 
   friend bool operator!=(const RecordAccessor& a, const RecordAccessor& b) {
-    debug_assert(&a.db_accessor_ == &b.db_accessor_,
+    debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
     return !(a == b);
@@ -119,14 +125,7 @@ class RecordAccessor {
    *
    * @return See above.
    */
-  GraphDbAccessor& db_accessor();
-
-  /**
-  * Returns a GraphDB accessor of this record accessor.
-  *
-  * @return See above.
-  */
-  const GraphDbAccessor& db_accessor() const;
+  GraphDbAccessor& db_accessor() const;
 
  protected:
   /**
@@ -143,15 +142,17 @@ class RecordAccessor {
    */
   const TRecord& view() const;
 
+
+ private:
+
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
-  GraphDbAccessor& db_accessor_;
+  GraphDbAccessor *db_accessor_;
 
- private:
   // The record (edge or vertex) this accessor provides access to.
   // Immutable, set in the constructor and never changed.
-  mvcc::VersionList<TRecord>& vlist_;
+  mvcc::VersionList<TRecord> *vlist_;
 
   /* The version of the record currently used in this transaction. Defaults to
    * the

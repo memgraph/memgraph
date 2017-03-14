@@ -57,7 +57,7 @@ bool GraphDbAccessor::remove_vertex(VertexAccessor& vertex_accessor) {
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
-  vertex_accessor.vlist_.remove(&vertex_accessor.update(), *transaction_);
+  vertex_accessor.vlist_->remove(&vertex_accessor.update(), *transaction_);
   return true;
 }
 
@@ -70,7 +70,7 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor& vertex_accessor) {
   for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
 
   // mvcc removal of the vertex
-  vertex_accessor.vlist_.remove(&vertex_accessor.update(), *transaction_);
+  vertex_accessor.vlist_->remove(&vertex_accessor.update(), *transaction_);
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor& from,
@@ -79,7 +79,7 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor& from,
   // create an edge
   auto edge_vlist = new mvcc::VersionList<Edge>();
   Edge* edge =
-      edge_vlist->insert(*transaction_, from.vlist_, to.vlist_, edge_type);
+      edge_vlist->insert(*transaction_, *from.vlist_, *to.vlist_, edge_type);
 
   // set the vertex connections to this edge
   from.update().out_.emplace_back(edge_vlist);
@@ -109,9 +109,9 @@ void swap_out_edge(std::vector<mvcc::VersionList<Edge>*>& edges,
 }
 
 void GraphDbAccessor::remove_edge(EdgeAccessor& edge_accessor) {
-  swap_out_edge(edge_accessor.from().update().out_, &edge_accessor.vlist_);
-  swap_out_edge(edge_accessor.to().update().in_, &edge_accessor.vlist_);
-  edge_accessor.vlist_.remove(&edge_accessor.update(), *transaction_);
+  swap_out_edge(edge_accessor.from().update().out_, edge_accessor.vlist_);
+  swap_out_edge(edge_accessor.to().update().in_, edge_accessor.vlist_);
+  edge_accessor.vlist_->remove(&edge_accessor.update(), *transaction_);
 }
 
 GraphDb::Label GraphDbAccessor::label(const std::string& label_name) {
