@@ -7,7 +7,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/interpret/interpret.hpp"
-#include "query/frontend/typecheck/symbol_table.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 
 namespace query {
 

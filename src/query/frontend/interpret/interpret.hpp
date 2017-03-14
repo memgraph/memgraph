@@ -5,7 +5,7 @@
 #include "utils/assert.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/typecheck/symbol_table.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 
 namespace query {
 

@@ -2,13 +2,13 @@
 
 #include "utils/exceptions/basic_exception.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/typecheck/symbol_table.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 
 namespace query {
 
-class TypeCheckVisitor : public TreeVisitorBase {
+class SymbolGenerator : public TreeVisitorBase {
  public:
-  TypeCheckVisitor(SymbolTable& symbol_table) : symbol_table_(symbol_table) {}
+  SymbolGenerator(SymbolTable& symbol_table) : symbol_table_(symbol_table) {}
 
   // Expressions
   void PreVisit(NamedExpression& named_expr) override {

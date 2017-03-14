@@ -34,7 +34,7 @@ std::shared_ptr<LogicalOperator> GenReturn(
   return std::make_shared<Produce>(current_op, ret.named_expressions_);
 }
 
-std::shared_ptr<LogicalOperator> Apply(Query& query)
+std::shared_ptr<LogicalOperator> MakeLogicalPlan(Query& query)
 {
   std::shared_ptr<LogicalOperator> current_op;
   for (auto& clause : query.clauses_) {
