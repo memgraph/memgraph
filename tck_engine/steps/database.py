@@ -25,15 +25,14 @@ def query(q, context, params={}):
                     add_side_effects(context, summary.counters)
                 results_list = list(results)
                 tx.success = True
+            session.close()
         except Exception as e:
             #exception
-            print(e)
             context.exception = e
             context.log.info('%s', str(e))
+            session.close()
             #not working if removed
             query("match (n) detach delete(n)", context)
-        finally:
-            session.close()
     return results_list
 
 

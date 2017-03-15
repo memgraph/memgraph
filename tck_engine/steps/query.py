@@ -43,6 +43,11 @@ def parse_props(prop_json):
             properties += prop + ": null, "
         elif isinstance(prop_json[prop], str):
             properties += prop + ": " + "'" + prop_json[prop] + "', "
+        elif isinstance(prop_json[prop], bool):
+            if prop_json[prop] == True:
+                properties += prop + ": true, "
+            else:
+                properties += prop + ": false, "
         else:
             properties += prop + ": " + str(prop_json[prop]) + ", "
     properties = properties[:-2]
@@ -248,19 +253,27 @@ def validate_in_order(context, ignore_order):
 @then('the result should be')
 def expected_result_step(context):
     validate(context, False)
+    check_exception(context)
 
 @then('the result should be, in order')
 def expected_result_step(context):
     validate_in_order(context, False)
+    check_exception(context)
 
 @then('the result should be (ignoring element order for lists)')
 def expected_result_step(context):
-    #TODO lists inside lists?
     validate(context, True)
+    check_exception(context)
+
+def check_exception(context):
+    if context.exception is not None:
+        context.log.info("Exception when eqecuting query!")
+        assert(False)
 
 @then('the result should be empty')
 def empty_result_step(context):
     assert(len(context.results) == 0)
+    check_exception(context)
 
 def side_effects_number(prop, table):
     """
