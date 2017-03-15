@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
               query_engine.ReloadCustom(query, event.path);
               auto db_accessor = dbms.active();
               query_engine.Run(query, *db_accessor, stream);
-            } catch (PlanCompilationException& e) {
+            } catch (query::PlanCompilationException& e) {
               log.info("Query compilation failed: {}", e.what());
             } catch (std::exception& e) {
               log.info("Query execution failed: unknown reason");

@@ -56,7 +56,7 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
 
       return EXECUTOR;
       // TODO: RETURN success MAYBE
-    } catch (const frontend::opencypher::SyntaxException &e) {
+    } catch (const query::SyntaxException &e) {
       output_stream.write_failure(
           {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
       output_stream.send();
@@ -67,7 +67,7 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
     //        {"message", "Unsupported query"}});
     //   output_stream.send();
     //   return ERROR;
-    } catch (const QueryEngineException &e) {
+    } catch (const query::QueryEngineException &e) {
       output_stream.write_failure(
           {{"code", "Memgraph.QueryEngineException"},
            {"message", "Query engine was unable to execute the query"}});

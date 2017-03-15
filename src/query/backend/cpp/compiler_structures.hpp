@@ -2,25 +2,11 @@
 
 #include <climits>
 #include <unordered_map>
+#include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/CypherParser.h"
-#include "utils/exceptions/basic_exception.hpp"
 
 namespace backend {
 namespace cpp {
-
-// TODO: Figure out what information to put in exception.
-// Error reporting is tricky since we get stripped query and position of error
-// in original query is not same as position of error in stripped query. Most
-// correct approach would be to do semantic analysis with original query even
-// for already hashed queries, but that has obvious performance issues. Other
-// approach would be to report some of the semantic errors in runtime of the
-// query and only report line numbers of semantic errors (not position in the
-// line) if multiple line strings are not allowed by grammar. We could also
-// print whole line that contains error instead of specifying line number.
-class SemanticException : BasicException {
- public:
-  SemanticException() : BasicException("") {}
-};
 
 // enum VariableType { TYPED_VALUE, LIST, MAP, NODE, RELATIONSHIP, PATH };
 

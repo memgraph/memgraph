@@ -4,7 +4,7 @@
 
 #include "logging/default.hpp"
 #include "logging/loggable.hpp"
-#include "query/exception/plan_compilation.hpp"
+#include "query/exceptions.hpp"
 #include "query/plan_compiler_flags.hpp"
 #include "utils/string/join.hpp"
 
@@ -51,7 +51,7 @@ class PlanCompiler : public Loggable {
     // if compilation has failed throw exception
     if (compile_status != 0) {
       logger.debug("FAIL: Query Code Compilation: {} -> {}", in_file, out_file);
-      throw PlanCompilationException(
+      throw query::PlanCompilationException(
           "Code compilation error. Generated code is not compilable or "
           "compilation settings are wrong");
     }

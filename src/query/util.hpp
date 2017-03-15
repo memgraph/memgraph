@@ -6,15 +6,14 @@
 #include <string>
 
 #include <experimental/filesystem>
-#include <utils/exceptions/basic_exception.hpp>
 #include "fmt/format.h"
 #include "logging/default.hpp"
-#include "utils/exceptions/stacktrace_exception.hpp"
 namespace fs = std::experimental::filesystem;
 #include "utils/file.hpp"
 #include "utils/string/file.hpp"
 #include "utils/string/trim.hpp"
 #include "utils/types/byte.hpp"
+#include "query/exceptions.hpp"
 
 using std::cout;
 using std::endl;
@@ -50,23 +49,9 @@ std::string extract_query(const fs::path &path) {
   throw BasicException("Unable to find query!");
 }
 
-class CodeLineFormatException : public StacktraceException {
- public:
-  using StacktraceException::StacktraceException;
-};
-
 template <typename... Args>
 std::string format(const std::string &format_str, const Args &... args) {
   return fmt::format(format_str, args...);
-}
-
-template <typename... Args>
-std::string code_line(const std::string &format_str, const Args &... args) {
-  try {
-    return "\t" + format(format_str, args...) + "\n";
-  } catch (std::runtime_error &e) {
-    throw CodeLineFormatException(std::string(e.what()) + " " + format_str);
-  }
 }
 
 class CoutSocket {

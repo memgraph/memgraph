@@ -3,20 +3,15 @@
 #include <string>
 
 #include "antlr4-runtime.h"
+#include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
-#include "utils/exceptions/basic_exception.hpp"
 
 namespace frontend {
 namespace opencypher {
 
 using namespace antlropencypher;
 using namespace antlr4;
-
-class SyntaxException : public BasicException {
- public:
-  SyntaxException() : BasicException("") {}
-};
 
 /**
  * Generates openCypher AST
@@ -31,7 +26,7 @@ class Parser {
    */
   Parser(const std::string query) : query_(std::move(query)) {
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw SyntaxException();
+      throw query::SyntaxException();
     }
   }
 
