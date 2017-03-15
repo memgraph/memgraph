@@ -6,7 +6,8 @@
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/logical/planner.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/typecheck/typecheck.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 
 namespace query {
 
@@ -52,11 +53,11 @@ class Engine {
 
     // symbol table fill
     SymbolTable symbol_table;
-    TypeCheckVisitor typecheck_visitor(symbol_table);
-    high_level_tree->Accept(typecheck_visitor);
+    SymbolGenerator symbol_generator(symbol_table);
+    high_level_tree->Accept(symbol_generator);
 
     // high level tree -> logical plan
-    auto logical_plan = Apply(*high_level_tree);
+    auto logical_plan = MakeLogicalPlan(*high_level_tree);
 
     // generate frame based on symbol table max_position
     Frame frame(symbol_table.max_position());

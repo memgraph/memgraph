@@ -6,11 +6,19 @@
 #include "query/frontend/ast/ast.hpp"
 
 namespace query {
-struct Symbol {
+class Symbol {
+ public:
   Symbol() {}
-  Symbol(const std::string& name, int position) : name_(name), position_(position) {}
+  Symbol(const std::string& name, int position)
+      : name_(name), position_(position) {}
   std::string name_;
   int position_;
+
+  bool operator==(const Symbol& other) const {
+    return position_ == other.position_ && name_ == other.name_;
+  }
+  bool operator!=(const Symbol& other) const { return !operator==(other); }
+
 };
 
 class SymbolTable {

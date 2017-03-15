@@ -7,6 +7,7 @@ namespace query {
 
 class SyntaxException : public BasicException {
  public:
+  using BasicException::BasicException;
   SyntaxException() : BasicException("") {}
 };
 
@@ -19,8 +20,9 @@ class SyntaxException : public BasicException {
 // query and only report line numbers of semantic errors (not position in the
 // line) if multiple line strings are not allowed by grammar. We could also
 // print whole line that contains error instead of specifying line number.
-class SemanticException : BasicException {
+class SemanticException : public BasicException {
  public:
+  using BasicException::BasicException;
   SemanticException() : BasicException("") {}
 };
 

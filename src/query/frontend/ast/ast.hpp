@@ -28,7 +28,6 @@ public:
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
 
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
     visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
@@ -40,9 +39,8 @@ class NamedExpression : public Tree {
 public:
   NamedExpression(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
-    expression_->Accept(visitor);
     visitor.Visit(*this);
+    expression_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
@@ -59,9 +57,8 @@ class NodeAtom : public PatternAtom {
 public:
   NodeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
-    identifier_->Accept(visitor);
     visitor.Visit(*this);
+    identifier_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
@@ -75,9 +72,8 @@ public:
 
   EdgeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
-    identifier_->Accept(visitor);
     visitor.Visit(*this);
+    identifier_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
@@ -94,11 +90,10 @@ class Pattern : public Tree {
 public:
   Pattern(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
+    visitor.Visit(*this);
     for (auto &part : atoms_) {
       part->Accept(visitor);
     }
-    visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
   std::shared_ptr<Identifier> identifier_;
@@ -109,11 +104,10 @@ class Query : public Tree {
 public:
   Query(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
+    visitor.Visit(*this);
     for (auto &clause : clauses_) {
       clause->Accept(visitor);
     }
-    visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
   std::vector<std::shared_ptr<Clause>> clauses_;
@@ -124,11 +118,10 @@ public:
   Match(int uid) : Clause(uid) {}
   std::vector<std::shared_ptr<Pattern>> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
+    visitor.Visit(*this);
     for (auto &pattern : patterns_) {
       pattern->Accept(visitor);
     }
-    visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
 };
@@ -137,11 +130,10 @@ class Return : public Clause {
 public:
   Return(int uid) : Clause(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.PreVisit(*this);
+    visitor.Visit(*this);
     for (auto &expr : named_expressions_) {
       expr->Accept(visitor);
     }
-    visitor.Visit(*this);
     visitor.PostVisit(*this);
   }
   std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
