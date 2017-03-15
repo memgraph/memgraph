@@ -6,7 +6,6 @@
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/logical/planner.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 namespace query {
@@ -50,19 +49,22 @@ class Engine {
     // AST -> high level tree
     HighLevelAstConversion low2high_tree;
     auto high_level_tree = low2high_tree.Apply(ctx, low_level_tree);
+    Execute(*high_level_tree, db_accessor, stream);
+  }
 
+  auto Execute(Query &query, GraphDbAccessor &db_accessor, Stream stream) {
     // symbol table fill
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
-    high_level_tree->Accept(symbol_generator);
+    query.Accept(symbol_generator);
 
     // high level tree -> logical plan
-    auto logical_plan = MakeLogicalPlan(*high_level_tree);
+    auto logical_plan = MakeLogicalPlan(query);
 
     // generate frame based on symbol table max_position
     Frame frame(symbol_table.max_position());
 
-    auto *produce = dynamic_cast<Produce*>(logical_plan.get());
+    auto *produce = dynamic_cast<Produce *>(logical_plan.get());
 
     if (produce) {
       // top level node in the operator tree is a produce (return)

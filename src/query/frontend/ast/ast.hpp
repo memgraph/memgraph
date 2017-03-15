@@ -9,22 +9,22 @@
 namespace query {
 
 class Tree {
-public:
+ public:
   Tree(int uid) : uid_(uid) {}
   int uid() const { return uid_; }
   virtual void Accept(TreeVisitorBase &visitor) = 0;
 
-private:
+ private:
   const int uid_;
 };
 
 class Expression : public Tree {
-public:
+ public:
   Expression(int uid) : Tree(uid) {}
 };
 
 class Identifier : public Expression {
-public:
+ public:
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
 
   void Accept(TreeVisitorBase &visitor) override {
@@ -35,8 +35,31 @@ public:
   std::string name_;
 };
 
+class PropertyLookup : public Expression {
+ public:
+  PropertyLookup(int uid, std::shared_ptr<Expression> expression,
+                 GraphDb::Property property)
+      : Expression(uid), expression_(expression), property_(property) {}
+
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+  std::shared_ptr<Expression>
+      expression_;  // vertex or edge, what if map literal???
+  GraphDb::Property property_;
+  // TODO potential problem: property lookups are allowed on both map literals
+  // and records, but map literals have strings as keys and records have
+  // GraphDb::Property
+  //
+  // possible solution: store both string and GraphDb::Property here and choose
+  // between the two depending on Expression result
+};
+
 class NamedExpression : public Tree {
-public:
+ public:
   NamedExpression(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -49,12 +72,12 @@ public:
 };
 
 class PatternAtom : public Tree {
-public:
+ public:
   PatternAtom(int uid) : Tree(uid) {}
 };
 
 class NodeAtom : public PatternAtom {
-public:
+ public:
   NodeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -67,7 +90,7 @@ public:
 };
 
 class EdgeAtom : public PatternAtom {
-public:
+ public:
   enum class Direction { LEFT, RIGHT, BOTH };
 
   EdgeAtom(int uid) : PatternAtom(uid) {}
@@ -82,12 +105,12 @@ public:
 };
 
 class Clause : public Tree {
-public:
+ public:
   Clause(int uid) : Tree(uid) {}
 };
 
 class Pattern : public Tree {
-public:
+ public:
   Pattern(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -101,7 +124,7 @@ public:
 };
 
 class Query : public Tree {
-public:
+ public:
   Query(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -114,7 +137,7 @@ public:
 };
 
 class Match : public Clause {
-public:
+ public:
   Match(int uid) : Clause(uid) {}
   std::vector<std::shared_ptr<Pattern>> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
@@ -127,7 +150,7 @@ public:
 };
 
 class Return : public Clause {
-public:
+ public:
   Return(int uid) : Clause(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);

@@ -13,20 +13,20 @@
 class ResultStreamFaker {
  public:
 
-  void Header(std::vector<std::string> &&fields) {
+  void Header(const std::vector<std::string> &fields) {
     debug_assert(current_state_ == State::Start, "Headers can only be written in the beginning");
-    header_ = std::forward(fields);
+    header_ = fields;
     current_state_ = State::WritingResults;
   }
 
-  void Result(std::vector<TypedValue> &&values) {
+  void Result(const std::vector<TypedValue> &values) {
     debug_assert(current_state_ == State::WritingResults, "Can't accept results before header nor after summary");
-    results_.push_back(std::forward(values));
+    results_.push_back(values);
   }
 
-  void Summary(std::map<std::string, TypedValue> &&summary) {
+  void Summary(const std::map<std::string, TypedValue> &summary) {
     debug_assert(current_state_ != State::Done, "Can only send a summary once");
-    summary_ = std::forward(summary);
+    summary_ = summary;
     current_state_ = State::Done;
   }
 

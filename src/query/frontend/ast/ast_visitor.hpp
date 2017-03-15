@@ -6,6 +6,7 @@ namespace query {
 class Query;
 class NamedExpression;
 class Identifier;
+class PropertyLookup;
 class Match;
 class Return;
 class Pattern;
@@ -23,6 +24,9 @@ public:
   virtual void PostVisit(NamedExpression&) {}
   virtual void Visit(Identifier&) {}
   virtual void PostVisit(Identifier&) {}
+  virtual void PreVisit(PropertyLookup&) {}
+  virtual void Visit(PropertyLookup&) {}
+  virtual void PostVisit(PropertyLookup&) {}
   // Clauses
   virtual void Visit(Match&) {}
   virtual void PostVisit(Match&) {}

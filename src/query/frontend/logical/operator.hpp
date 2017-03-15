@@ -40,30 +40,16 @@ class ScanAll : public LogicalOperator {
           vertices_it_(vertices_.begin()) {}
 
     bool Pull(Frame& frame, SymbolTable& symbol_table) override {
-      while (vertices_it_ != vertices_.end()) {
-        auto vertex = *vertices_it_++;
-        if (Evaluate(frame, symbol_table, vertex)) {
-          return true;
-        }
-      }
-      return false;
+      if (vertices_it_ == vertices_.end()) return false;
+      frame[symbol_table[*self_.node_atom->identifier_].position_] =
+          *vertices_it_++;
+      return true;
     }
 
    private:
     ScanAll& self_;
     decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
-
-    bool Evaluate(Frame& frame, SymbolTable& symbol_table,
-                  VertexAccessor& vertex) {
-      auto node_atom = self_.node_atom;
-      for (auto label : node_atom->labels_) {
-        // TODO: Move this to filter operator
-        if (!vertex.has_label(label)) return false;
-      }
-      frame[symbol_table[*node_atom->identifier_].position_] = vertex;
-      return true;
-    }
   };
 
  public:
@@ -72,8 +58,68 @@ class ScanAll : public LogicalOperator {
   }
 
  private:
-  friend class ScanAll::ScanAllCursor;
   std::shared_ptr<NodeAtom> node_atom;
+};
+
+class NodeFilter : public LogicalOperator {
+ public:
+  NodeFilter(
+      std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
+      std::vector<GraphDb::Label> labels,
+      std::map<GraphDb::Property, std::shared_ptr<Expression>> properties)
+      : input_(input),
+        input_symbol_(input_symbol),
+        labels_(labels),
+        properties_(properties) {}
+
+ private:
+  class NodeFilterCursor : public Cursor {
+   public:
+    NodeFilterCursor(NodeFilter& self, GraphDbAccessor& db)
+        : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame& frame, SymbolTable& symbol_table) override {
+      while (input_cursor_->Pull(frame, symbol_table)) {
+        const VertexAccessor& vertex =
+            frame[self_.input_symbol_.position_].Value<VertexAccessor>();
+        if (VertexPasses(vertex, frame, symbol_table)) return true;
+      }
+      return false;
+    }
+
+   private:
+    NodeFilter& self_;
+    std::unique_ptr<Cursor> input_cursor_;
+
+    bool VertexPasses(const VertexAccessor& vertex, Frame& frame,
+                      SymbolTable& symbol_table) {
+      for (auto label : self_.labels_)
+        if (!vertex.has_label(label)) return false;
+
+      ExpressionEvaluator expression_evaluator(frame, symbol_table);
+      for (auto prop_pair : self_.properties_) {
+        prop_pair.second->Accept(expression_evaluator);
+        TypedValue comparison_result =
+            vertex.PropsAt(prop_pair.first) == expression_evaluator.PopBack();
+        if (comparison_result.type() == TypedValue::Type::Null ||
+            !comparison_result.Value<bool>())
+          return false;
+      }
+
+      return true;
+    }
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
+    return std::make_unique<NodeFilterCursor>(*this, db);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+  std::vector<GraphDb::Label> labels_;
+  std::map<GraphDb::Property, std::shared_ptr<Expression>> properties_;
 };
 
 class Produce : public LogicalOperator {
@@ -96,9 +142,9 @@ class Produce : public LogicalOperator {
     ProduceCursor(Produce& self, GraphDbAccessor& db)
         : self_(self), self_cursor_(self_.input_->MakeCursor(db)) {}
     bool Pull(Frame& frame, SymbolTable& symbol_table) override {
+      ExpressionEvaluator evaluator(frame, symbol_table);
       if (self_cursor_->Pull(frame, symbol_table)) {
         for (auto named_expr : self_.named_expressions_) {
-          ExpressionEvaluator evaluator(frame, symbol_table);
           named_expr->Accept(evaluator);
         }
         return true;
