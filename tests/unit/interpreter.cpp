@@ -46,7 +46,7 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   auto cursor = produce->MakeCursor(db_accessor);
   while (cursor->Pull(frame, symbol_table)) {
     std::vector<TypedValue> values;
-    for (auto &symbol : symbols) values.emplace_back(frame[symbol.position_]);
+    for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
     stream.Result(values);
   }
 

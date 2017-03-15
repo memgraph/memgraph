@@ -41,8 +41,7 @@ class ScanAll : public LogicalOperator {
 
     bool Pull(Frame& frame, SymbolTable& symbol_table) override {
       if (vertices_it_ == vertices_.end()) return false;
-      frame[symbol_table[*self_.node_atom->identifier_].position_] =
-          *vertices_it_++;
+      frame[symbol_table[*self_.node_atom->identifier_]] = *vertices_it_++;
       return true;
     }
 
@@ -80,8 +79,7 @@ class NodeFilter : public LogicalOperator {
 
     bool Pull(Frame& frame, SymbolTable& symbol_table) override {
       while (input_cursor_->Pull(frame, symbol_table)) {
-        const VertexAccessor& vertex =
-            frame[self_.input_symbol_.position_].Value<VertexAccessor>();
+        const auto &vertex = frame[self_.input_symbol_].Value<VertexAccessor>();
         if (VertexPasses(vertex, frame, symbol_table)) return true;
       }
       return false;
@@ -105,7 +103,6 @@ class NodeFilter : public LogicalOperator {
             !comparison_result.Value<bool>())
           return false;
       }
-
       return true;
     }
   };

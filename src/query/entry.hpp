@@ -86,7 +86,7 @@ class Engine {
       while (cursor->Pull(frame, symbol_table)) {
         std::vector<TypedValue> values;
         for (auto &symbol : symbols)
-          values.emplace_back(frame[symbol.position_]);
+          values.emplace_back(frame[symbol]);
         stream.Result(values);
       }
 

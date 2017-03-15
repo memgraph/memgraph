@@ -14,8 +14,8 @@ class Frame {
  public:
   Frame(int size) : size_(size), elems_(size_) {}
 
-  auto &operator[](int pos) { return elems_[pos]; }
-  const auto &operator[](int pos) const { return elems_[pos]; }
+  auto &operator[](const Symbol &symbol) { return elems_[symbol.position_]; }
+  const auto &operator[](const Symbol &symbol) const { return elems_[symbol.position_]; }
 
  private:
   int size_;
@@ -45,11 +45,11 @@ class ExpressionEvaluator : public TreeVisitorBase {
 
   void PostVisit(NamedExpression &named_expression) override {
     auto symbol = symbol_table_[named_expression];
-    frame_[symbol.position_] = PopBack();
+    frame_[symbol] = PopBack();
   }
 
   void Visit(Identifier &ident) override {
-    result_stack_.push_back(frame_[symbol_table_[ident].position_]);
+    result_stack_.push_back(frame_[symbol_table_[ident]]);
   }
 
   void PostVisit(PropertyLookup &property_lookup) override {
