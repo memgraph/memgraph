@@ -10,6 +10,9 @@ class SymbolGenerator : public TreeVisitorBase {
  public:
   SymbolGenerator(SymbolTable& symbol_table) : symbol_table_(symbol_table) {}
 
+  using TreeVisitorBase::Visit;
+  using TreeVisitorBase::PostVisit;
+
   // Clauses
   void PostVisit(Return& ret) override {
     for (auto &named_expr : ret.named_expressions_) {

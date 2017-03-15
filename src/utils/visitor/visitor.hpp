@@ -1,37 +1,59 @@
 #pragma once
 
-namespace detail {
+namespace {
 
 template <typename T>
-struct VisitorBase {
+class VisitorBase {
+ public:
   virtual ~VisitorBase() = default;
 
-  virtual void visit(T&) {}
-  virtual void post_visit(T&) {}
+  virtual void Visit(T&) {}
+  virtual void PostVisit(T&) {}
 };
 
 template <typename... T>
-struct RecursiveVisitorBase;
+class RecursiveVisitorBase;
 
 template <typename Head, typename... Tail>
-struct RecursiveVisitorBase<Head, Tail...> : VisitorBase<Head>,
-                                             RecursiveVisitorBase<Tail...> {
-  using VisitorBase<Head>::visit;
-  using VisitorBase<Head>::post_visit;
+class RecursiveVisitorBase<Head, Tail...> : public VisitorBase<Head>,
+                                            public RecursiveVisitorBase<Tail...> {
+ public:
+  using VisitorBase<Head>::Visit;
+  using VisitorBase<Head>::PostVisit;
 
-  using RecursiveVisitorBase<Tail...>::visit;
-  using RecursiveVisitorBase<Tail...>::post_visit;
+  using RecursiveVisitorBase<Tail...>::Visit;
+  using RecursiveVisitorBase<Tail...>::PostVisit;
 };
 
 template <typename T>
-struct RecursiveVisitorBase<T> : public VisitorBase<T> {
-  using VisitorBase<T>::visit;
-  using VisitorBase<T>::post_visit;
+class RecursiveVisitorBase<T> : public VisitorBase<T> {
+ public:
+  using VisitorBase<T>::Visit;
+  using VisitorBase<T>::PostVisit;
 };
+
 }
 
-template <typename... T>
-struct Visitor : public detail::RecursiveVisitorBase<T...> {
-  using detail::RecursiveVisitorBase<T...>::visit;
-  using detail::RecursiveVisitorBase<T...>::post_visit;
+namespace utils {
+
+// Inherit from this class if you want to visit TVisitable types.
+// Example usage:
+//  // Typedef for convenience or to establish a base class of visitors.
+//  typedef Visitor<Identifier, Literal> ExpressionVisitorBase;
+//  class ExpressionVisitor : public ExpressionVisitorBase {
+//   public:
+//    using ExpressionVisitorBase::Visit;
+//    using ExpressionVisitorBase::PostVisit;
+//
+//    void Visit(Identifier &identifier) override {
+//      // Custom implementation of visiting Identifier.
+//    }
+//  };
+template <typename... TVisitable>
+class Visitor : public RecursiveVisitorBase<TVisitable...> {
+ public:
+  using RecursiveVisitorBase<TVisitable...>::Visit;
+  using RecursiveVisitorBase<TVisitable...>::PostVisit;
 };
+
+}

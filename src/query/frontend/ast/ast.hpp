@@ -5,14 +5,14 @@
 
 #include "database/graph_db.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "utils/visitor/visitable.hpp"
 
 namespace query {
 
-class Tree {
- public:
+class Tree : public ::utils::Visitable<TreeVisitorBase> {
+public:
   Tree(int uid) : uid_(uid) {}
   int uid() const { return uid_; }
-  virtual void Accept(TreeVisitorBase &visitor) = 0;
 
  private:
   const int uid_;
@@ -27,10 +27,7 @@ class Identifier : public Expression {
  public:
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
 
-  void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    visitor.PostVisit(*this);
-  }
+  DEFVISITABLE(TreeVisitorBase)
 
   std::string name_;
 };

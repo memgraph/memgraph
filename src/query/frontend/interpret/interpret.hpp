@@ -40,6 +40,9 @@ class ExpressionEvaluator : public TreeVisitorBase {
     return last;
   }
 
+  using TreeVisitorBase::Visit;
+  using TreeVisitorBase::PostVisit;
+
   void PostVisit(NamedExpression &named_expression) override {
     auto symbol = symbol_table_[named_expression];
     frame_[symbol.position_] = PopBack();
