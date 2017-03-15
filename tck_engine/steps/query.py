@@ -38,7 +38,6 @@ def parse_props(prop_json):
         return ""
     properties = "{"
     for prop in prop_json:
-        print (prop + " " + str(prop_json[prop]))
         if prop_json[prop] is None:
             properties += prop + ": null, "
         elif isinstance(prop_json[prop], str):
@@ -301,6 +300,7 @@ def side_effects_number(prop, table):
         sign = 1
     if row[0][1:] == prop:
         ret.append(int(row[1])*sign)
+    ret.sort()
     return ret
 
 @then('the side effects should be')

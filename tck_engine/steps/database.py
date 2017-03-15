@@ -46,20 +46,20 @@ def add_side_effects(context, counters):
     graph_properties = context.graph_properties
     
     #check nodes
-    if counters.nodes_created > 0:
-        graph_properties.change_nodes(counters.nodes_created)
     if counters.nodes_deleted > 0:
         graph_properties.change_nodes(-counters.nodes_deleted)
+    if counters.nodes_created > 0:
+        graph_properties.change_nodes(counters.nodes_created)
     #check relationships
-    if counters.relationships_created > 0:
-        graph_properties.change_relationships(counters.relationships_created)
     if counters.relationships_deleted > 0:
         graph_properties.change_relationships(-counters.relationships_deleted)
+    if counters.relationships_created > 0:
+        graph_properties.change_relationships(counters.relationships_created) 
     #check labels
-    if counters.labels_added > 0:
-        graph_properties.change_labels(counters.labels_added)
     if counters.labels_removed > 0:
         graph_properties.change_labels(-counters.labels_removed)
+    if counters.labels_added > 0:
+        graph_properties.change_labels(counters.labels_added)
     #check properties
     if counters.properties_set > 0:
         graph_properties.change_properties(counters.properties_set)
