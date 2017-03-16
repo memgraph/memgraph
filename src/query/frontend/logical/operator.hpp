@@ -29,7 +29,7 @@ class LogicalOperator {
 
 class CreateOp : public LogicalOperator {
 public:
-  CreateOp(std::shared_ptr<NodeAtom> node_atom) : node_atom_(node_atom) {}
+  CreateOp(NodeAtom* node_atom) : node_atom_(node_atom) {}
 
 private:
   class CreateOpCursor : public Cursor {
@@ -66,12 +66,12 @@ public:
   }
 
 private:
-  std::shared_ptr<NodeAtom> node_atom_;
+  NodeAtom* node_atom_;
 };
 
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(std::shared_ptr<NodeAtom> node_atom) : node_atom_(node_atom) {}
+  ScanAll(NodeAtom *node_atom) : node_atom_(node_atom) {}
 
  private:
   class ScanAllCursor : public Cursor {
@@ -99,7 +99,7 @@ class ScanAll : public LogicalOperator {
   }
 
  private:
-  std::shared_ptr<NodeAtom> node_atom_;
+  NodeAtom *node_atom_;
 };
 
 class NodeFilter : public LogicalOperator {
@@ -107,7 +107,7 @@ class NodeFilter : public LogicalOperator {
   NodeFilter(
       std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
       std::vector<GraphDb::Label> labels,
-      std::map<GraphDb::Property, std::shared_ptr<Expression>> properties)
+      std::map<GraphDb::Property, Expression*> properties)
       : input_(input),
         input_symbol_(input_symbol),
         labels_(labels),
@@ -158,13 +158,13 @@ class NodeFilter : public LogicalOperator {
   std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
   std::vector<GraphDb::Label> labels_;
-  std::map<GraphDb::Property, std::shared_ptr<Expression>> properties_;
+  std::map<GraphDb::Property, Expression*> properties_;
 };
 
 class Produce : public LogicalOperator {
  public:
   Produce(std::shared_ptr<LogicalOperator> input,
-          std::vector<std::shared_ptr<NamedExpression>> named_expressions)
+          std::vector<NamedExpression*> named_expressions)
       : input_(input), named_expressions_(named_expressions) {
     children_.emplace_back(input);
   }
@@ -198,6 +198,6 @@ class Produce : public LogicalOperator {
 
  private:
   std::shared_ptr<LogicalOperator> input_;
-  std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
+  std::vector<NamedExpression*> named_expressions_;
 };
 }

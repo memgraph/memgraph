@@ -46,7 +46,8 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   auto cursor = produce->MakeCursor(db_accessor);
   while (cursor->Pull(frame, symbol_table)) {
     std::vector<TypedValue> values;
-    for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
+    for (auto &symbol : symbols)
+      values.emplace_back(frame[symbol]);
     stream.Result(values);
   }
 
@@ -59,34 +60,12 @@ void ExecuteCreate(std::shared_ptr<CreateOp> create, GraphDbAccessor &db) {
   SymbolTable symbol_table;
   Frame frame(symbol_table.max_position());
   auto cursor = create->MakeCursor(db);
-  while (cursor->Pull(frame, symbol_table))
-    ;
+  while (cursor->Pull(frame, symbol_table)) {
+    continue;
+  }
 }
 
-/*
- * Following are helper functions that create high level AST
- * and logical operator objects.
- */
-
-auto MakeNamedExpression(Context &ctx, const std::string name,
-                         std::shared_ptr<Expression> expression) {
-  auto named_expression = std::make_shared<NamedExpression>(ctx.next_uid());
-  named_expression->name_ = name;
-  named_expression->expression_ = expression;
-  return named_expression;
-}
-
-auto MakeIdentifier(Context &ctx, const std::string name) {
-  return std::make_shared<Identifier>(ctx.next_uid(), name);
-}
-
-auto MakeNode(Context &ctx, std::shared_ptr<Identifier> identifier) {
-  auto node = std::make_shared<NodeAtom>(ctx.next_uid());
-  node->identifier_ = identifier;
-  return node;
-}
-
-auto MakeScanAll(std::shared_ptr<NodeAtom> node_atom) {
+auto MakeScanAll(NodeAtom *node_atom) {
   return std::make_shared<ScanAll>(node_atom);
 }
 
@@ -94,8 +73,7 @@ template <typename... TNamedExpressions>
 auto MakeProduce(std::shared_ptr<LogicalOperator> input,
                  TNamedExpressions... named_expressions) {
   return std::make_shared<Produce>(
-      input,
-      std::vector<std::shared_ptr<NamedExpression>>{named_expressions...});
+      input, std::vector<NamedExpression *>{named_expressions...});
 }
 
 /*
@@ -110,15 +88,15 @@ TEST(Interpreter, MatchReturn) {
   dba->insert_vertex();
   dba->insert_vertex();
 
-  Config config;
-  Context ctx(config, *dba);
+  AstTreeStorage storage;
 
   // make a scan all
-  auto node = MakeNode(ctx, MakeIdentifier(ctx, "n"));
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
   auto scan_all = MakeScanAll(node);
 
   // make a named expression and a produce
-  auto output = MakeNamedExpression(ctx, "n", MakeIdentifier(ctx, "n"));
+  auto output =
+      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
   auto produce = MakeProduce(scan_all, output);
 
   // fill up the symbol table
@@ -156,11 +134,10 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   v4.PropsSet(property, 42);
   v5.PropsSet(property, 1);
 
-  Config config;
-  Context ctx(config, *dba);
+  AstTreeStorage storage;
 
   // make a scan all
-  auto node = MakeNode(ctx, MakeIdentifier(ctx, "n"));
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
   auto scan_all = MakeScanAll(node);
 
   // node filtering
@@ -169,10 +146,11 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   // TODO implement the test once int-literal expressions are available
   auto node_filter = std::make_shared<NodeFilter>(
       scan_all, n_symbol, std::vector<GraphDb::Label>{label},
-      std::map<GraphDb::Property, std::shared_ptr<Expression>>());
+      std::map<GraphDb::Property, Expression*>{});
 
   // make a named expression and a produce
-  auto output = MakeNamedExpression(ctx, "n", MakeIdentifier(ctx, "n"));
+  auto output =
+      storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
   auto produce = MakeProduce(node_filter, output);
 
   // fill up the symbol table
@@ -193,26 +171,25 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   GraphDb::Label label2 = dba->label("label2");
   GraphDb::Label label3 = dba->label("label3");
   // the test will look for nodes that have label1 and label2
-  dba->insert_vertex();                    // NOT accepted
-  dba->insert_vertex().add_label(label1);  // NOT accepted
-  dba->insert_vertex().add_label(label2);  // NOT accepted
-  dba->insert_vertex().add_label(label3);  // NOT accepted
-  auto v1 = dba->insert_vertex();          // YES accepted
+  dba->insert_vertex();                   // NOT accepted
+  dba->insert_vertex().add_label(label1); // NOT accepted
+  dba->insert_vertex().add_label(label2); // NOT accepted
+  dba->insert_vertex().add_label(label3); // NOT accepted
+  auto v1 = dba->insert_vertex();         // YES accepted
   v1.add_label(label1);
   v1.add_label(label2);
-  auto v2 = dba->insert_vertex();  // NOT accepted
+  auto v2 = dba->insert_vertex(); // NOT accepted
   v2.add_label(label1);
   v2.add_label(label3);
-  auto v3 = dba->insert_vertex();  // YES accepted
+  auto v3 = dba->insert_vertex(); // YES accepted
   v3.add_label(label1);
   v3.add_label(label2);
   v3.add_label(label3);
 
-  Config config;
-  Context ctx(config, *dba);
+  AstTreeStorage storage;
 
   // make a scan all
-  auto node = MakeNode(ctx, MakeIdentifier(ctx, "n"));
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
   auto scan_all = MakeScanAll(node);
 
   // node filtering
@@ -221,10 +198,11 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   // TODO implement the test once int-literal expressions are available
   auto node_filter = std::make_shared<NodeFilter>(
       scan_all, n_symbol, std::vector<GraphDb::Label>{label1, label2},
-      std::map<GraphDb::Property, std::shared_ptr<Expression>>());
+      std::map<GraphDb::Property, Expression *>());
 
   // make a named expression and a produce
-  auto output = MakeNamedExpression(ctx, "n", MakeIdentifier(ctx, "n"));
+  auto output =
+      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
   auto produce = MakeProduce(node_filter, output);
 
   // fill up the symbol table
@@ -239,13 +217,13 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
 TEST(Interpreter, CreateNodeWithAttributes) {
   Dbms dbms;
   auto dba = dbms.active();
-  Config config;
-  Context ctx(config, *dba);
 
   GraphDb::Label label = dba->label("Person");
   GraphDb::Property property = dba->label("age");
 
-  auto node = MakeNode(ctx, MakeIdentifier(ctx, "n"));
+  AstTreeStorage storage;
+
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
   node->labels_.emplace_back(label);
   // TODO make a property here with an int literal expression
   //  node->properties_[property] = TypedValue(42);

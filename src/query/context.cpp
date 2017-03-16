@@ -3,8 +3,8 @@
 
 namespace query {
 
-std::shared_ptr<Query> HighLevelAstConversion::Apply(Context &ctx,
-                                   antlr4::tree::ParseTree *tree) {
+Query *HighLevelAstConversion::Apply(Context &ctx,
+                                     antlr4::tree::ParseTree *tree) {
   query::frontend::CypherMainVisitor visitor(ctx);
   visitor.visit(tree);
   return visitor.query();

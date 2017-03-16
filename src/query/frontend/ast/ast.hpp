@@ -9,43 +9,45 @@
 
 namespace query {
 
+class AstTreeStorage;
+
 class Tree : public ::utils::Visitable<TreeVisitorBase> {
-public:
-  Tree(int uid) : uid_(uid) {}
+  friend class AstTreeStorage;
+ public:
   int uid() const { return uid_; }
+
+ protected:
+  Tree(int uid) : uid_(uid) {}
 
  private:
   const int uid_;
 };
 
 class Expression : public Tree {
- public:
+ protected:
   Expression(int uid) : Tree(uid) {}
 };
 
 class Identifier : public Expression {
+  friend class AstTreeStorage;
  public:
-  Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
-
-  DEFVISITABLE(TreeVisitorBase)
-
+  DEFVISITABLE(TreeVisitorBase);
   std::string name_;
+
+ protected:
+  Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
 };
 
 class PropertyLookup : public Expression {
+  friend class AstTreeStorage;
  public:
-  PropertyLookup(int uid, std::shared_ptr<Expression> expression,
-                 GraphDb::Property property)
-      : Expression(uid), expression_(expression), property_(property) {}
-
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     expression_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
-  std::shared_ptr<Expression>
-      expression_;  // vertex or edge, what if map literal???
+  Expression *expression_;
   GraphDb::Property property_;
   // TODO potential problem: property lookups are allowed on both map literals
   // and records, but map literals have strings as keys and records have
@@ -53,11 +55,16 @@ class PropertyLookup : public Expression {
   //
   // possible solution: store both string and GraphDb::Property here and choose
   // between the two depending on Expression result
+
+ protected:
+  PropertyLookup(int uid, Expression* expression,
+                 GraphDb::Property property)
+      : Expression(uid), expression_(expression), property_(property) {}
 };
 
 class NamedExpression : public Tree {
+  friend class AstTreeStorage;
  public:
-  NamedExpression(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     expression_->Accept(visitor);
@@ -65,33 +72,45 @@ class NamedExpression : public Tree {
   }
 
   std::string name_;
-  std::shared_ptr<Expression> expression_;
+  Expression* expression_;
+
+ protected:
+  NamedExpression(int uid) : Tree(uid) {}
+  NamedExpression(int uid, std::string name, Expression *expression) :
+      Tree(uid), name_(name), expression_(expression) {}
 };
 
 class PatternAtom : public Tree {
- public:
+  friend class AstTreeStorage;
+ protected:
   PatternAtom(int uid) : Tree(uid) {}
 };
 
 class NodeAtom : public PatternAtom {
+  friend class AstTreeStorage;
  public:
-  NodeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     identifier_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
-  std::shared_ptr<Identifier> identifier_;
+  Identifier* identifier_;
   std::vector<GraphDb::Label> labels_;
-  std::map<GraphDb::Property, std::shared_ptr<Expression>> properties_;
+  std::map<GraphDb::Property, Expression*> properties_;
+
+ protected:
+  NodeAtom(int uid) : PatternAtom(uid) {}
+  NodeAtom(int uid, Identifier *identifier) :
+      PatternAtom(uid), identifier_(identifier) {}
+
 };
 
 class EdgeAtom : public PatternAtom {
+  friend class AstTreeStorage;
  public:
   enum class Direction { LEFT, RIGHT, BOTH };
 
-  EdgeAtom(int uid) : PatternAtom(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     identifier_->Accept(visitor);
@@ -99,17 +118,21 @@ class EdgeAtom : public PatternAtom {
   }
 
   Direction direction = Direction::BOTH;
-  std::shared_ptr<Identifier> identifier_;
+  Identifier* identifier_;
+
+ protected:
+  EdgeAtom(int uid) : PatternAtom(uid) {}
 };
 
 class Clause : public Tree {
+  friend class AstTreeStorage;
  public:
   Clause(int uid) : Tree(uid) {}
 };
 
 class Pattern : public Tree {
+  friend class AstTreeStorage;
  public:
-  Pattern(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &part : atoms_) {
@@ -117,13 +140,16 @@ class Pattern : public Tree {
     }
     visitor.PostVisit(*this);
   }
-  std::shared_ptr<Identifier> identifier_;
-  std::vector<std::shared_ptr<PatternAtom>> atoms_;
+  Identifier* identifier_;
+  std::vector<PatternAtom*> atoms_;
+
+ protected:
+  Pattern(int uid) : Tree(uid) {}
 };
 
 class Query : public Tree {
+  friend class AstTreeStorage;
  public:
-  Query(int uid) : Tree(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &clause : clauses_) {
@@ -131,7 +157,10 @@ class Query : public Tree {
     }
     visitor.PostVisit(*this);
   }
-  std::vector<std::shared_ptr<Clause>> clauses_;
+  std::vector<Clause*> clauses_;
+
+ protected:
+  Query(int uid) : Tree(uid) {}
 };
 
 class Create : public Clause {
@@ -148,9 +177,9 @@ class Create : public Clause {
 };
 
 class Match : public Clause {
+  friend class AstTreeStorage;
  public:
-  Match(int uid) : Clause(uid) {}
-  std::vector<std::shared_ptr<Pattern>> patterns_;
+  std::vector<Pattern*> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
@@ -158,11 +187,14 @@ class Match : public Clause {
     }
     visitor.PostVisit(*this);
   }
+
+ protected:
+  Match(int uid) : Clause(uid) {}
 };
 
 class Return : public Clause {
+  friend class AstTreeStorage;
  public:
-  Return(int uid) : Clause(uid) {}
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &expr : named_expressions_) {
@@ -170,6 +202,39 @@ class Return : public Clause {
     }
     visitor.PostVisit(*this);
   }
-  std::vector<std::shared_ptr<NamedExpression>> named_expressions_;
+  std::vector<NamedExpression*> named_expressions_;
+
+ protected:
+  Return(int uid) : Clause(uid) {}
+};
+
+// It would be better to call this AstTree, but we already have a class Tree,
+// which could be renamed to Node or AstTreeNode, but we also have a class
+// called NodeAtom...
+class AstTreeStorage {
+  friend class AstTreeStorage;
+
+ public:
+  AstTreeStorage() {
+    storage_.emplace_back(new Query(next_uid_++));
+  }
+  AstTreeStorage(const AstTreeStorage &) = delete;
+  AstTreeStorage &operator=(const AstTreeStorage &) = delete;
+
+  template<typename T, typename... Args>
+  T *Create(Args&&... args) {
+    // Never call create for a Query. Call query() instead.
+    static_assert(!std::is_same<T, Query>::value, "Call query() instead");
+    // TODO: use std::forward here
+    T *p = new T(next_uid_++, args...);
+    storage_.emplace_back(p);
+    return p;
+  }
+
+  Query *query() { return dynamic_cast<Query*>(storage_[0].get()); }
+
+ private:
+  int next_uid_ = 0;
+  std::vector<std::unique_ptr<Tree>> storage_;
 };
 }

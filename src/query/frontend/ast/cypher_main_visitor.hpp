@@ -289,14 +289,15 @@ private:
   visitIntegerLiteral(CypherParser::IntegerLiteralContext *ctx) override;
 
 public:
-  std::shared_ptr<Query> query() { return query_; }
+  Query *query() { return query_; }
 
 private:
   Context &ctx_;
   int next_ident_id_;
   const std::string kUserIdentPrefix = "u_";
   const std::string kAnonIdentPrefix = "a_";
-  std::shared_ptr<Query> query_;
+  AstTreeStorage storage_;
+  Query *query_;
 };
 }
 }

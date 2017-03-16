@@ -41,10 +41,9 @@ namespace {
 
 antlrcpp::Any
 CypherMainVisitor::visitSingleQuery(CypherParser::SingleQueryContext *ctx) {
-  query_ = std::make_shared<Query>(ctx_.next_uid());
+  query_ = storage_.query();
   for (auto *child : ctx->clause()) {
-    query_->clauses_.push_back(
-        child->accept(this).as<std::shared_ptr<Clause>>());
+    query_->clauses_.push_back(child->accept(this));
   }
   return query_;
 }
@@ -52,18 +51,17 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (!ctx->cypherReturn() && !ctx->cypherMatch()) {
     throw std::exception();
   }
-  return 0;
+  return visitChildren(ctx);
 }
 
 antlrcpp::Any
 CypherMainVisitor::visitCypherMatch(CypherParser::CypherMatchContext *ctx) {
-  auto match = std::make_shared<Match>(ctx_.next_uid());
+  auto *match = storage_.Create<Match>();
   if (ctx->OPTIONAL() || ctx->where()) {
     throw std::exception();
   }
-  match->patterns_ =
-      ctx->pattern()->accept(this).as<std::vector<std::shared_ptr<Pattern>>>();
-  return std::shared_ptr<Clause>(match);
+  match->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
+  return match;
 }
 
 antlrcpp::Any
@@ -84,22 +82,22 @@ CypherMainVisitor::visitReturnBody(CypherParser::ReturnBodyContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitReturnItems(CypherParser::ReturnItemsContext *ctx) {
-  auto return_clause = std::make_shared<Return>(ctx_.next_uid());
+  auto *return_clause = storage_.Create<Return>();
   if (ctx->getTokens(kReturnAllTokenId).size()) {
     throw std::exception();
   }
   for (auto *item : ctx->returnItem()) {
     return_clause->named_expressions_.push_back(item->accept(this));
   }
-  return std::shared_ptr<Clause>(return_clause);
+  return return_clause;
 }
 
 antlrcpp::Any
 CypherMainVisitor::visitReturnItem(CypherParser::ReturnItemContext *ctx) {
-  auto named_expr = std::make_shared<NamedExpression>(ctx_.next_uid());
+  auto *named_expr = storage_.Create<NamedExpression>();
   if (ctx->variable()) {
     named_expr->name_ =
-        std::string(ctx_.next_uid(), ctx->variable()->accept(this));
+        std::string(ctx->variable()->accept(this).as<std::string>());
   } else {
     // TODO: Should we get this by text or some escaping is needed?
     named_expr->name_ = std::string(ctx->getText());
@@ -110,16 +108,16 @@ CypherMainVisitor::visitReturnItem(CypherParser::ReturnItemContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
-  auto node = std::make_shared<NodeAtom>(ctx_.next_uid());
+  auto *node = storage_.Create<NodeAtom>();
   if (ctx->variable()) {
     // TODO: user's identifiers should be unchanged, but we must be sure that
     // ours identifier is not in a clash with user's.
     std::string variable = ctx->variable()->accept(this);
-    node->identifier_ = std::make_shared<Identifier>(
-        ctx_.next_uid(), kUserIdentPrefix + variable);
+    node->identifier_ =
+        storage_.Create<Identifier>(kUserIdentPrefix + variable);
   } else {
-    node->identifier_ = std::make_shared<Identifier>(
-        ctx_.next_uid(), kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    node->identifier_ = storage_.Create<Identifier>(
+        kAnonIdentPrefix + std::to_string(next_ident_id_++));
   }
   if (ctx->nodeLabels()) {
     std::vector<std::string> labels = ctx->nodeLabels()->accept(this);
@@ -135,7 +133,7 @@ CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
     //                          .as<std::unordered_map<std::string,
     //                          std::string>>();
   }
-  return std::shared_ptr<PatternAtom>(node);
+  return node;
 }
 
 antlrcpp::Any
@@ -184,7 +182,7 @@ CypherMainVisitor::visitSymbolicName(CypherParser::SymbolicNameContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitPattern(CypherParser::PatternContext *ctx) {
-  std::vector<std::shared_ptr<Pattern>> patterns;
+  std::vector<Pattern *> patterns;
   for (auto *pattern_part : ctx->patternPart()) {
     patterns.push_back(pattern_part->accept(this));
   }
@@ -193,15 +191,15 @@ CypherMainVisitor::visitPattern(CypherParser::PatternContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitPatternPart(CypherParser::PatternPartContext *ctx) {
-  std::shared_ptr<Pattern> pattern = ctx->anonymousPatternPart()->accept(this);
+  Pattern *pattern = ctx->anonymousPatternPart()->accept(this);
   if (ctx->variable()) {
     // TODO: don't change user's identifier name.
     std::string variable = ctx->variable()->accept(this);
-    pattern->identifier_ = std::make_shared<Identifier>(
-        ctx_.next_uid(), kUserIdentPrefix + variable);
+    pattern->identifier_ =
+        storage_.Create<Identifier>(kUserIdentPrefix + variable);
   } else {
-    pattern->identifier_ = std::make_shared<Identifier>(
-        ctx_.next_uid(), kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    pattern->identifier_ = storage_.Create<Identifier>(
+        kAnonIdentPrefix + std::to_string(next_ident_id_++));
   }
   return pattern;
 }
@@ -211,11 +209,11 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(
   if (ctx->patternElement()) {
     return ctx->patternElement()->accept(this);
   }
-  auto pattern = std::make_shared<Pattern>(ctx_.next_uid());
+  auto pattern = storage_.Create<Pattern>();
   pattern->atoms_.push_back(ctx->nodePattern()->accept(this));
   for (auto *pattern_element_chain : ctx->patternElementChain()) {
-    std::pair<std::shared_ptr<PatternAtom>, std::shared_ptr<PatternAtom>>
-        element = pattern_element_chain->accept(this);
+    std::pair<PatternAtom *, PatternAtom *> element =
+        pattern_element_chain->accept(this);
     pattern->atoms_.push_back(element.first);
     pattern->atoms_.push_back(element.second);
   }
@@ -224,23 +222,21 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(
 
 antlrcpp::Any CypherMainVisitor::visitPatternElementChain(
     CypherParser::PatternElementChainContext *ctx) {
-  return std::pair<std::shared_ptr<PatternAtom>, std::shared_ptr<PatternAtom>>(
-      ctx->relationshipPattern()
-          ->accept(this)
-          .as<std::shared_ptr<PatternAtom>>(),
-      ctx->nodePattern()->accept(this).as<std::shared_ptr<PatternAtom>>());
+  return std::pair<PatternAtom *, PatternAtom *>(
+      ctx->relationshipPattern()->accept(this),
+      ctx->nodePattern()->accept(this));
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     CypherParser::RelationshipPatternContext *ctx) {
-  auto edge = std::make_shared<EdgeAtom>(ctx_.next_uid());
+  auto *edge = storage_.Create<EdgeAtom>();
   if (ctx->relationshipDetail()) {
     if (ctx->relationshipDetail()->variable()) {
       std::string variable =
           ctx->relationshipDetail()->variable()->accept(this);
       // TODO: Don't change user's identifier name.
-      edge->identifier_ = std::make_shared<Identifier>(
-          ctx_.next_uid(), kUserIdentPrefix + variable);
+      edge->identifier_ =
+          storage_.Create<Identifier>(kUserIdentPrefix + variable);
     }
     if (ctx->relationshipDetail()->relationshipTypes()) {
       throw std::exception();
@@ -260,8 +256,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
   //    relationship.lower_bound = range.first;
   //    relationship.upper_bound = range.second;
   if (!edge->identifier_) {
-    edge->identifier_ = std::make_shared<Identifier>(
-        ctx_.next_uid(), kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    edge->identifier_ = storage_.Create<Identifier>(
+        kAnonIdentPrefix + std::to_string(next_ident_id_++));
   }
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
@@ -273,7 +269,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     // grammar.
     edge->direction = EdgeAtom::Direction::BOTH;
   }
-  return std::shared_ptr<PatternAtom>(edge);
+  return edge;
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
@@ -550,8 +546,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return ctx->parenthesizedExpression()->accept(this);
   } else if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
-    return std::shared_ptr<Expression>(std::make_shared<Identifier>(
-        ctx_.next_uid(), kUserIdentPrefix + variable));
+    return storage_.Create<Identifier>(kUserIdentPrefix + variable);
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.

@@ -5,6 +5,8 @@
 
 namespace query {
 
+namespace {
+
 static LogicalOperator *GenCreate(
     Create& create, std::shared_ptr<LogicalOperator> input_op)
 {
@@ -18,11 +20,11 @@ static LogicalOperator *GenCreate(
   if (pattern->atoms_.size() != 1) {
     throw NotYetImplemented();
   }
-  auto node_atom = std::dynamic_pointer_cast<NodeAtom>(pattern->atoms_[0]);
+  auto *node_atom = dynamic_cast<NodeAtom*>(pattern->atoms_[0]);
   return new CreateOp(node_atom);
 }
 
-static LogicalOperator *GenMatch(
+LogicalOperator *GenMatch(
     Match& match,
     std::shared_ptr<LogicalOperator> input_op,
     const SymbolTable &symbol_table)
@@ -37,7 +39,7 @@ static LogicalOperator *GenMatch(
   if (pattern->atoms_.size() != 1) {
     throw NotYetImplemented();
   }
-  auto node_atom = std::dynamic_pointer_cast<NodeAtom>(pattern->atoms_[0]);
+  auto *node_atom = dynamic_cast<NodeAtom*>(pattern->atoms_[0]);
   auto *scan_all = new ScanAll(node_atom);
   if (!node_atom->labels_.empty() || !node_atom->properties_.empty()) {
     auto &input_symbol = symbol_table.at(*node_atom->identifier_);
@@ -47,12 +49,13 @@ static LogicalOperator *GenMatch(
   return scan_all;
 }
 
-static Produce *GenReturn(Return& ret, std::shared_ptr<LogicalOperator> input_op)
+Produce *GenReturn(Return& ret, std::shared_ptr<LogicalOperator> input_op)
 {
   if (!input_op) {
     throw NotYetImplemented();
   }
   return new Produce(input_op, ret.named_expressions_);
+}
 }
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
@@ -60,7 +63,7 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
 {
   LogicalOperator *input_op = nullptr;
   for (auto &clause : query.clauses_) {
-    auto *clause_ptr = clause.get();
+    auto *clause_ptr = clause;
     if (auto *match = dynamic_cast<Match*>(clause_ptr)) {
       input_op = GenMatch(*match, std::shared_ptr<LogicalOperator>(input_op),
                           symbol_table);
