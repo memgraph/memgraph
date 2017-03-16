@@ -55,6 +55,14 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   return stream;
 }
 
+void ExecuteCreate(std::shared_ptr<CreateOp> create, GraphDbAccessor &db) {
+  SymbolTable symbol_table;
+  Frame frame(symbol_table.max_position());
+  auto cursor = create->MakeCursor(db);
+  while (cursor->Pull(frame, symbol_table))
+    ;
+}
+
 /*
  * Following are helper functions that create high level AST
  * and logical operator objects.
@@ -137,7 +145,8 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   auto v4 = dba->insert_vertex();
   auto v5 = dba->insert_vertex();
   dba->insert_vertex();
-  // test all combination of (label | no_label) * (no_prop | wrong_prop | right_prop)
+  // test all combination of (label | no_label) * (no_prop | wrong_prop |
+  // right_prop)
   // only v1 will have the right labels
   v1.add_label(label);
   v2.add_label(label);
@@ -184,17 +193,17 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   GraphDb::Label label2 = dba->label("label2");
   GraphDb::Label label3 = dba->label("label3");
   // the test will look for nodes that have label1 and label2
-  dba->insert_vertex(); // NOT accepted
-  dba->insert_vertex().add_label(label1); // NOT accepted
-  dba->insert_vertex().add_label(label2); // NOT accepted
-  dba->insert_vertex().add_label(label3); // NOT accepted
-  auto v1 = dba->insert_vertex(); // YES accepted
+  dba->insert_vertex();                    // NOT accepted
+  dba->insert_vertex().add_label(label1);  // NOT accepted
+  dba->insert_vertex().add_label(label2);  // NOT accepted
+  dba->insert_vertex().add_label(label3);  // NOT accepted
+  auto v1 = dba->insert_vertex();          // YES accepted
   v1.add_label(label1);
   v1.add_label(label2);
-  auto v2 = dba->insert_vertex(); // NOT accepted
+  auto v2 = dba->insert_vertex();  // NOT accepted
   v2.add_label(label1);
   v2.add_label(label3);
-  auto v3 = dba->insert_vertex(); // YES accepted
+  auto v3 = dba->insert_vertex();  // YES accepted
   v3.add_label(label1);
   v3.add_label(label2);
   v3.add_label(label3);
@@ -225,4 +234,35 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
   EXPECT_EQ(result.GetResults().size(), 2);
+}
+
+TEST(Interpreter, CreateNodeWithAttributes) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  Config config;
+  Context ctx(config, *dba);
+
+  GraphDb::Label label = dba->label("Person");
+  GraphDb::Property property = dba->label("age");
+
+  auto node = MakeNode(ctx, MakeIdentifier(ctx, "n"));
+  node->labels_.emplace_back(label);
+  // TODO make a property here with an int literal expression
+  //  node->properties_[property] = TypedValue(42);
+
+  auto create = std::make_shared<CreateOp>(node);
+  ExecuteCreate(create, *dba);
+
+  // count the number of vertices
+  int vertex_count = 0;
+  for (VertexAccessor vertex : dba->vertices()) {
+    vertex_count++;
+    EXPECT_EQ(vertex.labels().size(), 1);
+    EXPECT_EQ(*vertex.labels().begin(), label);
+    EXPECT_EQ(vertex.Properties().size(), 1);
+    auto prop_eq = vertex.PropsAt(property) == TypedValue(42);
+    ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
+    EXPECT_TRUE(prop_eq.Value<bool>());
+  }
+  EXPECT_EQ(vertex_count, 1);
 }

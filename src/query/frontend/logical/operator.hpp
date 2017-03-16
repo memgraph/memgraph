@@ -27,9 +27,51 @@ class LogicalOperator {
   std::vector<std::shared_ptr<LogicalOperator>> children_;
 };
 
+class CreateOp : public LogicalOperator {
+public:
+  CreateOp(std::shared_ptr<NodeAtom> node_atom) : node_atom_(node_atom) {}
+
+private:
+  class CreateOpCursor : public Cursor {
+  public:
+    CreateOpCursor(CreateOp& self, GraphDbAccessor& db) : self_(self), db_(db) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!did_create_) {
+        auto new_node = db_.insert_vertex();
+        for (auto label : self_.node_atom_->labels_)
+          new_node.add_label(label);
+
+        ExpressionEvaluator evaluator(frame, symbol_table);
+        for (auto &kv : self_.node_atom_->properties_){
+          kv.second->Accept(evaluator);
+          new_node.PropsSet(kv.first, evaluator.PopBack());
+        }
+
+        did_create_ = true;
+        return true;
+      } else
+        return false;
+    }
+
+  private:
+    CreateOp &self_;
+    GraphDbAccessor &db_;
+    bool did_create_{false};
+  };
+
+public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
+    return std::make_unique<CreateOpCursor>(*this, db);
+  }
+
+private:
+  std::shared_ptr<NodeAtom> node_atom_;
+};
+
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(std::shared_ptr<NodeAtom> node_atom) : node_atom(node_atom) {}
+  ScanAll(std::shared_ptr<NodeAtom> node_atom) : node_atom_(node_atom) {}
 
  private:
   class ScanAllCursor : public Cursor {
@@ -41,7 +83,7 @@ class ScanAll : public LogicalOperator {
 
     bool Pull(Frame& frame, SymbolTable& symbol_table) override {
       if (vertices_it_ == vertices_.end()) return false;
-      frame[symbol_table[*self_.node_atom->identifier_]] = *vertices_it_++;
+      frame[symbol_table[*self_.node_atom_->identifier_]] = *vertices_it_++;
       return true;
     }
 
@@ -57,7 +99,7 @@ class ScanAll : public LogicalOperator {
   }
 
  private:
-  std::shared_ptr<NodeAtom> node_atom;
+  std::shared_ptr<NodeAtom> node_atom_;
 };
 
 class NodeFilter : public LogicalOperator {

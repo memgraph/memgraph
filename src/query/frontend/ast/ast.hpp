@@ -84,6 +84,7 @@ class NodeAtom : public PatternAtom {
 
   std::shared_ptr<Identifier> identifier_;
   std::vector<GraphDb::Label> labels_;
+  std::map<GraphDb::Property, std::shared_ptr<Expression>> properties_;
 };
 
 class EdgeAtom : public PatternAtom {
@@ -131,6 +132,19 @@ class Query : public Tree {
     visitor.PostVisit(*this);
   }
   std::vector<std::shared_ptr<Clause>> clauses_;
+};
+
+class Create : public Clause {
+ public:
+  Create(int uid) : Clause(uid) {}
+  std::vector<std::shared_ptr<Pattern>> patterns_;
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    for (auto &pattern : patterns_) {
+      pattern->Accept(visitor);
+    }
+    visitor.PostVisit(*this);
+  }
 };
 
 class Match : public Clause {
