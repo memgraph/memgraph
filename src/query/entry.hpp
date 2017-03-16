@@ -59,7 +59,7 @@ class Engine {
     query.Accept(symbol_generator);
 
     // high level tree -> logical plan
-    auto logical_plan = MakeLogicalPlan(query);
+    auto logical_plan = MakeLogicalPlan(query, symbol_table);
 
     // generate frame based on symbol table max_position
     Frame frame(symbol_table.max_position());
