@@ -30,9 +30,15 @@ TEST(LoggingTest, SyncLogger) {
   logger.trace("{}", "trace");
   logger.debug("{}", "debug");
 
+#ifdef NDEBUG
+  ASSERT_EQ(check->counter_, 3);
+  ASSERT_EQ(check->texts_.size(), 3);
+#else
   ASSERT_EQ(check->counter_, 5);
-  ASSERT_EQ(check->sequence_[4], 5);
   ASSERT_EQ(check->texts_.size(), 5);
+#endif
+
+  ASSERT_EQ(check->sequence_[2], 3);
 }
 
 TEST(LoggingTest, AysncLogger) {
@@ -51,9 +57,15 @@ TEST(LoggingTest, AysncLogger) {
   using namespace std::chrono;
   std::this_thread::sleep_for(1s);
 
+#ifdef NDEBUG
+  ASSERT_EQ(check->counter_, 3);
+  ASSERT_EQ(check->sequence_.size(), 3);
+  ASSERT_EQ(check->texts_.size(), 3);
+#else
   ASSERT_EQ(check->counter_, 5);
   ASSERT_EQ(check->sequence_.size(), 5);
   ASSERT_EQ(check->texts_.size(), 5);
+#endif
 }
 
 int main(int argc, char** argv) {
