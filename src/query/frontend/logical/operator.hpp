@@ -66,7 +66,7 @@ public:
   }
 
 private:
-  NodeAtom* node_atom_;
+  NodeAtom* node_atom_ = nullptr;
 };
 
 class ScanAll : public LogicalOperator {
@@ -99,7 +99,7 @@ class ScanAll : public LogicalOperator {
   }
 
  private:
-  NodeAtom *node_atom_;
+  NodeAtom *node_atom_ = nullptr;
 };
 
 class NodeFilter : public LogicalOperator {

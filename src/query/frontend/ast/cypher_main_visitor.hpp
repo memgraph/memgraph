@@ -290,14 +290,16 @@ private:
 
 public:
   Query *query() { return query_; }
+  const static std::string kAnonPrefix;
 
 private:
   Context &ctx_;
-  int next_ident_id_;
-  const std::string kUserIdentPrefix = "u_";
-  const std::string kAnonIdentPrefix = "a_";
+  // Set of identifiers from queries.
+  std::unordered_set<std::string> users_identifiers;
+  // Identifiers that user didn't name.
+  std::vector<Identifier **> anonymous_identifiers;
   AstTreeStorage storage_;
-  Query *query_;
+  Query *query_ = nullptr;
 };
 }
 }

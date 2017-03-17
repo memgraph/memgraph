@@ -39,18 +39,36 @@ namespace {
 //}
 }
 
+const std::string CypherMainVisitor::kAnonPrefix = "anon";
+
 antlrcpp::Any
 CypherMainVisitor::visitSingleQuery(CypherParser::SingleQueryContext *ctx) {
   query_ = storage_.query();
   for (auto *child : ctx->clause()) {
     query_->clauses_.push_back(child->accept(this));
   }
+  // Construct unique names for anonymous identifiers;
+  int id = 1;
+  for (auto **identifier : anonymous_identifiers) {
+    while (true) {
+      std::string id_name = kAnonPrefix + std::to_string(id++);
+      if (users_identifiers.find(id_name) == users_identifiers.end()) {
+        *identifier = storage_.Create<Identifier>(id_name);
+        break;
+      }
+    }
+  }
   return query_;
 }
+
 antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
-  if (!ctx->cypherReturn() && !ctx->cypherMatch()) {
-    throw std::exception();
+  if (ctx->cypherReturn()) {
+    return (Clause *)ctx->cypherReturn()->accept(this).as<Return *>();
   }
+  if (ctx->cypherMatch()) {
+    return (Clause *)ctx->cypherMatch()->accept(this).as<Match *>();
+  }
+  throw std::exception();
   return visitChildren(ctx);
 }
 
@@ -110,21 +128,15 @@ antlrcpp::Any
 CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
   auto *node = storage_.Create<NodeAtom>();
   if (ctx->variable()) {
-    // TODO: user's identifiers should be unchanged, but we must be sure that
-    // ours identifier is not in a clash with user's.
     std::string variable = ctx->variable()->accept(this);
-    node->identifier_ =
-        storage_.Create<Identifier>(kUserIdentPrefix + variable);
+    node->identifier_ = storage_.Create<Identifier>(variable);
+    users_identifiers.insert(variable);
   } else {
-    node->identifier_ = storage_.Create<Identifier>(
-        kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    std::vector<std::string> labels = ctx->nodeLabels()->accept(this);
-    for (const auto &label : labels) {
-      // TODO: Labels should be garbage collected.
-      node->labels_.push_back(ctx_.db_accessor_.label(label));
-    }
+    node->labels_ =
+        ctx->nodeLabels()->accept(this).as<std::vector<GraphDb::Label>>();
   }
   if (ctx->properties()) {
     throw std::exception();
@@ -138,9 +150,9 @@ CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
 
 antlrcpp::Any
 CypherMainVisitor::visitNodeLabels(CypherParser::NodeLabelsContext *ctx) {
-  std::vector<std::string> labels;
+  std::vector<GraphDb::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    labels.push_back(node_label->accept(this));
+    labels.push_back(ctx_.db_accessor_.label(node_label->accept(this)));
   }
   return labels;
 }
@@ -193,13 +205,11 @@ antlrcpp::Any
 CypherMainVisitor::visitPatternPart(CypherParser::PatternPartContext *ctx) {
   Pattern *pattern = ctx->anonymousPatternPart()->accept(this);
   if (ctx->variable()) {
-    // TODO: don't change user's identifier name.
     std::string variable = ctx->variable()->accept(this);
-    pattern->identifier_ =
-        storage_.Create<Identifier>(kUserIdentPrefix + variable);
+    pattern->identifier_ = storage_.Create<Identifier>(variable);
+    users_identifiers.insert(variable);
   } else {
-    pattern->identifier_ = storage_.Create<Identifier>(
-        kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    anonymous_identifiers.push_back(&pattern->identifier_);
   }
   return pattern;
 }
@@ -210,7 +220,7 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(
     return ctx->patternElement()->accept(this);
   }
   auto pattern = storage_.Create<Pattern>();
-  pattern->atoms_.push_back(ctx->nodePattern()->accept(this));
+  pattern->atoms_.push_back(ctx->nodePattern()->accept(this).as<NodeAtom *>());
   for (auto *pattern_element_chain : ctx->patternElementChain()) {
     std::pair<PatternAtom *, PatternAtom *> element =
         pattern_element_chain->accept(this);
@@ -223,8 +233,8 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(
 antlrcpp::Any CypherMainVisitor::visitPatternElementChain(
     CypherParser::PatternElementChainContext *ctx) {
   return std::pair<PatternAtom *, PatternAtom *>(
-      ctx->relationshipPattern()->accept(this),
-      ctx->nodePattern()->accept(this));
+      ctx->relationshipPattern()->accept(this).as<EdgeAtom *>(),
+      ctx->nodePattern()->accept(this).as<NodeAtom *>());
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
@@ -234,12 +244,14 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     if (ctx->relationshipDetail()->variable()) {
       std::string variable =
           ctx->relationshipDetail()->variable()->accept(this);
-      // TODO: Don't change user's identifier name.
-      edge->identifier_ =
-          storage_.Create<Identifier>(kUserIdentPrefix + variable);
+      edge->identifier_ = storage_.Create<Identifier>(variable);
+      users_identifiers.insert(variable);
     }
     if (ctx->relationshipDetail()->relationshipTypes()) {
-      throw std::exception();
+      edge->types_ = ctx->relationshipDetail()
+                         ->relationshipTypes()
+                         ->accept(this)
+                         .as<std::vector<GraphDb::EdgeType>>();
     }
     if (ctx->relationshipDetail()->properties()) {
       throw std::exception();
@@ -256,18 +268,17 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
   //    relationship.lower_bound = range.first;
   //    relationship.upper_bound = range.second;
   if (!edge->identifier_) {
-    edge->identifier_ = storage_.Create<Identifier>(
-        kAnonIdentPrefix + std::to_string(next_ident_id_++));
+    anonymous_identifiers.push_back(&edge->identifier_);
   }
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
-    edge->direction = EdgeAtom::Direction::LEFT;
+    edge->direction_ = EdgeAtom::Direction::LEFT;
   } else if (!ctx->leftArrowHead() && ctx->rightArrowHead()) {
-    edge->direction = EdgeAtom::Direction::RIGHT;
+    edge->direction_ = EdgeAtom::Direction::RIGHT;
   } else {
     // <-[]-> and -[]- is the same thing as far as we understand openCypher
     // grammar.
-    edge->direction = EdgeAtom::Direction::BOTH;
+    edge->direction_ = EdgeAtom::Direction::BOTH;
   }
   return edge;
 }
@@ -280,14 +291,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     CypherParser::RelationshipTypesContext *ctx) {
-  throw std::exception();
-  (void)ctx;
-  return 0;
-  //  std::vector<std::string> types;
-  //  for (auto *label : ctx->relTypeName()) {
-  //    types.push_back(label->accept(this));
-  //  }
-  //  return types;
+  std::vector<GraphDb::EdgeType> types;
+  for (auto *edge_type : ctx->relTypeName()) {
+    types.push_back(ctx_.db_accessor_.edge_type(edge_type->accept(this)));
+  }
+  return types;
 }
 
 antlrcpp::Any
@@ -546,7 +554,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return ctx->parenthesizedExpression()->accept(this);
   } else if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
-    return storage_.Create<Identifier>(kUserIdentPrefix + variable);
+    users_identifiers.insert(variable);
+    return storage_.Create<Identifier>(variable);
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.

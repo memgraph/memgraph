@@ -47,8 +47,8 @@ class PropertyLookup : public Expression {
     visitor.PostVisit(*this);
   }
 
-  Expression *expression_;
-  GraphDb::Property property_;
+  Expression *expression_ = nullptr;
+  GraphDb::Property property_ = nullptr;
   // TODO potential problem: property lookups are allowed on both map literals
   // and records, but map literals have strings as keys and records have
   // GraphDb::Property
@@ -72,7 +72,7 @@ class NamedExpression : public Tree {
   }
 
   std::string name_;
-  Expression* expression_;
+  Expression* expression_ = nullptr;
 
  protected:
   NamedExpression(int uid) : Tree(uid) {}
@@ -95,7 +95,7 @@ class NodeAtom : public PatternAtom {
     visitor.PostVisit(*this);
   }
 
-  Identifier* identifier_;
+  Identifier* identifier_ = nullptr;
   std::vector<GraphDb::Label> labels_;
   std::map<GraphDb::Property, Expression*> properties_;
 
@@ -103,7 +103,6 @@ class NodeAtom : public PatternAtom {
   NodeAtom(int uid) : PatternAtom(uid) {}
   NodeAtom(int uid, Identifier *identifier) :
       PatternAtom(uid), identifier_(identifier) {}
-
 };
 
 class EdgeAtom : public PatternAtom {
@@ -117,8 +116,9 @@ class EdgeAtom : public PatternAtom {
     visitor.PostVisit(*this);
   }
 
-  Direction direction = Direction::BOTH;
-  Identifier* identifier_;
+  Direction direction_ = Direction::BOTH;
+  Identifier* identifier_ = nullptr;
+  std::vector<GraphDb::EdgeType> types_;
 
  protected:
   EdgeAtom(int uid) : PatternAtom(uid) {}
@@ -140,7 +140,7 @@ class Pattern : public Tree {
     }
     visitor.PostVisit(*this);
   }
-  Identifier* identifier_;
+  Identifier* identifier_ = nullptr;
   std::vector<PatternAtom*> atoms_;
 
  protected:
