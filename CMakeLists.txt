@@ -24,7 +24,7 @@ if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-# choose a compiler 
+# choose a compiler
 # NOTE: must be choosen before use of project() or enable_language() ----------
 set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
@@ -116,7 +116,7 @@ FILE(COPY ${query_engine_template_file}
 FILE(COPY ${query_engine_template_file}
     DESTINATION ${CMAKE_BINARY_DIR}/tests/manual/template)
 FILE(COPY ${query_engine_template_file}
-	DESTINATION ${CMAKE_BINARY_DIR}/template)
+    DESTINATION ${CMAKE_BINARY_DIR}/template)
 # create destination folder for compiled queries
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)
@@ -262,10 +262,10 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # includes
 include_directories(${src_dir})
 include_directories(${build_include_dir})
-include_directories(${fmt_source_dir})
-include_directories(${yaml_include_dir})
-include_directories(${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
-include_directories(${CMAKE_SOURCE_DIR}/libs)
+include_directories(SYSTEM ${fmt_source_dir})
+include_directories(SYSTEM ${yaml_include_dir})
+include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -276,7 +276,7 @@ set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
 
 # enumerate all files that are generated from antlr
 set(antlr_opencypher_generated_src
-   ${opencypher_generated}/CypherLexer.cpp 
+   ${opencypher_generated}/CypherLexer.cpp
    ${opencypher_generated}/CypherParser.cpp
    ${opencypher_generated}/CypherBaseVisitor.cpp
    ${opencypher_generated}/CypherVisitor.cpp
@@ -377,7 +377,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 # tests
-if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST 
+if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
         OR MANUAL_TESTS OR UNIT_TESTS)
     add_subdirectory(tests)
 endif()
@@ -416,10 +416,10 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
 endif()
 
 # utility target to copy hardcoded queries
