@@ -40,9 +40,10 @@ cd ${script_dir}
 # setup ve
 if [ ! -d "ve3" ]; then
     virtualenv -p python3 ve3
-    pip3 install -r requirements.txt
 fi
 source ve3/bin/activate
+pip3 install --upgrade pip3
+pip3 install -r requirements.txt
 
 # binary is available after the build
 binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable -name "memgraph*")

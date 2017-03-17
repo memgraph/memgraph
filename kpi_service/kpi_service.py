@@ -12,12 +12,11 @@ Default host is 127.0.0.1, and default port is 5000.
 Host and port can be passed as arguments of a script.
 """
 
-path = "../tck_engine/results"
-
 def parse_args():
     argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--host", default="127.0.0.1", help="Application host ip, default is 127.0.0.1.")
+    argp.add_argument("--host", default="0.0.0.0", help="Application host ip, default is 127.0.0.1.")
     argp.add_argument("--port", default="5000", help="Application host ip, default is 5000.")
+    argp.add_argument("--results", default="../tck_engine/results", help="Path where the results are stored.")
     return argp.parse_args()
 
 
@@ -34,7 +33,7 @@ def results():
         string of file names separated by whitespace
     """
     tail = request.args.get("tail")
-    return list_to_str(os.listdir(path), tail)
+    return list_to_str(os.listdir(app.config["RESULTS_PATH"]), tail)
 
 @app.route("/results/<dbname>")
 def results_for_db(dbname):
@@ -52,7 +51,7 @@ def results_for_db(dbname):
         string of file names separated by whitespace
     """
     tail = request.args.get("tail")
-    return list_to_str(([f for f in os.listdir(path) if f.startswith(dbname)]), tail)
+    return list_to_str(([f for f in os.listdir(app.config["RESULTS_PATH"]) if f.startswith(dbname)]), tail)
 
 @app.route("/results/<dbname>/<timestamp>")
 def result(dbname, timestamp):
@@ -69,7 +68,7 @@ def result(dbname, timestamp):
         json of a file.
     """
     fname = dbname + "_" + timestamp + ".json"
-    with open(path + "/" + fname) as f:
+    with open(app.config["RESULTS_PATH"] + "/" + fname) as f:
         json_data = json.load(f)
         return jsonify(json_data)
 
@@ -95,6 +94,9 @@ def list_to_str(l, tail):
 
 def main():
     args = parse_args()
+    app.config.update(dict(
+        RESULTS_PATH=args.results
+    ))
     app.run(
         host = args.host,
         port = int(args.port)
