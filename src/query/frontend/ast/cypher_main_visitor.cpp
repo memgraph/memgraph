@@ -41,8 +41,8 @@ namespace {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
-antlrcpp::Any
-CypherMainVisitor::visitSingleQuery(CypherParser::SingleQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitSingleQuery(
+    CypherParser::SingleQueryContext *ctx) {
   query_ = storage_.query();
   for (auto *child : ctx->clause()) {
     query_->clauses_.push_back(child->accept(this));
@@ -68,12 +68,15 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->cypherMatch()) {
     return (Clause *)ctx->cypherMatch()->accept(this).as<Match *>();
   }
+  if (ctx->create()) {
+    return (Clause *)ctx->create()->accept(this).as<Create *>();
+  }
   throw std::exception();
   return visitChildren(ctx);
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitCypherMatch(CypherParser::CypherMatchContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitCypherMatch(
+    CypherParser::CypherMatchContext *ctx) {
   auto *match = storage_.Create<Match>();
   if (ctx->OPTIONAL() || ctx->where()) {
     throw std::exception();
@@ -82,24 +85,31 @@ CypherMainVisitor::visitCypherMatch(CypherParser::CypherMatchContext *ctx) {
   return match;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitCypherReturn(CypherParser::CypherReturnContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
+  auto *create = storage_.Create<Create>();
+  create->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
+  return create;
+  ;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCypherReturn(
+    CypherParser::CypherReturnContext *ctx) {
   if (ctx->DISTINCT()) {
     throw std::exception();
   }
   return visitChildren(ctx);
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitReturnBody(CypherParser::ReturnBodyContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitReturnBody(
+    CypherParser::ReturnBodyContext *ctx) {
   if (ctx->order() || ctx->skip() || ctx->limit()) {
     throw std::exception();
   }
   return ctx->returnItems()->accept(this);
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitReturnItems(CypherParser::ReturnItemsContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitReturnItems(
+    CypherParser::ReturnItemsContext *ctx) {
   auto *return_clause = storage_.Create<Return>();
   if (ctx->getTokens(kReturnAllTokenId).size()) {
     throw std::exception();
@@ -110,8 +120,8 @@ CypherMainVisitor::visitReturnItems(CypherParser::ReturnItemsContext *ctx) {
   return return_clause;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitReturnItem(CypherParser::ReturnItemContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitReturnItem(
+    CypherParser::ReturnItemContext *ctx) {
   auto *named_expr = storage_.Create<NamedExpression>();
   if (ctx->variable()) {
     named_expr->name_ =
@@ -124,8 +134,8 @@ CypherMainVisitor::visitReturnItem(CypherParser::ReturnItemContext *ctx) {
   return named_expr;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitNodePattern(
+    CypherParser::NodePatternContext *ctx) {
   auto *node = storage_.Create<NodeAtom>();
   if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
@@ -139,17 +149,15 @@ CypherMainVisitor::visitNodePattern(CypherParser::NodePatternContext *ctx) {
         ctx->nodeLabels()->accept(this).as<std::vector<GraphDb::Label>>();
   }
   if (ctx->properties()) {
-    throw std::exception();
-    //    node.properties = ctx->properties()
-    //                          ->accept(this)
-    //                          .as<std::unordered_map<std::string,
-    //                          std::string>>();
+    node->properties_ = ctx->properties()
+                            ->accept(this)
+                            .as<std::map<GraphDb::Property, Expression *>>();
   }
   return node;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitNodeLabels(CypherParser::NodeLabelsContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitNodeLabels(
+    CypherParser::NodeLabelsContext *ctx) {
   std::vector<GraphDb::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
     labels.push_back(ctx_.db_accessor_.label(node_label->accept(this)));
@@ -157,31 +165,35 @@ CypherMainVisitor::visitNodeLabels(CypherParser::NodeLabelsContext *ctx) {
   return labels;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitProperties(CypherParser::PropertiesContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitProperties(
+    CypherParser::PropertiesContext *ctx) {
   if (!ctx->mapLiteral()) {
     // If child is not mapLiteral that means child is params. At the moment
-    // memgraph doesn't support params.
+    // we don't support properties to be a param because we can generate
+    // better logical plan if we have an information about properties at
+    // compile time.
     throw std::exception();
   }
   return ctx->mapLiteral()->accept(this);
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitMapLiteral(CypherParser::MapLiteralContext *ctx) {
-  throw std::exception();
-  (void)ctx;
-  return 0;
-  //  std::unordered_map<std::string, std::string> map;
-  //  for (int i = 0; i < (int)ctx->propertyKeyName().size(); ++i) {
-  //    map[ctx->propertyKeyName()[i]->accept(this).as<std::string>()] =
-  //        ctx->expression()[i]->accept(this).as<std::string>();
-  //  }
-  //  return map;
+antlrcpp::Any CypherMainVisitor::visitMapLiteral(
+    CypherParser::MapLiteralContext *ctx) {
+  std::map<GraphDb::Property, Expression *> map;
+  for (int i = 0; i < (int)ctx->propertyKeyName().size(); ++i) {
+    map[ctx->propertyKeyName()[i]->accept(this)] =
+        ctx->expression()[i]->accept(this);
+  }
+  return map;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitSymbolicName(CypherParser::SymbolicNameContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
+    CypherParser::PropertyKeyNameContext *ctx) {
+  return ctx_.db_accessor_.property(visitChildren(ctx));
+}
+
+antlrcpp::Any CypherMainVisitor::visitSymbolicName(
+    CypherParser::SymbolicNameContext *ctx) {
   if (ctx->EscapedSymbolicName()) {
     // We don't allow at this point for variable to be EscapedSymbolicName
     // because we would have t ofigure out how escaping works since same
@@ -192,8 +204,8 @@ CypherMainVisitor::visitSymbolicName(CypherParser::SymbolicNameContext *ctx) {
   return std::string(ctx->getText());
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitPattern(CypherParser::PatternContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitPattern(
+    CypherParser::PatternContext *ctx) {
   std::vector<Pattern *> patterns;
   for (auto *pattern_part : ctx->patternPart()) {
     patterns.push_back(pattern_part->accept(this));
@@ -201,8 +213,8 @@ CypherMainVisitor::visitPattern(CypherParser::PatternContext *ctx) {
   return patterns;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitPatternPart(CypherParser::PatternPartContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitPatternPart(
+    CypherParser::PatternPartContext *ctx) {
   Pattern *pattern = ctx->anonymousPatternPart()->accept(this);
   if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
@@ -298,8 +310,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
   return types;
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitRangeLiteral(CypherParser::RangeLiteralContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitRangeLiteral(
+    CypherParser::RangeLiteralContext *ctx) {
   if (ctx->integerLiteral().size() == 0U) {
     // -[*]-
     return std::pair<int64_t, int64_t>(1LL, LLONG_MAX);
@@ -326,8 +338,8 @@ CypherMainVisitor::visitRangeLiteral(CypherParser::RangeLiteralContext *ctx) {
   }
 }
 
-antlrcpp::Any
-CypherMainVisitor::visitExpression(CypherParser::ExpressionContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitExpression(
+    CypherParser::ExpressionContext *ctx) {
   return visitChildren(ctx);
 }
 
@@ -504,23 +516,22 @@ CypherMainVisitor::visitExpression(CypherParser::ExpressionContext *ctx) {
 //  }
 //  return visitChildren(ctx);
 //}
-//
-// antlrcpp::Any
-// CypherMainVisitor::visitExpression2(CypherParser::Expression2Context *ctx) {
-//  if (ctx->nodeLabels().size()) {
-//    // TODO: Implement this. We don't currently support label checking in
-//    // expresssion.
-//    throw SemanticException();
-//  }
-//  auto operand = ctx->atom()->accept(this).as<std::string>();
-//  for (int i = 0; i < (int)ctx->propertyLookup().size(); ++i) {
-//    auto lhs_id = new_id();
-//    symbol_table_[lhs_id] =
-//        SimpleExpression{Function::PROPERTY_GETTER, {operand}};
-//    operand = lhs_id;
-//  }
-//  return operand;
-//}
+
+antlrcpp::Any CypherMainVisitor::visitExpression2(
+    CypherParser::Expression2Context *ctx) {
+  if (ctx->nodeLabels().size()) {
+    // TODO: Implement this. We don't currently support label checking in
+    // expresssion.
+    throw std::exception();
+  }
+  Expression *expression = ctx->atom()->accept(this);
+  for (auto *lookup : ctx->propertyLookup()) {
+    auto property_lookup =
+        storage_.Create<PropertyLookup>(expression, lookup->accept(this));
+    expression = property_lookup;
+  }
+  return expression;
+}
 
 antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   if (ctx->literal()) {
@@ -555,7 +566,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   } else if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
     users_identifiers.insert(variable);
-    return storage_.Create<Identifier>(variable);
+    return (Expression *)storage_.Create<Identifier>(variable);
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.

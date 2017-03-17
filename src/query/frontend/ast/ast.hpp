@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -13,6 +14,7 @@ class AstTreeStorage;
 
 class Tree : public ::utils::Visitable<TreeVisitorBase> {
   friend class AstTreeStorage;
+
  public:
   int uid() const { return uid_; }
 
@@ -30,6 +32,7 @@ class Expression : public Tree {
 
 class Identifier : public Expression {
   friend class AstTreeStorage;
+
  public:
   DEFVISITABLE(TreeVisitorBase);
   std::string name_;
@@ -40,6 +43,7 @@ class Identifier : public Expression {
 
 class PropertyLookup : public Expression {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -57,13 +61,13 @@ class PropertyLookup : public Expression {
   // between the two depending on Expression result
 
  protected:
-  PropertyLookup(int uid, Expression* expression,
-                 GraphDb::Property property)
+  PropertyLookup(int uid, Expression *expression, GraphDb::Property property)
       : Expression(uid), expression_(expression), property_(property) {}
 };
 
 class NamedExpression : public Tree {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -72,18 +76,20 @@ class NamedExpression : public Tree {
   }
 
   std::string name_;
-  Expression* expression_ = nullptr;
+  Expression *expression_ = nullptr;
 
  protected:
   NamedExpression(int uid) : Tree(uid) {}
-  NamedExpression(int uid, std::string name, Expression *expression) :
-      Tree(uid), name_(name), expression_(expression) {}
+  NamedExpression(int uid, std::string name, Expression *expression)
+      : Tree(uid), name_(name), expression_(expression) {}
 };
 
 class PatternAtom : public Tree {
   friend class AstTreeStorage;
+
  public:
-  Identifier* identifier_ = nullptr;
+  Identifier *identifier_ = nullptr;
+
  protected:
   PatternAtom(int uid) : Tree(uid) {}
   PatternAtom(int uid, Identifier *identifier)
@@ -92,6 +98,7 @@ class PatternAtom : public Tree {
 
 class NodeAtom : public PatternAtom {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -100,7 +107,8 @@ class NodeAtom : public PatternAtom {
   }
 
   std::vector<GraphDb::Label> labels_;
-  std::map<GraphDb::Property, Expression*> properties_;
+  // TODO: change to unordered_map
+  std::map<GraphDb::Property, Expression *> properties_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -108,6 +116,7 @@ class NodeAtom : public PatternAtom {
 
 class EdgeAtom : public PatternAtom {
   friend class AstTreeStorage;
+
  public:
   enum class Direction { LEFT, RIGHT, BOTH };
 
@@ -119,6 +128,8 @@ class EdgeAtom : public PatternAtom {
 
   Direction direction_ = Direction::BOTH;
   std::vector<GraphDb::EdgeType> types_;
+  // TODO: change to unordered_map
+  std::map<GraphDb::Property, Expression *> properties_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -126,12 +137,14 @@ class EdgeAtom : public PatternAtom {
 
 class Clause : public Tree {
   friend class AstTreeStorage;
+
  public:
   Clause(int uid) : Tree(uid) {}
 };
 
 class Pattern : public Tree {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -140,8 +153,8 @@ class Pattern : public Tree {
     }
     visitor.PostVisit(*this);
   }
-  Identifier* identifier_ = nullptr;
-  std::vector<PatternAtom*> atoms_;
+  Identifier *identifier_ = nullptr;
+  std::vector<PatternAtom *> atoms_;
 
  protected:
   Pattern(int uid) : Tree(uid) {}
@@ -149,6 +162,7 @@ class Pattern : public Tree {
 
 class Query : public Tree {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -157,16 +171,18 @@ class Query : public Tree {
     }
     visitor.PostVisit(*this);
   }
-  std::vector<Clause*> clauses_;
+  std::vector<Clause *> clauses_;
 
  protected:
   Query(int uid) : Tree(uid) {}
 };
 
 class Create : public Clause {
+  friend class AstTreeStorage;
+
  public:
   Create(int uid) : Clause(uid) {}
-  std::vector<Pattern*> patterns_;
+  std::vector<Pattern *> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
@@ -178,8 +194,9 @@ class Create : public Clause {
 
 class Match : public Clause {
   friend class AstTreeStorage;
+
  public:
-  std::vector<Pattern*> patterns_;
+  std::vector<Pattern *> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
@@ -194,6 +211,7 @@ class Match : public Clause {
 
 class Return : public Clause {
   friend class AstTreeStorage;
+
  public:
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
@@ -202,7 +220,7 @@ class Return : public Clause {
     }
     visitor.PostVisit(*this);
   }
-  std::vector<NamedExpression*> named_expressions_;
+  std::vector<NamedExpression *> named_expressions_;
 
  protected:
   Return(int uid) : Clause(uid) {}
@@ -215,14 +233,12 @@ class AstTreeStorage {
   friend class AstTreeStorage;
 
  public:
-  AstTreeStorage() {
-    storage_.emplace_back(new Query(next_uid_++));
-  }
+  AstTreeStorage() { storage_.emplace_back(new Query(next_uid_++)); }
   AstTreeStorage(const AstTreeStorage &) = delete;
   AstTreeStorage &operator=(const AstTreeStorage &) = delete;
 
-  template<typename T, typename... Args>
-  T *Create(Args&&... args) {
+  template <typename T, typename... Args>
+  T *Create(Args &&... args) {
     // Never call create for a Query. Call query() instead.
     static_assert(!std::is_same<T, Query>::value, "Call query() instead");
     // TODO: use std::forward here
@@ -231,7 +247,7 @@ class AstTreeStorage {
     return p;
   }
 
-  Query *query() { return dynamic_cast<Query*>(storage_[0].get()); }
+  Query *query() { return dynamic_cast<Query *>(storage_[0].get()); }
 
  private:
   int next_uid_ = 0;

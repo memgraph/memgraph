@@ -15,10 +15,10 @@ using query::Context;
 using antlropencypher::CypherParser;
 
 class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
-public:
+ public:
   CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
 
-private:
+ private:
   //  template <typename TExpression>
   //  antlrcpp::Any
   //  LeftAssociativeOperatorExpression(std::vector<TExpression *> children,
@@ -49,90 +49,109 @@ private:
   //        children, std::vector<Function>((int)children.size() - 1, op));
   //  }
 
-  antlrcpp::Any
-  visitSingleQuery(CypherParser::SingleQueryContext *ctx) override;
+  /**
+   * @return Query*
+   */
+  antlrcpp::Any visitSingleQuery(
+      CypherParser::SingleQueryContext *ctx) override;
 
+  /**
+   * @return Clause*
+   */
   antlrcpp::Any visitClause(CypherParser::ClauseContext *ctx) override;
 
-  antlrcpp::Any
-  visitCypherMatch(CypherParser::CypherMatchContext *ctx) override;
+  /**
+   * @return Match*
+   */
+  antlrcpp::Any visitCypherMatch(
+      CypherParser::CypherMatchContext *ctx) override;
 
-  antlrcpp::Any
-  visitCypherReturn(CypherParser::CypherReturnContext *ctx) override;
+  /**
+   * @return Create*
+   */
+  antlrcpp::Any visitCreate(CypherParser::CreateContext *ctx) override;
 
+  /**
+   * @return Return*
+   */
+  antlrcpp::Any visitCypherReturn(
+      CypherParser::CypherReturnContext *ctx) override;
+
+  /**
+   * @return Return*
+   */
   antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
 
-  antlrcpp::Any
-  visitReturnItems(CypherParser::ReturnItemsContext *ctx) override;
+  /**
+   * @return Return*
+   */
+  antlrcpp::Any visitReturnItems(
+      CypherParser::ReturnItemsContext *ctx) override;
 
+  /**
+   * @return NamedExpression*
+   */
   antlrcpp::Any visitReturnItem(CypherParser::ReturnItemContext *ctx) override;
 
   /**
-  * Creates Node and stores it in symbol_table_. If variable is defined it is
-  * stored in ids_map_.
-  *
-  * @return string - node id.
-  */
-  antlrcpp::Any
-  visitNodePattern(CypherParser::NodePatternContext *ctx) override;
+   * @return NodeAtom*
+   */
+  antlrcpp::Any visitNodePattern(
+      CypherParser::NodePatternContext *ctx) override;
 
   /**
-  * @return vector<string> labels.
-  */
+   * @return vector<GraphDb::Label>
+   */
   antlrcpp::Any visitNodeLabels(CypherParser::NodeLabelsContext *ctx) override;
 
   /**
-  * @return unordered_map<string, string> properties - property key to
-  * expression id.
-  */
+   * @return unordered_map<GraphDb::Property, Expression*>
+   */
   antlrcpp::Any visitProperties(CypherParser::PropertiesContext *ctx) override;
 
   /**
-  * @return unordered_map<string, string> map - key to expression id.
-  */
+   * @return unordered_map<GraphDb::Property, Expression*>
+   */
   antlrcpp::Any visitMapLiteral(CypherParser::MapLiteralContext *ctx) override;
 
   /**
-  * @return string.
-  */
-  antlrcpp::Any
-  visitSymbolicName(CypherParser::SymbolicNameContext *ctx) override;
+   * @return GraphDb::Property
+   */
+  antlrcpp::Any visitPropertyKeyName(
+      CypherParser::PropertyKeyNameContext *ctx) override;
 
   /**
-  * @return vector<PatternPart> pattern.
-  */
+   * @return string
+   */
+  antlrcpp::Any visitSymbolicName(
+      CypherParser::SymbolicNameContext *ctx) override;
+
+  /**
+   * @return vector<Pattern*>
+   */
   antlrcpp::Any visitPattern(CypherParser::PatternContext *ctx) override;
 
   /**
-  * Stores PatternPart in symbol_table_. If variable is defined it is stored
-  *in
-  * ids_map_.
-  *
-  * @return string - pattern part id.
-  */
-  antlrcpp::Any
-  visitPatternPart(CypherParser::PatternPartContext *ctx) override;
+   * @return Pattern*
+   */
+  antlrcpp::Any visitPatternPart(
+      CypherParser::PatternPartContext *ctx) override;
 
   /**
-  * Creates PatternPart.
-  *
-  * @return PatternPart.
-  */
-  antlrcpp::Any
-  visitPatternElement(CypherParser::PatternElementContext *ctx) override;
+   * @return Pattern*
+   */
+  antlrcpp::Any visitPatternElement(
+      CypherParser::PatternElementContext *ctx) override;
 
   /**
-  * @return pair<string, string> - node and relationship ids.
-  */
+   * @return vector<pair<EdgeAtom*, NodeAtom*>>
+   */
   antlrcpp::Any visitPatternElementChain(
       CypherParser::PatternElementChainContext *ctx) override;
 
   /**
-  * Creates Relationship and stores it in symbol_table_. If variable is defined
-  * it is stored in symbol_table_.
-  *
-  * @return string - relationship id.
-  */
+   *@return EdgeAtom*
+   */
   antlrcpp::Any visitRelationshipPattern(
       CypherParser::RelationshipPatternContext *ctx) override;
 
@@ -142,23 +161,24 @@ private:
   */
   antlrcpp::Any visitRelationshipDetail(
       CypherParser::RelationshipDetailContext *ctx) override;
+
   /**
-  * @return vector<string>.
-  */
-  antlrcpp::Any
-  visitRelationshipTypes(CypherParser::RelationshipTypesContext *ctx) override;
+   * @return vector<GraphDb::EdgeType>
+   */
+  antlrcpp::Any visitRelationshipTypes(
+      CypherParser::RelationshipTypesContext *ctx) override;
 
   /**
   * @return pair<int64_t, int64_t>.
   */
-  antlrcpp::Any
-  visitRangeLiteral(CypherParser::RangeLiteralContext *ctx) override;
+  antlrcpp::Any visitRangeLiteral(
+      CypherParser::RangeLiteralContext *ctx) override;
 
   /**
-  * Top level expression.
-  *
-  * @return string - expression id.
-  */
+   * Top level expression, does nothing.
+   *
+   * @return Expression*
+   */
   antlrcpp::Any visitExpression(CypherParser::ExpressionContext *ctx) override;
 
   ///**
@@ -248,18 +268,18 @@ private:
   // antlrcpp::Any
   // visitExpression3(CypherParser::Expression3Context *ctx) override;
 
-  ///**
-  //* Property lookup, test for node labels existence...
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression2(CypherParser::Expression2Context *ctx) override;
+  /**
+  * Property lookup, test for node labels existence...
+  *
+  * @return Expression*
+  */
+  antlrcpp::Any visitExpression2(
+      CypherParser::Expression2Context *ctx) override;
 
   /**
   * Literals, params, list comprehension...
   *
-  * @return string - expression id.
+  * @return Expression*
   */
   antlrcpp::Any visitAtom(CypherParser::AtomContext *ctx) override;
 
@@ -285,14 +305,14 @@ private:
   /**
   * @return int64_t.
   */
-  antlrcpp::Any
-  visitIntegerLiteral(CypherParser::IntegerLiteralContext *ctx) override;
+  antlrcpp::Any visitIntegerLiteral(
+      CypherParser::IntegerLiteralContext *ctx) override;
 
-public:
+ public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
 
-private:
+ private:
   Context &ctx_;
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;

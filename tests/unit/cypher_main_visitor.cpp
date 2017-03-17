@@ -7,10 +7,10 @@
 #include "antlr4-runtime.h"
 #include "dbms/dbms.hpp"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "query/context.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "gtest/gtest.h"
 
 namespace {
 
@@ -19,11 +19,15 @@ using namespace query::frontend;
 using testing::UnorderedElementsAre;
 
 class AstGenerator {
-public:
+ public:
   AstGenerator(const std::string &query)
-      : dbms_(), db_accessor_(dbms_.active()),
-        context_(Config{}, *db_accessor_), query_string_(query), parser_(query),
-        visitor_(context_), query_([&]() {
+      : dbms_(),
+        db_accessor_(dbms_.active()),
+        context_(Config{}, *db_accessor_),
+        query_string_(query),
+        parser_(query),
+        visitor_(context_),
+        query_([&]() {
           visitor_.visit(parser_.tree());
           return visitor_.query();
         }()) {}
@@ -37,11 +41,11 @@ public:
   Query *query_;
 };
 
-TEST(CompilerStructuresTest, SyntaxException) {
+TEST(CypherMainVisitorTest, SyntaxException) {
   ASSERT_THROW(AstGenerator("CREATE ()-[*1...2]-()"), std::exception);
 }
 
-TEST(CompilerStructuresTest, NodePattern) {
+TEST(CypherMainVisitorTest, NodePattern) {
   AstGenerator ast_generator("MATCH (:label1:label2:label3)");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -62,7 +66,7 @@ TEST(CompilerStructuresTest, NodePattern) {
   // TODO: add test for properties.
 }
 
-TEST(CompilerStructuresTest, NodePatternIdentifier) {
+TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   AstGenerator ast_generator("MATCH (var)");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -73,7 +77,7 @@ TEST(CompilerStructuresTest, NodePatternIdentifier) {
   // TODO: add test for properties.
 }
 
-TEST(CompilerStructuresTest, RelationshipPatternNoDetails) {
+TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   AstGenerator ast_generator("MATCH ()--()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -92,7 +96,7 @@ TEST(CompilerStructuresTest, RelationshipPatternNoDetails) {
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
 }
 
-TEST(CompilerStructuresTest, RelationshipPatternDetails) {
+TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   AstGenerator ast_generator("MATCH ()<-[:type1|type2]-()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -105,7 +109,7 @@ TEST(CompilerStructuresTest, RelationshipPatternDetails) {
   // TODO: test properties
 }
 
-TEST(CompilerStructuresTest, RelationshipPatternVariable) {
+TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   AstGenerator ast_generator("MATCH ()-[var]->()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -116,7 +120,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 }
 
 // // Relationship with unbounded variable range.
-// TEST(CompilerStructuresTest, RelationshipPatternUnbounded) {
+// TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
 //   ParserTables parser("CREATE ()-[*]-()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.relationships_.size(), 1U);
@@ -126,7 +130,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Relationship with lower bounded variable range.
-// TEST(CompilerStructuresTest, RelationshipPatternLowerBounded) {
+// TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
 //   ParserTables parser("CREATE ()-[*5..]-()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.relationships_.size(), 1U);
@@ -136,7 +140,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Relationship with upper bounded variable range.
-// TEST(CompilerStructuresTest, RelationshipPatternUpperBounded) {
+// TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
 //   ParserTables parser("CREATE ()-[*..10]-()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.relationships_.size(), 1U);
@@ -145,7 +149,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Relationship with lower and upper bounded variable range.
-// TEST(CompilerStructuresTest, RelationshipPatternLowerUpperBounded) {
+// TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
 //   ParserTables parser("CREATE ()-[*5..10]-()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.relationships_.size(), 1U);
@@ -154,7 +158,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Relationship with fixed number of edges.
-// TEST(CompilerStructuresTest, RelationshipPatternFixedRange) {
+// TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
 //   ParserTables parser("CREATE ()-[*10]-()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.relationships_.size(), 1U);
@@ -163,15 +167,14 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Relationship with invalid bound (larger than long long).
-// TEST(CompilerStructuresTest, RelationshipPatternInvalidBound) {
+// TEST(CypherMainVisitorTest, RelationshipPatternInvalidBound) {
 //   ASSERT_THROW(
 //       ParserTables parser("CREATE ()-[*100000000000000000000000000]-()"),
 //       SemanticException);
 // }
 //
-//
 // // PatternPart.
-// TEST(CompilerStructuresTest, PatternPart) {
+// TEST(CypherMainVisitorTest, PatternPart) {
 //   ParserTables parser("CREATE ()--()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
@@ -182,7 +185,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // PatternPart in braces.
-// TEST(CompilerStructuresTest, PatternPartBraces) {
+// TEST(CypherMainVisitorTest, PatternPartBraces) {
 //   ParserTables parser("CREATE ((()--()))");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
 //   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
@@ -193,7 +196,7 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // PatternPart with variable.
-// TEST(CompilerStructuresTest, PatternPartVariable) {
+// TEST(CypherMainVisitorTest, PatternPartVariable) {
 //   ParserTables parser("CREATE var=()--()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 1U);
 //   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
@@ -209,8 +212,49 @@ TEST(CompilerStructuresTest, RelationshipPatternVariable) {
 // }
 //
 // // Multiple nodes with same variable and properties.
-// TEST(CompilerStructuresTest, MultipleNodesWithVariableAndProperties) {
+// TEST(CypherMainVisitorTest, MultipleNodesWithVariableAndProperties) {
 //   ASSERT_THROW(ParserTables parser("CREATE (a {b: 5})-[]-(a {c: 5})"),
 //                SemanticException);
 // }
+
+TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
+  AstGenerator ast_generator("RETURN var");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(return_clause);
+  ASSERT_EQ(return_clause->named_expressions_.size(), 1U);
+  auto *named_expr = return_clause->named_expressions_[0];
+  ASSERT_TRUE(named_expr);
+  ASSERT_EQ(named_expr->name_, "var");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "var");
+}
+
+TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
+  AstGenerator ast_generator("RETURN var AS var5");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *named_expr = return_clause->named_expressions_[0];
+  ASSERT_EQ(named_expr->name_, "var5");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier->name_, "var");
+}
+
+TEST(CypherMainVisitorTest, Create) {
+  AstGenerator ast_generator("CREATE (n)");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *create = dynamic_cast<Create *>(query->clauses_[0]);
+  ASSERT_TRUE(create);
+  ASSERT_EQ(create->patterns_.size(), 1U);
+  ASSERT_TRUE(create->patterns_[0]);
+  ASSERT_EQ(create->patterns_[0]->atoms_.size(), 1U);
+  auto node = dynamic_cast<NodeAtom *>(create->patterns_[0]->atoms_[0]);
+  ASSERT_TRUE(node);
+  ASSERT_TRUE(node->identifier_);
+  ASSERT_EQ(node->identifier_->name_, "n");
+  // TODO: add test for properties.
+}
 }
