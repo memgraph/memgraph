@@ -26,6 +26,18 @@ class SemanticException : public BasicException {
   SemanticException() : BasicException("") {}
 };
 
+class UnboundVariableError : public SemanticException {
+ public:
+  UnboundVariableError(const std::string &name)
+      : SemanticException("Unbound variable: " + name) {}
+};
+
+class RedeclareVariableError : public SemanticException {
+ public:
+  RedeclareVariableError(const std::string& name)
+      : SemanticException("Redeclaring variable: " + name) {}
+};
+
 class CppCodeGeneratorException : public StacktraceException {
  public:
   using StacktraceException::StacktraceException;

@@ -82,8 +82,12 @@ class NamedExpression : public Tree {
 
 class PatternAtom : public Tree {
   friend class AstTreeStorage;
+ public:
+  Identifier* identifier_ = nullptr;
  protected:
   PatternAtom(int uid) : Tree(uid) {}
+  PatternAtom(int uid, Identifier *identifier)
+      : Tree(uid), identifier_(identifier) {}
 };
 
 class NodeAtom : public PatternAtom {
@@ -95,14 +99,11 @@ class NodeAtom : public PatternAtom {
     visitor.PostVisit(*this);
   }
 
-  Identifier* identifier_ = nullptr;
   std::vector<GraphDb::Label> labels_;
   std::map<GraphDb::Property, Expression*> properties_;
 
  protected:
-  NodeAtom(int uid) : PatternAtom(uid) {}
-  NodeAtom(int uid, Identifier *identifier) :
-      PatternAtom(uid), identifier_(identifier) {}
+  using PatternAtom::PatternAtom;
 };
 
 class EdgeAtom : public PatternAtom {
@@ -117,11 +118,10 @@ class EdgeAtom : public PatternAtom {
   }
 
   Direction direction_ = Direction::BOTH;
-  Identifier* identifier_ = nullptr;
   std::vector<GraphDb::EdgeType> types_;
 
  protected:
-  EdgeAtom(int uid) : PatternAtom(uid) {}
+  using PatternAtom::PatternAtom;
 };
 
 class Clause : public Tree {
@@ -166,7 +166,7 @@ class Query : public Tree {
 class Create : public Clause {
  public:
   Create(int uid) : Clause(uid) {}
-  std::vector<std::shared_ptr<Pattern>> patterns_;
+  std::vector<Pattern*> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
