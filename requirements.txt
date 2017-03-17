@@ -5,7 +5,7 @@ Flask==0.12
 itsdangerous==0.24
 Jinja2==2.9.5
 MarkupSafe==1.0
-neo4j-driver==1.1.2
+neo4j-driver==1.0.2
 packaging==16.8
 parse==1.8.0
 parse-type==0.3.4

@@ -34,9 +34,8 @@ def set_logging(context):
 def create_db_driver(context):
     uri = context.config.database_uri
     auth_token = basic_auth(context.config.database_username, context.config.database_password)
-    if context.config.database == "neo4j":
-        driver = GraphDatabase.driver(uri, auth=auth_token)
+    if context.config.database == "neo4j" or context.config.database == "memgraph":
+        driver = GraphDatabase.driver(uri, auth=auth_token, encrypted=0)
     else:
-        #Memgraph
-        pass
+        raise "Unsupported database type"
     return driver

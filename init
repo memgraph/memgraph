@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# read arguments
+clone_dependencies=true
+while [[ $# -gt 0 ]]
+do
+key="$1"
+case $key in
+    --no-clone-dependencies)
+    clone_dependencies=false
+    shift # past argument
+    ;;
+    *)
+	# unknown option
+    ;;
+esac
+shift # past argument
+done
+
 # exit if any subcommand returns a non-zero status
 set -e
 
@@ -18,19 +35,25 @@ done
 
 # clean tests folder
 tests_folder=${script_dir}/tests
-rm -rf ${tests_folder}/*
+mkdir -p ${tests_folder}
 
 # clone dressipi's tests
 cd ${tests_folder}
+if ${clone_dependencies} ; then
+rm -rf ${tests_folder}/*
 git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
+fi
 
 # clean dbms folder
 dbms_folder=${script_dir}/dbms
-rm -rf ${dbms_folder}/*
+mkdir -p ${dbms_folder}
 
 # clone memgraph & checkout right commit
 cd ${dbms_folder}
+if ${clone_dependencies} ; then
+rm -rf ${dbms_folder}/*
 git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
+fi
 memgraph_folder=${dbms_folder}/memgraph
 cd ${memgraph_folder}
 git checkout dev
