@@ -1,15 +1,15 @@
-import steps.database
+class GraphProperties:
 
-class GraphProperties: 
     """
-    Class used to store changes(side effects of queries) 
-    to graph parameters(nodes, relationships, labels and 
+    Class used to store changes(side effects of queries)
+    to graph parameters(nodes, relationships, labels and
     properties) when executing queries.
     """
+
     def set_beginning_parameters(self):
         """
         Method sets parameters to empty lists.
-        
+
         @param self:
             Instance of a class.
         """
@@ -21,7 +21,7 @@ class GraphProperties:
     def __init__(self):
         """
         Method sets parameters to empty lists.
-            
+
         @param self:
             Instance of a class.
         """
@@ -49,7 +49,7 @@ class GraphProperties:
         @param self:
             Instance of a class.
         @param dif:
-            Int, difference between number of relationships 
+            Int, difference between number of relationships
             before and after executing query.
         """
         self.relationships.append(dif)
@@ -77,7 +77,8 @@ class GraphProperties:
         """
         self.properties.append(dif)
 
-    def compare(self, nodes_dif, relationships_dif, labels_dif, properties_dif):
+    def compare(self, nodes_dif, relationships_dif, labels_dif,
+                properties_dif):
         """
         Method used to compare side effects from executing
         queries and an expected result from a cucumber test.
@@ -88,7 +89,7 @@ class GraphProperties:
             List of all expected node side effects in order
             when executing query.
         @param relationships_dif:
-            List of all expected relationship side effects 
+            List of all expected relationship side effects
             in order when executing query.
         @param labels_dif:
             List of all expected label side effects in order

@@ -1,29 +1,38 @@
-import json
 
-import database, parser
+import database
+import parser
 from behave import *
 from neo4j.v1.types import Node, Path, Relationship
+
 
 @given('parameters are')
 def parameters_step(context):
     context.test_parameters.set_parameters_from_table(context.table)
 
-@then('parameters are') 
+
+@then('parameters are')
 def parameters_step(context):
     context.test_parameters.set_parameters_from_table(context.table)
 
+
 @step('having executed')
 def having_executed_step(context):
-    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(
+        context.text, context, context.test_parameters.get_parameters())
     context.graph_properties.set_beginning_parameters()
+
 
 @when('executing query')
 def executing_query_step(context):
-    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(
+        context.text, context, context.test_parameters.get_parameters())
+
 
 @when('executing control query')
 def executing_query_step(context):
-    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(
+        context.text, context, context.test_parameters.get_parameters())
+
 
 def parse_props(prop_json):
     """
@@ -67,25 +76,25 @@ def to_string(element):
         String of parsed element.
     """
     if element is None:
-        #parsing None
+        # parsing None
         return "null"
 
     if isinstance(element, Node):
-        #parsing Node
+        # parsing Node
         sol = "("
         if element.labels:
             sol += ':' + ': '.join(element.labels)
-      
+
         if element.properties:
             if element.labels:
                 sol += ' '
-            sol +=  parse_props(element.properties)
+            sol += parse_props(element.properties)
 
         sol += ")"
         return sol
 
     elif isinstance(element, Relationship):
-        #parsing Relationship
+        # parsing Relationship
         sol = "[:"
         if element.type:
             sol += element.type
@@ -96,7 +105,7 @@ def to_string(element):
         return sol
 
     elif isinstance(element, Path):
-        #parsing Path
+        # parsing Path
         # TODO add longer paths
         edges = []
         nodes = []
@@ -113,18 +122,18 @@ def to_string(element):
                 sol += nodes[i][1] + "-" + edges[i][1] + "->"
             else:
                 sol += nodes[i][1] + "<-" + edges[i][1] + "-"
-            
+
         sol += nodes[len(edges)][1]
         sol += ">"
-        
+
         return sol
 
     elif isinstance(element, str):
-        #parsing string
+        # parsing string
         return "'" + element + "'"
-    
+
     elif isinstance(element, list):
-        #parsing list
+        # parsing list
         sol = '['
         el_str = []
         for el in element:
@@ -135,13 +144,13 @@ def to_string(element):
         return sol
 
     elif isinstance(element, bool):
-        #parsing bool
+        # parsing bool
         if element:
             return "true"
         return "false"
 
     elif isinstance(element, dict):
-        #parsing map
+        # parsing map
         if len(element) == 0:
             return '{}'
         sol = '{'
@@ -149,18 +158,18 @@ def to_string(element):
             sol += key + ':' + to_string(val) + ','
         sol = sol[:-1] + '}'
         return sol
-    
+
     elif isinstance(element, float):
-        #parsing float, scientific
+        # parsing float, scientific
         if 'e' in str(element):
             if str(element)[-3] == '-':
-                zeroes = int(str(element)[-2:])-1
+                zeroes = int(str(element)[-2:]) - 1
                 num_str = ''
                 if str(element)[0] == '-':
                     num_str += '-'
-                num_str += '.' + zeroes * '0' + str(element)[:-4].replace("-", "").replace(".", "")
+                num_str += '.' + zeroes * '0' + \
+                    str(element)[:-4].replace("-", "").replace(".", "")
                 return num_str
-
 
     return str(element)
 
@@ -174,7 +183,7 @@ def get_result_rows(context, ignore_order):
         behave.runner.Context, behave context.
     @param ignore_order:
         bool, ignore order in result and expected list.
-    @return 
+    @return
         Result rows.
     """
     result_rows = []
@@ -182,7 +191,8 @@ def get_result_rows(context, ignore_order):
         keys = result.keys()
         values = result.values()
         for i in range(0, len(keys)):
-            result_rows.append(keys[i] + ":" + parser.parse(to_string(values[i]).replace("\n", "\\n").replace(" ", ""), ignore_order))
+            result_rows.append(keys[i] + ":" + parser.parse(
+                to_string(values[i]).replace("\n", "\\n").replace(" ", ""), ignore_order))
     return result_rows
 
 
@@ -200,8 +210,10 @@ def get_expected_rows(context, ignore_order):
     expected_rows = []
     for row in context.table:
         for col in context.table.headings:
-            expected_rows.append(col + ":" + parser.parse(row[col].replace(" ", ""), ignore_order))
+            expected_rows.append(
+                col + ":" + parser.parse(row[col].replace(" ", ""), ignore_order))
     return expected_rows
+
 
 def validate(context, ignore_order):
     """
@@ -218,7 +230,7 @@ def validate(context, ignore_order):
 
     context.log.info("Expected: %s", str(expected_rows))
     context.log.info("Results:  %s", str(result_rows))
-    assert(len(expected_rows) ==  len(result_rows))
+    assert(len(expected_rows) == len(result_rows))
 
     for i in range(0, len(expected_rows)):
         if expected_rows[i] in result_rows:
@@ -243,36 +255,42 @@ def validate_in_order(context, ignore_order):
 
     context.log.info("Expected: %s", str(expected_rows))
     context.log.info("Results:  %s", str(result_rows))
-    assert(len(expected_rows) ==  len(result_rows))
+    assert(len(expected_rows) == len(result_rows))
 
     for i in range(0, len(expected_rows)):
         if expected_rows[i] != result_rows[i]:
             assert(False)
+
 
 @then('the result should be')
 def expected_result_step(context):
     validate(context, False)
     check_exception(context)
 
+
 @then('the result should be, in order')
 def expected_result_step(context):
     validate_in_order(context, False)
     check_exception(context)
+
 
 @then('the result should be (ignoring element order for lists)')
 def expected_result_step(context):
     validate(context, True)
     check_exception(context)
 
+
 def check_exception(context):
     if context.exception is not None:
         context.log.info("Exception when eqecuting query!")
         assert(False)
 
+
 @then('the result should be empty')
 def empty_result_step(context):
     assert(len(context.results) == 0)
     check_exception(context)
+
 
 def side_effects_number(prop, table):
     """
@@ -284,7 +302,7 @@ def side_effects_number(prop, table):
         labels or properties.
     @param table:
         behave.model.Table, context table with side effects.
-    @return 
+    @return
         Description.
     """
     ret = []
@@ -293,32 +311,35 @@ def side_effects_number(prop, table):
         if row[0][0] == '+':
             sign = 1
         if row[0][1:] == prop:
-            ret.append(int(row[1])*sign)
+            ret.append(int(row[1]) * sign)
     sign = -1
     row = table.headings
     if row[0][0] == '+':
         sign = 1
     if row[0][1:] == prop:
-        ret.append(int(row[1])*sign)
+        ret.append(int(row[1]) * sign)
     ret.sort()
     return ret
+
 
 @then('the side effects should be')
 def side_effects_step(context):
     if context.config.no_side_effects:
         return
     table = context.table
-    #get side effects from db queries
+    # get side effects from db queries
     nodes_dif = side_effects_number("nodes", table)
     relationships_dif = side_effects_number("relationships", table)
     labels_dif = side_effects_number("labels", table)
     properties_dif = side_effects_number("properties", table)
-    #compare side effects
-    assert(context.graph_properties.compare(nodes_dif, relationships_dif, labels_dif, properties_dif) == True)
+    # compare side effects
+    assert(context.graph_properties.compare(nodes_dif,
+           relationships_dif, labels_dif, properties_dif) == True)
+
 
 @then('no side effects')
 def side_effects_step(context):
     if context.config.no_side_effects:
         return
-    #check if side effects are non existing
+    # check if side effects are non existing
     assert(context.graph_properties.compare([], [], [], []) == True)

@@ -28,6 +28,7 @@ def parse(el, ignore_order):
             return parse_rel(el, ignore_order)
     return el
 
+
 def is_list(el):
     """
     Function returns true if string el is a list, else false.
@@ -40,6 +41,7 @@ def is_list(el):
         return False
     return True
 
+
 def parse_path(path, ignore_order):
     """
     Function used to parse path.
@@ -49,8 +51,8 @@ def parse_path(path, ignore_order):
         parsed path
     """
     parsed_path = '<'
-    dif_open_closed_brackets = 0;
-    for i in range(1, len(path)-1):
+    dif_open_closed_brackets = 0
+    for i in range(1, len(path) - 1):
         if path[i] == '(' or path[i] == '{' or path[i] == '[':
             dif_open_closed_brackets += 1
             if dif_open_closed_brackets == 1:
@@ -58,11 +60,12 @@ def parse_path(path, ignore_order):
         if path[i] == ')' or path[i] == '}' or path[i] == ']':
             dif_open_closed_brackets -= 1
             if dif_open_closed_brackets == 0:
-                parsed_path += parse(path[start:(i+1)], ignore_order)
+                parsed_path += parse(path[start:(i + 1)], ignore_order)
         elif dif_open_closed_brackets == 0:
             parsed_path += path[i]
     parsed_path += '>'
     return parsed_path
+
 
 def parse_node(node_str, ignore_order):
     """
@@ -75,7 +78,7 @@ def parse_node(node_str, ignore_order):
     label = ''
     labels = []
     props_start = None
-    for i in range(1,  len(node_str)):
+    for i in range(1, len(node_str)):
         if node_str[i] == ':' or node_str[i] == ')' or node_str[i] == '{':
             if label.startswith(':'):
                 labels.append(label)
@@ -88,12 +91,14 @@ def parse_node(node_str, ignore_order):
 
     labels.sort()
     parsed_node = '('
-    for label in labels: 
+    for label in labels:
         parsed_node += label
     if props_start is not None:
-        parsed_node += parse_map(node_str[props_start:len(node_str)-1], ignore_order) 
+        parsed_node += parse_map(
+            node_str[props_start:len(node_str) - 1], ignore_order)
     parsed_node += ')'
     return parsed_node
+
 
 def parse_map(props, ignore_order):
     """
@@ -106,7 +111,7 @@ def parse_map(props, ignore_order):
     dif_open_closed_brackets = 0
     prop = ''
     list_props = []
-    for i in range(1, len(props)-1):
+    for i in range(1, len(props) - 1):
         if props[i] == ',' and dif_open_closed_brackets == 0:
             list_props.append(prop_to_str(prop, ignore_order))
             prop = ''
@@ -119,9 +124,9 @@ def parse_map(props, ignore_order):
     if prop != '':
         list_props.append(prop_to_str(prop, ignore_order))
 
-
     list_props.sort()
     return '{' + ','.join(list_props) + '}'
+
 
 def prop_to_str(prop, ignore_order):
     """
@@ -137,6 +142,7 @@ def prop_to_str(prop, ignore_order):
     val = prop.split(':', 1)[1]
     return key + ":" + parse(val, ignore_order)
 
+
 def parse_list(l, ignore_order):
     """
     Function used to parse list.
@@ -148,7 +154,7 @@ def parse_list(l, ignore_order):
     dif_open_closed_brackets = 0
     el = ''
     list_el = []
-    for i in range(1, len(l)-1):
+    for i in range(1, len(l) - 1):
         if l[i] == ',' and dif_open_closed_brackets == 0:
             list_el.append(parse(el, ignore_order))
             el = ''
@@ -163,8 +169,9 @@ def parse_list(l, ignore_order):
 
     if ignore_order:
         list_el.sort()
-   
+
     return '[' + ','.join(list_el) + ']'
+
 
 def parse_rel(rel, ignore_order):
     """
@@ -177,7 +184,7 @@ def parse_rel(rel, ignore_order):
     label = ''
     labels = []
     props_start = None
-    for i in range(1,  len(rel)):
+    for i in range(1, len(rel)):
         if rel[i] == ':' or rel[i] == ']' or rel[i] == '{':
             if label.startswith(':'):
                 labels.append(label)
@@ -190,10 +197,9 @@ def parse_rel(rel, ignore_order):
 
     labels.sort()
     parsed_rel = '['
-    for label in labels: 
+    for label in labels:
         parsed_rel += label
     if props_start is not None:
-        parsed_rel += parse_map(rel[props_start:len(rel)-1], ignore_order) 
+        parsed_rel += parse_map(rel[props_start:len(rel) - 1], ignore_order)
     parsed_rel += ']'
     return parsed_rel
-

@@ -34,6 +34,21 @@ The following tck tests have been changed:
 Comparability.feature tests are failing because integers are compared to strings
 what is not allowed in openCypher.
 
+TCK Engine problems:
+
+    1. Comparing tables with ordering.
+         ORDER BY x DESC
+         | x | y |    | x | y |
+         | 3 | 2 |    | 3 | 1 |
+         | 3 | 1 |    | 3 | 2 |
+         | 1 | 4 |    | 1 | 4 |
+
+    2. Properties side effects
+         | +properties | 1 |
+         | -properties | 1 | 
+
+         Database is returning properties_set, not properties_created and properties_deleted.
+ 
 ## KPI Service
 
 Flask application used to get results from executing tests with TCK Engine. 

@@ -1,22 +1,27 @@
 from flask import Flask, jsonify, request
-import os, json
+import os
+import json
 from argparse import ArgumentParser
 
 app = Flask(__name__)
 """
-Script runs web application used for getting test results. 
-File with results is "../tck_engine/results". 
+Script runs web application used for getting test results.
+Default file with results is "../tck_engine/results".
 Application lists files with results or returnes result
 file as json.
-Default host is 127.0.0.1, and default port is 5000. 
-Host and port can be passed as arguments of a script.
+Default host is 0.0.0.0, and default port is 5000.
+Host, port and result file can be passed as arguments of a script.
 """
+
 
 def parse_args():
     argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--host", default="0.0.0.0", help="Application host ip, default is 127.0.0.1.")
-    argp.add_argument("--port", default="5000", help="Application host ip, default is 5000.")
-    argp.add_argument("--results", default="../tck_engine/results", help="Path where the results are stored.")
+    argp.add_argument("--host", default="0.0.0.0",
+                      help="Application host ip, default is 0.0.0.0.")
+    argp.add_argument("--port", default="5000",
+                      help="Application host ip, default is 5000.")
+    argp.add_argument("--results", default="tck_engine/results",
+                      help="Path where the results are stored.")
     return argp.parse_args()
 
 
@@ -24,83 +29,138 @@ def parse_args():
 def results():
     """
     Function accessed with route /result. Function lists
-    names of last tail result files added to results and 
-    separeted by whitespace. Tail is a parameter given in 
-    route. If tail is not given, function lists all files
-    from the last added file.
+    last tail result files added. Tail is a parameter given
+    in the route. If the tail is not given, function lists
+    last ten added files. If parameter last is true, only last
+    test result is returned.
 
     @return:
-        string of file names separated by whitespace
+        json list of test results
     """
-    tail = request.args.get("tail")
-    return list_to_str(os.listdir(app.config["RESULTS_PATH"]), tail)
+    l = [f for f in os.listdir(app.config["RESULTS_PATH"])
+         if f != ".gitignore"]
+    return get_ret_list(l)
+
 
 @app.route("/results/<dbname>")
 def results_for_db(dbname):
     """
-    Function accessed with route /result/<dbname>. Function 
-    lists names of last tail result files of database <dbname> 
-    added to results and separeted by whitespace. Tail is a 
-    parameter given in route. If tail is not given, function 
-    lists all files of database <dbname> from the last added 
-    file.
+    Function accessed with route /result/<dbname>. Function
+    lists last tail result files added of database <dbname.
+    Tail is a parameter given in the route. If tail is not
+    given, function lists last ten added files of database
+    <dbname>. If param last is true, only last test result
+    is returned.
 
     @param dbname:
         string, database name
     @return:
-        string of file names separated by whitespace
+        json list of test results
     """
-    tail = request.args.get("tail")
-    return list_to_str(([f for f in os.listdir(app.config["RESULTS_PATH"]) if f.startswith(dbname)]), tail)
+    print(os.listdir(app.config["RESULTS_PATH"]))
+    l = [f for f in os.listdir(app.config["RESULTS_PATH"])
+         if f != ".gitignore" and f.split('-')[1] == dbname]
+    return get_ret_list(l)
 
-@app.route("/results/<dbname>/<timestamp>")
-def result(dbname, timestamp):
+
+@app.route("/results/<dbname>/<test_suite>")
+def result(dbname, test_suite):
     """
-    Function accessed with route /results/<dbname>/<timestamp>
-    Returns json of result file with name <dbname>_<timestamp>.json. 
-    <timestamp> is in format yyyy_mm_dd__HH_MM.
+    Function accessed with route /results/<dbname>/<test_suite>
+    Function lists last tail result files added of database <dbname>
+    tested on <test_suite>. Tail is a parameter given in the
+    route. If tail is not given, function lists last ten results.
+    If param last is true, only last test result is returned.
 
     @param dbname:
         string, database name
-    @param timestamp:
-        string, timestamp from description
+    @param test_suite:
+        string, test suite of result file
     @return:
-        json of a file.
+        json list of test results
     """
-    fname = dbname + "_" + timestamp + ".json"
-    with open(app.config["RESULTS_PATH"] + "/" + fname) as f:
-        json_data = json.load(f)
-        return jsonify(json_data)
+    fname = dbname + "-" + test_suite + ".json"
+    l = [f for f in os.listdir(app.config["RESULTS_PATH"])
+         if f.endswith(fname)]
+    return get_ret_list(l)
 
-def list_to_str(l, tail):
+
+def get_ret_list(l):
     """
-    Function returns first tail results of list l in decreasing 
-    order as string separated by whitespace. If tail is None, 
-    function returns string of whole list.
+    Function returns json list of test results of files given in
+    list l.
 
     @param l:
-        list to return as string
-    @param tail:
-        number of results
+        list of file names
     @return:
-        list as string
+        json list of test results
     """
     l.sort()
+    ret_list = []
+    for f in l:
+        ret_list.append(get_content(f))
+    return list_to_json(
+        ret_list,
+        request.args.get("last"),
+        request.args.get("tail")
+    )
+
+
+def get_content(fname):
+    """
+    Function returns data of the json file fname located in
+    results directory in json format.
+
+    @param fname:
+        string, name of the file
+    @return:
+        json of a file
+    """
+    with open(app.config["RESULTS_PATH"] + "/" + fname) as f:
+        json_data = json.load(f)
+        return json_data
+
+
+def list_to_json(l, last, tail):
+    """
+    Function converts list to json format. If last is true,
+    only the first item in list is returned list, else last
+    tail results are returned in json list. If tail is not
+    given, last ten results are returned in json list.
+
+    @param l:
+        list to convert to json format
+    @param last:
+        string from description
+    @param tail:
+        string from description
+    """
     l.reverse()
+    if len(l) == 0:
+        return jsonify(results=[])
+
+    if last == "true":
+        return jsonify(results=[l[0]])
+
     if tail is None:
-        tail = len(l)
-    tail = max(tail, len(l))
-    return ' '.join(l[0:int(tail)])
+        tail = 10
+    else:
+        tail = int(tail)
+        if tail > len(l):
+            tail = len(l)
+    return jsonify(results=l[0:tail])
+
 
 def main():
     args = parse_args()
     app.config.update(dict(
-        RESULTS_PATH=args.results
+        RESULTS_PATH=os.path.abspath(args.results)
     ))
     app.run(
-        host = args.host,
-        port = int(args.port)
+        host=args.host,
+        port=int(args.port)
     )
+
 
 if __name__ == "__main__":
     main()

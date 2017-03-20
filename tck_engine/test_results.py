@@ -1,6 +1,7 @@
 class TestResults:
+
     """
-    Clas used to store test results. It has parameters total 
+    Clas used to store test results. It has parameters total
     and passed.
 
     @attribute total:
@@ -8,6 +9,7 @@ class TestResults:
     @attribute passed:
         int, number of passed scenarios.
     """
+
     def __init__(self):
         self.total = 0
         self.passed = 0
@@ -26,7 +28,7 @@ class TestResults:
 
     def add_test(self, status):
         """
-        Method adds one scenario to current results. If 
+        Method adds one scenario to current results. If
         scenario passed, number of passed scenarios increases.
 
         @param status:

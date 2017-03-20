@@ -1,10 +1,10 @@
 def query(q, context, params={}):
     """
-    Function used to execute query on database. Query results are 
+    Function used to execute query on database. Query results are
     set in context.result_list. If exception occurs, it is set on
     context.exception.
 
-    @param q: 
+    @param q:
         String, database query.
     @param context:
         behave.runner.Context, context of all tests.
@@ -17,7 +17,7 @@ def query(q, context, params={}):
     if context.config.database == "neo4j":
         session = driver.session()
         try:
-            #executing query
+            # executing query
             with session.begin_transaction() as tx:
                 results = tx.run(q, params)
                 summary = results.summary()
@@ -27,11 +27,11 @@ def query(q, context, params={}):
                 tx.success = True
             session.close()
         except Exception as e:
-            #exception
+            # exception
             context.exception = e
             context.log.info('%s', str(e))
             session.close()
-            #not working if removed
+            # not working if removed
             query("match (n) detach delete(n)", context)
     return results_list
 
@@ -44,23 +44,22 @@ def add_side_effects(context, counters):
         behave.runner.Context, context of all tests.
     """
     graph_properties = context.graph_properties
-    
-    #check nodes
+
+    # check nodes
     if counters.nodes_deleted > 0:
         graph_properties.change_nodes(-counters.nodes_deleted)
     if counters.nodes_created > 0:
         graph_properties.change_nodes(counters.nodes_created)
-    #check relationships
+    # check relationships
     if counters.relationships_deleted > 0:
         graph_properties.change_relationships(-counters.relationships_deleted)
     if counters.relationships_created > 0:
-        graph_properties.change_relationships(counters.relationships_created) 
-    #check labels
+        graph_properties.change_relationships(counters.relationships_created)
+    # check labels
     if counters.labels_removed > 0:
         graph_properties.change_labels(-counters.labels_removed)
     if counters.labels_added > 0:
         graph_properties.change_labels(counters.labels_added)
-    #check properties
+    # check properties
     if counters.properties_set > 0:
         graph_properties.change_properties(counters.properties_set)
-    
