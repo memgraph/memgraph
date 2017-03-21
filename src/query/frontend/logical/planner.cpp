@@ -44,7 +44,7 @@ LogicalOperator *GenMatch(
   if (!node_atom->labels_.empty() || !node_atom->properties_.empty()) {
     auto &input_symbol = symbol_table.at(*node_atom->identifier_);
     return new NodeFilter(std::shared_ptr<LogicalOperator>(scan_all), input_symbol,
-                          node_atom->labels_, node_atom->properties_);
+                          node_atom);
   }
   return scan_all;
 }

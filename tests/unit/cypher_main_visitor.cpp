@@ -103,7 +103,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_EQ(edge->direction_, EdgeAtom::Direction::LEFT);
   ASSERT_THAT(
-      edge->types_,
+      edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
                            ast_generator.db_accessor_->edge_type("type2")));
   // TODO: test properties

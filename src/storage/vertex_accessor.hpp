@@ -3,6 +3,8 @@
 #include <set>
 #include <vector>
 
+#include "cppitertools/chain.hpp"
+
 #include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"

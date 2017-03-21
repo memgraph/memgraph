@@ -260,7 +260,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       users_identifiers.insert(variable);
     }
     if (ctx->relationshipDetail()->relationshipTypes()) {
-      edge->types_ = ctx->relationshipDetail()
+      edge->edge_types_ = ctx->relationshipDetail()
                          ->relationshipTypes()
                          ->accept(this)
                          .as<std::vector<GraphDb::EdgeType>>();

@@ -112,12 +112,16 @@ class NodeAtom : public PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
+
 };
 
 class EdgeAtom : public PatternAtom {
   friend class AstTreeStorage;
 
  public:
+  // TODO change to IN, OUT, BOTH
+  // LEFT/RIGHT is not clear especially when expansion will not
+  // necessarily go from left to right
   enum class Direction { LEFT, RIGHT, BOTH };
 
   void Accept(TreeVisitorBase &visitor) override {
@@ -127,12 +131,14 @@ class EdgeAtom : public PatternAtom {
   }
 
   Direction direction_ = Direction::BOTH;
-  std::vector<GraphDb::EdgeType> types_;
+  std::vector<GraphDb::EdgeType> edge_types_;
   // TODO: change to unordered_map
   std::map<GraphDb::Property, Expression *> properties_;
 
  protected:
   using PatternAtom::PatternAtom;
+  EdgeAtom(int uid, Identifier *identifier, Direction direction)
+      : PatternAtom(uid, identifier), direction_(direction) {}
 };
 
 class Clause : public Tree {
@@ -241,8 +247,7 @@ class AstTreeStorage {
   T *Create(Args &&... args) {
     // Never call create for a Query. Call query() instead.
     static_assert(!std::is_same<T, Query>::value, "Call query() instead");
-    // TODO: use std::forward here
-    T *p = new T(next_uid_++, args...);
+    T *p = new T(next_uid_++, std::forward<Args>(args)...);
     storage_.emplace_back(p);
     return p;
   }
