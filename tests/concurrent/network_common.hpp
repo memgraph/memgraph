@@ -17,7 +17,6 @@
 #include "io/network/socket.hpp"
 #include "query/engine.hpp"
 
-
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;
 
@@ -28,9 +27,10 @@ class TestOutputStream {};
 
 class TestSession {
  public:
-  TestSession(socket_t &&socket, Dbms &dbms,
-              QueryEngine<TestOutputStream> &query_engine)
-      : socket(std::move(socket)), logger_(logging::log->logger("TestSession")) {
+  TestSession(socket_t&& socket, Dbms& dbms,
+              QueryEngine<TestOutputStream>& query_engine)
+      : logger_(logging::log->logger("TestSession")),
+        socket(std::move(socket)) {
     event.data.ptr = this;
   }
 
@@ -38,7 +38,7 @@ class TestSession {
 
   int id() const { return socket.id(); }
 
-  void execute(const byte *data, size_t len) {
+  void execute(const byte* data, size_t len) {
     if (size_ == 0) {
       size_ = data[0];
       size_ <<= 8;
@@ -77,7 +77,8 @@ void server_start(void* serverptr, int num) {
   ((test_server_t*)serverptr)->Start(num);
 }
 
-void client_run(int num, const char* interface, const char* port, const unsigned char* data, int lo, int hi) {
+void client_run(int num, const char* interface, const char* port,
+                const unsigned char* data, int lo, int hi) {
   std::stringstream name;
   name << "Client " << num;
   Logger logger = logging::log->logger(name.str());

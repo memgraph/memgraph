@@ -75,7 +75,6 @@ static void FindFromRBegin(benchmark::State &state) {
 
     auto accessor = skiplist.access();
     auto rbegin = accessor.rbegin();
-    auto rend = accessor.rend();
 
     state.ResumeTiming();
 

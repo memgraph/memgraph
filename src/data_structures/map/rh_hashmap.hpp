@@ -1,16 +1,20 @@
 #include <functional>
 
 #include "data_structures/map/rh_common.hpp"
+#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 #include "utils/option_ptr.hpp"
 
-// HashMap with RobinHood collision resolution policy.
-// Single threaded.
-// Entrys are saved as pointers alligned to 8B.
-// Entrys must know thers key.
-// D must have method const K & get_key()
-// K must be comparable with ==.
-// HashMap behaves as if it isn't owner of entrys.
+/**
+ * HashMap with RobinHood collision resolution policy.
+ * Single threaded.
+ * Entries are saved as pointers alligned to 8B.
+ * Entries must know thers key.
+ * D must have method const K & get_key()
+ * K must be comparable with ==.
+ * HashMap behaves as if it isn't owner of entries.
+ * BE CAREFUL - this structure assumes that the pointer to Data is 8-alligned!
+*/
 template <class K, class D, size_t init_size_pow2 = 2>
 class RhHashMap : public RhBase<K, D, init_size_pow2> {
   typedef RhBase<K, D, init_size_pow2> base;
@@ -69,6 +73,8 @@ class RhHashMap : public RhBase<K, D, init_size_pow2> {
 
   // Inserts element. Returns true if element wasn't in the map.
   bool insert(D *data) {
+    permanent_assert(!(((uint64_t) static_cast<void *>(data) & 7)),
+                     "Data is not 8-alligned.");
     if (count < capacity) {
       size_t mask = this->mask();
       auto key = std::ref(data->get_key());

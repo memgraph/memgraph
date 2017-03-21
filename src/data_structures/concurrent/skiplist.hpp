@@ -771,7 +771,7 @@ class SkipList : private Lockable<lock_t> {
     }
 
     Node *preds[H];
-    auto level = find_path(this, H - 1, item, preds);
+    find_path(this, H - 1, item, preds);
     return std::make_pair(ReverseIterator(this, preds[0], preds), true);
   }
 

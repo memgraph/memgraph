@@ -4,7 +4,6 @@
 
 class Data {
  private:
-  size_t data = 0;
   int key;
 
  public:
@@ -23,7 +22,8 @@ TEST(RobinHoodHashmultimap, BasicFunctionality) {
   RhHashMultiMap<int, Data> map;
 
   ASSERT_EQ(map.size(), 0);
-  map.add(new Data(0));
+  Data d0(0);
+  map.add(&d0);
   ASSERT_EQ(map.size(), 1);
 }
 
@@ -31,67 +31,72 @@ TEST(RobinHoodHashmultimap, InsertGetCheck) {
   RhHashMultiMap<int, Data> map;
 
   ASSERT_EQ(map.find(0), map.end());
-  auto ptr0 = new Data(0);
-  map.add(ptr0);
+  Data d0(0);
+  map.add(&d0);
   ASSERT_NE(map.find(0), map.end());
-  ASSERT_EQ(*map.find(0), ptr0);
+  ASSERT_EQ(*map.find(0), &d0);
 }
 
 TEST(RobinHoodHashmultimap, ExtremeSameKeyValusFull) {
   RhHashMultiMap<int, Data> map;
 
+  std::vector<std::unique_ptr<Data>> di;
+  di.reserve(128);
   for (int i = 0; i < 128; i++) {
-    map.add(new Data(7));
+    di.emplace_back(std::make_unique<Data>(7));
+    map.add(di[i].get());
   }
   ASSERT_EQ(map.size(), 128);
   ASSERT_NE(map.find(7), map.end());
   ASSERT_EQ(map.find(0), map.end());
-  auto ptr0 = new Data(0);
-  map.add(ptr0);
+  Data d0(0);
+  map.add(&d0);
   ASSERT_NE(map.find(0), map.end());
-  ASSERT_EQ(*map.find(0), ptr0);
+  ASSERT_EQ(*map.find(0), &d0);
 }
 
 TEST(RobinHoodHashmultimap, ExtremeSameKeyValusFullWithRemove) {
   RhHashMultiMap<int, Data> map;
 
+  std::vector<std::unique_ptr<Data>> di;
+  di.reserve(128);
   for (int i = 0; i < 127; i++) {
-    map.add(new Data(7));
+    di.emplace_back(std::make_unique<Data>(7));
+    map.add(di[i].get());
   }
-  auto ptr = new Data(7);
-  map.add(ptr);
+  Data d7(7);
+  map.add(&d7);
   ASSERT_EQ(map.size(), 128);
-  ASSERT_EQ(!map.remove(new Data(0)), true);
-  ASSERT_EQ(map.remove(ptr), true);
+  Data d0(0);
+  ASSERT_EQ(!map.remove(&d0), true);
+  ASSERT_EQ(map.remove(&d7), true);
 }
 
 TEST(RobinHoodHasmultihmap, RemoveFunctionality) {
   RhHashMultiMap<int, Data> map;
 
   ASSERT_EQ(map.find(0), map.end());
-  auto ptr0 = new Data(0);
-  map.add(ptr0);
+  Data d0(0);
+  map.add(&d0);
   ASSERT_NE(map.find(0), map.end());
-  ASSERT_EQ(*map.find(0), ptr0);
-  ASSERT_EQ(map.remove(ptr0), true);
+  ASSERT_EQ(*map.find(0), &d0);
+  ASSERT_EQ(map.remove(&d0), true);
   ASSERT_EQ(map.find(0), map.end());
 }
 
 TEST(RobinHoodHashmultimap, DoubleInsert) {
   RhHashMultiMap<int, Data> map;
 
-  auto ptr0 = new Data(0);
-  auto ptr1 = new Data(0);
-  map.add(ptr0);
-  map.add(ptr1);
+  Data d0(0);
+  Data d01(0);
+  map.add(&d0);
+  map.add(&d01);
 
   for (auto e : map) {
-    if (ptr0 == e) {
-      ptr0 = nullptr;
+    if (&d0 == e) {
       continue;
     }
-    if (ptr1 == e) {
-      ptr1 = nullptr;
+    if (&d01 == e) {
       continue;
     }
     ASSERT_EQ(true, false);
@@ -101,9 +106,12 @@ TEST(RobinHoodHashmultimap, DoubleInsert) {
 TEST(RobinHoodHashmultimap, FindAddFind) {
   RhHashMultiMap<int, Data> map;
 
+  std::vector<std::unique_ptr<Data>> di;
+  di.reserve(128);
   for (int i = 0; i < 128; i++) {
     ASSERT_EQ(map.find(i), map.end());
-    map.add(new Data(i));
+    di.emplace_back(std::make_unique<Data>(i));
+    map.add(di[i].get());
     ASSERT_NE(map.find(i), map.end());
   }
 
@@ -116,9 +124,12 @@ TEST(RobinHoodHashmultimap, FindAddFind) {
 TEST(RobinHoodHashmultimap, Iterate) {
   RhHashMultiMap<int, Data> map;
 
+  std::vector<std::unique_ptr<Data>> di;
+  di.reserve(128);
   for (int i = 0; i < 128; i++) {
     ASSERT_EQ(map.find(i), map.end());
-    map.add(new Data(i));
+    di.emplace_back(std::make_unique<Data>(i));
+    map.add(di[i].get());
     ASSERT_NE(map.find(i), map.end());
   }
 
@@ -137,12 +148,18 @@ TEST(RobinHoodHashmultimap, Checked) {
   RhHashMultiMap<int, Data> map;
   std::multimap<int, Data *> s_map;
 
-  for (int i = 0; i < 1638; i++) {
-    int key = (std::rand() % 100) << 3;
+  std::vector<std::unique_ptr<Data>> di;
+  std::vector<int> keys;
+  di.reserve(1638);
+  for (int i = 0; i < 1638; ++i) {
+    const int key = (std::rand() % 100) << 3;
+    keys.push_back(key);
+    di.emplace_back(std::make_unique<Data>(key));
+  }
 
-    auto data = new Data(key);
-    map.add(data);
-    s_map.insert(std::pair<int, Data *>(key, data));
+  for (int i = 0; i < 1638; i++) {
+    map.add(di[i].get());
+    s_map.insert(std::pair<int, Data *>(keys[i], di[i].get()));
   }
   cross_validate(map, s_map);
 }
@@ -151,12 +168,19 @@ TEST(RobinHoodHashmultimap, CheckedRand) {
   RhHashMultiMap<int, Data> map;
   std::multimap<int, Data *> s_map;
   std::srand(std::time(0));
-  for (int i = 0; i < 164308; i++) {
-    int key = (std::rand() % 10000) << 3;
 
-    auto data = new Data(key);
-    map.add(data);
-    s_map.insert(std::pair<int, Data *>(key, data));
+  std::vector<std::unique_ptr<Data>> di;
+  std::vector<int> keys;
+  di.reserve(164308);
+  for (int i = 0; i < 164308; ++i) {
+    const int key = (std::rand() % 10000) << 3;
+    keys.push_back(key);
+    di.emplace_back(std::make_unique<Data>(key));
+  }
+
+  for (int i = 0; i < 164308; i++) {
+    map.add(di[i].get());
+    s_map.insert(std::pair<int, Data *>(keys[i], di[i].get()));
   }
   cross_validate(map, s_map);
 }
@@ -166,6 +190,7 @@ TEST(RobinHoodHashmultimap, WithRemoveDataChecked) {
   std::multimap<int, Data *> s_map;
 
   std::srand(std::time(0));
+  std::vector<std::unique_ptr<Data>> di;
   for (int i = 0; i < 162638; i++) {
     int key = (std::rand() % 10000) << 3;
     if ((std::rand() % 2) == 0) {
@@ -177,13 +202,20 @@ TEST(RobinHoodHashmultimap, WithRemoveDataChecked) {
         ASSERT_EQ(map.remove(it->second), true);
       }
     } else {
-      auto data = new Data(key);
-      map.add(data);
-      s_map.insert(std::pair<int, Data *>(key, data));
+      di.emplace_back(std::make_unique<Data>(key));
+      map.add(di.back().get());
+      s_map.insert(std::pair<int, Data *>(key, di.back().get()));
     }
   }
 
   cross_validate(map, s_map);
+}
+
+TEST(RobinhoodHashmultimap, AlignmentCheck) {
+  RhHashMultiMap<int, Data> map;
+  char *block = static_cast<char *>(std::malloc(20));
+  ++block;  // not alligned - offset 1
+  EXPECT_DEATH(map.add((Data *)(block)), "not 8-alligned");
 }
 
 void cross_validate(RhHashMultiMap<int, Data> &map,

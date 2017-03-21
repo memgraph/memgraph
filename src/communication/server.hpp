@@ -37,9 +37,9 @@ class Server
 
  public:
   Server(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : socket_(std::forward<Socket>(socket)),
-        dbms_(dbms),
+      : dbms_(dbms),
         query_engine_(query_engine),
+        socket_(std::forward<Socket>(socket)),
         logger_(logging::log->logger("communication::Server")) {
     event_.data.fd = socket_;
 

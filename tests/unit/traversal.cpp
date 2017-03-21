@@ -3,12 +3,12 @@
 // Created by Florijan Stamenkovic on 24.01.17..
 //
 
-#include <vector>
-#include <list>
-#include <unordered_set>
 #include <iostream>
 #include <list>
+#include <list>
 #include <memory>
+#include <unordered_set>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -38,14 +38,14 @@ class Edge;
 class Vertex {
   friend class Edge;
 
-public:
+ public:
   // unique identifier (uniqueness guaranteed by this class)
   const int id_;
 
   // vertex set by the user, for testing purposes
   const int label_;
 
-  Vertex(int label=0) : id_(counter_++), label_(label) {}
+  Vertex(int label = 0) : id_(counter_++), label_(label) {}
 
   const auto &in() const { return *in_; }
   const auto &out() const { return *out_; }
@@ -57,15 +57,16 @@ public:
   bool operator==(const Vertex &v) const { return this->id_ == v.id_; }
   bool operator!=(const Vertex &v) const { return !(*this == v); }
 
-private:
+ private:
   // shared pointers to outgoing and incoming edges are used so that when
   // a Vertex is copied it still points to the same connectivity storage
-  std::shared_ptr<std::vector<Edge>> in_ = std::make_shared<std::vector<Edge>>();
-  std::shared_ptr<std::vector<Edge>> out_ = std::make_shared<std::vector<Edge>>();
+  std::shared_ptr<std::vector<Edge>> in_ =
+      std::make_shared<std::vector<Edge>>();
+  std::shared_ptr<std::vector<Edge>> out_ =
+      std::make_shared<std::vector<Edge>>();
 
   // Vertex counter, used for generating IDs
   static int counter_;
-
 };
 
 int Vertex::counter_ = 0;
@@ -75,15 +76,15 @@ int Vertex::counter_ = 0;
  * and an exposed id_ member.
  */
 class Edge {
-public:
+ public:
   // unique identifier (uniqueness guaranteed by this class)
   const int id_;
 
   // vertex set by the user, for testing purposes
   const int type_;
 
-  Edge(const Vertex &from, const Vertex &to, int type=0) :
-      id_(counter_++), from_(from), to_(to), type_(type) {
+  Edge(const Vertex &from, const Vertex &to, int type = 0)
+      : id_(counter_++), type_(type), from_(from), to_(to) {
     from.out_->emplace_back(*this);
     to.in_->emplace_back(*this);
   }
@@ -98,7 +99,7 @@ public:
     return stream << "[" << e.id_ << "]";
   }
 
-private:
+ private:
   const Vertex &from_;
   const Vertex &to_;
 
@@ -115,34 +116,34 @@ using Paths = traversal_template::Paths<Vertex, Edge>;
 /**
  * Specialization of the traversal_template::Begin function.
  */
-template<typename TCollection>
-auto Begin(const TCollection &vertices, std::function<bool(const Vertex &)> vertex_filter = {}) {
-  return traversal_template::Begin<TCollection, Vertex, Edge>(vertices, vertex_filter);
+template <typename TCollection>
+auto Begin(const TCollection &vertices,
+           std::function<bool(const Vertex &)> vertex_filter = {}) {
+  return traversal_template::Begin<TCollection, Vertex, Edge>(vertices,
+                                                              vertex_filter);
 }
 
 /**
  * Specialization of the traversal_template::Cartesian function that accepts
  * a single argument.
  */
-template<typename TVisitable>
+template <typename TVisitable>
 auto Cartesian(TVisitable &&visitable) {
   return traversal_template::Cartesian<TVisitable, Vertex, Edge>(
       std::forward<TVisitable>(visitable));
 }
 
-
 /**
  * Specialization of the traversal_template::Cartesian function that accepts
  * multiple arguments.
  */
-template<typename TVisitableFirst, typename... TVisitableOthers>
+template <typename TVisitableFirst, typename... TVisitableOthers>
 auto Cartesian(TVisitableFirst &&first, TVisitableOthers &&... others) {
-  return traversal_template::CartesianBinaryType<TVisitableFirst, decltype(Cartesian(
-      std::forward<TVisitableOthers>(others)...)),
-      Vertex, Edge>(
-      std::forward<TVisitableFirst>(first),
-      Cartesian(std::forward<TVisitableOthers>(others)...)
-  );
+  return traversal_template::CartesianBinaryType<
+      TVisitableFirst,
+      decltype(Cartesian(std::forward<TVisitableOthers>(others)...)), Vertex,
+      Edge>(std::forward<TVisitableFirst>(first),
+            Cartesian(std::forward<TVisitableOthers>(others)...));
 }
 }
 
@@ -150,27 +151,27 @@ auto Cartesian(TVisitableFirst &&first, TVisitableOthers &&... others) {
  * Hash calculations for text vertex, edge, Path and Paths.
  * Only for testing purposes.
  */
-namespace std{
+namespace std {
 
 template <>
-class hash<traversal_test::Vertex> {
-public:
+struct hash<traversal_test::Vertex> {
+ public:
   size_t operator()(const traversal_test::Vertex &vertex) const {
-    return (size_t) vertex.id_;
+    return (size_t)vertex.id_;
   }
 };
 
 template <>
-class hash<traversal_test::Edge> {
-public:
+struct hash<traversal_test::Edge> {
+ public:
   size_t operator()(const traversal_test::Edge &edge) const {
-    return (size_t) edge.id_;
+    return (size_t)edge.id_;
   }
 };
 
 template <>
-class hash<traversal_test::Path> {
-public:
+struct hash<traversal_test::Path> {
+ public:
   std::size_t operator()(const traversal_test::Path &path) const {
     std::size_t r_val = 0;
 
@@ -182,8 +183,8 @@ public:
 };
 
 template <>
-class hash<traversal_test::Paths> {
-public:
+struct hash<traversal_test::Paths> {
+ public:
   std::size_t operator()(const traversal_test::Paths &paths) const {
     std::size_t r_val = 0;
 
@@ -195,14 +196,13 @@ public:
 };
 }
 
-
 /**
  * Hash for a list of edges, used in tests.
  */
-namespace std{
+namespace std {
 template <>
-class hash<std::list<traversal_test::Edge>> {
-public:
+struct hash<std::list<traversal_test::Edge>> {
+ public:
   std::size_t operator()(const std::list<traversal_test::Edge> &edges) const {
     std::size_t r_val = 0;
 
@@ -221,7 +221,8 @@ std::unordered_set<TElement> accumulate_visited(const TVisitable &visitable) {
   // we accept const here so we can receive r-values
   // we cast the const-ness away because the Visit function is not const
   std::unordered_set<TElement> results;
-  const_cast<TVisitable&>(visitable).Visit([&results](auto e) { results.insert(e); });
+  const_cast<TVisitable &>(visitable).Visit(
+      [&results](auto e) { results.insert(e); });
   return results;
 };
 
@@ -276,8 +277,7 @@ TEST(Traversal, Begin) {
   std::vector<Vertex> vertices(3);
 
   std::unordered_set<Path> expected;
-  for (const auto &vertex : vertices)
-    expected.insert(Path().Start(vertex));
+  for (const auto &vertex : vertices) expected.insert(Path().Start(vertex));
   EXPECT_EQ(expected.size(), 3);
 
   auto result = accumulate_visited<Path>(Begin(vertices));
@@ -291,13 +291,10 @@ TEST(Traversal, BeginExpand) {
   Edge e2(v2, v3);
 
   // test traversal from (v0)
-  auto expected = std::unordered_set<Path>{
-      Path().Start(v0).Append(e0, v1),
-      Path().Start(v0).Append(e1, v2)
-  };
-  auto result= accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          Expand(Expansion::Back, Direction::Out));
+  auto expected = std::unordered_set<Path>{Path().Start(v0).Append(e0, v1),
+                                           Path().Start(v0).Append(e1, v2)};
+  auto result = accumulate_visited<Path>(
+      Begin(std::vector<Vertex>{v0}).Expand(Expansion::Back, Direction::Out));
   EXPECT_EQ(expected, result);
 }
 
@@ -312,29 +309,23 @@ TEST(Traversal, BeginExpandVariable) {
 
   // test traversal from (v0)
   auto expected = std::unordered_set<Path>{
-      Path().Start(v0).Append(e0, v1),
-      Path().Start(v0).Append(e1, v2),
-      Path().Start(v0).Append(e1, v2).Append(e2, v3)
-  };
-  auto result= accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out));
+      Path().Start(v0).Append(e0, v1), Path().Start(v0).Append(e1, v2),
+      Path().Start(v0).Append(e1, v2).Append(e2, v3)};
+  auto result = accumulate_visited<Path>(
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out));
   EXPECT_EQ(expected, result);
-
 }
 
 TEST(Traversal, BeginFilter) {
   Vertex v0(1), v1(1), v2(2);
 
-  std::unordered_set<Path> expected{
-      Path().Start(v0),
-      Path().Start(v1)
-  };
+  std::unordered_set<Path> expected{Path().Start(v0), Path().Start(v1)};
 
-  auto result = accumulate_visited<Path>(Begin(std::vector<Vertex>{v0, v1, v2},
-                                               [](const Vertex &v) { return v.label_ == 1; }));
+  auto result = accumulate_visited<Path>(
+      Begin(std::vector<Vertex>{v0, v1, v2},
+            [](const Vertex &v) { return v.label_ == 1; }));
   EXPECT_EQ(expected, result);
-
 }
 
 TEST(Traversal, BeginCurrent) {
@@ -344,7 +335,7 @@ TEST(Traversal, BeginCurrent) {
   std::vector<Vertex> begin_input{v0, v1, v2};
   auto b = Begin(begin_input);
 
-  b.Visit([&b, &expected](Path &path){
+  b.Visit([&b, &expected](Path &path) {
     EXPECT_EQ(1, expected.erase(b.CurrentVertex()));
   });
 
@@ -365,32 +356,36 @@ TEST(Traversal, ExpandExpand) {
   Edge e6(v7, v1);
 
   // test traversal from (v0)
-  auto expected = std::unordered_set<Path>{
-      Path().Start(v0).Append(e0, v1).Append(e2, v3),
-      Path().Start(v0).Append(e1, v2).Append(e3, v4),
-      Path().Start(v0).Append(e1, v2).Append(e4, v5)
-  };
-  auto result= accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          Expand(Expansion::Back, Direction::Out).
-          Expand(Expansion::Back, Direction::Out));
+  auto expected =
+      std::unordered_set<Path>{Path().Start(v0).Append(e0, v1).Append(e2, v3),
+                               Path().Start(v0).Append(e1, v2).Append(e3, v4),
+                               Path().Start(v0).Append(e1, v2).Append(e4, v5)};
+  auto result =
+      accumulate_visited<Path>(Begin(std::vector<Vertex>{v0})
+                                   .Expand(Expansion::Back, Direction::Out)
+                                   .Expand(Expansion::Back, Direction::Out));
   EXPECT_EQ(expected, result);
 }
 
 TEST(Traversal, ExpandFilter) {
-  // make a one-level deep tree and 4 children that have {1,2} vertex labels and {3,4} edge types
+  // make a one-level deep tree and 4 children that have {1,2} vertex labels and
+  // {3,4} edge types
   Vertex root;
-  Vertex v1(1); Edge e1(root, v1, 3);
-  Vertex v2(1); Edge e2(root, v2, 4);
-  Vertex v3(2); Edge e3(root, v3, 3);
-  Vertex v4(2); Edge e4(root, v4, 4);
+  Vertex v1(1);
+  Edge e1(root, v1, 3);
+  Vertex v2(1);
+  Edge e2(root, v2, 4);
+  Vertex v3(2);
+  Edge e3(root, v3, 3);
+  Vertex v4(2);
+  Edge e4(root, v4, 4);
 
   // filter to accept only label 1 and edge type 3, expect exactly one path
   auto result = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{root}).
-          Expand(Expansion::Back, Direction::Out,
-                 [](const Vertex &v) { return v.label_ == 1; },
-                 [](const Edge &e) { return e.type_ == 3; }));
+      Begin(std::vector<Vertex>{root})
+          .Expand(Expansion::Back, Direction::Out,
+                  [](const Vertex &v) { return v.label_ == 1; },
+                  [](const Edge &e) { return e.type_ == 3; }));
 
   auto expected = std::unordered_set<Path>{Path().Start(root).Append(e1, v1)};
   EXPECT_EQ(expected, result);
@@ -416,7 +411,7 @@ TEST(Traversal, ExpandCurrent) {
   std::unordered_set<Vertex> expected_expand1_vertices{v3, v4, v5, v6};
   std::unordered_set<Edge> expected_expand1_edges{e3, e4, e5, e6};
 
-  expand1.Visit([&](Path &path){
+  expand1.Visit([&](Path &path) {
     // we can't check that erasure on the first level because it only gets
     // erased the first time a path containing first level stuff gets visited
     expected_expand0_vertices.erase(expand0.CurrentVertex());
@@ -434,10 +429,14 @@ TEST(Traversal, ExpandCurrent) {
 TEST(Traversal, ExpandVariableLimits) {
   // make a chain
   Vertex v0;
-  Vertex v1; Edge e1(v0, v1);
-  Vertex v2; Edge e2(v1, v2);
-  Vertex v3; Edge e3(v2, v3);
-  Vertex v4; Edge e4(v3, v4);
+  Vertex v1;
+  Edge e1(v0, v1);
+  Vertex v2;
+  Edge e2(v1, v2);
+  Vertex v3;
+  Edge e3(v2, v3);
+  Vertex v4;
+  Edge e4(v3, v4);
 
   // all possible results
   std::vector<Path> all_possible{Path().Start(v0)};
@@ -448,29 +447,36 @@ TEST(Traversal, ExpandVariableLimits) {
 
   // default is one or more traversals
   auto result0 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).ExpandVariable(Expansion::Back, Direction::Out));
-  EXPECT_EQ(result0, std::unordered_set<Path>(all_possible.begin() + 1, all_possible.end()));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out));
+  EXPECT_EQ(result0, std::unordered_set<Path>(all_possible.begin() + 1,
+                                              all_possible.end()));
 
   // zero or more traversals
   auto result1 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out, {}, {}, 0));
-  EXPECT_EQ(result1, std::unordered_set<Path>(all_possible.begin(), all_possible.end()));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out, {}, {}, 0));
+  EXPECT_EQ(result1,
+            std::unordered_set<Path>(all_possible.begin(), all_possible.end()));
 
   // an exact number of traversals [2, 4)
   auto result2 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out, {}, {}, 2, 4));
-  EXPECT_EQ(result2, std::unordered_set<Path>(all_possible.begin() + 2, all_possible.begin() + 4));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out, {}, {}, 2, 4));
+  EXPECT_EQ(result2, std::unordered_set<Path>(all_possible.begin() + 2,
+                                              all_possible.begin() + 4));
 }
 
 TEST(Traversal, ExpandVariableFilter) {
   // make a chain with vertex labels and edge types with these values
   // (0)-[1]->(1)-[2]->(2)-[3]->(3)
   Vertex v0(0);
-  Vertex v1(1); Edge e1(v0, v1, 1);
-  Vertex v2(2); Edge e2(v1, v2, 2);
-  Vertex v3(3); Edge e3(v2, v3, 3);
+  Vertex v1(1);
+  Edge e1(v0, v1, 1);
+  Vertex v2(2);
+  Edge e2(v1, v2, 2);
+  Vertex v3(3);
+  Edge e3(v2, v3, 3);
 
   // all possible paths
   std::vector<Path> all_possible{Path().Start(v0)};
@@ -480,46 +486,49 @@ TEST(Traversal, ExpandVariableFilter) {
 
   // filter on edge type < 3
   auto result0 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out, {},
-                         [](const Edge &e) { return e.type_ < 3; }));
-  EXPECT_EQ(result0, std::unordered_set<Path>(all_possible.begin() + 1, all_possible.begin() + 3));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out, {},
+                          [](const Edge &e) { return e.type_ < 3; }));
+  EXPECT_EQ(result0, std::unordered_set<Path>(all_possible.begin() + 1,
+                                              all_possible.begin() + 3));
 
   // filter on edge type > 1, expect nothing because the first edge is 1
   auto result1 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out, {},
-                         [](const Edge &e) { return e.type_ > 1; }));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out, {},
+                          [](const Edge &e) { return e.type_ > 1; }));
   EXPECT_EQ(result1.size(), 0);
 
   // filter on vertex label > 1, expect last 2 results
   auto result2 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          ExpandVariable(Expansion::Back, Direction::Out,
-                         [](const Vertex &v) { return v.label_ > 1; }, {}));
-  EXPECT_EQ(result2, std::unordered_set<Path>(all_possible.end() - 2, all_possible.end()));
+      Begin(std::vector<Vertex>{v0})
+          .ExpandVariable(Expansion::Back, Direction::Out,
+                          [](const Vertex &v) { return v.label_ > 1; }, {}));
+  EXPECT_EQ(result2, std::unordered_set<Path>(all_possible.end() - 2,
+                                              all_possible.end()));
 }
 
 TEST(Traversal, ExpandVariableCurrent) {
   // a chain
   Vertex v0;
-  Vertex v1; Edge e1(v0, v1);
-  Vertex v2; Edge e2(v1, v2);
-  Vertex v3; Edge e3(v2, v3);
+  Vertex v1;
+  Edge e1(v0, v1);
+  Vertex v2;
+  Edge e2(v1, v2);
+  Vertex v3;
+  Edge e3(v2, v3);
 
   // ensure that expanded vertices and all edge sets get visited as current
   std::unordered_set<Vertex> expected_vertices{v1, v2, v3};
   std::unordered_set<std::list<Edge>> expected_edge_lists{
-      std::list<Edge>{e1},
-      std::list<Edge>{e1, e2},
-      std::list<Edge>{e1, e2, e3}
-  };
+      std::list<Edge>{e1}, std::list<Edge>{e1, e2},
+      std::list<Edge>{e1, e2, e3}};
 
   std::vector<Vertex> begin_input{v0};
   auto begin = Begin(begin_input);
   auto expand = begin.ExpandVariable(Expansion::Back, Direction::Out);
 
-  expand.Visit([&](Path &path){
+  expand.Visit([&](Path &path) {
     EXPECT_EQ(1, expected_vertices.erase(expand.CurrentVertex()));
     EXPECT_EQ(1, expected_edge_lists.erase(expand.CurrentEdges()));
   });
@@ -531,13 +540,13 @@ TEST(Traversal, EnumExpansion) {
   Edge e0(v0, v1);
 
   //  Expansion::Back
-  auto result0= accumulate_visited<Path>(
+  auto result0 = accumulate_visited<Path>(
       Begin(std::vector<Vertex>{v0}).Expand(Expansion::Back, Direction::Out));
   auto expected0 = std::unordered_set<Path>{Path().Start(v0).Append(e0, v1)};
   EXPECT_EQ(result0, expected0);
 
   //  Expansion::Front
-  auto result1= accumulate_visited<Path>(
+  auto result1 = accumulate_visited<Path>(
       Begin(std::vector<Vertex>{v0}).Expand(Expansion::Front, Direction::Out));
   auto expected1 = std::unordered_set<Path>{Path().Start(v0).Prepend(e0, v1)};
   EXPECT_EQ(result1, expected1);
@@ -549,24 +558,22 @@ TEST(Traversal, EnumDirection) {
   Edge e0(v0, v1), e1(v1, v2);
 
   //  Direction::Out
-  auto result0= accumulate_visited<Path>(
+  auto result0 = accumulate_visited<Path>(
       Begin(std::vector<Vertex>{v1}).Expand(Expansion::Back, Direction::Out));
   auto expected0 = std::unordered_set<Path>{Path().Start(v1).Append(e1, v2)};
   EXPECT_EQ(result0, expected0);
 
   //  Direction::In
-  auto result1= accumulate_visited<Path>(
+  auto result1 = accumulate_visited<Path>(
       Begin(std::vector<Vertex>{v1}).Expand(Expansion::Back, Direction::In));
   auto expected1 = std::unordered_set<Path>{Path().Start(v1).Append(e0, v0)};
   EXPECT_EQ(result1, expected1);
 
   // Direction::Both
-  auto result2= accumulate_visited<Path>(
+  auto result2 = accumulate_visited<Path>(
       Begin(std::vector<Vertex>{v1}).Expand(Expansion::Back, Direction::Both));
-  auto expected2 = std::unordered_set<Path>{
-      Path().Start(v1).Append(e0, v0),
-      Path().Start(v1).Append(e1, v2)
-  };
+  auto expected2 = std::unordered_set<Path>{Path().Start(v1).Append(e0, v0),
+                                            Path().Start(v1).Append(e1, v2)};
   EXPECT_EQ(result2, expected2);
 }
 
@@ -577,30 +584,28 @@ TEST(Traversal, EnumUniqueness) {
 
   //  Uniqueness::Edge
   auto result0 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Edge).
-          Expand(Expansion::Back, Direction::Out));
-  auto expected0 = std::unordered_set<Path>{
-      Path().Start(v0).Append(e0, v0).Append(e1, v1)
-  };
+      Begin(std::vector<Vertex>{v0})
+          .Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Edge)
+          .Expand(Expansion::Back, Direction::Out));
+  auto expected0 =
+      std::unordered_set<Path>{Path().Start(v0).Append(e0, v0).Append(e1, v1)};
   EXPECT_EQ(result0, expected0);
 
   //  Uniqueness::Vertex
   auto result1 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Vertex).
-          Expand(Expansion::Back, Direction::Out));
+      Begin(std::vector<Vertex>{v0})
+          .Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Vertex)
+          .Expand(Expansion::Back, Direction::Out));
   EXPECT_EQ(result1.size(), 0);
 
   // Uniqueness::None
   auto result2 = accumulate_visited<Path>(
-      Begin(std::vector<Vertex>{v0}).
-          Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::None).
-          Expand(Expansion::Back, Direction::Out));
-  auto expected2 = std::unordered_set<Path>{
-      Path().Start(v0).Append(e0, v0).Append(e1, v1),
-      Path().Start(v0).Append(e0, v0).Append(e0, v0)
-  };
+      Begin(std::vector<Vertex>{v0})
+          .Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::None)
+          .Expand(Expansion::Back, Direction::Out));
+  auto expected2 =
+      std::unordered_set<Path>{Path().Start(v0).Append(e0, v0).Append(e1, v1),
+                               Path().Start(v0).Append(e0, v0).Append(e0, v0)};
   EXPECT_EQ(result2, expected2);
 }
 
@@ -624,11 +629,11 @@ TEST(Traversal, Cartesian) {
   std::unordered_set<Paths> expected;
   for (auto &path1 : paths0_set)
     for (auto &path2 : paths1_set)
-      for (auto &path3: paths0_set) {
+      for (auto &path3 : paths0_set) {
         Paths paths;
-        paths.emplace_back(std::ref(const_cast<Path&>(path1)));
-        paths.emplace_back(std::ref(const_cast<Path&>(path2)));
-        paths.emplace_back(std::ref(const_cast<Path&>(path3)));
+        paths.emplace_back(std::ref(const_cast<Path &>(path1)));
+        paths.emplace_back(std::ref(const_cast<Path &>(path2)));
+        paths.emplace_back(std::ref(const_cast<Path &>(path3)));
         expected.insert(paths);
       }
   EXPECT_EQ(8, expected.size());
@@ -651,7 +656,7 @@ TEST(Traversal, UniquenessSubgroups) {
   // counts the number of visits to the visitable
   auto visit_counter = [](const auto &visitable) {
     auto r_val = 0;
-    visitable.Visit([&r_val](const auto &x) {r_val++;});
+    visitable.Visit([&r_val](const auto &x) { r_val++; });
     return r_val;
   };
 
@@ -666,16 +671,20 @@ TEST(Traversal, UniquenessSubgroups) {
 
   // edge uniqueness sharing
   {
-    auto paths0 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Edge);
-    auto paths1 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Edge);
+    auto paths0 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {},
+                                        Uniqueness::Edge);
+    auto paths1 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {},
+                                        Uniqueness::Edge);
     paths1.UniquenessGroup().Add(paths0.UniquenessGroup());
     EXPECT_EQ(2, visit_counter(Cartesian(paths0, paths1)));
   }
 
   // vertex uniqueness sharing
   {
-    auto paths0 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Vertex);
-    auto paths1 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {}, Uniqueness::Vertex);
+    auto paths0 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {},
+                                        Uniqueness::Vertex);
+    auto paths1 = Begin(begin_v).Expand(Expansion::Back, Direction::Out, {}, {},
+                                        Uniqueness::Vertex);
     paths1.UniquenessGroup().Add(paths0.UniquenessGroup());
     EXPECT_EQ(0, visit_counter(Cartesian(paths0, paths1)));
   }

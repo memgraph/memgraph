@@ -78,7 +78,7 @@ class RhBase {
       }
     }
     IteratorBase(const RhBase *map, size_t start)
-        : map(map), index(start), advanced(0) {}
+        : map(map), advanced(0), index(start) {}
 
     const RhBase *map;
 
