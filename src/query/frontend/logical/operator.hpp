@@ -8,6 +8,8 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "utils/visitor/visitable.hpp"
+#include "utils/visitor/visitor.hpp"
 
 namespace query {
 
@@ -17,7 +19,17 @@ class Cursor {
   virtual ~Cursor() {}
 };
 
-class LogicalOperator {
+class CreateOp;
+class ScanAll;
+class Expand;
+class NodeFilter;
+class EdgeFilter;
+class Produce;
+
+using LogicalOperatorVisitor =
+    ::utils::Visitor<CreateOp, ScanAll, Expand, NodeFilter, EdgeFilter, Produce>;
+
+class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
   auto children() { return children_; };
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) = 0;
@@ -30,6 +42,7 @@ class LogicalOperator {
 class CreateOp : public LogicalOperator {
  public:
   CreateOp(NodeAtom* node_atom) : node_atom_(node_atom) {}
+  DEFVISITABLE(LogicalOperatorVisitor);
 
  private:
   class CreateOpCursor : public Cursor {
@@ -71,7 +84,8 @@ class CreateOp : public LogicalOperator {
 
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(NodeAtom* node_atom) : node_atom_(node_atom) {}
+  ScanAll(NodeAtom *node_atom) : node_atom_(node_atom) {}
+  DEFVISITABLE(LogicalOperatorVisitor);
 
  private:
   class ScanAllCursor : public Cursor {
@@ -152,6 +166,12 @@ class Expand : public LogicalOperator {
         input_symbol_(input_symbol),
         node_cycle_(node_cycle),
         edge_cycle_(edge_cycle) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 
  private:
   class ExpandCursor : public Cursor {
@@ -320,6 +340,12 @@ class NodeFilter : public LogicalOperator {
              NodeAtom* node_atom)
       : input_(input), input_symbol_(input_symbol), node_atom_(node_atom) {}
 
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
  private:
   class NodeFilterCursor : public Cursor {
    public:
@@ -372,6 +398,12 @@ class EdgeFilter : public LogicalOperator {
   EdgeFilter(std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
              EdgeAtom* edge_atom)
       : input_(input), input_symbol_(input_symbol), edge_atom_(edge_atom) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 
  private:
   class EdgeFilterCursor : public Cursor {
@@ -428,6 +460,12 @@ class Produce : public LogicalOperator {
     children_.emplace_back(input);
   }
 
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
     return std::make_unique<ProduceCursor>(*this, db);
   }
@@ -459,4 +497,5 @@ class Produce : public LogicalOperator {
   std::shared_ptr<LogicalOperator> input_;
   std::vector<NamedExpression*> named_expressions_;
 };
+
 }
