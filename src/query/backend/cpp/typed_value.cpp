@@ -164,6 +164,7 @@ TypedValue::TypedValue(const TypedValue& other) : type_(other.type_) {
       return;
     case Type::Path:
       new (&path_v) Path(other.path_v);
+      return;
   }
   permanent_fail("Unsupported TypedValue::Type");
 }
@@ -229,13 +230,14 @@ std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
 }
 
 TypedValue& TypedValue::operator=(const TypedValue& other) {
-  // set the type of this
-  this->~TypedValue();
-  type_ = other.type_;
-
   if (this != &other) {
+    this->~TypedValue();
+    // set the type of this
+    type_ = other.type_;
+
     switch (other.type_) {
       case TypedValue::Type::Null:
+        return *this;
       case TypedValue::Type::Bool:
         this->bool_v = other.bool_v;
         return *this;
@@ -264,8 +266,9 @@ TypedValue& TypedValue::operator=(const TypedValue& other) {
         new (&path_v) Path(other.path_v);
         return *this;
     }
+    permanent_fail("Unsupported TypedValue::Type");
   }
-  permanent_fail("Unsupported TypedValue::Type");
+  return *this;
 }
 
 const TypedValue TypedValue::Null = TypedValue();

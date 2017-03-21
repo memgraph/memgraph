@@ -1,6 +1,9 @@
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 
+#include <algorithm>
 #include <climits>
+#include <codecvt>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -37,6 +40,8 @@ namespace {
 //  }
 //  return ops;
 //}
+const std::string kTrueString = "true";
+const std::string kFalseString = "false";
 }
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
@@ -63,16 +68,19 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
 
 antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->cypherReturn()) {
-    return (Clause *)ctx->cypherReturn()->accept(this).as<Return *>();
+    return static_cast<Clause *>(
+        ctx->cypherReturn()->accept(this).as<Return *>());
   }
   if (ctx->cypherMatch()) {
-    return (Clause *)ctx->cypherMatch()->accept(this).as<Match *>();
+    return static_cast<Clause *>(
+        ctx->cypherMatch()->accept(this).as<Match *>());
   }
   if (ctx->create()) {
-    return (Clause *)ctx->create()->accept(this).as<Create *>();
+    return static_cast<Clause *>(ctx->create()->accept(this).as<Create *>());
   }
+  // TODO: implement other clauses.
   throw std::exception();
-  return visitChildren(ctx);
+  return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherMatch(
@@ -261,12 +269,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     }
     if (ctx->relationshipDetail()->relationshipTypes()) {
       edge->edge_types_ = ctx->relationshipDetail()
-                         ->relationshipTypes()
-                         ->accept(this)
-                         .as<std::vector<GraphDb::EdgeType>>();
+                              ->relationshipTypes()
+                              ->accept(this)
+                              .as<std::vector<GraphDb::EdgeType>>();
     }
     if (ctx->relationshipDetail()->properties()) {
-      throw std::exception();
+      edge->properties_ = ctx->relationshipDetail()
+                              ->properties()
+                              ->accept(this)
+                              .as<std::map<GraphDb::Property, Expression *>>();
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
       throw std::exception();
@@ -535,32 +546,9 @@ antlrcpp::Any CypherMainVisitor::visitExpression2(
 
 antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   if (ctx->literal()) {
-    // This is not very nice since we didn't parse text given in query, but we
-    // left that job to the code generator. Correct approach would be to parse
-    // it and store it in a structure of appropriate type, int, string... And
-    // then code generator would generate its own text based on structure. This
-    // is also a security risk if code generator doesn't parse and escape
-    // text appropriately. At the moment we don;t care much since literal will
-    // appear only in tests and real queries will be stripped.
-    // TODO: Either parse it correctly or raise exception. If exception is
-    // raised it tests should also use params instead of literals.
-    //    auto text = ctx->literal()->getText();
-    //    auto lhs_id = new_id();
-    //    symbol_table_[lhs_id] = SimpleExpression{Function::LITERAL, {text}};
-    //    return lhs_id;
-    throw std::exception();
+    return static_cast<Expression *>(visitChildren(ctx).as<Literal *>());
   } else if (ctx->parameter()) {
-    // This is once again potential security risk. We shouldn't output text
-    // given in user query as parameter name directly to the code. Stripper
-    // should either replace user's parameter name with generic one or we should
-    // allow only parameters with numeric names. At the moment this is not a
-    // problem since we don't accept user's parameters but only ours.
-    // TODO: revise this.
-    //    auto text = ctx->literal()->getText();
-    //    auto lhs_id = new_id();
-    //    symbol_table_[lhs_id] = SimpleExpression{Function::PARAMETER, {text}};
     throw std::exception();
-    //    return lhs_id;
   } else if (ctx->parenthesizedExpression()) {
     return ctx->parenthesizedExpression()->accept(this);
   } else if (ctx->variable()) {
@@ -573,15 +561,158 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   throw std::exception();
 }
 
+antlrcpp::Any CypherMainVisitor::visitLiteral(
+    CypherParser::LiteralContext *ctx) {
+  if (ctx->CYPHERNULL()) {
+    return storage_.Create<Literal>(TypedValue::Null);
+  } else if (ctx->StringLiteral()) {
+    return storage_.Create<Literal>(
+        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>());
+  } else if (ctx->booleanLiteral()) {
+    return storage_.Create<Literal>(
+        ctx->booleanLiteral()->accept(this).as<bool>());
+  } else if (ctx->numberLiteral()) {
+    return storage_.Create<Literal>(
+        ctx->numberLiteral()->accept(this).as<TypedValue>());
+  } else {
+    // TODO: Implement map and list literals.
+    throw std::exception();
+  }
+  return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
+    CypherParser::NumberLiteralContext *ctx) {
+  if (ctx->integerLiteral()) {
+    return TypedValue(ctx->integerLiteral()->accept(this).as<int64_t>());
+  } else if (ctx->doubleLiteral()) {
+    return TypedValue(ctx->doubleLiteral()->accept(this).as<double>());
+  } else {
+    debug_assert(false, "can't happen");
+    throw std::exception();
+  }
+}
+
+antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(
+    CypherParser::DoubleLiteralContext *ctx) {
+  // stod would be nicer but it uses current locale so we shouldn't use it.
+  double t = 0LL;
+  std::istringstream iss(ctx->getText());
+  iss.imbue(std::locale::classic());
+  iss >> t;
+  if (!iss.eof()) {
+    throw std::exception();
+  }
+  return t;
+}
+
 antlrcpp::Any CypherMainVisitor::visitIntegerLiteral(
     CypherParser::IntegerLiteralContext *ctx) {
   int64_t t = 0LL;
   try {
+    // Not really correct since long long can have a bigger range than int64_t.
     t = std::stoll(ctx->getText(), 0, 0);
   } catch (std::out_of_range) {
     throw std::exception();
   }
   return t;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStringLiteral(
+    const std::string &escaped) {
+  // This function is declared as lambda since its semantics is highly specific
+  // for this conxtext and shouldn't be used elsewhere.
+  auto EncodeEscapedUnicodeCodepoint = [](const std::string &s, int &i) {
+    int j = i + 1;
+    const int kShortUnicodeLength = 4;
+    const int kLongUnicodeLength = 8;
+    while (j < (int)s.size() - 1 && j < i + kLongUnicodeLength + 1 &&
+           isxdigit(s[j])) {
+      ++j;
+    }
+    if (j - i == kLongUnicodeLength + 1) {
+      char32_t t = stoi(s.substr(i + 1, kLongUnicodeLength), 0, 16);
+      i += kLongUnicodeLength;
+      std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
+      return converter.to_bytes(t);
+    } else if (j - i >= kShortUnicodeLength + 1) {
+      char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
+      i += kShortUnicodeLength;
+      std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
+          converter;
+      return converter.to_bytes(t);
+    } else {
+      debug_assert(false, "can't happen");
+      throw std::exception();
+    }
+  };
+
+  std::string unescaped;
+  bool escape = false;
+
+  // First and last char is quote, we don't need to look at them.
+  for (int i = 1; i < (int)escaped.size() - 1; ++i) {
+    if (escape) {
+      switch (escaped[i]) {
+        case '\\':
+          unescaped += '\\';
+          break;
+        case '\'':
+          unescaped += '\'';
+          break;
+        case '"':
+          unescaped += '"';
+          break;
+        case 'B':
+        case 'b':
+          unescaped += '\b';
+          break;
+        case 'F':
+        case 'f':
+          unescaped += '\f';
+          break;
+        case 'N':
+        case 'n':
+          unescaped += '\n';
+          break;
+        case 'R':
+        case 'r':
+          unescaped += '\r';
+          break;
+        case 'T':
+        case 't':
+          unescaped += '\t';
+          break;
+        case 'U':
+        case 'u':
+          unescaped += EncodeEscapedUnicodeCodepoint(escaped, i);
+          break;
+        default:
+          debug_assert(false, "can't happen");
+          throw std::exception();
+      }
+      escape = false;
+    } else if (escaped[i] == '\\') {
+      escape = true;
+    } else {
+      unescaped += escaped[i];
+    }
+  }
+  return unescaped;
+}
+
+antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
+    CypherParser::BooleanLiteralContext *ctx) {
+  std::string s = ctx->getText();
+  std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+  if (s == kTrueString) {
+    return true;
+  } else if (s == kFalseString) {
+    return false;
+  } else {
+    debug_assert(false, "can't happen");
+    throw std::exception();
+  }
 }
 }
 }

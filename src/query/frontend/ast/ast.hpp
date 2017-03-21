@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "database/graph_db.hpp"
+#include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/visitor/visitable.hpp"
 
@@ -28,6 +29,19 @@ class Tree : public ::utils::Visitable<TreeVisitorBase> {
 class Expression : public Tree {
  protected:
   Expression(int uid) : Tree(uid) {}
+};
+
+class Literal : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  TypedValue value_;
+  DEFVISITABLE(TreeVisitorBase);
+
+ protected:
+  Literal(int uid) : Expression(uid) {}
+  template <typename T>
+  Literal(int uid, T value) : Expression(uid), value_(value) {}
 };
 
 class Identifier : public Expression {

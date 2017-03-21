@@ -283,10 +283,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   */
   antlrcpp::Any visitAtom(CypherParser::AtomContext *ctx) override;
 
-  //  antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override {
-  //    return visitChildren(ctx);
-  //  }
-  //
+  /**
+   * @return Literal*
+   */
+  antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override;
+
   //  antlrcpp::Any visitBooleanLiteral(
   //      CypherParser::BooleanLiteralContext *ctx) override {
   //    return visitChildren(ctx);
@@ -303,10 +304,35 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   //  }
 
   /**
-  * @return int64_t.
+   * Convert escaped string from a query to unescaped utf8 string.
+   *
+   * @return string
+   */
+  antlrcpp::Any visitStringLiteral(const std::string &escaped);
+
+  /**
+   * @return bool
+   */
+  antlrcpp::Any visitBooleanLiteral(
+      CypherParser::BooleanLiteralContext *ctx) override;
+
+  /**
+   * @return TypedValue with either double or int
+   */
+  antlrcpp::Any visitNumberLiteral(
+      CypherParser::NumberLiteralContext *ctx) override;
+
+  /**
+  * @return int64_t
   */
   antlrcpp::Any visitIntegerLiteral(
       CypherParser::IntegerLiteralContext *ctx) override;
+
+  /**
+   * @return double
+   */
+  antlrcpp::Any visitDoubleLiteral(
+      CypherParser::DoubleLiteralContext *ctx) override;
 
  public:
   Query *query() { return query_; }

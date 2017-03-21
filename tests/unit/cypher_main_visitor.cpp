@@ -17,6 +17,7 @@ namespace {
 using namespace query;
 using namespace query::frontend;
 using testing::UnorderedElementsAre;
+using testing::Pair;
 
 class AstGenerator {
  public:
@@ -45,8 +46,150 @@ TEST(CypherMainVisitorTest, SyntaxException) {
   ASSERT_THROW(AstGenerator("CREATE ()-[*1...2]-()"), std::exception);
 }
 
+TEST(CypherMainVisitorTest, PropertyLookup) {
+  AstGenerator ast_generator("RETURN n.x");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *property_lookup = dynamic_cast<PropertyLookup *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(property_lookup->expression_);
+  auto identifier = dynamic_cast<Identifier *>(property_lookup->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "n");
+  ASSERT_EQ(property_lookup->property_,
+            ast_generator.db_accessor_->property("x"));
+}
+
+TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
+  AstGenerator ast_generator("RETURN var AS var5");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *named_expr = return_clause->named_expressions_[0];
+  ASSERT_EQ(named_expr->name_, "var5");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier->name_, "var");
+}
+
+TEST(CypherMainVisitorTest, IntegerLiteral) {
+  AstGenerator ast_generator("RETURN 42");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<int64_t>(), 42);
+}
+
+TEST(CypherMainVisitorTest, IntegerLiteralTooLarge) {
+  ASSERT_THROW(AstGenerator("RETURN 10000000000000000000000000"),
+               std::exception);
+}
+
+TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
+  AstGenerator ast_generator("RETURN TrUe");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<bool>(), true);
+}
+
+TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
+  AstGenerator ast_generator("RETURN faLSE");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<bool>(), false);
+}
+
+TEST(CypherMainVisitorTest, NullLiteral) {
+  AstGenerator ast_generator("RETURN nULl");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.type(), TypedValue::Type::Null);
+}
+
+TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
+  AstGenerator ast_generator("RETURN \"mi'rko\"");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<std::string>(), "mi'rko");
+}
+
+TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
+  AstGenerator ast_generator("RETURN 'mi\"rko'");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<std::string>(), "mi\"rko");
+}
+
+TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
+  AstGenerator ast_generator(
+      "RETURN '\\\\\\'\\\"\\b\\B\\f\\F\\n\\N\\r\\R\\t\\T'");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<std::string>(), "\\'\"\b\b\f\f\n\n\r\r\t\t");
+}
+
+TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
+  AstGenerator ast_generator("RETURN '\\u221daaa\\U221daaa'");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<std::string>(), u8"\u221daaa\u221daaa");
+}
+
+TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
+  AstGenerator ast_generator("RETURN '\\u0001F600aaaa\\U0001F600aaaaaaaa'");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<std::string>(),
+            u8"\U0001F600aaaa\U0001F600aaaaaaaa");
+}
+
+TEST(CypherMainVisitorTest, DoubleLiteral) {
+  AstGenerator ast_generator("RETURN 3.5");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<double>(), 3.5);
+}
+
+TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
+  AstGenerator ast_generator("RETURN 5e-1");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<double>(), 0.5);
+}
+
 TEST(CypherMainVisitorTest, NodePattern) {
-  AstGenerator ast_generator("MATCH (:label1:label2:label3)");
+  AstGenerator ast_generator("MATCH (:label1:label2:label3 {a : 5, b : 10})");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -63,7 +206,17 @@ TEST(CypherMainVisitorTest, NodePattern) {
                                  ast_generator.db_accessor_->label("label1"),
                                  ast_generator.db_accessor_->label("label2"),
                                  ast_generator.db_accessor_->label("label3")));
-  // TODO: add test for properties.
+  std::unordered_map<GraphDb::Property, int64_t> properties;
+  for (auto x : node->properties_) {
+    auto *literal = dynamic_cast<Literal *>(x.second);
+    ASSERT_TRUE(literal);
+    ASSERT_TRUE(literal->value_.type() == TypedValue::Type::Int);
+    properties[x.first] = literal->value_.Value<int64_t>();
+  }
+  ASSERT_THAT(properties,
+              UnorderedElementsAre(
+                  Pair(ast_generator.db_accessor_->property("a"), 5),
+                  Pair(ast_generator.db_accessor_->property("b"), 10)));
 }
 
 TEST(CypherMainVisitorTest, NodePatternIdentifier) {
@@ -74,7 +227,7 @@ TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   ASSERT_TRUE(node->identifier_);
   ASSERT_EQ(node->identifier_->name_, "var");
   ASSERT_THAT(node->labels_, UnorderedElementsAre());
-  // TODO: add test for properties.
+  ASSERT_THAT(node->properties_, UnorderedElementsAre());
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
@@ -97,7 +250,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
-  AstGenerator ast_generator("MATCH ()<-[:type1|type2]-()");
+  AstGenerator ast_generator("MATCH ()<-[:type1|type2 {a : 5, b : 10}]-()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
@@ -106,7 +259,17 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
                            ast_generator.db_accessor_->edge_type("type2")));
-  // TODO: test properties
+  std::unordered_map<GraphDb::Property, int64_t> properties;
+  for (auto x : edge->properties_) {
+    auto *literal = dynamic_cast<Literal *>(x.second);
+    ASSERT_TRUE(literal);
+    ASSERT_TRUE(literal->value_.type() == TypedValue::Type::Int);
+    properties[x.first] = literal->value_.Value<int64_t>();
+  }
+  ASSERT_THAT(properties,
+              UnorderedElementsAre(
+                  Pair(ast_generator.db_accessor_->property("a"), 5),
+                  Pair(ast_generator.db_accessor_->property("b"), 10)));
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
@@ -232,16 +395,6 @@ TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   ASSERT_EQ(identifier->name_, "var");
 }
 
-TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
-  AstGenerator ast_generator("RETURN var AS var5");
-  auto *query = ast_generator.query_;
-  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  auto *named_expr = return_clause->named_expressions_[0];
-  ASSERT_EQ(named_expr->name_, "var5");
-  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
-  ASSERT_EQ(identifier->name_, "var");
-}
-
 TEST(CypherMainVisitorTest, Create) {
   AstGenerator ast_generator("CREATE (n)");
   auto *query = ast_generator.query_;
@@ -255,6 +408,5 @@ TEST(CypherMainVisitorTest, Create) {
   ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
   ASSERT_EQ(node->identifier_->name_, "n");
-  // TODO: add test for properties.
 }
 }
