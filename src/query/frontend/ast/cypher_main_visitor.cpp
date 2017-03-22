@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "database/graph_db.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/named_antlr_tokens.hpp"
 #include "utils/assert.hpp"
+#include "utils/exceptions/not_yet_implemented.hpp"
 
 namespace query {
 namespace frontend {
@@ -79,7 +81,7 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
     return static_cast<Clause *>(ctx->create()->accept(this).as<Create *>());
   }
   // TODO: implement other clauses.
-  throw std::exception();
+  throw NotYetImplemented();
   return 0;
 }
 
@@ -87,7 +89,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherMatch(
     CypherParser::CypherMatchContext *ctx) {
   auto *match = storage_.Create<Match>();
   if (ctx->OPTIONAL() || ctx->where()) {
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   match->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
   return match;
@@ -103,7 +106,8 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     CypherParser::CypherReturnContext *ctx) {
   if (ctx->DISTINCT()) {
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   return visitChildren(ctx);
 }
@@ -111,7 +115,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(
 antlrcpp::Any CypherMainVisitor::visitReturnBody(
     CypherParser::ReturnBodyContext *ctx) {
   if (ctx->order() || ctx->skip() || ctx->limit()) {
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   return ctx->returnItems()->accept(this);
 }
@@ -120,7 +125,8 @@ antlrcpp::Any CypherMainVisitor::visitReturnItems(
     CypherParser::ReturnItemsContext *ctx) {
   auto *return_clause = storage_.Create<Return>();
   if (ctx->getTokens(kReturnAllTokenId).size()) {
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   for (auto *item : ctx->returnItem()) {
     return_clause->named_expressions_.push_back(item->accept(this));
@@ -180,7 +186,8 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
     // we don't support properties to be a param because we can generate
     // better logical plan if we have an information about properties at
     // compile time.
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   return ctx->mapLiteral()->accept(this);
 }
@@ -206,7 +213,8 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     // We don't allow at this point for variable to be EscapedSymbolicName
     // because we would have t ofigure out how escaping works since same
     // variable can be referenced in two ways: escaped and unescaped.
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   }
   // TODO: We should probably escape string.
   return std::string(ctx->getText());
@@ -280,7 +288,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
                               .as<std::map<GraphDb::Property, Expression *>>();
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
-      throw std::exception();
+      // TODO: implement other clauses.
+      throw NotYetImplemented();
     }
   }
   //    relationship.has_range = true;
@@ -533,7 +542,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2(
   if (ctx->nodeLabels().size()) {
     // TODO: Implement this. We don't currently support label checking in
     // expresssion.
-    throw std::exception();
+    throw NotYetImplemented();
   }
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
@@ -548,7 +557,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   if (ctx->literal()) {
     return static_cast<Expression *>(visitChildren(ctx).as<Literal *>());
   } else if (ctx->parameter()) {
-    throw std::exception();
+    // TODO: implement other clauses.
+    throw NotYetImplemented();
   } else if (ctx->parenthesizedExpression()) {
     return ctx->parenthesizedExpression()->accept(this);
   } else if (ctx->variable()) {
@@ -558,7 +568,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.
-  throw std::exception();
+  throw NotYetImplemented();
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(
@@ -576,7 +586,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
         ctx->numberLiteral()->accept(this).as<TypedValue>());
   } else {
     // TODO: Implement map and list literals.
-    throw std::exception();
+    throw NotYetImplemented();
   }
   return visitChildren(ctx);
 }
@@ -588,6 +598,8 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
   } else if (ctx->doubleLiteral()) {
     return TypedValue(ctx->doubleLiteral()->accept(this).as<double>());
   } else {
+    // This should never happen, except grammar changes and we don't notice
+    // change in this production.
     debug_assert(false, "can't happen");
     throw std::exception();
   }
@@ -601,7 +613,7 @@ antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(
   iss.imbue(std::locale::classic());
   iss >> t;
   if (!iss.eof()) {
-    throw std::exception();
+    throw SemanticException();
   }
   return t;
 }
@@ -613,7 +625,7 @@ antlrcpp::Any CypherMainVisitor::visitIntegerLiteral(
     // Not really correct since long long can have a bigger range than int64_t.
     t = std::stoll(ctx->getText(), 0, 0);
   } catch (std::out_of_range) {
-    throw std::exception();
+    throw SemanticException();
   }
   return t;
 }
@@ -642,6 +654,8 @@ antlrcpp::Any CypherMainVisitor::visitStringLiteral(
           converter;
       return converter.to_bytes(t);
     } else {
+      // This should never happen, except grammar changes and we don't notice
+      // change in this production.
       debug_assert(false, "can't happen");
       throw std::exception();
     }
@@ -688,6 +702,8 @@ antlrcpp::Any CypherMainVisitor::visitStringLiteral(
           unescaped += EncodeEscapedUnicodeCodepoint(escaped, i);
           break;
         default:
+          // This should never happen, except grammar changes and we don't
+          // notice change in this production.
           debug_assert(false, "can't happen");
           throw std::exception();
       }
@@ -710,6 +726,8 @@ antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
   } else if (s == kFalseString) {
     return false;
   } else {
+    // This should never happen, except grammar changes and we don't
+    // notice change in this production.
     debug_assert(false, "can't happen");
     throw std::exception();
   }

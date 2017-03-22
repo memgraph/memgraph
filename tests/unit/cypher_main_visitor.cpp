@@ -43,7 +43,7 @@ class AstGenerator {
 };
 
 TEST(CypherMainVisitorTest, SyntaxException) {
-  ASSERT_THROW(AstGenerator("CREATE ()-[*1...2]-()"), std::exception);
+  ASSERT_THROW(AstGenerator("CREATE ()-[*1...2]-()"), SyntaxException);
 }
 
 TEST(CypherMainVisitorTest, PropertyLookup) {
@@ -83,7 +83,7 @@ TEST(CypherMainVisitorTest, IntegerLiteral) {
 
 TEST(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   ASSERT_THROW(AstGenerator("RETURN 10000000000000000000000000"),
-               std::exception);
+               SemanticException);
 }
 
 TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
