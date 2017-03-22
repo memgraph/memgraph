@@ -101,6 +101,10 @@ class SymbolGenerator : public TreeVisitorBase {
         throw SemanticException("A single relationship type must be specified "
                                 "when creating an edge.");
       }
+      if (edge_atom.direction_ == EdgeAtom::Direction::BOTH) {
+        throw SemanticException("Bidirectional relationship are not supported "
+                                "when creating an edge");
+      }
     }
   }
   void PostVisit(EdgeAtom &edge_atom) override {
@@ -112,9 +116,7 @@ class SymbolGenerator : public TreeVisitorBase {
   // A variable stores the associated symbol and its type.
   struct Variable {
     // This is similar to TypedValue::Type, but this has `Any` type.
-    enum class Type : unsigned {
-      Any, Vertex, Edge, Path
-    };
+    enum class Type { Any, Vertex, Edge, Path };
 
     Symbol symbol;
     Type type{Type::Any};

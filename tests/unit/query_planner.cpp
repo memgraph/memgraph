@@ -21,6 +21,7 @@ class PlanChecker : public LogicalOperatorVisitor {
   PlanChecker(std::list<size_t> types) : types_(types) {}
 
   void Visit(CreateOp &op) override { AssertType(op); }
+  void Visit(CreateExpand &op) override { AssertType(op); }
   void Visit(ScanAll &op) override { AssertType(op); }
   void Visit(Expand &op) override { AssertType(op); }
   void Visit(NodeFilter &op) override { AssertType(op); }
@@ -98,6 +99,55 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
   std::list<size_t> expected_types;
   expected_types.emplace_back(typeid(CreateOp).hash_code());
   expected_types.emplace_back(typeid(Produce).hash_code());
+  PlanChecker plan_checker(expected_types);
+  plan->Accept(plan_checker);
+}
+
+TEST(TestLogicalPlanner, CreateExpand) {
+  // Test CREATE (n) -[r :rel1]-> (m)
+  AstTreeStorage storage;
+  auto create = storage.Create<Create>();
+  auto pattern = GetPattern(storage, {"n", "r", "m"});
+  create->patterns_.emplace_back(pattern);
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
+  std::string relationship("relationship");
+  edge_atom->edge_types_.emplace_back(&relationship);
+  auto query = storage.query();
+  query->clauses_.emplace_back(create);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  std::list<size_t> expected_types;
+  expected_types.emplace_back(typeid(CreateOp).hash_code());
+  expected_types.emplace_back(typeid(CreateExpand).hash_code());
+  PlanChecker plan_checker(expected_types);
+  plan->Accept(plan_checker);
+}
+
+TEST(TestLogicalPlanner, MatchCreateExpand) {
+  // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
+  AstTreeStorage storage;
+  auto match = storage.Create<Match>();
+  match->patterns_.emplace_back(GetPattern(storage, {"n"}));
+  auto query = storage.query();
+  query->clauses_.emplace_back(match);
+  auto create = storage.Create<Create>();
+  auto pattern = GetPattern(storage, {"n", "r", "m"});
+  create->patterns_.emplace_back(pattern);
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
+  std::string relationship("relationship");
+  edge_atom->edge_types_.emplace_back(&relationship);
+  query->clauses_.emplace_back(create);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  std::list<size_t> expected_types;
+  expected_types.emplace_back(typeid(ScanAll).hash_code());
+  expected_types.emplace_back(typeid(CreateExpand).hash_code());
   PlanChecker plan_checker(expected_types);
   plan->Accept(plan_checker);
 }

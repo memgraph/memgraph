@@ -320,7 +320,7 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // AST with redeclaring a match edge variable in create:
-  // MATCH (n) -[r]-> (m) CREATE (n) -[r] -> (l)
+  // MATCH (n) -[r]- (m) CREATE (n) -[r] -> (l)
   auto match = storage.Create<Match>();
   match->patterns_.emplace_back(GetPattern(storage, {"n", "r", "m"}));
   auto query = storage.query();
@@ -329,6 +329,7 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   auto create = storage.Create<Create>();
   auto pattern = GetPattern(storage, {"n", "r", "l"});
   auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
   std::string relationship("relationship");
   edge_atom->edge_types_.emplace_back(&relationship);
   create->patterns_.emplace_back(pattern);
@@ -353,13 +354,16 @@ TEST(TestSymbolGenerator, MatchTypeMismatch) {
 TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
   AstTreeStorage storage;
   // Using an edge variable as a node causes a type mismatch.
-  // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]- (n2)
+  // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]-> (n2)
   auto match = storage.Create<Match>();
   match->patterns_.emplace_back(GetPattern(storage, {"n1", "r1", "n2"}));
   auto query = storage.query();
   query->clauses_.emplace_back(match);
   auto create = storage.Create<Create>();
-  create->patterns_.emplace_back(GetPattern(storage, {"r1", "r2", "n2"}));
+  auto pattern = GetPattern(storage, {"r1", "r2", "n2"});
+  create->patterns_.emplace_back(pattern);
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
   query->clauses_.emplace_back(create);
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -369,9 +373,30 @@ TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
 TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   AstTreeStorage storage;
   // Multiple edge relationship are not allowed when creating edges.
-  // CREATE (n) -[r :rel1 | :rel2]- (m)
+  // CREATE (n) -[r :rel1 | :rel2]-> (m)
   auto pattern = GetPattern(storage, {"n", "r", "m"});
   auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
+  std::string rel1("rel1");
+  edge_atom->edge_types_.emplace_back(&rel1);
+  std::string rel2("rel2");
+  edge_atom->edge_types_.emplace_back(&rel2);
+  auto create = storage.Create<Create>();
+  create->patterns_.emplace_back(pattern);
+  auto query = storage.query();
+  query->clauses_.emplace_back(create);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
+  AstTreeStorage storage;
+  // Bidirectional relationships are not allowed when creating edges.
+  // CREATE (n) -[r :rel1]- (m)
+  auto pattern = GetPattern(storage, {"n", "r", "m"});
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  edge_atom->direction_ = EdgeAtom::Direction::BOTH;
   std::string rel1("rel1");
   edge_atom->edge_types_.emplace_back(&rel1);
   std::string rel2("rel2");
