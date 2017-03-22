@@ -77,6 +77,10 @@ class ExpressionEvaluator : public TreeVisitorBase {
     }
   }
 
+  void Visit(Literal &literal) override {
+    result_stack_.push_back(literal.value_);
+  }
+
  private:
   Frame &frame_;
   SymbolTable &symbol_table_;

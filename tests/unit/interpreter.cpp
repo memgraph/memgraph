@@ -3,6 +3,7 @@
 // Created by Florijan Stamenkovic on 14.03.17.
 //
 
+#include <iterator>
 #include <memory>
 #include <vector>
 
@@ -56,8 +57,8 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   return stream;
 }
 
-void ExecuteCreate(std::shared_ptr<CreateOp> create, GraphDbAccessor &db) {
-  SymbolTable symbol_table;
+void ExecuteCreate(std::shared_ptr<LogicalOperator> create, GraphDbAccessor &db,
+                   SymbolTable symbol_table) {
   Frame frame(symbol_table.max_position());
   auto cursor = create->MakeCursor(db);
   while (cursor->Pull(frame, symbol_table)) {
@@ -109,6 +110,11 @@ auto MakeExpand(AstTreeStorage &ast_storage, SymbolTable &symbol_table,
   return std::make_tuple(edge, edge_sym, node, node_sym, op);
 }
 
+template <typename TIterable>
+auto CountIterable(TIterable iterable) {
+  return std::distance(iterable.begin(), iterable.end());
+}
+
 /*
  * Actual tests start here.
  */
@@ -120,6 +126,7 @@ TEST(Interpreter, MatchReturn) {
   // add a few nodes to the database
   dba->insert_vertex();
   dba->insert_vertex();
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -158,6 +165,7 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   v2.PropsSet(property, 1);
   v4.PropsSet(property, 42);
   v5.PropsSet(property, 1);
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -165,7 +173,7 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   std::get<0>(n)->labels_.emplace_back(label);
-  // TODO set a property once int-literal expressions are available
+  std::get<0>(n)->properties_[property] = storage.Create<Literal>(42);
 
   // node filtering
   auto node_filter = std::make_shared<NodeFilter>(
@@ -179,8 +187,7 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   auto produce = MakeProduce(node_filter, output);
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  // TODO change expected value to 1 once literal expressions are avaialable
-  EXPECT_EQ(result.GetResults().size(), 3);
+  EXPECT_EQ(result.GetResults().size(), 1);
 }
 
 TEST(Interpreter, NodeFilterMultipleLabels) {
@@ -206,6 +213,7 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   v3.add_label(label1);
   v3.add_label(label2);
   v3.add_label(label3);
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -214,10 +222,8 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   std::get<0>(n)->labels_.emplace_back(label1);
   std::get<0>(n)->labels_.emplace_back(label2);
-  // TODO set a property once int-literal expressions are available
 
   // node filtering
-  // TODO implement the test once int-literal expressions are available
   auto node_filter = std::make_shared<NodeFilter>(
       std::get<1>(n), std::get<2>(n), std::get<0>(n));
 
@@ -242,13 +248,16 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   GraphDb::Property property = dba->label("age");
 
   AstTreeStorage storage;
+  SymbolTable symbol_table;
 
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+  symbol_table[*node->identifier_] = symbol_table.CreateSymbol("n");
   node->labels_.emplace_back(label);
-  // TODO make a property here with an int literal expression
+  node->properties_[property] = storage.Create<Literal>(42);
 
   auto create = std::make_shared<CreateOp>(node);
-  ExecuteCreate(create, *dba);
+  ExecuteCreate(create, *dba, symbol_table);
+  dba->advance_command();
 
   // count the number of vertices
   int vertex_count = 0;
@@ -256,13 +265,183 @@ TEST(Interpreter, CreateNodeWithAttributes) {
     vertex_count++;
     EXPECT_EQ(vertex.labels().size(), 1);
     EXPECT_EQ(*vertex.labels().begin(), label);
-    // TODO re-enable these tests once int literal becomes available
-    //    EXPECT_EQ(vertex.Properties().size(), 1);
-    //    auto prop_eq = vertex.PropsAt(property) == TypedValue(42);
-    //    ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
-    //    EXPECT_TRUE(prop_eq.Value<bool>());
+    EXPECT_EQ(vertex.Properties().size(), 1);
+    auto prop_eq = vertex.PropsAt(property) == TypedValue(42);
+    ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
+    EXPECT_TRUE(prop_eq.Value<bool>());
   }
   EXPECT_EQ(vertex_count, 1);
+}
+
+TEST(Interpreter, CreateReturn) {
+  // test CREATE (n:Person {age: 42}) RETURN n, n.age
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  GraphDb::Label label = dba->label("Person");
+  GraphDb::Property property = dba->label("age");
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+  auto sym_n = symbol_table.CreateSymbol("n");
+  symbol_table[*node->identifier_] = sym_n;
+  node->labels_.emplace_back(label);
+  node->properties_[property] = storage.Create<Literal>(42);
+
+  auto create = std::make_shared<CreateOp>(node);
+  auto named_expr_n =
+      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
+  symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n");
+  symbol_table[*named_expr_n->expression_] = sym_n;
+  auto prop_lookup =
+      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
+  symbol_table[*prop_lookup->expression_] = sym_n;
+  auto named_expr_n_p = storage.Create<NamedExpression>("n", prop_lookup);
+  symbol_table[*named_expr_n_p] = symbol_table.CreateSymbol("named_expr_n_p");
+  symbol_table[*named_expr_n->expression_] = sym_n;
+
+  auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
+  auto result = CollectProduce(produce, symbol_table, *dba);
+  EXPECT_EQ(1, result.GetResults().size());
+  EXPECT_EQ(2, result.GetResults()[0].size());
+  EXPECT_EQ(TypedValue::Type::Vertex, result.GetResults()[0][0].type());
+  EXPECT_EQ(1,
+            result.GetResults()[0][0].Value<VertexAccessor>().labels().size());
+  EXPECT_EQ(label,
+            result.GetResults()[0][0].Value<VertexAccessor>().labels()[0]);
+  EXPECT_EQ(TypedValue::Type::Int, result.GetResults()[0][1].type());
+  EXPECT_EQ(42, result.GetResults()[0][1].Value<int64_t>());
+
+  dba->advance_command();
+  EXPECT_EQ(1, CountIterable(dba->vertices()));
+}
+
+TEST(Interpreter, CreateExpand) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  GraphDb::Label label_node_1 = dba->label("Node1");
+  GraphDb::Label label_node_2 = dba->label("Node2");
+  GraphDb::Property property = dba->label("prop");
+  GraphDb::EdgeType edge_type = dba->label("edge_type");
+
+  SymbolTable symbol_table;
+  AstTreeStorage storage;
+
+  auto test_create_path = [&](bool cycle, int expected_nodes_created,
+                              int expected_edges_created) {
+    int before_v = CountIterable(dba->vertices());
+    int before_e = CountIterable(dba->edges());
+
+    // data for the first node
+    auto n = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+    n->labels_.emplace_back(label_node_1);
+    n->properties_[property] = storage.Create<Literal>(1);
+    auto n_sym = symbol_table.CreateSymbol("n");
+    symbol_table[*n->identifier_] = n_sym;
+
+    // data for the second node
+    auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+    m->labels_.emplace_back(label_node_2);
+    m->properties_[property] = storage.Create<Literal>(2);
+    if (cycle)
+      symbol_table[*m->identifier_] = n_sym;
+    else
+      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+
+    auto r = storage.Create<EdgeAtom>(storage.Create<Identifier>("r"),
+                                      EdgeAtom::Direction::RIGHT);
+    r->edge_types_.emplace_back(edge_type);
+    r->properties_[property] = storage.Create<Literal>(3);
+
+    auto create_op = std::make_shared<CreateOp>(n);
+    auto create_expand =
+        std::make_shared<CreateExpand>(m, r, create_op, n_sym, cycle);
+    ExecuteCreate(create_expand, *dba, symbol_table);
+    dba->advance_command();
+
+    EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
+              expected_nodes_created);
+    EXPECT_EQ(CountIterable(dba->edges()) - before_e, expected_edges_created);
+  };
+
+  test_create_path(false, 2, 1);
+  test_create_path(true, 1, 1);
+
+  for (VertexAccessor vertex : dba->vertices()) {
+    EXPECT_EQ(vertex.labels().size(), 1);
+    GraphDb::Label label = vertex.labels()[0];
+    if (label == label_node_1) {
+      // node created by first op
+      EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 1);
+    } else if (label == label_node_2) {
+      // node create by expansion
+      EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 2);
+    } else {
+      // should not happen
+      FAIL();
+    }
+
+    for (EdgeAccessor edge : dba->edges()) {
+      EXPECT_EQ(edge.edge_type(), edge_type);
+      EXPECT_EQ(edge.PropsAt(property).Value<int64_t>(), 3);
+    }
+  }
+}
+
+TEST(Interpreter, MatchCreate) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // add three nodes we'll match and expand-create from
+  dba->insert_vertex();
+  dba->insert_vertex();
+  dba->insert_vertex();
+  dba->advance_command();
+
+  //  GraphDb::Label label_node_1 = dba->label("Node1");
+  //  GraphDb::Label label_node_2 = dba->label("Node2");
+  //  GraphDb::Property property = dba->label("prop");
+  GraphDb::EdgeType edge_type = dba->label("edge_type");
+
+  SymbolTable symbol_table;
+  AstTreeStorage storage;
+
+  auto test_create_path = [&](bool cycle, int expected_nodes_created,
+                              int expected_edges_created) {
+    int before_v = CountIterable(dba->vertices());
+    int before_e = CountIterable(dba->edges());
+
+    // data for the first node
+    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto n_sym = symbol_table.CreateSymbol("n");
+    symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
+
+    // data for the second node
+    auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+    if (cycle)
+      symbol_table[*m->identifier_] = n_sym;
+    else
+      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+
+    auto r = storage.Create<EdgeAtom>(storage.Create<Identifier>("r"),
+                                      EdgeAtom::Direction::RIGHT);
+    r->edge_types_.emplace_back(edge_type);
+
+    auto create_expand = std::make_shared<CreateExpand>(
+        m, r, std::get<1>(n_scan_all), n_sym, cycle);
+    ExecuteCreate(create_expand, *dba, symbol_table);
+    dba->advance_command();
+
+    EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
+              expected_nodes_created);
+    EXPECT_EQ(CountIterable(dba->edges()) - before_e, expected_edges_created);
+  };
+
+  test_create_path(false, 3, 3);
+  test_create_path(true, 0, 6);
 }
 
 TEST(Interpreter, Expand) {
@@ -279,11 +458,13 @@ TEST(Interpreter, Expand) {
   auto edge_type = dba->edge_type("Edge");
   dba->insert_edge(v1, v2, edge_type);
   dba->insert_edge(v1, v3, edge_type);
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto test_expand = [&](EdgeAtom::Direction direction, int expected_result_count) {
+  auto test_expand = [&](EdgeAtom::Direction direction,
+                         int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
                           "r", direction, false, "m", false);
@@ -315,6 +496,7 @@ TEST(Interpreter, ExpandNodeCycle) {
   auto edge_type = dba->edge_type("Edge");
   dba->insert_edge(v1, v1, edge_type);
   dba->insert_edge(v1, v2, edge_type);
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -357,6 +539,7 @@ TEST(Interpreter, ExpandEdgeCycle) {
   auto edge_type = dba->edge_type("Edge");
   dba->insert_edge(v1, v2, edge_type);
   dba->insert_edge(v1, v3, edge_type);
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -417,6 +600,7 @@ TEST(Interpreter, EdgeFilter) {
         break;
     }
   }
+  dba->advance_command();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;

@@ -40,6 +40,9 @@ class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
 };
 
 class CreateOp : public LogicalOperator {
+  // TODO add an optional input that (if given) gets pulled
+  // and the create op gets executed for each success
+  // TODO rename to CreateSingle or CreateNode
  public:
   CreateOp(NodeAtom* node_atom) : node_atom_(node_atom) {}
   DEFVISITABLE(LogicalOperatorVisitor);
@@ -61,6 +64,8 @@ class CreateOp : public LogicalOperator {
           new_node.PropsSet(kv.first, evaluator.PopBack());
         }
 
+        frame[symbol_table[*self_.node_atom_->identifier_]] = new_node;
+
         did_create_ = true;
         return true;
       } else
@@ -80,6 +85,117 @@ class CreateOp : public LogicalOperator {
 
  private:
   NodeAtom* node_atom_ = nullptr;
+};
+
+class CreateExpand : public LogicalOperator {
+
+ public:
+  CreateExpand(NodeAtom* node_atom, EdgeAtom* edge_atom,
+               const std::shared_ptr<LogicalOperator>& input,
+               const Symbol& input_symbol, bool node_existing)
+      : node_atom_(node_atom),
+        edge_atom_(edge_atom),
+        input_(input),
+        input_symbol_(input_symbol),
+        node_existing_(node_existing) {}
+
+ private:
+  class CreateExpandCursor : public Cursor {
+   public:
+    CreateExpandCursor(CreateExpand& self, GraphDbAccessor& db)
+        : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame& frame, SymbolTable& symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      // get the origin vertex
+      TypedValue vertex_value = frame[self_.input_symbol_];
+      auto v1 = vertex_value.Value<VertexAccessor>();
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+
+      // get the destination vertex (possibly an existing node)
+      VertexAccessor v2 = OtherVertex(frame, symbol_table, evaluator);
+
+      // create an edge between the two nodes
+      switch (self_.edge_atom_->direction_) {
+        case EdgeAtom::Direction::LEFT:
+          CreateEdge(v2, v1, evaluator);
+          break;
+        case EdgeAtom::Direction::RIGHT:
+          CreateEdge(v1, v2, evaluator);
+          break;
+        case EdgeAtom::Direction::BOTH:
+          permanent_fail("Undefined direction not allowed in create");
+      }
+
+      return true;
+    }
+
+   private:
+    CreateExpand& self_;
+    GraphDbAccessor& db_;
+    std::unique_ptr<Cursor> input_cursor_;
+
+    /**
+     *  Helper function for getting an existing node or creating a new one.
+     * @return The newly created or already existing node.
+     */
+    VertexAccessor OtherVertex(Frame &frame, SymbolTable &symbol_table,
+                               ExpressionEvaluator &evaluator) {
+      if (self_.node_existing_) {
+        TypedValue& dest_node_value =
+            frame[symbol_table[*self_.node_atom_->identifier_]];
+        return dest_node_value.Value<VertexAccessor>();
+      } else {
+        // the node does not exist, it needs to be created
+        auto node = db_.insert_vertex();
+        for (auto label : self_.node_atom_->labels_) node.add_label(label);
+        for (auto kv : self_.node_atom_->properties_) {
+          kv.second->Accept(evaluator);
+          node.PropsSet(kv.first, evaluator.PopBack());
+        }
+        frame[symbol_table[*self_.node_atom_->identifier_]] = node;
+        return node;
+      }
+    }
+
+    /**
+     * Helper function for creating an edge.
+     *
+     * @param from  Origin vertex of the edge.
+     * @param to  Destination vertex of the edge.
+     * @param evaluator Expression evaluator for property value eval.
+     */
+    void CreateEdge(VertexAccessor& from, VertexAccessor& to,
+                    ExpressionEvaluator& evaluator) {
+      EdgeAccessor edge =
+          db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
+      for (auto kv : self_.edge_atom_->properties_) {
+        kv.second->Accept(evaluator);
+        edge.PropsSet(kv.first, evaluator.PopBack());
+      }
+    };
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor& db) override {
+    return std::make_unique<CreateExpandCursor>(*this, db);
+  }
+
+ private:
+  // info on what's getting expanded
+  NodeAtom* node_atom_;
+  EdgeAtom* edge_atom_;
+
+  // the input op and the symbol under which the op's result
+  // can be found in the frame
+  std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+
+  // if the given node atom refers to an existing node
+  // (either matched or created)
+  bool node_existing_;
 };
 
 class ScanAll : public LogicalOperator {

@@ -59,11 +59,9 @@ class Record : public Version<T> {
     // Mike Olson says 17 march 1993: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
     // again. i know, it happened to me.
-    // This implementation is different than the original one by the <= between
-    // cmd.cre() and t.cid, instead of just <. This is the behaviour we want.
 
     return ((tx.cre() == t.id &&      // inserted by the current transaction
-             cmd.cre() <= t.cid &&    // before or during this command, and
+             cmd.cre() < t.cid &&     // before this command, and
              (tx.exp() == Id(0) ||    // the row has not been deleted, or
               (tx.exp() == t.id &&    // it was deleted by the current
                                       // transaction
@@ -114,9 +112,13 @@ class Record : public Version<T> {
 
   // TODO: Test this
   // True if this record is visible for write.
+  // Note that this logic is different from the one above
+  // in the sense that a record is visible if created before
+  // OR DURING this command. this is done to support cypher's
+  // queries which can match, update and return in the same query
   bool is_visible_write(const tx::Transaction &t) {
     return (tx.cre() == t.id &&       // inserted by the current transaction
-            cmd.cre() <= t.cid &&     // before this command, and
+            cmd.cre() <= t.cid &&     // before OR DURING this command, and
             (tx.exp() == Id(0) ||     // the row has not been deleted, or
              (tx.exp() == t.id &&     // it was deleted by the current
                                       // transaction

@@ -34,9 +34,11 @@ TEST(GraphDbAccessorTest, InsertVertex) {
   EXPECT_EQ(CountVertices(*accessor), 0);
 
   accessor->insert_vertex();
+  accessor->advance_command();
   EXPECT_EQ(CountVertices(*accessor), 1);
 
   accessor->insert_vertex();
+  accessor->advance_command();
   EXPECT_EQ(CountVertices(*accessor), 2);
 }
 
@@ -47,6 +49,7 @@ TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
   EXPECT_EQ(CountVertices(*accessor), 0);
 
   auto va1 = accessor->insert_vertex();
+  accessor->advance_command();
   EXPECT_EQ(CountVertices(*accessor), 1);
 
   EXPECT_TRUE(accessor->remove_vertex(va1));
@@ -81,6 +84,7 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 
   auto va1 = dba->insert_vertex();
   auto va2 = dba->insert_vertex();
+  dba->advance_command();
   EXPECT_EQ(va1.in_degree(), 0);
   EXPECT_EQ(va1.out_degree(), 0);
   EXPECT_EQ(va2.in_degree(), 0);
@@ -88,6 +92,7 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 
   // setup (v1) - [:likes] -> (v2)
   dba->insert_edge(va1, va2, dba->edge_type("likes"));
+  dba->advance_command();
   EXPECT_EQ(CountEdges(*dba), 1);
   EXPECT_EQ(va1.out().begin()->to(), va2);
   EXPECT_EQ(va2.in().begin()->from(), va1);
@@ -99,6 +104,7 @@ TEST(GraphDbAccessorTest, InsertEdge) {
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
   auto va3 = dba->insert_vertex();
   dba->insert_edge(va3, va2, dba->edge_type("hates"));
+  dba->advance_command();
   EXPECT_EQ(CountEdges(*dba), 2);
   EXPECT_EQ(va3.out().begin()->to(), va2);
   EXPECT_EQ(va1.in_degree(), 0);
@@ -111,35 +117,33 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 
 TEST(GraphDbAccessorTest, RemoveEdge) {
   Dbms dbms;
-  auto dba1 = dbms.active();
+  auto dba = dbms.active();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va1 = dba1->insert_vertex();
-  auto va2 = dba1->insert_vertex();
-  auto va3 = dba1->insert_vertex();
-  dba1->insert_edge(va1, va2, dba1->edge_type("likes"));
-  dba1->insert_edge(va3, va2, dba1->edge_type("hates"));
-  EXPECT_EQ(CountEdges(*dba1), 2);
+  auto va1 = dba->insert_vertex();
+  auto va2 = dba->insert_vertex();
+  auto va3 = dba->insert_vertex();
+  dba->insert_edge(va1, va2, dba->edge_type("likes"));
+  dba->insert_edge(va3, va2, dba->edge_type("hates"));
+  dba->advance_command();
+  EXPECT_EQ(CountEdges(*dba), 2);
 
   // remove all [:hates] edges
-  dba1->commit();
-  auto dba2 = dbms.active();
-  EXPECT_EQ(CountEdges(*dba2), 2);
-  for (auto edge : dba2->edges())
-    if (edge.edge_type() == dba2->edge_type("hates")) dba2->remove_edge(edge);
+  EXPECT_EQ(CountEdges(*dba), 2);
+  for (auto edge : dba->edges())
+    if (edge.edge_type() == dba->edge_type("hates")) dba->remove_edge(edge);
 
   // current state: (v1) - [:likes] -> (v2), (v3)
-  dba2->commit();
-  auto dba3 = dbms.active();
-  EXPECT_EQ(CountEdges(*dba3), 1);
-  EXPECT_EQ(CountVertices(*dba3), 3);
-  for (auto edge : dba3->edges()) {
-    EXPECT_EQ(edge.edge_type(), dba3->edge_type("likes"));
+  dba->advance_command();
+  EXPECT_EQ(CountEdges(*dba), 1);
+  EXPECT_EQ(CountVertices(*dba), 3);
+  for (auto edge : dba->edges()) {
+    EXPECT_EQ(edge.edge_type(), dba->edge_type("likes"));
     auto v1 = edge.from();
     auto v2 = edge.to();
 
     // ensure correct connectivity for all the vertices
-    for (auto vertex : dba3->vertices()) {
+    for (auto vertex : dba->vertices()) {
       if (vertex == v1) {
         EXPECT_EQ(vertex.in_degree(), 0);
         EXPECT_EQ(vertex.out_degree(), 1);
@@ -156,60 +160,57 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
 
 TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   Dbms dbms;
-  auto dba1 = dbms.active();
+  auto dba = dbms.active();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va1 = dba1->insert_vertex();
-  auto va2 = dba1->insert_vertex();
-  auto va3 = dba1->insert_vertex();
-  dba1->insert_edge(va1, va2, dba1->edge_type("likes"));
-  dba1->insert_edge(va1, va3, dba1->edge_type("likes"));
+  auto va1 = dba->insert_vertex();
+  auto va2 = dba->insert_vertex();
+  auto va3 = dba->insert_vertex();
+  dba->insert_edge(va1, va2, dba->edge_type("likes"));
+  dba->insert_edge(va1, va3, dba->edge_type("likes"));
+  dba->advance_command();
 
   // ensure that plain remove does NOT work
-  EXPECT_EQ(CountVertices(*dba1), 3);
-  EXPECT_EQ(CountEdges(*dba1), 2);
-  EXPECT_FALSE(dba1->remove_vertex(va1));
-  EXPECT_FALSE(dba1->remove_vertex(va2));
-  EXPECT_FALSE(dba1->remove_vertex(va3));
-  EXPECT_EQ(CountVertices(*dba1), 3);
-  EXPECT_EQ(CountEdges(*dba1), 2);
+  EXPECT_EQ(CountVertices(*dba), 3);
+  EXPECT_EQ(CountEdges(*dba), 2);
+  EXPECT_FALSE(dba->remove_vertex(va1));
+  EXPECT_FALSE(dba->remove_vertex(va2));
+  EXPECT_FALSE(dba->remove_vertex(va3));
+  EXPECT_EQ(CountVertices(*dba), 3);
+  EXPECT_EQ(CountEdges(*dba), 2);
 
   // make a new transaction because at the moment deletions
   // in the same transaction are not visible
   // DETACH REMOVE V3
   // new situation: (v1) - [:likes] -> (v2)
-  dba1->detach_remove_vertex(va3);
-  dba1->commit();
-  auto dba2 = dbms.active();
+  dba->detach_remove_vertex(va3);
+  dba->advance_command();
 
-  EXPECT_EQ(CountVertices(*dba2), 2);
-  EXPECT_EQ(CountEdges(*dba2), 1);
-  for (auto va : dba2->vertices()) EXPECT_FALSE(dba2->remove_vertex(va));
+  EXPECT_EQ(CountVertices(*dba), 2);
+  EXPECT_EQ(CountEdges(*dba), 1);
+  for (auto va : dba->vertices()) EXPECT_FALSE(dba->remove_vertex(va));
 
-  dba2->commit();
-  auto dba3 = dbms.active();
-  EXPECT_EQ(CountVertices(*dba3), 2);
-  EXPECT_EQ(CountEdges(*dba3), 1);
+  dba->advance_command();
+  EXPECT_EQ(CountVertices(*dba), 2);
+  EXPECT_EQ(CountEdges(*dba), 1);
 
-  for (auto va : dba3->vertices()) {
-    EXPECT_FALSE(dba3->remove_vertex(va));
-    dba3->detach_remove_vertex(va);
+  for (auto va : dba->vertices()) {
+    EXPECT_FALSE(dba->remove_vertex(va));
+    dba->detach_remove_vertex(va);
     break;
   }
 
-  dba3->commit();
-  auto dba4 = dbms.active();
-  EXPECT_EQ(CountVertices(*dba4), 1);
-  EXPECT_EQ(CountEdges(*dba4), 0);
+  dba->advance_command();
+  EXPECT_EQ(CountVertices(*dba), 1);
+  EXPECT_EQ(CountEdges(*dba), 0);
 
   // remove the last vertex, it has no connections
   // so that should work
-  for (auto va : dba4->vertices()) EXPECT_TRUE(dba4->remove_vertex(va));
+  for (auto va : dba->vertices()) EXPECT_TRUE(dba->remove_vertex(va));
 
-  dba4->commit();
-  auto dba5 = dbms.active();
-  EXPECT_EQ(CountVertices(*dba5), 0);
-  EXPECT_EQ(CountEdges(*dba5), 0);
+  dba->advance_command();
+  EXPECT_EQ(CountVertices(*dba), 0);
+  EXPECT_EQ(CountEdges(*dba), 0);
 }
 
 TEST(GraphDbAccessorTest, Labels) {

@@ -141,6 +141,7 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   auto v1 = dba->insert_vertex();
   auto v2 = dba->insert_vertex();
   auto edge = dba->insert_edge(v1, v2, dba->edge_type("likes"));
+  dba->advance_command();
 
   EXPECT_EQ(edge.from(), v1);
   EXPECT_NE(edge.from(), v2);
