@@ -12,6 +12,7 @@ namespace fs = std::experimental::filesystem;
 #include "query/plan_compiler.hpp"
 #include "query/plan_interface.hpp"
 #include "query/preprocessor.hpp"
+#include "query/interpreter.hpp"
 #include "utils/dynamic_lib.hpp"
 
 /**
@@ -62,6 +63,12 @@ public:
    */
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
+
+    if (CONFIG[config::INTERPRET]) {
+      query::Interpret(query, db_accessor, stream);
+      return true;
+    }
+
     auto preprocessed = preprocessor.preprocess(query);
     auto plan = LoadCypher(preprocessed);
     auto result = plan->run(db_accessor, preprocessed.arguments, stream);

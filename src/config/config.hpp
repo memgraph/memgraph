@@ -26,6 +26,7 @@ constexpr const char *SNAPSHOTS_PATH = "snapshots_path";
 constexpr const char *CLEANING_CYCLE_SEC = "cleaning_cycle_sec";
 constexpr const char *SNAPSHOT_CYCLE_SEC = "snapshot_cycle_sec";
 constexpr const char *MAX_RETAINED_SNAPSHOTS = "max_retained_snapshots";
+constexpr const char *INTERPRET = "interpret";
 // -- all possible Memgraph's keys --
 
 inline size_t to_int(std::string &&s) { return stoull(s); }

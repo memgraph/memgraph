@@ -5,9 +5,9 @@
 #include "query/backend/cpp/typed_value.hpp"
 #include "storage/property_value_store.hpp"
 
+#include "parameters.hpp"
 #include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
-#include "parameters.hpp"
 
 /*
 * StrippedQuery contains:
@@ -16,10 +16,12 @@
 *     * hash of stripped query
 */
 struct StrippedQuery {
-  StrippedQuery(const std::string &&query,
-                const Parameters &arguments,
-                HashType hash)
-      : query(query), arguments(arguments), hash(hash) {}
+  StrippedQuery(const std::string &unstripped_query, const std::string &&query,
+                const Parameters &arguments, HashType hash)
+      : unstripped_query(unstripped_query),
+        query(query),
+        arguments(arguments),
+        hash(hash) {}
 
   /**
    * Copy constructor is deleted because we don't want to make unnecessary
@@ -35,18 +37,15 @@ struct StrippedQuery {
   StrippedQuery(StrippedQuery &&other) = default;
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
-  /**
-   * Stripped query
-   */
+  // original, unstripped query
+  const std::string unstripped_query;
+
+  // stripped query
   const std::string query;
 
-  /**
-   * Stripped arguments
-   */
+  // striped arguments
   const Parameters arguments;
 
-  /**
-   * Hash based on stripped query.
-   */
+  // hash based on the stripped query
   const HashType hash;
 };

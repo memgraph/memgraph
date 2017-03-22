@@ -214,7 +214,8 @@ StrippedQuery Strip(const std::string &query) {
   }
 
   // return stripped query, stripped arguments and stripped query hash
-  return StrippedQuery(std::move(stripped_query),
+  return StrippedQuery(query,
+                       std::move(stripped_query),
                        std::move(stripped_arguments),
                        fnv(stripped_query));
 }

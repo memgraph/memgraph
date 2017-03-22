@@ -12,7 +12,11 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "dbms/dbms.hpp"
-#include "query/entry.hpp"
+#include "query/context.hpp"
+#include "query/frontend/interpret/interpret.hpp"
+#include "query/frontend/logical/planner.hpp"
+#include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 
 using namespace query;
 

@@ -1,15 +1,87 @@
 #include <iostream>
+#include <sstream>
 
 #include "dbms/dbms.hpp"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.cpp"
-#include "query/entry.hpp"
+#include "query/interpreter.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/logical/operator.hpp"
 
 using std::cout;
 using std::cin;
 using std::endl;
+
+/**
+ * A Stream implementation that writes out to the
+ * console (for testing and debugging only).
+ */
+// TODO move somewhere to /test/manual or so
+class ConsoleResultStream : public Loggable {
+public:
+  ConsoleResultStream() : Loggable("ConsoleResultStream") {}
+
+  void Header(const std::vector<std::string> &) { logger.info("header"); }
+
+  void Result(std::vector<TypedValue> &values) {
+    std::stringstream ss;
+    bool first = true;
+    for (auto value : values) {
+      if (first) {
+        ss << "\t";
+        first = false;
+      }
+      else
+        ss << " | ";
+      switch (value.type()) {
+        case TypedValue::Type::Vertex: {
+          auto va = value.Value<VertexAccessor>();
+          ss << "Vertex(";
+          for (auto label : va.labels())
+            ss << ":" << va.db_accessor().label_name(label) << " ";
+          ss << "{";
+          for (auto kv : va.Properties()) {
+            ss << va.db_accessor().property_name(kv.first) << ": ";
+            ss << kv.second << ", ";
+          }
+          ss << "}";
+          ss << ")";
+          break;
+        }
+        case TypedValue::Type::Edge: {
+          auto ea = value.Value<EdgeAccessor>();
+          ss << "Edge[" << ea.db_accessor().edge_type_name(ea.edge_type()) << "}";
+          ss << "{";
+          for (auto kv : ea.Properties()) {
+            ss << ea.db_accessor().property_name(kv.first) << ": ";
+            ss << kv.second << ", ";
+          }
+          ss << "}";
+          ss << "]";
+          break;
+        }
+
+        case TypedValue::Type::List:break;
+        case TypedValue::Type::Map:break;
+        case TypedValue::Type::Path:break;
+        default:
+          ss << value;
+      }
+    }
+    logger.info("{}", ss.str());
+  }
+
+  void Summary(const std::map<std::string, TypedValue> &summary) {
+    std::stringstream ss;
+    ss << "Summary {";
+    bool first = true;
+    for (auto kv : summary)
+      ss << kv.first << " : " << kv.second << ", ";
+    ss << "}";
+    logger.info("{}", ss.str());
+  }
+};
+
 
 int main(int argc, char* argv[]) {
   // init arguments
@@ -21,8 +93,7 @@ int main(int argc, char* argv[]) {
 
   // init db context
   Dbms dbms;
-  query::ConsoleResultStream stream;
-  query::Engine<query::ConsoleResultStream> query_engine;
+  ConsoleResultStream stream;
 
   // initialize the database
   auto dba = dbms.active();
@@ -42,20 +113,20 @@ int main(int argc, char* argv[]) {
   memgraph.PropsSet(name, "Memgraph");
     memgraph.add_label(company);
   auto teon = dba->insert_vertex();
-  memgraph.PropsSet(name, "Teon");
-  memgraph.PropsSet(age, 26);
+  teon.PropsSet(name, "Teon");
+  teon.PropsSet(age, 26);
     teon.add_label(person);
   auto mislav = dba->insert_vertex();
-  memgraph.PropsSet(name, "Mislav");
-  memgraph.PropsSet(age, 22);
+  mislav.PropsSet(name, "Mislav");
+  mislav.PropsSet(age, 22);
     mislav.add_label(person);
   auto florijan = dba->insert_vertex();
-  memgraph.PropsSet(name, "Florijan");
-  memgraph.PropsSet(age, 31);
+  florijan.PropsSet(name, "Florijan");
+  florijan.PropsSet(age, 31);
     florijan.add_label(person);
   auto xps_15 = dba->insert_vertex();
-  memgraph.PropsSet(type, "PC");
-  memgraph.PropsSet(name, "Dell XPS 15");
+  xps_15.PropsSet(type, "PC");
+  xps_15.PropsSet(name, "Dell XPS 15");
     xps_15.add_label(device);
 
   // edges
@@ -76,11 +147,12 @@ int main(int argc, char* argv[]) {
   dba->insert_edge(mislav, xps_15, dba->edge_type("USES"));
   dba->insert_edge(florijan, xps_15, dba->edge_type("USES"));
 
-  dba->advance_command();
+  dba->commit();
 
   cout << "-- Memgraph Query Engine --" << endl;
 
   while (true) {
+    auto inner_dba = dbms.active();
     // read command
     cout << "> ";
     std::string command;
@@ -89,7 +161,8 @@ int main(int argc, char* argv[]) {
     // execute command / query
     // try {
       // auto db_accessor = dbms.active();
-      query_engine.Execute(command, *dba, stream);
+      query::Interpret(command, *inner_dba, stream);
+    inner_dba->commit();
     // } catch (const std::exception& e) {
     //   cout << e.what() << endl;
     // } catch (...) {
