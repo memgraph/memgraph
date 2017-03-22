@@ -7,7 +7,7 @@
 
 #include "utils/assert.hpp"
 
-TypedValue::TypedValue(const PropertyValue& value) {
+TypedValue::TypedValue(const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
       type_ = Type::Null;
@@ -62,7 +62,7 @@ TypedValue::operator PropertyValue() const {
 // example Value<string&>.
 // Value extraction template instantiations
 template <>
-bool TypedValue::Value<bool>() const {
+const bool &TypedValue::Value<bool>() const {
   if (type_ != TypedValue::Type::Bool) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -70,7 +70,7 @@ bool TypedValue::Value<bool>() const {
 }
 
 template <>
-int64_t TypedValue::Value<int64_t>() const {
+const int64_t &TypedValue::Value<int64_t>() const {
   if (type_ != TypedValue::Type::Int) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -78,7 +78,7 @@ int64_t TypedValue::Value<int64_t>() const {
 }
 
 template <>
-double TypedValue::Value<double>() const {
+const double &TypedValue::Value<double>() const {
   if (type_ != TypedValue::Type::Double) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -86,7 +86,7 @@ double TypedValue::Value<double>() const {
 }
 
 template <>
-std::string TypedValue::Value<std::string>() const {
+const std::string &TypedValue::Value<std::string>() const {
   if (type_ != TypedValue::Type::String) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -94,7 +94,8 @@ std::string TypedValue::Value<std::string>() const {
 }
 
 template <>
-std::vector<TypedValue> TypedValue::Value<std::vector<TypedValue>>() const {
+const std::vector<TypedValue> &TypedValue::Value<std::vector<TypedValue>>()
+    const {
   if (type_ != TypedValue::Type::List) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -102,7 +103,7 @@ std::vector<TypedValue> TypedValue::Value<std::vector<TypedValue>>() const {
 }
 
 template <>
-std::map<std::string, TypedValue>
+std::map<std::string, TypedValue> const &
 TypedValue::Value<std::map<std::string, TypedValue>>() const {
   if (type_ != TypedValue::Type::Map) {
     throw TypedValueException("Incompatible template param and type");
@@ -111,7 +112,7 @@ TypedValue::Value<std::map<std::string, TypedValue>>() const {
 }
 
 template <>
-VertexAccessor TypedValue::Value<VertexAccessor>() const {
+const VertexAccessor &TypedValue::Value<VertexAccessor>() const {
   if (type_ != TypedValue::Type::Vertex) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -119,7 +120,7 @@ VertexAccessor TypedValue::Value<VertexAccessor>() const {
 }
 
 template <>
-EdgeAccessor TypedValue::Value<EdgeAccessor>() const {
+const EdgeAccessor &TypedValue::Value<EdgeAccessor>() const {
   if (type_ != TypedValue::Type::Edge) {
     throw TypedValueException("Incompatible template param and type");
   }
@@ -127,14 +128,87 @@ EdgeAccessor TypedValue::Value<EdgeAccessor>() const {
 }
 
 template <>
-Path TypedValue::Value<Path>() const {
+const Path &TypedValue::Value<Path>() const {
   if (type_ != TypedValue::Type::Path) {
     throw TypedValueException("Incompatible template param and type");
   }
   return path_v;
 }
 
-TypedValue::TypedValue(const TypedValue& other) : type_(other.type_) {
+template <>
+bool &TypedValue::Value<bool>() {
+  if (type_ != TypedValue::Type::Bool) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return bool_v;
+}
+
+template <>
+int64_t &TypedValue::Value<int64_t>() {
+  if (type_ != TypedValue::Type::Int) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return int_v;
+}
+
+template <>
+double &TypedValue::Value<double>() {
+  if (type_ != TypedValue::Type::Double) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return double_v;
+}
+
+template <>
+std::string &TypedValue::Value<std::string>() {
+  if (type_ != TypedValue::Type::String) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return string_v;
+}
+
+template <>
+std::vector<TypedValue> &TypedValue::Value<std::vector<TypedValue>>() {
+  if (type_ != TypedValue::Type::List) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return list_v;
+}
+
+template <>
+std::map<std::string, TypedValue>
+    &TypedValue::Value<std::map<std::string, TypedValue>>() {
+  if (type_ != TypedValue::Type::Map) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return map_v;
+}
+
+template <>
+VertexAccessor &TypedValue::Value<VertexAccessor>() {
+  if (type_ != TypedValue::Type::Vertex) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return vertex_v;
+}
+
+template <>
+EdgeAccessor &TypedValue::Value<EdgeAccessor>() {
+  if (type_ != TypedValue::Type::Edge) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return edge_v;
+}
+
+template <>
+Path &TypedValue::Value<Path>() {
+  if (type_ != TypedValue::Type::Path) {
+    throw TypedValueException("Incompatible template param and type");
+  }
+  return path_v;
+}
+
+TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
       return;
@@ -169,7 +243,7 @@ TypedValue::TypedValue(const TypedValue& other) : type_(other.type_) {
   permanent_fail("Unsupported TypedValue::Type");
 }
 
-std::ostream& operator<<(std::ostream& os, const TypedValue::Type type) {
+std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
   switch (type) {
     case TypedValue::Type::Null:
       return os << "null";
@@ -195,7 +269,7 @@ std::ostream& operator<<(std::ostream& os, const TypedValue::Type type) {
   permanent_fail("Unsupported TypedValue::Type");
 }
 
-std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
+std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
   switch (value.type_) {
     case TypedValue::Type::Null:
       return os << "Null";
@@ -209,13 +283,13 @@ std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
       return os << value.Value<std::string>();
     case TypedValue::Type::List:
       os << "[";
-      for (const auto& x : value.Value<std::vector<TypedValue>>()) {
+      for (const auto &x : value.Value<std::vector<TypedValue>>()) {
         os << x << ",";
       }
       return os << "]";
     case TypedValue::Type::Map:
       os << "{";
-      for (const auto& x : value.Value<std::map<std::string, TypedValue>>()) {
+      for (const auto &x : value.Value<std::map<std::string, TypedValue>>()) {
         os << x.first << ": " << x.second << ",";
       }
       return os << "}";
@@ -229,7 +303,7 @@ std::ostream& operator<<(std::ostream& os, const TypedValue& value) {
   permanent_fail("Unsupported PropertyValue::Type");
 }
 
-TypedValue& TypedValue::operator=(const TypedValue& other) {
+TypedValue &TypedValue::operator=(const TypedValue &other) {
   if (this != &other) {
     this->~TypedValue();
     // set the type of this
@@ -318,7 +392,7 @@ TypedValue::~TypedValue() {
  * @param value
  * @return
  */
-double ToDouble(const TypedValue& value) {
+double ToDouble(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Int:
       return (double)value.Value<int64_t>();
@@ -330,7 +404,7 @@ double ToDouble(const TypedValue& value) {
   }
 }
 
-TypedValue operator<(const TypedValue& a, const TypedValue& b) {
+TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::Bool || b.type() == TypedValue::Type::Bool)
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(),
                               b.type());
@@ -359,7 +433,7 @@ TypedValue operator<(const TypedValue& a, const TypedValue& b) {
 
 // TODO: 2 = "2" -> false, I don't think this is handled correctly at the
 // moment.
-TypedValue operator==(const TypedValue& a, const TypedValue& b) {
+TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
     return TypedValue::Null;
 
@@ -420,7 +494,7 @@ TypedValue operator==(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator!(const TypedValue& a) {
+TypedValue operator!(const TypedValue &a) {
   switch (a.type()) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
@@ -438,7 +512,7 @@ TypedValue operator!(const TypedValue& a) {
  * @param value a value.
  * @return A string.
  */
-std::string ValueToString(const TypedValue& value) {
+std::string ValueToString(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::String:
       return value.Value<std::string>();
@@ -453,7 +527,7 @@ std::string ValueToString(const TypedValue& value) {
   }
 }
 
-TypedValue operator-(const TypedValue& a) {
+TypedValue operator-(const TypedValue &a) {
   switch (a.type()) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
@@ -478,8 +552,8 @@ TypedValue operator-(const TypedValue& a) {
  *  @param op_name Name of the operation, used only for exception description,
  *  if raised.
  */
-inline void EnsureArithmeticallyOk(const TypedValue& a, const TypedValue& b,
-                                   bool string_ok, const std::string& op_name) {
+inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b,
+                                   bool string_ok, const std::string &op_name) {
   if (a.type() == TypedValue::Type::Bool || b.type() == TypedValue::Type::Bool)
     throw TypedValueException("Invalid {} operand types {}, {}", op_name,
                               a.type(), b.type());
@@ -492,14 +566,14 @@ inline void EnsureArithmeticallyOk(const TypedValue& a, const TypedValue& b,
                               a.type(), b.type());
 }
 
-TypedValue operator+(const TypedValue& a, const TypedValue& b) {
+TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
     return TypedValue::Null;
 
   if (a.type() == TypedValue::Type::List ||
       b.type() == TypedValue::Type::List) {
     std::vector<TypedValue> list;
-    auto append_list = [&list](const TypedValue& v) {
+    auto append_list = [&list](const TypedValue &v) {
       if (v.type() == TypedValue::Type::List) {
         auto list2 = v.Value<std::vector<TypedValue>>();
         list.insert(list.end(), list2.begin(), list2.end());
@@ -528,7 +602,7 @@ TypedValue operator+(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator-(const TypedValue& a, const TypedValue& b) {
+TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "subtraction");
 
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
@@ -543,7 +617,7 @@ TypedValue operator-(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator/(const TypedValue& a, const TypedValue& b) {
+TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "division");
 
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
@@ -558,7 +632,7 @@ TypedValue operator/(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator*(const TypedValue& a, const TypedValue& b) {
+TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "multiplication");
 
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
@@ -573,7 +647,7 @@ TypedValue operator*(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator%(const TypedValue& a, const TypedValue& b) {
+TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "modulo");
 
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
@@ -588,13 +662,13 @@ TypedValue operator%(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-inline bool IsLogicallyOk(const TypedValue& a) {
+inline bool IsLogicallyOk(const TypedValue &a) {
   return a.type() == TypedValue::Type::Bool ||
          a.type() == TypedValue::Type::Null;
 }
 
 // TODO: Fix bugs in && and ||. null or true -> true; false and null -> false
-TypedValue operator&&(const TypedValue& a, const TypedValue& b) {
+TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
     if (a.type() == TypedValue::Type::Null ||
         b.type() == TypedValue::Type::Null) {
@@ -608,7 +682,7 @@ TypedValue operator&&(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator||(const TypedValue& a, const TypedValue& b) {
+TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
     if (a.type() == TypedValue::Type::Null ||
         b.type() == TypedValue::Type::Null) {
@@ -622,7 +696,7 @@ TypedValue operator||(const TypedValue& a, const TypedValue& b) {
   }
 }
 
-TypedValue operator^(const TypedValue& a, const TypedValue& b) {
+TypedValue operator^(const TypedValue &a, const TypedValue &b) {
   if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
     if (a.type() == TypedValue::Type::Null ||
         b.type() == TypedValue::Type::Null) {

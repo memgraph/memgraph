@@ -37,9 +37,9 @@ class Server
 
  public:
   Server(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : socket_(std::forward<Socket>(socket)),
-        dbms_(dbms),
+      : dbms_(dbms),
         query_engine_(query_engine),
+        socket_(std::forward<Socket>(socket)),
         logger_(logging::log->logger("communication::Server")) {
     event_.data.fd = socket_;
 
@@ -104,10 +104,10 @@ class Server
   std::atomic<bool> alive_{true};
   int idx_{0};
 
+  Socket socket_;
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
   Event event_;
-  Socket socket_;
   Logger logger_;
 };
 }

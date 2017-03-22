@@ -39,11 +39,11 @@ class LockStore {
  public:
   template <class... Args>
   void take(T *lock, Args &&... args) {
-    auto holder = LockHolder(lock, std::forward<Args>(args)...);
-
-    if (!holder.active()) return;
-
     locks.emplace_back(LockHolder(lock, std::forward<Args>(args)...));
+    if (!locks.back().active()) {
+      locks.pop_back();
+      return;
+    }
   }
 
  private:

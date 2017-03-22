@@ -22,9 +22,12 @@ class CPUPlan : public PlanInterface<Stream> {
     v.PropsSet(db_accessor.property("garment_id"), args.At(0));
     v.PropsSet(db_accessor.property("garment_category_id"), args.At(1));
     v.PropsSet(db_accessor.property("conceals"), args.At(2));
-    stream.write_field("g");
-    stream.write_vertex_record(v);
-    stream.write_meta("rw");
+    std::vector<std::string> headers{std::string("g")};
+    stream.Header(headers);
+    std::vector<TypedValue> result{TypedValue(v)};
+    stream.Result(result);
+    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
+    stream.Summary(meta);
     db_accessor.commit();
     return true;
   }

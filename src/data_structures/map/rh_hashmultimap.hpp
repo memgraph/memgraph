@@ -4,39 +4,45 @@
 #include <functional>
 #include "data_structures/map/rh_common.hpp"
 #include "utils/assert.hpp"
+#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 #include "utils/likely.hpp"
 #include "utils/option.hpp"
 #include "utils/option_ptr.hpp"
 
-// HashMultiMap with RobinHood collision resolution policy.
-// Single threaded.
-// Entrys are POINTERS alligned to 8B.
-// Entrys must know thers key.
-// D must have method K& get_key()
-// K must be comparable with ==.
-// HashMap behaves as if it isn't owner of entrys.
-//
-// Main idea of this MultiMap is a tweak of logic in RobinHood.
-// RobinHood offset from prefered slot is equal to the number of slots between
-// [current slot and prefered slot>.
-// While in this flavour of "multi RobinHood" offset from prefered slot is equal
-// to the number of different keyed elements between his current slot and
-// prefered slot.
-// In the following examples slots will have keys as caracters. So something
-// like this: |a| will mean that in this slot there is data with key 'a'.
-// like this: | | will mean empty slot.
-// like this: |...| will mean arbitary number of slots.
-// like this: |b:a| will mean that a want's to be in slot but b is in't.
-//
-// Examples:
-// |...|a:a|...| => off(a) = 0
-// |...|a:a|a|...|a|...| => off(a) = 0
-// |...|b:a|a|...| => off(a) = 1
-// |...|b:a|b|...|b|a|...| => off(a) = 1
-// |...|c:a|b|a|...| => off(a) = 2
-// |...|c:a|c|...|c|b|...|b||a|...|a|...| => off(a) = 2
-// ...
+/**
+ * HashMultiMap with RobinHood collision resolution policy.
+ * Single threaded.
+ * Entries are POINTERS alligned to 8B.
+ * Entries must know thers key.
+ * D must have method K& get_key()
+ * K must be comparable with ==.
+ * HashMap behaves as if it isn't owner of entries.
+ * BE CAREFUL - this structure assumes that the pointer to Data is
+ * 8-alligned!
+ *
+ * Main idea of this MultiMap is a tweak of logic in RobinHood.
+ * RobinHood offset from prefered slot is equal to the number of slots between
+ * [current slot and prefered slot>.
+ * While in this flavour of "multi RobinHood" offset from prefered slot is
+ * equal
+ * to the number of different keyed elements between his current slot and
+ * prefered slot.
+ * In the following examples slots will have keys as caracters. So something
+ * like this: |a| will mean that in this slot there is data with key 'a'.
+ * like this: | | will mean empty slot.
+ * like this: |...| will mean arbitary number of slots.
+ * like this: |b:a| will mean that a want's to be in slot but b is in't.
+ *
+ * Examples:
+ * |...|a:a|...| => off(a) = 0
+ * |...|a:a|a|...|a|...| => off(a) = 0
+ * |...|b:a|a|...| => off(a) = 1
+ * |...|b:a|b|...|b|a|...| => off(a) = 1
+ * |...|c:a|b|a|...| => off(a) = 2
+ * |...|c:a|c|...|c|b|...|b||a|...|a|...| => off(a) = 2
+ * ...
+*/
 template <class K, class D, size_t init_size_pow2 = 2>
 class RhHashMultiMap : public RhBase<K, D, init_size_pow2> {
   typedef RhBase<K, D, init_size_pow2> base;
@@ -124,6 +130,8 @@ class RhHashMultiMap : public RhBase<K, D, init_size_pow2> {
   // Inserts element with the given key.
   void add(const K &key_in, D *data) {
     debug_assert(key_in == data->get_key(), "Key doesn't match data key.");
+    permanent_assert(!((uint64_t)(static_cast<void *>(data)) & 7),
+                     "Data is not 8-alligned.");
 
     if (count < capacity) {
       auto key = std::ref(key_in);

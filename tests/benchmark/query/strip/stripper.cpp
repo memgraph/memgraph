@@ -29,10 +29,9 @@ int main(int argc, char **argv) {
 
   auto tests = dataset["benchmark_queries"].as<std::vector<std::string>>();
   for (auto &test : tests) {
-    auto *benchmark =
-        benchmark::RegisterBenchmark(test.c_str(), BM_Strip, preprocess, test)
-            ->Range(1, 1)
-            ->Complexity(benchmark::oN);
+    benchmark::RegisterBenchmark(test.c_str(), BM_Strip, preprocess, test)
+        ->Range(1, 1)
+        ->Complexity(benchmark::oN);
   }
 
   benchmark::Initialize(&argc, argv);

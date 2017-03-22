@@ -1,3 +1,4 @@
+#include <set>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -15,7 +16,7 @@ TEST(RecordAccessor, Properties) {
   auto dba = dbms.active();
 
   auto vertex = dba->insert_vertex();
-  auto& properties = vertex.Properties();
+  auto &properties = vertex.Properties();
 
   auto property = dba->property("PropName");
   auto property_other = dba->property("Other");
@@ -37,9 +38,9 @@ TEST(RecordAccessor, DbAccessor) {
   auto dba = dbms.active();
 
   auto vertex = dba->insert_vertex();
-  const auto& const_vertex_dba = vertex.db_accessor();
+  const auto &const_vertex_dba = vertex.db_accessor();
   EXPECT_EQ(dba.get(), &const_vertex_dba);
-  auto& vertex_dba = vertex.db_accessor();
+  auto &vertex_dba = vertex.db_accessor();
   EXPECT_EQ(dba.get(), &vertex_dba);
 }
 
@@ -80,7 +81,7 @@ TEST(RecordAccessor, VertexLabels) {
   Dbms dbms;
   auto dba = dbms.active();
   auto v1 = dba->insert_vertex();
-  auto& labels = v1.labels();
+  auto &labels = v1.labels();
 
   EXPECT_EQ(v1.labels().size(), 0);
 
@@ -154,6 +155,5 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   EXPECT_EQ(v2.out_degree(), 0);
 
   for (auto e : v1.out()) EXPECT_EQ(edge, e);
-
   for (auto e : v2.in()) EXPECT_EQ(edge, e);
 }

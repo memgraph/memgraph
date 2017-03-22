@@ -21,9 +21,9 @@
 
 using endpoint_t = io::network::NetworkEndpoint;
 using socket_t = io::network::Socket;
-using bolt_server_t =
-    communication::Server<bolt::Session<socket_t>, bolt::RecordStream<socket_t>,
-                          socket_t>;
+using session_t = communication::bolt::Session<socket_t>;
+using result_stream_t = communication::bolt::ResultStream<socket_t>;
+using bolt_server_t = communication::Server<session_t, result_stream_t, socket_t>;
 
 static bolt_server_t *serverptr;
 
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
   logger.info("Listening on {} at {}", interface, port);
 
   Dbms dbms;
-  QueryEngine<bolt::RecordStream<socket_t>> query_engine;
+  QueryEngine<result_stream_t> query_engine;
 
   // initialize server
   bolt_server_t server(std::move(socket), dbms, query_engine);

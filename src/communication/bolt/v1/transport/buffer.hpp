@@ -6,7 +6,7 @@
 
 #include "utils/types/byte.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 class Buffer {
  public:

@@ -1,49 +1,12 @@
-#include <array>
-#include <cassert>
-#include <cstring>
-#include <iostream>
-#include <vector>
+#include "bolt_common.hpp"
 
-#include "gtest/gtest.h"
-
-#include "logging/streams/stdout.hpp"
-
-#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "dbms/dbms.hpp"
 #include "query/engine.hpp"
 
-class TestSocket {
- public:
-  TestSocket(int socket) : socket(socket) {}
-  TestSocket(const TestSocket& s) : socket(s.id()){};
-  TestSocket(TestSocket&& other) { *this = std::forward<TestSocket>(other); }
+using result_stream_t = communication::bolt::ResultStream<TestSocket>;
+using session_t = communication::bolt::Session<TestSocket>;
 
-  TestSocket& operator=(TestSocket&& other) {
-    this->socket = other.socket;
-    other.socket = -1;
-    return *this;
-  }
-
-  void Close() { socket = -1; }
-  bool IsOpen() { return socket != -1; }
-
-  int id() const { return socket; }
-
-  int Write(const std::string& str) { return Write(str.c_str(), str.size()); }
-  int Write(const char* data, size_t len) {
-    return Write(reinterpret_cast<const uint8_t*>(data), len);
-  }
-  int Write(const uint8_t* data, size_t len) {
-    for (int i = 0; i < len; ++i) output.push_back(data[i]);
-    return len;
-  }
-
-  std::vector<uint8_t> output;
-
- protected:
-  int socket;
-};
 
 const uint8_t handshake_req[] =
     "\x60\x60\xb0\x17\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -60,39 +23,23 @@ const uint8_t run_req[] =
     "\x61\x6d\x65\x3a\x20\x32\x39\x33\x38\x33\x7d\x29\x20\x52\x45\x54\x55\x52"
     "\x4e\x20\x6e\xa0\x00\x00";
 
-void print_output(std::vector<uint8_t>& output) {
-  fprintf(stderr, "output: ");
-  for (int i = 0; i < output.size(); ++i) {
-    fprintf(stderr, "%02X ", output[i]);
-  }
-  fprintf(stderr, "\n");
-}
-
-void check_output(std::vector<uint8_t>& output, const uint8_t* data,
-                  uint64_t len) {
-  EXPECT_EQ(len, output.size());
-  for (int i = 0; i < len; ++i) {
-    EXPECT_EQ(output[i], data[i]);
-  }
-  output.clear();
-}
 
 TEST(Bolt, Session) {
   Dbms dbms;
   TestSocket socket(10);
-  QueryEngine<bolt::RecordStream<TestSocket>> query_engine;
-  bolt::Session<TestSocket> session(std::move(socket), dbms, query_engine);
+  QueryEngine<result_stream_t> query_engine;
+  session_t session(std::move(socket), dbms, query_engine);
   std::vector<uint8_t>& output = session.socket.output;
 
   // execute handshake
   session.execute(handshake_req, 20);
-  ASSERT_EQ(session.state, bolt::INIT);
+  ASSERT_EQ(session.state, communication::bolt::INIT);
   print_output(output);
   check_output(output, handshake_resp, 4);
 
   // execute init
   session.execute(init_req, 67);
-  ASSERT_EQ(session.state, bolt::EXECUTOR);
+  ASSERT_EQ(session.state, communication::bolt::EXECUTOR);
   print_output(output);
   check_output(output, init_resp, 7);
 

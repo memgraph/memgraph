@@ -64,7 +64,7 @@ public:
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
 
-    if (CONFIG[config::INTERPRET]) {
+    if (CONFIG_BOOL(config::INTERPRET)) {
       query::Interpret(query, db_accessor, stream);
       return true;
     }

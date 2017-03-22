@@ -1,17 +1,18 @@
 #pragma once
 
+#include "communication/bolt/v1/packing/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/transport/bolt_decoder.hpp"
-#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 
 #include "logging/default.hpp"
 #include "utils/likely.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 template<typename Socket>
-State state_init_run(RecordStream<Socket> &output_stream, BoltDecoder &decoder) {
+State state_init_run(Encoder<ChunkedBuffer<Socket>, Socket> &encoder, BoltDecoder &decoder) {
   Logger logger = logging::log->logger("State INIT");
   logger.debug("Parsing message");
 
@@ -45,9 +46,8 @@ State state_init_run(RecordStream<Socket> &output_stream, BoltDecoder &decoder) 
   logger.debug("Executing state");
   logger.debug("Client connected '{}'", client_name);
 
-  output_stream.write_success_empty();
-  output_stream.chunk();
-  output_stream.send();
+  // TODO: write_success, chunk, send
+  encoder.MessageSuccess();
 
   return EXECUTOR;
 }

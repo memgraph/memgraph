@@ -12,23 +12,24 @@
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/states/error.hpp"
 
-#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "communication/bolt/v1/encoder/encoder.hpp"
+#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/transport/bolt_decoder.hpp"
-#include "communication/bolt/v1/transport/bolt_encoder.hpp"
 
 #include "logging/default.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 template<typename Socket>
 class Session {
  public:
   using Decoder = BoltDecoder;
-  using OutputStream = RecordStream<Socket>;
+  using OutputStream = ResultStream<Socket>;
 
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
       : socket(std::move(socket)),
         dbms(dbms), query_engine(query_engine),
+        encoder(this->socket), output_stream(encoder),
         logger(logging::log->logger("Session")) {
     event.data.ptr = this;
     // start with a handshake state
@@ -63,15 +64,18 @@ class Session {
           break;
         case INIT:
           logger.debug("Current state: INIT");
-          state = state_init_run<Socket>(output_stream, decoder);
+          // TODO: swap around parameters so that inputs are first and outputs are last!
+          state = state_init_run<Socket>(encoder, decoder);
           break;
         case EXECUTOR:
           logger.debug("Current state: EXECUTOR");
-          state = state_executor_run<Socket>(output_stream, decoder, dbms, query_engine);
+          // TODO: swap around parameters so that inputs are first and outputs are last!
+          state = state_executor_run<Socket>(output_stream, encoder, decoder, dbms, query_engine);
           break;
         case ERROR:
           logger.debug("Current state: ERROR");
-          state = state_error_run<Socket>(output_stream, decoder);
+          // TODO: swap around parameters so that inputs are first and outputs are last!
+          state = state_error_run<Socket>(output_stream, encoder, decoder);
           break;
         case NULLSTATE:
           break;
@@ -86,6 +90,8 @@ class Session {
     this->socket.Close();
   }
 
+  // TODO: these members should be private
+
   Socket socket;
   io::network::Epoll::Event event;
 
@@ -95,7 +101,8 @@ class Session {
   GraphDbAccessor active_db() { return dbms.active(); }
 
   Decoder decoder;
-  OutputStream output_stream{socket};
+  Encoder<ChunkedBuffer<Socket>, Socket> encoder;
+  OutputStream output_stream;
 
   bool connected{false};
   State state;

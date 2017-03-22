@@ -10,14 +10,14 @@
 
 #include "logging/default.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 struct Query {
   std::string statement;
 };
 
 template<typename Socket>
-State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decoder, Dbms &dmbs, QueryEngine<RecordStream<Socket>> &query_engine){
+State state_executor_run(ResultStream<Socket> &output_stream, Encoder<ChunkedBuffer<Socket>, Socket>& encoder, BoltDecoder &decoder, Dbms &dmbs, QueryEngine<ResultStream<Socket>> &query_engine){
   Logger logger = logging::log->logger("State EXECUTOR");
   // just read one byte that represents the struct type, we can skip the
   // information contained in this byte
@@ -43,23 +43,23 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
           query_engine.Run(query.statement, *db_accessor, output_stream);
 
       if (!is_successfully_executed) {
-        output_stream.write_failure(
+        // TODO: write_failure, send
+        encoder.MessageFailure(
             {{"code", "Memgraph.QueryExecutionFail"},
              {"message",
               "Query execution has failed (probably there is no "
               "element or there are some problems with concurrent "
               "access -> client has to resolve problems with "
               "concurrent access)"}});
-        output_stream.send();
         return ERROR;
       }
 
       return EXECUTOR;
       // TODO: RETURN success MAYBE
     } catch (const query::SyntaxException &e) {
-      output_stream.write_failure(
+      // TODO: write_failure, send
+      encoder.MessageFailure(
           {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
-      output_stream.send();
       return ERROR;
     // } catch (const backend::cpp::GeneratorException &e) {
     //   output_stream.write_failure(
@@ -68,34 +68,33 @@ State state_executor_run(RecordStream<Socket> &output_stream, BoltDecoder &decod
     //   output_stream.send();
     //   return ERROR;
     } catch (const query::QueryEngineException &e) {
-      output_stream.write_failure(
+      // TODO: write_failure, send
+      encoder.MessageFailure(
           {{"code", "Memgraph.QueryEngineException"},
            {"message", "Query engine was unable to execute the query"}});
-      output_stream.send();
       return ERROR;
     } catch (const StacktraceException &e) {
-      output_stream.write_failure(
+      // TODO: write_failure, send
+      encoder.MessageFailure(
           {{"code", "Memgraph.StacktraceException"},
-           {"message", "Unknow exception"}});
-      output_stream.send();
+           {"message", "Unknown exception"}});
       return ERROR;
     } catch (std::exception &e) {
-      output_stream.write_failure(
-          {{"code", "Memgraph.Exception"}, {"message", "unknow exception"}});
-      output_stream.send();
+      // TODO: write_failure, send
+      encoder.MessageFailure(
+          {{"code", "Memgraph.Exception"}, {"message", "Unknown exception"}});
       return ERROR;
     }
   } else if (message_type == MessageCode::PullAll) {
     logger.trace("[PullAll]");
-    output_stream.send();
+    // TODO: all query output should not be immediately flushed from the buffer, it should wait the PullAll command to start flushing!!
+    //output_stream.send();
   } else if (message_type == MessageCode::DiscardAll) {
     logger.trace("[DiscardAll]");
 
     // TODO: discard state
-
-    output_stream.write_success();
-    output_stream.chunk();
-    output_stream.send();
+    // TODO: write_success, send
+    encoder.MessageSuccess();
   } else if (message_type == MessageCode::Reset) {
     // TODO: rollback current transaction
     // discard all records waiting to be sent

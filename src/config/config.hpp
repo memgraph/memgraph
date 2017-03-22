@@ -30,6 +30,15 @@ constexpr const char *INTERPRET = "interpret";
 // -- all possible Memgraph's keys --
 
 inline size_t to_int(std::string &&s) { return stoull(s); }
+// TODO: move this to register args because it doesn't make sense to convert
+// str to bool for every lookup
+inline bool to_bool(std::string &s) {
+  std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+  std::istringstream is(s);
+  bool b;
+  is >> std::boolalpha >> b;
+  return b;
+}
 }
 
 // code uses this define for key access
@@ -39,3 +48,4 @@ inline size_t to_int(std::string &&s) { return stoull(s); }
 #define CONFIG(_KEY_) config::Config<config::MemgraphConfig>::instance()[_KEY_]
 
 #define CONFIG_INTEGER(_KEY_) config::to_int(CONFIG(_KEY_))
+#define CONFIG_BOOL(_KEY_) config::to_bool(CONFIG(_KEY_))

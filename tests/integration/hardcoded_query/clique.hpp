@@ -30,12 +30,10 @@ enum CliqueQuery { SCORE_AND_LIMIT, FIND_ALL };
 
 bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
                        Stream &stream, enum CliqueQuery query_type) {
-  if (query_type == CliqueQuery::FIND_ALL)
-    stream.write_fields(
-        {"a.garment_id", "b.garment_id", "c.garment_id", "d.garment_id"});
-  else
-    stream.write_fields({"a.garment_id", "b.garment_id", "c.garment_id",
-                         "d.garment_id", "score"});
+  std::vector<std::string> headers{std::string("a.garment_id"), std::string("b.garment_id"), std::string("c.garment_id"), std::string("d.garment_id")};
+  if (query_type != CliqueQuery::FIND_ALL)
+    headers.push_back(std::string("score"));
+  stream.Header(headers);
   // TODO dgleich: this code is very inefficient as it first makes a copy
   // of all the vertices/edges, and filters aftwarwards. I warned about this
   // happening in code review!!!
@@ -206,18 +204,18 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
                         ? args.At((int)args.Size() - 1).Value<int64_t>()
                         : (int)results.size();
   for (int i = 0; i < std::min(limit, (int)results.size()); ++i) {
-    stream.write_record();
-    stream.write_list_header(query_type == CliqueQuery::SCORE_AND_LIMIT ? 5
-                                                                        : 4);
+    std::vector<TypedValue> result;
     for (auto x : results[i]) {
-      stream.write(vertices_indexed[x]
+      result.push_back(vertices_indexed[x]
                        ->PropsAt(db_accessor.property("garment_id"))
                        .Value<int64_t>());
     }
     if (query_type == CliqueQuery::SCORE_AND_LIMIT)
-      stream.write(calc_score(results[i]));
+      result.push_back(calc_score(results[i]));
+    stream.Result(result);
   }
-  stream.write_meta("r");
+  std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("r")))};
+  stream.Summary(meta);
   db_accessor.commit();
   return true;
 }

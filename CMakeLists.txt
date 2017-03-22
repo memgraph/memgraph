@@ -24,7 +24,7 @@ if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-# choose a compiler 
+# choose a compiler
 # NOTE: must be choosen before use of project() or enable_language() ----------
 set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
@@ -116,7 +116,7 @@ FILE(COPY ${query_engine_template_file}
 FILE(COPY ${query_engine_template_file}
     DESTINATION ${CMAKE_BINARY_DIR}/tests/manual/template)
 FILE(COPY ${query_engine_template_file}
-	DESTINATION ${CMAKE_BINARY_DIR}/template)
+    DESTINATION ${CMAKE_BINARY_DIR}/template)
 # create destination folder for compiled queries
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)
@@ -255,6 +255,8 @@ option(MANUAL_TESTS "Add manual test binaries" OFF)
 message(STATUS "Add manual test binaries: ${MANUAL_TESTS}")
 option(UNIT_TESTS "Add unit test binaries" OFF)
 message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
+option(HARDCODED_TARGETS "Make hardcoded query targets" ON)
+message(STATUS "Make hardcoded query targets: ${HARDCODED_TARGETS}")
 option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
 message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # -----------------------------------------------------------------------------
@@ -262,10 +264,10 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # includes
 include_directories(${src_dir})
 include_directories(${build_include_dir})
-include_directories(${fmt_source_dir})
-include_directories(${yaml_include_dir})
-include_directories(${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
-include_directories(${CMAKE_SOURCE_DIR}/libs)
+include_directories(SYSTEM ${fmt_source_dir})
+include_directories(SYSTEM ${yaml_include_dir})
+include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -276,7 +278,7 @@ set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
 
 # enumerate all files that are generated from antlr
 set(antlr_opencypher_generated_src
-   ${opencypher_generated}/CypherLexer.cpp 
+   ${opencypher_generated}/CypherLexer.cpp
    ${opencypher_generated}/CypherParser.cpp
    ${opencypher_generated}/CypherBaseVisitor.cpp
    ${opencypher_generated}/CypherVisitor.cpp
@@ -376,7 +378,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 # tests
-if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST 
+if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
         OR MANUAL_TESTS OR UNIT_TESTS)
     add_subdirectory(tests)
 endif()
@@ -415,10 +417,10 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} stdc++fs)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} Threads::Threads)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
-	target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} fmt)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
 endif()
 
 # utility target to copy hardcoded queries
@@ -450,21 +452,23 @@ set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
 #   2. query plan execution agains empty database and injected OutputStream
 #   3. integration tests for all pilot/clients written in cucumber
 # the following targets address only the first phase
-file(GLOB __HARDCODED_SOURCES
-     ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
-foreach(file_path ${__HARDCODED_SOURCES})
-    get_filename_component(file_name ${file_path} NAME_WE)
-    set(target_name __${file_name}_hardcoded_target)
-    add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
-                                  ${file_path})
-    target_link_libraries(${target_name} memgraph_lib)
-    target_link_libraries(${target_name} fmt)
-    target_link_libraries(${target_name} Threads::Threads)
-    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
-    set_target_properties(${target_name}
-                          PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                          "${CMAKE_BINARY_DIR}/__hardcoded_targets")
-endforeach()
+if(HARDCODED_TARGETS)
+  file(GLOB __HARDCODED_SOURCES
+       ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
+  foreach(file_path ${__HARDCODED_SOURCES})
+      get_filename_component(file_name ${file_path} NAME_WE)
+      set(target_name __${file_name}_hardcoded_target)
+      add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
+                                    ${file_path})
+      target_link_libraries(${target_name} memgraph_lib)
+      target_link_libraries(${target_name} fmt)
+      target_link_libraries(${target_name} Threads::Threads)
+      set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
+      set_target_properties(${target_name}
+                            PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                            "${CMAKE_BINARY_DIR}/__hardcoded_targets")
+  endforeach()
+endif()
 
 get_target_cxx_flags(memgraph_lib compile_flags)
 set(plan_compiler_flags_file ${build_include_dir}/query/plan_compiler_flags.hpp)

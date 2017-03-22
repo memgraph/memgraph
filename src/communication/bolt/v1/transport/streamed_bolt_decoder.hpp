@@ -7,7 +7,7 @@
 #include "utils/bswap.hpp"
 #include "utils/types/byte.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 // BoltDecoder for streams. Meant for use in SnapshotDecoder.
 // This should be recoded to recieve the current caller so that decoder can

@@ -22,3 +22,6 @@ snapshot_cycle_sec: "60"
 
 # max number of snapshots which will be kept on the disk at some point
 max_retained_snapshots: "3"
+
+# by default query engine runs in interpret mode
+interpret: true

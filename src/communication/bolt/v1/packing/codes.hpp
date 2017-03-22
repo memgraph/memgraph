@@ -2,9 +2,7 @@
 
 #include <cstdint>
 
-namespace bolt {
-
-namespace pack {
+namespace communication::bolt::pack {
 
 enum Code : uint8_t {
   TinyString = 0x80,
@@ -54,5 +52,4 @@ enum Code : uint8_t {
 };
 
 enum Rule : uint8_t { MaxInitStructSize = 0x02 };
-}
 }

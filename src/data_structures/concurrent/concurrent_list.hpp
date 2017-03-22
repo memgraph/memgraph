@@ -74,7 +74,7 @@ class ConcurrentList {
     IteratorBase(const IteratorBase &) = delete;
 
     IteratorBase(IteratorBase &&other)
-        : list(other.list), curr(other.curr), prev(other.prev) {
+        : list(other.list), prev(other.prev), curr(other.curr) {
       other.list = nullptr;
       other.curr = nullptr;
       other.prev = nullptr;

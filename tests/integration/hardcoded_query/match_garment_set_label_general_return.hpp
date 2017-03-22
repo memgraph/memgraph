@@ -17,7 +17,8 @@ using std::endl;
 bool run_general_query(GraphDbAccessor &db_accessor,
                        const Parameters &args, Stream &stream,
                        const std::string &general_label) {
-  stream.write_field("g");
+  std::vector<std::string> headers{std::string("g")};
+  stream.Header(headers);
   for (auto vertex : db_accessor.vertices()) {
     if (vertex.has_label(db_accessor.label("garment"))) {
       TypedValue prop = vertex.PropsAt(db_accessor.property("garment_id"));
@@ -26,10 +27,12 @@ bool run_general_query(GraphDbAccessor &db_accessor,
       if (cmp.type() != TypedValue::Type::Bool) continue;
       if (cmp.Value<bool>() != true) continue;
       vertex.add_label(db_accessor.label(general_label));
-      stream.write_vertex_record(vertex);
+      std::vector<TypedValue> result{TypedValue(vertex)};
+      stream.Result(result);
     }
   }
-  stream.write_meta("rw");
+  std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
+  stream.Summary(meta);
   db_accessor.commit();
   return true;
 }

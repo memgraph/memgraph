@@ -17,7 +17,8 @@ class CPUPlan : public PlanInterface<Stream> {
  public:
   bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
-    stream.write_field("p");
+    std::vector<std::string> headers{std::string("p")};
+    stream.Header(headers);
     for (auto vertex : db_accessor.vertices()) {
       if (vertex.has_label(db_accessor.label("profile"))) {
         TypedValue prop = vertex.PropsAt(db_accessor.property("profile_id"));
@@ -31,10 +32,12 @@ class CPUPlan : public PlanInterface<Stream> {
         auto cmp2 = prop2 == args.At(1);
         if (cmp2.type() != TypedValue::Type::Bool) continue;
         if (cmp2.Value<bool>() != true) continue;
-        stream.write_vertex_record(vertex);
+        std::vector<TypedValue> result{TypedValue(vertex)};
+        stream.Result(result);
       }
     }
-    stream.write_meta("r");
+    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("r")))};
+    stream.Summary(meta);
     db_accessor.commit();
     return true;
   }

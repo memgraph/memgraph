@@ -8,7 +8,7 @@
 #include "utils/likely.hpp"
 #include "utils/types/byte.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 template <class Stream>
 class ChunkedDecoder {
