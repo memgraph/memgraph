@@ -104,10 +104,10 @@ class Server
   std::atomic<bool> alive_{true};
   int idx_{0};
 
+  Socket socket_;
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
   Event event_;
-  Socket socket_;
   Logger logger_;
 };
 }

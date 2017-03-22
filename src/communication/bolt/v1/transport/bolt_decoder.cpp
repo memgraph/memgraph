@@ -4,7 +4,7 @@
 #include "logging/default.hpp"
 #include "utils/bswap.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 void BoltDecoder::handshake(const byte *&data, size_t len) {
   buffer.write(data, len);

@@ -20,7 +20,8 @@ class CPUPlan : public PlanInterface<Stream> {
  public:
   bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
-    stream.write_field("s");
+    std::vector<std::string> headers{std::string("s")};
+    stream.Header(headers);
     auto profile = [&db_accessor, &args](const VertexAccessor &v) -> bool {
       TypedValue prop = v.PropsAt(db_accessor.property("profile_id"));
       if (prop.type() == TypedValue::Type::Null) return false;
@@ -46,10 +47,12 @@ class CPUPlan : public PlanInterface<Stream> {
       auto to = edge.to();
       if (edge.edge_type() != db_accessor.edge_type("score")) continue;
       if ((profile(from) && garment(to)) || (profile(to) && garment(from))) {
-        stream.write_edge_record(edge);
+        std::vector<TypedValue> result{TypedValue(edge)};
+        stream.Result(result);
       }
     }
-    stream.write_meta("r");
+    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("r")))};
+    stream.Summary(meta);
     db_accessor.commit();
     return true;
   }

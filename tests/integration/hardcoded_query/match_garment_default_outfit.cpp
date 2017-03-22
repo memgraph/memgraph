@@ -18,7 +18,8 @@ class CPUPlan : public PlanInterface<Stream> {
  public:
   bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
-    stream.write_field("r");
+    std::vector<std::string> headers{std::string("r")};
+    stream.Header(headers);
     std::vector<VertexAccessor> g1_set, g2_set;
     for (auto g1 : db_accessor.vertices()) {
       if (g1.has_label(db_accessor.label("garment"))) {
@@ -44,9 +45,11 @@ class CPUPlan : public PlanInterface<Stream> {
       for (auto g2 : g2_set) {
         EdgeAccessor e = db_accessor.insert_edge(
             g1, g2, db_accessor.edge_type("default_outfit"));
-        stream.write_edge_record(e);
+        std::vector<TypedValue> result{TypedValue(e)};
+        stream.Result(result);
       }
-    stream.write_meta("rw");
+    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
+    stream.Summary(meta);
     db_accessor.commit();
     return true;
   }

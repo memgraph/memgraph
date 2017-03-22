@@ -6,7 +6,7 @@
 
 #include "logging/default.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 static constexpr uint32_t preamble = 0x6060B017;
 

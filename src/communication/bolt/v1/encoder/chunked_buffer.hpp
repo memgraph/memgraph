@@ -5,7 +5,6 @@
 #include <vector>
 #include <algorithm>
 
-#include "communication/bolt/v1/config.hpp"
 #include "logging/default.hpp"
 #include "utils/types/byte.hpp"
 #include "utils/bswap.hpp"

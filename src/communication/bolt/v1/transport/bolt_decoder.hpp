@@ -4,7 +4,7 @@
 #include "communication/bolt/v1/transport/chunked_decoder.hpp"
 #include "utils/types/byte.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 class BoltDecoder {
  public:

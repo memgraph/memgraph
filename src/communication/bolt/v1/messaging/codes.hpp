@@ -3,7 +3,7 @@
 #include "utils/types/byte.hpp"
 #include "utils/underlying_cast.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 enum class MessageCode : byte {
   Init = 0x01,

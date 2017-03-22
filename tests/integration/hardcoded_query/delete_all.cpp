@@ -17,8 +17,10 @@ class CPUPlan : public PlanInterface<Stream> {
   bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
     for (auto v : db_accessor.vertices()) db_accessor.detach_remove_vertex(v);
-    stream.write_empty_fields();
-    stream.write_meta("rw");
+    std::vector<std::string> headers;
+    stream.Header(headers);
+    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
+    stream.Summary(meta);
     db_accessor.commit();
     return true;
   }

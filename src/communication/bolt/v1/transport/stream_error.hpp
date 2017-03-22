@@ -2,7 +2,7 @@
 
 #include "utils/exceptions/stacktrace_exception.hpp"
 
-namespace bolt {
+namespace communication::bolt {
 
 class StreamError : StacktraceException {
  public:

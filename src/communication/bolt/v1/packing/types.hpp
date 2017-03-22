@@ -1,6 +1,6 @@
 #pragma once
 
-namespace bolt {
+namespace communication::bolt {
 
 enum class PackType {
   /** denotes absence of a value */

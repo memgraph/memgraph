@@ -44,40 +44,16 @@ class PrintRecordStream {
  public:
   PrintRecordStream(std::ostream &stream) : stream(stream) {}
 
-  void write_success() { stream << "SUCCESS\n"; }
-
-  void write_success_empty() { stream << "SUCCESS EMPTY\n"; }
-
-  void write_ignored() { stream << "IGNORED\n"; }
-
-  void write_empty_fields() { stream << "EMPTY FIELDS\n"; }
-
-  void write_fields(const std::vector<std::string> &fields) {
-    stream << "FIELDS:";
-    for (auto &field : fields) {
-      stream << " " << field;
-    }
-    stream << '\n';
+  // TODO: all these functions should pretty print their data
+  void Header(const std::vector<std::string> &fields) {
+    stream << "Header\n";
   }
 
-  void write_field(const std::string &field) {
-    stream << "Field: " << field << '\n';
+  void Result(std::vector<TypedValue> &values) {
+    stream << "Result\n";
   }
 
-  void write(const TypedValue &value) { stream << value << " "; }
-  void write_list_header(size_t size) { stream << "List: " << size << '\n'; }
-
-  void write_record() { stream << "Record\n"; }
-
-  void write_vertex_record(const VertexAccessor &vertex) { stream << vertex; }
-  void write_edge_record(const EdgeAccessor &edge) { stream << edge; }
-
-  void write_meta(const std::string &type) {
-    stream << "Meta: " << type << std::endl;
+  void Summary(const std::map<std::string, TypedValue> &summary) {
+    stream << "Summary\n";
   }
-
-  void write_failure(const std::map<std::string, std::string> &data) {}
-
-  void write_count(const size_t count) {}
-  void chunk() { stream << "CHUNK\n"; }
 };

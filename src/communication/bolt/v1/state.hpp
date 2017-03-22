@@ -1,6 +1,6 @@
 #pragma once
 
-namespace bolt {
+namespace communication::bolt {
 
 enum State {
   HANDSHAKE,

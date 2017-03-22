@@ -65,6 +65,16 @@ class Encoder {
   }
 
   /**
+   * Sends a Success message.
+   *
+   * This function sends a success message without additional metadata.
+   */
+  void MessageSuccess() {
+    std::map<std::string, TypedValue> metadata;
+    MessageSuccess(metadata);
+  }
+
+  /**
    * Sends a Failure message.
    *
    * From the Bolt v1 documentation:

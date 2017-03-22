@@ -21,7 +21,7 @@ struct DummyStream {
   std::vector<byte> data;
 };
 
-using Decoder = bolt::ChunkedDecoder<DummyStream>;
+using Decoder = communication::bolt::ChunkedDecoder<DummyStream>;
 
 std::vector<byte> chunks[] = {
     {0x00, 0x08, 'A', ' ', 'q', 'u', 'i', 'c', 'k', ' ', 0x00, 0x06, 'b', 'r',

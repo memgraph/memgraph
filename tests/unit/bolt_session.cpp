@@ -1,8 +1,11 @@
 #include "bolt_common.hpp"
 
-#include "communication/bolt/v1/serialization/record_stream.hpp"
+#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "query/engine.hpp"
+
+using result_stream_t = communication::bolt::ResultStream<TestSocket>;
+using session_t = communication::bolt::Session<TestSocket>;
 
 
 const uint8_t handshake_req[] =
@@ -24,19 +27,19 @@ const uint8_t run_req[] =
 TEST(Bolt, Session) {
   Dbms dbms;
   TestSocket socket(10);
-  QueryEngine<bolt::RecordStream<TestSocket>> query_engine;
-  bolt::Session<TestSocket> session(std::move(socket), dbms, query_engine);
+  QueryEngine<result_stream_t> query_engine;
+  session_t session(std::move(socket), dbms, query_engine);
   std::vector<uint8_t>& output = session.socket.output;
 
   // execute handshake
   session.execute(handshake_req, 20);
-  ASSERT_EQ(session.state, bolt::INIT);
+  ASSERT_EQ(session.state, communication::bolt::INIT);
   print_output(output);
   check_output(output, handshake_resp, 4);
 
   // execute init
   session.execute(init_req, 67);
-  ASSERT_EQ(session.state, bolt::EXECUTOR);
+  ASSERT_EQ(session.state, communication::bolt::EXECUTOR);
   print_output(output);
   check_output(output, init_resp, 7);
 
