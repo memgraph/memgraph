@@ -191,20 +191,6 @@ Query *MatchCreateRedeclareNode(AstTreeStorage &storage) {
   return query;
 }
 
-// AST with redeclaring a match edge variable in create:
-// MATCH (n) -[r]-> (m) CREATE (n) -[r] -> (l)
-Query *MatchCreateRedeclareEdge(AstTreeStorage &storage) {
-  auto match = storage.Create<Match>();
-  match->patterns_.emplace_back(GetPattern(storage, {"n", "r", "m"}));
-  auto query = storage.query();
-  query->clauses_.emplace_back(match);
-
-  auto create = storage.Create<Create>();
-  create->patterns_.emplace_back(GetPattern(storage, {"n", "r", "l"}));
-  query->clauses_.emplace_back(create);
-  return query;
-}
-
 TEST(TestSymbolGenerator, MatchNodeReturn) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -333,9 +319,70 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareNode) {
 TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
-  auto query_ast = MatchCreateRedeclareEdge(storage);
+  // AST with redeclaring a match edge variable in create:
+  // MATCH (n) -[r]-> (m) CREATE (n) -[r] -> (l)
+  auto match = storage.Create<Match>();
+  match->patterns_.emplace_back(GetPattern(storage, {"n", "r", "m"}));
+  auto query = storage.query();
+  query->clauses_.emplace_back(match);
+
+  auto create = storage.Create<Create>();
+  auto pattern = GetPattern(storage, {"n", "r", "l"});
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  std::string relationship("relationship");
+  edge_atom->edge_types_.emplace_back(&relationship);
+  create->patterns_.emplace_back(pattern);
+  query->clauses_.emplace_back(create);
   SymbolGenerator symbol_generator(symbol_table);
-  EXPECT_THROW(query_ast->Accept(symbol_generator), RedeclareVariableError);
+  EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchTypeMismatch) {
+  AstTreeStorage storage;
+  // Using an edge variable as a node causes a type mismatch.
+  // MATCH (n) -[r]-> (r)
+  auto match = storage.Create<Match>();
+  match->patterns_.emplace_back(GetPattern(storage, {"n", "r", "r"}));
+  auto query = storage.query();
+  query->clauses_.emplace_back(match);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), TypeMismatchError);
+}
+
+TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
+  AstTreeStorage storage;
+  // Using an edge variable as a node causes a type mismatch.
+  // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]- (n2)
+  auto match = storage.Create<Match>();
+  match->patterns_.emplace_back(GetPattern(storage, {"n1", "r1", "n2"}));
+  auto query = storage.query();
+  query->clauses_.emplace_back(match);
+  auto create = storage.Create<Create>();
+  create->patterns_.emplace_back(GetPattern(storage, {"r1", "r2", "n2"}));
+  query->clauses_.emplace_back(create);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), TypeMismatchError);
+}
+
+TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
+  AstTreeStorage storage;
+  // Multiple edge relationship are not allowed when creating edges.
+  // CREATE (n) -[r :rel1 | :rel2]- (m)
+  auto pattern = GetPattern(storage, {"n", "r", "m"});
+  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
+  std::string rel1("rel1");
+  edge_atom->edge_types_.emplace_back(&rel1);
+  std::string rel2("rel2");
+  edge_atom->edge_types_.emplace_back(&rel2);
+  auto create = storage.Create<Create>();
+  create->patterns_.emplace_back(pattern);
+  auto query = storage.query();
+  query->clauses_.emplace_back(create);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
 }

@@ -3,6 +3,8 @@
 #include "utils/exceptions/basic_exception.hpp"
 #include "utils/exceptions/stacktrace_exception.hpp"
 
+#include <fmt/format.h>
+
 namespace query {
 
 class SyntaxException : public BasicException {
@@ -34,8 +36,17 @@ class UnboundVariableError : public SemanticException {
 
 class RedeclareVariableError : public SemanticException {
  public:
-  RedeclareVariableError(const std::string& name)
+  RedeclareVariableError(const std::string &name)
       : SemanticException("Redeclaring variable: " + name) {}
+};
+
+class TypeMismatchError : public SemanticException {
+ public:
+  TypeMismatchError(const std::string &name, const std::string &datum,
+                    const std::string &expected)
+      : SemanticException(fmt::format(
+            "Type mismatch: '{}' already defined as '{}', but expected '{}'.",
+            name, datum, expected)) {}
 };
 
 class CppCodeGeneratorException : public StacktraceException {
@@ -62,5 +73,4 @@ class QueryEngineException : public StacktraceException {
  public:
   using StacktraceException::StacktraceException;
 };
-
 }
