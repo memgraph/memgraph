@@ -23,9 +23,11 @@ TypedValue::TypedValue(const PropertyValue &value) {
     case PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.Value<double>();
+      return;
     case PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) std::string(value.Value<std::string>());
+      return;
     case PropertyValue::Type::List:
       type_ = Type::List;
       auto vec = value.Value<std::vector<PropertyValue>>();
