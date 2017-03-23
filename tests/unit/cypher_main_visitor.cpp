@@ -9,6 +9,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/context.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 
@@ -114,6 +115,178 @@ TEST(CypherMainVisitorTest, NullLiteral) {
       return_clause->named_expressions_[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.type(), TypedValue::Type::Null);
+}
+
+TEST(CypherMainVisitorTest, OrOperator) {
+  AstGenerator ast_generator("RETURN true Or false oR n");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *or_operator2 = dynamic_cast<OrOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(or_operator2);
+  auto *or_operator1 = dynamic_cast<OrOperator *>(or_operator2->expression1_);
+  ASSERT_TRUE(or_operator1);
+  auto *operand1 = dynamic_cast<Literal *>(or_operator1->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<bool>(), true);
+  auto *operand2 = dynamic_cast<Literal *>(or_operator1->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<bool>(), false);
+  auto *operand3 = dynamic_cast<Identifier *>(or_operator2->expression2_);
+  ASSERT_TRUE(operand3);
+  ASSERT_EQ(operand3->name_, "n");
+}
+
+TEST(CypherMainVisitorTest, XorOperator) {
+  AstGenerator ast_generator("RETURN true xOr false");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *xor_operator = dynamic_cast<XorOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(xor_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<bool>(), true);
+  auto *operand2 = dynamic_cast<Literal *>(xor_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<bool>(), false);
+}
+
+TEST(CypherMainVisitorTest, AndOperator) {
+  AstGenerator ast_generator("RETURN true and false");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *and_operator = dynamic_cast<AndOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(and_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<bool>(), true);
+  auto *operand2 = dynamic_cast<Literal *>(and_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<bool>(), false);
+}
+
+TEST(CypherMainVisitorTest, AdditionSubtractionOperators) {
+  AstGenerator ast_generator("RETURN 1 - 2 + 3");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *addition_operator = dynamic_cast<AdditionOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(addition_operator);
+  auto *subtraction_operator =
+      dynamic_cast<SubtractionOperator *>(addition_operator->expression1_);
+  ASSERT_TRUE(subtraction_operator);
+  auto *operand1 = dynamic_cast<Literal *>(subtraction_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 1);
+  auto *operand2 = dynamic_cast<Literal *>(subtraction_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<int64_t>(), 2);
+  auto *operand3 = dynamic_cast<Literal *>(addition_operator->expression2_);
+  ASSERT_TRUE(operand3);
+  ASSERT_EQ(operand3->value_.Value<int64_t>(), 3);
+}
+
+TEST(CypherMainVisitorTest, MulitplicationOperator) {
+  AstGenerator ast_generator("RETURN 2 * 3");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *mult_operator = dynamic_cast<MultiplicationOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(mult_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+  auto *operand2 = dynamic_cast<Literal *>(mult_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<int64_t>(), 3);
+}
+
+TEST(CypherMainVisitorTest, DivisionOperator) {
+  AstGenerator ast_generator("RETURN 2 / 3");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *div_operator = dynamic_cast<DivisionOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(div_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+  auto *operand2 = dynamic_cast<Literal *>(div_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<int64_t>(), 3);
+}
+
+TEST(CypherMainVisitorTest, ModOperator) {
+  AstGenerator ast_generator("RETURN 2 % 3");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *mod_operator = dynamic_cast<ModOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(mod_operator->expression1_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+  auto *operand2 = dynamic_cast<Literal *>(mod_operator->expression2_);
+  ASSERT_TRUE(operand2);
+  ASSERT_EQ(operand2->value_.Value<int64_t>(), 3);
+}
+
+#define CHECK_COMPARISON(TYPE, VALUE1, VALUE2)                             \
+  do {                                                                     \
+    auto *and_operator = dynamic_cast<AndOperator *>(_operator);           \
+    ASSERT_TRUE(and_operator);                                             \
+    _operator = and_operator->expression1_;                                \
+    auto *cmp_operator = dynamic_cast<TYPE *>(and_operator->expression2_); \
+    ASSERT_TRUE(cmp_operator);                                             \
+    auto *operand1 = dynamic_cast<Literal *>(cmp_operator->expression1_);  \
+    ASSERT_EQ(operand1->value_.Value<int64_t>(), VALUE1);                  \
+    auto *operand2 = dynamic_cast<Literal *>(cmp_operator->expression2_);  \
+    ASSERT_EQ(operand2->value_.Value<int64_t>(), VALUE2);                  \
+  } while (0)
+
+TEST(CypherMainVisitorTest, ComparisonOperators) {
+  AstGenerator ast_generator("RETURN 2 = 3 != 4 <> 5 < 6 > 7 <= 8 >= 9");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  Expression *_operator = return_clause->named_expressions_[0]->expression_;
+  CHECK_COMPARISON(GreaterEqualOperator, 8, 9);
+  CHECK_COMPARISON(LessEqualOperator, 7, 8);
+  CHECK_COMPARISON(GreaterOperator, 6, 7);
+  CHECK_COMPARISON(LessOperator, 5, 6);
+  CHECK_COMPARISON(NotEqualOperator, 4, 5);
+  CHECK_COMPARISON(NotEqualOperator, 3, 4);
+  auto *cmp_operator = dynamic_cast<EqualOperator *>(_operator);
+  ASSERT_TRUE(cmp_operator);
+  auto *operand1 = dynamic_cast<Literal *>(cmp_operator->expression1_);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+  auto *operand2 = dynamic_cast<Literal *>(cmp_operator->expression2_);
+  ASSERT_EQ(operand2->value_.Value<int64_t>(), 3);
+}
+
+#undef CHECK_COMPARISON
+
+TEST(CypherMainVisitorTest, NotOperator) {
+  AstGenerator ast_generator("RETURN not true");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *not_operator = dynamic_cast<NotOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand = dynamic_cast<Literal *>(not_operator->expression_);
+  ASSERT_TRUE(operand);
+  ASSERT_EQ(operand->value_.Value<bool>(), true);
+}
+
+TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
+  AstGenerator ast_generator("RETURN -+5");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *unary_minus_operator = dynamic_cast<UnaryMinusOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(unary_minus_operator);
+  auto *unary_plus_operator =
+      dynamic_cast<UnaryPlusOperator *>(unary_minus_operator->expression_);
+  ASSERT_TRUE(unary_plus_operator);
+  auto *operand = dynamic_cast<Literal *>(unary_plus_operator->expression_);
+  ASSERT_TRUE(operand);
+  ASSERT_EQ(operand->value_.Value<int64_t>(), 5);
 }
 
 TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
@@ -249,6 +422,26 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
 }
 
+// PatternPart in braces.
+TEST(CypherMainVisitorTest, PatternPartBraces) {
+  AstGenerator ast_generator("MATCH ((()--()))");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_TRUE(match->patterns_[0]);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *node1 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
+  ASSERT_TRUE(node1);
+  auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(edge);
+  auto *node2 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[2]);
+  ASSERT_TRUE(node2);
+  ASSERT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  ASSERT_TRUE(edge->identifier_);
+  ASSERT_THAT(edge->identifier_->name_,
+              CypherMainVisitor::kAnonPrefix + std::to_string(2));
+}
+
 TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   AstGenerator ast_generator("MATCH ()<-[:type1|type2 {a : 5, b : 10}]-()");
   auto *query = ast_generator.query_;
@@ -329,34 +522,6 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
 //                        Relationship::Direction::BOTH, {}, {}, true, 10, 10);
 // }
 //
-// // Relationship with invalid bound (larger than long long).
-// TEST(CypherMainVisitorTest, RelationshipPatternInvalidBound) {
-//   ASSERT_THROW(
-//       ParserTables parser("CREATE ()-[*100000000000000000000000000]-()"),
-//       SemanticException);
-// }
-//
-// // PatternPart.
-// TEST(CypherMainVisitorTest, PatternPart) {
-//   ParserTables parser("CREATE ()--()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   ASSERT_EQ(parser.nodes_.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.nodes.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.relationships.size(), 1U);
-// }
-//
-// // PatternPart in braces.
-// TEST(CypherMainVisitorTest, PatternPartBraces) {
-//   ParserTables parser("CREATE ((()--()))");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   ASSERT_EQ(parser.nodes_.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.nodes.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.relationships.size(), 1U);
-// }
 //
 // // PatternPart with variable.
 // TEST(CypherMainVisitorTest, PatternPartVariable) {
@@ -372,12 +537,6 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
 //   auto output_identifier = parser.identifiers_map_["var"];
 //   ASSERT_NE(parser.pattern_parts_.find(output_identifier),
 //             parser.pattern_parts_.end());
-// }
-//
-// // Multiple nodes with same variable and properties.
-// TEST(CypherMainVisitorTest, MultipleNodesWithVariableAndProperties) {
-//   ASSERT_THROW(ParserTables parser("CREATE (a {b: 5})-[]-(a {c: 5})"),
-//                SemanticException);
 // }
 
 TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {

@@ -2,11 +2,14 @@
 
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 #include "antlr4-runtime.h"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/named_antlr_tokens.hpp"
 #include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
+#include "utils/exceptions/not_yet_implemented.hpp"
 
 namespace query {
 namespace frontend {
@@ -19,35 +22,113 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
 
  private:
-  //  template <typename TExpression>
-  //  antlrcpp::Any
-  //  LeftAssociativeOperatorExpression(std::vector<TExpression *> children,
-  //                                    std::vector<Function> ops) {
-  //    assert(children.size());
-  //    std::vector<std::string> children_ids;
-  //
-  //    for (auto *child : children) {
-  //      children_ids.push_back(child->accept(this).template
-  //      as<std::string>());
-  //    }
-  //
-  //    std::string first_operand = children_ids[0];
-  //    for (int i = 0; i < (int)ops.size(); ++i) {
-  //      auto lhs_id = new_id();
-  //      symbol_table_[lhs_id] =
-  //          SimpleExpression{ops[i], {first_operand, children_ids[i + 1]}};
-  //      first_operand = lhs_id;
-  //    }
-  //    return first_operand;
-  //  }
-  //
-  //  template <typename TExpression>
-  //  antlrcpp::Any
-  //  LeftAssociativeOperatorExpression(std::vector<TExpression *> children,
-  //                                    Function op) {
-  //    return LeftAssociativeOperatorExpression(
-  //        children, std::vector<Function>((int)children.size() - 1, op));
-  //  }
+  Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1,
+                                          Expression *e2) {
+    switch (token) {
+      case CypherParser::OR:
+        return storage_.Create<OrOperator>(e1, e2);
+      case CypherParser::XOR:
+        return storage_.Create<XorOperator>(e1, e2);
+      case CypherParser::AND:
+        return storage_.Create<AndOperator>(e1, e2);
+      case kPlusTokenId:
+        return storage_.Create<AdditionOperator>(e1, e2);
+      case kMinusTokenId:
+        return storage_.Create<SubtractionOperator>(e1, e2);
+      case kMultTokenId:
+        return storage_.Create<MultiplicationOperator>(e1, e2);
+      case kDivTokenId:
+        return storage_.Create<DivisionOperator>(e1, e2);
+      case kModTokenId:
+        return storage_.Create<ModOperator>(e1, e2);
+      case kEqTokenId:
+        return storage_.Create<EqualOperator>(e1, e2);
+      case kNeTokenId1:
+      case kNeTokenId2:
+        return storage_.Create<NotEqualOperator>(e1, e2);
+      case kLtTokenId:
+        return storage_.Create<LessOperator>(e1, e2);
+      case kGtTokenId:
+        return storage_.Create<GreaterOperator>(e1, e2);
+      case kLeTokenId:
+        return storage_.Create<LessEqualOperator>(e1, e2);
+      case kGeTokenId:
+        return storage_.Create<GreaterEqualOperator>(e1, e2);
+      default:
+        throw NotYetImplemented();
+    }
+  }
+
+  Expression *CreateUnaryOperatorByToken(size_t token, Expression *e) {
+    switch (token) {
+      case CypherParser::NOT:
+        return storage_.Create<NotOperator>(e);
+      case kUnaryPlusTokenId:
+        return storage_.Create<UnaryPlusOperator>(e);
+      case kUnaryMinusTokenId:
+        return storage_.Create<UnaryMinusOperator>(e);
+      default:
+        throw NotYetImplemented();
+    }
+  }
+
+  auto ExtractOperators(std::vector<antlr4::tree::ParseTree *> &all_children,
+                        const std::vector<size_t> &allowed_operators) {
+    std::vector<size_t> operators;
+    for (auto *child : all_children) {
+      antlr4::tree::TerminalNode *operator_node = nullptr;
+      if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
+        if (std::find(allowed_operators.begin(), allowed_operators.end(),
+                      operator_node->getSymbol()->getType()) !=
+            allowed_operators.end()) {
+          operators.push_back(operator_node->getSymbol()->getType());
+        }
+      }
+    }
+    return operators;
+  }
+
+  /* Convert opencypher's n-ary production to ast binary operators.
+   *
+   * @param _expressions Subexpressions of child for which we construct ast
+   * operators, for example expression6 if we want to create ast nodes for
+   * expression7.
+   */
+  template <typename TExpression>
+  Expression *LeftAssociativeOperatorExpression(
+      std::vector<TExpression *> _expressions,
+      std::vector<antlr4::tree::ParseTree *> all_children,
+      const std::vector<size_t> &allowed_operators) {
+    debug_assert(_expressions.size(), "can't happen");
+    std::vector<Expression *> expressions;
+    auto operators = ExtractOperators(all_children, allowed_operators);
+
+    for (auto *expression : _expressions) {
+      expressions.push_back(expression->accept(this));
+    }
+
+    Expression *first_operand = expressions[0];
+    for (int i = 1; i < (int)expressions.size(); ++i) {
+      first_operand = CreateBinaryOperatorByToken(
+          operators[i - 1], first_operand, expressions[i]);
+    }
+    return first_operand;
+  }
+
+  template <typename TExpression>
+  Expression *PrefixUnaryOperator(
+      TExpression *_expression,
+      std::vector<antlr4::tree::ParseTree *> all_children,
+      const std::vector<size_t> &allowed_operators) {
+    debug_assert(_expression, "can't happen");
+    auto operators = ExtractOperators(all_children, allowed_operators);
+
+    Expression *expression = _expression->accept(this);
+    for (int i = (int)operators.size() - 1; i >= 0; --i) {
+      expression = CreateUnaryOperatorByToken(operators[i], expression);
+    }
+    return expression;
+  }
 
   /**
    * @return Query*
@@ -156,9 +237,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipPatternContext *ctx) override;
 
   /**
-  * This should never be called. Everything is done directly in
-  * visitRelationshipPattern.
-  */
+   * This should never be called. Everything is done directly in
+   * visitRelationshipPattern.
+   */
   antlrcpp::Any visitRelationshipDetail(
       CypherParser::RelationshipDetailContext *ctx) override;
 
@@ -169,8 +250,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipTypesContext *ctx) override;
 
   /**
-  * @return pair<int64_t, int64_t>.
-  */
+   * @return pair<int64_t, int64_t>.
+   */
   antlrcpp::Any visitRangeLiteral(
       CypherParser::RangeLiteralContext *ctx) override;
 
@@ -181,92 +262,92 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    */
   antlrcpp::Any visitExpression(CypherParser::ExpressionContext *ctx) override;
 
-  ///**
-  //* OR.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression12(CypherParser::Expression12Context *ctx) override;
+  /**
+   * OR.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression12(
+      CypherParser::Expression12Context *ctx) override;
 
-  ///**
-  //* XOR.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression11(CypherParser::Expression11Context *ctx) override;
+  /**
+   * XOR.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression11(
+      CypherParser::Expression11Context *ctx) override;
 
-  ///**
-  //* AND.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression10(CypherParser::Expression10Context *ctx) override;
+  /**
+   * AND.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression10(
+      CypherParser::Expression10Context *ctx) override;
 
-  ///**
-  //* NOT.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression9(CypherParser::Expression9Context *ctx) override;
+  /**
+   * NOT.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression9(
+      CypherParser::Expression9Context *ctx) override;
 
-  ///**
-  //* Comparisons.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression8(CypherParser::Expression8Context *ctx) override;
+  /**
+   * Comparisons.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression8(
+      CypherParser::Expression8Context *ctx) override;
 
-  ///**
-  //* Never call this. Everything related to generating code for comparison
-  //* operators should be done in visitExpression8.
-  //*/
-  // antlrcpp::Any visitPartialComparisonExpression(
-  //    CypherParser::PartialComparisonExpressionContext *ctx) override;
+  /**
+   * Never call this. Everything related to generating code for comparison
+   * operators should be done in visitExpression8.
+   */
+  antlrcpp::Any visitPartialComparisonExpression(
+      CypherParser::PartialComparisonExpressionContext *ctx) override;
 
-  ///**
-  //* Addition and subtraction.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression7(CypherParser::Expression7Context *ctx) override;
+  /**
+   * Addition and subtraction.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression7(
+      CypherParser::Expression7Context *ctx) override;
 
-  ///**
-  //* Multiplication, division, modding.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression6(CypherParser::Expression6Context *ctx) override;
+  /**
+   * Multiplication, division, modding.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression6(
+      CypherParser::Expression6Context *ctx) override;
 
-  ///**
-  //* Power.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression5(CypherParser::Expression5Context *ctx) override;
+  /**
+   * Power.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression5(
+      CypherParser::Expression5Context *ctx) override;
 
-  ///**
-  //* Unary minus and plus.
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression4(CypherParser::Expression4Context *ctx) override;
+  /**
+   * Unary minus and plus.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression4(
+      CypherParser::Expression4Context *ctx) override;
 
-  ///**
-  //* Element of a list, range of a list...
-  //*
-  //* @return string - expression id.
-  //*/
-  // antlrcpp::Any
-  // visitExpression3(CypherParser::Expression3Context *ctx) override;
+  /**
+   * Element of a list, range of a list...
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression3(
+      CypherParser::Expression3Context *ctx) override;
 
   /**
   * Property lookup, test for node labels existence...
@@ -287,21 +368,6 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    * @return Literal*
    */
   antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override;
-
-  //  antlrcpp::Any visitBooleanLiteral(
-  //      CypherParser::BooleanLiteralContext *ctx) override {
-  //    return visitChildren(ctx);
-  //  }
-  //
-  //  antlrcpp::Any visitListLiteral(
-  //      CypherParser::ListLiteralContext *ctx) override {
-  //    return visitChildren(ctx);
-  //  }
-  //
-  //  antlrcpp::Any visitParenthesizedExpression(
-  //      CypherParser::ParenthesizedExpressionContext *ctx) override {
-  //    return visitChildren(ctx);
-  //  }
 
   /**
    * Convert escaped string from a query to unescaped utf8 string.

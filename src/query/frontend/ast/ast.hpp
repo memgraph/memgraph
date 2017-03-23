@@ -27,8 +27,289 @@ class Tree : public ::utils::Visitable<TreeVisitorBase> {
 };
 
 class Expression : public Tree {
+  friend class AstTreeStorage;
+
  protected:
   Expression(int uid) : Tree(uid) {}
+};
+
+class BinaryOperator : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  Expression *expression1_;
+  Expression *expression2_;
+
+ protected:
+  BinaryOperator(int uid) : Expression(uid) {}
+  BinaryOperator(int uid, Expression *expression1, Expression *expression2)
+      : Expression(uid), expression1_(expression1), expression2_(expression2) {}
+};
+
+class UnaryOperator : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  Expression *expression_;
+
+ protected:
+  UnaryOperator(int uid) : Expression(uid) {}
+  UnaryOperator(int uid, Expression *expression)
+      : Expression(uid), expression_(expression) {}
+};
+
+class OrOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    // TODO: Should we short-circuit?
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class XorOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class AndOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    // TODO: Should we short-circuit?
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class AdditionOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class SubtractionOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class MultiplicationOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class DivisionOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class ModOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class NotEqualOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class EqualOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class LessOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class GreaterOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class LessEqualOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class GreaterEqualOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression1_->Accept(visitor);
+    expression2_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class NotOperator : public UnaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using UnaryOperator::UnaryOperator;
+};
+
+class UnaryPlusOperator : public UnaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using UnaryOperator::UnaryOperator;
+};
+
+class UnaryMinusOperator : public UnaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using UnaryOperator::UnaryOperator;
 };
 
 class Literal : public Expression {
@@ -126,7 +407,6 @@ class NodeAtom : public PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
-
 };
 
 class EdgeAtom : public PatternAtom {
@@ -250,8 +530,6 @@ class Return : public Clause {
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...
 class AstTreeStorage {
-  friend class AstTreeStorage;
-
  public:
   AstTreeStorage() { storage_.emplace_back(new Query(next_uid_++)); }
   AstTreeStorage(const AstTreeStorage &) = delete;
