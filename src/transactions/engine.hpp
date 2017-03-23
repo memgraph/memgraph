@@ -21,7 +21,7 @@ class Engine : Lockable<SpinLock> {
  public:
   using sptr = std::shared_ptr<Engine>;
 
-  Engine() : counter(1) {}
+  Engine() : counter(0) {}
 
   // Begins transaction and runs given functions in same atomic step.
   // Functions will be given Transaction&
@@ -77,9 +77,15 @@ class Engine : Lockable<SpinLock> {
     finalize(t);
   }
 
-  Id last_known_active() {
+  /*
+   *@brief Return oldest active transaction in the active transaction pool. In
+   *case none exist return None.
+   *@return Id of transaction
+   */
+  Option<Id> oldest_active() {
     auto guard = this->acquire_unique();
-    return active.front();
+    if (active.size() == 0) return Option<Id>();
+    return Option<Id>(active.front());
   }
 
   // total number of transactions started from the beginning of time

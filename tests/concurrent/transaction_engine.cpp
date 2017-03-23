@@ -31,15 +31,14 @@ int main() {
   for (int i = 0; i < THREADS; ++i)
     threads.push_back(std::thread(f, i, TRANSACTIONS));
 
-  for (auto& thread : threads) thread.join();
+  for (auto &thread : threads) thread.join();
 
   uint64_t sum_computed = 0;
 
   for (int i = 0; i < THREADS; ++i) sum_computed += sums[i];
 
   uint64_t sum_actual = 0;
-  for (uint64_t i = 2; i <= THREADS * TRANSACTIONS + 1; ++i) sum_actual += i;
-  // the range is strange because the first transaction gets transaction id 2
+  for (uint64_t i = 1; i <= THREADS * TRANSACTIONS; ++i) sum_actual += i;
 
   std::cout << sum_computed << " " << sum_actual << std::endl;
   permanent_assert(sum_computed == sum_actual, "sums have to be the same");
