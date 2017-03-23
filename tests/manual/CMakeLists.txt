@@ -1,4 +1,5 @@
 find_package(Threads REQUIRED)
+# find_package(readline REQUIRED)
 
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
@@ -40,5 +41,7 @@ foreach(test_cpp ${test_type_cpps})
 	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
     # dynamic lib
     target_link_libraries(${target_name} dl)
+    # readline lib
+    target_link_libraries(${target_name} readline)
 
 endforeach()

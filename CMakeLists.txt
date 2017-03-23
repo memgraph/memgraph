@@ -57,6 +57,7 @@ add_custom_target(clean_all
 
 # threading
 find_package(Threads REQUIRED)
+# find_package(readline REQUIRED)
 # -----------------------------------------------------------------------------
 
 # c++14
@@ -352,6 +353,7 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/query/stripper.cpp
+    ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
     ${src_dir}/query/backend/cpp/typed_value.cpp
     ${src_dir}/query/frontend/logical/planner.cpp
@@ -421,6 +423,7 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} readline)
 endif()
 
 # utility target to copy hardcoded queries

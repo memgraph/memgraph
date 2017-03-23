@@ -21,10 +21,12 @@ using namespace antlr4;
 class Parser {
  public:
   /**
-   * @param query incomming query that has to be compiled into query plan
+   * @param query incoming query that has to be compiled into query plan
    *        the first step is to generate AST
    */
   Parser(const std::string query) : query_(std::move(query)) {
+    parser_.removeErrorListeners();
+    tree_ = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
       throw query::SyntaxException();
     }
@@ -39,8 +41,8 @@ class Parser {
   CommonTokenStream tokens_{&lexer_};
 
   // generate ast
-  CypherParser parser_{&tokens_};
-  tree::ParseTree *tree_{parser_.cypher()};
+CypherParser parser_{&tokens_};
+tree::ParseTree *tree_ = nullptr;
 };
 }
 }
