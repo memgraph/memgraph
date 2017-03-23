@@ -15,8 +15,8 @@ foreach(poc_cpp ${poc_cpps})
     # set target name in format {project_name}_{test_type}_{exec_name}
     set(target_name ${project_name}_poc_${exec_name})
 
-    # build exec file
-    add_executable(${target_name} ${poc_cpp} isolation/header.cpp)
+    # build exe file
+    add_executable(${target_name} ${poc_cpp})
     set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
@@ -30,8 +30,8 @@ foreach(poc_cpp ${poc_cpps})
     # memgraph lib
     target_link_libraries(${target_name} memgraph_lib)
     # fmt format lib
-    target_link_libraries(${target_name} ${fmt_static_lib})
+    target_link_libraries(${target_name} fmt)
     # yaml parser lib
-    target_link_libraries(${target_name} ${yaml_static_lib})
+    target_link_libraries(${target_name} yaml-cpp)
 
 endforeach()

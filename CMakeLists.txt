@@ -241,7 +241,7 @@ endif()
 option(MEMGRAPH "Build memgraph binary" ON)
 message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 # proof of concept
-option(POC "Build proof of concept binaries" OFF)
+option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
 # tests
 option(ALL_TESTS "Add all test binaries" ON)
