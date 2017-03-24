@@ -72,11 +72,11 @@ std::string TypedValueToString(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Vertex: {
       auto va = value.Value<VertexAccessor>();
-      ss << "Vertex(";
+      ss << "V(";
       PrintIterable(ss, va.labels(), ":", [&](auto label) {
         return va.db_accessor().label_name(label);
       });
-      ss << "{";
+      ss << " {";
       PrintIterable(ss, va.Properties(), ", ", [&](const auto kv) {
         return va.db_accessor().property_name(kv.first) + ": " +
                TypedValueToString(kv.second);
@@ -86,8 +86,8 @@ std::string TypedValueToString(const TypedValue &value) {
     }
     case TypedValue::Type::Edge: {
       auto ea = value.Value<EdgeAccessor>();
-      ss << "Edge[" << ea.db_accessor().edge_type_name(ea.edge_type());
-      ss << "{";
+      ss << "E[" << ea.db_accessor().edge_type_name(ea.edge_type());
+      ss << " {";
       PrintIterable(ss, ea.Properties(), ", ", [&](const auto kv) {
         return ea.db_accessor().property_name(kv.first) + ": " +
                TypedValueToString(kv.second);
@@ -155,6 +155,8 @@ void PrintResults(ResultStreamFaker results) {
   emit_horizontal_line();
   for (const auto &result_vec : result_strings) emit_result_vec(result_vec);
   emit_horizontal_line();
+  std::cout << "Found " << results_data.size() << " matching results"
+            << std::endl;
 
   // output the summary
   std::cout << "Query summary: {";

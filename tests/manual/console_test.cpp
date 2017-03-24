@@ -3,6 +3,19 @@
 #include "dbms/dbms.hpp"
 #include "query/console.hpp"
 #include "query/interpreter.hpp"
+#include "utils/random_graph_generator.hpp"
+
+void random_generate(Dbms &dbms) {
+  auto dba = dbms.active();
+  utils::RandomGraphGenerator generator(*dba);
+
+  generator.AddVertices(1000000, {"Person"});
+  generator.AddEdges(5000000, "Friend");
+  generator.SetVertexProperty<int>(1000000, "age", utils::RandomIntGenerator(3, 60));
+  generator.SetVertexProperty<int>(1000000, "height", utils::RandomIntGenerator(120, 200));
+
+  generator.Commit();
+}
 
 void fill_db(Dbms &dbms) {
   auto dba = dbms.active();
@@ -63,7 +76,9 @@ int main(int argc, char *argv[]) {
   REGISTER_ARGS(argc, argv);
 
   Dbms dbms;
-  fill_db(dbms);
+  std::cout << "Generating graph..." << std::endl;
+//  fill_db(dbms);
+  random_generate(dbms);
   query::Repl(dbms);
   return 0;
 }
