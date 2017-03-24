@@ -1,5 +1,11 @@
 find_package(Threads REQUIRED)
-# find_package(readline REQUIRED)
+
+# optional readline
+find_package(Readline)
+if (READLINE_FOUND)
+  include_directories(SYSTEM ${READLINE_INCLUDE_DIR})
+  add_definitions(-DHAS_READLINE)
+endif()
 
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
@@ -38,10 +44,12 @@ foreach(test_cpp ${test_type_cpps})
     # yaml parser lib
     target_link_libraries(${target_name} yaml-cpp)
     # antlr
-	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
+    target_link_libraries(${target_name} antlr_opencypher_parser_lib)
     # dynamic lib
     target_link_libraries(${target_name} dl)
     # readline lib
-    target_link_libraries(${target_name} readline)
+    if (READLINE_FOUND)
+      target_link_libraries(${target_name} ${READLINE_LIBRARY})
+    endif()
 
 endforeach()

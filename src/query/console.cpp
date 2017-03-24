@@ -12,6 +12,8 @@
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 
+#ifdef HAS_READLINE
+
 #include "readline/history.h"
 #include "readline/readline.h"
 
@@ -33,6 +35,17 @@ std::string ReadLine(const char *prompt) {
   free(line);
   return r_val;
 }
+
+#else
+
+std::string ReadLine(const char *prompt) {
+  std::cout << prompt;
+  std::string line;
+  std::getline(std::cin, line);
+  return line;
+}
+
+#endif  // HAS_READLINE
 
 /**
  * Helper function that outputs a collection of items to

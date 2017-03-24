@@ -57,7 +57,13 @@ add_custom_target(clean_all
 
 # threading
 find_package(Threads REQUIRED)
-# find_package(readline REQUIRED)
+# optional readline
+find_package(Readline REQUIRED)
+if (READLINE_FOUND)
+  include_directories(SYSTEM ${READLINE_INCLUDE_DIR})
+  add_definitions(-DHAS_READLINE)
+endif()
+
 # -----------------------------------------------------------------------------
 
 # c++14
@@ -424,7 +430,9 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} yaml-cpp)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} antlr_opencypher_parser_lib)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} dl)
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} readline)
+    if (READLINE_FOUND)
+      target_link_libraries(${MEMGRAPH_BUILD_NAME} ${READLINE_LIBRARY})
+    endif()
 endif()
 
 # utility target to copy hardcoded queries
