@@ -9,7 +9,10 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 
+#include "query_common.hpp"
+
 using namespace query;
+using Direction = EdgeAtom::Direction;
 
 namespace {
 
@@ -37,37 +40,10 @@ class PlanChecker : public LogicalOperatorVisitor {
   std::list<size_t> types_;
 };
 
-// Returns a `(name1) -[name2]- (name3) ...` pattern.
-auto GetPattern(AstTreeStorage &storage, std::vector<std::string> names) {
-  bool is_node{true};
-  auto pattern = storage.Create<Pattern>();
-  for (auto &name : names) {
-    PatternAtom *atom;
-    auto identifier = storage.Create<Identifier>(name);
-    if (is_node) {
-      atom = storage.Create<NodeAtom>(identifier);
-    } else {
-      atom = storage.Create<EdgeAtom>(identifier);
-    }
-    pattern->atoms_.emplace_back(atom);
-    is_node = !is_node;
-  }
-  return pattern;
-}
-
 TEST(TestLogicalPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n AS n
   AstTreeStorage storage;
-  auto match = storage.Create<Match>();
-  match->patterns_.emplace_back(GetPattern(storage, {"n"}));
-  auto query = storage.query();
-  query->clauses_.emplace_back(match);
-  auto named_expr = storage.Create<NamedExpression>();
-  named_expr->name_ = "n";
-  named_expr->expression_ = storage.Create<Identifier>("n");
-  auto ret = storage.Create<Return>();
-  ret->named_expressions_.emplace_back(named_expr);
-  query->clauses_.emplace_back(ret);
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -82,16 +58,8 @@ TEST(TestLogicalPlanner, MatchNodeReturn) {
 TEST(TestLogicalPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstTreeStorage storage;
-  auto create = storage.Create<Create>();
-  create->patterns_.emplace_back(GetPattern(storage, {"n"}));
-  auto query = storage.query();
-  query->clauses_.emplace_back(create);
-  auto named_expr = storage.Create<NamedExpression>();
-  named_expr->name_ = "n";
-  named_expr->expression_ = storage.Create<Identifier>("n");
-  auto ret = storage.Create<Return>();
-  ret->named_expressions_.emplace_back(named_expr);
-  query->clauses_.emplace_back(ret);
+  auto query =
+      QUERY(CREATE(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -106,15 +74,9 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
 TEST(TestLogicalPlanner, CreateExpand) {
   // Test CREATE (n) -[r :rel1]-> (m)
   AstTreeStorage storage;
-  auto create = storage.Create<Create>();
-  auto pattern = GetPattern(storage, {"n", "r", "m"});
-  create->patterns_.emplace_back(pattern);
-  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
-  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
   std::string relationship("relationship");
-  edge_atom->edge_types_.emplace_back(&relationship);
-  auto query = storage.query();
-  query->clauses_.emplace_back(create);
+  auto query = QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", &relationship, Direction::RIGHT), NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -126,21 +88,48 @@ TEST(TestLogicalPlanner, CreateExpand) {
   plan->Accept(plan_checker);
 }
 
+TEST(TestLogicalPlanner, CreateMultipleNode) {
+  // Test CREATE (n), (m)
+  AstTreeStorage storage;
+  auto query = QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  std::list<size_t> expected_types;
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
+  PlanChecker plan_checker(expected_types);
+  plan->Accept(plan_checker);
+}
+
+TEST(TestLogicalPlanner, CreateNodeExpandNode) {
+  // Test CREATE (n) -[r :rel]-> (m), (l)
+  AstTreeStorage storage;
+  std::string relationship("rel");
+  auto query = QUERY(CREATE(
+      PATTERN(NODE("n"), EDGE("r", &relationship, Direction::RIGHT), NODE("m")),
+      PATTERN(NODE("l"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  std::list<size_t> expected_types;
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
+  expected_types.emplace_back(typeid(CreateExpand).hash_code());
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
+  PlanChecker plan_checker(expected_types);
+  plan->Accept(plan_checker);
+}
+
 TEST(TestLogicalPlanner, MatchCreateExpand) {
   // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
   AstTreeStorage storage;
-  auto match = storage.Create<Match>();
-  match->patterns_.emplace_back(GetPattern(storage, {"n"}));
-  auto query = storage.query();
-  query->clauses_.emplace_back(match);
-  auto create = storage.Create<Create>();
-  auto pattern = GetPattern(storage, {"n", "r", "m"});
-  create->patterns_.emplace_back(pattern);
-  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
-  edge_atom->direction_ = EdgeAtom::Direction::RIGHT;
   std::string relationship("relationship");
-  edge_atom->edge_types_.emplace_back(&relationship);
-  query->clauses_.emplace_back(create);
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      CREATE(PATTERN(NODE("n"), EDGE("r", &relationship, Direction::RIGHT),
+                     NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -155,21 +144,9 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
 TEST(TestLogicalPlanner, MatchLabeledNodes) {
   // Test MATCH (n :label) RETURN n AS n
   AstTreeStorage storage;
-  auto pattern = storage.Create<Pattern>();
-  auto node_atom = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
   std::string label("label");
-  node_atom->labels_.emplace_back(&label);
-  pattern->atoms_.emplace_back(node_atom);
-  auto match = storage.Create<Match>();
-  match->patterns_.emplace_back(pattern);
-  auto query = storage.query();
-  query->clauses_.emplace_back(match);
-  auto named_expr = storage.Create<NamedExpression>();
-  named_expr->name_ = "n";
-  named_expr->expression_ = storage.Create<Identifier>("n");
-  auto ret = storage.Create<Return>();
-  ret->named_expressions_.emplace_back(named_expr);
-  query->clauses_.emplace_back(ret);
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n", &label))), RETURN(NEXPR("n", IDENT("n"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -185,20 +162,10 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
 TEST(TestLogicalPlanner, MatchPathReturn) {
   // Test MATCH (n) -[r :relationship]- (m) RETURN n AS n
   AstTreeStorage storage;
-  auto match = storage.Create<Match>();
-  auto pattern = GetPattern(storage, {"n", "r", "m"});
-  match->patterns_.emplace_back(pattern);
-  auto edge_atom = dynamic_cast<EdgeAtom*>(pattern->atoms_[1]);
   std::string relationship("relationship");
-  edge_atom->edge_types_.emplace_back(&relationship);
-  auto query = storage.query();
-  query->clauses_.emplace_back(match);
-  auto named_expr = storage.Create<NamedExpression>();
-  named_expr->name_ = "n";
-  named_expr->expression_ = storage.Create<Identifier>("n");
-  auto ret = storage.Create<Return>();
-  ret->named_expressions_.emplace_back(named_expr);
-  query->clauses_.emplace_back(ret);
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", &relationship), NODE("m"))),
+            RETURN(NEXPR("n", IDENT("n"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);

@@ -18,6 +18,8 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 
+#include "query_common.hpp"
+
 using namespace query;
 
 /**
@@ -83,28 +85,25 @@ auto MakeProduce(std::shared_ptr<LogicalOperator> input,
  *
  * Returns (node_atom, scan_all_logical_op, symbol).
  */
-auto MakeScanAll(AstTreeStorage &ast_storage, SymbolTable &symbol_table,
+auto MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
                  const std::string &identifier) {
-  auto node =
-      ast_storage.Create<NodeAtom>(ast_storage.Create<Identifier>(identifier));
+  auto node = NODE(identifier);
   auto logical_op = std::make_shared<ScanAll>(node);
   auto symbol = symbol_table.CreateSymbol(identifier);
   symbol_table[*node->identifier_] = symbol;
   return std::make_tuple(node, logical_op, symbol);
 }
 
-auto MakeExpand(AstTreeStorage &ast_storage, SymbolTable &symbol_table,
+auto MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                 std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
                 const std::string &edge_identifier,
                 EdgeAtom::Direction direction, bool edge_cycle,
                 const std::string &node_identifier, bool node_cycle) {
-  auto edge = ast_storage.Create<EdgeAtom>(
-      ast_storage.Create<Identifier>(edge_identifier), direction);
+  auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier);
   symbol_table[*edge->identifier_] = edge_sym;
 
-  auto node = ast_storage.Create<NodeAtom>(
-      ast_storage.Create<Identifier>(node_identifier));
+  auto node = NODE(node_identifier);
   auto node_sym = symbol_table.CreateSymbol(node_identifier);
   symbol_table[*node->identifier_] = node_sym;
 
@@ -136,8 +135,7 @@ TEST(Interpreter, MatchReturn) {
   SymbolTable symbol_table;
 
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  auto output =
-      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
+  auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(std::get<1>(scan_all), output);
   symbol_table[*output->expression_] = std::get<2>(scan_all);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
@@ -177,15 +175,14 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   std::get<0>(n)->labels_.emplace_back(label);
-  std::get<0>(n)->properties_[property] = storage.Create<Literal>(42);
+  std::get<0>(n)->properties_[property] = LITERAL(42);
 
   // node filtering
   auto node_filter = std::make_shared<NodeFilter>(
       std::get<1>(n), std::get<2>(n), std::get<0>(n));
 
   // make a named expression and a produce
-  auto output =
-      storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
+  auto output = NEXPR("x", IDENT("n"));
   symbol_table[*output->expression_] = std::get<2>(n);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(node_filter, output);
@@ -232,8 +229,7 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
       std::get<1>(n), std::get<2>(n), std::get<0>(n));
 
   // make a named expression and a produce
-  auto output =
-      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
+  auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(node_filter, output);
 
   // fill up the symbol table
@@ -254,10 +250,10 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+  auto node = NODE("n");
   symbol_table[*node->identifier_] = symbol_table.CreateSymbol("n");
   node->labels_.emplace_back(label);
-  node->properties_[property] = storage.Create<Literal>(42);
+  node->properties_[property] = LITERAL(42);
 
   auto create = std::make_shared<CreateNode>(node, nullptr);
   ExecuteCreate(create, *dba, symbol_table);
@@ -288,21 +284,19 @@ TEST(Interpreter, CreateReturn) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+  auto node = NODE("n");
   auto sym_n = symbol_table.CreateSymbol("n");
   symbol_table[*node->identifier_] = sym_n;
   node->labels_.emplace_back(label);
-  node->properties_[property] = storage.Create<Literal>(42);
+  node->properties_[property] = LITERAL(42);
 
   auto create = std::make_shared<CreateNode>(node, nullptr);
-  auto named_expr_n =
-      storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
+  auto named_expr_n = NEXPR("n", IDENT("n"));
   symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n");
   symbol_table[*named_expr_n->expression_] = sym_n;
-  auto prop_lookup =
-      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
+  auto prop_lookup = PROPERTY_LOOKUP("n", property);
   symbol_table[*prop_lookup->expression_] = sym_n;
-  auto named_expr_n_p = storage.Create<NamedExpression>("n", prop_lookup);
+  auto named_expr_n_p = NEXPR("n", prop_lookup);
   symbol_table[*named_expr_n_p] = symbol_table.CreateSymbol("named_expr_n_p");
   symbol_table[*named_expr_n->expression_] = sym_n;
 
@@ -340,25 +334,24 @@ TEST(Interpreter, CreateExpand) {
     int before_e = CountIterable(dba->edges());
 
     // data for the first node
-    auto n = storage.Create<NodeAtom>(storage.Create<Identifier>("n"));
+    auto n = NODE("n");
     n->labels_.emplace_back(label_node_1);
-    n->properties_[property] = storage.Create<Literal>(1);
+    n->properties_[property] = LITERAL(1);
     auto n_sym = symbol_table.CreateSymbol("n");
     symbol_table[*n->identifier_] = n_sym;
 
     // data for the second node
-    auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+    auto m = NODE("m");
     m->labels_.emplace_back(label_node_2);
-    m->properties_[property] = storage.Create<Literal>(2);
+    m->properties_[property] = LITERAL(2);
     if (cycle)
       symbol_table[*m->identifier_] = n_sym;
     else
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
 
-    auto r = storage.Create<EdgeAtom>(storage.Create<Identifier>("r"),
-                                      EdgeAtom::Direction::RIGHT);
+    auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
     r->edge_types_.emplace_back(edge_type);
-    r->properties_[property] = storage.Create<Literal>(3);
+    r->properties_[property] = LITERAL(3);
 
     auto create_op = std::make_shared<CreateNode>(n, nullptr);
     auto create_expand =
@@ -413,7 +406,7 @@ TEST(Interpreter, MatchCreateNode) {
   auto n_sym = symbol_table.CreateSymbol("n");
   symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
   // second node
-  auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+  auto m = NODE("m");
   symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
   // creation op
   auto create_node = std::make_shared<CreateNode>(m, std::get<1>(n_scan_all));
@@ -453,14 +446,13 @@ TEST(Interpreter, MatchCreateExpand) {
     symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
 
     // data for the second node
-    auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+    auto m = NODE("m");
     if (cycle)
       symbol_table[*m->identifier_] = n_sym;
     else
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
 
-    auto r = storage.Create<EdgeAtom>(storage.Create<Identifier>("r"),
-                                      EdgeAtom::Direction::RIGHT);
+    auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
     r->edge_types_.emplace_back(edge_type);
 
     auto create_expand = std::make_shared<CreateExpand>(
@@ -503,8 +495,7 @@ TEST(Interpreter, Expand) {
                           "r", direction, false, "m", false);
 
     // make a named expression and a produce
-    auto output =
-        storage.Create<NamedExpression>("m", storage.Create<Identifier>("m"));
+    auto output = NEXPR("m", IDENT("m"));
     symbol_table[*output->expression_] = std::get<3>(r_m);
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
     auto produce = MakeProduce(std::get<4>(r_m), output);
@@ -544,8 +535,7 @@ TEST(Interpreter, ExpandNodeCycle) {
           symbol_table[*std::get<0>(n)->identifier_];
 
     // make a named expression and a produce
-    auto output =
-        storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
+    auto output = NEXPR("n", IDENT("n"));
     symbol_table[*output->expression_] = std::get<2>(n);
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
     auto produce = MakeProduce(std::get<4>(r_n), output);
@@ -589,8 +579,7 @@ TEST(Interpreter, ExpandEdgeCycle) {
           symbol_table[*std::get<0>(r_j)->identifier_];
 
     // make a named expression and a produce
-    auto output =
-        storage.Create<NamedExpression>("r", storage.Create<Identifier>("r"));
+    auto output = NEXPR("r", IDENT("r"));
     symbol_table[*output->expression_] = std::get<1>(r_j);
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
     auto produce = MakeProduce(std::get<4>(r_k), output);
@@ -645,13 +634,12 @@ TEST(Interpreter, EdgeFilter) {
   auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
                         "r", EdgeAtom::Direction::RIGHT, false, "m", false);
   std::get<0>(r_m)->edge_types_.push_back(edge_types[0]);
-  std::get<0>(r_m)->properties_[prop] = storage.Create<Literal>(42);
+  std::get<0>(r_m)->properties_[prop] = LITERAL(42);
   auto edge_filter = std::make_shared<EdgeFilter>(
       std::get<4>(r_m), std::get<1>(r_m), std::get<0>(r_m));
 
   // make a named expression and a produce
-  auto output =
-      storage.Create<NamedExpression>("m", storage.Create<Identifier>("m"));
+  auto output = NEXPR("m", IDENT("m"));
   symbol_table[*output->expression_] = std::get<3>(r_m);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(edge_filter, output);
@@ -688,8 +676,7 @@ TEST(Interpreter, EdgeFilterMultipleTypes) {
   std::get<0>(r_m)->edge_types_.push_back(type_2);
 
   // make a named expression and a produce
-  auto output =
-      storage.Create<NamedExpression>("m", storage.Create<Identifier>("m"));
+  auto output = NEXPR("m", IDENT("m"));
   auto produce = MakeProduce(edge_filter, output);
 
   // fill up the symbol table
