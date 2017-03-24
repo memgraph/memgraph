@@ -19,7 +19,7 @@ class Cursor {
   virtual ~Cursor() {}
 };
 
-class CreateOp;
+class CreateNode;
 class CreateExpand;
 class ScanAll;
 class Expand;
@@ -28,7 +28,7 @@ class EdgeFilter;
 class Produce;
 
 using LogicalOperatorVisitor =
-    ::utils::Visitor<CreateOp, CreateExpand, ScanAll, Expand, NodeFilter,
+    ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
                      EdgeFilter, Produce>;
 
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
@@ -41,33 +41,49 @@ class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
   std::vector<std::shared_ptr<LogicalOperator>> children_;
 };
 
-class CreateOp : public LogicalOperator {
-  // TODO add an optional input that (if given) gets pulled
-  // and the create op gets executed for each success
-  // TODO rename to CreateSingle or CreateNode
+/**
+ * Operator for creating a node. This op is used both for
+ * creating a single node (CREATE statement without
+ * a preceeding MATCH), or multiple nodes (MATCH CREATE).
+ *
+ * This node
+ */
+class CreateNode : public LogicalOperator {
  public:
-  CreateOp(NodeAtom *node_atom) : node_atom_(node_atom) {}
-  DEFVISITABLE(LogicalOperatorVisitor);
+  /**
+   *
+   * @param node_atom
+   * @param input Optional. If nullptr, then a single node will be
+   *    created (a single successfull Pull from this Op's Cursor).
+   *    If a valid input, then a node will be created for each
+   *    successful pull from the given input.
+   */
+  CreateNode(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input)
+      : node_atom_(node_atom), input_(input) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    if (input_) input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 
  private:
-  class CreateOpCursor : public Cursor {
+  class CreateNodeCursor : public Cursor {
    public:
-    CreateOpCursor(CreateOp &self, GraphDbAccessor &db)
-        : self_(self), db_(db) {}
+    CreateNodeCursor(CreateNode &self, GraphDbAccessor &db)
+        : self_(self),
+          db_(db),
+          input_cursor_(self.input_ ? self.input_->MakeCursor(db) : nullptr) {}
 
     bool Pull(Frame &frame, SymbolTable &symbol_table) override {
-      if (!did_create_) {
-        auto new_node = db_.insert_vertex();
-        for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
-
-        ExpressionEvaluator evaluator(frame, symbol_table);
-        for (auto &kv : self_.node_atom_->properties_) {
-          kv.second->Accept(evaluator);
-          new_node.PropsSet(kv.first, evaluator.PopBack());
-        }
-
-        frame[symbol_table[*self_.node_atom_->identifier_]] = new_node;
-
+      if (input_cursor_) {
+        if (input_cursor_->Pull(frame, symbol_table)) {
+          Create(frame, symbol_table);
+          return true;
+        } else
+          return false;
+      } else if (!did_create_) {
+        Create(frame, symbol_table);
         did_create_ = true;
         return true;
       } else
@@ -75,18 +91,38 @@ class CreateOp : public LogicalOperator {
     }
 
    private:
-    CreateOp &self_;
+    CreateNode &self_;
     GraphDbAccessor &db_;
+    // optional, used in situations in which this create op
+    // pulls from an input (in MATCH CREATE, CREATE ... CREATE)
+    std::unique_ptr<Cursor> input_cursor_;
+    // control switch when creating only one node (nullptr input)
     bool did_create_{false};
+
+    /**
+     * Creates a single node and places it in the frame.
+     */
+    void Create(Frame &frame, SymbolTable &symbol_table) {
+      auto new_node = db_.insert_vertex();
+      for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      for (auto &kv : self_.node_atom_->properties_) {
+        kv.second->Accept(evaluator);
+        new_node.PropsSet(kv.first, evaluator.PopBack());
+      }
+      frame[symbol_table[*self_.node_atom_->identifier_]] = new_node;
+    }
   };
 
  public:
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
-    return std::make_unique<CreateOpCursor>(*this, db);
+    return std::make_unique<CreateNodeCursor>(*this, db);
   }
 
  private:
   NodeAtom *node_atom_ = nullptr;
+  std::shared_ptr<LogicalOperator> input_;
 };
 
 class CreateExpand : public LogicalOperator {

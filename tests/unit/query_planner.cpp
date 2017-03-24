@@ -20,7 +20,7 @@ class PlanChecker : public LogicalOperatorVisitor {
 
   PlanChecker(std::list<size_t> types) : types_(types) {}
 
-  void Visit(CreateOp &op) override { AssertType(op); }
+  void Visit(CreateNode &op) override { AssertType(op); }
   void Visit(CreateExpand &op) override { AssertType(op); }
   void Visit(ScanAll &op) override { AssertType(op); }
   void Visit(Expand &op) override { AssertType(op); }
@@ -97,7 +97,7 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
   query->Accept(symbol_generator);
   auto plan = MakeLogicalPlan(*query, symbol_table);
   std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateOp).hash_code());
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
   expected_types.emplace_back(typeid(Produce).hash_code());
   PlanChecker plan_checker(expected_types);
   plan->Accept(plan_checker);
@@ -120,7 +120,7 @@ TEST(TestLogicalPlanner, CreateExpand) {
   query->Accept(symbol_generator);
   auto plan = MakeLogicalPlan(*query, symbol_table);
   std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateOp).hash_code());
+  expected_types.emplace_back(typeid(CreateNode).hash_code());
   expected_types.emplace_back(typeid(CreateExpand).hash_code());
   PlanChecker plan_checker(expected_types);
   plan->Accept(plan_checker);

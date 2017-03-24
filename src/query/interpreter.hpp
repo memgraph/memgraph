@@ -66,7 +66,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     }
 
     summary["type"] = "r";
-  } else if (auto create = dynamic_cast<CreateOp *>(logical_plan.get())) {
+  } else if (auto create = dynamic_cast<CreateNode *>(logical_plan.get())) {
     auto cursor = create->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table)) {
       continue;

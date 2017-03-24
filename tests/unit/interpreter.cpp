@@ -259,7 +259,7 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   node->labels_.emplace_back(label);
   node->properties_[property] = storage.Create<Literal>(42);
 
-  auto create = std::make_shared<CreateOp>(node);
+  auto create = std::make_shared<CreateNode>(node, nullptr);
   ExecuteCreate(create, *dba, symbol_table);
   dba->advance_command();
 
@@ -294,7 +294,7 @@ TEST(Interpreter, CreateReturn) {
   node->labels_.emplace_back(label);
   node->properties_[property] = storage.Create<Literal>(42);
 
-  auto create = std::make_shared<CreateOp>(node);
+  auto create = std::make_shared<CreateNode>(node, nullptr);
   auto named_expr_n =
       storage.Create<NamedExpression>("n", storage.Create<Identifier>("n"));
   symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n");
@@ -360,7 +360,7 @@ TEST(Interpreter, CreateExpand) {
     r->edge_types_.emplace_back(edge_type);
     r->properties_[property] = storage.Create<Literal>(3);
 
-    auto create_op = std::make_shared<CreateOp>(n);
+    auto create_op = std::make_shared<CreateNode>(n, nullptr);
     auto create_expand =
         std::make_shared<CreateExpand>(m, r, create_op, n_sym, cycle);
     ExecuteCreate(create_expand, *dba, symbol_table);
@@ -395,7 +395,36 @@ TEST(Interpreter, CreateExpand) {
   }
 }
 
-TEST(Interpreter, MatchCreate) {
+TEST(Interpreter, MatchCreateNode) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // add three nodes we'll match and expand-create from
+  dba->insert_vertex();
+  dba->insert_vertex();
+  dba->insert_vertex();
+  dba->advance_command();
+
+  SymbolTable symbol_table;
+  AstTreeStorage storage;
+
+  // first node
+  auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto n_sym = symbol_table.CreateSymbol("n");
+  symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
+  // second node
+  auto m = storage.Create<NodeAtom>(storage.Create<Identifier>("m"));
+  symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+  // creation op
+  auto create_node = std::make_shared<CreateNode>(m, std::get<1>(n_scan_all));
+
+  EXPECT_EQ(CountIterable(dba->vertices()), 3);
+  ExecuteCreate(create_node, *dba, symbol_table);
+  dba->advance_command();
+  EXPECT_EQ(CountIterable(dba->vertices()), 6);
+}
+
+TEST(Interpreter, MatchCreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
 

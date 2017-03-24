@@ -61,16 +61,10 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
                          const SymbolTable &symbol_table,
                          std::unordered_set<int> bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
-    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
-      // TODO: Pass input_op when CreateOp gets support for it. This will
-      // support e.g. `MATCH (n) CREATE (m)` and `CREATE (n), (m)`.
-      if (input_op) {
-        throw NotYetImplemented();
-      }
-      return new CreateOp(node);
-    } else {
+    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
+      return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
+    else
       return input_op;
-    }
   };
 
   auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
