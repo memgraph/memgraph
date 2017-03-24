@@ -26,11 +26,11 @@ typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
 class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
-public:
+ public:
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
 
-public:
+ public:
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
@@ -95,12 +95,14 @@ public:
    * @tparam T Type to interpret the value as.
    * @return The value as type T.
    */
-  template <typename T> T &Value();
-  template <typename T> const T &Value() const;
+  template <typename T>
+  T &Value();
+  template <typename T>
+  const T &Value() const;
 
   friend std::ostream &operator<<(std::ostream &stream, const TypedValue &prop);
 
-private:
+ private:
   // storage for the value of the property
   union {
     bool bool_v;
@@ -133,7 +135,7 @@ private:
  * of incompatible Types.
  */
 class TypedValueException : public StacktraceException {
-public:
+ public:
   using ::StacktraceException::StacktraceException;
 };
 
@@ -145,6 +147,7 @@ TypedValue operator!(const TypedValue &a);
 
 // arithmetic operators
 TypedValue operator-(const TypedValue &a);
+TypedValue operator+(const TypedValue &a);
 TypedValue operator+(const TypedValue &a, const TypedValue &b);
 TypedValue operator-(const TypedValue &a, const TypedValue &b);
 TypedValue operator/(const TypedValue &a, const TypedValue &b);

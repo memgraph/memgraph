@@ -543,6 +543,20 @@ TypedValue operator-(const TypedValue &a) {
   }
 }
 
+TypedValue operator+(const TypedValue &a) {
+  switch (a.type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return +a.Value<int64_t>();
+    case TypedValue::Type::Double:
+      return +a.Value<double>();
+    default:
+      throw TypedValueException("Invalid unary plus operand type (-{})",
+                                a.type());
+  }
+}
+
 /**
  * Raises a TypedValueException if the given values do not support arithmetic
  * operations. If they do, nothing happens.
@@ -630,6 +644,8 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
       b.type() == TypedValue::Type::Double) {
     return ToDouble(a) / ToDouble(b);
   } else {
+    if (b.Value<int64_t>() == 0LL)
+      throw TypedValueException("Division by zero");
     return a.Value<int64_t>() / b.Value<int64_t>();
   }
 }
@@ -660,6 +676,7 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
       b.type() == TypedValue::Type::Double) {
     return (double)fmod(ToDouble(a), ToDouble(b));
   } else {
+    if (b.Value<int64_t>() == 0LL) throw TypedValueException("Mod with zero");
     return a.Value<int64_t>() % b.Value<int64_t>();
   }
 }

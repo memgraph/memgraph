@@ -150,6 +150,16 @@ TEST(TypedValue, UnaryMinus) {
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
 }
 
+TEST(TypedValue, UnaryPlus) {
+  EXPECT_TRUE((+TypedValue::Null).type() == TypedValue::Type::Null);
+
+  EXPECT_PROP_EQ((+TypedValue(2).Value<int64_t>()), 2);
+  EXPECT_FLOAT_EQ((+TypedValue(2.0).Value<double>()), 2.0);
+
+  EXPECT_THROW(+TypedValue(true), TypedValueException);
+  EXPECT_THROW(+TypedValue("something"), TypedValueException);
+}
+
 /**
  * Performs a series of tests on properties of all types. The tests
  * evaluate how arithmetic operators behave w.r.t. exception throwing
@@ -236,6 +246,7 @@ TEST(TypedValue, Difference) {
 TEST(TypedValue, Divison) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
+  EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(2), TypedValue(5));
   EXPECT_PROP_EQ(TypedValue(10) / TypedValue(4), TypedValue(2));
@@ -261,6 +272,7 @@ TEST(TypedValue, Multiplication) {
 TEST(TypedValue, Modulo) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
+  EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
 
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(2), TypedValue(0));
   EXPECT_PROP_EQ(TypedValue(10) % TypedValue(4), TypedValue(2));

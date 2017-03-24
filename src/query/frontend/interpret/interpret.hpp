@@ -1,7 +1,7 @@
 #pragma once
 
-#include <vector>
 #include <utils/exceptions/not_yet_implemented.hpp>
+#include <vector>
 
 #include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -15,7 +15,9 @@ class Frame {
   Frame(int size) : size_(size), elems_(size_) {}
 
   auto &operator[](const Symbol &symbol) { return elems_[symbol.position_]; }
-  const auto &operator[](const Symbol &symbol) const { return elems_[symbol.position_]; }
+  const auto &operator[](const Symbol &symbol) const {
+    return elems_[symbol.position_];
+  }
 
  private:
   int size_;
@@ -52,6 +54,41 @@ class ExpressionEvaluator : public TreeVisitorBase {
     result_stack_.push_back(frame_[symbol_table_[ident]]);
   }
 
+#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)             \
+  void PostVisit(OP_NODE &) override {                       \
+    auto expression2 = PopBack();                            \
+    auto expression1 = PopBack();                            \
+    result_stack_.push_back(expression1 CPP_OP expression2); \
+  }
+
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP) \
+  void PostVisit(OP_NODE &) override {          \
+    auto expression = PopBack();                \
+    result_stack_.push_back(CPP_OP expression); \
+  }
+
+  BINARY_OPERATOR_VISITOR(OrOperator, ||);
+  BINARY_OPERATOR_VISITOR(XorOperator, ^);
+  BINARY_OPERATOR_VISITOR(AndOperator, &&);
+  BINARY_OPERATOR_VISITOR(AdditionOperator, +);
+  BINARY_OPERATOR_VISITOR(SubtractionOperator, -);
+  BINARY_OPERATOR_VISITOR(MultiplicationOperator, *);
+  BINARY_OPERATOR_VISITOR(DivisionOperator, /);
+  BINARY_OPERATOR_VISITOR(ModOperator, %);
+  BINARY_OPERATOR_VISITOR(NotEqualOperator, !=);
+  BINARY_OPERATOR_VISITOR(EqualOperator, ==);
+  BINARY_OPERATOR_VISITOR(LessOperator, <);
+  BINARY_OPERATOR_VISITOR(GreaterOperator, >);
+  BINARY_OPERATOR_VISITOR(LessEqualOperator, <=);
+  BINARY_OPERATOR_VISITOR(GreaterEqualOperator, >=);
+
+  UNARY_OPERATOR_VISITOR(NotOperator, !);
+  UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +);
+  UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -);
+
+#undef BINARY_OPERATOR_VISITOR
+#undef UNARY_OPERATOR_VISITOR
+
   void PostVisit(PropertyLookup &property_lookup) override {
     auto expression_result = PopBack();
     switch (expression_result.type()) {
@@ -78,6 +115,8 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
   void Visit(Literal &literal) override {
+    // TODO: no need to evaluate constants, we can write it to frame in one of
+    // the previous phases.
     result_stack_.push_back(literal.value_);
   }
 

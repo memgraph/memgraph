@@ -404,6 +404,9 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(
   std::vector<Expression *> comparisons;
   for (int i = 0; i < (int)operators.size(); ++i) {
     auto *expr = children[i + 1];
+    // TODO: first_operand should only do lookup if it is only calculated and
+    // not recalculated whole subexpression once again. SymbolGenerator should
+    // generate symbol for every expresion and then lookup would be possible.
     comparisons.push_back(
         CreateBinaryOperatorByToken(operators[i], first_operand, expr));
     first_operand = expr;
