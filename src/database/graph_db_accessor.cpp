@@ -65,12 +65,9 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor& vertex_accessor) {
   // removing edges via accessors is both safe
   // and it should remove all the pointers in the relevant
   // vertices (including this one)
-  for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
-
-  for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
-
-  // mvcc removal of the vertex
   vertex_accessor.vlist_->remove(&vertex_accessor.update(), *transaction_);
+  for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
+  for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor& from,
