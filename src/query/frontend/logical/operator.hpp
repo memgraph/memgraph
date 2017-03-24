@@ -581,8 +581,12 @@ class EdgeFilter : public LogicalOperator {
 
     bool EdgePasses(const EdgeAccessor &edge, Frame &frame,
                     SymbolTable &symbol_table) {
-      for (auto edge_type : self_.edge_atom_->edge_types_)
-        if (edge.edge_type() != edge_type) return false;
+      // edge type filtering - logical OR
+      const auto &types = self_.edge_atom_->edge_types_;
+      GraphDb::EdgeType type = edge.edge_type();
+      if (!std::any_of(types.begin(), types.end(),
+                       [type](auto t) { return t == type; }))
+        return false;
 
       ExpressionEvaluator expression_evaluator(frame, symbol_table);
       for (auto prop_pair : self_.edge_atom_->properties_) {

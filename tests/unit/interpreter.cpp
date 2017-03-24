@@ -645,8 +645,7 @@ TEST(Interpreter, EdgeFilter) {
   auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
                         "r", EdgeAtom::Direction::RIGHT, false, "m", false);
   std::get<0>(r_m)->edge_types_.push_back(edge_types[0]);
-  // TODO when int literal expression becomes available
-  // add a property filter
+  std::get<0>(r_m)->properties_[prop] = storage.Create<Literal>(42);
   auto edge_filter = std::make_shared<EdgeFilter>(
       std::get<4>(r_m), std::get<1>(r_m), std::get<0>(r_m));
 
@@ -658,6 +657,45 @@ TEST(Interpreter, EdgeFilter) {
   auto produce = MakeProduce(edge_filter, output);
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  // TODO change the expected value to 1 once property filtering is available
-  EXPECT_EQ(result.GetResults().size(), 3);
+  EXPECT_EQ(result.GetResults().size(), 1);
+}
+
+TEST(Interpreter, EdgeFilterMultipleTypes) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto type_1 = dba->edge_type("type_1");
+  auto type_2 = dba->edge_type("type_2");
+  auto type_3 = dba->edge_type("type_3");
+  dba->insert_edge(v1, v2, type_1);
+  dba->insert_edge(v1, v2, type_2);
+  dba->insert_edge(v1, v2, type_3);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // make a scan all
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
+                        "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+  // add a property filter
+  auto edge_filter = std::make_shared<EdgeFilter>(
+      std::get<4>(r_m), std::get<1>(r_m), std::get<0>(r_m));
+  std::get<0>(r_m)->edge_types_.push_back(type_1);
+  std::get<0>(r_m)->edge_types_.push_back(type_2);
+
+  // make a named expression and a produce
+  auto output =
+      storage.Create<NamedExpression>("m", storage.Create<Identifier>("m"));
+  auto produce = MakeProduce(edge_filter, output);
+
+  // fill up the symbol table
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output->expression_] = std::get<3>(r_m);
+
+  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
+  EXPECT_EQ(result.GetResults().size(), 2);
 }
