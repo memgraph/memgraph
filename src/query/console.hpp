@@ -13,10 +13,11 @@
 namespace query {
 
 /**
- * Console for interacting with a database
+ * Read Evaluate Print Loop,
+ * for interacting with a database
  * (the active database in the given DBMS).
  * Immediately starts the user-input loop
  * and interprets the entered queries.
  */
-void Console(Dbms &dbms);
+void Repl(Dbms &dbms);
 }

@@ -3,7 +3,9 @@
 // Created by Florijan Stamenkovic on 23.03.17.
 //
 
+#include <algorithm>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 
 #include "console.hpp"
@@ -23,10 +25,12 @@
  *  Possibly empty.
  */
 std::string ReadLine(const char *prompt) {
-  char *line_read = readline(prompt);
-  if (line_read && *line_read) add_history(line_read);
-  std::string r_val(line_read);
-  if (line_read) free(line_read);
+  char *line = readline(prompt);
+  if (!line) return "";
+
+  if (*line) add_history(line);
+  std::string r_val(line);
+  free(line);
   return r_val;
 }
 
@@ -96,8 +100,8 @@ std::string TypedValueToString(const TypedValue &value) {
 void PrintResults(ResultStreamFaker results) {
   const std::vector<std::string> &header = results.GetHeader();
   std::vector<int> column_widths(header.size());
-  for (int col_ind = 0; col_ind < header.size(); ++col_ind)
-    column_widths[col_ind] = (int)header[col_ind].size();
+  std::transform(header.begin(), header.end(), column_widths.begin(),
+                 [](const auto &s) { return s.size(); });
 
   // convert all the results into strings, and track max column width
   auto &results_data = results.GetResults();
@@ -147,8 +151,10 @@ void PrintResults(ResultStreamFaker results) {
   std::cout << "}" << std::endl;
 }
 
-void query::Console(Dbms &dbms) {
-  std::cout << "Welcome to *Awesome* Memgraph Console (AMC)" << std::endl;
+void query::Repl(Dbms &dbms) {
+  std::cout
+      << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"
+      << std::endl;
   while (true) {
     std::string command = ReadLine(">");
     if (command.size() == 0) continue;

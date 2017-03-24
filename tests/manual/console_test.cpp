@@ -64,6 +64,6 @@ int main(int argc, char *argv[]) {
 
   Dbms dbms;
   fill_db(dbms);
-  query::Console(dbms);
+  query::Repl(dbms);
   return 0;
 }
