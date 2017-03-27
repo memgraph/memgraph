@@ -367,6 +367,7 @@ TEST(CypherMainVisitorTest, NodePattern) {
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_TRUE(match);
+  ASSERT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 1U);
@@ -396,6 +397,7 @@ TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   AstGenerator ast_generator("MATCH (var)");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_FALSE(match->where_);
   auto node = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
   ASSERT_TRUE(node->identifier_);
   ASSERT_EQ(node->identifier_->name_, "var");
@@ -407,6 +409,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   AstGenerator ast_generator("MATCH ()--()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
@@ -427,6 +430,7 @@ TEST(CypherMainVisitorTest, PatternPartBraces) {
   AstGenerator ast_generator("MATCH ((()--()))");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
@@ -446,6 +450,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   AstGenerator ast_generator("MATCH ()<-[:type1|type2 {a : 5, b : 10}]-()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_EQ(edge->direction_, EdgeAtom::Direction::LEFT);
   ASSERT_THAT(
@@ -469,6 +474,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   AstGenerator ast_generator("MATCH ()-[var]->()");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_EQ(edge->direction_, EdgeAtom::Direction::RIGHT);
   ASSERT_TRUE(edge->identifier_);
@@ -567,5 +573,46 @@ TEST(CypherMainVisitorTest, Create) {
   ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
   ASSERT_EQ(node->identifier_->name_, "n");
+}
+
+TEST(CypherMainVisitorTest, Delete) {
+  AstGenerator ast_generator("DELETE n, m");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *del = dynamic_cast<Delete *>(query->clauses_[0]);
+  ASSERT_TRUE(del);
+  ASSERT_FALSE(del->detach_);
+  ASSERT_EQ(del->expressions_.size(), 2U);
+  auto *identifier1 = dynamic_cast<Identifier *>(del->expressions_[0]);
+  ASSERT_TRUE(identifier1);
+  ASSERT_EQ(identifier1->name_, "n");
+  auto *identifier2 = dynamic_cast<Identifier *>(del->expressions_[1]);
+  ASSERT_TRUE(identifier2);
+  ASSERT_EQ(identifier2->name_, "m");
+}
+
+TEST(CypherMainVisitorTest, DeleteDetach) {
+  AstGenerator ast_generator("DETACH DELETE n");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *del = dynamic_cast<Delete *>(query->clauses_[0]);
+  ASSERT_TRUE(del);
+  ASSERT_TRUE(del->detach_);
+  ASSERT_EQ(del->expressions_.size(), 1U);
+  auto *identifier1 = dynamic_cast<Identifier *>(del->expressions_[0]);
+  ASSERT_TRUE(identifier1);
+  ASSERT_EQ(identifier1->name_, "n");
+}
+
+TEST(Visitor, MatchWhere) {
+  AstGenerator ast_generator("MATCH (n) WHERE n");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_TRUE(match->where_);
+  auto *identifier = dynamic_cast<Identifier *>(match->where_->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "n");
 }
 }

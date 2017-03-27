@@ -400,6 +400,17 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitDoubleLiteral(
       CypherParser::DoubleLiteralContext *ctx) override;
 
+  /**
+   * @return Delete*
+   */
+  antlrcpp::Any visitCypherDelete(
+      CypherParser::CypherDeleteContext *ctx) override;
+
+  /**
+   * @return Where*
+   */
+  antlrcpp::Any visitWhere(CypherParser::WhereContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;

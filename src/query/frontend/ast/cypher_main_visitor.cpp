@@ -50,6 +50,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->create()) {
     return static_cast<Clause *>(ctx->create()->accept(this).as<Create *>());
   }
+  if (ctx->cypherDelete()) {
+    return static_cast<Clause *>(
+        ctx->cypherDelete()->accept(this).as<Delete *>());
+  }
   // TODO: implement other clauses.
   throw NotYetImplemented();
   return 0;
@@ -58,9 +62,12 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
 antlrcpp::Any CypherMainVisitor::visitCypherMatch(
     CypherParser::CypherMatchContext *ctx) {
   auto *match = storage_.Create<Match>();
-  if (ctx->OPTIONAL() || ctx->where()) {
+  if (ctx->OPTIONAL()) {
     // TODO: implement other clauses.
     throw NotYetImplemented();
+  }
+  if (ctx->where()) {
+    match->where_ = ctx->where()->accept(this);
   }
   match->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
   return match;
@@ -664,6 +671,24 @@ antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
     debug_assert(false, "can't happen");
     throw std::exception();
   }
+}
+
+antlrcpp::Any CypherMainVisitor::visitCypherDelete(
+    CypherParser::CypherDeleteContext *ctx) {
+  auto *del = storage_.Create<Delete>();
+  if (ctx->DETACH()) {
+    del->detach_ = true;
+  }
+  for (auto *expression : ctx->expression()) {
+    del->expressions_.push_back(expression->accept(this));
+  }
+  return del;
+}
+
+antlrcpp::Any CypherMainVisitor::visitWhere(CypherParser::WhereContext *ctx) {
+  auto *where = storage_.Create<Where>();
+  where->expression_ = ctx->expression()->accept(this);
+  return where;
 }
 }
 }

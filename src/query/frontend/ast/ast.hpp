@@ -496,7 +496,6 @@ class Match : public Clause {
   friend class AstTreeStorage;
 
  public:
-  std::vector<Pattern *> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
@@ -504,6 +503,8 @@ class Match : public Clause {
     }
     visitor.PostVisit(*this);
   }
+  std::vector<Pattern *> patterns_;
+  Where *where_ = nullptr;
 
  protected:
   Match(int uid) : Clause(uid) {}
@@ -524,6 +525,39 @@ class Return : public Clause {
 
  protected:
   Return(int uid) : Clause(uid) {}
+};
+
+class Delete : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    for (auto &expr : expressions_) {
+      expr->Accept(visitor);
+    }
+    visitor.PostVisit(*this);
+  }
+  std::vector<Expression *> expressions_;
+  bool detach_ = false;
+
+ protected:
+  Delete(int uid) : Clause(uid) {}
+};
+
+class Where : public Tree {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  Expression *expression_ = nullptr;
+
+ protected:
+  Where(int uid) : Tree(uid) {}
 };
 
 // It would be better to call this AstTree, but we already have a class Tree,
