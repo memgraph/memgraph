@@ -560,6 +560,56 @@ class Where : public Tree {
   Where(int uid) : Tree(uid) {}
 };
 
+class SetProperty : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    property_lookup_->Accept(visitor);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  PropertyLookup *property_lookup_ = nullptr;
+  Expression *expression_ = nullptr;
+
+ protected:
+  SetProperty(int uid) : Clause(uid) {}
+};
+
+class SetProperties : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    identifier_->Accept(visitor);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  Identifier *identifier_ = nullptr;
+  Expression *expression_ = nullptr;
+
+ protected:
+  SetProperties(int uid) : Clause(uid) {}
+};
+
+class SetLabels : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    identifier_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  Identifier *identifier_ = nullptr;
+  std::vector<GraphDb::Label> labels_;
+
+ protected:
+  SetLabels(int uid) : Clause(uid) {}
+};
+
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...

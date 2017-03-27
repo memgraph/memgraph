@@ -35,6 +35,9 @@ class LessEqualOperator;
 class GreaterEqualOperator;
 class Delete;
 class Where;
+class SetProperty;
+class SetProperties;
+class SetLabels;
 
 using TreeVisitorBase = ::utils::Visitor<
     Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
@@ -42,5 +45,6 @@ using TreeVisitorBase = ::utils::Visitor<
     DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     UnaryPlusOperator, UnaryMinusOperator, Identifier, Literal, PropertyLookup,
-    Create, Match, Return, Pattern, NodeAtom, EdgeAtom, Delete, Where>;
+    Create, Match, Return, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels>;
 }
