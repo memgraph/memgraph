@@ -11,8 +11,11 @@
 
 #include "query_common.hpp"
 
-using namespace query;
-using Direction = EdgeAtom::Direction;
+using namespace query::plan;
+using query::AstTreeStorage;
+using query::SymbolTable;
+using query::SymbolGenerator;
+using Direction = query::EdgeAtom::Direction;
 
 namespace {
 

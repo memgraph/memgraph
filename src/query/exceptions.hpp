@@ -49,6 +49,15 @@ class TypeMismatchError : public SemanticException {
             name, datum, expected)) {}
 };
 
+/**
+ * An exception for an illegal operation that can not be detected
+ * before the query starts executing over data.
+ */
+class QueryRuntimeException : public BasicException {
+public:
+  using BasicException::BasicException;
+};
+
 class CppCodeGeneratorException : public StacktraceException {
  public:
   using StacktraceException::StacktraceException;

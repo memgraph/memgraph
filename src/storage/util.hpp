@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cppitertools/reversed.hpp>
 #include "cppitertools/imap.hpp"
 
 /**
@@ -16,5 +17,9 @@ template <typename TAccessor, typename TIterable>
 auto make_accessor_iterator(const TIterable &records, GraphDbAccessor &db_accessor) {
   return iter::imap([&db_accessor](auto vlist) {
     return TAccessor(*vlist, db_accessor);
-  }, records);
+    // note that here we iterate over records in REVERSED order
+    // this is necessary for DETACH DELETE (see GraphDbAccessor)
+    // which deletes items from relationship collections in a
+    // vertex accessor
+  }, iter::reversed(records));
 }

@@ -111,12 +111,12 @@ auto GetReturn(AstTreeStorage &storage,
 #define EDGE(...) query::test_common::GetEdge(storage, __VA_ARGS__)
 #define PATTERN(...) query::test_common::GetPattern(storage, {__VA_ARGS__})
 #define MATCH(...) \
-  query::test_common::GetWithPatterns<Match>(storage, {__VA_ARGS__})
+  query::test_common::GetWithPatterns<query::Match>(storage, {__VA_ARGS__})
 #define CREATE(...) \
-  query::test_common::GetWithPatterns<Create>(storage, {__VA_ARGS__})
-#define IDENT(name) storage.Create<Identifier>((name))
-#define LITERAL(val) storage.Create<Literal>((val))
+  query::test_common::GetWithPatterns<query::Create>(storage, {__VA_ARGS__})
+#define IDENT(name) storage.Create<query::Identifier>((name))
+#define LITERAL(val) storage.Create<query::Literal>((val))
 #define PROPERTY_LOOKUP(...) query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
-#define NEXPR(name, expr) storage.Create<NamedExpression>((name), (expr))
+#define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 #define RETURN(...) query::test_common::GetReturn(storage, {__VA_ARGS__})
 #define QUERY(...) query::test_common::GetQuery(storage, {__VA_ARGS__})

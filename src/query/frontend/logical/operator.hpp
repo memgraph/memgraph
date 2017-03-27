@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <query/exceptions.hpp>
 #include <sstream>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "utils/visitor/visitor.hpp"
 
 namespace query {
+namespace plan {
 
 class Cursor {
  public:
@@ -27,10 +29,11 @@ class NodeFilter;
 class EdgeFilter;
 class Filter;
 class Produce;
+class Delete;
 
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
-                     EdgeFilter, Filter, Produce>;
+                     EdgeFilter, Filter, Produce, Delete>;
 
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
@@ -55,7 +58,7 @@ class CreateNode : public LogicalOperator {
    *
    * @param node_atom
    * @param input Optional. If nullptr, then a single node will be
-   *    created (a single successfull Pull from this Op's Cursor).
+   *    created (a single successful Pull from this Op's Cursor).
    *    If a valid input, then a node will be created for each
    *    successful pull from the given input.
    */
@@ -687,10 +690,10 @@ class Produce : public LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(Produce &self, GraphDbAccessor &db)
-        : self_(self), self_cursor_(self_.input_->MakeCursor(db)) {}
+        : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
     bool Pull(Frame &frame, SymbolTable &symbol_table) override {
       ExpressionEvaluator evaluator(frame, symbol_table);
-      if (self_cursor_->Pull(frame, symbol_table)) {
+      if (input_cursor_->Pull(frame, symbol_table)) {
         for (auto named_expr : self_.named_expressions_) {
           named_expr->Accept(evaluator);
         }
@@ -701,11 +704,88 @@ class Produce : public LogicalOperator {
 
    private:
     Produce &self_;
-    std::unique_ptr<Cursor> self_cursor_;
+    std::unique_ptr<Cursor> input_cursor_;
   };
 
  private:
   std::shared_ptr<LogicalOperator> input_;
   std::vector<NamedExpression *> named_expressions_;
 };
-}
+
+/**
+ * Operator for deleting vertices and edges.
+ * Has a flag for using DETACH DELETE when deleting
+ * vertices.
+ */
+class Delete : public LogicalOperator {
+ public:
+  Delete(const std::shared_ptr<LogicalOperator> &input_,
+         const std::vector<Expression *> &expressions, bool detach_)
+      : input_(input_), expressions_(expressions), detach_(detach_) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  class DeleteCursor : public Cursor {
+   public:
+    DeleteCursor(Delete &self, GraphDbAccessor &db)
+        : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      for (Expression *expression : self_.expressions_) {
+        expression->Accept(evaluator);
+        TypedValue value = evaluator.PopBack();
+        switch (value.type()) {
+          case TypedValue::Type::Null:
+            // if we got a Null, that's OK, probably it's an OPTIONAL MATCH
+            return true;
+          case TypedValue::Type::Vertex:
+            if (self_.detach_)
+              db_.detach_remove_vertex(value.Value<VertexAccessor>());
+            else if (!db_.remove_vertex(value.Value<VertexAccessor>()))
+              throw query::QueryRuntimeException(
+                  "Failed to remove vertex because of it's existing "
+                  "connections. Consider using DETACH DELETE.");
+            break;
+          case TypedValue::Type::Edge:
+            db_.remove_edge(value.Value<EdgeAccessor>());
+            break;
+          case TypedValue::Type::Path:
+          // TODO consider path deletion
+          default:
+            throw TypedValueException("Can only delete edges and vertices");
+        }
+      }
+      return true;
+    }
+
+   private:
+    Delete &self_;
+    GraphDbAccessor &db_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<DeleteCursor>(*this, db);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Expression *> expressions_;
+  // if the vertex should be detached before deletion
+  // if not detached, and has connections, an error is raised
+  // ignored when deleting edges
+  bool detach_;
+};
+} // namespace plan
+} // namespace query
+
+

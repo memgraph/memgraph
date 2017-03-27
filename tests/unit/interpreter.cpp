@@ -15,12 +15,11 @@
 #include "query/context.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/logical/planner.hpp"
-#include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
 
 #include "query_common.hpp"
 
 using namespace query;
+using namespace query::plan;
 
 /**
  * Helper function that collects all the results from the given
@@ -63,10 +62,10 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   return stream;
 }
 
-void ExecuteCreate(std::shared_ptr<LogicalOperator> create, GraphDbAccessor &db,
-                   SymbolTable symbol_table) {
+void PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
+             SymbolTable symbol_table) {
   Frame frame(symbol_table.max_position());
-  auto cursor = create->MakeCursor(db);
+  auto cursor = logical_op->MakeCursor(db);
   while (cursor->Pull(frame, symbol_table)) {
     continue;
   }
@@ -256,7 +255,7 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   node->properties_[property] = LITERAL(42);
 
   auto create = std::make_shared<CreateNode>(node, nullptr);
-  ExecuteCreate(create, *dba, symbol_table);
+  PullAll(create, *dba, symbol_table);
   dba->advance_command();
 
   // count the number of vertices
@@ -356,7 +355,7 @@ TEST(Interpreter, CreateExpand) {
     auto create_op = std::make_shared<CreateNode>(n, nullptr);
     auto create_expand =
         std::make_shared<CreateExpand>(m, r, create_op, n_sym, cycle);
-    ExecuteCreate(create_expand, *dba, symbol_table);
+    PullAll(create_expand, *dba, symbol_table);
     dba->advance_command();
 
     EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
@@ -412,7 +411,7 @@ TEST(Interpreter, MatchCreateNode) {
   auto create_node = std::make_shared<CreateNode>(m, std::get<1>(n_scan_all));
 
   EXPECT_EQ(CountIterable(dba->vertices()), 3);
-  ExecuteCreate(create_node, *dba, symbol_table);
+  PullAll(create_node, *dba, symbol_table);
   dba->advance_command();
   EXPECT_EQ(CountIterable(dba->vertices()), 6);
 }
@@ -457,7 +456,7 @@ TEST(Interpreter, MatchCreateExpand) {
 
     auto create_expand = std::make_shared<CreateExpand>(
         m, r, std::get<1>(n_scan_all), n_sym, cycle);
-    ExecuteCreate(create_expand, *dba, symbol_table);
+    PullAll(create_expand, *dba, symbol_table);
     dba->advance_command();
 
     EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
@@ -687,221 +686,117 @@ TEST(Interpreter, EdgeFilterMultipleTypes) {
   EXPECT_EQ(result.GetResults().size(), 2);
 }
 
-struct NoContextExpressionEvaluator {
-  NoContextExpressionEvaluator() {}
-  Frame frame{0};
+TEST(Interpreter, Delete) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // make a fully-connected (one-direction, no cycles) with 4 nodes
+  std::vector<VertexAccessor> vertices;
+  for (int i = 0; i < 4; ++i) vertices.push_back(dba->insert_vertex());
+  auto type = dba->edge_type("type");
+  for (int j = 0; j < 4; ++j)
+    for (int k = j + 1; k < 4; ++k)
+      dba->insert_edge(vertices[j], vertices[k], type);
+
+  dba->advance_command();
+  EXPECT_EQ(4, CountIterable(dba->vertices()));
+  EXPECT_EQ(6, CountIterable(dba->edges()));
+
+  AstTreeStorage storage;
   SymbolTable symbol_table;
-  ExpressionEvaluator eval{frame, symbol_table};
-};
 
-TEST(ExpressionEvaluator, OrOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<OrOperator>(storage.Create<Literal>(true),
-                                        storage.Create<Literal>(false));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<OrOperator>(storage.Create<Literal>(true),
-                                  storage.Create<Literal>(true));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  // attempt to delete a vertex, and fail
+  {
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n_get = storage.Create<Identifier>("n");
+    symbol_table[*n_get] = std::get<2>(n);
+    auto delete_op = std::make_shared<plan::Delete>(
+        std::get<1>(n), std::vector<Expression *>{n_get}, false);
+    EXPECT_THROW(PullAll(delete_op, *dba, symbol_table), QueryRuntimeException);
+    dba->advance_command();
+    EXPECT_EQ(4, CountIterable(dba->vertices()));
+    EXPECT_EQ(6, CountIterable(dba->edges()));
+  }
+
+  // detach delete a single vertex
+  {
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n_get = storage.Create<Identifier>("n");
+    symbol_table[*n_get] = std::get<2>(n);
+    auto delete_op = std::make_shared<plan::Delete>(
+        std::get<1>(n), std::vector<Expression *>{n_get}, true);
+    Frame frame(symbol_table.max_position());
+    delete_op->MakeCursor(*dba)->Pull(frame, symbol_table);
+    dba->advance_command();
+    EXPECT_EQ(3, CountIterable(dba->vertices()));
+    EXPECT_EQ(3, CountIterable(dba->edges()));
+  }
+
+  // delete all remaining edges
+  {
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
+                          "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+    auto r_get = storage.Create<Identifier>("r");
+    symbol_table[*r_get] = std::get<1>(r_m);
+    auto delete_op = std::make_shared<plan::Delete>(
+        std::get<4>(r_m), std::vector<Expression *>{r_get}, false);
+    PullAll(delete_op, *dba, symbol_table);
+    dba->advance_command();
+    EXPECT_EQ(3, CountIterable(dba->vertices()));
+    EXPECT_EQ(0, CountIterable(dba->edges()));
+  }
+
+  // delete all remaining vertices
+  {
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n_get = storage.Create<Identifier>("n");
+    symbol_table[*n_get] = std::get<2>(n);
+    auto delete_op = std::make_shared<plan::Delete>(
+        std::get<1>(n), std::vector<Expression *>{n_get}, false);
+    PullAll(delete_op, *dba, symbol_table);
+    dba->advance_command();
+    EXPECT_EQ(0, CountIterable(dba->vertices()));
+    EXPECT_EQ(0, CountIterable(dba->edges()));
+  }
 }
 
-TEST(ExpressionEvaluator, XorOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<XorOperator>(storage.Create<Literal>(true),
-                                         storage.Create<Literal>(false));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<XorOperator>(storage.Create<Literal>(true),
-                                   storage.Create<Literal>(true));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-}
+TEST(Interpreter, DeleteReturn) {
+  Dbms dbms;
+  auto dba = dbms.active();
 
-TEST(ExpressionEvaluator, AndOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<AndOperator>(storage.Create<Literal>(true),
-                                         storage.Create<Literal>(true));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<AndOperator>(storage.Create<Literal>(false),
-                                   storage.Create<Literal>(true));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-}
+  // make a fully-connected (one-direction, no cycles) with 4 nodes
+  auto prop = dba->property("prop");
+  for (int i = 0; i < 4; ++i) {
+    auto va = dba->insert_vertex();
+    va.PropsSet(prop, 42);
+  }
 
-TEST(ExpressionEvaluator, AdditionOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<AdditionOperator>(storage.Create<Literal>(2),
-                                              storage.Create<Literal>(3));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
-}
+  dba->advance_command();
+  EXPECT_EQ(4, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->edges()));
 
-TEST(ExpressionEvaluator, SubtractionOperator) {
   AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<SubtractionOperator>(storage.Create<Literal>(2),
-                                                 storage.Create<Literal>(3));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -1);
-}
+  SymbolTable symbol_table;
 
-TEST(ExpressionEvaluator, MultiplicationOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<MultiplicationOperator>(storage.Create<Literal>(2),
-                                                    storage.Create<Literal>(3));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 6);
-}
+  auto n = MakeScanAll(storage, symbol_table, "n");
 
-TEST(ExpressionEvaluator, DivisionOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<DivisionOperator>(storage.Create<Literal>(50),
-                                              storage.Create<Literal>(10));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
-}
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = std::get<2>(n);
+  auto delete_op = std::make_shared<plan::Delete>(
+      std::get<1>(n), std::vector<Expression *>{n_get}, true);
 
-TEST(ExpressionEvaluator, ModOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<ModOperator>(storage.Create<Literal>(65),
-                                         storage.Create<Literal>(10));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
-}
+  auto prop_lookup =
+      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
+  symbol_table[*prop_lookup->expression_] = std::get<2>(n);
+  auto n_p = storage.Create<NamedExpression>("n", prop_lookup);
+  symbol_table[*n_p] = symbol_table.CreateSymbol("bla");
+  auto produce = MakeProduce(delete_op, n_p);
 
-TEST(ExpressionEvaluator, EqualOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<EqualOperator>(storage.Create<Literal>(10),
-                                           storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<EqualOperator>(storage.Create<Literal>(15),
-                                     storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<EqualOperator>(storage.Create<Literal>(20),
-                                     storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-}
-
-TEST(ExpressionEvaluator, NotEqualOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<NotEqualOperator>(storage.Create<Literal>(10),
-                                              storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<NotEqualOperator>(storage.Create<Literal>(15),
-                                        storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<NotEqualOperator>(storage.Create<Literal>(20),
-                                        storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-}
-
-TEST(ExpressionEvaluator, LessOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<LessOperator>(storage.Create<Literal>(10),
-                                          storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessOperator>(storage.Create<Literal>(15),
-                                    storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<LessOperator>(storage.Create<Literal>(20),
-                                    storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-}
-
-TEST(ExpressionEvaluator, GreaterOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<GreaterOperator>(storage.Create<Literal>(10),
-                                             storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterOperator>(storage.Create<Literal>(15),
-                                       storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterOperator>(storage.Create<Literal>(20),
-                                       storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-}
-
-TEST(ExpressionEvaluator, LessEqualOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<LessEqualOperator>(storage.Create<Literal>(10),
-                                               storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessEqualOperator>(storage.Create<Literal>(15),
-                                         storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessEqualOperator>(storage.Create<Literal>(20),
-                                         storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-}
-
-TEST(ExpressionEvaluator, GreaterEqualOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(10),
-                                                  storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(15),
-                                            storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(20),
-                                            storage.Create<Literal>(15));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-}
-
-TEST(ExpressionEvaluator, NotOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<NotOperator>(storage.Create<Literal>(false));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-}
-
-TEST(ExpressionEvaluator, UnaryPlusOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<UnaryPlusOperator>(storage.Create<Literal>(5));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
-}
-
-TEST(ExpressionEvaluator, UnaryMinusOperator) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<UnaryMinusOperator>(storage.Create<Literal>(5));
-  op->Accept(eval.eval);
-  ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -5);
+  auto result = CollectProduce(produce, symbol_table, *dba);
+  EXPECT_EQ(4, result.GetResults().size());
+  dba->advance_command();
+  EXPECT_EQ(0, CountIterable(dba->vertices()));
 }
 
 TEST(Interpreter, Filter) {

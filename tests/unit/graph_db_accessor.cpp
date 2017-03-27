@@ -162,52 +162,98 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
+  // setup (v1)- []->(v2)<-[]-(v3)<-[]-(v4)
   auto va1 = dba->insert_vertex();
   auto va2 = dba->insert_vertex();
   auto va3 = dba->insert_vertex();
-  dba->insert_edge(va1, va2, dba->edge_type("likes"));
-  dba->insert_edge(va1, va3, dba->edge_type("likes"));
+  auto va4 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("type");
+  dba->insert_edge(va1, va2, edge_type);
+  dba->insert_edge(va1, va3, edge_type);
+  dba->insert_edge(va4, va3, edge_type);
   dba->advance_command();
 
   // ensure that plain remove does NOT work
-  EXPECT_EQ(CountVertices(*dba), 3);
-  EXPECT_EQ(CountEdges(*dba), 2);
+  EXPECT_EQ(CountVertices(*dba), 4);
+  EXPECT_EQ(CountEdges(*dba), 3);
   EXPECT_FALSE(dba->remove_vertex(va1));
   EXPECT_FALSE(dba->remove_vertex(va2));
   EXPECT_FALSE(dba->remove_vertex(va3));
-  EXPECT_EQ(CountVertices(*dba), 3);
-  EXPECT_EQ(CountEdges(*dba), 2);
+  EXPECT_EQ(CountVertices(*dba), 4);
+  EXPECT_EQ(CountEdges(*dba), 3);
 
-  // make a new transaction because at the moment deletions
-  // in the same transaction are not visible
-  // DETACH REMOVE V3
-  // new situation: (v1) - [:likes] -> (v2)
   dba->detach_remove_vertex(va3);
+  dba->advance_command();
+
+  EXPECT_EQ(CountVertices(*dba), 3);
+  EXPECT_EQ(CountEdges(*dba), 1);
+  EXPECT_TRUE(dba->remove_vertex(va4));
   dba->advance_command();
 
   EXPECT_EQ(CountVertices(*dba), 2);
   EXPECT_EQ(CountEdges(*dba), 1);
   for (auto va : dba->vertices()) EXPECT_FALSE(dba->remove_vertex(va));
-
   dba->advance_command();
+
   EXPECT_EQ(CountVertices(*dba), 2);
   EXPECT_EQ(CountEdges(*dba), 1);
-
   for (auto va : dba->vertices()) {
     EXPECT_FALSE(dba->remove_vertex(va));
     dba->detach_remove_vertex(va);
     break;
   }
-
   dba->advance_command();
+
   EXPECT_EQ(CountVertices(*dba), 1);
   EXPECT_EQ(CountEdges(*dba), 0);
 
   // remove the last vertex, it has no connections
   // so that should work
   for (auto va : dba->vertices()) EXPECT_TRUE(dba->remove_vertex(va));
+  dba->advance_command();
 
+  EXPECT_EQ(CountVertices(*dba), 0);
+  EXPECT_EQ(CountEdges(*dba), 0);
+}
+
+TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
+  // This test checks that we can detach remove the
+  // same vertex / edge multiple times
+
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // setup: make a fully connected N graph
+  // with cycles too!
+  int N = 7;
+  std::vector<VertexAccessor> vertices;
+  auto edge_type = dba->edge_type("edge");
+  for (int i = 0; i < N; ++i)
+    vertices.emplace_back(dba->insert_vertex());
+  for (int j = 0; j < N; ++j)
+    for (int k = 0; k < N; ++k)
+      dba->insert_edge(vertices[j], vertices[k], edge_type);
+  dba->advance_command();
+
+  EXPECT_EQ(CountVertices(*dba), N);
+  EXPECT_EQ(CountEdges(*dba), N * N);
+
+  // detach delete one edge
+  dba->detach_remove_vertex(vertices[0]);
+  dba->advance_command();
+  EXPECT_EQ(CountVertices(*dba), N - 1);
+  EXPECT_EQ(CountEdges(*dba), (N - 1) * (N - 1));
+
+  // detach delete two neighboring edges
+  dba->detach_remove_vertex(vertices[1]);
+  dba->detach_remove_vertex(vertices[2]);
+  dba->advance_command();
+  EXPECT_EQ(CountVertices(*dba), N - 3);
+  EXPECT_EQ(CountEdges(*dba), (N - 3) * (N - 3));
+
+  // detach delete everything, buwahahahaha
+  for (int l = 3; l < N ; ++l)
+    dba->detach_remove_vertex(vertices[l]);
   dba->advance_command();
   EXPECT_EQ(CountVertices(*dba), 0);
   EXPECT_EQ(CountEdges(*dba), 0);
@@ -257,5 +303,6 @@ TEST(GraphDbAccessorTest, Properties) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+//  ::testing::GTEST_FLAG(filter) = "*.DetachRemoveVertex";
   return RUN_ALL_TESTS();
 }

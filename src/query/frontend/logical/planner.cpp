@@ -6,6 +6,7 @@
 #include "utils/exceptions/not_yet_implemented.hpp"
 
 namespace query {
+namespace plan {
 
 namespace {
 
@@ -58,7 +59,7 @@ auto ReducePattern(
 }
 
 auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
-                         const SymbolTable &symbol_table,
+                         const query::SymbolTable &symbol_table,
                          std::unordered_set<int> bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
     if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
@@ -89,7 +90,7 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
 }
 
 auto GenCreate(Create &create, LogicalOperator *input_op,
-               const SymbolTable &symbol_table,
+               const query::SymbolTable &symbol_table,
                std::unordered_set<int> bound_symbols) {
   auto last_op = input_op;
   for (auto pattern : create.patterns_) {
@@ -100,7 +101,7 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
 }
 
 auto GenMatch(Match &match, LogicalOperator *input_op,
-              const SymbolTable &symbol_table,
+              const query::SymbolTable &symbol_table,
               std::unordered_set<int> &bound_symbols) {
   auto base = [&](NodeAtom *node) {
     if (input_op) {
@@ -166,7 +167,7 @@ auto GenReturn(Return &ret, LogicalOperator *input_op) {
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
-    Query &query, const SymbolTable &symbol_table) {
+    query::Query &query, const query::SymbolTable &symbol_table) {
   // TODO: Extract functions and state into a class with methods. Possibly a
   // visitor or similar to avoid all those dynamic casts.
   LogicalOperator *input_op = nullptr;
@@ -190,4 +191,5 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
   return std::unique_ptr<LogicalOperator>(input_op);
 }
 
+}  // namespace plan
 }  // namespace query
