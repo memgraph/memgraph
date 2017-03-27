@@ -44,7 +44,7 @@ def create_graph(name, context):
                 i += 2
             else:
                 q += ch
-                if in_string and q_mark == ch:
+                if in_string and ch in q_marks:
                     in_string = False
                 elif ch in q_marks:
                     in_string = True

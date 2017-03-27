@@ -18,6 +18,12 @@ def query(q, context, params={}):
         session = driver.session()
         try:
             # executing query
+            results = session.run(q, params)
+            summary = results.summary()
+            if not context.config.no_side_effects:
+                add_side_effects(context, summary.counters)
+            results_list = list(results)
+            """
             with session.begin_transaction() as tx:
                 results = tx.run(q, params)
                 summary = results.summary()
@@ -25,6 +31,10 @@ def query(q, context, params={}):
                     add_side_effects(context, summary.counters)
                 results_list = list(results)
                 tx.success = True
+
+            This code snippet should replace code which is now
+            executing queries when session.transactions will be supported.
+            """
             session.close()
         except Exception as e:
             # exception
