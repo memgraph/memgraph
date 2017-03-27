@@ -349,6 +349,7 @@ TEST(Interpreter, CreateExpand) {
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
 
     auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
+    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r");
     r->edge_types_.emplace_back(edge_type);
     r->properties_[property] = LITERAL(3);
 
@@ -452,6 +453,7 @@ TEST(Interpreter, MatchCreateExpand) {
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
 
     auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
+    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r");
     r->edge_types_.emplace_back(edge_type);
 
     auto create_expand = std::make_shared<CreateExpand>(

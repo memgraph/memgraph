@@ -167,10 +167,10 @@ class CreateExpand : public LogicalOperator {
       // create an edge between the two nodes
       switch (self_.edge_atom_->direction_) {
         case EdgeAtom::Direction::LEFT:
-          CreateEdge(v2, v1, evaluator);
+          CreateEdge(v2, v1, frame, symbol_table, evaluator);
           break;
         case EdgeAtom::Direction::RIGHT:
-          CreateEdge(v1, v2, evaluator);
+          CreateEdge(v1, v2, frame, symbol_table, evaluator);
           break;
         case EdgeAtom::Direction::BOTH:
           permanent_fail("Undefined direction not allowed in create");
@@ -208,20 +208,22 @@ class CreateExpand : public LogicalOperator {
     }
 
     /**
-     * Helper function for creating an edge.
+     * Helper function for creating an edge and adding it
+     * to the frame.
      *
      * @param from  Origin vertex of the edge.
      * @param to  Destination vertex of the edge.
      * @param evaluator Expression evaluator for property value eval.
      */
-    void CreateEdge(VertexAccessor &from, VertexAccessor &to,
-                    ExpressionEvaluator &evaluator) {
+    void CreateEdge(VertexAccessor &from, VertexAccessor &to, Frame &frame,
+                    SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
       EdgeAccessor edge =
           db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
       for (auto kv : self_.edge_atom_->properties_) {
         kv.second->Accept(evaluator);
         edge.PropsSet(kv.first, evaluator.PopBack());
       }
+      frame[symbol_table[*self_.edge_atom_->identifier_]] = edge;
     };
   };
 
