@@ -143,6 +143,28 @@ TEST(Interpreter, MatchReturn) {
   EXPECT_EQ(result.GetResults().size(), 2);
 }
 
+TEST(Interpreter, StandaloneReturn) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // add a few nodes to the database
+  dba->insert_vertex();
+  dba->insert_vertex();
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto output = NEXPR("n", LITERAL(42));
+  auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+
+  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
+  EXPECT_EQ(result.GetResults().size(), 1);
+  EXPECT_EQ(result.GetResults()[0].size(), 1);
+  EXPECT_EQ(result.GetResults()[0][0].Value<int64_t>(), 42);
+}
+
 TEST(Interpreter, NodeFilterLabelsAndProperties) {
   Dbms dbms;
   auto dba = dbms.active();

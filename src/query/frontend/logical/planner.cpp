@@ -156,10 +156,6 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
 }
 
 auto GenReturn(Return &ret, LogicalOperator *input_op) {
-  if (!input_op) {
-    // TODO: Support standalone RETURN clause (e.g. RETURN 2)
-    throw NotYetImplemented();
-  }
   return new Produce(std::shared_ptr<LogicalOperator>(input_op),
                      ret.named_expressions_);
 }

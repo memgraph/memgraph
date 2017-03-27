@@ -668,6 +668,17 @@ class Filter : public LogicalOperator {
   Expression *expression_;
 };
 
+/**
+ * A logical operator that places an arbitrary number
+ * if named expressions on the frame (the logical operator
+ * for the RETURN clause).
+ *
+ * Supports optional input. When the input is provided,
+ * it is Pulled from and the Produce succeds once for
+ * every input Pull (typically a MATCH/RETURN query).
+ * When the input is not provided (typically a standalone
+ * RETURN clause) the Produce's pull succeeds exactly once.
+ */
 class Produce : public LogicalOperator {
  public:
   Produce(std::shared_ptr<LogicalOperator> input,
@@ -678,7 +689,7 @@ class Produce : public LogicalOperator {
 
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
-    input_->Accept(visitor);
+    if (input_) input_->Accept(visitor);
     visitor.PostVisit(*this);
   }
 
@@ -692,21 +703,32 @@ class Produce : public LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(Produce &self, GraphDbAccessor &db)
-        : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+        : self_(self),
+          input_cursor_(self.input_ ? self_.input_->MakeCursor(db) : nullptr) {}
     bool Pull(Frame &frame, SymbolTable &symbol_table) override {
       ExpressionEvaluator evaluator(frame, symbol_table);
-      if (input_cursor_->Pull(frame, symbol_table)) {
-        for (auto named_expr : self_.named_expressions_) {
-          named_expr->Accept(evaluator);
+      if (input_cursor_) {
+        if (input_cursor_->Pull(frame, symbol_table)) {
+          for (auto named_expr : self_.named_expressions_)
+            named_expr->Accept(evaluator);
+          return true;
         }
+        return false;
+      } else if (!did_produce_) {
+        for (auto named_expr : self_.named_expressions_)
+          named_expr->Accept(evaluator);
+        did_produce_ = true;
         return true;
-      }
-      return false;
+      } else
+        return false;
     }
 
    private:
     Produce &self_;
+    // optional, see class documentation
     std::unique_ptr<Cursor> input_cursor_;
+    // control switch when creating only one node (nullptr input)
+    bool did_produce_{false};
   };
 
  private:
@@ -787,7 +809,5 @@ class Delete : public LogicalOperator {
   // ignored when deleting edges
   bool detach_;
 };
-} // namespace plan
-} // namespace query
-
-
+}  // namespace plan
+}  // namespace query
