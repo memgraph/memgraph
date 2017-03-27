@@ -492,6 +492,22 @@ class Create : public Clause {
   }
 };
 
+class Where : public Tree {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  Expression *expression_ = nullptr;
+
+ protected:
+  Where(int uid) : Tree(uid) {}
+  Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
+};
+
 class Match : public Clause {
   friend class AstTreeStorage;
 
@@ -500,6 +516,9 @@ class Match : public Clause {
     visitor.Visit(*this);
     for (auto &pattern : patterns_) {
       pattern->Accept(visitor);
+    }
+    if (where_) {
+      where_->Accept(visitor);
     }
     visitor.PostVisit(*this);
   }
@@ -543,21 +562,6 @@ class Delete : public Clause {
 
  protected:
   Delete(int uid) : Clause(uid) {}
-};
-
-class Where : public Tree {
-  friend class AstTreeStorage;
-
- public:
-  void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
-  }
-  Expression *expression_ = nullptr;
-
- protected:
-  Where(int uid) : Tree(uid) {}
 };
 
 class SetProperty : public Clause {

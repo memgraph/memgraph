@@ -225,4 +225,16 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
+TEST(TestSymbolGenerator, MatchWhereUnbound) {
+  // Test MATCH (n) WHERE missing < 42 RETURN n AS n
+  AstTreeStorage storage;
+  std::string property("property");
+  auto match = MATCH(PATTERN(NODE("n")));
+  match->where_ = WHERE(LESS(IDENT("missing"), LITERAL(42)));
+  auto query = QUERY(match, RETURN(NEXPR("n", IDENT("n"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
 }

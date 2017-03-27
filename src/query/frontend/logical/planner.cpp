@@ -152,7 +152,13 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
     // TODO: Support matching multiple patterns.
     throw NotYetImplemented();
   }
-  return ReducePattern<LogicalOperator *>(*match.patterns_[0], base, collect);
+  auto last_op =
+      ReducePattern<LogicalOperator *>(*match.patterns_[0], base, collect);
+  if (match.where_) {
+    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
+                         match.where_->expression_);
+  }
+  return last_op;
 }
 
 auto GenReturn(Return &ret, LogicalOperator *input_op) {

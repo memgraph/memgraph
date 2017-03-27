@@ -96,8 +96,7 @@ auto GetReturn(AstTreeStorage &storage,
 
 ///
 /// All the following macros implicitly pass `storage` variable to functions.
-/// You
-/// need to have `AstTreeStorage storage;` somewhere in scope to use them.
+/// You need to have `AstTreeStorage storage;` somewhere in scope to use them.
 /// Refer to function documentation to see what the macro does.
 ///
 /// Example usage:
@@ -112,11 +111,14 @@ auto GetReturn(AstTreeStorage &storage,
 #define PATTERN(...) query::test_common::GetPattern(storage, {__VA_ARGS__})
 #define MATCH(...) \
   query::test_common::GetWithPatterns<query::Match>(storage, {__VA_ARGS__})
+#define WHERE(expr) storage.Create<query::Where>((expr))
 #define CREATE(...) \
   query::test_common::GetWithPatterns<query::Create>(storage, {__VA_ARGS__})
 #define IDENT(name) storage.Create<query::Identifier>((name))
 #define LITERAL(val) storage.Create<query::Literal>((val))
-#define PROPERTY_LOOKUP(...) query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
+#define PROPERTY_LOOKUP(...) \
+  query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 #define RETURN(...) query::test_common::GetReturn(storage, {__VA_ARGS__})
 #define QUERY(...) query::test_common::GetQuery(storage, {__VA_ARGS__})
+#define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

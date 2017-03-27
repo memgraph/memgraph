@@ -32,6 +32,7 @@ class PlanChecker : public LogicalOperatorVisitor {
   void Visit(Expand &op) override { AssertType(op); }
   void Visit(NodeFilter &op) override { AssertType(op); }
   void Visit(EdgeFilter &op) override { AssertType(op); }
+  void Visit(Filter &op) override { AssertType(op); }
   void Visit(Produce &op) override { AssertType(op); }
 
  private:
@@ -43,19 +44,20 @@ class PlanChecker : public LogicalOperatorVisitor {
   std::list<size_t> types_;
 };
 
+auto CheckPlan(query::Query &query, std::list<size_t> expected_types) {
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query.Accept(symbol_generator);
+  auto plan = MakeLogicalPlan(query, symbol_table);
+  PlanChecker plan_checker(expected_types);
+  plan->Accept(plan_checker);
+}
+
 TEST(TestLogicalPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n AS n
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(ScanAll).hash_code());
-  expected_types.emplace_back(typeid(Produce).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Produce).hash_code()});
 }
 
 TEST(TestLogicalPlanner, CreateNodeReturn) {
@@ -63,15 +65,8 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
   AstTreeStorage storage;
   auto query =
       QUERY(CREATE(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  expected_types.emplace_back(typeid(Produce).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(CreateNode).hash_code(), typeid(Produce).hash_code()});
 }
 
 TEST(TestLogicalPlanner, CreateExpand) {
@@ -80,30 +75,16 @@ TEST(TestLogicalPlanner, CreateExpand) {
   std::string relationship("relationship");
   auto query = QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", &relationship, Direction::RIGHT), NODE("m"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  expected_types.emplace_back(typeid(CreateExpand).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(CreateNode).hash_code(), typeid(CreateExpand).hash_code()});
 }
 
 TEST(TestLogicalPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
   AstTreeStorage storage;
   auto query = QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(CreateNode).hash_code(), typeid(CreateNode).hash_code()});
 }
 
 TEST(TestLogicalPlanner, CreateNodeExpandNode) {
@@ -113,16 +94,9 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   auto query = QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", &relationship, Direction::RIGHT), NODE("m")),
       PATTERN(NODE("l"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  expected_types.emplace_back(typeid(CreateExpand).hash_code());
-  expected_types.emplace_back(typeid(CreateNode).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(CreateNode).hash_code(), typeid(CreateExpand).hash_code(),
+             typeid(CreateNode).hash_code()});
 }
 
 TEST(TestLogicalPlanner, MatchCreateExpand) {
@@ -133,15 +107,8 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
       MATCH(PATTERN(NODE("n"))),
       CREATE(PATTERN(NODE("n"), EDGE("r", &relationship, Direction::RIGHT),
                      NODE("m"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(ScanAll).hash_code());
-  expected_types.emplace_back(typeid(CreateExpand).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(ScanAll).hash_code(), typeid(CreateExpand).hash_code()});
 }
 
 TEST(TestLogicalPlanner, MatchLabeledNodes) {
@@ -150,16 +117,9 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   std::string label("label");
   auto query =
       QUERY(MATCH(PATTERN(NODE("n", &label))), RETURN(NEXPR("n", IDENT("n"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(ScanAll).hash_code());
-  expected_types.emplace_back(typeid(NodeFilter).hash_code());
-  expected_types.emplace_back(typeid(Produce).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(ScanAll).hash_code(), typeid(NodeFilter).hash_code(),
+             typeid(Produce).hash_code()});
 }
 
 TEST(TestLogicalPlanner, MatchPathReturn) {
@@ -169,17 +129,20 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   auto query =
       QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", &relationship), NODE("m"))),
             RETURN(NEXPR("n", IDENT("n"))));
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(*query, symbol_table);
-  std::list<size_t> expected_types;
-  expected_types.emplace_back(typeid(ScanAll).hash_code());
-  expected_types.emplace_back(typeid(Expand).hash_code());
-  expected_types.emplace_back(typeid(EdgeFilter).hash_code());
-  expected_types.emplace_back(typeid(Produce).hash_code());
-  PlanChecker plan_checker(expected_types);
-  plan->Accept(plan_checker);
+  CheckPlan(*query,
+            {typeid(ScanAll).hash_code(), typeid(Expand).hash_code(),
+             typeid(EdgeFilter).hash_code(), typeid(Produce).hash_code()});
+}
+
+TEST(TestLogicalPlanner, MatchWhereReturn) {
+  // Test MATCH (n) WHERE n.property < 42 RETURN n AS n
+  AstTreeStorage storage;
+  std::string property("property");
+  auto match = MATCH(PATTERN(NODE("n")));
+  match->where_ = WHERE(LESS(PROPERTY_LOOKUP("n", &property), LITERAL(42)));
+  auto query = QUERY(match, RETURN(NEXPR("n", IDENT("n"))));
+  CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Filter).hash_code(),
+                     typeid(Produce).hash_code()});
 }
 
 }
