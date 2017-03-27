@@ -90,6 +90,18 @@ auto GetReturn(AstTreeStorage &storage,
   return ret;
 }
 
+///
+/// Create the delete clause with given named expressions.
+///
+auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
+               bool detach = false) {
+  auto del = storage.Create<Delete>();
+  del->expressions_.insert(del->expressions_.begin(), exprs.begin(),
+                           exprs.end());
+  del->detach_ = detach;
+  return del;
+}
+
 }  // namespace test_common
 
 }  // namespace query
@@ -120,5 +132,8 @@ auto GetReturn(AstTreeStorage &storage,
   query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 #define RETURN(...) query::test_common::GetReturn(storage, {__VA_ARGS__})
+#define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
+#define DETACH_DELETE(...) \
+  query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
 #define QUERY(...) query::test_common::GetQuery(storage, {__VA_ARGS__})
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

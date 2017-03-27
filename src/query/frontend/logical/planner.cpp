@@ -186,6 +186,9 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
       input_op = GenReturn(*ret, input_op);
     } else if (auto *create = dynamic_cast<Create *>(clause_ptr)) {
       input_op = GenCreate(*create, input_op, symbol_table, bound_symbols);
+    } else if (auto *del = dynamic_cast<query::Delete *>(clause_ptr)) {
+      input_op = new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
+                                  del->expressions_, del->detach_);
     } else {
       throw NotYetImplemented();
     }

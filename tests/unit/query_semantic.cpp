@@ -237,4 +237,28 @@ TEST(TestSymbolGenerator, MatchWhereUnbound) {
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
 }
 
+TEST(TestSymbolGenerator, CreateDelete) {
+  // Test CREATE (n) DELETE n
+  AstTreeStorage storage;
+  auto node = NODE("n");
+  auto ident = IDENT("n");
+  auto query = QUERY(CREATE(PATTERN(node)), DELETE(ident));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 1);
+  auto node_symbol = symbol_table.at(*node->identifier_);
+  auto ident_symbol = symbol_table.at(*ident);
+  EXPECT_EQ(node_symbol, ident_symbol);
+}
+
+TEST(TestSymbolGenerator, CreateDeleteUnbound) {
+  // Test CREATE (n) DELETE missing
+  AstTreeStorage storage;
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
 }

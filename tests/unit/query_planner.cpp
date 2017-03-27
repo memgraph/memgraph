@@ -28,6 +28,7 @@ class PlanChecker : public LogicalOperatorVisitor {
 
   void Visit(CreateNode &op) override { AssertType(op); }
   void Visit(CreateExpand &op) override { AssertType(op); }
+  void Visit(Delete &op) override { AssertType(op); }
   void Visit(ScanAll &op) override { AssertType(op); }
   void Visit(Expand &op) override { AssertType(op); }
   void Visit(NodeFilter &op) override { AssertType(op); }
@@ -143,6 +144,13 @@ TEST(TestLogicalPlanner, MatchWhereReturn) {
   auto query = QUERY(match, RETURN(NEXPR("n", IDENT("n"))));
   CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Filter).hash_code(),
                      typeid(Produce).hash_code()});
+}
+
+TEST(TestLogicalPlanner, MatchDelete) {
+  // Test MATCH (n) DELETE n
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n")));
+  CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Delete).hash_code()});
 }
 
 }
