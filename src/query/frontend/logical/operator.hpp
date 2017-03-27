@@ -25,11 +25,12 @@ class ScanAll;
 class Expand;
 class NodeFilter;
 class EdgeFilter;
+class Filter;
 class Produce;
 
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
-                     EdgeFilter, Produce>;
+                     EdgeFilter, Filter, Produce>;
 
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
@@ -610,6 +611,56 @@ class EdgeFilter : public LogicalOperator {
   std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
   EdgeAtom *edge_atom_;
+};
+
+/**
+ * Filter whose Pull returns true only when the given expression
+ * evaluates into true. The given expression is assumed to
+ * return either NULL (treated as false) or a boolean value.
+ */
+class Filter : public LogicalOperator {
+ public:
+  Filter(const std::shared_ptr<LogicalOperator> &input_,
+         Expression *expression_)
+      : input_(input_), expression_(expression_) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  class FilterCursor : public Cursor {
+   public:
+    FilterCursor(Filter &self, GraphDbAccessor &db)
+        : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      while (input_cursor_->Pull(frame, symbol_table)) {
+        self_.expression_->Accept(evaluator);
+        TypedValue result = evaluator.PopBack();
+        if (result.type() == TypedValue::Type::Null || !result.Value<bool>())
+          continue;
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    Filter &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<FilterCursor>(*this, db);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  Expression *expression_;
 };
 
 class Produce : public LogicalOperator {

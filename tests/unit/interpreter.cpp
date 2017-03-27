@@ -903,3 +903,32 @@ TEST(ExpressionEvaluator, UnaryMinusOperator) {
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -5);
 }
+
+TEST(Interpreter, Filter) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // add a 6 nodes with property 'prop', 2 have true as value
+  GraphDb::Property property = dba->property("Property");
+  for (int i = 0; i < 6; ++i)
+    dba->insert_vertex().PropsSet(property, i % 3 == 0);
+  dba->insert_vertex(); // prop not set, gives NULL
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto e =
+      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
+  symbol_table[*e->expression_] = std::get<2>(n);
+  auto f = std::make_shared<Filter>(std::get<1>(n), e);
+
+  auto output =
+      storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
+  symbol_table[*output->expression_] = std::get<2>(n);
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  auto produce = MakeProduce(f, output);
+
+  EXPECT_EQ(CollectProduce(produce, symbol_table, *dba).GetResults().size(), 2);
+}
