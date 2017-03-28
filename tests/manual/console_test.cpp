@@ -5,14 +5,17 @@
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"
 
-void random_generate(Dbms &dbms) {
+void random_generate(Dbms &dbms, uint node_count, int edge_factor = 5) {
   auto dba = dbms.active();
   utils::RandomGraphGenerator generator(*dba);
 
-  generator.AddVertices(1000000, {"Person"});
-  generator.AddEdges(5000000, "Friend");
-  generator.SetVertexProperty<int>(1000000, "age", utils::RandomIntGenerator(3, 60));
-  generator.SetVertexProperty<int>(1000000, "height", utils::RandomIntGenerator(120, 200));
+  auto edge_count = node_count * edge_factor;
+  generator.AddVertices(node_count, {"Person"});
+  generator.AddEdges(edge_count, "Friend");
+  generator.SetVertexProperty<int>(node_count, "age",
+                                   utils::RandomIntGenerator(3, 60));
+  generator.SetVertexProperty<int>(node_count, "height",
+                                   utils::RandomIntGenerator(120, 200));
 
   generator.Commit();
 }
@@ -75,10 +78,18 @@ void fill_db(Dbms &dbms) {
 int main(int argc, char *argv[]) {
   REGISTER_ARGS(argc, argv);
 
+  // parse the first cmd line argument as the count of nodes to randomly create
+  uint node_count = 100000;
+  if (argc > 1) {
+    node_count = (uint) std::stoul(argv[1]);
+    permanent_assert(node_count < 10000000,
+                     "More then 10M nodes requested, that's too much");
+  }
+
   Dbms dbms;
   std::cout << "Generating graph..." << std::endl;
-//  fill_db(dbms);
-  random_generate(dbms);
+  //  fill_db(dbms);
+  random_generate(dbms, node_count);
   query::Repl(dbms);
   return 0;
 }

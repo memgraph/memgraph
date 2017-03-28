@@ -30,10 +30,14 @@ class EdgeFilter;
 class Filter;
 class Produce;
 class Delete;
+class SetProperty;
+class SetProperties;
+class SetLabels;
 
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
-                     EdgeFilter, Filter, Produce, Delete>;
+                     EdgeFilter, Filter, Produce, Delete, SetProperty,
+                     SetProperties, SetLabels>;
 
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
@@ -809,5 +813,71 @@ class Delete : public LogicalOperator {
   // ignored when deleting edges
   bool detach_;
 };
+
+class SetProperty : public LogicalOperator {
+ public:
+  SetProperty(const std::shared_ptr<LogicalOperator> input, PropertyLookup *lhs,
+              Expression *rhs)
+      : input_(input), lhs_(lhs), rhs_(rhs) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+};
+
+class SetProperties : public LogicalOperator {
+ public:
+  /**
+   * Defines how setting the properties works. UPDATE means
+   * that the current property set is augmented with additional
+   * ones (existing props of the same name are replaced), while
+   * REPLACE means that the old props are discarded and replaced
+   * with new ones.
+   */
+  enum class Op { UPDATE, REPLACE };
+
+  SetProperties(const std::shared_ptr<LogicalOperator> input,
+                const Symbol input_symbol, Expression *rhs, Op op)
+      : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+  Expression *rhs_;
+  Op op_;
+};
+
+class SetLabels : public LogicalOperator {
+ public:
+  SetLabels(const std::shared_ptr<LogicalOperator> input,
+            const Symbol input_symbol,
+            const std::vector<GraphDb::Label> &labels)
+      : input_(input), input_symbol_(input_symbol), labels_(labels) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+  std::vector<GraphDb::Label> labels_;
+};
+
 }  // namespace plan
 }  // namespace query
