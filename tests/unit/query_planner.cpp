@@ -60,15 +60,14 @@ auto CheckPlan(query::Query &query, std::list<size_t> expected_types) {
 TEST(TestLogicalPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n AS n
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
   CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Produce).hash_code()});
 }
 
 TEST(TestLogicalPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstTreeStorage storage;
-  auto query =
-      QUERY(CREATE(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
   CheckPlan(*query,
             {typeid(CreateNode).hash_code(), typeid(Produce).hash_code()});
 }
@@ -120,7 +119,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   AstTreeStorage storage;
   std::string label("label");
   auto query =
-      QUERY(MATCH(PATTERN(NODE("n", &label))), RETURN(NEXPR("n", IDENT("n"))));
+      QUERY(MATCH(PATTERN(NODE("n", &label))), RETURN(IDENT("n"), AS("n")));
   CheckPlan(*query,
             {typeid(ScanAll).hash_code(), typeid(NodeFilter).hash_code(),
              typeid(Produce).hash_code()});
@@ -132,7 +131,7 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   std::string relationship("relationship");
   auto query =
       QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", &relationship), NODE("m"))),
-            RETURN(NEXPR("n", IDENT("n"))));
+            RETURN(IDENT("n"), AS("n")));
   CheckPlan(*query,
             {typeid(ScanAll).hash_code(), typeid(Expand).hash_code(),
              typeid(EdgeFilter).hash_code(), typeid(Produce).hash_code()});
@@ -142,9 +141,9 @@ TEST(TestLogicalPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n AS n
   AstTreeStorage storage;
   std::string property("property");
-  auto match = MATCH(PATTERN(NODE("n")));
-  match->where_ = WHERE(LESS(PROPERTY_LOOKUP("n", &property), LITERAL(42)));
-  auto query = QUERY(match, RETURN(NEXPR("n", IDENT("n"))));
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("n", &property), LITERAL(42))),
+                     RETURN(IDENT("n"), AS("n")));
   CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Filter).hash_code(),
                      typeid(Produce).hash_code()});
 }

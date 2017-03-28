@@ -72,22 +72,53 @@ auto GetWithPatterns(AstTreeStorage &storage, std::vector<Pattern *> patterns) {
 ///
 /// Create a query with given clauses.
 ///
-auto GetQuery(AstTreeStorage &storage, std::vector<Clause *> clauses) {
-  auto query = storage.query();
-  query->clauses_.insert(query->clauses_.begin(), clauses.begin(),
-                         clauses.end());
-  return query;
+auto GetQuery(AstTreeStorage &storage, Clause *clause) {
+  storage.query()->clauses_.emplace_back(clause);
+  return storage.query();
+}
+template <class... T>
+auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
+  storage.query()->clauses_.emplace_back(clause);
+  return GetQuery(storage, clauses...);
+}
+template <class... T>
+auto GetQuery(AstTreeStorage &storage, Match *match, Where *where,
+              T *... clauses) {
+  match->where_ = where;
+  storage.query()->clauses_.emplace_back(match);
+  return GetQuery(storage, clauses...);
 }
 
 ///
 /// Create the return clause with given named expressions.
 ///
-auto GetReturn(AstTreeStorage &storage,
-               std::vector<NamedExpression *> named_exprs) {
-  auto ret = storage.Create<Return>();
-  ret->named_expressions_.insert(ret->named_expressions_.begin(),
-                                 named_exprs.begin(), named_exprs.end());
+auto GetReturn(Return *ret, NamedExpression *named_expr) {
+  ret->named_expressions_.emplace_back(named_expr);
   return ret;
+}
+auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr) {
+  // This overload supports `RETURN(expr, AS(name))` construct, since
+  // NamedExpression does not inherit Expression.
+  named_expr->expression_ = expr;
+  ret->named_expressions_.emplace_back(named_expr);
+  return ret;
+}
+template <class... T>
+auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr,
+               T *... rest) {
+  named_expr->expression_ = expr;
+  ret->named_expressions_.emplace_back(named_expr);
+  return GetReturn(ret, rest...);
+}
+template <class... T>
+auto GetReturn(Return *ret, NamedExpression *named_expr, T *... rest) {
+  ret->named_expressions_.emplace_back(named_expr);
+  return GetReturn(ret, rest...);
+}
+template <class... T>
+auto GetReturn(AstTreeStorage &storage, T *... exprs) {
+  auto ret = storage.Create<Return>();
+  return GetReturn(ret, exprs...);
 }
 
 ///
@@ -158,10 +189,14 @@ auto GetSet(AstTreeStorage &storage, const std::string &name,
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
-#define RETURN(...) query::test_common::GetReturn(storage, {__VA_ARGS__})
+// AS is alternative to NEXPR which does not initialize NamedExpression with
+// Expression. It should be used with RETURN. For example:
+// RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
+#define AS(name) storage.Create<query::NamedExpression>((name))
+#define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
 #define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
 #define SET(...) query::test_common::GetSet(storage, __VA_ARGS__)
-#define QUERY(...) query::test_common::GetQuery(storage, {__VA_ARGS__})
+#define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

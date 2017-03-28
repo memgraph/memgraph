@@ -18,7 +18,7 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   AstTreeStorage storage;
   // MATCH (node_atom_1) RETURN node_atom_1 AS node_atom_1
   auto query_ast = QUERY(MATCH(PATTERN(NODE("node_atom_1"))),
-                         RETURN(NEXPR("node_atom_1", IDENT("node_atom_1"))));
+                         RETURN(IDENT("node_atom_1"), AS("node_atom_1")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.max_position(), 2);
@@ -45,7 +45,7 @@ TEST(TestSymbolGenerator, MatchUnboundMultiReturn) {
   // MATCH (node_atom_1) RETURN node_atom_1 AS n, n AS n
   auto query_ast =
       QUERY(MATCH(PATTERN(NODE("node_atom_1"))),
-            RETURN(NEXPR("n", IDENT("node_atom_1")), NEXPR("n", IDENT("n"))));
+            RETURN(IDENT("node_atom_1"), AS("n"), IDENT("n"), AS("n")));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
 }
@@ -55,7 +55,7 @@ TEST(TestSymbolGenerator, MatchNodeUnboundReturn) {
   AstTreeStorage storage;
   // AST with unbound variable in return: MATCH (n) RETURN x AS x
   auto query_ast =
-      QUERY(MATCH(PATTERN(NODE("n"))), RETURN(NEXPR("x", IDENT("x"))));
+      QUERY(MATCH(PATTERN(NODE("n"))), RETURN(IDENT("x"), AS("x")));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
 }
@@ -68,7 +68,7 @@ TEST(TestSymbolGenerator, MatchSameEdge) {
   // This usually throws a redeclaration error, but we support it.
   auto query_ast = QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("n"), EDGE("r"), NODE("n"))),
-      RETURN(NEXPR("r", IDENT("r"))));
+      RETURN(IDENT("r"), AS("r")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.max_position(), 3);
@@ -119,7 +119,7 @@ TEST(TestSymbolGenerator, CreateNodeReturn) {
   AstTreeStorage storage;
   // Simple AST returning a created node: CREATE (n) RETURN n
   auto query_ast =
-      QUERY(CREATE(PATTERN(NODE("n"))), RETURN(NEXPR("n", IDENT("n"))));
+      QUERY(CREATE(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.max_position(), 2);
@@ -233,9 +233,9 @@ TEST(TestSymbolGenerator, MatchWhereUnbound) {
   // Test MATCH (n) WHERE missing < 42 RETURN n AS n
   AstTreeStorage storage;
   std::string property("property");
-  auto match = MATCH(PATTERN(NODE("n")));
-  match->where_ = WHERE(LESS(IDENT("missing"), LITERAL(42)));
-  auto query = QUERY(match, RETURN(NEXPR("n", IDENT("n"))));
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     WHERE(LESS(IDENT("missing"), LITERAL(42))),
+                     RETURN(IDENT("n"), AS("n")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);

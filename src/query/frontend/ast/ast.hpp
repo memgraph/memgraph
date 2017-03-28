@@ -375,7 +375,8 @@ class NamedExpression : public Tree {
 
  protected:
   NamedExpression(int uid) : Tree(uid) {}
-  NamedExpression(int uid, std::string name, Expression *expression)
+  NamedExpression(int uid, const std::string &name) : Tree(uid), name_(name) {}
+  NamedExpression(int uid, const std::string &name, Expression *expression)
       : Tree(uid), name_(name), expression_(expression) {}
 };
 
