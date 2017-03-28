@@ -6,26 +6,24 @@
 
 namespace query {
 
-auto SymbolGenerator::CreateVariable(const std::string &name,
-                                     SymbolGenerator::Variable::Type type) {
-  auto symbol = symbol_table_.CreateSymbol(name);
-  auto variable = SymbolGenerator::Variable{symbol, type};
-  scope_.variables[name] = variable;
-  return variable;
+auto SymbolGenerator::CreateSymbol(const std::string &name, Symbol::Type type) {
+  auto symbol = symbol_table_.CreateSymbol(name, type);
+  scope_.symbols[name] = symbol;
+  return symbol;
 }
 
-auto SymbolGenerator::GetOrCreateVariable(
-    const std::string &name, SymbolGenerator::Variable::Type type) {
-  auto search = scope_.variables.find(name);
-  if (search != scope_.variables.end()) {
-    auto variable = search->second;
-    if (type != SymbolGenerator::Variable::Type::Any && type != variable.type) {
-      throw TypeMismatchError(name, TypeToString(variable.type),
-                              TypeToString(type));
+auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
+                                        Symbol::Type type) {
+  auto search = scope_.symbols.find(name);
+  if (search != scope_.symbols.end()) {
+    auto symbol = search->second;
+    if (type != Symbol::Type::Any && type != symbol.type_) {
+      throw TypeMismatchError(name, Symbol::TypeToString(symbol.type_),
+                              Symbol::TypeToString(type));
     }
     return search->second;
   }
-  return CreateVariable(name, type);
+  return CreateSymbol(name, type);
 }
 
 // Clauses
@@ -37,7 +35,7 @@ void SymbolGenerator::PostVisit(Return &ret) {
   for (auto &named_expr : ret.named_expressions_) {
     // Named expressions establish bindings for expressions which come after
     // return, but not for the expressions contained inside.
-    symbol_table_[*named_expr] = CreateVariable(named_expr->name_).symbol;
+    symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
   }
 }
 
@@ -59,23 +57,23 @@ void SymbolGenerator::Visit(Identifier &ident) {
     //     Additionally, we will support edge referencing in pattern:
     //     `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r`, which would
     //     usually raise redeclaration of `r`.
-    if (scope_.in_property_map && !HasVariable(ident.name_)) {
+    if (scope_.in_property_map && !HasSymbol(ident.name_)) {
       // Case 1)
       throw UnboundVariableError(ident.name_);
     } else if ((scope_.in_create_node || scope_.in_create_edge) &&
-               HasVariable(ident.name_)) {
+               HasSymbol(ident.name_)) {
       // Case 2)
       throw RedeclareVariableError(ident.name_);
     }
-    auto type = Variable::Type::Vertex;
+    auto type = Symbol::Type::Vertex;
     if (scope_.in_edge_atom) {
-      type = Variable::Type::Edge;
+      type = Symbol::Type::Edge;
     }
-    symbol = GetOrCreateVariable(ident.name_, type).symbol;
+    symbol = GetOrCreateSymbol(ident.name_, type);
   } else {
     // Everything else references a bound symbol.
-    if (!HasVariable(ident.name_)) throw UnboundVariableError(ident.name_);
-    symbol = scope_.variables[ident.name_].symbol;
+    if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);
+    symbol = scope_.symbols[ident.name_];
   }
   symbol_table_[ident] = symbol;
 }
@@ -128,8 +126,8 @@ void SymbolGenerator::PostVisit(EdgeAtom &edge_atom) {
   scope_.in_create_edge = false;
 }
 
-bool SymbolGenerator::HasVariable(const std::string &name) {
-  return scope_.variables.find(name) != scope_.variables.end();
+bool SymbolGenerator::HasSymbol(const std::string &name) {
+  return scope_.symbols.find(name) != scope_.symbols.end();
 }
 
 }  // namespace query

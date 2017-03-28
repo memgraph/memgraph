@@ -27,6 +27,7 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name_, "node_atom_1");
+  EXPECT_EQ(node_sym.type_, Symbol::Type::Vertex);
   auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
   auto named_expr = ret->named_expressions_[0];
   auto column_sym = symbol_table[*named_expr];
@@ -86,10 +87,12 @@ TEST(TestSymbolGenerator, MatchSameEdge) {
     is_node = !is_node;
   }
   auto &node_symbol = node_symbols.front();
+  EXPECT_EQ(node_symbol.type_, Symbol::Type::Vertex);
   for (auto &symbol : node_symbols) {
     EXPECT_EQ(node_symbol, symbol);
   }
   auto &edge_symbol = edge_symbols.front();
+  EXPECT_EQ(edge_symbol.type_, Symbol::Type::Edge);
   for (auto &symbol : edge_symbols) {
     EXPECT_EQ(edge_symbol, symbol);
   }
@@ -125,6 +128,7 @@ TEST(TestSymbolGenerator, CreateNodeReturn) {
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name_, "n");
+  EXPECT_EQ(node_sym.type_, Symbol::Type::Vertex);
   auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
   auto named_expr = ret->named_expressions_[0];
   auto column_sym = symbol_table[*named_expr];
@@ -249,6 +253,7 @@ TEST(TestSymbolGenerator, CreateDelete) {
   EXPECT_EQ(symbol_table.max_position(), 1);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto ident_symbol = symbol_table.at(*ident);
+  EXPECT_EQ(node_symbol.type_, Symbol::Type::Vertex);
   EXPECT_EQ(node_symbol, ident_symbol);
 }
 

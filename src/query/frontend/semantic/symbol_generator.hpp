@@ -40,22 +40,8 @@ class SymbolGenerator : public TreeVisitorBase {
   void PostVisit(EdgeAtom &edge_atom) override;
 
  private:
-  // A variable stores the associated symbol and its type.
-  struct Variable {
-    // This is similar to TypedValue::Type, but this has `Any` type.
-    enum class Type { Any, Vertex, Edge, Path };
-
-    Symbol symbol;
-    Type type{Type::Any};
-  };
-
-  std::string TypeToString(Variable::Type type) {
-    const char *enum_string[] = {"Any", "Vertex", "Edge", "Path"};
-    return enum_string[static_cast<int>(type)];
-  }
-
   // Scope stores the state of where we are when visiting the AST and a map of
-  // names to variables.
+  // names to symbols.
   struct Scope {
     bool in_pattern{false};
     bool in_create{false};
@@ -67,20 +53,20 @@ class SymbolGenerator : public TreeVisitorBase {
     bool in_node_atom{false};
     bool in_edge_atom{false};
     bool in_property_map{false};
-    std::map<std::string, Variable> variables;
+    std::map<std::string, Symbol> symbols;
   };
 
-  bool HasVariable(const std::string &name);
+  bool HasSymbol(const std::string &name);
 
-  // Returns a new variable with a freshly generated symbol. Previous mapping
-  // of the same name to a different variable is replaced with the new one.
-  auto CreateVariable(const std::string &name,
-                      Variable::Type type = Variable::Type::Any);
+  // Returns a freshly generated symbol. Previous mapping of the same name to a
+  // different symbol is replaced with the new one.
+  auto CreateSymbol(const std::string &name,
+                    Symbol::Type type = Symbol::Type::Any);
 
-  // Returns the variable by name. If the mapping already exists, checks if the
-  // types match. Otherwise, returns a new variable.
-  auto GetOrCreateVariable(const std::string &name,
-                           Variable::Type type = Variable::Type::Any);
+  // Returns the symbol by name. If the mapping already exists, checks if the
+  // types match. Otherwise, returns a new symbol.
+  auto GetOrCreateSymbol(const std::string &name,
+                         Symbol::Type type = Symbol::Type::Any);
 
   SymbolTable &symbol_table_;
   Scope scope_;
