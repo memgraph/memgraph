@@ -78,26 +78,41 @@ auto MakeProduce(std::shared_ptr<LogicalOperator> input,
       input, std::vector<NamedExpression *>{named_expressions...});
 }
 
+struct ScanAllTuple {
+  NodeAtom *node_;
+  std::shared_ptr<LogicalOperator> op_;
+  Symbol sym_;
+};
+
 /**
  * Creates and returns a tuple of stuff for a scan-all starting
  * from the node with the given name.
  *
  * Returns (node_atom, scan_all_logical_op, symbol).
  */
-auto MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
-                 const std::string &identifier) {
+ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
+                         const std::string &identifier) {
   auto node = NODE(identifier);
   auto logical_op = std::make_shared<ScanAll>(node);
   auto symbol = symbol_table.CreateSymbol(identifier);
   symbol_table[*node->identifier_] = symbol;
-  return std::make_tuple(node, logical_op, symbol);
+  //  return std::make_tuple(node, logical_op, symbol);
+  return ScanAllTuple{node, logical_op, symbol};
 }
 
-auto MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
-                std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
-                const std::string &edge_identifier,
-                EdgeAtom::Direction direction, bool edge_cycle,
-                const std::string &node_identifier, bool node_cycle) {
+struct ExpandTuple {
+  EdgeAtom *edge_;
+  Symbol edge_sym_;
+  NodeAtom *node_;
+  Symbol node_sym_;
+  std::shared_ptr<LogicalOperator> op_;
+};
+
+ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
+                       std::shared_ptr<LogicalOperator> input,
+                       Symbol input_symbol, const std::string &edge_identifier,
+                       EdgeAtom::Direction direction, bool edge_cycle,
+                       const std::string &node_identifier, bool node_cycle) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier);
   symbol_table[*edge->identifier_] = edge_sym;
@@ -109,7 +124,7 @@ auto MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
   auto op = std::make_shared<Expand>(node, edge, input, input_symbol,
                                      node_cycle, edge_cycle);
 
-  return std::make_tuple(edge, edge_sym, node, node_sym, op);
+  return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
 template <typename TIterable>
@@ -135,8 +150,8 @@ TEST(Interpreter, MatchReturn) {
 
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
   auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(std::get<1>(scan_all), output);
-  symbol_table[*output->expression_] = std::get<2>(scan_all);
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -195,16 +210,15 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  std::get<0>(n)->labels_.emplace_back(label);
-  std::get<0>(n)->properties_[property] = LITERAL(42);
+  n.node_->labels_.emplace_back(label);
+  n.node_->properties_[property] = LITERAL(42);
 
   // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(
-      std::get<1>(n), std::get<2>(n), std::get<0>(n));
+  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
 
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n"));
-  symbol_table[*output->expression_] = std::get<2>(n);
+  symbol_table[*output->expression_] = n.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(node_filter, output);
 
@@ -242,12 +256,11 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  std::get<0>(n)->labels_.emplace_back(label1);
-  std::get<0>(n)->labels_.emplace_back(label2);
+  n.node_->labels_.emplace_back(label1);
+  n.node_->labels_.emplace_back(label2);
 
   // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(
-      std::get<1>(n), std::get<2>(n), std::get<0>(n));
+  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
 
   // make a named expression and a produce
   auto output = NEXPR("n", IDENT("n"));
@@ -255,7 +268,7 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
 
   // fill up the symbol table
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  symbol_table[*output->expression_] = std::get<2>(n);
+  symbol_table[*output->expression_] = n.sym_;
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
   EXPECT_EQ(result.GetResults().size(), 2);
@@ -425,13 +438,11 @@ TEST(Interpreter, MatchCreateNode) {
 
   // first node
   auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
-  auto n_sym = symbol_table.CreateSymbol("n");
-  symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
   // second node
   auto m = NODE("m");
   symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
   // creation op
-  auto create_node = std::make_shared<CreateNode>(m, std::get<1>(n_scan_all));
+  auto create_node = std::make_shared<CreateNode>(m, n_scan_all.op_);
 
   EXPECT_EQ(CountIterable(dba->vertices()), 3);
   PullAll(create_node, *dba, symbol_table);
@@ -464,13 +475,11 @@ TEST(Interpreter, MatchCreateExpand) {
 
     // data for the first node
     auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto n_sym = symbol_table.CreateSymbol("n");
-    symbol_table[*std::get<0>(n_scan_all)->identifier_] = n_sym;
 
     // data for the second node
     auto m = NODE("m");
     if (cycle)
-      symbol_table[*m->identifier_] = n_sym;
+      symbol_table[*m->identifier_] = n_scan_all.sym_;
     else
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
 
@@ -478,8 +487,8 @@ TEST(Interpreter, MatchCreateExpand) {
     symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r");
     r->edge_types_.emplace_back(edge_type);
 
-    auto create_expand = std::make_shared<CreateExpand>(
-        m, r, std::get<1>(n_scan_all), n_sym, cycle);
+    auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_,
+                                                        n_scan_all.sym_, cycle);
     PullAll(create_expand, *dba, symbol_table);
     dba->advance_command();
 
@@ -514,14 +523,14 @@ TEST(Interpreter, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction,
                          int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                          "r", direction, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
+                          false, "m", false);
 
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
-    symbol_table[*output->expression_] = std::get<3>(r_m);
+    symbol_table[*output->expression_] = r_m.node_sym_;
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(std::get<4>(r_m), output);
+    auto produce = MakeProduce(r_m.op_, output);
 
     ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
     EXPECT_EQ(result.GetResults().size(), expected_result_count);
@@ -550,18 +559,17 @@ TEST(Interpreter, ExpandNodeCycle) {
 
   auto test_cycle = [&](bool with_cycle, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n =
-        MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n), "r",
-                   EdgeAtom::Direction::RIGHT, false, "n", with_cycle);
+    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::RIGHT, false, "n", with_cycle);
     if (with_cycle)
-      symbol_table[*std::get<2>(r_n)->identifier_] =
-          symbol_table[*std::get<0>(n)->identifier_];
+      symbol_table[*r_n.node_->identifier_] =
+          symbol_table[*n.node_->identifier_];
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
-    symbol_table[*output->expression_] = std::get<2>(n);
+    symbol_table[*output->expression_] = n.sym_;
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(std::get<4>(r_n), output);
+    auto produce = MakeProduce(r_n.op_, output);
 
     ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
     EXPECT_EQ(result.GetResults().size(), expected_result_count);
@@ -592,20 +600,19 @@ TEST(Interpreter, ExpandEdgeCycle) {
 
   auto test_cycle = [&](bool with_cycle, int expected_result_count) {
     auto i = MakeScanAll(storage, symbol_table, "i");
-    auto r_j = MakeExpand(storage, symbol_table, std::get<1>(i), std::get<2>(i),
-                          "r", EdgeAtom::Direction::BOTH, false, "j", false);
-    auto r_k =
-        MakeExpand(storage, symbol_table, std::get<4>(r_j), std::get<3>(r_j),
-                   "r", EdgeAtom::Direction::BOTH, with_cycle, "k", false);
+    auto r_j = MakeExpand(storage, symbol_table, i.op_, i.sym_, "r",
+                          EdgeAtom::Direction::BOTH, false, "j", false);
+    auto r_k = MakeExpand(storage, symbol_table, r_j.op_, r_j.node_sym_, "r",
+                          EdgeAtom::Direction::BOTH, with_cycle, "k", false);
     if (with_cycle)
-      symbol_table[*std::get<0>(r_k)->identifier_] =
-          symbol_table[*std::get<0>(r_j)->identifier_];
+      symbol_table[*r_k.edge_->identifier_] =
+          symbol_table[*r_j.edge_->identifier_];
 
     // make a named expression and a produce
     auto output = NEXPR("r", IDENT("r"));
-    symbol_table[*output->expression_] = std::get<1>(r_j);
+    symbol_table[*output->expression_] = r_j.edge_sym_;
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(std::get<4>(r_k), output);
+    auto produce = MakeProduce(r_k.op_, output);
 
     ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
     EXPECT_EQ(result.GetResults().size(), expected_result_count);
@@ -654,16 +661,16 @@ TEST(Interpreter, EdgeFilter) {
   // MATCH (n)-[r]->(m) RETURN m
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                        "r", EdgeAtom::Direction::RIGHT, false, "m", false);
-  std::get<0>(r_m)->edge_types_.push_back(edge_types[0]);
-  std::get<0>(r_m)->properties_[prop] = LITERAL(42);
-  auto edge_filter = std::make_shared<EdgeFilter>(
-      std::get<4>(r_m), std::get<1>(r_m), std::get<0>(r_m));
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
+  r_m.edge_->edge_types_.push_back(edge_types[0]);
+  r_m.edge_->properties_[prop] = LITERAL(42);
+  auto edge_filter =
+      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));
-  symbol_table[*output->expression_] = std::get<3>(r_m);
+  symbol_table[*output->expression_] = r_m.node_sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(edge_filter, output);
 
@@ -690,13 +697,13 @@ TEST(Interpreter, EdgeFilterMultipleTypes) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                        "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
   // add a property filter
-  auto edge_filter = std::make_shared<EdgeFilter>(
-      std::get<4>(r_m), std::get<1>(r_m), std::get<0>(r_m));
-  std::get<0>(r_m)->edge_types_.push_back(type_1);
-  std::get<0>(r_m)->edge_types_.push_back(type_2);
+  auto edge_filter =
+      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
+  r_m.edge_->edge_types_.push_back(type_1);
+  r_m.edge_->edge_types_.push_back(type_2);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));
@@ -704,7 +711,7 @@ TEST(Interpreter, EdgeFilterMultipleTypes) {
 
   // fill up the symbol table
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  symbol_table[*output->expression_] = std::get<3>(r_m);
+  symbol_table[*output->expression_] = r_m.node_sym_;
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
   EXPECT_EQ(result.GetResults().size(), 2);
@@ -733,9 +740,9 @@ TEST(Interpreter, Delete) {
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = std::get<2>(n);
+    symbol_table[*n_get] = n.sym_;
     auto delete_op = std::make_shared<plan::Delete>(
-        std::get<1>(n), std::vector<Expression *>{n_get}, false);
+        n.op_, std::vector<Expression *>{n_get}, false);
     EXPECT_THROW(PullAll(delete_op, *dba, symbol_table), QueryRuntimeException);
     dba->advance_command();
     EXPECT_EQ(4, CountIterable(dba->vertices()));
@@ -746,9 +753,9 @@ TEST(Interpreter, Delete) {
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = std::get<2>(n);
+    symbol_table[*n_get] = n.sym_;
     auto delete_op = std::make_shared<plan::Delete>(
-        std::get<1>(n), std::vector<Expression *>{n_get}, true);
+        n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
     delete_op->MakeCursor(*dba)->Pull(frame, symbol_table);
     dba->advance_command();
@@ -759,12 +766,12 @@ TEST(Interpreter, Delete) {
   // delete all remaining edges
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                          "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::RIGHT, false, "m", false);
     auto r_get = storage.Create<Identifier>("r");
-    symbol_table[*r_get] = std::get<1>(r_m);
+    symbol_table[*r_get] = r_m.edge_sym_;
     auto delete_op = std::make_shared<plan::Delete>(
-        std::get<4>(r_m), std::vector<Expression *>{r_get}, false);
+        r_m.op_, std::vector<Expression *>{r_get}, false);
     PullAll(delete_op, *dba, symbol_table);
     dba->advance_command();
     EXPECT_EQ(3, CountIterable(dba->vertices()));
@@ -775,9 +782,9 @@ TEST(Interpreter, Delete) {
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = std::get<2>(n);
+    symbol_table[*n_get] = n.sym_;
     auto delete_op = std::make_shared<plan::Delete>(
-        std::get<1>(n), std::vector<Expression *>{n_get}, false);
+        n.op_, std::vector<Expression *>{n_get}, false);
     PullAll(delete_op, *dba, symbol_table);
     dba->advance_command();
     EXPECT_EQ(0, CountIterable(dba->vertices()));
@@ -806,13 +813,13 @@ TEST(Interpreter, DeleteReturn) {
   auto n = MakeScanAll(storage, symbol_table, "n");
 
   auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = std::get<2>(n);
+  symbol_table[*n_get] = n.sym_;
   auto delete_op = std::make_shared<plan::Delete>(
-      std::get<1>(n), std::vector<Expression *>{n_get}, true);
+      n.op_, std::vector<Expression *>{n_get}, true);
 
   auto prop_lookup =
       storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
-  symbol_table[*prop_lookup->expression_] = std::get<2>(n);
+  symbol_table[*prop_lookup->expression_] = n.sym_;
   auto n_p = storage.Create<NamedExpression>("n", prop_lookup);
   symbol_table[*n_p] = symbol_table.CreateSymbol("bla");
   auto produce = MakeProduce(delete_op, n_p);
@@ -840,12 +847,12 @@ TEST(Interpreter, Filter) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto e =
       storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
-  symbol_table[*e->expression_] = std::get<2>(n);
-  auto f = std::make_shared<Filter>(std::get<1>(n), e);
+  symbol_table[*e->expression_] = n.sym_;
+  auto f = std::make_shared<Filter>(n.op_, e);
 
   auto output =
       storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
-  symbol_table[*output->expression_] = std::get<2>(n);
+  symbol_table[*output->expression_] = n.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(f, output);
 
@@ -873,20 +880,19 @@ TEST(Interpreter, SetProperty) {
 
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                        "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
 
   // set prop1 to 42 on n and r
   auto prop1 = dba->property("prop1");
   auto literal = LITERAL(42);
 
   auto n_p = PROPERTY_LOOKUP("n", prop1);
-  symbol_table[*n_p->expression_] = std::get<2>(n);
-  auto set_n_p =
-      std::make_shared<plan::SetProperty>(std::get<4>(r_m), n_p, literal);
+  symbol_table[*n_p->expression_] = n.sym_;
+  auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, n_p, literal);
 
   auto r_p = PROPERTY_LOOKUP("r", prop1);
-  symbol_table[*r_p->expression_] = std::get<1>(r_m);
+  symbol_table[*r_p->expression_] = r_m.edge_sym_;
   auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, r_p, literal);
   EXPECT_EQ(2, PullAll(set_r_p, *dba, symbol_table));
   dba->advance_command();
@@ -925,21 +931,21 @@ TEST(Interpreter, SetProperties) {
 
     // scan (n)-[r]->(m)
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
-                          "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::RIGHT, false, "m", false);
 
     auto op = update ? plan::SetProperties::Op::UPDATE
                      : plan::SetProperties::Op::REPLACE;
 
     // set properties on r to n, and on r to m
     auto r_ident = IDENT("r");
-    symbol_table[*r_ident] = std::get<1>(r_m);
+    symbol_table[*r_ident] = r_m.edge_sym_;
     auto m_ident = IDENT("m");
-    symbol_table[*m_ident] = std::get<3>(r_m);
-    auto set_r_to_n = std::make_shared<plan::SetProperties>(
-        std::get<4>(r_m), std::get<2>(n), r_ident, op);
+    symbol_table[*m_ident] = r_m.node_sym_;
+    auto set_r_to_n =
+        std::make_shared<plan::SetProperties>(r_m.op_, n.sym_, r_ident, op);
     auto set_m_to_r = std::make_shared<plan::SetProperties>(
-        set_r_to_n, std::get<1>(r_m), m_ident, op);
+        set_r_to_n, r_m.edge_sym_, m_ident, op);
     EXPECT_EQ(1, PullAll(set_m_to_r, *dba, symbol_table));
     dba->advance_command();
 
@@ -989,8 +995,7 @@ TEST(Interpreter, SetLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
-      std::get<1>(n), std::get<2>(n),
-      std::vector<GraphDb::Label>{label2, label3});
+      n.op_, n.sym_, std::vector<GraphDb::Label>{label2, label3});
   EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
 
   for (VertexAccessor vertex : dba->vertices()) {
