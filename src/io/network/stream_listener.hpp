@@ -12,7 +12,7 @@ class StreamListener : public EventListener<Derived, max_events, wait_timeout> {
 
   void Add(Stream &stream) {
     // add the stream to the event listener
-    this->listener_.Add(stream.socket, &stream.event);
+    this->listener_.Add(stream.socket_, &stream.event_);
   }
 
   void OnCloseEvent(Epoll::Event &event) {

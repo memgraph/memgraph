@@ -1,79 +1,157 @@
 #pragma once
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <vector>
-#include <algorithm>
 
-#include "logging/default.hpp"
-#include "utils/types/byte.hpp"
+#include "logging/loggable.hpp"
 #include "utils/bswap.hpp"
 
 namespace communication::bolt {
 
-// maximum chunk size = 65536 bytes data
-static constexpr size_t CHUNK_SIZE = 65536;
+// TODO: implement a better flushing strategy + optimize memory allocations!
+// TODO: see how bolt splits message over more TCP packets
+//       -> test for more TCP packets!
 
 /**
- * Bolt chunked buffer.
- * Has methods for writing and flushing data.
+ * Sizes related to the chunk defined in Bolt protocol.
+ */
+static constexpr size_t CHUNK_HEADER_SIZE = 2;
+static constexpr size_t MAX_CHUNK_SIZE = 65535;
+static constexpr size_t CHUNK_END_MARKER_SIZE = 2;
+static constexpr size_t WHOLE_CHUNK_SIZE =
+    CHUNK_HEADER_SIZE + MAX_CHUNK_SIZE + CHUNK_END_MARKER_SIZE;
+
+/**
+ * @brief ChunkedBuffer
+ *
+ * Has methods for writing and flushing data into the message buffer.
+ *
  * Writing data stores data in the internal buffer and flushing data sends
- * the currently stored data to the Socket with prepended data length and
- * appended chunk tail (0x00 0x00).
+ * the currently stored data to the Socket. Chunking prepends data length and
+ * appends chunk end marker (0x00 0x00).
+ *
+ * | chunk header | --- chunk --- | end marker | ---------- another chunk ... |
+ * | ------------- whole chunk ----------------| ---------- another chunk ... |
+ *
+ * | ------------------------ message --------------------------------------- |
+ * | ------------------------ buffer  --------------------------------------- |
+ *
+ * The current implementation stores the whole message into a single buffer
+ * which is std::vector.
  *
  * @tparam Socket the output socket that should be used
  */
 template <class Socket>
-class ChunkedBuffer {
+class ChunkedBuffer : public Loggable {
  public:
-  ChunkedBuffer(Socket &socket) : socket_(socket), logger_(logging::log->logger("Chunked Buffer")) {}
+  ChunkedBuffer(Socket &socket) : Loggable("Chunked Buffer"), socket_(socket) {}
 
-  void Write(const uint8_t* values, size_t n) {
-    logger_.trace("Write {} bytes", n);
+  /**
+   * Writes n values into the buffer. If n is bigger than whole chunk size
+   * values are automatically chunked.
+   *
+   * @param values data array of bytes
+   * @param n is the number of bytes
+   */
+  void Write(const uint8_t *values, size_t n) {
+    while (n > 0) {
+      // Define number of bytes  which will be copied into chunk because
+      // chunk is a fixed lenght array.
+      auto size = n < MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_
+                      ? n
+                      : MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_;
 
-    // total size of the buffer is now bigger for n
-    size_ += n;
+      // Copy size values to chunk array.
+      std::memcpy(chunk_.data() + pos_, values, size);
 
-    // reserve enough space for the new data
-    buffer_.reserve(size_);
+      // Update positions. Position pointer and incomming size have to be
+      // updated because all incomming values have to be processed.
+      pos_ += size;
+      n -= size;
 
-    // copy new data
-    std::copy(values, values + n, std::back_inserter(buffer_));
+      // If chunk is full copy it into the message buffer and make space for
+      // other incomming values that are left in the values array.
+      if (pos_ == CHUNK_HEADER_SIZE + MAX_CHUNK_SIZE) Chunk();
+    }
   }
 
+  /**
+   * Wrap the data from chunk array (append header and end marker) and put
+   * the whole chunk into the buffer.
+   */
+  void Chunk() {
+    // 1. Write the size of the chunk (CHUNK HEADER).
+    uint16_t size = pos_ - CHUNK_HEADER_SIZE;
+    // Write the higher byte.
+    chunk_[0] = size >> 8;
+    // Write the lower byte.
+    chunk_[1] = size & 0xFF;
+
+    // 2. Write last two bytes in the whole chunk (CHUNK END MARKER).
+    // The last two bytes are always 0x00 0x00.
+    chunk_[pos_++] = 0x00;
+    chunk_[pos_++] = 0x00;
+
+    debug_assert(pos_ <= WHOLE_CHUNK_SIZE,
+                 "Internal variable pos_ is bigger than the whole chunk size.");
+
+    // 3. Copy whole chunk into the buffer.
+    size_ += pos_;
+    buffer_.reserve(size_);
+    std::copy(chunk_.begin(), chunk_.begin() + pos_,
+              std::back_inserter(buffer_));
+
+    // 4. Cleanup.
+    //     * pos_ has to be reset to the size of chunk header (reserved
+    //       space for the chunk size)
+    pos_ = CHUNK_HEADER_SIZE;
+  }
+
+  /**
+   * Sends the whole buffer(message) to the client.
+   */
   void Flush() {
-    size_t size = buffer_.size(), n = 0, pos = 0;
-    uint16_t head;
+    // Call chunk if is hasn't been called.
+    if (pos_ > CHUNK_HEADER_SIZE) Chunk();
 
-    while (size > 0) {
-      head = n = std::min(CHUNK_SIZE, size);
-      head = bswap(head);
+    // Early return if buffer is empty because there is nothing to write.
+    if (size_ == 0) return;
 
-      logger_.trace("Flushing chunk of {} bytes", n);
+    // Flush the whole buffer.
+    socket_.Write(buffer_.data(), size_);
+    logger.trace("Flushed {} bytes.", size_);
 
-      // TODO: implement better flushing strategy!
-      socket_.Write(reinterpret_cast<const uint8_t *>(&head), sizeof(head));
-      socket_.Write(buffer_.data() + pos, n);
-
-      head = 0;
-      socket_.Write(reinterpret_cast<const uint8_t *>(&head), sizeof(head));
-
-      size -= n;
-      pos += n;
-    }
-
-    // GC
-    // TODO: impelement a better strategy
+    // Cleanup.
     buffer_.clear();
-
-    // clear size
     size_ = 0;
   }
 
  private:
-  Socket& socket_;
-  Logger logger_;
+  /**
+   * A client socket.
+   */
+  Socket &socket_;
+
+  /**
+   * Buffer for a single chunk.
+   */
+  std::array<uint8_t, WHOLE_CHUNK_SIZE> chunk_;
+
+  /**
+   * Buffer for the message which will be sent to a client.
+   */
   std::vector<uint8_t> buffer_;
+
+  /**
+   * Size of the message.
+   */
   size_t size_{0};
+
+  /**
+   * Current position in chunk array.
+   */
+  size_t pos_{CHUNK_HEADER_SIZE};
 };
 }

@@ -2,6 +2,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "logging/default.hpp"
+#include "logging/logger.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 #include "utils/bswap.hpp"
 
@@ -10,11 +11,10 @@
 namespace communication::bolt {
 
 static constexpr uint8_t TSTRING = 0, TLIST = 1, TMAP = 2;
-static constexpr uint8_t type_tiny_marker[3] = { 0x80, 0x90, 0xA0 };
-static constexpr uint8_t type_8_marker[3] = { 0xD0, 0xD4, 0xD8 };
-static constexpr uint8_t type_16_marker[3] = { 0xD1, 0xD5, 0xD9 };
-static constexpr uint8_t type_32_marker[3] = { 0xD2, 0xD6, 0xDA };
-
+static constexpr uint8_t type_tiny_marker[3] = {0x80, 0x90, 0xA0};
+static constexpr uint8_t type_8_marker[3] = {0xD0, 0xD4, 0xD8};
+static constexpr uint8_t type_16_marker[3] = {0xD1, 0xD5, 0xD9};
+static constexpr uint8_t type_32_marker[3] = {0xD2, 0xD6, 0xDA};
 
 /**
  * Bolt Encoder.
@@ -22,16 +22,18 @@ static constexpr uint8_t type_32_marker[3] = { 0xD2, 0xD6, 0xDA };
  * Supported messages are: Record, Success, Failure and Ignored.
  *
  * @tparam Buffer the output buffer that should be used
- * @tparam Socket the output socket that should be used
  */
-template <typename Buffer, typename Socket>
-class Encoder {
-
+template <typename Buffer>
+class Encoder : public Loggable {
  public:
-  Encoder(Socket& socket) : socket_(socket), buffer_(socket), logger_(logging::log->logger("communication::bolt::Encoder")) {}
+  Encoder(Buffer &buffer)
+      : Loggable("communication::bolt::Encoder"), buffer_(buffer) {}
 
   /**
-   * Sends a Record message.
+   * Writes a Record message. This method only stores data in the Buffer.
+   * It doesn't send the values out to the Socket (Chunk is called at the
+   * end of this method). To send the values Flush method has to be called
+   * after this method.
    *
    * From the Bolt v1 documentation:
    *   RecordMessage (signature=0x71) {
@@ -40,11 +42,11 @@ class Encoder {
    *
    * @param values the fields list object that should be sent
    */
-  void MessageRecord(const std::vector<TypedValue>& values) {
+  void MessageRecord(const std::vector<TypedValue> &values) {
     // 0xB1 = struct 1; 0x71 = record signature
     WriteRAW("\xB1\x71", 2);
     WriteList(values);
-    buffer_.Flush();
+    buffer_.Chunk();
   }
 
   /**
@@ -56,12 +58,17 @@ class Encoder {
    *   }
    *
    * @param metadata the metadata map object that should be sent
+   * @param flush should method flush the socket
    */
-  void MessageSuccess(const std::map<std::string, TypedValue>& metadata) {
+  void MessageSuccess(const std::map<std::string, TypedValue> &metadata,
+                      bool flush = true) {
     // 0xB1 = struct 1; 0x70 = success signature
     WriteRAW("\xB1\x70", 2);
     WriteMap(metadata);
-    buffer_.Flush();
+    if (flush)
+      buffer_.Flush();
+    else
+      buffer_.Chunk();
   }
 
   /**
@@ -84,7 +91,7 @@ class Encoder {
    *
    * @param metadata the metadata map object that should be sent
    */
-  void MessageFailure(const std::map<std::string, TypedValue>& metadata) {
+  void MessageFailure(const std::map<std::string, TypedValue> &metadata) {
     // 0xB1 = struct 1; 0x7F = failure signature
     WriteRAW("\xB1\x7F", 2);
     WriteMap(metadata);
@@ -101,7 +108,7 @@ class Encoder {
    *
    * @param metadata the metadata map object that should be sent
    */
-  void MessageIgnored(const std::map<std::string, TypedValue>& metadata) {
+  void MessageIgnored(const std::map<std::string, TypedValue> &metadata) {
     // 0xB1 = struct 1; 0x7E = ignored signature
     WriteRAW("\xB1\x7E", 2);
     WriteMap(metadata);
@@ -119,24 +126,16 @@ class Encoder {
     buffer_.Flush();
   }
 
-
  private:
-  Socket& socket_;
-  Buffer buffer_;
-  Logger logger_;
+  Buffer &buffer_;
 
+  void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
-  void WriteRAW(const uint8_t* data, uint64_t len) {
-    buffer_.Write(data, len);
+  void WriteRAW(const char *data, uint64_t len) {
+    WriteRAW((const uint8_t *)data, len);
   }
 
-  void WriteRAW(const char* data, uint64_t len) {
-    WriteRAW((const uint8_t*) data, len);
-  }
-
-  void WriteRAW(const uint8_t data) {
-    WriteRAW(&data, 1);
-  }
+  void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
 
   template <class T>
   void WriteValue(T value) {
@@ -149,7 +148,7 @@ class Encoder {
     WriteRAW(0xC0);
   }
 
-  void WriteBool(const bool& value) {
+  void WriteBool(const bool &value) {
     if (value) {
       // 0xC3 = true marker
       WriteRAW(0xC3);
@@ -159,7 +158,7 @@ class Encoder {
     }
   }
 
-  void WriteInt(const int64_t& value) {
+  void WriteInt(const int64_t &value) {
     if (value >= -16L && value < 128L) {
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -128L && value < -16L) {
@@ -181,7 +180,7 @@ class Encoder {
     }
   }
 
-  void WriteDouble(const double& value) {
+  void WriteDouble(const double &value) {
     // 0xC1 = float64 marker
     WriteRAW(0xC1);
     WriteValue(*reinterpret_cast<const int64_t *>(&value));
@@ -211,25 +210,25 @@ class Encoder {
     }
   }
 
-  void WriteString(const std::string& value) {
+  void WriteString(const std::string &value) {
     WriteTypeSize(value.size(), TSTRING);
     WriteRAW(value.c_str(), value.size());
   }
 
-  void WriteList(const std::vector<TypedValue>& value) {
+  void WriteList(const std::vector<TypedValue> &value) {
     WriteTypeSize(value.size(), TLIST);
-    for (auto& x: value) WriteTypedValue(x);
+    for (auto &x : value) WriteTypedValue(x);
   }
 
-  void WriteMap(const std::map<std::string, TypedValue>& value) {
+  void WriteMap(const std::map<std::string, TypedValue> &value) {
     WriteTypeSize(value.size(), TMAP);
-    for (auto& x: value) {
+    for (auto &x : value) {
       WriteString(x.first);
       WriteTypedValue(x.second);
     }
   }
 
-  void WriteVertex(const VertexAccessor& vertex) {
+  void WriteVertex(const VertexAccessor &vertex) {
     // 0xB3 = struct 3; 0x4E = vertex signature
     WriteRAW("\xB3\x4E", 2);
 
@@ -240,51 +239,50 @@ class Encoder {
     WriteInt(0);
 
     // write labels
-    const auto& labels = vertex.labels();
+    const auto &labels = vertex.labels();
     WriteTypeSize(labels.size(), TLIST);
-    for (const auto& label : labels)
+    for (const auto &label : labels)
       WriteString(vertex.db_accessor().label_name(label));
 
     // write properties
-    const auto& props = vertex.Properties();
+    const auto &props = vertex.Properties();
     WriteTypeSize(props.size(), TMAP);
-    for (const auto& prop : props) {
+    for (const auto &prop : props) {
       WriteString(vertex.db_accessor().property_name(prop.first));
       WriteTypedValue(prop.second);
     }
   }
 
-
-  void WriteEdge(const EdgeAccessor& edge) {
+  void WriteEdge(const EdgeAccessor &edge) {
     // 0xB5 = struct 5; 0x52 = edge signature
     WriteRAW("\xB5\x52", 2);
 
     // IMPORTANT: here we write a hardcoded 0 because we don't
-		// use internal IDs, but need to give something to Bolt
-		// note that OpenCypher has no id(x) function, so the client
-		// should not be able to do anything with this value anyway
-		WriteInt(0);
-		WriteInt(0);
-		WriteInt(0);
+    // use internal IDs, but need to give something to Bolt
+    // note that OpenCypher has no id(x) function, so the client
+    // should not be able to do anything with this value anyway
+    WriteInt(0);
+    WriteInt(0);
+    WriteInt(0);
 
-		// write type
-		WriteString(edge.db_accessor().edge_type_name(edge.edge_type()));
+    // write type
+    WriteString(edge.db_accessor().edge_type_name(edge.edge_type()));
 
-		// write properties
-		const auto& props = edge.Properties();
-		WriteTypeSize(props.size(), TMAP);
-		for (const auto& prop : props) {
+    // write properties
+    const auto &props = edge.Properties();
+    WriteTypeSize(props.size(), TMAP);
+    for (const auto &prop : props) {
       WriteString(edge.db_accessor().property_name(prop.first));
       WriteTypedValue(prop.second);
-		}
+    }
   }
 
   void WritePath() {
     // TODO: this isn't implemented in the backend!
   }
 
-  void WriteTypedValue(const TypedValue& value) {
-    switch(value.type()) {
+  void WriteTypedValue(const TypedValue &value) {
+    switch (value.type()) {
       case TypedValue::Type::Null:
         WriteNull();
         break;

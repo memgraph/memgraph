@@ -22,8 +22,10 @@
 using endpoint_t = io::network::NetworkEndpoint;
 using socket_t = io::network::Socket;
 using session_t = communication::bolt::Session<socket_t>;
-using result_stream_t = communication::bolt::ResultStream<socket_t>;
-using bolt_server_t = communication::Server<session_t, result_stream_t, socket_t>;
+using result_stream_t = communication::bolt::ResultStream<
+    communication::bolt::Encoder<communication::bolt::ChunkedBuffer<socket_t>>>;
+using bolt_server_t =
+    communication::Server<session_t, result_stream_t, socket_t>;
 
 static bolt_server_t *serverptr;
 

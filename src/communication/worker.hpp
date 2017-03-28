@@ -18,6 +18,10 @@
 namespace communication {
 
 /**
+ * TODO (mferencevic): document methods
+ */
+
+/**
  * Communication worker.
  * Listens for incomming data on connections and accepts new connections.
  * Also, executes sessions on incomming data.
@@ -69,7 +73,7 @@ class Worker
     logger_.trace("[on_read] Received {}B", buf.len);
 
     try {
-      session.execute(reinterpret_cast<const byte *>(buf.ptr), buf.len);
+      session.Execute(reinterpret_cast<const byte *>(buf.ptr), buf.len);
     } catch (const std::exception &e) {
       logger_.error("Error occured while executing statement.");
       logger_.error("{}", e.what());
@@ -80,7 +84,7 @@ class Worker
   void OnClose(Session &session) {
     logger_.trace("Client closed the connection");
     // TODO: remove socket from epoll object
-    session.close();
+    session.Close();
     delete &session;
   }
 

@@ -4,9 +4,14 @@
 #include "communication/bolt/v1/session.hpp"
 #include "query/engine.hpp"
 
-using result_stream_t = communication::bolt::ResultStream<TestSocket>;
-using session_t = communication::bolt::Session<TestSocket>;
+using ResultStreamT =
+    communication::bolt::ResultStream<communication::bolt::Encoder<
+        communication::bolt::ChunkedBuffer<TestSocket>>>;
+using SessionT = communication::bolt::Session<TestSocket>;
 
+/**
+ * TODO (mferencevic): document
+ */
 
 const uint8_t handshake_req[] =
     "\x60\x60\xb0\x17\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -23,40 +28,40 @@ const uint8_t run_req[] =
     "\x61\x6d\x65\x3a\x20\x32\x39\x33\x38\x33\x7d\x29\x20\x52\x45\x54\x55\x52"
     "\x4e\x20\x6e\xa0\x00\x00";
 
-
 TEST(Bolt, Session) {
   Dbms dbms;
   TestSocket socket(10);
-  QueryEngine<result_stream_t> query_engine;
-  session_t session(std::move(socket), dbms, query_engine);
-  std::vector<uint8_t>& output = session.socket.output;
+  QueryEngine<ResultStreamT> query_engine;
+  SessionT session(std::move(socket), dbms, query_engine);
+  std::vector<uint8_t> &output = session.socket_.output;
 
   // execute handshake
-  session.execute(handshake_req, 20);
-  ASSERT_EQ(session.state, communication::bolt::INIT);
-  print_output(output);
-  check_output(output, handshake_resp, 4);
+  session.Execute(handshake_req, 20);
+  ASSERT_EQ(session.state_, communication::bolt::INIT);
+  PrintOutput(output);
+  CheckOutput(output, handshake_resp, 4);
 
   // execute init
-  session.execute(init_req, 67);
-  ASSERT_EQ(session.state, communication::bolt::EXECUTOR);
-  print_output(output);
-  check_output(output, init_resp, 7);
+  session.Execute(init_req, 67);
+  ASSERT_EQ(session.state_, communication::bolt::EXECUTOR);
+  PrintOutput(output);
+  CheckOutput(output, init_resp, 7);
 
   // execute run
-  session.execute(run_req, 42);
-  // TODO: query engine doesn't currently work,
+  session.Execute(run_req, 42);
+
+  // TODO (mferencevic): query engine doesn't currently work,
   // we should test the query output here and the next state
   // ASSERT_EQ(session.state, bolt::EXECUTOR);
-  // print_output(output);
-  // check_output(output, run_resp, len);
+  // PrintOutput(output);
+  // CheckOutput(output, run_resp, len);
 
-  // TODO: add more tests
+  // TODO (mferencevic): add more tests
 
-  session.close();
+  session.Close();
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   logging::init_sync();
   logging::log->pipe(std::make_unique<Stdout>());
   ::testing::InitGoogleTest(&argc, argv);

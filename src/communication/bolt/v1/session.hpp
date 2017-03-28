@@ -7,107 +7,117 @@
 #include "query/engine.hpp"
 
 #include "communication/bolt/v1/state.hpp"
+#include "communication/bolt/v1/states/error.hpp"
+#include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
-#include "communication/bolt/v1/states/executor.hpp"
-#include "communication/bolt/v1/states/error.hpp"
 
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/transport/bolt_decoder.hpp"
 
-#include "logging/default.hpp"
+#include "logging/loggable.hpp"
 
 namespace communication::bolt {
 
-template<typename Socket>
-class Session {
+/**
+ * Bolt Session
+ *
+ * This class is responsible for handling a single client connection.
+ *
+ * @tparam Socket type of socket (could be a network socket or test socket)
+ */
+template <typename Socket>
+class Session : public Loggable {
  public:
   using Decoder = BoltDecoder;
-  using OutputStream = ResultStream<Socket>;
+  using OutputStream = ResultStream<Encoder<ChunkedBuffer<Socket>>>;
 
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : socket(std::move(socket)),
-        dbms(dbms), query_engine(query_engine),
-        encoder(this->socket), output_stream(encoder),
-        logger(logging::log->logger("Session")) {
-    event.data.ptr = this;
+      : Loggable("communication::bolt::Session"),
+        socket_(std::move(socket)),
+        dbms_(dbms),
+        query_engine_(query_engine),
+        encoder_buffer_(socket_),
+        encoder_(encoder_buffer_),
+        output_stream_(encoder_) {
+    event_.data.ptr = this;
     // start with a handshake state
-    state = HANDSHAKE;
+    state_ = HANDSHAKE;
   }
 
-  bool alive() const { return state != NULLSTATE; }
+  /**
+   * @return is the session in a valid state
+   */
+  bool Alive() const { return state_ != NULLSTATE; }
 
-  int id() const { return socket.id(); }
+  /**
+   * @return the socket id
+   */
+  int Id() const { return socket_.id(); }
 
-  void execute(const byte *data, size_t len) {
+  /**
+   * Reads the data from a client and goes through the bolt states in
+   * order to execute command from the client.
+   *
+   * @param data pointer on bytes received from a client
+   * @param len  length of data received from a client
+   */
+  void Execute(const byte *data, size_t len) {
     // mark the end of the message
     auto end = data + len;
 
     while (true) {
       auto size = end - data;
 
-      if (LIKELY(connected)) {
+      if (LIKELY(connected_)) {
         logger.debug("Decoding chunk of size {}", size);
-        auto finished = decoder.decode(data, size);
-
-        if (!finished) return;
+        if (!decoder_.decode(data, size)) return;
       } else {
         logger.debug("Decoding handshake of size {}", size);
-        decoder.handshake(data, size);
+        decoder_.handshake(data, size);
       }
 
-      switch(state) {
+      switch (state_) {
         case HANDSHAKE:
-          logger.debug("Current state: DEBUG");
-          state = state_handshake_run<Socket>(decoder, this->socket, &connected);
+          state_ = StateHandshakeRun<Session<Socket>>(*this);
           break;
         case INIT:
-          logger.debug("Current state: INIT");
-          // TODO: swap around parameters so that inputs are first and outputs are last!
-          state = state_init_run<Socket>(encoder, decoder);
+          state_ = StateInitRun<Session<Socket>>(*this);
           break;
         case EXECUTOR:
-          logger.debug("Current state: EXECUTOR");
-          // TODO: swap around parameters so that inputs are first and outputs are last!
-          state = state_executor_run<Socket>(output_stream, encoder, decoder, dbms, query_engine);
+          state_ = StateExecutorRun<Session<Socket>>(*this);
           break;
         case ERROR:
-          logger.debug("Current state: ERROR");
-          // TODO: swap around parameters so that inputs are first and outputs are last!
-          state = state_error_run<Socket>(output_stream, encoder, decoder);
+          state_ = StateErrorRun<Session<Socket>>(*this);
           break;
         case NULLSTATE:
           break;
       }
 
-      decoder.reset();
+      decoder_.reset();
     }
   }
 
-  void close() {
+  /**
+   * Closes the session (client socket).
+   */
+  void Close() {
     logger.debug("Closing session");
-    this->socket.Close();
+    this->socket_.Close();
   }
 
-  // TODO: these members should be private
+  GraphDbAccessor ActiveDb() { return dbms_.active(); }
 
-  Socket socket;
-  io::network::Epoll::Event event;
-
-  Dbms &dbms;
-  QueryEngine<OutputStream> &query_engine;
-
-  GraphDbAccessor active_db() { return dbms.active(); }
-
-  Decoder decoder;
-  Encoder<ChunkedBuffer<Socket>, Socket> encoder;
-  OutputStream output_stream;
-
-  bool connected{false};
-  State state;
-
- protected:
-  Logger logger;
+  Socket socket_;
+  Dbms &dbms_;
+  QueryEngine<OutputStream> &query_engine_;
+  ChunkedBuffer<Socket> encoder_buffer_;
+  Encoder<ChunkedBuffer<Socket>> encoder_;
+  OutputStream output_stream_;
+  Decoder decoder_;
+  io::network::Epoll::Event event_;
+  bool connected_{false};
+  State state_;
 };
 }

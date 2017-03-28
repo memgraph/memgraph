@@ -2,49 +2,46 @@
 
 #include <string>
 
-#include "dbms/dbms.hpp"
-#include "query/engine.hpp"
-#include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
-
 #include "logging/default.hpp"
+#include "query/exceptions.hpp"
 
 namespace communication::bolt {
 
 struct Query {
+  Query(std::string &&statement) : statement(statement) {}
   std::string statement;
 };
 
-template<typename Socket>
-State state_executor_run(ResultStream<Socket> &output_stream, Encoder<ChunkedBuffer<Socket>, Socket>& encoder, BoltDecoder &decoder, Dbms &dmbs, QueryEngine<ResultStream<Socket>> &query_engine){
-  Logger logger = logging::log->logger("State EXECUTOR");
+/**
+ * TODO (mferencevic): finish & document
+ */
+template <typename Session>
+State StateExecutorRun(Session &session) {
+  // initialize logger
+  static Logger logger = logging::log->logger("State EXECUTOR");
+
   // just read one byte that represents the struct type, we can skip the
   // information contained in this byte
-  decoder.read_byte();
-
-  logger.debug("Run");
-
-  auto message_type = decoder.read_byte();
+  session.decoder_.read_byte();
+  auto message_type = session.decoder_.read_byte();
 
   if (message_type == MessageCode::Run) {
-    Query query;
+    Query query(session.decoder_.read_string());
 
-    query.statement = decoder.read_string();
+    // TODO (mferencevic): implement proper exception handling
+    auto db_accessor = session.dbms_.active();
+    logger.debug("[ActiveDB] '{}'", db_accessor->name());
 
-    // TODO (mferencevic): refactor bolt exception handling
     try {
       logger.trace("[Run] '{}'", query.statement);
-
-      auto db_accessor = dmbs.active();
-      logger.debug("[ActiveDB] '{}'", db_accessor->name());
-
-      auto is_successfully_executed =
-          query_engine.Run(query.statement, *db_accessor, output_stream);
+      auto is_successfully_executed = session.query_engine_.Run(
+          query.statement, *db_accessor, session.output_stream_);
 
       if (!is_successfully_executed) {
-        // TODO: write_failure, send
-        encoder.MessageFailure(
+        db_accessor->abort();
+        session.encoder_.MessageFailure(
             {{"code", "Memgraph.QueryExecutionFail"},
              {"message",
               "Query execution has failed (probably there is no "
@@ -52,49 +49,50 @@ State state_executor_run(ResultStream<Socket> &output_stream, Encoder<ChunkedBuf
               "access -> client has to resolve problems with "
               "concurrent access)"}});
         return ERROR;
+      } else {
+        db_accessor->commit();
       }
 
       return EXECUTOR;
-      // TODO: RETURN success MAYBE
+    // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
     } catch (const query::SyntaxException &e) {
-      // TODO: write_failure, send
-      encoder.MessageFailure(
+      db_accessor->abort();
+      session.encoder_.MessageFailure(
           {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
       return ERROR;
-    // } catch (const backend::cpp::GeneratorException &e) {
-    //   output_stream.write_failure(
-    //       {{"code", "Memgraph.GeneratorException"},
-    //        {"message", "Unsupported query"}});
-    //   output_stream.send();
-    //   return ERROR;
     } catch (const query::QueryEngineException &e) {
-      // TODO: write_failure, send
-      encoder.MessageFailure(
+      db_accessor->abort();
+      session.encoder_.MessageFailure(
           {{"code", "Memgraph.QueryEngineException"},
            {"message", "Query engine was unable to execute the query"}});
       return ERROR;
     } catch (const StacktraceException &e) {
-      // TODO: write_failure, send
-      encoder.MessageFailure(
-          {{"code", "Memgraph.StacktraceException"},
-           {"message", "Unknown exception"}});
+      db_accessor->abort();
+      session.encoder_.MessageFailure({{"code", "Memgraph.StacktraceException"},
+                                       {"message", "Unknown exception"}});
       return ERROR;
     } catch (std::exception &e) {
-      // TODO: write_failure, send
-      encoder.MessageFailure(
+      db_accessor->abort();
+      session.encoder_.MessageFailure(
           {{"code", "Memgraph.Exception"}, {"message", "Unknown exception"}});
       return ERROR;
     }
+    // TODO (mferencevic): finish the error handling, cover all exceptions
+    //                     which can be raised from query engine
+    //     * [abort, MessageFailure, return ERROR] should be extracted into 
+    //       separate function (or something equivalent)
+    //
+    // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
+
   } else if (message_type == MessageCode::PullAll) {
     logger.trace("[PullAll]");
-    // TODO: all query output should not be immediately flushed from the buffer, it should wait the PullAll command to start flushing!!
-    //output_stream.send();
+    session.encoder_buffer_.Flush();
   } else if (message_type == MessageCode::DiscardAll) {
     logger.trace("[DiscardAll]");
 
     // TODO: discard state
     // TODO: write_success, send
-    encoder.MessageSuccess();
+    session.encoder_.MessageSuccess();
   } else if (message_type == MessageCode::Reset) {
     // TODO: rollback current transaction
     // discard all records waiting to be sent
@@ -108,5 +106,4 @@ State state_executor_run(ResultStream<Socket> &output_stream, Encoder<ChunkedBuf
 
   return EXECUTOR;
 }
-
 }

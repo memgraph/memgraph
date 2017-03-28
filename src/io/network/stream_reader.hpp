@@ -40,7 +40,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
 
     // we want to listen to an incoming event which is edge triggered and
     // we also want to listen on the hangup event
-    stream.event.events = EPOLLIN | EPOLLRDHUP;
+    stream.event_.events = EPOLLIN | EPOLLRDHUP;
 
     // add the connection to the event listener
     this->Add(stream);
@@ -52,7 +52,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
     logger_.trace("On data");
 
     while (true) {
-      if (UNLIKELY(!stream.alive())) {
+      if (UNLIKELY(!stream.Alive())) {
         logger_.trace("Calling OnClose because the stream isn't alive!");
         this->derived().OnClose(stream);
         break;
@@ -62,7 +62,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
       auto buf = this->derived().OnAlloc(stream);
 
       // read from the buffer at most buf.len bytes
-      buf.len = stream.socket.Read(buf.ptr, buf.len);
+      buf.len = stream.socket_.Read(buf.ptr, buf.len);
 
       // check for read errors
       if (buf.len == -1) {

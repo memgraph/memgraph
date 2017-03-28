@@ -1,7 +1,7 @@
 #pragma once
 
-#include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_buffer.hpp"
+#include "communication/bolt/v1/encoder/encoder.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 
 #include "logging/default.hpp"
@@ -13,34 +13,25 @@ namespace communication::bolt {
  * functionalities used by the compiler and query plans (which
  * should not use any lower level API).
  *
- * @tparam Socket Socket used.
+ * @tparam Encoder Encoder used.
  */
-template <typename Socket>
+template <typename Encoder>
 class ResultStream {
- private:
-  using encoder_t = Encoder<ChunkedBuffer<Socket>, Socket>;
  public:
-
-  // TODO add logging to this class
-  ResultStream(encoder_t &encoder) :
-      encoder_(encoder) {}
+  ResultStream(Encoder &encoder) : encoder_(encoder) {}
 
   /**
    * Writes a header. Typically a header is something like:
-   * [
-   *     "Header1",
-   *     "Header2",
-   *     "Header3"
-   * ]
+   * [ "Header1", "Header2", "Header3" ]
    *
    * @param fields the header fields that should be sent.
    */
   void Header(const std::vector<std::string> &fields) {
     std::vector<TypedValue> vec;
     std::map<std::string, TypedValue> data;
-    for (auto& i : fields)
-      vec.push_back(TypedValue(i));
+    for (auto &i : fields) vec.push_back(TypedValue(i));
     data.insert(std::make_pair(std::string("fields"), TypedValue(vec)));
+    // this call will automaticaly send the data to the client
     encoder_.MessageSuccess(data);
   }
 
@@ -73,10 +64,12 @@ class ResultStream {
    * @param summary the summary map object that should be sent
    */
   void Summary(const std::map<std::string, TypedValue> &summary) {
-    encoder_.MessageSuccess(summary);
+    // at this point message should not flush the socket so
+    // here is false because chunk has to be called instead of flush
+    encoder_.MessageSuccess(summary, false);
   }
 
-private:
-  encoder_t& encoder_;
+ private:
+  Encoder &encoder_;
 };
 }

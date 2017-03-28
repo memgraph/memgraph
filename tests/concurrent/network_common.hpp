@@ -30,15 +30,15 @@ class TestSession {
   TestSession(socket_t&& socket, Dbms& dbms,
               QueryEngine<TestOutputStream>& query_engine)
       : logger_(logging::log->logger("TestSession")),
-        socket(std::move(socket)) {
-    event.data.ptr = this;
+        socket_(std::move(socket)) {
+    event_.data.ptr = this;
   }
 
-  bool alive() { return socket.IsOpen(); }
+  bool Alive() { return socket_.IsOpen(); }
 
-  int id() const { return socket.id(); }
+  int Id() const { return socket_.id(); }
 
-  void execute(const byte* data, size_t len) {
+  void Execute(const byte* data, size_t len) {
     if (size_ == 0) {
       size_ = data[0];
       size_ <<= 8;
@@ -51,23 +51,23 @@ class TestSession {
     if (have_ < size_) return;
 
     for (int i = 0; i < REPLY; ++i)
-      ASSERT_TRUE(this->socket.Write(buffer_, size_));
+      ASSERT_TRUE(this->socket_.Write(buffer_, size_));
 
     have_ = 0;
     size_ = 0;
   }
 
-  void close() {
+  void Close() {
     logger_.trace("Close session!");
-    this->socket.Close();
+    this->socket_.Close();
   }
 
   char buffer_[SIZE * 2];
   uint32_t have_, size_;
 
   Logger logger_;
-  socket_t socket;
-  io::network::Epoll::Event event;
+  socket_t socket_;
+  io::network::Epoll::Event event_;
 };
 
 using test_server_t =

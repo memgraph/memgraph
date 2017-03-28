@@ -41,12 +41,12 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   // generate frame based on symbol table max_position
   Frame frame(symbol_table.max_position());
 
+  std::vector<std::string> header;
   if (auto produce = dynamic_cast<plan::Produce *>(logical_plan.get())) {
     // top level node in the operator tree is a produce (return)
     // so stream out results
 
     // generate header
-    std::vector<std::string> header;
     for (auto named_expression : produce->named_expressions())
       header.push_back(named_expression->name_);
     stream.Header(header);
@@ -66,6 +66,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   } else if (dynamic_cast<plan::CreateNode *>(logical_plan.get()) ||
              dynamic_cast<plan::CreateExpand *>(logical_plan.get()) ||
              dynamic_cast<Delete *>(logical_plan.get())) {
+    stream.Header(header);
     auto cursor = logical_plan.get()->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table))
       continue;
