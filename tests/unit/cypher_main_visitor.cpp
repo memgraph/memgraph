@@ -615,4 +615,58 @@ TEST(Visitor, MatchWhere) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
 }
+
+TEST(Visitor, Set) {
+  AstGenerator ast_generator("SET a.x = b, c = d, e += f, g : h : i ");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 4U);
+
+  {
+    auto *set_property = dynamic_cast<SetProperty *>(query->clauses_[0]);
+    ASSERT_TRUE(set_property);
+    ASSERT_TRUE(set_property->property_lookup_);
+    auto *identifier1 =
+        dynamic_cast<Identifier *>(set_property->property_lookup_->expression_);
+    ASSERT_TRUE(identifier1);
+    ASSERT_EQ(identifier1->name_, "a");
+    ASSERT_EQ(set_property->property_lookup_->property_,
+              ast_generator.db_accessor_->property("x"));
+    auto *identifier2 = dynamic_cast<Identifier *>(set_property->expression_);
+    ASSERT_EQ(identifier2->name_, "b");
+  }
+
+  {
+    auto *set_properties_assignment =
+        dynamic_cast<SetProperties *>(query->clauses_[1]);
+    ASSERT_TRUE(set_properties_assignment);
+    ASSERT_FALSE(set_properties_assignment->update_);
+    ASSERT_TRUE(set_properties_assignment->identifier_);
+    ASSERT_EQ(set_properties_assignment->identifier_->name_, "c");
+    auto *identifier =
+        dynamic_cast<Identifier *>(set_properties_assignment->expression_);
+    ASSERT_EQ(identifier->name_, "d");
+  }
+
+  {
+    auto *set_properties_update =
+        dynamic_cast<SetProperties *>(query->clauses_[2]);
+    ASSERT_TRUE(set_properties_update);
+    ASSERT_TRUE(set_properties_update->update_);
+    ASSERT_TRUE(set_properties_update->identifier_);
+    ASSERT_EQ(set_properties_update->identifier_->name_, "e");
+    auto *identifier =
+        dynamic_cast<Identifier *>(set_properties_update->expression_);
+    ASSERT_EQ(identifier->name_, "f");
+  }
+
+  {
+    auto *set_labels = dynamic_cast<SetLabels *>(query->clauses_[3]);
+    ASSERT_TRUE(set_labels);
+    ASSERT_TRUE(set_labels->identifier_);
+    ASSERT_EQ(set_labels->identifier_->name_, "g");
+    ASSERT_THAT(set_labels->labels_,
+                UnorderedElementsAre(ast_generator.db_accessor_->label("h"),
+                                     ast_generator.db_accessor_->label("i")));
+  }
+}
 }

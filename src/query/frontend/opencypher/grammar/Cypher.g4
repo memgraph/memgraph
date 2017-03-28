@@ -53,7 +53,7 @@ mergeAction : ( ON SP MATCH SP set )
 
 create : CREATE SP? pattern ;
 
-set : SET SP? setItem ( ',' setItem )* ;
+set : SET SP? setItem ( SP? ',' SP? setItem )* ;
 
 setItem : ( propertyExpression SP? '=' SP? expression )
         | ( variable SP? '=' SP? expression )

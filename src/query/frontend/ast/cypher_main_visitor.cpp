@@ -22,7 +22,14 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
     CypherParser::SingleQueryContext *ctx) {
   query_ = storage_.query();
   for (auto *child : ctx->clause()) {
-    query_->clauses_.push_back(child->accept(this));
+    antlrcpp::Any got = child->accept(this);
+    if (got.is<Clause *>()) {
+      query_->clauses_.push_back(got.as<Clause *>());
+    } else {
+      auto child_clauses = got.as<std::vector<Clause *>>();
+      query_->clauses_.insert(query_->clauses_.end(), child_clauses.begin(),
+                              child_clauses.end());
+    }
   }
   // Construct unique names for anonymous identifiers;
   int id = 1;
@@ -53,6 +60,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->cypherDelete()) {
     return static_cast<Clause *>(
         ctx->cypherDelete()->accept(this).as<Delete *>());
+  }
+  if (ctx->set()) {
+    // Different return type!!!
+    return ctx->set()->accept(this).as<std::vector<Clause *>>();
   }
   // TODO: implement other clauses.
   throw NotYetImplemented();
@@ -689,6 +700,58 @@ antlrcpp::Any CypherMainVisitor::visitWhere(CypherParser::WhereContext *ctx) {
   auto *where = storage_.Create<Where>();
   where->expression_ = ctx->expression()->accept(this);
   return where;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSet(CypherParser::SetContext *ctx) {
+  std::vector<Clause *> set_items;
+  for (auto *set_item : ctx->setItem()) {
+    set_items.push_back(set_item->accept(this));
+  }
+  return set_items;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetItem(
+    CypherParser::SetItemContext *ctx) {
+  // SetProperty
+  if (ctx->propertyExpression()) {
+    auto *set_property = storage_.Create<SetProperty>();
+    set_property->property_lookup_ = ctx->propertyExpression()->accept(this);
+    set_property->expression_ = ctx->expression()->accept(this);
+    return static_cast<Clause *>(set_property);
+  }
+
+  // SetProperties either assignment or update
+  if (ctx->getTokens(kPropertyAssignmentTokenId).size() ||
+      ctx->getTokens(kPropertyUpdateTokenId).size()) {
+    auto *set_properties = storage_.Create<SetProperties>();
+    set_properties->identifier_ = storage_.Create<Identifier>(
+        ctx->variable()->accept(this).as<std::string>());
+    set_properties->expression_ = ctx->expression()->accept(this);
+    if (ctx->getTokens(kPropertyUpdateTokenId).size()) {
+      set_properties->update_ = true;
+    }
+    return static_cast<Clause *>(set_properties);
+  }
+
+  // SetLabels
+  auto *set_labels = storage_.Create<SetLabels>();
+  set_labels->identifier_ = storage_.Create<Identifier>(
+      ctx->variable()->accept(this).as<std::string>());
+  set_labels->labels_ =
+      ctx->nodeLabels()->accept(this).as<std::vector<GraphDb::Label>>();
+  return static_cast<Clause *>(set_labels);
+}
+
+antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
+    CypherParser::PropertyExpressionContext *ctx) {
+  Expression *expression = ctx->atom()->accept(this);
+  for (auto *lookup : ctx->propertyLookup()) {
+    auto property_lookup =
+        storage_.Create<PropertyLookup>(expression, lookup->accept(this));
+    expression = property_lookup;
+  }
+  // It is guaranteed by grammar that there is at least one propertyLookup.
+  return dynamic_cast<PropertyLookup *>(expression);
 }
 }
 }

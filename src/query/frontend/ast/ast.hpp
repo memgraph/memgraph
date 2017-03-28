@@ -593,6 +593,7 @@ class SetProperties : public Clause {
   }
   Identifier *identifier_ = nullptr;
   Expression *expression_ = nullptr;
+  bool update_ = false;
 
  protected:
   SetProperties(int uid) : Clause(uid) {}

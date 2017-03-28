@@ -137,7 +137,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::SingleQueryContext *ctx) override;
 
   /**
-   * @return Clause*
+   * @return Clause* or vector<Clause*>!!!
    */
   antlrcpp::Any visitClause(CypherParser::ClauseContext *ctx) override;
 
@@ -389,8 +389,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::NumberLiteralContext *ctx) override;
 
   /**
-  * @return int64_t
-  */
+   * @return int64_t
+   */
   antlrcpp::Any visitIntegerLiteral(
       CypherParser::IntegerLiteralContext *ctx) override;
 
@@ -410,6 +410,22 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    * @return Where*
    */
   antlrcpp::Any visitWhere(CypherParser::WhereContext *ctx) override;
+
+  /**
+   * return vector<Clause*>
+   */
+  antlrcpp::Any visitSet(CypherParser::SetContext *ctx) override;
+
+  /**
+   * @return Clause*
+   */
+  antlrcpp::Any visitSetItem(CypherParser::SetItemContext *ctx) override;
+
+  /**
+   * @return PropertyLookup*
+   */
+  antlrcpp::Any visitPropertyExpression(
+      CypherParser::PropertyExpressionContext *ctx) override;
 
  public:
   Query *query() { return query_; }
