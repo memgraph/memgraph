@@ -579,6 +579,10 @@ class SetProperty : public Clause {
 
  protected:
   SetProperty(int uid) : Clause(uid) {}
+  SetProperty(int uid, PropertyLookup *property_lookup, Expression *expression)
+      : Clause(uid),
+        property_lookup_(property_lookup),
+        expression_(expression) {}
 };
 
 class SetProperties : public Clause {
@@ -597,6 +601,12 @@ class SetProperties : public Clause {
 
  protected:
   SetProperties(int uid) : Clause(uid) {}
+  SetProperties(int uid, Identifier *identifier, Expression *expression,
+                bool update = false)
+      : Clause(uid),
+        identifier_(identifier),
+        expression_(expression),
+        update_(update) {}
 };
 
 class SetLabels : public Clause {
@@ -613,6 +623,9 @@ class SetLabels : public Clause {
 
  protected:
   SetLabels(int uid) : Clause(uid) {}
+  SetLabels(int uid, Identifier *identifier,
+            const std::vector<GraphDb::Label> &labels)
+      : Clause(uid), identifier_(identifier), labels_(labels) {}
 };
 
 // It would be better to call this AstTree, but we already have a class Tree,

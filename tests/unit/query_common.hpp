@@ -102,6 +102,33 @@ auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
   return del;
 }
 
+///
+/// Create a set property clause for given property lookup and the right hand
+/// side expression.
+///
+auto GetSet(AstTreeStorage &storage, PropertyLookup *prop_lookup,
+            Expression *expr) {
+  return storage.Create<SetProperty>(prop_lookup, expr);
+}
+
+///
+/// Create a set properties clause for given identifier name and the right hand
+/// side expression.
+///
+auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
+            bool update = false) {
+  return storage.Create<SetProperties>(storage.Create<Identifier>(name), expr,
+                                       update);
+}
+
+///
+/// Create a set labels clause for given identifier name and labels.
+///
+auto GetSet(AstTreeStorage &storage, const std::string &name,
+            std::vector<GraphDb::Label> labels) {
+  return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
+}
+
 }  // namespace test_common
 
 }  // namespace query
@@ -135,5 +162,6 @@ auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
 #define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
+#define SET(...) query::test_common::GetSet(storage, __VA_ARGS__)
 #define QUERY(...) query::test_common::GetQuery(storage, {__VA_ARGS__})
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

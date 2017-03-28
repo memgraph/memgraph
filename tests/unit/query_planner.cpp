@@ -35,6 +35,9 @@ class PlanChecker : public LogicalOperatorVisitor {
   void Visit(EdgeFilter &op) override { AssertType(op); }
   void Visit(Filter &op) override { AssertType(op); }
   void Visit(Produce &op) override { AssertType(op); }
+  void Visit(SetProperty &op) override { AssertType(op); }
+  void Visit(SetProperties &op) override { AssertType(op); }
+  void Visit(SetLabels &op) override { AssertType(op); }
 
  private:
   void AssertType(const LogicalOperator &op) {
@@ -151,6 +154,19 @@ TEST(TestLogicalPlanner, MatchDelete) {
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n")));
   CheckPlan(*query, {typeid(ScanAll).hash_code(), typeid(Delete).hash_code()});
+}
+
+TEST(TestLogicalPlanner, MatchNodeSet) {
+  // Test MATCH (n) SET n.prop = 42, n = n, n :label
+  AstTreeStorage storage;
+  std::string prop("prop");
+  std::string label("label");
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     SET(PROPERTY_LOOKUP("n", &prop), LITERAL(42)),
+                     SET("n", IDENT("n")), SET("n", {&label}));
+  CheckPlan(*query,
+            {typeid(ScanAll).hash_code(), typeid(SetProperty).hash_code(),
+             typeid(SetProperties).hash_code(), typeid(SetLabels).hash_code()});
 }
 
 }

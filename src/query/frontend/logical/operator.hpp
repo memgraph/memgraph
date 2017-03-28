@@ -820,6 +820,11 @@ class SetProperty : public LogicalOperator {
               Expression *rhs)
       : input_(input), lhs_(lhs), rhs_(rhs) {}
 
+
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return nullptr;
+  }
+
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
     input_->Accept(visitor);
@@ -847,6 +852,10 @@ class SetProperties : public LogicalOperator {
                 const Symbol input_symbol, Expression *rhs, Op op)
       : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
 
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return nullptr;
+  }
+
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
     input_->Accept(visitor);
@@ -866,6 +875,10 @@ class SetLabels : public LogicalOperator {
             const Symbol input_symbol,
             const std::vector<GraphDb::Label> &labels)
       : input_(input), input_symbol_(input_symbol), labels_(labels) {}
+
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return nullptr;
+  }
 
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);

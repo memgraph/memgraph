@@ -71,7 +71,7 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
   auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
                      EdgeAtom *edge, NodeAtom *node) {
     // Store the symbol from the first node as the input to CreateExpand.
-    auto input_symbol = symbol_table.at(*prev_node->identifier_);
+    const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
     // If the expand node was already bound, then we need to indicate this,
     // so that CreateExpand only creates an edge.
     bool node_existing = false;
@@ -123,7 +123,7 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
   auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
                      EdgeAtom *edge, NodeAtom *node) {
     // Store the symbol from the first node as the input to Expand.
-    auto input_symbol = symbol_table.at(*prev_node->identifier_);
+    const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
     // If the expand symbols were already bound, then we need to indicate
     // this as a cycle. The Expand will then check whether the pattern holds
     // instead of writing the expansion to symbols.
@@ -161,11 +161,6 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
   return last_op;
 }
 
-auto GenReturn(Return &ret, LogicalOperator *input_op) {
-  return new Produce(std::shared_ptr<LogicalOperator>(input_op),
-                     ret.named_expressions_);
-}
-
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
@@ -183,12 +178,28 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
     if (auto *match = dynamic_cast<Match *>(clause_ptr)) {
       input_op = GenMatch(*match, input_op, symbol_table, bound_symbols);
     } else if (auto *ret = dynamic_cast<Return *>(clause_ptr)) {
-      input_op = GenReturn(*ret, input_op);
+      input_op = new Produce(std::shared_ptr<LogicalOperator>(input_op),
+                             ret->named_expressions_);
     } else if (auto *create = dynamic_cast<Create *>(clause_ptr)) {
       input_op = GenCreate(*create, input_op, symbol_table, bound_symbols);
     } else if (auto *del = dynamic_cast<query::Delete *>(clause_ptr)) {
       input_op = new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
                                   del->expressions_, del->detach_);
+    } else if (auto *set = dynamic_cast<query::SetProperty *>(clause_ptr)) {
+      input_op =
+          new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
+                                set->property_lookup_, set->expression_);
+    } else if (auto *set = dynamic_cast<query::SetProperties *>(clause_ptr)) {
+      auto op = set->update_ ? plan::SetProperties::Op::UPDATE
+                             : plan::SetProperties::Op::REPLACE;
+      const auto &input_symbol = symbol_table.at(*set->identifier_);
+      input_op =
+          new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
+                                  input_symbol, set->expression_, op);
+    } else if (auto *set = dynamic_cast<query::SetLabels *>(clause_ptr)) {
+      const auto &input_symbol = symbol_table.at(*set->identifier_);
+      input_op = new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
+                                     input_symbol, set->labels_);
     } else {
       throw NotYetImplemented();
     }
