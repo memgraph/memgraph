@@ -185,8 +185,8 @@ TEST(Interpreter, NodeFilterLabelsAndProperties) {
   auto dba = dbms.active();
 
   // add a few nodes to the database
-  GraphDb::Label label = dba->label("Label");
-  GraphDb::Property property = dba->property("Property");
+  GraphDbTypes::Label label = dba->label("Label");
+  GraphDbTypes::Property property = dba->property("Property");
   auto v1 = dba->insert_vertex();
   auto v2 = dba->insert_vertex();
   auto v3 = dba->insert_vertex();
@@ -231,9 +231,9 @@ TEST(Interpreter, NodeFilterMultipleLabels) {
   auto dba = dbms.active();
 
   // add a few nodes to the database
-  GraphDb::Label label1 = dba->label("label1");
-  GraphDb::Label label2 = dba->label("label2");
-  GraphDb::Label label3 = dba->label("label3");
+  GraphDbTypes::Label label1 = dba->label("label1");
+  GraphDbTypes::Label label2 = dba->label("label2");
+  GraphDbTypes::Label label3 = dba->label("label3");
   // the test will look for nodes that have label1 and label2
   dba->insert_vertex();                    // NOT accepted
   dba->insert_vertex().add_label(label1);  // NOT accepted
@@ -278,8 +278,8 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  GraphDb::Label label = dba->label("Person");
-  GraphDb::Property property = dba->label("age");
+  GraphDbTypes::Label label = dba->label("Person");
+  GraphDbTypes::Property property = dba->label("age");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -312,8 +312,8 @@ TEST(Interpreter, CreateReturn) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  GraphDb::Label label = dba->label("Person");
-  GraphDb::Property property = dba->label("age");
+  GraphDbTypes::Label label = dba->label("Person");
+  GraphDbTypes::Property property = dba->label("age");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -354,10 +354,10 @@ TEST(Interpreter, CreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  GraphDb::Label label_node_1 = dba->label("Node1");
-  GraphDb::Label label_node_2 = dba->label("Node2");
-  GraphDb::Property property = dba->label("prop");
-  GraphDb::EdgeType edge_type = dba->label("edge_type");
+  GraphDbTypes::Label label_node_1 = dba->label("Node1");
+  GraphDbTypes::Label label_node_2 = dba->label("Node2");
+  GraphDbTypes::Property property = dba->label("prop");
+  GraphDbTypes::EdgeType edge_type = dba->label("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -404,7 +404,7 @@ TEST(Interpreter, CreateExpand) {
 
   for (VertexAccessor vertex : dba->vertices()) {
     EXPECT_EQ(vertex.labels().size(), 1);
-    GraphDb::Label label = vertex.labels()[0];
+    GraphDbTypes::Label label = vertex.labels()[0];
     if (label == label_node_1) {
       // node created by first op
       EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 1);
@@ -460,10 +460,10 @@ TEST(Interpreter, MatchCreateExpand) {
   dba->insert_vertex();
   dba->advance_command();
 
-  //  GraphDb::Label label_node_1 = dba->label("Node1");
-  //  GraphDb::Label label_node_2 = dba->label("Node2");
-  //  GraphDb::Property property = dba->label("prop");
-  GraphDb::EdgeType edge_type = dba->label("edge_type");
+  //  GraphDbTypes::Label label_node_1 = dba->label("Node1");
+  //  GraphDbTypes::Label label_node_2 = dba->label("Node2");
+  //  GraphDbTypes::Property property = dba->label("prop");
+  GraphDbTypes::EdgeType edge_type = dba->label("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -507,11 +507,11 @@ TEST(Interpreter, Expand) {
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
   auto v1 = dba->insert_vertex();
-  v1.add_label((GraphDb::Label)1);
+  v1.add_label((GraphDbTypes::Label)1);
   auto v2 = dba->insert_vertex();
-  v2.add_label((GraphDb::Label)2);
+  v2.add_label((GraphDbTypes::Label)2);
   auto v3 = dba->insert_vertex();
-  v3.add_label((GraphDb::Label)3);
+  v3.add_label((GraphDbTypes::Label)3);
   auto edge_type = dba->edge_type("Edge");
   dba->insert_edge(v1, v2, edge_type);
   dba->insert_edge(v1, v3, edge_type);
@@ -585,11 +585,11 @@ TEST(Interpreter, ExpandEdgeCycle) {
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
   auto v1 = dba->insert_vertex();
-  v1.add_label((GraphDb::Label)1);
+  v1.add_label((GraphDbTypes::Label)1);
   auto v2 = dba->insert_vertex();
-  v2.add_label((GraphDb::Label)2);
+  v2.add_label((GraphDbTypes::Label)2);
   auto v3 = dba->insert_vertex();
-  v3.add_label((GraphDb::Label)3);
+  v3.add_label((GraphDbTypes::Label)3);
   auto edge_type = dba->edge_type("Edge");
   dba->insert_edge(v1, v2, edge_type);
   dba->insert_edge(v1, v3, edge_type);
@@ -631,12 +631,12 @@ TEST(Interpreter, EdgeFilter) {
   // where only one edge will qualify
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<GraphDb::EdgeType> edge_types;
+  std::vector<GraphDbTypes::EdgeType> edge_types;
   for (int j = 0; j < 2; ++j)
     edge_types.push_back(dba->edge_type("et" + std::to_string(j)));
   std::vector<VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) vertices.push_back(dba->insert_vertex());
-  GraphDb::Property prop = dba->property("prop");
+  GraphDbTypes::Property prop = dba->property("prop");
   std::vector<EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
     edges.push_back(
@@ -835,7 +835,7 @@ TEST(Interpreter, Filter) {
   auto dba = dbms.active();
 
   // add a 6 nodes with property 'prop', 2 have true as value
-  GraphDb::Property property = dba->property("Property");
+  GraphDbTypes::Property property = dba->property("Property");
   for (int i = 0; i < 6; ++i)
     dba->insert_vertex().PropsSet(property, i % 3 == 0);
   dba->insert_vertex();  // prop not set, gives NULL
@@ -995,7 +995,7 @@ TEST(Interpreter, SetLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
-      n.op_, n.sym_, std::vector<GraphDb::Label>{label2, label3});
+      n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label2, label3});
   EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
 
   for (VertexAccessor vertex : dba->vertices()) {

@@ -181,22 +181,22 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::NodePatternContext *ctx) override;
 
   /**
-   * @return vector<GraphDb::Label>
+   * @return vector<GraphDbTypes::Label>
    */
   antlrcpp::Any visitNodeLabels(CypherParser::NodeLabelsContext *ctx) override;
 
   /**
-   * @return unordered_map<GraphDb::Property, Expression*>
+   * @return unordered_map<GraphDbTypes::Property, Expression*>
    */
   antlrcpp::Any visitProperties(CypherParser::PropertiesContext *ctx) override;
 
   /**
-   * @return unordered_map<GraphDb::Property, Expression*>
+   * @return unordered_map<GraphDbTypes::Property, Expression*>
    */
   antlrcpp::Any visitMapLiteral(CypherParser::MapLiteralContext *ctx) override;
 
   /**
-   * @return GraphDb::Property
+   * @return GraphDbTypes::Property
    */
   antlrcpp::Any visitPropertyKeyName(
       CypherParser::PropertyKeyNameContext *ctx) override;
@@ -244,7 +244,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipDetailContext *ctx) override;
 
   /**
-   * @return vector<GraphDb::EdgeType>
+   * @return vector<GraphDbTypes::EdgeType>
    */
   antlrcpp::Any visitRelationshipTypes(
       CypherParser::RelationshipTypesContext *ctx) override;

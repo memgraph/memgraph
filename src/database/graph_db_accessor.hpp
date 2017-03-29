@@ -97,7 +97,7 @@ class GraphDbAccessor {
    * @return  An accessor to the edge.
    */
   EdgeAccessor insert_edge(VertexAccessor& from, VertexAccessor& to,
-                           GraphDb::EdgeType type);
+                           GraphDbTypes::EdgeType type);
 
   /**
    * Removes an edge from the graph.
@@ -126,7 +126,7 @@ class GraphDbAccessor {
    * Obtains the Label for the label's name.
    * @return  See above.
    */
-  GraphDb::Label label(const std::string& label_name);
+  GraphDbTypes::Label label(const std::string& label_name);
 
   /**
    * Obtains the label name (a string) for the given label.
@@ -134,13 +134,13 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  std::string& label_name(const GraphDb::Label label) const;
+  std::string& label_name(const GraphDbTypes::Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
-  GraphDb::EdgeType edge_type(const std::string& edge_type_name);
+  GraphDbTypes::EdgeType edge_type(const std::string& edge_type_name);
 
   /**
    * Obtains the edge type name (a string) for the given edge type.
@@ -148,13 +148,13 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  std::string& edge_type_name(const GraphDb::EdgeType edge_type) const;
+  std::string& edge_type_name(const GraphDbTypes::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
    * @return  See above.
    */
-  GraphDb::Property property(const std::string& property_name);
+  GraphDbTypes::Property property(const std::string& property_name);
 
   /**
    * Obtains the property name (a string) for the given property.
@@ -162,7 +162,7 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  std::string& property_name(const GraphDb::Property property) const;
+  std::string& property_name(const GraphDbTypes::Property property) const;
 
   /**
    * Advances transaction's command id by 1.

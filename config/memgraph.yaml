@@ -14,8 +14,9 @@ template_cpp_path: "./template/plan_template_cpp"
 # path to the folder with snapshots
 snapshots_path: "snapshots"
 
-# leaning cycle interval
-cleaning_cycle_sec: "300"
+# cleaning cycle interval
+# if set to -1 the GC will not run
+cleaning_cycle_sec: "30"
 
 # snapshot cycle interval
 snapshot_cycle_sec: "60"

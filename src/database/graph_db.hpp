@@ -1,22 +1,22 @@
 #pragma once
 
+#include <thread>
+
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/edge.hpp"
+#include "storage/garbage_collector.hpp"
 #include "storage/unique_object_store.hpp"
+#include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/pass_key.hpp"
-
-// forward declaring Edge and Vertex because they use
-// GraphDb::Label etc., and therefore include this header
-class Vertex;
-class Edge;
 
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new
 // layer would hold SnapshotEngine and his kind of concept objects. Some
 // guidelines would be: retain objects which are necessary to implement querys
 // in Db, the rest can be moved to the new layer.
-
 /**
  * Main class which represents Database concept in code.
  * This class is essentially a data structure. It exposes
@@ -25,11 +25,6 @@ class Edge;
  */
 class GraphDb {
  public:
-  // definitions for what data types are used for a Label, Property, EdgeType
-  using Label = std::string *;
-  using EdgeType = std::string *;
-  using Property = std::string *;
-
   /**
    * Construct database with a custom name.
    *
@@ -61,8 +56,11 @@ class GraphDb {
   // main storage for the graph
   SkipList<mvcc::VersionList<Vertex> *> vertices_;
   SkipList<mvcc::VersionList<Edge> *> edges_;
+  GarbageCollector<Vertex> gc_vertices_;
+  GarbageCollector<Edge> gc_edges_;
 
   // unique object stores
+  // TODO this should be also garbage collected
   ConcurrentSet<std::string> labels_;
   ConcurrentSet<std::string> edge_types_;
   ConcurrentSet<std::string> properties_;

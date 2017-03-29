@@ -1,11 +1,11 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
-void EdgeAccessor::set_edge_type(GraphDb::EdgeType edge_type) {
+void EdgeAccessor::set_edge_type(GraphDbTypes::EdgeType edge_type) {
   update().edge_type_ = edge_type;
 }
 
-GraphDb::EdgeType EdgeAccessor::edge_type() const { return view().edge_type_; }
+GraphDbTypes::EdgeType EdgeAccessor::edge_type() const { return view().edge_type_; }
 
 VertexAccessor EdgeAccessor::from() const {
   return VertexAccessor(view().from_, db_accessor());

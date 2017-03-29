@@ -347,16 +347,18 @@ class PropertyLookup : public Expression {
   }
 
   Expression *expression_ = nullptr;
-  GraphDb::Property property_ = nullptr;
+  GraphDbTypes::Property property_ = nullptr;
   // TODO potential problem: property lookups are allowed on both map literals
   // and records, but map literals have strings as keys and records have
-  // GraphDb::Property
+  // GraphDbTypes::Property
   //
-  // possible solution: store both string and GraphDb::Property here and choose
+  // possible solution: store both string and GraphDbTypes::Property here and
+  // choose
   // between the two depending on Expression result
 
  protected:
-  PropertyLookup(int uid, Expression *expression, GraphDb::Property property)
+  PropertyLookup(int uid, Expression *expression,
+                 GraphDbTypes::Property property)
       : Expression(uid), expression_(expression), property_(property) {}
 };
 
@@ -402,9 +404,9 @@ class NodeAtom : public PatternAtom {
     visitor.PostVisit(*this);
   }
 
-  std::vector<GraphDb::Label> labels_;
+  std::vector<GraphDbTypes::Label> labels_;
   // TODO: change to unordered_map
-  std::map<GraphDb::Property, Expression *> properties_;
+  std::map<GraphDbTypes::Property, Expression *> properties_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -426,9 +428,9 @@ class EdgeAtom : public PatternAtom {
   }
 
   Direction direction_ = Direction::BOTH;
-  std::vector<GraphDb::EdgeType> edge_types_;
+  std::vector<GraphDbTypes::EdgeType> edge_types_;
   // TODO: change to unordered_map
-  std::map<GraphDb::Property, Expression *> properties_;
+  std::map<GraphDbTypes::Property, Expression *> properties_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -620,12 +622,12 @@ class SetLabels : public Clause {
     visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
-  std::vector<GraphDb::Label> labels_;
+  std::vector<GraphDbTypes::Label> labels_;
 
  protected:
   SetLabels(int uid) : Clause(uid) {}
   SetLabels(int uid, Identifier *identifier,
-            const std::vector<GraphDb::Label> &labels)
+            const std::vector<GraphDbTypes::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 };
 

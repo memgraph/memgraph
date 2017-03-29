@@ -263,7 +263,7 @@ TEST(GraphDbAccessorTest, Labels) {
   Dbms dbms;
   auto dba1 = dbms.active();
 
-  GraphDb::Label label_friend = dba1->label("friend");
+  GraphDbTypes::Label label_friend = dba1->label("friend");
   EXPECT_EQ(label_friend, dba1->label("friend"));
   EXPECT_NE(label_friend, dba1->label("friend2"));
   EXPECT_EQ(dba1->label_name(label_friend), "friend");
@@ -277,7 +277,7 @@ TEST(GraphDbAccessorTest, EdgeTypes) {
   Dbms dbms;
   auto dba1 = dbms.active();
 
-  GraphDb::EdgeType edge_type = dba1->edge_type("likes");
+  GraphDbTypes::EdgeType edge_type = dba1->edge_type("likes");
   EXPECT_EQ(edge_type, dba1->edge_type("likes"));
   EXPECT_NE(edge_type, dba1->edge_type("hates"));
   EXPECT_EQ(dba1->edge_type_name(edge_type), "likes");
@@ -291,7 +291,7 @@ TEST(GraphDbAccessorTest, Properties) {
   Dbms dbms;
   auto dba1 = dbms.active();
 
-  GraphDb::EdgeType prop = dba1->property("name");
+  GraphDbTypes::EdgeType prop = dba1->property("name");
   EXPECT_EQ(prop, dba1->property("name"));
   EXPECT_NE(prop, dba1->property("surname"));
   EXPECT_EQ(dba1->property_name(prop), "name");

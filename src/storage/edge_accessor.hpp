@@ -25,13 +25,13 @@ class EdgeAccessor : public RecordAccessor<Edge> {
    * Sets a new edge type.
    * @param edge_type The new type.
    */
-  void set_edge_type(GraphDb::EdgeType edge_type);
+  void set_edge_type(GraphDbTypes::EdgeType edge_type);
 
   /**
    * Returns the edge type.
    * @return
    */
-  GraphDb::EdgeType edge_type() const;
+  GraphDbTypes::EdgeType edge_type() const;
 
   /**
    * Returns an accessor to the originating Vertex of this edge.

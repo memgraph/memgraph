@@ -12,16 +12,24 @@ namespace mvcc {
 
 template <class T>
 class VersionList {
-  // TODO what is this Accessor? Dead code?
-  friend class Accessor;
-
  public:
   using uptr = std::unique_ptr<VersionList<T>>;
   using item_t = T;
 
-  VersionList() = default;
+  /* @brief Constructor that is used to insert one item into VersionList.
+     @param t - transaction
+     @param T item - item which will point to new and only entry in
+     version_list.
+     @param args - args forwarded to constructor of item T.
+   */
+  template <typename... Args>
+  VersionList(tx::Transaction &t, T *&item, Args &&... args) {
+    item = insert(t, std::forward<Args>(args)...);
+  }
 
+  VersionList() = delete;
   VersionList(const VersionList &) = delete;
+  VersionList &operator=(const VersionList &) = delete;
 
   /* @brief Move constructs the version list
    * Note: use only at the beginning of the "other's" lifecycle since this
@@ -48,58 +56,57 @@ class VersionList {
     return stream;
   }
 
-  auto gc_lock_acquire() { return std::unique_lock<RecordLock>(lock); }
-
-  // Frees all records which are deleted by transaction older than given id.
-  // EXPECTS THAT THERE IS NO ACTIVE TRANSACTION WITH ID LESS THAN GIVEN ID.
-  // EXPECTS THAT THERE WON'T BE SIMULATAIUS CALLS FROM DIFFERENT THREADS OF
-  // THIS METHOD.
-  // True if this whole version list isn't needed any more. There is still
-  // possibilty that someone is reading it at this moment but he cant change
-  // it or get anything from it.
-  // TODO: Validate this method
-  bool gc_deleted(const Id &id) {
-    auto r = head.load(std::memory_order_seq_cst);
-    T *bef = nullptr;
+  /**
+   * This method is NOT thread-safe. This should never be called with a
+   * transaction id newer than the oldest active transaction id.
+   * Garbage collect (delete) all records which are no longer visible for any
+   * transaction with an id greater or equal to id.
+   * @param id - transaction id from which to start garbage collection
+   * @return true - If version list is empty after garbage collection.
+  */
+  bool GcDeleted(const Id &id) {
+    auto newest_deleted_record = head.load(std::memory_order_seq_cst);
+    T *oldest_not_deleted_record = nullptr;
 
     //    nullptr
     //       |
     //     [v1]      ...
     //       |
-    //     [v2] <------+
+    //     [v2] <------+  newest_deleted_record
     //       |         |
-    //     [v3] <------+
+    //     [v3] <------+  oldest_not_deleted_record
     //       |         |  Jump backwards until you find a first old deleted
-    //   [VerList] ----+  version, or you reach the end of the list
+    //   [VerList] ----+  record, or you reach the end of the list
     //
-    while (r != nullptr && !r->is_deleted_before(id)) {
-      bef = r;
-      r = r->next(std::memory_order_seq_cst);
+    while (newest_deleted_record != nullptr &&
+           !newest_deleted_record->is_deleted_before(id)) {
+      oldest_not_deleted_record = newest_deleted_record;
+      newest_deleted_record =
+          newest_deleted_record->next(std::memory_order_seq_cst);
     }
 
-    if (bef == nullptr) {
-      // if r==nullptr he is needed and it is expecting insert.
-      // if r!=nullptr vertex has been explicitly deleted. It can't be
-      // updated because for update, visible record is needed and at this
-      // point whe know that there is no visible record for any
-      // transaction. Also it cant be inserted because head isn't nullptr.
-      // Remove also requires visible record. Find wont return any record
-      // because none is visible.
-      return r != nullptr;
-    } else {
-      if (r != nullptr) {
-        // Bef is possible visible to some transaction but r is not and
-        // the implementation of this version list guarantees that
-        // record r and older records aren't accessed.
-        bef->next(nullptr, std::memory_order_seq_cst);
-        delete r;  // THIS IS ISSUE IF MULTIPLE THREADS TRY TO DO THIS
-      }
-
-      return false;
+    if (oldest_not_deleted_record == nullptr) {
+      // This can happen only if the head already points to a deleted record or
+      // the version list is empty. This means that the version_list is ready
+      // for complete destruction.
+      if (newest_deleted_record != nullptr) delete newest_deleted_record;
+      head.store(nullptr, std::memory_order_seq_cst);
+      return true;
     }
+    // oldest_not_deleted_record might be visible to some transaction but
+    // newest_deleted_record is not.
+    oldest_not_deleted_record->next(
+        nullptr, std::memory_order_seq_cst);  // No transaction will look
+                                              // further than this record and
+                                              // that's why it's safe to set
+                                              // next to nullptr.
+    // Call destructor which will clean everything older than this record since
+    // they are called recursively.
+    if (newest_deleted_record != nullptr)
+      delete newest_deleted_record;  // THIS IS ISSUE IF MULTIPLE THREADS TRY TO
+                                     // DO THIS
+    return false;
   }
-
-  void vacuum() {}
 
   T *find(const tx::Transaction &t) const {
     auto r = head.load(std::memory_order_seq_cst);
@@ -118,25 +125,6 @@ class VersionList {
       r = r->next(std::memory_order_seq_cst);
 
     return r;
-  }
-
-  /**
-   * @Args forwarded to the constructor of T
-   */
-  template <typename... Args>
-  T *insert(tx::Transaction &t, Args &&... args) {
-    debug_assert(head == nullptr, "Head is not nullptr on creation.");
-
-    // create a first version of the record
-    // TODO replace 'new' with something better
-    auto v1 = new T(std::forward<Args>(args)...);
-
-    // mark the record as created by the transaction t
-    v1->mark_created(t);
-
-    head.store(v1, std::memory_order_seq_cst);
-
-    return v1;
   }
 
   T *update(tx::Transaction &t) {
@@ -200,6 +188,27 @@ class VersionList {
     debug_assert(record->hints.load().exp.is_committed(),
                  "Serialization conflict.");
     throw SerializationError();
+  }
+
+  /**
+   * This is private because this should only be called from the constructor.
+   * Otherwise head might be nullptr while version_list exists and it could
+   * interfere with GC.
+   * @tparam Args forwarded to the constructor of T
+   */
+  template <typename... Args>
+  T *insert(tx::Transaction &t, Args &&... args) {
+    debug_assert(head == nullptr, "Head is not nullptr on creation.");
+
+    // create a first version of the record
+    // TODO replace 'new' with something better
+    auto v1 = new T(std::forward<Args>(args)...);
+
+    // mark the record as created by the transaction t
+    v1->mark_created(t);
+
+    head.store(v1, std::memory_order_seq_cst);
+    return v1;
   }
 
   std::atomic<T *> head{nullptr};

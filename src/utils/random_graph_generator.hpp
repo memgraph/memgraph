@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/assert.hpp"
@@ -44,7 +45,7 @@ class RandomGraphGenerator {
   void AddVertices(uint count, std::vector<std::string> label_names) {
     permanent_assert(!did_commit_, "Already committed");
 
-    std::vector<GraphDb::Label> labels;
+    std::vector<GraphDbTypes::Label> labels;
     for (const auto &label_name : label_names)
       labels.push_back(dba_.label(label_name));
 

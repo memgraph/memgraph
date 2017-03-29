@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "database/graph_db.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value_store.hpp"
@@ -12,8 +12,8 @@ class Edge;
 
 class Vertex : public mvcc::Record<Vertex> {
  public:
-  std::vector<mvcc::VersionList<Edge>*> out_;
-  std::vector<mvcc::VersionList<Edge>*> in_;
-  std::vector<GraphDb::Label> labels_;
-  PropertyValueStore<GraphDb::Property> properties_;
+  std::vector<mvcc::VersionList<Edge> *> out_;
+  std::vector<mvcc::VersionList<Edge> *> in_;
+  std::vector<GraphDbTypes::Label> labels_;
+  PropertyValueStore<GraphDbTypes::Property> properties_;
 };

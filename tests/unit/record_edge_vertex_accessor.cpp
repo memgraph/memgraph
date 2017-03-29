@@ -85,8 +85,8 @@ TEST(RecordAccessor, VertexLabels) {
 
   EXPECT_EQ(v1.labels().size(), 0);
 
-  GraphDb::Label l1 = dba->label("label1");
-  GraphDb::Label l2 = dba->label("label2");
+  GraphDbTypes::Label l1 = dba->label("label1");
+  GraphDbTypes::Label l2 = dba->label("label2");
 
   // adding labels
   EXPECT_FALSE(v1.has_label(l1));
@@ -106,7 +106,7 @@ TEST(RecordAccessor, VertexLabels) {
   EXPECT_EQ(labels.size(), 2);
 
   // removing labels
-  GraphDb::Label l3 = dba->label("label3");
+  GraphDbTypes::Label l3 = dba->label("label3");
   EXPECT_EQ(v1.remove_label(l3), 0);
   EXPECT_EQ(labels.size(), 2);
 
@@ -124,8 +124,8 @@ TEST(RecordAccessor, EdgeType) {
   auto v1 = dba->insert_vertex();
   auto v2 = dba->insert_vertex();
 
-  GraphDb::EdgeType likes = dba->edge_type("likes");
-  GraphDb::EdgeType hates = dba->edge_type("hates");
+  GraphDbTypes::EdgeType likes = dba->edge_type("likes");
+  GraphDbTypes::EdgeType hates = dba->edge_type("hates");
 
   auto edge = dba->insert_edge(v1, v2, likes);
   EXPECT_EQ(edge.edge_type(), likes);

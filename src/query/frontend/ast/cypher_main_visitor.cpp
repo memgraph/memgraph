@@ -148,19 +148,20 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(
   }
   if (ctx->nodeLabels()) {
     node->labels_ =
-        ctx->nodeLabels()->accept(this).as<std::vector<GraphDb::Label>>();
+        ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
   }
   if (ctx->properties()) {
-    node->properties_ = ctx->properties()
-                            ->accept(this)
-                            .as<std::map<GraphDb::Property, Expression *>>();
+    node->properties_ =
+        ctx->properties()
+            ->accept(this)
+            .as<std::map<GraphDbTypes::Property, Expression *>>();
   }
   return node;
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(
     CypherParser::NodeLabelsContext *ctx) {
-  std::vector<GraphDb::Label> labels;
+  std::vector<GraphDbTypes::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
     labels.push_back(ctx_.db_accessor_.label(node_label->accept(this)));
   }
@@ -182,7 +183,7 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     CypherParser::MapLiteralContext *ctx) {
-  std::map<GraphDb::Property, Expression *> map;
+  std::map<GraphDbTypes::Property, Expression *> map;
   for (int i = 0; i < (int)ctx->propertyKeyName().size(); ++i) {
     map[ctx->propertyKeyName()[i]->accept(this)] =
         ctx->expression()[i]->accept(this);
@@ -267,13 +268,14 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       edge->edge_types_ = ctx->relationshipDetail()
                               ->relationshipTypes()
                               ->accept(this)
-                              .as<std::vector<GraphDb::EdgeType>>();
+                              .as<std::vector<GraphDbTypes::EdgeType>>();
     }
     if (ctx->relationshipDetail()->properties()) {
-      edge->properties_ = ctx->relationshipDetail()
-                              ->properties()
-                              ->accept(this)
-                              .as<std::map<GraphDb::Property, Expression *>>();
+      edge->properties_ =
+          ctx->relationshipDetail()
+              ->properties()
+              ->accept(this)
+              .as<std::map<GraphDbTypes::Property, Expression *>>();
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
       // TODO: implement other clauses.
@@ -311,7 +313,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     CypherParser::RelationshipTypesContext *ctx) {
-  std::vector<GraphDb::EdgeType> types;
+  std::vector<GraphDbTypes::EdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
     types.push_back(ctx_.db_accessor_.edge_type(edge_type->accept(this)));
   }
@@ -738,7 +740,7 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(
   set_labels->identifier_ = storage_.Create<Identifier>(
       ctx->variable()->accept(this).as<std::string>());
   set_labels->labels_ =
-      ctx->nodeLabels()->accept(this).as<std::vector<GraphDb::Label>>();
+      ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
   return static_cast<Clause *>(set_labels);
 }
 

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -593,7 +594,7 @@ class EdgeFilter : public LogicalOperator {
                     SymbolTable &symbol_table) {
       // edge type filtering - logical OR
       const auto &types = self_.edge_atom_->edge_types_;
-      GraphDb::EdgeType type = edge.edge_type();
+      GraphDbTypes::EdgeType type = edge.edge_type();
       if (!std::any_of(types.begin(), types.end(),
                        [type](auto t) { return t == type; }))
         return false;
@@ -999,7 +1000,7 @@ class SetLabels : public LogicalOperator {
  public:
   SetLabels(const std::shared_ptr<LogicalOperator> input,
             const Symbol input_symbol,
-            const std::vector<GraphDb::Label> &labels)
+            const std::vector<GraphDbTypes::Label> &labels)
       : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
   void Accept(LogicalOperatorVisitor &visitor) override {
@@ -1019,8 +1020,7 @@ class SetLabels : public LogicalOperator {
 
       TypedValue vertex_value = frame[self_.input_symbol_];
       VertexAccessor vertex = vertex_value.Value<VertexAccessor>();
-      for (auto label : self_.labels_)
-        vertex.add_label(label);
+      for (auto label : self_.labels_) vertex.add_label(label);
 
       return true;
     }
@@ -1038,7 +1038,7 @@ class SetLabels : public LogicalOperator {
  private:
   std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  std::vector<GraphDb::Label> labels_;
+  std::vector<GraphDbTypes::Label> labels_;
 };
 
 }  // namespace plan

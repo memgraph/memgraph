@@ -380,7 +380,7 @@ TEST(CypherMainVisitorTest, NodePattern) {
                                  ast_generator.db_accessor_->label("label1"),
                                  ast_generator.db_accessor_->label("label2"),
                                  ast_generator.db_accessor_->label("label3")));
-  std::unordered_map<GraphDb::Property, int64_t> properties;
+  std::unordered_map<GraphDbTypes::Property, int64_t> properties;
   for (auto x : node->properties_) {
     auto *literal = dynamic_cast<Literal *>(x.second);
     ASSERT_TRUE(literal);
@@ -457,7 +457,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
                            ast_generator.db_accessor_->edge_type("type2")));
-  std::unordered_map<GraphDb::Property, int64_t> properties;
+  std::unordered_map<GraphDbTypes::Property, int64_t> properties;
   for (auto x : edge->properties_) {
     auto *literal = dynamic_cast<Literal *>(x.second);
     ASSERT_TRUE(literal);

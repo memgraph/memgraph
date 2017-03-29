@@ -62,7 +62,7 @@ class RecordAccessor {
    * @param key
    * @return
    */
-  const PropertyValue& PropsAt(GraphDb::Property key) const;
+  const PropertyValue& PropsAt(GraphDbTypes::Property key) const;
 
   /**
    * Sets a value on the record for the given property.
@@ -72,7 +72,7 @@ class RecordAccessor {
    * @param value The value to set.
    */
   template <typename TValue>
-  void PropsSet(GraphDb::Property key, TValue value) {
+  void PropsSet(GraphDbTypes::Property key, TValue value) {
     update().properties_.set(key, value);
   }
 
@@ -82,7 +82,7 @@ class RecordAccessor {
    * @param key
    * @return
    */
-  size_t PropsErase(GraphDb::Property key);
+  size_t PropsErase(GraphDbTypes::Property key);
 
   /**
    * Removes all the properties from this record.
@@ -93,9 +93,9 @@ class RecordAccessor {
    * Returns the properties of this record.
    * @return
    */
-  const PropertyValueStore<GraphDb::Property>& Properties() const;
+  const PropertyValueStore<GraphDbTypes::Property>& Properties() const;
 
-  void PropertiesAccept(std::function<void(const GraphDb::Property key,
+  void PropertiesAccept(std::function<void(const GraphDbTypes::Property key,
                                            const PropertyValue& prop)>
                             handler,
                         std::function<void()> finish = {}) const;

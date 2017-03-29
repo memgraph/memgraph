@@ -1,3 +1,5 @@
+#include "database/graph_db_datatypes.hpp"
+
 namespace query {
 
 namespace test_common {
@@ -8,7 +10,7 @@ namespace test_common {
 /// Name is used to create the Identifier which is used for property lookup.
 ///
 auto GetPropertyLookup(AstTreeStorage &storage, const std::string &name,
-                       GraphDb::Property property) {
+                       GraphDbTypes::Property property) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         property);
 }
@@ -19,7 +21,7 @@ auto GetPropertyLookup(AstTreeStorage &storage, const std::string &name,
 /// Name is used to create the Identifier which is assigned to the edge.
 ///
 auto GetEdge(AstTreeStorage &storage, const std::string &name,
-             GraphDb::EdgeType edge_type = nullptr,
+             GraphDbTypes::EdgeType edge_type = nullptr,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH) {
   auto edge = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), dir);
   if (edge_type) edge->edge_types_.emplace_back(edge_type);
@@ -40,7 +42,7 @@ auto GetEdge(AstTreeStorage &storage, const std::string &name,
 /// Name is used to create the Identifier which is assigned to the node.
 ///
 auto GetNode(AstTreeStorage &storage, const std::string &name,
-             GraphDb::Label label = nullptr) {
+             GraphDbTypes::Label label = nullptr) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
   if (label) node->labels_.emplace_back(label);
   return node;
@@ -156,7 +158,7 @@ auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
 /// Create a set labels clause for given identifier name and labels.
 ///
 auto GetSet(AstTreeStorage &storage, const std::string &name,
-            std::vector<GraphDb::Label> labels) {
+            std::vector<GraphDbTypes::Label> labels) {
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 

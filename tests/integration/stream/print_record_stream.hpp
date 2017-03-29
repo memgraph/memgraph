@@ -10,7 +10,7 @@
 #include "storage/vertex_accessor.hpp"
 
 void write_properties(std::ostream &os, const GraphDbAccessor &access,
-                      const PropertyValueStore<GraphDb::Property> &properties) {
+                      const PropertyValueStore<GraphDbTypes::Property> &properties) {
   if (properties.size() > 0) {
     os << "{";
     for (auto x : properties) {
@@ -22,7 +22,7 @@ void write_properties(std::ostream &os, const GraphDbAccessor &access,
 
 std::ostream &operator<<(std::ostream &os, const VertexAccessor &vertex) {
   if (vertex.labels().size() > 0) {
-    for (GraphDb::Label label : vertex.labels()) {
+    for (GraphDbTypes::Label label : vertex.labels()) {
       os << vertex.db_accessor().property_name(label) << ", ";
     }
     os << "\n";
