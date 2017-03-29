@@ -62,13 +62,13 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
   return stream;
 }
 
-void PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
-             SymbolTable symbol_table) {
+int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
+            SymbolTable symbol_table) {
   Frame frame(symbol_table.max_position());
   auto cursor = logical_op->MakeCursor(db);
-  while (cursor->Pull(frame, symbol_table)) {
-    continue;
-  }
+  int count = 0;
+  while (cursor->Pull(frame, symbol_table)) count++;
+  return count;
 }
 
 template <typename... TNamedExpressions>
@@ -831,7 +831,7 @@ TEST(Interpreter, Filter) {
   GraphDb::Property property = dba->property("Property");
   for (int i = 0; i < 6; ++i)
     dba->insert_vertex().PropsSet(property, i % 3 == 0);
-  dba->insert_vertex(); // prop not set, gives NULL
+  dba->insert_vertex();  // prop not set, gives NULL
   dba->advance_command();
 
   AstTreeStorage storage;
@@ -850,4 +850,152 @@ TEST(Interpreter, Filter) {
   auto produce = MakeProduce(f, output);
 
   EXPECT_EQ(CollectProduce(produce, symbol_table, *dba).GetResults().size(), 2);
+}
+
+TEST(Interpreter, SetProperty) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // graph with 4 vertices in connected pairs
+  // the origin vertex in each par and both edges
+  // have a property set
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto v3 = dba->insert_vertex();
+  auto v4 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("edge_type");
+  dba->insert_edge(v1, v3, edge_type);
+  dba->insert_edge(v2, v4, edge_type);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // scan (n)-[r]->(m)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
+                        "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+
+  // set prop1 to 42 on n and r
+  auto prop1 = dba->property("prop1");
+  auto literal = LITERAL(42);
+
+  auto n_p = PROPERTY_LOOKUP("n", prop1);
+  symbol_table[*n_p->expression_] = std::get<2>(n);
+  auto set_n_p =
+      std::make_shared<plan::SetProperty>(std::get<4>(r_m), n_p, literal);
+
+  auto r_p = PROPERTY_LOOKUP("r", prop1);
+  symbol_table[*r_p->expression_] = std::get<1>(r_m);
+  auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, r_p, literal);
+  EXPECT_EQ(2, PullAll(set_r_p, *dba, symbol_table));
+  dba->advance_command();
+
+  EXPECT_EQ(CountIterable(dba->edges()), 2);
+  for (EdgeAccessor edge : dba->edges()) {
+    ASSERT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Int);
+    EXPECT_EQ(edge.PropsAt(prop1).Value<int64_t>(), 42);
+    VertexAccessor from = edge.from();
+    VertexAccessor to = edge.to();
+    ASSERT_EQ(from.PropsAt(prop1).type(), PropertyValue::Type::Int);
+    EXPECT_EQ(from.PropsAt(prop1).Value<int64_t>(), 42);
+    ASSERT_EQ(to.PropsAt(prop1).type(), PropertyValue::Type::Null);
+  }
+}
+
+TEST(Interpreter, SetProperties) {
+  auto test_set_properties = [](bool update) {
+    Dbms dbms;
+    auto dba = dbms.active();
+
+    // graph: ({a: 0})-[:R {b:1}]->({c:2})
+    auto prop_a = dba->property("a");
+    auto prop_b = dba->property("b");
+    auto prop_c = dba->property("c");
+    auto v1 = dba->insert_vertex();
+    auto v2 = dba->insert_vertex();
+    auto e = dba->insert_edge(v1, v2, dba->edge_type("R"));
+    v1.PropsSet(prop_a, 0);
+    e.PropsSet(prop_b, 1);
+    v2.PropsSet(prop_c, 2);
+    dba->advance_command();
+
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+
+    // scan (n)-[r]->(m)
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, std::get<1>(n), std::get<2>(n),
+                          "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+
+    auto op = update ? plan::SetProperties::Op::UPDATE
+                     : plan::SetProperties::Op::REPLACE;
+
+    // set properties on r to n, and on r to m
+    auto r_ident = IDENT("r");
+    symbol_table[*r_ident] = std::get<1>(r_m);
+    auto m_ident = IDENT("m");
+    symbol_table[*m_ident] = std::get<3>(r_m);
+    auto set_r_to_n = std::make_shared<plan::SetProperties>(
+        std::get<4>(r_m), std::get<2>(n), r_ident, op);
+    auto set_m_to_r = std::make_shared<plan::SetProperties>(
+        set_r_to_n, std::get<1>(r_m), m_ident, op);
+    EXPECT_EQ(1, PullAll(set_m_to_r, *dba, symbol_table));
+    dba->advance_command();
+
+    EXPECT_EQ(CountIterable(dba->edges()), 1);
+    for (EdgeAccessor edge : dba->edges()) {
+      VertexAccessor from = edge.from();
+      EXPECT_EQ(from.Properties().size(), update ? 2 : 1);
+      if (update) {
+        ASSERT_EQ(from.PropsAt(prop_a).type(), PropertyValue::Type::Int);
+        EXPECT_EQ(from.PropsAt(prop_a).Value<int64_t>(), 0);
+      }
+      ASSERT_EQ(from.PropsAt(prop_b).type(), PropertyValue::Type::Int);
+      EXPECT_EQ(from.PropsAt(prop_b).Value<int64_t>(), 1);
+
+      EXPECT_EQ(edge.Properties().size(), update ? 2 : 1);
+      if (update) {
+        ASSERT_EQ(edge.PropsAt(prop_b).type(), PropertyValue::Type::Int);
+        EXPECT_EQ(edge.PropsAt(prop_b).Value<int64_t>(), 1);
+      }
+      ASSERT_EQ(edge.PropsAt(prop_c).type(), PropertyValue::Type::Int);
+      EXPECT_EQ(edge.PropsAt(prop_c).Value<int64_t>(), 2);
+
+      VertexAccessor to = edge.to();
+      EXPECT_EQ(to.Properties().size(), 1);
+      ASSERT_EQ(to.PropsAt(prop_c).type(), PropertyValue::Type::Int);
+      EXPECT_EQ(to.PropsAt(prop_c).Value<int64_t>(), 2);
+    }
+  };
+
+  test_set_properties(true);
+  test_set_properties(false);
+}
+
+TEST(Interpreter, SetLabels) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto label1 = dba->label("label1");
+  auto label2 = dba->label("label2");
+  auto label3 = dba->label("label3");
+  dba->insert_vertex().add_label(label1);
+  dba->insert_vertex().add_label(label1);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto label_set = std::make_shared<plan::SetLabels>(
+      std::get<1>(n), std::get<2>(n),
+      std::vector<GraphDb::Label>{label2, label3});
+  EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
+
+  for (VertexAccessor vertex : dba->vertices()) {
+    EXPECT_EQ(3, vertex.labels().size());
+    EXPECT_TRUE(vertex.has_label(label2));
+    EXPECT_TRUE(vertex.has_label(label3));
+  }
 }

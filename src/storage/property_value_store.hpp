@@ -56,19 +56,34 @@ class PropertyValueStore {
 
     // there is no value for the given key, add new
     // TODO consider vector size increment optimization
-    props_.push_back(std::move(std::make_pair(key, value)));
+    props_.emplace_back(key, value);
   }
 
   /**
    * Set overriding for character constants. Forces conversion
    * to std::string, otherwise templating might cast the pointer
    * to something else (bool) and mess things up.
-   *
-   * @param key  The key for which the property is set. The previous
-   * value at the same key (if there was one) is replaced.
-   * @param value  The value to set.
    */
   void set(const TKey &key, const char *value) { set(key, std::string(value)); }
+
+  /**
+   * Set overriding for PropertyValue. When setting a Null value it
+   * calls 'erase' instead of inserting the Null into storage.
+   */
+  void set(const TKey &key, const PropertyValue &value) {
+    if (value.type() == PropertyValue::Type::Null) {
+      erase(key);
+      return;
+    }
+
+    for (auto &kv : props_)
+      if (kv.first == key) {
+        kv.second = value;
+        return;
+      }
+
+    props_.emplace_back(key, value);
+  }
 
   /**
    * Removes the PropertyValue for the given key.
@@ -87,6 +102,11 @@ class PropertyValueStore {
     }
     return 0;
   }
+
+  /**
+   * Removes all the properties from this store.
+   */
+  void clear() { props_.clear(); }
 
   /**
    * @return The number of Properties in this collection.

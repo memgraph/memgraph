@@ -814,16 +814,18 @@ class Delete : public LogicalOperator {
   bool detach_;
 };
 
+/**
+ * Logical Op for setting a single property
+ * on a single vertex or edge. The property value
+ * is an expression that must evaluate to some
+ * type that can be stored (a TypedValue that can
+ * be converted to PropertyValue).
+ */
 class SetProperty : public LogicalOperator {
  public:
   SetProperty(const std::shared_ptr<LogicalOperator> input, PropertyLookup *lhs,
               Expression *rhs)
       : input_(input), lhs_(lhs), rhs_(rhs) {}
-
-
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
-    return nullptr;
-  }
 
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
@@ -832,11 +834,64 @@ class SetProperty : public LogicalOperator {
   }
 
  private:
+  class SetPropertyCursor : public Cursor {
+   public:
+    SetPropertyCursor(SetProperty &self, GraphDbAccessor &db)
+        : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      self_.lhs_->expression_->Accept(evaluator);
+      TypedValue lhs = evaluator.PopBack();
+      self_.rhs_->Accept(evaluator);
+      TypedValue rhs = evaluator.PopBack();
+
+      // TODO the following code uses implicit TypedValue to PropertyValue
+      // conversion which throws a TypedValueException if impossible
+      // this is correct, but the end user will get a not-very-informative
+      // error message, so address this when improving error feedback
+
+      switch (lhs.type()) {
+        case TypedValue::Type::Vertex:
+          lhs.Value<VertexAccessor>().PropsSet(self_.lhs_->property_, rhs);
+          break;
+        case TypedValue::Type::Edge:
+          lhs.Value<EdgeAccessor>().PropsSet(self_.lhs_->property_, rhs);
+          break;
+        default:
+          throw QueryRuntimeException(
+              "Properties can only be set on Vertices and Edges");
+      }
+      return true;
+    }
+
+   private:
+    SetProperty &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<SetPropertyCursor>(*this, db);
+  }
+
+ private:
   std::shared_ptr<LogicalOperator> input_;
   PropertyLookup *lhs_;
   Expression *rhs_;
 };
 
+/**
+ * Logical op for setting the whole properties set
+ * on a vertex or an edge. The value being set is
+ * an expression that must evaluate to a vertex,
+ * edge or map (literal or parameter).
+ *
+ * Supports setting (replacing the whole properties
+ * set with another) and updating.
+ */
 class SetProperties : public LogicalOperator {
  public:
   /**
@@ -852,14 +907,80 @@ class SetProperties : public LogicalOperator {
                 const Symbol input_symbol, Expression *rhs, Op op)
       : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
 
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
-    return nullptr;
-  }
-
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
     input_->Accept(visitor);
     visitor.PostVisit(*this);
+  }
+
+ private:
+  class SetPropertiesCursor : public Cursor {
+   public:
+    SetPropertiesCursor(SetProperties &self, GraphDbAccessor &db)
+        : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      TypedValue lhs = frame[self_.input_symbol_];
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      self_.rhs_->Accept(evaluator);
+      TypedValue rhs = evaluator.PopBack();
+
+      switch (lhs.type()) {
+        case TypedValue::Type::Vertex:
+          SetProperties(lhs.Value<VertexAccessor>(), rhs);
+          break;
+        case TypedValue::Type::Edge:
+          SetProperties(lhs.Value<EdgeAccessor>(), rhs);
+          break;
+        default:
+          throw QueryRuntimeException(
+              "Properties can only be set on Vertices and Edges");
+      }
+      return true;
+    }
+
+   private:
+    SetProperties &self_;
+    GraphDbAccessor &db_;
+    std::unique_ptr<Cursor> input_cursor_;
+
+    template <typename TRecordAccessor>
+    void SetProperties(TRecordAccessor &record, const TypedValue &rhs) {
+      if (self_.op_ == Op::REPLACE) record.PropsClear();
+
+      auto set_props = [&record](const auto &properties) {
+        for (const auto &kv : properties) record.PropsSet(kv.first, kv.second);
+      };
+
+      switch (rhs.type()) {
+        case TypedValue::Type::Edge:
+          set_props(rhs.Value<EdgeAccessor>().Properties());
+          break;
+        case TypedValue::Type::Vertex:
+          set_props(rhs.Value<VertexAccessor>().Properties());
+          break;
+        case TypedValue::Type::Map: {
+          // TODO the following code uses implicit TypedValue to PropertyValue
+          // conversion which throws a TypedValueException if impossible
+          // this is correct, but the end user will get a not-very-informative
+          // error message, so address this when improving error feedback
+          for (const auto &kv : rhs.Value<std::map<std::string, TypedValue>>())
+            record.PropsSet(db_.property(kv.first), kv.second);
+          break;
+        }
+        default:
+          throw QueryRuntimeException(
+              "Can only set Vertices, Edges and maps as properties");
+      }
+    }
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<SetPropertiesCursor>(*this, db);
   }
 
  private:
@@ -869,6 +990,11 @@ class SetProperties : public LogicalOperator {
   Op op_;
 };
 
+/**
+ * Logical operator for setting an arbitrary number of
+ * labels on a Vertex. It does NOT remove labels that
+ * are already set on that Vertex.
+ */
 class SetLabels : public LogicalOperator {
  public:
   SetLabels(const std::shared_ptr<LogicalOperator> input,
@@ -876,14 +1002,37 @@ class SetLabels : public LogicalOperator {
             const std::vector<GraphDb::Label> &labels)
       : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
-    return nullptr;
-  }
-
   void Accept(LogicalOperatorVisitor &visitor) override {
     visitor.Visit(*this);
     input_->Accept(visitor);
     visitor.PostVisit(*this);
+  }
+
+ private:
+  class SetLabelsCursor : public Cursor {
+   public:
+    SetLabelsCursor(SetLabels &self, GraphDbAccessor &db)
+        : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      TypedValue vertex_value = frame[self_.input_symbol_];
+      VertexAccessor vertex = vertex_value.Value<VertexAccessor>();
+      for (auto label : self_.labels_)
+        vertex.add_label(label);
+
+      return true;
+    }
+
+   private:
+    SetLabels &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<SetLabelsCursor>(*this, db);
   }
 
  private:

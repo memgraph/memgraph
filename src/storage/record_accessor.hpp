@@ -85,6 +85,11 @@ class RecordAccessor {
   size_t PropsErase(GraphDb::Property key);
 
   /**
+   * Removes all the properties from this record.
+   */
+  void PropsClear();
+
+  /**
    * Returns the properties of this record.
    * @return
    */

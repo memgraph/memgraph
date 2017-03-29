@@ -32,6 +32,11 @@ size_t RecordAccessor<TRecord>::PropsErase(GraphDb::Property key) {
 }
 
 template <typename TRecord>
+void RecordAccessor<TRecord>::PropsClear() {
+  update().properties_.clear();
+}
+
+template <typename TRecord>
 const PropertyValueStore<GraphDb::Property>
     &RecordAccessor<TRecord>::Properties() const {
   return view().properties_;

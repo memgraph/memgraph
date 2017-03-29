@@ -33,6 +33,12 @@ TEST(PropertyValueStore, AtNull) {
   EXPECT_EQ(props.at(100).type(), PropertyValue::Type::Null);
 }
 
+TEST(PropertyValueStore, SetNull) {
+  PropertyValueStore<> props;
+  props.set(11, PropertyValue::Null);
+  EXPECT_EQ(0, props.size());
+}
+
 TEST(PropertyValueStore, Remove) {
   // set some props
   PropertyValueStore<> props;
@@ -51,6 +57,20 @@ TEST(PropertyValueStore, Remove) {
   EXPECT_EQ(props.at(30).type(), PropertyValue::Type::Null);
 
   EXPECT_EQ(props.erase(1000), 0);
+}
+
+TEST(PropertyValueStore, Clear) {
+  // set some props
+  PropertyValueStore<> props;
+  EXPECT_EQ(props.size(), 0);
+  props.clear();
+
+  EXPECT_EQ(props.size(), 0);
+  props.set(11, "a");
+  props.set(30, "b");
+  EXPECT_EQ(props.size(), 2);
+  props.clear();
+  EXPECT_EQ(props.size(), 0);
 }
 
 TEST(PropertyValueStore, Replace) {
