@@ -14,15 +14,18 @@ def before_scenario(context, step):
     context.test_parameters = TestParameters()
     context.graph_properties = GraphProperties()
     context.exception = None
+    context.driver = create_db_driver(context)
+    context.session = context.driver.session()
 
 
 def after_scenario(context, scenario):
     test_results.add_test(scenario.status)
+    context.session.close()
+
 
 
 def before_all(context):
     set_logging(context)
-    context.driver = create_db_driver(context)
 
 
 def after_all(context):

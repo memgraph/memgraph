@@ -11,11 +11,10 @@ def query(q, context, params={}):
     @return:
         List of query results.
     """
-    driver = context.driver
     results_list = []
 
     if context.config.database == "neo4j":
-        session = driver.session()
+        session = context.session
         try:
             # executing query
             results = session.run(q, params)
@@ -35,12 +34,10 @@ def query(q, context, params={}):
             This code snippet should replace code which is now
             executing queries when session.transactions will be supported.
             """
-            session.close()
         except Exception as e:
             # exception
             context.exception = e
             context.log.info('%s', str(e))
-            session.close()
             # not working if removed
             query("match (n) detach delete(n)", context)
     return results_list
