@@ -27,7 +27,10 @@ class GarbageCollector : public Loggable {
 
   ~GarbageCollector() {
     destruction_.store(true);
-    condition_variable_.notify_one();
+    {
+      std::unique_lock<std::mutex> lk(mutex_);
+      condition_variable_.notify_one();
+    }
     if (run_thread_.joinable()) run_thread_.join();
   }
 
