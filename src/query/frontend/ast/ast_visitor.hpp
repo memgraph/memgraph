@@ -38,6 +38,8 @@ class Where;
 class SetProperty;
 class SetProperties;
 class SetLabels;
+class RemoveProperty;
+class RemoveLabels;
 
 using TreeVisitorBase = ::utils::Visitor<
     Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
@@ -46,5 +48,5 @@ using TreeVisitorBase = ::utils::Visitor<
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     UnaryPlusOperator, UnaryMinusOperator, Identifier, Literal, PropertyLookup,
     Create, Match, Return, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels>;
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels>;
 }

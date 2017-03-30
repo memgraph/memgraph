@@ -422,6 +422,16 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitSetItem(CypherParser::SetItemContext *ctx) override;
 
   /**
+   * return vector<Clause*>
+   */
+  antlrcpp::Any visitRemove(CypherParser::RemoveContext *ctx) override;
+
+  /**
+   * @return Clause*
+   */
+  antlrcpp::Any visitRemoveItem(CypherParser::RemoveItemContext *ctx) override;
+
+  /**
    * @return PropertyLookup*
    */
   antlrcpp::Any visitPropertyExpression(

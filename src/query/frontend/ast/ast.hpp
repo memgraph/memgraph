@@ -631,6 +631,42 @@ class SetLabels : public Clause {
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 };
 
+class RemoveProperty : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    property_lookup_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  PropertyLookup *property_lookup_ = nullptr;
+
+ protected:
+  RemoveProperty(int uid) : Clause(uid) {}
+  RemoveProperty(int uid, PropertyLookup *property_lookup)
+      : Clause(uid), property_lookup_(property_lookup) {}
+};
+
+class RemoveLabels : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    identifier_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+  Identifier *identifier_ = nullptr;
+  std::vector<GraphDbTypes::Label> labels_;
+
+ protected:
+  RemoveLabels(int uid) : Clause(uid) {}
+  RemoveLabels(int uid, Identifier *identifier,
+               const std::vector<GraphDbTypes::Label> &labels)
+      : Clause(uid), identifier_(identifier), labels_(labels) {}
+};
+
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...

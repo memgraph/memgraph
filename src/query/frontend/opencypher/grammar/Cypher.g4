@@ -65,7 +65,7 @@ cypherDelete : ( DETACH SP )? DELETE SP? expression ( SP? ',' SP? expression )* 
 
 remove : REMOVE SP removeItem ( SP? ',' SP? removeItem )* ;
 
-removeItem : ( variable nodeLabels )
+removeItem : ( variable SP? nodeLabels )
            | propertyExpression
            ;
 

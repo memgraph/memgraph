@@ -669,4 +669,31 @@ TEST(Visitor, Set) {
                                      ast_generator.db_accessor_->label("i")));
   }
 }
+
+TEST(Visitor, Remove) {
+  AstGenerator ast_generator("REMOVE a.x, g : h : i");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+
+  {
+    auto *remove_property = dynamic_cast<RemoveProperty *>(query->clauses_[0]);
+    ASSERT_TRUE(remove_property);
+    ASSERT_TRUE(remove_property->property_lookup_);
+    auto *identifier1 = dynamic_cast<Identifier *>(
+        remove_property->property_lookup_->expression_);
+    ASSERT_TRUE(identifier1);
+    ASSERT_EQ(identifier1->name_, "a");
+    ASSERT_EQ(remove_property->property_lookup_->property_,
+              ast_generator.db_accessor_->property("x"));
+  }
+  {
+    auto *remove_labels = dynamic_cast<RemoveLabels *>(query->clauses_[1]);
+    ASSERT_TRUE(remove_labels);
+    ASSERT_TRUE(remove_labels->identifier_);
+    ASSERT_EQ(remove_labels->identifier_->name_, "g");
+    ASSERT_THAT(remove_labels->labels_,
+                UnorderedElementsAre(ast_generator.db_accessor_->label("h"),
+                                     ast_generator.db_accessor_->label("i")));
+  }
+}
 }

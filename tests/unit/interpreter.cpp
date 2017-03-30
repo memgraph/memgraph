@@ -1004,3 +1004,86 @@ TEST(Interpreter, SetLabels) {
     EXPECT_TRUE(vertex.has_label(label3));
   }
 }
+
+TEST(Interpreter, RemoveProperty) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // graph with 4 vertices in connected pairs
+  // the origin vertex in each par and both edges
+  // have a property set
+  auto prop1 = dba->property("prop1");
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto v3 = dba->insert_vertex();
+  auto v4 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("edge_type");
+  dba->insert_edge(v1, v3, edge_type).PropsSet(prop1, 42);
+  dba->insert_edge(v2, v4, edge_type);
+  v2.PropsSet(prop1, 42);
+  v3.PropsSet(prop1, 42);
+  v4.PropsSet(prop1, 42);
+  auto prop2 = dba->property("prop2");
+  v1.PropsSet(prop2, 0);
+  v2.PropsSet(prop2, 0);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // scan (n)-[r]->(m)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
+
+  auto n_p = PROPERTY_LOOKUP("n", prop1);
+  symbol_table[*n_p->expression_] = n.sym_;
+  auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, n_p);
+
+  auto r_p = PROPERTY_LOOKUP("r", prop1);
+  symbol_table[*r_p->expression_] = r_m.edge_sym_;
+  auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, r_p);
+  EXPECT_EQ(2, PullAll(set_r_p, *dba, symbol_table));
+  dba->advance_command();
+
+  EXPECT_EQ(CountIterable(dba->edges()), 2);
+  for (EdgeAccessor edge : dba->edges()) {
+    EXPECT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Null);
+    VertexAccessor from = edge.from();
+    VertexAccessor to = edge.to();
+    EXPECT_EQ(from.PropsAt(prop1).type(), PropertyValue::Type::Null);
+    EXPECT_EQ(from.PropsAt(prop2).type(), PropertyValue::Type::Int);
+    EXPECT_EQ(to.PropsAt(prop1).type(), PropertyValue::Type::Int);
+  }
+}
+
+TEST(Interpreter, RemoveLabels) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto label1 = dba->label("label1");
+  auto label2 = dba->label("label2");
+  auto label3 = dba->label("label3");
+  auto v1 = dba->insert_vertex();
+  v1.add_label(label1);
+  v1.add_label(label2);
+  v1.add_label(label3);
+  auto v2 = dba->insert_vertex();
+  v2.add_label(label1);
+  v2.add_label(label3);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto label_remove = std::make_shared<plan::RemoveLabels>(
+      n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label1, label2});
+  EXPECT_EQ(2, PullAll(label_remove, *dba, symbol_table));
+
+  for (VertexAccessor vertex : dba->vertices()) {
+    EXPECT_EQ(1, vertex.labels().size());
+    EXPECT_FALSE(vertex.has_label(label1));
+    EXPECT_FALSE(vertex.has_label(label2));
+  }
+}

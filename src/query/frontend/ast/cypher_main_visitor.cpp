@@ -65,6 +65,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
     // Different return type!!!
     return ctx->set()->accept(this).as<std::vector<Clause *>>();
   }
+  if (ctx->remove()) {
+    // Different return type!!!
+    return ctx->remove()->accept(this).as<std::vector<Clause *>>();
+  }
   // TODO: implement other clauses.
   throw NotYetImplemented();
   return 0;
@@ -742,6 +746,32 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(
   set_labels->labels_ =
       ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
   return static_cast<Clause *>(set_labels);
+}
+
+antlrcpp::Any CypherMainVisitor::visitRemove(CypherParser::RemoveContext *ctx) {
+  std::vector<Clause *> remove_items;
+  for (auto *remove_item : ctx->removeItem()) {
+    remove_items.push_back(remove_item->accept(this));
+  }
+  return remove_items;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRemoveItem(
+    CypherParser::RemoveItemContext *ctx) {
+  // RemoveProperty
+  if (ctx->propertyExpression()) {
+    auto *remove_property = storage_.Create<RemoveProperty>();
+    remove_property->property_lookup_ = ctx->propertyExpression()->accept(this);
+    return static_cast<Clause *>(remove_property);
+  }
+
+  // RemoveLabels
+  auto *remove_labels = storage_.Create<RemoveLabels>();
+  remove_labels->identifier_ = storage_.Create<Identifier>(
+      ctx->variable()->accept(this).as<std::string>());
+  remove_labels->labels_ =
+      ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+  return static_cast<Clause *>(remove_labels);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPropertyExpression(

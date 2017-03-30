@@ -34,11 +34,13 @@ class Delete;
 class SetProperty;
 class SetProperties;
 class SetLabels;
+class RemoveProperty;
+class RemoveLabels;
 
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
                      EdgeFilter, Filter, Produce, Delete, SetProperty,
-                     SetProperties, SetLabels>;
+                     SetProperties, SetLabels, RemoveProperty, RemoveLabels>;
 
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
@@ -1033,6 +1035,115 @@ class SetLabels : public LogicalOperator {
  public:
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
     return std::make_unique<SetLabelsCursor>(*this, db);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+  std::vector<GraphDbTypes::Label> labels_;
+};
+
+/**
+ * Logical op for removing a property from an
+ * edge or a vertex.
+ */
+class RemoveProperty : public LogicalOperator {
+ public:
+  RemoveProperty(const std::shared_ptr<LogicalOperator> input,
+                 PropertyLookup *lhs)
+      : input_(input), lhs_(lhs) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  class RemovePropertyCursor : public Cursor {
+   public:
+    RemovePropertyCursor(RemoveProperty &self, GraphDbAccessor &db)
+        : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      self_.lhs_->expression_->Accept(evaluator);
+      TypedValue lhs = evaluator.PopBack();
+
+      switch (lhs.type()) {
+        case TypedValue::Type::Vertex:
+          lhs.Value<VertexAccessor>().PropsErase(self_.lhs_->property_);
+          break;
+        case TypedValue::Type::Edge:
+          lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
+          break;
+        default:
+          // TODO consider throwing a TypedValueException here
+          // deal with this when we'll be overhauling error-feedback
+          throw QueryRuntimeException(
+              "Properties can only be removed on Vertices and Edges");
+      }
+      return true;
+    }
+
+   private:
+    RemoveProperty &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<RemovePropertyCursor>(*this, db);
+  }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  PropertyLookup *lhs_;
+};
+/**
+ * Logical operator for removing an arbitrary number of
+ * labels on a Vertex. If a label does not exist on a Vertex,
+ * nothing happens.
+ */
+class RemoveLabels : public LogicalOperator {
+ public:
+  RemoveLabels(const std::shared_ptr<LogicalOperator> input,
+               const Symbol input_symbol,
+               const std::vector<GraphDbTypes::Label> &labels)
+      : input_(input), input_symbol_(input_symbol), labels_(labels) {}
+
+  void Accept(LogicalOperatorVisitor &visitor) override {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ private:
+  class RemoveLabelsCursor : public Cursor {
+   public:
+    RemoveLabelsCursor(RemoveLabels &self, GraphDbAccessor &db)
+        : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+      TypedValue vertex_value = frame[self_.input_symbol_];
+      VertexAccessor vertex = vertex_value.Value<VertexAccessor>();
+      for (auto label : self_.labels_) vertex.remove_label(label);
+
+      return true;
+    }
+
+   private:
+    RemoveLabels &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+
+ public:
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override {
+    return std::make_unique<RemoveLabelsCursor>(*this, db);
   }
 
  private:
