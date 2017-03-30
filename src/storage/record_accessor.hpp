@@ -132,6 +132,22 @@ class RecordAccessor {
    */
   GraphDbAccessor& db_accessor() const;
 
+  /**
+   * Returns a temporary ID of the record stored in this accessor.
+   *
+   * This function returns a number that represents the current memory
+   * location where the record is stored. That number is used only as an
+   * identification for the database snapshotter. The snapshotter needs an
+   * ID so that when the database is saved to disk that it can be successfully
+   * reconstructed.
+   * IMPORTANT: The ID is valid for identifying graph elements observed in
+   * the same transaction. It is not valid for comparing graph elements
+   * observed in different transactions.
+   *
+   * @return See above.
+   */
+  const uint64_t temporary_id() const;
+
  protected:
   /**
    * Returns the update-ready version of the record.

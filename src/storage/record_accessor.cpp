@@ -57,6 +57,11 @@ GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 }
 
 template <typename TRecord>
+const uint64_t RecordAccessor<TRecord>::temporary_id() const {
+  return (uint64_t) vlist_;
+}
+
+template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
   db_accessor().update(*this);
   return *record_;
