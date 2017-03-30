@@ -162,6 +162,21 @@ auto GetSet(AstTreeStorage &storage, const std::string &name,
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 
+///
+/// Create a remove property clause for given property lookup
+///
+auto GetRemove(AstTreeStorage &storage, PropertyLookup *prop_lookup) {
+  return storage.Create<RemoveProperty>(prop_lookup);
+}
+
+///
+/// Create a remove labels clause for given identifier name and labels.
+///
+auto GetRemove(AstTreeStorage &storage, const std::string &name,
+               std::vector<GraphDbTypes::Label> labels) {
+  return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
+}
+
 }  // namespace test_common
 
 }  // namespace query
@@ -200,5 +215,6 @@ auto GetSet(AstTreeStorage &storage, const std::string &name,
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
 #define SET(...) query::test_common::GetSet(storage, __VA_ARGS__)
+#define REMOVE(...) query::test_common::GetRemove(storage, __VA_ARGS__)
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

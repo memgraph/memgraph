@@ -200,6 +200,14 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       input_op = new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
                                      input_symbol, set->labels_);
+    } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause_ptr)) {
+      input_op = new plan::RemoveProperty(
+          std::shared_ptr<LogicalOperator>(input_op), rem->property_lookup_);
+    } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause_ptr)) {
+      const auto &input_symbol = symbol_table.at(*rem->identifier_);
+      input_op =
+          new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
+                                 input_symbol, rem->labels_);
     } else {
       throw NotYetImplemented();
     }
