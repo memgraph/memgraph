@@ -148,6 +148,31 @@ class RecordAccessor {
    */
   const uint64_t temporary_id() const;
 
+  /*
+   * Switches this record accessor to use the latest
+   * version (visible to the current transaction+command).
+   *
+   * @return A reference to this.
+   */
+  RecordAccessor<TRecord> &SwitchNew();
+
+  /**
+   * Switches this record accessor to use the old
+   * (not updated) version visible to the current transaction+command.
+   *
+   * @return A reference to this.
+   */
+  RecordAccessor<TRecord> &SwitchOld();
+
+  /**
+   * Reconstructs the internal state of the record
+   * accessor so it uses the versions appropriate
+   * to this transaction+command.
+   *
+   * TODO consider what it does after delete+advance_command
+   */
+  void Reconstruct();
+
  protected:
   /**
    * Returns the update-ready version of the record.

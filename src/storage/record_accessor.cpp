@@ -62,6 +62,23 @@ const uint64_t RecordAccessor<TRecord>::temporary_id() const {
 }
 
 template <typename TRecord>
+RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
+  // TODO implement
+  return *this;
+}
+
+template <typename TRecord>
+RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
+  // TODO implement
+  return *this;
+}
+
+template <typename TRecord>
+void RecordAccessor<TRecord>::Reconstruct() {
+  // TODO implement
+}
+
+template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
   db_accessor().update(*this);
   return *record_;
