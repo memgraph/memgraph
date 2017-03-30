@@ -15,6 +15,7 @@
 #include "query/context.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/logical/planner.hpp"
+#include "query/exceptions.hpp"
 
 #include "query_common.hpp"
 

@@ -27,6 +27,7 @@ class Visitable {
   void Accept(TVisitor &visitor) override \
   { visitor.Visit(*this); visitor.PostVisit(*this); }
 
+
 };
 
 }
