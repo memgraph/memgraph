@@ -4,7 +4,6 @@
 #include <condition_variable>
 #include <thread>
 
-#include "config/config.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "logging/loggable.hpp"
 #include "mvcc/id.hpp"
