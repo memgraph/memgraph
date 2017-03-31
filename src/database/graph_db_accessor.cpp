@@ -41,14 +41,8 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
   Vertex *vertex = nullptr;
   auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, vertex);
 
-  // insert the newly created record into the main storage
-  // TODO make the number of tries configurable
-  for (int i = 0; i < 5; ++i) {
-    bool success = db_.vertices_.access().insert(vertex_vlist).second;
-    if (success) return VertexAccessor(*vertex_vlist, *vertex, *this);
-    // TODO sleep for some configurable amount of time
-  }
-
+  bool success = db_.vertices_.access().insert(vertex_vlist).second;
+  if (success) return VertexAccessor(*vertex_vlist, *vertex, *this);
   throw CreationException("Unable to create a Vertex after 5 attempts");
 }
 
@@ -82,13 +76,8 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
   from.update().out_.emplace_back(edge_vlist);
   to.update().in_.emplace_back(edge_vlist);
 
-  // insert the newly created record into the main storage
-  // TODO make the number of tries configurable
-  for (int i = 0; i < 5; ++i) {
-    bool success = db_.edges_.access().insert(edge_vlist).second;
-    if (success) return EdgeAccessor(*edge_vlist, *edge, *this);
-    // TODO sleep for some amount of time
-  }
+  bool success = db_.edges_.access().insert(edge_vlist).second;
+  if (success) return EdgeAccessor(*edge_vlist, *edge, *this);
 
   throw CreationException("Unable to create an Edge after 5 attempts");
 }
