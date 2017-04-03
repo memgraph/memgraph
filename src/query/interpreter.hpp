@@ -65,11 +65,17 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     }
   } else if (dynamic_cast<plan::CreateNode *>(logical_plan.get()) ||
              dynamic_cast<plan::CreateExpand *>(logical_plan.get()) ||
+             dynamic_cast<plan::SetProperty *>(logical_plan.get()) ||
+             dynamic_cast<plan::SetProperties *>(logical_plan.get()) ||
+             dynamic_cast<plan::SetLabels *>(logical_plan.get()) ||
+             dynamic_cast<plan::RemoveProperty *>(logical_plan.get()) ||
+             dynamic_cast<plan::RemoveLabels *>(logical_plan.get()) ||
              dynamic_cast<Delete *>(logical_plan.get())) {
     stream.Header(header);
     auto cursor = logical_plan.get()->MakeCursor(db_accessor);
-    while (cursor->Pull(frame, symbol_table))
-      continue;
+    while (cursor->Pull(frame, symbol_table)) continue;
+  } else {
+    throw QueryRuntimeException("Unknown top level LogicalOp");
   }
 
   clock_t end_time = clock();
