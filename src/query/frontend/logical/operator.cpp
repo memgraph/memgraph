@@ -1,6 +1,8 @@
-#include "operator.hpp"
-#include "query/exceptions.hpp"
+#include "query/frontend/logical/operator.hpp"
 
+#include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/interpret/interpret.hpp"
 
 namespace query {
 namespace plan {
@@ -47,6 +49,9 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  evaluator.SwitchNew();
   for (auto &kv : self_.node_atom_->properties_) {
     kv.second->Accept(evaluator);
     new_node.PropsSet(kv.first, evaluator.PopBack());
@@ -82,13 +87,19 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   // get the origin vertex
-  TypedValue vertex_value = frame[self_.input_symbol_];
-  auto v1 = vertex_value.Value<VertexAccessor>();
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+  auto &v1 = vertex_value.Value<VertexAccessor>();
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Similarly to CreateNode, newly created edges and nodes should use the
+  // latest accesors.
+  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
+  v1.SwitchNew();
+  evaluator.SwitchNew();
 
   // get the destination vertex (possibly an existing node)
-  VertexAccessor v2 = OtherVertex(frame, symbol_table, evaluator);
+  auto &v2 = OtherVertex(frame, symbol_table, evaluator);
+  v2.SwitchNew();
 
   // create an edge between the two nodes
   switch (self_.edge_atom_->direction_) {
@@ -105,7 +116,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   return true;
 }
 
-VertexAccessor CreateExpand::CreateExpandCursor::OtherVertex(
+VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     Frame &frame, SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
   if (self_.node_existing_) {
     TypedValue &dest_node_value =
@@ -119,8 +130,9 @@ VertexAccessor CreateExpand::CreateExpandCursor::OtherVertex(
       kv.second->Accept(evaluator);
       node.PropsSet(kv.first, evaluator.PopBack());
     }
-    frame[symbol_table[*self_.node_atom_->identifier_]] = node;
-    return node;
+    auto symbol = symbol_table[*self_.node_atom_->identifier_];
+    frame[symbol] = node;
+    return frame[symbol].Value<VertexAccessor>();
   }
 }
 
@@ -208,8 +220,13 @@ bool Expand::ExpandCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
 bool Expand::ExpandCursor::InitEdges(Frame &frame, SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  TypedValue vertex_value = frame[self_.input_symbol_];
-  auto vertex = vertex_value.Value<VertexAccessor>();
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+  auto &vertex = vertex_value.Value<VertexAccessor>();
+  // We don't want newly created edges, so switch to old. If we included new
+  // edges, e.g. created by CreateExpand operator, the behaviour would be wrong
+  // and may cause infinite loops by continually creating edges and traversing
+  // them.
+  vertex.SwitchOld();
 
   auto direction = self_.edge_atom_->direction_;
   if (direction == EdgeAtom::Direction::LEFT ||
@@ -294,7 +311,10 @@ NodeFilter::NodeFilterCursor::NodeFilterCursor(NodeFilter &self,
 bool NodeFilter::NodeFilterCursor::Pull(Frame &frame,
                                         SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
-    const auto &vertex = frame[self_.input_symbol_].Value<VertexAccessor>();
+    auto &vertex = frame[self_.input_symbol_].Value<VertexAccessor>();
+    // Filter needs to use the old, unmodified vertex, even though we may change
+    // properties or labels during the current command.
+    vertex.SwitchOld();
     if (VertexPasses(vertex, frame, symbol_table)) return true;
   }
   return false;
@@ -307,6 +327,8 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(const VertexAccessor &vertex,
     if (!vertex.has_label(label)) return false;
 
   ExpressionEvaluator expression_evaluator(frame, symbol_table);
+  // We don't want newly set properties to affect filtering.
+  expression_evaluator.SwitchOld();
   for (auto prop_pair : self_.node_atom_->properties_) {
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
@@ -338,7 +360,10 @@ EdgeFilter::EdgeFilterCursor::EdgeFilterCursor(EdgeFilter &self,
 bool EdgeFilter::EdgeFilterCursor::Pull(Frame &frame,
                                         SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
-    const auto &edge = frame[self_.input_symbol_].Value<EdgeAccessor>();
+    auto &edge = frame[self_.input_symbol_].Value<EdgeAccessor>();
+    // Filter needs to use the old, unmodified edge, even though we may change
+    // properties or types during the current command.
+    edge.SwitchOld();
     if (EdgePasses(edge, frame, symbol_table)) return true;
   }
   return false;
@@ -355,6 +380,8 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
     return false;
 
   ExpressionEvaluator expression_evaluator(frame, symbol_table);
+  // We don't want newly set properties to affect filtering.
+  expression_evaluator.SwitchOld();
   for (auto prop_pair : self_.edge_atom_->properties_) {
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
@@ -385,6 +412,9 @@ Filter::FilterCursor::FilterCursor(Filter &self, GraphDbAccessor &db)
 
 bool Filter::FilterCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Like all filters, newly set values should not affect filtering of old nodes
+  // and edges.
+  evaluator.SwitchOld();
   while (input_cursor_->Pull(frame, symbol_table)) {
     self_.expression_->Accept(evaluator);
     TypedValue result = evaluator.PopBack();
@@ -418,6 +448,8 @@ Produce::ProduceCursor::ProduceCursor(Produce &self, GraphDbAccessor &db)
       input_cursor_(self.input_ ? self_.input_->MakeCursor(db) : nullptr) {}
 bool Produce::ProduceCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Produce should always yield the latest results.
+  evaluator.SwitchNew();
   if (input_cursor_) {
     if (input_cursor_->Pull(frame, symbol_table)) {
       for (auto named_expr : self_.named_expressions_)
@@ -455,6 +487,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Delete should get the latest information, this way it is also possible to
+  // delete newly added nodes and edges.
+  evaluator.SwitchNew();
   for (Expression *expression : self_.expressions_) {
     expression->Accept(evaluator);
     TypedValue value = evaluator.PopBack();
@@ -505,6 +540,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Set, just like Create needs to see the latest changes.
+  evaluator.SwitchNew();
   self_.lhs_->expression_->Accept(evaluator);
   TypedValue lhs = evaluator.PopBack();
   self_.rhs_->Accept(evaluator);
@@ -551,9 +588,11 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
                                               SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  TypedValue lhs = frame[self_.input_symbol_];
+  TypedValue &lhs = frame[self_.input_symbol_];
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Set, just like Create needs to see the latest changes.
+  evaluator.SwitchNew();
   self_.rhs_->Accept(evaluator);
   TypedValue rhs = evaluator.PopBack();
 
@@ -574,6 +613,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 template <typename TRecordAccessor>
 void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
                                              const TypedValue &rhs) {
+  record.SwitchNew();
   if (self_.op_ == Op::REPLACE) record.PropsClear();
 
   auto set_props = [&record](const auto &properties) {
@@ -630,8 +670,9 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(SetLabels &self,
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  TypedValue vertex_value = frame[self_.input_symbol_];
-  VertexAccessor vertex = vertex_value.Value<VertexAccessor>();
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+  auto &vertex = vertex_value.Value<VertexAccessor>();
+  vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.add_label(label);
 
   return true;
@@ -660,6 +701,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
+  // Remove, just like Delete needs to see the latest changes.
+  evaluator.SwitchNew();
   self_.lhs_->expression_->Accept(evaluator);
   TypedValue lhs = evaluator.PopBack();
 
@@ -702,8 +745,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(
     Frame &frame, SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  TypedValue vertex_value = frame[self_.input_symbol_];
-  VertexAccessor vertex = vertex_value.Value<VertexAccessor>();
+  TypedValue &vertex_value = frame[self_.input_symbol_];
+  auto &vertex = vertex_value.Value<VertexAccessor>();
+  vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.remove_label(label);
 
   return true;

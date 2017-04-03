@@ -1,3 +1,5 @@
+/** @file */
+
 #pragma once
 
 #include <memory>
@@ -5,17 +7,33 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/visitor/visitable.hpp"
 #include "utils/visitor/visitor.hpp"
 
 namespace query {
+
+class Frame;
+class ExpressionEvaluator;
+
 namespace plan {
 
+/** @brief Base class for iteration cursors of @c LogicalOperator classes.
+ *
+ *  Each @c LogicalOperator must produce a concrete @c Cursor, which provides
+ *  the iteration mechanism.
+ */
 class Cursor {
  public:
+  /** @brief Run an iteration of a @c LogicalOperator.
+   *
+   *  Since operators may be chained, the iteration may pull results from
+   *  multiple operators.
+   *
+   *  @param Frame May be read from or written to while performing the
+   *      iteration.
+   *  @param SymbolTable Used to get the position of symbols in frame.
+   */
   virtual bool Pull(Frame &, SymbolTable &) = 0;
   virtual ~Cursor() {}
 };
@@ -35,31 +53,43 @@ class SetLabels;
 class RemoveProperty;
 class RemoveLabels;
 
+/** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
                      EdgeFilter, Filter, Produce, Delete, SetProperty,
                      SetProperties, SetLabels, RemoveProperty, RemoveLabels>;
 
+/** @brief Base class for logical operators.
+ *
+ *  Each operator describes an operation, which is to be performed on the
+ *  database. Operators are iterated over using a @c Cursor. Various operators
+ *  can serve as inputs to others and thus a sequence of operations is formed.
+ */
 class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  public:
+  /** @brief Constructs a @c Cursor which is used to run this operator.
+   *
+   *  @param GraphDbAccessor Used to perform operations on the database.
+   */
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) = 0;
   virtual ~LogicalOperator() {}
 };
 
-/**
- * Operator for creating a node. This op is used both for
- * creating a single node (CREATE statement without
- * a preceeding MATCH), or multiple nodes (MATCH CREATE).
+/** @brief Operator for creating a node.
  *
- * This node
+ *  This op is used both for creating a single node (`CREATE` statement without
+ *  a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
+ *  `CREATE (), () ...`).
+ *
+ *  @sa CreateExpand
  */
 class CreateNode : public LogicalOperator {
  public:
   /**
    *
-   * @param node_atom
-   * @param input Optional. If nullptr, then a single node will be
-   *    created (a single successful Pull from this Op's Cursor).
+   * @param node_atom @c NodeAtom with information on how to create a node.
+   * @param input Optional. If @c nullptr, then a single node will be
+   *    created (a single successful @c Cursor::Pull from this op's @c Cursor).
    *    If a valid input, then a node will be created for each
    *    successful pull from the given input.
    */
@@ -92,8 +122,33 @@ class CreateNode : public LogicalOperator {
   };
 };
 
+/** @brief Operator for creating edges and destination nodes.
+ *
+ *  This operator extends already created nodes with an edge. If the other node
+ *  on the edge does not exist, it will be created. For example, in `MATCH (n)
+ *  CREATE (n) -[r:r]-> (n)` query, this operator will create just the edge `r`.
+ *  In `MATCH (n) CREATE (n) -[r:r]-> (m)` query, the operator will create both
+ *  the edge `r` and the node `m`. In case of `CREATE (n) -[r:r]-> (m)` the
+ *  first node `n` is created by @c CreateNode operator, while @c CreateExpand
+ *  will create the edge `r` and `m`. Similarly, multiple @c CreateExpand are
+ *  chained in cases when longer paths need creating.
+ *
+ *  @sa CreateNode
+ */
 class CreateExpand : public LogicalOperator {
  public:
+  /** @brief Construct @c CreateExpand.
+   *
+   * @param node_atom @c NodeAtom at the end of the edge. Used to create a node,
+   *     unless it refers to an existing one.
+   * @param edge_atom @c EdgeAtom with information for the edge to be created.
+   * @param input Required. Previous @c LogicalOperator which will be pulled.
+   *     For each successful @c Cursor::Pull, this operator will create an
+   *     expansion.
+   * @param input_symbol @c Symbol for the node at the start of the edge.
+   * @param node_existing @c bool indicating whether the @c node_atom refers to
+   *     an existing node. If @c false, the operator will also create the node.
+   */
   CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
                const Symbol &input_symbol, bool node_existing);
@@ -126,10 +181,10 @@ class CreateExpand : public LogicalOperator {
 
     /**
      *  Helper function for getting an existing node or creating a new one.
-     * @return The newly created or already existing node.
+     *  @return The newly created or already existing node.
      */
-    VertexAccessor OtherVertex(Frame &frame, SymbolTable &symbol_table,
-                               ExpressionEvaluator &evaluator);
+    VertexAccessor &OtherVertex(Frame &frame, SymbolTable &symbol_table,
+                                ExpressionEvaluator &evaluator);
 
     /**
      * Helper function for creating an edge and adding it
@@ -144,6 +199,9 @@ class CreateExpand : public LogicalOperator {
   };
 };
 
+/**
+ * @brief Operator which iterates over all the nodes currently in the database.
+ */
 class ScanAll : public LogicalOperator {
  public:
   ScanAll(NodeAtom *node_atom);
@@ -166,7 +224,7 @@ class ScanAll : public LogicalOperator {
 };
 
 /**
- * Expansion operator. For a node existing in the frame it
+ * @brief Expansion operator. For a node existing in the frame it
  * expands one edge and one node and places them on the frame.
  *
  * This class does not handle node/edge filtering based on
@@ -174,7 +232,7 @@ class ScanAll : public LogicalOperator {
  * cycle filtering.
  *
  * Cycle filtering means that for a pattern that references
- * the same node or edge in two places (for example (n)-->(n)),
+ * the same node or edge in two places (for example `(n)-->(n)`),
  * only expansions that match defined equalities are succesfully
  * pulled.
  */
@@ -187,7 +245,7 @@ class Expand : public LogicalOperator {
 
  public:
   /**
-   * Creates an expansion.
+   * @brief Creates an expansion.
    *
    * Cycle-checking is controlled via booleans. A true value
    * simply denotes that this expansion references an already
@@ -278,8 +336,19 @@ class Expand : public LogicalOperator {
   };
 };
 
+/** @brief Operator which filters nodes by labels and properties.
+ *
+ *  This operator is used to implement `MATCH (n :label {prop: value})`, so that
+ *  it filters nodes with specified labels and properties by value.
+ */
 class NodeFilter : public LogicalOperator {
  public:
+  /** @brief Construct @c NodeFilter.
+   *
+   * @param input Required, preceding @c LogicalOperator.
+   * @param input_symbol @c Symbol where the node to be filtered is stored.
+   * @param node_atom @c NodeAtom with labels and properties to filter by.
+   */
   NodeFilter(std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
              NodeAtom *node_atom);
   void Accept(LogicalOperatorVisitor &visitor) override;
@@ -306,8 +375,19 @@ class NodeFilter : public LogicalOperator {
   };
 };
 
+/** @brief Operator which filters edges by relationship type and properties.
+ *
+ *  This operator is used to implement `MATCH () -[r :label {prop: value}]- ()`,
+ *  so that it filters edges with specified types and properties by value.
+ */
 class EdgeFilter : public LogicalOperator {
  public:
+  /** @brief Construct @c EdgeFilter.
+   *
+   * @param input Required, preceding @c LogicalOperator.
+   * @param input_symbol @c Symbol where the edge to be filtered is stored.
+   * @param edge_atom @c EdgeAtom with edge types and properties to filter by.
+   */
   EdgeFilter(std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
              EdgeAtom *edge_atom);
   void Accept(LogicalOperatorVisitor &visitor) override;
@@ -335,9 +415,11 @@ class EdgeFilter : public LogicalOperator {
 };
 
 /**
- * Filter whose Pull returns true only when the given expression
- * evaluates into true. The given expression is assumed to
- * return either NULL (treated as false) or a boolean value.
+ * @brief Filter whose Pull returns true only when the given expression
+ * evaluates into true.
+ *
+ * The given expression is assumed to return either NULL (treated as false) or a
+ * boolean value.
  */
 class Filter : public LogicalOperator {
  public:
@@ -362,7 +444,7 @@ class Filter : public LogicalOperator {
 };
 
 /**
- * A logical operator that places an arbitrary number
+ * @brief A logical operator that places an arbitrary number
  * if named expressions on the frame (the logical operator
  * for the RETURN clause).
  *
@@ -399,7 +481,8 @@ class Produce : public LogicalOperator {
 };
 
 /**
- * Operator for deleting vertices and edges.
+ * @brief Operator for deleting vertices and edges.
+ *
  * Has a flag for using DETACH DELETE when deleting
  * vertices.
  */
@@ -431,11 +514,10 @@ class Delete : public LogicalOperator {
 };
 
 /**
- * Logical Op for setting a single property
- * on a single vertex or edge. The property value
- * is an expression that must evaluate to some
- * type that can be stored (a TypedValue that can
- * be converted to PropertyValue).
+ * @brief Logical Op for setting a single property on a single vertex or edge.
+ *
+ * The property value is an expression that must evaluate to some type that can
+ * be stored (a TypedValue that can be converted to PropertyValue).
  */
 class SetProperty : public LogicalOperator {
  public:
@@ -461,22 +543,23 @@ class SetProperty : public LogicalOperator {
 };
 
 /**
- * Logical op for setting the whole properties set
- * on a vertex or an edge. The value being set is
- * an expression that must evaluate to a vertex,
- * edge or map (literal or parameter).
+ * @brief Logical op for setting the whole properties set on a vertex or an
+ * edge.
  *
- * Supports setting (replacing the whole properties
- * set with another) and updating.
+ * The value being set is an expression that must evaluate to a vertex, edge or
+ * map (literal or parameter).
+ *
+ * Supports setting (replacing the whole properties set with another) and
+ * updating.
  */
 class SetProperties : public LogicalOperator {
  public:
   /**
-   * Defines how setting the properties works. UPDATE means
-   * that the current property set is augmented with additional
-   * ones (existing props of the same name are replaced), while
-   * REPLACE means that the old props are discarded and replaced
-   * with new ones.
+   * @brief Defines how setting the properties works.
+   *
+   * @c UPDATE means that the current property set is augmented with additional
+   * ones (existing props of the same name are replaced), while @c REPLACE means
+   * that the old props are discarded and replaced with new ones.
    */
   enum class Op { UPDATE, REPLACE };
 
@@ -512,9 +595,10 @@ class SetProperties : public LogicalOperator {
 };
 
 /**
- * Logical operator for setting an arbitrary number of
- * labels on a Vertex. It does NOT remove labels that
- * are already set on that Vertex.
+ * @brief Logical operator for setting an arbitrary number of labels on a
+ * Vertex.
+ *
+ * It does NOT remove labels that are already set on that Vertex.
  */
 class SetLabels : public LogicalOperator {
  public:
@@ -541,7 +625,7 @@ class SetLabels : public LogicalOperator {
 };
 
 /**
- * Logical op for removing a property from an
+ * @brief Logical op for removing a property from an
  * edge or a vertex.
  */
 class RemoveProperty : public LogicalOperator {
@@ -567,9 +651,10 @@ class RemoveProperty : public LogicalOperator {
 };
 
 /**
- * Logical operator for removing an arbitrary number of
- * labels on a Vertex. If a label does not exist on a Vertex,
- * nothing happens.
+ * @brief Logical operator for removing an arbitrary number of
+ * labels on a Vertex.
+ *
+ * If a label does not exist on a Vertex, nothing happens.
  */
 class RemoveLabels : public LogicalOperator {
  public:

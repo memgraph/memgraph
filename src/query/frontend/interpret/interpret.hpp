@@ -1,12 +1,13 @@
 #pragma once
 
-#include <utils/exceptions/not_yet_implemented.hpp>
+#include <map>
 #include <vector>
 
 #include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/assert.hpp"
+#include <utils/exceptions/not_yet_implemented.hpp>
 
 namespace query {
 
@@ -28,6 +29,22 @@ class ExpressionEvaluator : public TreeVisitorBase {
  public:
   ExpressionEvaluator(Frame &frame, SymbolTable &symbol_table)
       : frame_(frame), symbol_table_(symbol_table) {}
+
+  /** When evaluting @c RecordAccessor, use @c SwitchNew to get the new data, as
+   * modified during the current command.
+   */
+  auto &SwitchNew() {
+    use_new_ = true;
+    return *this;
+  };
+
+  /** When evaluting @c RecordAccessor, use @c SwitchOld to get the old data,
+   * before the modification done by the current command.
+   */
+  auto &SwitchOld() {
+    use_new_ = false;
+    return *this;
+  };
 
   /**
    * Removes and returns the last value from the result stack.
@@ -51,7 +68,9 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
   void Visit(Identifier &ident) override {
-    result_stack_.push_back(frame_[symbol_table_[ident]]);
+    auto value = frame_[symbol_table_[ident]];
+    SwitchAccessors(value);
+    result_stack_.emplace_back(std::move(value));
   }
 
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)             \
@@ -97,12 +116,12 @@ class ExpressionEvaluator : public TreeVisitorBase {
             expression_result.Value<VertexAccessor>().PropsAt(
                 property_lookup.property_));
         break;
-      case TypedValue::Type::Edge:
+      case TypedValue::Type::Edge: {
         result_stack_.emplace_back(
             expression_result.Value<EdgeAccessor>().PropsAt(
                 property_lookup.property_));
         break;
-
+      }
       case TypedValue::Type::Map:
         // TODO implement me
         throw NotYetImplemented();
@@ -121,8 +140,44 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
  private:
+  // If the given TypedValue contains accessors, switch them to New or Old,
+  // depending on use_new_ flag.
+  void SwitchAccessors(TypedValue &value) {
+    switch (value.type()) {
+      case TypedValue::Type::Vertex: {
+        auto &vertex = value.Value<VertexAccessor>();
+        if (use_new_)
+          vertex.SwitchNew();
+        else
+          vertex.SwitchOld();
+        break;
+      }
+      case TypedValue::Type::Edge: {
+        auto &edge = value.Value<EdgeAccessor>();
+        if (use_new_)
+          edge.SwitchNew();
+        else
+          edge.SwitchOld();
+        break;
+      }
+      case TypedValue::Type::List: {
+        auto &list = value.Value<std::vector<TypedValue>>();
+        for (auto &list_value : list) SwitchAccessors(list_value);
+      }
+      case TypedValue::Type::Map: {
+        auto &map = value.Value<std::map<std::string, TypedValue>>();
+        for (auto &kv : map) SwitchAccessors(kv.second);
+      }
+      default:
+        break;
+    }
+  }
+
   Frame &frame_;
   SymbolTable &symbol_table_;
   std::list<TypedValue> result_stack_;
+  // If true, use SwitchNew on evaluated record accessors. This should be done
+  // only in expressions which may return one. E.g. identifier, list indexing.
+  bool use_new_ = false;
 };
 }

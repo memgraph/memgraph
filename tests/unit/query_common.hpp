@@ -217,4 +217,6 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 #define SET(...) query::test_common::GetSet(storage, __VA_ARGS__)
 #define REMOVE(...) query::test_common::GetRemove(storage, __VA_ARGS__)
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
+// Various operators
+#define ADD(expr1, expr2) storage.Create<query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

@@ -1090,3 +1090,101 @@ TEST(Interpreter, RemoveLabels) {
     EXPECT_FALSE(vertex.has_label(label2));
   }
 }
+
+TEST(Interpreter, NodeFilterSet) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
+  auto v1 = dba->insert_vertex();
+  auto prop = dba->property("prop");
+  v1.PropsSet(prop, 42);
+  auto v2 = dba->insert_vertex();
+  auto v3 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("Edge");
+  dba->insert_edge(v1, v2, edge_type);
+  dba->insert_edge(v1, v3, edge_type);
+  dba->advance_command();
+  // Create operations which match (v1 {prop: 42}) -- (v) and increment the
+  // v1.prop. The expected result is two incremenentations, since v1 is matched
+  // twice for 2 edges it has.
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n {prop: 42}) -[r]- (m)
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  scan_all.node_->properties_[prop] = LITERAL(42);
+  auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_,
+                           "r", EdgeAtom::Direction::BOTH, false, "m", false);
+  auto node_filter =
+      std::make_shared<NodeFilter>(expand.op_, scan_all.sym_, scan_all.node_);
+  // SET n.prop = n.prop + 1
+  auto set_prop = PROPERTY_LOOKUP("n", prop);
+  auto add = ADD(PROPERTY_LOOKUP("n", prop), LITERAL(1));
+  auto set = std::make_shared<plan::SetProperty>(node_filter, set_prop, add);
+  EXPECT_EQ(2, PullAll(set, *dba, symbol_table));
+  dba->advance_command();
+  v1.Reconstruct();
+  auto prop_eq = v1.PropsAt(prop) == TypedValue(42 + 2);
+  ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
+  EXPECT_TRUE(prop_eq.Value<bool>());
+}
+
+TEST(Interpreter, FilterRemove) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
+  auto v1 = dba->insert_vertex();
+  auto prop = dba->property("prop");
+  v1.PropsSet(prop, 42);
+  auto v2 = dba->insert_vertex();
+  auto v3 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("Edge");
+  dba->insert_edge(v1, v2, edge_type);
+  dba->insert_edge(v1, v3, edge_type);
+  dba->advance_command();
+  // Create operations which match (v1 {prop: 42}) -- (v) and remove v1.prop.
+  // The expected result is two matches, for each edge of v1.
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) -[r]- (m) WHERE n.prop < 43
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  scan_all.node_->properties_[prop] = LITERAL(42);
+  auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_,
+                           "r", EdgeAtom::Direction::BOTH, false, "m", false);
+  auto filter_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*filter_prop->expression_] = scan_all.sym_;
+  auto filter =
+      std::make_shared<Filter>(expand.op_, LESS(filter_prop, LITERAL(43)));
+  // REMOVE n.prop
+  auto rem_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*rem_prop->expression_] = scan_all.sym_;
+  auto rem = std::make_shared<plan::RemoveProperty>(filter, rem_prop);
+  EXPECT_EQ(2, PullAll(rem, *dba, symbol_table));
+  dba->advance_command();
+  v1.Reconstruct();
+  EXPECT_EQ(v1.PropsAt(prop).type(), PropertyValue::Type::Null);
+}
+
+TEST(Interpreter, SetRemove) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v = dba->insert_vertex();
+  auto label1 = dba->label("label1");
+  auto label2 = dba->label("label2");
+  dba->advance_command();
+  // Create operations which match (v) and set and remove v :label.
+  // The expected result is single (v) as it was at the start.
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) SET n :label1 :label2 REMOVE n :label1 :label2
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto set = std::make_shared<plan::SetLabels>(
+      scan_all.op_, scan_all.sym_,
+      std::vector<GraphDbTypes::Label>{label1, label2});
+  auto rem = std::make_shared<plan::RemoveLabels>(
+      set, scan_all.sym_, std::vector<GraphDbTypes::Label>{label1, label2});
+  EXPECT_EQ(1, PullAll(rem, *dba, symbol_table));
+  dba->advance_command();
+  v.Reconstruct();
+  EXPECT_FALSE(v.has_label(label1));
+  EXPECT_FALSE(v.has_label(label2));
+}
