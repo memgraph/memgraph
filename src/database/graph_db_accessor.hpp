@@ -30,7 +30,7 @@ class GraphDbAccessor {
    *
    * @param db The database
    */
-  GraphDbAccessor(GraphDb& db);
+  GraphDbAccessor(GraphDb &db);
   ~GraphDbAccessor();
 
   // the GraphDbAccessor can NOT be copied nor moved because
@@ -45,7 +45,7 @@ class GraphDbAccessor {
   /**
    * Returns the name of the database of this accessor.
    */
-  const std::string& name() const;
+  const std::string &name() const;
 
   /**
    * Creates a new Vertex and returns an accessor to it.
@@ -62,7 +62,7 @@ class GraphDbAccessor {
    * @param vertex_accessor Accessor to vertex.
    * @return  If or not the vertex was deleted.
    */
-  bool remove_vertex(VertexAccessor& vertex_accessor);
+  bool remove_vertex(VertexAccessor &vertex_accessor);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing
@@ -70,7 +70,7 @@ class GraphDbAccessor {
    *
    * @param vertex_accessor  Accessor to a vertex.
    */
-  void detach_remove_vertex(VertexAccessor& vertex_accessor);
+  void detach_remove_vertex(VertexAccessor &vertex_accessor);
 
   /**
    * Returns iterable over accessors to all the vertices in the graph
@@ -96,7 +96,7 @@ class GraphDbAccessor {
    * @param type Edge type.
    * @return  An accessor to the edge.
    */
-  EdgeAccessor insert_edge(VertexAccessor& from, VertexAccessor& to,
+  EdgeAccessor insert_edge(VertexAccessor &from, VertexAccessor &to,
                            GraphDbTypes::EdgeType type);
 
   /**
@@ -104,7 +104,7 @@ class GraphDbAccessor {
    *
    * @param edge_accessor  The accessor to an edge.
    */
-  void remove_edge(EdgeAccessor& edge_accessor);
+  void remove_edge(EdgeAccessor &edge_accessor);
 
   /**
    * Returns iterable over accessors to all the edges in the graph
@@ -123,10 +123,41 @@ class GraphDbAccessor {
   }
 
   /**
+   * Insert this record into corresponding label index.
+   * @param label - label index into which to insert record
+   * @param record - record which to insert
+   */
+  template <typename TRecord>
+  void update_index(const GraphDbTypes::Label &label, const TRecord &record) {
+    db_.labels_index_.Add(label, record.vlist_);
+  }
+
+  /**
+   * Return VertexAccessors which contain the current label for the current
+   * transaction visibilty.
+   * @param label - label for which to return VertexAccessors
+   * @return iterable collection
+   */
+  auto vertices_by_label(const GraphDbTypes::Label &label) {
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        db_.labels_index_.Acquire(label, *transaction_));
+  }
+  /**
+   * Return approximate number of vertices under indexes with the given label.
+   * Note that this is always an over-estimate and never an under-estimate.
+   * @param label - label to check for
+   * @return number of vertices with the given label
+   */
+  size_t vertices_by_label_count(const GraphDbTypes::Label &label) {
+    return db_.labels_index_.Count(label);
+  }
+
+  /**
    * Obtains the Label for the label's name.
    * @return  See above.
    */
-  GraphDbTypes::Label label(const std::string& label_name);
+  GraphDbTypes::Label label(const std::string &label_name);
 
   /**
    * Obtains the label name (a string) for the given label.
@@ -134,13 +165,13 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  std::string& label_name(const GraphDbTypes::Label label) const;
+  std::string &label_name(const GraphDbTypes::Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
-  GraphDbTypes::EdgeType edge_type(const std::string& edge_type_name);
+  GraphDbTypes::EdgeType edge_type(const std::string &edge_type_name);
 
   /**
    * Obtains the edge type name (a string) for the given edge type.
@@ -148,13 +179,13 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  std::string& edge_type_name(const GraphDbTypes::EdgeType edge_type) const;
+  std::string &edge_type_name(const GraphDbTypes::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
    * @return  See above.
    */
-  GraphDbTypes::Property property(const std::string& property_name);
+  GraphDbTypes::Property property(const std::string &property_name);
 
   /**
    * Obtains the property name (a string) for the given property.
@@ -162,7 +193,7 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  std::string& property_name(const GraphDbTypes::Property property) const;
+  std::string &property_name(const GraphDbTypes::Property property) const;
 
   /**
    * Advances transaction's command id by 1.
@@ -184,7 +215,7 @@ class GraphDbAccessor {
    * @args accessor whose record to initialize.
    */
   template <typename TRecord>
-  void init_record(RecordAccessor<TRecord>& accessor) {
+  void init_record(RecordAccessor<TRecord> &accessor) {
     accessor.record_ = accessor.vlist_->find(*transaction_);
   }
 
@@ -193,16 +224,16 @@ class GraphDbAccessor {
    * @args accessor whose record to update if possible.
    */
   template <typename TRecord>
-  void update(RecordAccessor<TRecord>& accessor) {
+  void update(RecordAccessor<TRecord> &accessor) {
     if (!accessor.record_->is_visible_write(*transaction_))
       accessor.record_ = accessor.vlist_->update(*transaction_);
   }
 
  private:
-  GraphDb& db_;
+  GraphDb &db_;
 
   /** The current transaction */
-  tx::Transaction* const transaction_;
+  tx::Transaction *const transaction_;
 
   bool commited_{false};
   bool aborted_{false};

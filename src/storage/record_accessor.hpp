@@ -36,8 +36,8 @@ class RecordAccessor {
    * @param vlist MVCC record that this accessor wraps.
    * @param db_accessor The DB accessor that "owns" this record accessor.
    */
-  RecordAccessor(mvcc::VersionList<TRecord>& vlist,
-                 GraphDbAccessor& db_accessor);
+  RecordAccessor(mvcc::VersionList<TRecord> &vlist,
+                 GraphDbAccessor &db_accessor);
 
   /**
    * @param vlist MVCC record that this accessor wraps.
@@ -48,8 +48,8 @@ class RecordAccessor {
    *  accept an already found record.
    * @param db_accessor The DB accessor that "owns" this record accessor.
    */
-  RecordAccessor(mvcc::VersionList<TRecord>& vlist, TRecord& record,
-                 GraphDbAccessor& db_accessor);
+  RecordAccessor(mvcc::VersionList<TRecord> &vlist, TRecord &record,
+                 GraphDbAccessor &db_accessor);
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -62,7 +62,7 @@ class RecordAccessor {
    * @param key
    * @return
    */
-  const PropertyValue& PropsAt(GraphDbTypes::Property key) const;
+  const PropertyValue &PropsAt(GraphDbTypes::Property key) const;
 
   /**
    * Sets a value on the record for the given property.
@@ -93,10 +93,10 @@ class RecordAccessor {
    * Returns the properties of this record.
    * @return
    */
-  const PropertyValueStore<GraphDbTypes::Property>& Properties() const;
+  const PropertyValueStore<GraphDbTypes::Property> &Properties() const;
 
   void PropertiesAccept(std::function<void(const GraphDbTypes::Property key,
-                                           const PropertyValue& prop)>
+                                           const PropertyValue &prop)>
                             handler,
                         std::function<void()> finish = {}) const;
 
@@ -104,21 +104,21 @@ class RecordAccessor {
    * This should be used with care as it's comparing vlist_ pointer records and
    * not actual values inside RecordAccessors.
    */
-  friend bool operator<(const RecordAccessor& a, const RecordAccessor& b) {
+  friend bool operator<(const RecordAccessor &a, const RecordAccessor &b) {
     debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
     return a.vlist_ < b.vlist_;
   }
 
-  friend bool operator==(const RecordAccessor& a, const RecordAccessor& b) {
+  friend bool operator==(const RecordAccessor &a, const RecordAccessor &b) {
     debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
     return a.vlist_ == b.vlist_;
   }
 
-  friend bool operator!=(const RecordAccessor& a, const RecordAccessor& b) {
+  friend bool operator!=(const RecordAccessor &a, const RecordAccessor &b) {
     debug_assert(a.db_accessor_ == b.db_accessor_,
                  "Not in the same transaction.");  // assume the same
                                                    // db_accessor / transaction
@@ -130,7 +130,7 @@ class RecordAccessor {
    *
    * @return See above.
    */
-  GraphDbAccessor& db_accessor() const;
+  GraphDbAccessor &db_accessor() const;
 
   /**
    * Returns a temporary ID of the record stored in this accessor.
@@ -179,18 +179,16 @@ class RecordAccessor {
    *
    * @return See above.
    */
-  TRecord& update();
+  TRecord &update();
 
   /**
    * Returns a version of the record that is only for viewing.
    *
    * @return See above.
    */
-  const TRecord& view() const;
-
+  const TRecord &view() const;
 
  private:
-
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
@@ -211,5 +209,5 @@ class RecordAccessor {
    * Stored as a pointer due to it's mutability (the update() function changes
    * it).
    */
-  TRecord* record_;
+  TRecord *record_;
 };

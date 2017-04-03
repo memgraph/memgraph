@@ -13,7 +13,7 @@
 #include "utils/random/fast_binomial.hpp"
 
 static constexpr unsigned B = 24;
-static thread_local FastBinomial<B> rnd;
+static thread_local FastBinomial<> rnd;
 
 static constexpr unsigned M = 4;
 static constexpr size_t N = 1ULL << 34;
@@ -22,7 +22,8 @@ static constexpr size_t per_thread_iters = N / M;
 std::array<std::atomic<uint64_t>, B> buckets;
 
 void generate() {
-  for (size_t i = 0; i < per_thread_iters; ++i) buckets[rnd() - 1].fetch_add(1);
+  for (size_t i = 0; i < per_thread_iters; ++i)
+    buckets[rnd(B) - 1].fetch_add(1);
 }
 
 int main(void) {
@@ -33,15 +34,15 @@ int main(void) {
 
   std::array<std::thread, M> threads;
 
-  for (auto& bucket : buckets) bucket.store(0);
+  for (auto &bucket : buckets) bucket.store(0);
 
-  for (auto& t : threads) t = std::thread([]() { generate(); });
+  for (auto &t : threads) t = std::thread([]() { generate(); });
 
-  for (auto& t : threads) t.join();
+  for (auto &t : threads) t.join();
 
   auto max = std::accumulate(
       buckets.begin(), buckets.end(), (uint64_t)0,
-      [](auto& acc, auto& x) { return std::max(acc, x.load()); });
+      [](auto &acc, auto &x) { return std::max(acc, x.load()); });
 
   std::cout << std::fixed;
 

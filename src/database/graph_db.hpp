@@ -5,6 +5,7 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_datatypes.hpp"
+#include "database/indexes/labels_index.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
@@ -64,4 +65,7 @@ class GraphDb {
   ConcurrentSet<std::string> labels_;
   ConcurrentSet<std::string> edge_types_;
   ConcurrentSet<std::string> properties_;
+
+  // indexes
+  LabelsIndex<Vertex> labels_index_;
 };

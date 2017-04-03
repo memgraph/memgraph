@@ -13,6 +13,12 @@
 
 #include "data_structures/concurrent/skiplist_gc.hpp"
 
+/**
+ * computes the height for the new node from the interval [1...H]
+ * with p(k) = (1/2)^k for all k from the interval
+ */
+static thread_local FastBinomial<> rnd;
+
 /** @brief Concurrent lock-based skiplist with fine grained locking
  *
  * From Wikipedia:
@@ -97,12 +103,6 @@
 template <class T, size_t H = 32, class lock_t = SpinLock>
 class SkipList : private Lockable<lock_t> {
  public:
-  /**
-   * computes the height for the new node from the interval [1...H]
-   * with p(k) = (1/2)^k for all k from the interval
-   */
-  static thread_local FastBinomial<H> rnd;
-
   /** @brief Wrapper class for flags used in the implementation
    *
    * MARKED flag is used to logically delete a node.
@@ -909,7 +909,7 @@ class SkipList : private Lockable<lock_t> {
         //                           // will be at least 2 height and
         //                           will
         //                           // be added in front.
-        //     height = rnd();
+        //     height = rnd(H);
         //     //   if (height == 1) height = 2;
         // } else {
 
@@ -928,7 +928,7 @@ class SkipList : private Lockable<lock_t> {
           }
         }
       } else {
-        height = rnd();
+        height = rnd(H);
         // Optimization which doesn't add any extra locking.
         if (height == 1)
           height = 2;  // Same key list will be skipped more often.
@@ -969,7 +969,7 @@ class SkipList : private Lockable<lock_t> {
         return {Iterator{succs[level]}, false};
       }
 
-      auto height = rnd();
+      auto height = rnd(H);
       guard_t guards[H];
 
       // try to acquire the locks for predecessors up to the height of
@@ -1004,7 +1004,7 @@ class SkipList : private Lockable<lock_t> {
         return {Iterator{succs[level]}, false};
       }
 
-      auto height = rnd();
+      auto height = rnd(H);
       guard_t guards[H];
 
       // try to acquire the locks for predecessors up to the height of
@@ -1040,7 +1040,7 @@ class SkipList : private Lockable<lock_t> {
         return {Iterator{succs[level]}, false};
       }
 
-      auto height = rnd();
+      auto height = rnd(H);
       guard_t guards[H];
 
       // try to acquire the locks for predecessors up to the height of
@@ -1136,6 +1136,3 @@ class SkipList : private Lockable<lock_t> {
   Node *header;
   SkiplistGC<Node> gc;
 };
-
-template <class T, size_t H, class lock_t>
-thread_local FastBinomial<H> SkipList<T, H, lock_t>::rnd;

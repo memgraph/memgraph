@@ -1,5 +1,6 @@
 #include <algorithm>
 
+#include "database/graph_db_accessor.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/util.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -15,6 +16,7 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
 
   // not a duplicate label, add it
   update().labels_.emplace_back(label);
+  this->db_accessor().update_index(label, *this);
   return true;
 }
 

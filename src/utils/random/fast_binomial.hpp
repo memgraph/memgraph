@@ -3,7 +3,7 @@
 #include "utils/likely.hpp"
 #include "utils/random/xorshift128plus.hpp"
 
-template <size_t N, class R = Xorshift128plus>
+template <class R = Xorshift128plus>
 class FastBinomial {
   // fast binomial draws coin tosses from a single generated random number
   // let's draw a random 4 bit number and count trailing ones
@@ -26,17 +26,18 @@ class FastBinomial {
   // ------------------
   // 16 1111 -> 5 =====
 
-  static constexpr uint64_t mask = (1ULL << N) - 1;
-
  public:
-  unsigned operator()() {
+  /**
+   * Return random number X between 1 and tparam N with probability 2^-X.
+   */
+  unsigned operator()(const int n) {
     while (true) {
       // couting trailing ones is equal to counting trailing zeros
       // since the probability for both is 1/2 and we're going to
       // count zeros because they are easier to work with
 
       // generate a random number
-      auto x = random() & mask;
+      auto x = random() & mask(n);
 
       // if we have all zeros, then we have an invalid case and we
       // need to generate again, we have this every (1/2)^N times
@@ -51,5 +52,6 @@ class FastBinomial {
   }
 
  private:
+  uint64_t mask(const int n) { return (1ULL << n) - 1; }
   R random;
 };
