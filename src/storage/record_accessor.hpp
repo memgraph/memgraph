@@ -39,18 +39,6 @@ class RecordAccessor {
   RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                  GraphDbAccessor &db_accessor);
 
-  /**
-   * @param vlist MVCC record that this accessor wraps.
-   * @param record MVCC version (that is viewable from this
-   * db_accessor.transaction)
-   *  of the given record. Slightly more optimal then the constructor that does
-   * not
-   *  accept an already found record.
-   * @param db_accessor The DB accessor that "owns" this record accessor.
-   */
-  RecordAccessor(mvcc::VersionList<TRecord> &vlist, TRecord &record,
-                 GraphDbAccessor &db_accessor);
-
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
   RecordAccessor(RecordAccessor &&other) = default;
@@ -160,6 +148,9 @@ class RecordAccessor {
    * Switches this record accessor to use the old
    * (not updated) version visible to the current transaction+command.
    *
+   * It is not legal to call this function on a Vertex/Edge that
+   * was created by the current transaction+command.
+   *
    * @return A reference to this.
    */
   RecordAccessor<TRecord> &SwitchOld();
@@ -175,18 +166,21 @@ class RecordAccessor {
 
  protected:
   /**
-   * Returns the update-ready version of the record.
+   * Ensures there is an updateable version of the record
+   * in the version_list, and that the `new_` pointer
+   * points to it. Returns a reference to that version.
    *
    * @return See above.
    */
   TRecord &update();
 
   /**
-   * Returns a version of the record that is only for viewing.
+   * Returns the current version (either new_ or old_)
+   * set on this RecordAccessor.
    *
    * @return See above.
    */
-  const TRecord &view() const;
+  const TRecord &current() const;
 
  private:
   // The database accessor for which this record accessor is created
@@ -198,16 +192,34 @@ class RecordAccessor {
   // Immutable, set in the constructor and never changed.
   mvcc::VersionList<TRecord> *vlist_;
 
-  /* The version of the record currently used in this transaction. Defaults to
-   * the
-   * latest viewable version (set in the constructor). After the first update
-   * done
-   * through this accessor a new, editable version, is created for this
-   * transaction,
-   * and set as the value of this variable.
+  /**
+   * Latest version which is visible to the current transaction+command
+   * but has not been created nor modified by the current transaction+command.
    *
-   * Stored as a pointer due to it's mutability (the update() function changes
-   * it).
+   * Can be null only when the record itself (the version-list) has
+   * been created by the current transaction+command.
    */
-  TRecord *record_;
+  TRecord *old_{nullptr};
+
+  /**
+   * Version that has been modified (created or updated) by the current
+   * transaction+command.
+   *
+   * Can be null when the record has not been modified in the current
+   * transaction+command. It is also possible that the modification
+   * has happened, but this RecordAccessor does not know this. To
+   * ensure correctness, the `SwitchNew` function must check if this
+   * is null, and if it is it must check with the vlist_ if there is
+   * an update.
+   */
+  TRecord *new_{nullptr};
+
+  /**
+   * Pointer to the version (either old_ or new_) that READ operations
+   * in the accessor should take data from. Note that WRITE operations
+   * should always use new_.
+   *
+   * This pointer can never ever be null.
+   */
+  TRecord *current_{nullptr};
 };

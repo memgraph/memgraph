@@ -162,38 +162,42 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  // setup (v1)- []->(v2)<-[]-(v3)<-[]-(v4)
-  auto va1 = dba->insert_vertex();
-  auto va2 = dba->insert_vertex();
-  auto va3 = dba->insert_vertex();
-  auto va4 = dba->insert_vertex();
+  // setup (v0)- []->(v1)<-[]-(v2)<-[]-(v3)
+  std::vector<VertexAccessor> vertices;
+  for (int i = 0; i < 4; ++i) vertices.emplace_back(dba->insert_vertex());
+
   auto edge_type = dba->edge_type("type");
-  dba->insert_edge(va1, va2, edge_type);
-  dba->insert_edge(va1, va3, edge_type);
-  dba->insert_edge(va4, va3, edge_type);
+  dba->insert_edge(vertices[0], vertices[1], edge_type);
+  dba->insert_edge(vertices[2], vertices[1], edge_type);
+  dba->insert_edge(vertices[3], vertices[2], edge_type);
+
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   // ensure that plain remove does NOT work
   EXPECT_EQ(CountVertices(*dba), 4);
   EXPECT_EQ(CountEdges(*dba), 3);
-  EXPECT_FALSE(dba->remove_vertex(va1));
-  EXPECT_FALSE(dba->remove_vertex(va2));
-  EXPECT_FALSE(dba->remove_vertex(va3));
+  EXPECT_FALSE(dba->remove_vertex(vertices[0]));
+  EXPECT_FALSE(dba->remove_vertex(vertices[1]));
+  EXPECT_FALSE(dba->remove_vertex(vertices[2]));
   EXPECT_EQ(CountVertices(*dba), 4);
   EXPECT_EQ(CountEdges(*dba), 3);
 
-  dba->detach_remove_vertex(va3);
+  dba->detach_remove_vertex(vertices[2]);
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   EXPECT_EQ(CountVertices(*dba), 3);
   EXPECT_EQ(CountEdges(*dba), 1);
-  EXPECT_TRUE(dba->remove_vertex(va4));
+  EXPECT_TRUE(dba->remove_vertex(vertices[3]));
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   EXPECT_EQ(CountVertices(*dba), 2);
   EXPECT_EQ(CountEdges(*dba), 1);
   for (auto va : dba->vertices()) EXPECT_FALSE(dba->remove_vertex(va));
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   EXPECT_EQ(CountVertices(*dba), 2);
   EXPECT_EQ(CountEdges(*dba), 1);
@@ -203,6 +207,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertex) {
     break;
   }
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   EXPECT_EQ(CountVertices(*dba), 1);
   EXPECT_EQ(CountEdges(*dba), 0);
@@ -228,12 +233,13 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
   int N = 7;
   std::vector<VertexAccessor> vertices;
   auto edge_type = dba->edge_type("edge");
-  for (int i = 0; i < N; ++i)
-    vertices.emplace_back(dba->insert_vertex());
+  for (int i = 0; i < N; ++i) vertices.emplace_back(dba->insert_vertex());
   for (int j = 0; j < N; ++j)
     for (int k = 0; k < N; ++k)
       dba->insert_edge(vertices[j], vertices[k], edge_type);
+
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
 
   EXPECT_EQ(CountVertices(*dba), N);
   EXPECT_EQ(CountEdges(*dba), N * N);
@@ -241,6 +247,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
   // detach delete one edge
   dba->detach_remove_vertex(vertices[0]);
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
   EXPECT_EQ(CountVertices(*dba), N - 1);
   EXPECT_EQ(CountEdges(*dba), (N - 1) * (N - 1));
 
@@ -248,13 +255,14 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
   dba->detach_remove_vertex(vertices[1]);
   dba->detach_remove_vertex(vertices[2]);
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
   EXPECT_EQ(CountVertices(*dba), N - 3);
   EXPECT_EQ(CountEdges(*dba), (N - 3) * (N - 3));
 
   // detach delete everything, buwahahahaha
-  for (int l = 3; l < N ; ++l)
-    dba->detach_remove_vertex(vertices[l]);
+  for (int l = 3; l < N; ++l) dba->detach_remove_vertex(vertices[l]);
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
   EXPECT_EQ(CountVertices(*dba), 0);
   EXPECT_EQ(CountEdges(*dba), 0);
 }
@@ -303,6 +311,6 @@ TEST(GraphDbAccessorTest, Properties) {
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
-//  ::testing::GTEST_FLAG(filter) = "*.DetachRemoveVertex";
+  //  ::testing::GTEST_FLAG(filter) = "*.DetachRemoveVertex";
   return RUN_ALL_TESTS();
 }

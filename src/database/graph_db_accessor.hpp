@@ -77,15 +77,17 @@ class GraphDbAccessor {
    * visible to the current transaction.
    */
   auto vertices() {
-    // filter out the accessors not visible to the current transaction
-    auto filtered = iter::filter(
-        [this](auto vlist) { return vlist->find(*transaction_) != nullptr; },
-        db_.vertices_.access());
+    // wrap version lists into accessors, which will look for visible versions
+    auto accessors =
+        iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
+                   db_.vertices_.access());
 
-    // return accessors of the filtered out vlists
-    return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
-        std::move(filtered));
+    // filter out the accessors not visible to the current transaction
+    return iter::filter(
+        [this](const VertexAccessor &accessor) {
+          return accessor.old_ != nullptr;
+        },
+        std::move(accessors));
   }
 
   /**
@@ -111,15 +113,17 @@ class GraphDbAccessor {
    * visible to the current transaction.
    */
   auto edges() {
-    // filter out the accessors not visible to the current transaction
-    auto filtered = iter::filter(
-        [this](auto vlist) { return vlist->find(*transaction_) != nullptr; },
-        db_.edges_.access());
+    // wrap version lists into accessors, which will look for visible versions
+    auto accessors =
+        iter::imap([this](auto vlist) { return EdgeAccessor(*vlist, *this); },
+                   db_.edges_.access());
 
-    // return accessors of the filtered out vlists
-    return iter::imap(
-        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
-        std::move(filtered));
+    // filter out the accessors not visible to the current transaction
+    return iter::filter(
+        [this](const EdgeAccessor &accessor) {
+          return accessor.old_ != nullptr;
+        },
+        std::move(accessors));
   }
 
   /**
@@ -211,22 +215,48 @@ class GraphDbAccessor {
   void abort();
 
   /**
-   * Init accessor record with vlist.
-   * @args accessor whose record to initialize.
+   * Initializes the record pointers in the given accessor.
+   * The old_ and new_ pointers need to be initialized
+   * with appropriate values, and current_ set to old_
+   * if it exists and to new_ otherwise.
    */
   template <typename TRecord>
-  void init_record(RecordAccessor<TRecord> &accessor) {
-    accessor.record_ = accessor.vlist_->find(*transaction_);
+  void Reconstruct(RecordAccessor<TRecord> &accessor) {
+    accessor.vlist_->find_set_new_old(*transaction_, accessor.old_,
+                                      accessor.new_);
+    accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
+    // TODO review: we should never use a record accessor that
+    // does not have either old_ or new_ (both are null), but
+    // we can't assert that here because we construct such an accessor
+    // and filter it out in GraphDbAccessor::[Vertices|Edges]
+    // any ideas?
   }
 
   /**
    * Update accessor record with vlist.
+   *
+   * It is not legal
+   * to call this function on a Vertex/Edge that has
+   * been deleted in the current transaction+command.
+   *
    * @args accessor whose record to update if possible.
    */
   template <typename TRecord>
   void update(RecordAccessor<TRecord> &accessor) {
-    if (!accessor.record_->is_visible_write(*transaction_))
-      accessor.record_ = accessor.vlist_->update(*transaction_);
+    // can't update a deleted record if:
+    // - we only have old_ and it hasn't been deleted
+    // - we have new_ and it hasn't been deleted
+    if (!accessor.new_) {
+      debug_assert(
+          !accessor.old_->is_deleted_by(*transaction_),
+          "Can't update a record deleted in the current transaction+command");
+    } else {
+      debug_assert(
+          !accessor.new_->is_deleted_by(*transaction_),
+          "Can't update a record deleted in the current transaction+command");
+    }
+
+    if (!accessor.new_) accessor.new_ = accessor.vlist_->update(*transaction_);
   }
 
  private:

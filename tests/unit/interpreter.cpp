@@ -1000,6 +1000,7 @@ TEST(Interpreter, SetLabels) {
   EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
 
   for (VertexAccessor vertex : dba->vertices()) {
+    vertex.SwitchNew();
     EXPECT_EQ(3, vertex.labels().size());
     EXPECT_TRUE(vertex.has_label(label2));
     EXPECT_TRUE(vertex.has_label(label3));
@@ -1083,6 +1084,7 @@ TEST(Interpreter, RemoveLabels) {
   EXPECT_EQ(2, PullAll(label_remove, *dba, symbol_table));
 
   for (VertexAccessor vertex : dba->vertices()) {
+    vertex.SwitchNew();
     EXPECT_EQ(1, vertex.labels().size());
     EXPECT_FALSE(vertex.has_label(label1));
     EXPECT_FALSE(vertex.has_label(label2));

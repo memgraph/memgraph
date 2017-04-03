@@ -37,15 +37,14 @@ TEST(VersionList, GcDeleted) {
   std::vector<uint64_t> ids;
   auto t1 = engine.begin();
   std::atomic<int> count{0};
-  Prop *prop;
-  mvcc::VersionList<Prop> version_list(*t1, prop, count);
+  mvcc::VersionList<Prop> version_list(*t1, count);
   ids.push_back(t1->id);
   t1->commit();
 
   for (int i = 0; i < UPDATES; ++i) {
     auto t2 = engine.begin();
     ids.push_back(t2->id);
-    prop = version_list.update(prop, *t2);
+    version_list.update(*t2);
     t2->commit();
   }
 
@@ -72,9 +71,8 @@ TEST(GarbageCollector, WaitAndClean) {
   gc.Run(std::chrono::seconds(1));
 
   auto t1 = engine.begin();
-  Prop *prop;
   std::atomic<int> count;
-  auto vl = new mvcc::VersionList<Prop>(*t1, prop, count);
+  auto vl = new mvcc::VersionList<Prop>(*t1, count);
 
   auto access = skiplist.access();
   access.insert(vl);
@@ -99,9 +97,8 @@ TEST(GarbageCollector, WaitAndDontClean) {
                                      // the top one except GC is never run.
 
   auto t1 = engine.begin();
-  Prop *prop;
   std::atomic<int> count;
-  auto vl = new mvcc::VersionList<Prop>(*t1, prop, count);
+  auto vl = new mvcc::VersionList<Prop>(*t1, count);
 
   auto access = skiplist.access();
   access.insert(vl);

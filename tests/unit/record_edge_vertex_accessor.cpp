@@ -77,6 +77,76 @@ TEST(RecordAccessor, RecordLessThan) {
   EXPECT_FALSE(e2 < e2);
 }
 
+TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
+  Dbms dbms;
+
+  // test SwitchOld failure on new record, SwitchNew OK
+  {
+    auto dba = dbms.active();
+    auto v1 = dba->insert_vertex();
+    EXPECT_DEATH(v1.SwitchOld(), "");
+    v1.SwitchNew();
+    dba->commit();
+  }
+
+  // test both Switches work on existing record
+  {
+    auto dba = dbms.active();
+    auto v1 = *dba->vertices().begin();
+    v1.SwitchOld();
+    v1.SwitchNew();
+  }
+
+  // ensure switch exposes the right data
+  {
+    auto dba = dbms.active();
+    auto label = dba->label("label");
+    auto v1 = *dba->vertices().begin();
+
+    EXPECT_FALSE(v1.has_label(label)); // old record
+    v1.add_label(label); // modifying data does not switch to new
+    EXPECT_FALSE(v1.has_label(label)); // old record
+    v1.SwitchNew();
+    EXPECT_TRUE(v1.has_label(label));
+    v1.SwitchOld();
+    EXPECT_FALSE(v1.has_label(label));
+  }
+}
+
+TEST(RecordAccessor, Reconstruct) {
+  Dbms dbms;
+  auto label = dbms.active()->label("label");
+
+  {
+    // we must operate on an old vertex
+    // because otherwise we only have new
+    // so create a vertex and commit it
+    auto dba = dbms.active();
+    dba->insert_vertex();
+    dba->commit();
+  }
+
+  // ensure we don't have label set
+  auto dba = dbms.active();
+  auto v1 = *dba->vertices().begin();
+  v1.SwitchNew();
+  EXPECT_FALSE(v1.has_label(label));
+
+  {
+    // update the record through a different accessor
+    auto v1_other_accessor = *dba->vertices().begin();
+    v1_other_accessor.add_label(label);
+    EXPECT_FALSE(v1.has_label(label));
+    v1_other_accessor.SwitchNew();
+    EXPECT_TRUE(v1_other_accessor.has_label(label));
+  }
+
+  EXPECT_FALSE(v1.has_label(label));
+  v1.Reconstruct();
+  v1.SwitchNew();
+  EXPECT_TRUE(v1.has_label(label));
+}
+
 TEST(RecordAccessor, VertexLabels) {
   Dbms dbms;
   auto dba = dbms.active();

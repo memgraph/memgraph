@@ -125,6 +125,22 @@ class Record : public Version<T> {
               cmd.exp() >= t.cid)));  // but not before this command,
   }
 
+  /**
+   * True if this record is created in the current command
+   * of the given transaction.
+   */
+  bool is_created_by(const tx::Transaction &t) {
+    return tx.cre() == t.id && cmd.cre() == t.cid;
+  }
+
+  /**
+   * True if this record is deleted in the current command
+   * of the given transaction.
+   */
+  bool is_deleted_by(const tx::Transaction &t) {
+    return tx.exp() == t.id && cmd.exp() == t.cid;
+  }
+
  protected:
   template <class U>
   bool committed(U &hints, const Id &id, const tx::Transaction &t) {

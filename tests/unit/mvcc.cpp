@@ -11,8 +11,7 @@ class Prop : public mvcc::Record<Prop> {};
 TEST(MVCC, Case1Test3) {
   tx::Engine engine;
   auto t1 = engine.begin();
-  Prop *prop;
-  mvcc::VersionList<Prop> version_list(*t1, prop);
+  mvcc::VersionList<Prop> version_list(*t1);
   t1->commit();
 
   auto t2 = engine.begin();
@@ -28,9 +27,8 @@ TEST(MVCC, Case1Test3) {
 
 TEST(MVCC, InSnapshot) {
   tx::Engine engine;
-  Prop *prop;
   auto t1 = engine.begin();
-  mvcc::VersionList<Prop> version_list(*t1, prop);
+  mvcc::VersionList<Prop> version_list(*t1);
   t1->commit();
 
   auto t2 = engine.begin();

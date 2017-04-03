@@ -38,46 +38,48 @@ void GraphDbAccessor::abort() {
 
 VertexAccessor GraphDbAccessor::insert_vertex() {
   // create a vertex
-  Vertex *vertex = nullptr;
-  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, vertex);
+  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_);
 
   bool success = db_.vertices_.access().insert(vertex_vlist).second;
-  if (success) return VertexAccessor(*vertex_vlist, *vertex, *this);
+  if (success) return VertexAccessor(*vertex_vlist, *this);
   throw CreationException("Unable to create a Vertex after 5 attempts");
 }
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
-  // TODO consider if this works well with MVCC
+  vertex_accessor.SwitchNew();
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
-  vertex_accessor.vlist_->remove(&vertex_accessor.update(), *transaction_);
+  vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
   return true;
 }
 
 void GraphDbAccessor::detach_remove_vertex(VertexAccessor &vertex_accessor) {
-  // removing edges via accessors is both safe
-  // and it should remove all the pointers in the relevant
-  // vertices (including this one)
-  vertex_accessor.vlist_->remove(&vertex_accessor.update(), *transaction_);
+  vertex_accessor.SwitchNew();
   for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
+  vertex_accessor.SwitchNew();
   for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
+  vertex_accessor.vlist_->remove(vertex_accessor.SwitchNew().current_, *transaction_);
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
                                           VertexAccessor &to,
                                           GraphDbTypes::EdgeType edge_type) {
   // create an edge
-  Edge *edge = nullptr;
   auto edge_vlist = new mvcc::VersionList<Edge>(
-      *transaction_, edge, *from.vlist_, *to.vlist_, edge_type);
+      *transaction_, *from.vlist_, *to.vlist_, edge_type);
 
-  // set the vertex connections to this edge
+  // ensure that the "from" accessor has the latest version
+  from.SwitchNew();
   from.update().out_.emplace_back(edge_vlist);
+  // ensure that the "to" accessor has the latest version
+  // WARNING: must do that after the above "from.update()" for cases when
+  // we are creating a cycle and "from" and "to" are the same vlist
+  to.SwitchNew();
   to.update().in_.emplace_back(edge_vlist);
 
   bool success = db_.edges_.access().insert(edge_vlist).second;
-  if (success) return EdgeAccessor(*edge_vlist, *edge, *this);
+  if (success) return EdgeAccessor(*edge_vlist, *this);
 
   throw CreationException("Unable to create an Edge after 5 attempts");
 }
@@ -97,7 +99,7 @@ void swap_out_edge(std::vector<mvcc::VersionList<Edge> *> &edges,
 void GraphDbAccessor::remove_edge(EdgeAccessor &edge_accessor) {
   swap_out_edge(edge_accessor.from().update().out_, edge_accessor.vlist_);
   swap_out_edge(edge_accessor.to().update().in_, edge_accessor.vlist_);
-  edge_accessor.vlist_->remove(&edge_accessor.update(), *transaction_);
+  edge_accessor.vlist_->remove(edge_accessor.SwitchNew().current_, *transaction_);
 }
 
 GraphDbTypes::Label GraphDbAccessor::label(const std::string &label_name) {

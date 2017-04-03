@@ -66,10 +66,10 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   /**
    * Returns EdgeAccessors for all incoming edges.
    */
-  auto in() { return make_accessor_iterator<EdgeAccessor>(view().in_, db_accessor()); }
+  auto in() { return make_accessor_iterator<EdgeAccessor>(current().in_, db_accessor()); }
 
   /**
    * Returns EdgeAccessors for all outgoing edges.
    */
-  auto out() { return make_accessor_iterator<EdgeAccessor>(view().out_, db_accessor()); }
+  auto out() { return make_accessor_iterator<EdgeAccessor>(current().out_, db_accessor()); }
 };

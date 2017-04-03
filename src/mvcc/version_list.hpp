@@ -18,13 +18,18 @@ class VersionList {
 
   /* @brief Constructor that is used to insert one item into VersionList.
      @param t - transaction
-     @param T item - item which will point to new and only entry in
-     version_list.
-     @param args - args forwarded to constructor of item T.
+     @param args - args forwarded to constructor of item T (for
+     creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(tx::Transaction &t, T *&item, Args &&... args) {
-    item = insert(t, std::forward<Args>(args)...);
+  VersionList(tx::Transaction &t, Args &&... args) {
+    // TODO replace 'new' with something better
+    auto v1 = new T(std::forward<Args>(args)...);
+
+    // mark the record as created by the transaction t
+    v1->mark_created(t);
+
+    head.store(v1, std::memory_order_seq_cst);
   }
 
   VersionList() = delete;
@@ -127,6 +132,34 @@ class VersionList {
     return r;
   }
 
+  /**
+   * Looks for and sets two versions. The 'old' version is the
+   * newest version that is visible by the current transaction+command,
+   * but has not been created by it. The 'new' version is the version
+   * that has been created by current transaction+command.
+   *
+   * It is possible that both, either or neither are found:
+   *     - both are found when an existing record has been modified
+   *     - only old is found when an existing record has not been modified
+   *     - only new is found when the whole vlist was created
+   *     - neither is found when for example the record has been deleted but not
+   *       garbage collected yet
+   *
+   * @param t The transaction
+   */
+  void find_set_new_old(const tx::Transaction &t, T *&old_ref,
+                        T *&new_ref) const {
+    // assume that the sought old record is further down the list
+    // from new record, so that if we found old we can stop looking
+    new_ref = nullptr;
+    old_ref = head.load(std::memory_order_seq_cst);
+    while (old_ref != nullptr && !old_ref->visible(t)) {
+      if (!new_ref && old_ref->is_created_by(t))
+        new_ref = old_ref;
+      old_ref = old_ref->next(std::memory_order_seq_cst);
+    }
+  }
+
   T *update(tx::Transaction &t) {
     debug_assert(head != nullptr, "Head is nullptr on update.");
     auto record = find(t);
@@ -188,27 +221,6 @@ class VersionList {
     debug_assert(record->hints.load().exp.is_committed(),
                  "Serialization conflict.");
     throw SerializationError();
-  }
-
-  /**
-   * This is private because this should only be called from the constructor.
-   * Otherwise head might be nullptr while version_list exists and it could
-   * interfere with GC.
-   * @tparam Args forwarded to the constructor of T
-   */
-  template <typename... Args>
-  T *insert(tx::Transaction &t, Args &&... args) {
-    debug_assert(head == nullptr, "Head is not nullptr on creation.");
-
-    // create a first version of the record
-    // TODO replace 'new' with something better
-    auto v1 = new T(std::forward<Args>(args)...);
-
-    // mark the record as created by the transaction t
-    v1->mark_created(t);
-
-    head.store(v1, std::memory_order_seq_cst);
-    return v1;
   }
 
   std::atomic<T *> head{nullptr};

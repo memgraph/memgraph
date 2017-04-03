@@ -5,12 +5,12 @@ void EdgeAccessor::set_edge_type(GraphDbTypes::EdgeType edge_type) {
   update().edge_type_ = edge_type;
 }
 
-GraphDbTypes::EdgeType EdgeAccessor::edge_type() const { return view().edge_type_; }
+GraphDbTypes::EdgeType EdgeAccessor::edge_type() const { return current().edge_type_; }
 
 VertexAccessor EdgeAccessor::from() const {
-  return VertexAccessor(view().from_, db_accessor());
+  return VertexAccessor(current().from_, db_accessor());
 }
 
 VertexAccessor EdgeAccessor::to() const {
-  return VertexAccessor(view().to_, db_accessor());
+  return VertexAccessor(current().to_, db_accessor());
 }
