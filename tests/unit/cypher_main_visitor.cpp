@@ -47,6 +47,10 @@ TEST(CypherMainVisitorTest, SyntaxException) {
   ASSERT_THROW(AstGenerator("CREATE ()-[*1...2]-()"), SyntaxException);
 }
 
+TEST(CypherMainVisitorTest, SyntaxExceptionOnTrailingText) {
+  ASSERT_THROW(AstGenerator("RETURN 2 + 2 mirko"), SyntaxException);
+}
+
 TEST(CypherMainVisitorTest, PropertyLookup) {
   AstGenerator ast_generator("RETURN n.x");
   auto *query = ast_generator.query_;

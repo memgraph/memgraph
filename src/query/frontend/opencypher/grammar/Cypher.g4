@@ -16,7 +16,7 @@
  */
 grammar Cypher;
 
-cypher : SP? statement ( SP? ';' )? SP? ;
+cypher : SP? statement ( SP? ';' )? SP? EOF ;
 
 statement : query ;
 
