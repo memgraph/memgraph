@@ -47,6 +47,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (edge.edge_type() != db_accessor.edge_type("score")) continue;
       if ((profile(from) && garment(to)) || (profile(to) && garment(from))) {
         edge.PropsSet(db_accessor.property("score"), args.At(3));
+        edge.SwitchNew();
         std::vector<TypedValue> result{TypedValue(edge)};
         stream.Result(result);
       }
