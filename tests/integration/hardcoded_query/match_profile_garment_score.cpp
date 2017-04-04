@@ -2,12 +2,12 @@
 #include <string>
 
 #include "query/backend/cpp/typed_value.hpp"
+#include "query/parameters.hpp"
 #include "query/plan_interface.hpp"
 #include "query/stripped.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
-#include "query/parameters.hpp"
 
 using std::cout;
 using std::endl;
@@ -51,9 +51,9 @@ class CPUPlan : public PlanInterface<Stream> {
         stream.Result(result);
       }
     }
-    std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("r")))};
+    std::map<std::string, TypedValue> meta{
+        std::make_pair(std::string("type"), TypedValue(std::string("r")))};
     stream.Summary(meta);
-    db_accessor.commit();
     return true;
   }
 

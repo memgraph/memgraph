@@ -14,7 +14,6 @@ class CPUPlan : public PlanInterface<Stream> {
  public:
   bool run(GraphDbAccessor &db_accessor, const StrippedArguments &args,
            Stream &stream) {
-    db_accessor.commit();
     return true;
   }
 

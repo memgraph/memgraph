@@ -54,7 +54,7 @@ State StateExecutorRun(Session &session) {
       }
 
       return EXECUTOR;
-    // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
+      // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
     } catch (const query::SyntaxException &e) {
       db_accessor->abort();
       session.encoder_.MessageFailure(
@@ -79,7 +79,7 @@ State StateExecutorRun(Session &session) {
     }
     // TODO (mferencevic): finish the error handling, cover all exceptions
     //                     which can be raised from query engine
-    //     * [abort, MessageFailure, return ERROR] should be extracted into 
+    //     * [abort, MessageFailure, return ERROR] should be extracted into
     //       separate function (or something equivalent)
     //
     // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
@@ -96,6 +96,7 @@ State StateExecutorRun(Session &session) {
   } else if (message_type == MessageCode::Reset) {
     // TODO: rollback current transaction
     // discard all records waiting to be sent
+    session.encoder_.MessageSuccess();
     return EXECUTOR;
   } else {
     logger.error("Unrecognized message recieved");

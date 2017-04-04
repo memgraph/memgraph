@@ -2,8 +2,8 @@
 #include <string>
 
 #include "query/backend/cpp/typed_value.hpp"
-#include "query/plan_interface.hpp"
 #include "query/parameters.hpp"
+#include "query/plan_interface.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
@@ -14,9 +14,8 @@ using std::endl;
 // General query type: MATCH (g:garment {garment_id: 1234}) SET g:'GENERAL'
 // RETURN g
 
-bool run_general_query(GraphDbAccessor &db_accessor,
-                       const Parameters &args, Stream &stream,
-                       const std::string &general_label) {
+bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
+                       Stream &stream, const std::string &general_label) {
   std::vector<std::string> headers{std::string("g")};
   stream.Header(headers);
   for (auto vertex : db_accessor.vertices()) {
@@ -31,8 +30,8 @@ bool run_general_query(GraphDbAccessor &db_accessor,
       stream.Result(result);
     }
   }
-  std::map<std::string, TypedValue> meta{std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
+  std::map<std::string, TypedValue> meta{
+      std::make_pair(std::string("type"), TypedValue(std::string("rw")))};
   stream.Summary(meta);
-  db_accessor.commit();
   return true;
 }
