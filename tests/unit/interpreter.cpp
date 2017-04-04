@@ -13,9 +13,9 @@
 #include "communication/result_stream_faker.hpp"
 #include "dbms/dbms.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/logical/planner.hpp"
-#include "query/exceptions.hpp"
 
 #include "query_common.hpp"
 
@@ -1187,4 +1187,48 @@ TEST(Interpreter, SetRemove) {
   v.Reconstruct();
   EXPECT_FALSE(v.has_label(label1));
   EXPECT_FALSE(v.has_label(label2));
+}
+
+TEST(Interpreter, ExpandUniquenessFilter) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("edge_type");
+  dba->insert_edge(v1, v2, edge_type);
+  dba->insert_edge(v1, v1, edge_type);
+  dba->advance_command();
+
+  auto check_expand_results = [&](bool vertex_uniqueness,
+                                  bool edge_uniqueness) {
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+
+    auto n1 = MakeScanAll(storage, symbol_table, "n1");
+    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
+                            EdgeAtom::Direction::RIGHT, false, "n2", false);
+    std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
+    if (vertex_uniqueness)
+      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
+          last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
+    auto r2_n3 =
+        MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
+                   EdgeAtom::Direction::RIGHT, false, "n3", false);
+    last_op = r2_n3.op_;
+    if (edge_uniqueness)
+      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+          last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
+    if (vertex_uniqueness)
+      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
+          last_op, r2_n3.node_sym_,
+          std::vector<Symbol>{n1.sym_, r1_n2.node_sym_});
+
+    return PullAll(last_op, *dba, symbol_table);
+  };
+
+  EXPECT_EQ(2, check_expand_results(false, false));
+  EXPECT_EQ(0, check_expand_results(true, false));
+  EXPECT_EQ(1, check_expand_results(false, true));
 }

@@ -52,12 +52,15 @@ class SetProperties;
 class SetLabels;
 class RemoveProperty;
 class RemoveLabels;
+template <typename TAccessor>
+class ExpandUniquenessFilter;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
                      EdgeFilter, Filter, Produce, Delete, SetProperty,
-                     SetProperties, SetLabels, RemoveProperty, RemoveLabels>;
+                     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+                     ExpandUniquenessFilter<VertexAccessor>, ExpandUniquenessFilter<EdgeAccessor>>;
 
 /** @brief Base class for logical operators.
  *
@@ -676,6 +679,53 @@ class RemoveLabels : public LogicalOperator {
 
    private:
     RemoveLabels &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+  };
+};
+
+/**
+ * Filter whose Pull returns true only when the given
+ * expand_symbol frame value (the latest expansion) is not
+ * equal to any of the previous_symbols frame values.
+ *
+ * Used for implementing [iso|cypher]morphism.
+ * Isomorphism is vertex-uniqueness. It means that
+ * two different vertices in a pattern can not map to the
+ * same data vertex. For example, if the database
+ * contains one vertex with a recursive relationship,
+ * then the query
+ * MATCH ()-[]->() combined with vertex uniqueness
+ * yields no results (no uniqueness yields one).
+ * Cyphermorphism is edge-uniqueness (the above
+ * explanation applies). By default Neo4j uses
+ * Cyphermorphism (that's where the name stems from,
+ * it is not a valid graph-theory term).
+ *
+ * Works for both Edge and Vertex uniqueness checks
+ * (provide the accessor type as a template argument).
+ */
+template <typename TAccessor>
+class ExpandUniquenessFilter : public LogicalOperator {
+ public:
+  ExpandUniquenessFilter(const std::shared_ptr<LogicalOperator> &input,
+                         Symbol expand_symbol,
+                         const std::vector<Symbol> &previous_symbols);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol expand_symbol_;
+  std::vector<Symbol> previous_symbols_;
+
+  class ExpandUniquenessFilterCursor : public Cursor {
+   public:
+    ExpandUniquenessFilterCursor(ExpandUniquenessFilter &self,
+                                 GraphDbAccessor &db);
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+
+   private:
+    ExpandUniquenessFilter &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };

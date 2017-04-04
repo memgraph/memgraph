@@ -741,8 +741,8 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(RemoveLabels &self,
                                                      GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
-bool RemoveLabels::RemoveLabelsCursor::Pull(
-    Frame &frame, SymbolTable &symbol_table) {
+bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
+                                            SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -752,6 +752,59 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(
 
   return true;
 }
+
+template <typename TAccessor>
+ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilter(
+    const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
+    const std::vector<Symbol> &previous_symbols)
+    : input_(input),
+      expand_symbol_(expand_symbol),
+      previous_symbols_(previous_symbols) {}
+
+template <typename TAccessor>
+void ExpandUniquenessFilter<TAccessor>::Accept(LogicalOperatorVisitor &visitor) {
+  visitor.Visit(*this);
+  input_->Accept(visitor);
+  visitor.PostVisit(*this);
+}
+
+template <typename TAccessor>
+std::unique_ptr<Cursor> ExpandUniquenessFilter<TAccessor>::MakeCursor(
+    GraphDbAccessor &db) {
+  return std::make_unique<ExpandUniquenessFilterCursor>(*this, db);
+}
+
+template <typename TAccessor>
+ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::
+    ExpandUniquenessFilterCursor(ExpandUniquenessFilter &self,
+                                 GraphDbAccessor &db)
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+template <typename TAccessor>
+bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
+    Frame &frame, SymbolTable &symbol_table) {
+
+  auto expansion_ok = [&]() {
+    TypedValue &expand_value = frame[self_.expand_symbol_];
+    TAccessor &expand_accessor = expand_value.Value<TAccessor>();
+    for (const auto &previous_symbol : self_.previous_symbols_) {
+      TypedValue &previous_value = frame[previous_symbol];
+      TAccessor &previous_accessor = previous_value.Value<TAccessor>();
+      if (expand_accessor == previous_accessor) return false;
+    }
+    return true;
+  };
+
+  while (input_cursor_->Pull(frame, symbol_table))
+    if (expansion_ok())
+      return true;
+  return false;
+}
+
+// instantiations of the ExpandUniquenessFilter template class
+// we only ever need these two
+template class ExpandUniquenessFilter<VertexAccessor>;
+template class ExpandUniquenessFilter<EdgeAccessor>;
 
 }  // namespace plan
 }  // namespace query
