@@ -100,20 +100,19 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
   return last_op;
 }
 
-auto GenMatch(Match &match, LogicalOperator *input_op,
-              const query::SymbolTable &symbol_table,
-              std::unordered_set<int> &bound_symbols) {
+auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
+                        const query::SymbolTable &symbol_table,
+                        std::unordered_set<int> &bound_symbols,
+                        std::vector<Symbol> &edge_symbols) {
   auto base = [&](NodeAtom *node) {
-    if (input_op) {
-      // TODO: Support clauses before match.
-      throw NotYetImplemented();
+    LogicalOperator *last_op = input_op;
+    // If the first atom binds a symbol, we generate a ScanAll which writes it.
+    // Otherwise, someone else generates it (e.g. a previous ScanAll).
+    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
+      last_op = new ScanAll(node, std::shared_ptr<LogicalOperator>(last_op));
     }
-    // First atom always binds a symbol, and we don't care if it already
-    // existed,
-    // because we create a ScanAll which writes that symbol. This may need to
-    // change when we support clauses before match.
-    BindSymbol(bound_symbols, symbol_table.at(*node->identifier_));
-    LogicalOperator *last_op = new ScanAll(node);
+    // Even though we may skip generating ScanAll, we still want to add a filter
+    // in case this atom adds more labels/properties for filtering.
     if (!node->labels_.empty() || !node->properties_.empty()) {
       last_op = new NodeFilter(std::shared_ptr<LogicalOperator>(last_op),
                                symbol_table.at(*node->identifier_), node);
@@ -132,11 +131,22 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
     if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
       node_cycle = true;
     }
-    if (!BindSymbol(bound_symbols, symbol_table.at(*edge->identifier_))) {
+    const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    if (!BindSymbol(bound_symbols, edge_symbol)) {
       edge_cycle = true;
     }
     last_op = new Expand(node, edge, std::shared_ptr<LogicalOperator>(last_op),
                          input_symbol, node_cycle, edge_cycle);
+    if (!edge_cycle) {
+      // Ensure Cyphermorphism (different edge symbols always map to different
+      // edges).
+      if (!edge_symbols.empty()) {
+        last_op = new ExpandUniquenessFilter<EdgeAccessor>(
+            std::shared_ptr<LogicalOperator>(last_op), edge_symbol,
+            edge_symbols);
+      }
+      edge_symbols.emplace_back(edge_symbol);
+    }
     if (!edge->edge_types_.empty() || !edge->properties_.empty()) {
       last_op = new EdgeFilter(std::shared_ptr<LogicalOperator>(last_op),
                                symbol_table.at(*edge->identifier_), edge);
@@ -147,13 +157,18 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
     }
     return last_op;
   };
+  return ReducePattern<LogicalOperator *>(pattern, base, collect);
+}
 
-  if (match.patterns_.size() != 1) {
-    // TODO: Support matching multiple patterns.
-    throw NotYetImplemented();
+auto GenMatch(Match &match, LogicalOperator *input_op,
+              const query::SymbolTable &symbol_table,
+              std::unordered_set<int> &bound_symbols) {
+  auto last_op = input_op;
+  std::vector<Symbol> edge_symbols;
+  for (auto pattern : match.patterns_) {
+    last_op = GenMatchForPattern(*pattern, last_op, symbol_table, bound_symbols,
+                                 edge_symbols);
   }
-  auto last_op =
-      ReducePattern<LogicalOperator *>(*match.patterns_[0], base, collect);
   if (match.where_) {
     last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
                          match.where_->expression_);

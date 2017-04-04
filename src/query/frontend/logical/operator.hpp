@@ -60,7 +60,8 @@ using LogicalOperatorVisitor =
     ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
                      EdgeFilter, Filter, Produce, Delete, SetProperty,
                      SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-                     ExpandUniquenessFilter<VertexAccessor>, ExpandUniquenessFilter<EdgeAccessor>>;
+                     ExpandUniquenessFilter<VertexAccessor>,
+                     ExpandUniquenessFilter<EdgeAccessor>>;
 
 /** @brief Base class for logical operators.
  *
