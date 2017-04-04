@@ -22,12 +22,6 @@ class EdgeAccessor : public RecordAccessor<Edge> {
   using RecordAccessor::RecordAccessor;
 
   /**
-   * Sets a new edge type.
-   * @param edge_type The new type.
-   */
-  void set_edge_type(GraphDbTypes::EdgeType edge_type);
-
-  /**
    * Returns the edge type.
    * @return
    */

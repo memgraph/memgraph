@@ -200,10 +200,6 @@ TEST(RecordAccessor, EdgeType) {
   auto edge = dba->insert_edge(v1, v2, likes);
   EXPECT_EQ(edge.edge_type(), likes);
   EXPECT_NE(edge.edge_type(), hates);
-
-  edge.set_edge_type(hates);
-  EXPECT_EQ(edge.edge_type(), hates);
-  EXPECT_NE(edge.edge_type(), likes);
 }
 
 TEST(RecordAccessor, VertexEdgeConnections) {
