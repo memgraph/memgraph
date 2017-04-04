@@ -92,9 +92,10 @@ struct ScanAllTuple {
  * Returns (node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
-                         const std::string &identifier) {
+                         const std::string &identifier,
+                         std::shared_ptr<LogicalOperator> input = {nullptr}) {
   auto node = NODE(identifier);
-  auto logical_op = std::make_shared<ScanAll>(node);
+  auto logical_op = std::make_shared<ScanAll>(node, input);
   auto symbol = symbol_table.CreateSymbol(identifier);
   symbol_table[*node->identifier_] = symbol;
   //  return std::make_tuple(node, logical_op, symbol);
@@ -157,6 +158,38 @@ TEST(Interpreter, MatchReturn) {
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
   EXPECT_EQ(result.GetResults().size(), 2);
+}
+
+TEST(Interpreter, MatchReturnCartesian) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  dba->insert_vertex().add_label(dba->label("l1"));
+  dba->insert_vertex().add_label(dba->label("l2"));
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
+  auto return_n = NEXPR("n", IDENT("n"));
+  symbol_table[*return_n->expression_] = n.sym_;
+  symbol_table[*return_n] = symbol_table.CreateSymbol("named_expression_1");
+  auto return_m = NEXPR("m", IDENT("m"));
+  symbol_table[*return_m->expression_] = m.sym_;
+  symbol_table[*return_m] = symbol_table.CreateSymbol("named_expression_2");
+  auto produce = MakeProduce(m.op_, return_n, return_m);
+
+  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
+  auto result_data = result.GetResults();
+  EXPECT_EQ(result_data.size(), 4);
+  // ensure the result ordering is OK:
+  // "n" from the results is the same for the first two rows, while "m" isn't
+  EXPECT_EQ(result_data[0][0].Value<VertexAccessor>(),
+            result_data[1][0].Value<VertexAccessor>());
+  EXPECT_NE(result_data[0][1].Value<VertexAccessor>(),
+            result_data[1][1].Value<VertexAccessor>());
 }
 
 TEST(Interpreter, StandaloneReturn) {

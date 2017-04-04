@@ -204,15 +204,22 @@ class CreateExpand : public LogicalOperator {
 
 /**
  * @brief Operator which iterates over all the nodes currently in the database.
+ * When given an input (optional), does a cartesian product.
+ *
+ * It accepts an optional input. If provided then this op scans all the nodes
+ * currently in the database for each successful Pull from it's input, thereby
+ * producing a cartesian product of input Pulls and database elements.
  */
 class ScanAll : public LogicalOperator {
  public:
   ScanAll(NodeAtom *node_atom);
-  DEFVISITABLE(LogicalOperatorVisitor);
+  ScanAll(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input);
+  void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   NodeAtom *node_atom_ = nullptr;
+  std::shared_ptr<LogicalOperator> input_;
 
   class ScanAllCursor : public Cursor {
    public:
@@ -221,8 +228,11 @@ class ScanAll : public LogicalOperator {
 
    private:
     ScanAll &self_;
+    std::unique_ptr<Cursor> input_cursor_;
     decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
+    // if this is the first pull from this cursor
+    bool first_pull_{true};
   };
 };
 

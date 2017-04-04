@@ -148,17 +148,46 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   frame[symbol_table[*self_.edge_atom_->identifier_]] = edge;
 }
 
-ScanAll::ScanAll(NodeAtom *node_atom) : node_atom_(node_atom) {}
+ScanAll::ScanAll(NodeAtom *node_atom)
+    : node_atom_(node_atom), input_(nullptr) {}
+
+ScanAll::ScanAll(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input)
+    : node_atom_(node_atom), input_(input) {}
+
+void ScanAll::Accept(LogicalOperatorVisitor &visitor) {
+  visitor.Visit(*this);
+  if (input_) input_->Accept(visitor);
+  visitor.PostVisit(*this);
+}
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<ScanAllCursor>(*this, db);
 }
 
 ScanAll::ScanAllCursor::ScanAllCursor(ScanAll &self, GraphDbAccessor &db)
-    : self_(self), vertices_(db.vertices()), vertices_it_(vertices_.begin()) {}
+    : self_(self),
+      input_cursor_(self.input_ ? self.input_->MakeCursor(db) : nullptr),
+      vertices_(db.vertices()),
+      vertices_it_(vertices_.begin()) {}
 
 bool ScanAll::ScanAllCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
-  if (vertices_it_ == vertices_.end()) return false;
+  if (input_cursor_) {
+    // using an input. we need to pull from it if we are in the first pull
+    // of this cursor, or if we have exhausted vertices_it_
+    if (first_pull_ || vertices_it_ == vertices_.end()) {
+      first_pull_ = false;
+      // if the input is empty, we are for sure done
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      vertices_it_ = vertices_.begin();
+    }
+  }
+
+  // if we have no more vertices, we're done (if input_ is set we have
+  // just tried to re-init vertices_it_, and if not we only iterate
+  // through it once
+  if (vertices_it_ == vertices_.end())
+    return false;
+
   frame[symbol_table[*self_.node_atom_->identifier_]] = *vertices_it_++;
   return true;
 }
