@@ -164,13 +164,13 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
 
   /**
-   * @return Return*
+   * @return vector<NamedExpression*>
    */
   antlrcpp::Any visitReturnItems(
       CypherParser::ReturnItemsContext *ctx) override;
 
   /**
-   * @return NamedExpression*
+   * @return vector<NamedExpression*>
    */
   antlrcpp::Any visitReturnItem(CypherParser::ReturnItemContext *ctx) override;
 
@@ -436,6 +436,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    */
   antlrcpp::Any visitPropertyExpression(
       CypherParser::PropertyExpressionContext *ctx) override;
+
+  /**
+   * @return With*
+   */
+  antlrcpp::Any visitWith(CypherParser::WithContext *ctx) override;
 
  public:
   Query *query() { return query_; }

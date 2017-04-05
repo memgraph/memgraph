@@ -69,6 +69,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
     // Different return type!!!
     return ctx->remove()->accept(this).as<std::vector<Clause *>>();
   }
+  if (ctx->with()) {
+    return static_cast<Clause *>(ctx->with()->accept(this).as<With *>());
+  }
   // TODO: implement other clauses.
   throw NotYetImplemented();
   return 0;
@@ -97,11 +100,14 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     CypherParser::CypherReturnContext *ctx) {
+  auto *return_clause = storage_.Create<Return>();
   if (ctx->DISTINCT()) {
     // TODO: implement other clauses.
     throw NotYetImplemented();
   }
-  return visitChildren(ctx);
+  return_clause->named_expressions_ =
+      ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
+  return return_clause;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(
@@ -115,15 +121,15 @@ antlrcpp::Any CypherMainVisitor::visitReturnBody(
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(
     CypherParser::ReturnItemsContext *ctx) {
-  auto *return_clause = storage_.Create<Return>();
   if (ctx->getTokens(kReturnAllTokenId).size()) {
     // TODO: implement other clauses.
     throw NotYetImplemented();
   }
+  std::vector<NamedExpression *> named_expressions;
   for (auto *item : ctx->returnItem()) {
-    return_clause->named_expressions_.push_back(item->accept(this));
+    named_expressions.push_back(item->accept(this));
   }
-  return return_clause;
+  return named_expressions;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItem(
@@ -784,6 +790,20 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
   }
   // It is guaranteed by grammar that there is at least one propertyLookup.
   return dynamic_cast<PropertyLookup *>(expression);
+}
+
+antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
+  auto *with = storage_.Create<With>();
+  if (ctx->DISTINCT()) {
+    // TODO: implement this
+    throw NotYetImplemented();
+  }
+  with->named_expressions_ =
+      ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
+  if (ctx->where()) {
+    with->where_ = ctx->where()->accept(this);
+  }
+  return with;
 }
 }
 }

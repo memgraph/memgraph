@@ -563,7 +563,7 @@ class With : public Clause {
     visitor.PostVisit(*this);
   }
 
-  bool distinct_{false};
+  bool distinct_ = false;
   std::vector<NamedExpression *> named_expressions_;
   Where *where_ = nullptr;
 

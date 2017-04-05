@@ -700,4 +700,35 @@ TEST(Visitor, Remove) {
                                      ast_generator.db_accessor_->label("i")));
   }
 }
+
+TEST(Visitor, With) {
+  AstGenerator ast_generator("WITH n AS m");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *with = dynamic_cast<With *>(query->clauses_[0]);
+  ASSERT_TRUE(with);
+  ASSERT_FALSE(with->where_);
+  ASSERT_EQ(with->named_expressions_.size(), 1U);
+  auto *named_expr = with->named_expressions_[0];
+  ASSERT_EQ(named_expr->name_, "m");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier->name_, "n");
+}
+
+TEST(Visitor, WithWhere) {
+  AstGenerator ast_generator("WITH n AS m WHERE k");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *with = dynamic_cast<With *>(query->clauses_[0]);
+  ASSERT_TRUE(with);
+  ASSERT_TRUE(with->where_);
+  auto *identifier = dynamic_cast<Identifier *>(with->where_->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "k");
+  ASSERT_EQ(with->named_expressions_.size(), 1U);
+  auto *named_expr = with->named_expressions_[0];
+  ASSERT_EQ(named_expr->name_, "m");
+  auto *identifier2 = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier2->name_, "n");
+}
 }
