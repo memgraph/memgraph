@@ -70,7 +70,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
              dynamic_cast<plan::SetLabels *>(logical_plan.get()) ||
              dynamic_cast<plan::RemoveProperty *>(logical_plan.get()) ||
              dynamic_cast<plan::RemoveLabels *>(logical_plan.get()) ||
-             dynamic_cast<Delete *>(logical_plan.get())) {
+             dynamic_cast<plan::Delete *>(logical_plan.get())) {
     stream.Header(header);
     auto cursor = logical_plan.get()->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table)) continue;
