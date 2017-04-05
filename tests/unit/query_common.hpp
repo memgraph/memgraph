@@ -78,16 +78,33 @@ auto GetQuery(AstTreeStorage &storage, Clause *clause) {
   storage.query()->clauses_.emplace_back(clause);
   return storage.query();
 }
-template <class... T>
-auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
-  storage.query()->clauses_.emplace_back(clause);
-  return GetQuery(storage, clauses...);
+auto GetQuery(AstTreeStorage &storage, Match *match, Where *where) {
+  match->where_ = where;
+  storage.query()->clauses_.emplace_back(match);
+  return storage.query();
+}
+auto GetQuery(AstTreeStorage &storage, With *with, Where *where) {
+  with->where_ = where;
+  storage.query()->clauses_.emplace_back(with);
+  return storage.query();
 }
 template <class... T>
 auto GetQuery(AstTreeStorage &storage, Match *match, Where *where,
               T *... clauses) {
   match->where_ = where;
   storage.query()->clauses_.emplace_back(match);
+  return GetQuery(storage, clauses...);
+}
+template <class... T>
+auto GetQuery(AstTreeStorage &storage, With *with, Where *where,
+              T *... clauses) {
+  with->where_ = where;
+  storage.query()->clauses_.emplace_back(with);
+  return GetQuery(storage, clauses...);
+}
+template <class... T>
+auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
+  storage.query()->clauses_.emplace_back(clause);
   return GetQuery(storage, clauses...);
 }
 
@@ -121,6 +138,38 @@ template <class... T>
 auto GetReturn(AstTreeStorage &storage, T *... exprs) {
   auto ret = storage.Create<Return>();
   return GetReturn(ret, exprs...);
+}
+
+///
+/// Create the with clause with given named expressions.
+///
+auto GetWith(With *with, NamedExpression *named_expr) {
+  with->named_expressions_.emplace_back(named_expr);
+  return with;
+}
+auto GetWith(With *with, Expression *expr, NamedExpression *named_expr) {
+  // This overload supports `RETURN(expr, AS(name))` construct, since
+  // NamedExpression does not inherit Expression.
+  named_expr->expression_ = expr;
+  with->named_expressions_.emplace_back(named_expr);
+  return with;
+}
+template <class... T>
+auto GetWith(With *with, Expression *expr, NamedExpression *named_expr,
+             T *... rest) {
+  named_expr->expression_ = expr;
+  with->named_expressions_.emplace_back(named_expr);
+  return GetWith(with, rest...);
+}
+template <class... T>
+auto GetWith(With *with, NamedExpression *named_expr, T *... rest) {
+  with->named_expressions_.emplace_back(named_expr);
+  return GetWith(with, rest...);
+}
+template <class... T>
+auto GetWith(AstTreeStorage &storage, T *... exprs) {
+  auto with = storage.Create<With>();
+  return GetWith(with, exprs...);
 }
 
 ///
@@ -207,10 +256,11 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
   query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
-// Expression. It should be used with RETURN. For example:
+// Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
 #define AS(name) storage.Create<query::NamedExpression>((name))
 #define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
+#define WITH(...) query::test_common::GetWith(storage, __VA_ARGS__)
 #define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)

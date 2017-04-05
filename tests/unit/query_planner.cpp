@@ -7,8 +7,8 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/logical/operator.hpp"
 #include "query/frontend/logical/planner.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 
 #include "query_common.hpp"
 
@@ -47,6 +47,7 @@ class PlanChecker : public LogicalOperatorVisitor {
   void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
     AssertType(op);
   }
+  void Visit(Accumulate &op) override { AssertType(op); }
 
  std::list<size_t> types_;
 
@@ -256,6 +257,26 @@ TEST(TestLogicalPlanner, MatchEdgeCycle) {
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("r"), NODE("j"))));
   // There is no ExpandUniquenessFilter for referencing the same edge.
   CheckPlan<ScanAll, Expand, Expand>(*query);
+}
+
+TEST(TestLogicalPlanner, MatchWithReturn) {
+  // Test MATCH (old) WITH old AS new RETURN new AS new
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
+                     RETURN(IDENT("new"), AS("new")));
+  CheckPlan<ScanAll, Accumulate, Produce, Produce>(*query);
+}
+
+TEST(TestLogicalPlanner, MatchWithWhereReturn) {
+  // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new AS new
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
+                     WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))),
+                     RETURN(IDENT("new"), AS("new")));
+  CheckPlan<ScanAll, Accumulate, Produce, Filter, Produce>(*query);
 }
 
 }  // namespace

@@ -39,6 +39,36 @@ void SymbolGenerator::PostVisit(Return &ret) {
   }
 }
 
+void SymbolGenerator::SetWithSymbols(With &with) {
+  // WITH clause removes declarations of all the previous variables and declares
+  // only those established through named expressions. New declarations must not
+  // be visible inside named expressions themselves.
+  scope_.symbols.clear();
+  for (auto &named_expr : with.named_expressions_) {
+    symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
+  }
+}
+
+void SymbolGenerator::Visit(With &with) {
+  scope_.with = &with;
+}
+
+void SymbolGenerator::Visit(Where &where) {
+  if (scope_.with) {
+    // New symbols must be visible in WHERE clause, so this must be done here
+    // and not in PostVisit(With&).
+    SetWithSymbols(*scope_.with);
+  }
+}
+
+void SymbolGenerator::PostVisit(With &with) {
+  if (!with.where_) {
+    // This wasn't done when visiting Where, so do it here.
+    SetWithSymbols(with);
+  }
+  scope_.with = nullptr;
+}
+
 // Expressions
 
 void SymbolGenerator::Visit(Identifier &ident) {

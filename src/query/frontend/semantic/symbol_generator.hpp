@@ -27,6 +27,9 @@ class SymbolGenerator : public TreeVisitorBase {
   void Visit(Create &create) override;
   void PostVisit(Create &create) override;
   void PostVisit(Return &ret) override;
+  void Visit(With &with) override;
+  void PostVisit(With &with) override;
+  void Visit(Where &where) override;
 
   // Expressions
   void Visit(Identifier &ident) override;
@@ -53,6 +56,8 @@ class SymbolGenerator : public TreeVisitorBase {
     bool in_node_atom{false};
     bool in_edge_atom{false};
     bool in_property_map{false};
+    // Pointer to With clause if we are inside it, otherwise nullptr.
+    With *with{nullptr};
     std::map<std::string, Symbol> symbols;
   };
 
@@ -67,6 +72,9 @@ class SymbolGenerator : public TreeVisitorBase {
   // types match. Otherwise, returns a new symbol.
   auto GetOrCreateSymbol(const std::string &name,
                          Symbol::Type type = Symbol::Type::Any);
+
+  // Clear old symbol bindings and establish new from WITH clause.
+  void SetWithSymbols(With &with);
 
   SymbolTable &symbol_table_;
   Scope scope_;

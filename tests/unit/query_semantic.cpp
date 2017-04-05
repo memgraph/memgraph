@@ -2,6 +2,7 @@
 
 #include "gtest/gtest.h"
 
+#include "dbms/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -261,6 +262,79 @@ TEST(TestSymbolGenerator, CreateDeleteUnbound) {
   // Test CREATE (n) DELETE missing
   AstTreeStorage storage;
   auto query = QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchWithReturn) {
+  // Test MATCH (old) WITH old AS n RETURN n AS n
+  AstTreeStorage storage;
+  auto node = NODE("old");
+  auto old_ident = IDENT("old");
+  auto with_as_n = AS("n");
+  auto n_ident = IDENT("n");
+  auto ret_as_n = AS("n");
+  auto query =
+      QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), RETURN(n_ident, ret_as_n));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto node_symbol = symbol_table.at(*node->identifier_);
+  auto old = symbol_table.at(*old_ident);
+  EXPECT_EQ(node_symbol, old);
+  auto with_n = symbol_table.at(*with_as_n);
+  EXPECT_NE(old, with_n);
+  auto n = symbol_table.at(*n_ident);
+  EXPECT_EQ(n, with_n);
+  auto ret_n = symbol_table.at(*ret_as_n);
+  EXPECT_NE(n, ret_n);
+}
+
+TEST(TestSymbolGenerator, MatchWithReturnUnbound) {
+  // Test MATCH (old) WITH old AS n RETURN old AS old
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("n")),
+                     RETURN(IDENT("old"), AS("old")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchWithWhere) {
+  // Test MATCH (old) WITH old AS n WHERE n.prop < 42
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node = NODE("old");
+  auto old_ident = IDENT("old");
+  auto with_as_n = AS("n");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto query = QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
+                     WHERE(LESS(n_prop, LITERAL(42))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 2);
+  auto node_symbol = symbol_table.at(*node->identifier_);
+  auto old = symbol_table.at(*old_ident);
+  EXPECT_EQ(node_symbol, old);
+  auto with_n = symbol_table.at(*with_as_n);
+  EXPECT_NE(old, with_n);
+  auto n = symbol_table.at(*n_prop->expression_);
+  EXPECT_EQ(n, with_n);
+}
+
+TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
+  // Test MATCH (old) WITH old AS n WHERE old.prop < 42
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("n")),
+                     WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);

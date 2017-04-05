@@ -1,5 +1,6 @@
 #include "query/frontend/logical/planner.hpp"
 
+#include <functional>
 #include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
@@ -176,6 +177,59 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
   return last_op;
 }
 
+// Ast tree visitor which collects all the symbols referenced by identifiers.
+class SymbolCollector : public TreeVisitorBase {
+ public:
+  SymbolCollector(const SymbolTable &symbol_table)
+      : symbol_table_(symbol_table) {}
+
+  using TreeVisitorBase::Visit;
+  using TreeVisitorBase::PostVisit;
+
+  void Visit(Identifier &ident) override {
+    symbols_.insert(symbol_table_.at(ident));
+  }
+
+  const auto &symbols() const { return symbols_; }
+
+ private:
+  // Calculates the Symbol hash based on its position.
+  struct SymbolHash {
+    size_t operator()(const Symbol &symbol) const {
+      return std::hash<int>{}(symbol.position_);
+    }
+  };
+
+  const SymbolTable &symbol_table_;
+  std::unordered_set<Symbol, SymbolHash> symbols_;
+};
+
+auto GenWith(With &with, LogicalOperator *input_op,
+             const query::SymbolTable &symbol_table) {
+  if (with.distinct_) {
+    // TODO: Plan disctint with, when operator available.
+    throw NotYetImplemented();
+  }
+  // WITH clause is Accumulate/Aggregate (advance_command) + Produce.
+  SymbolCollector symbol_collector(symbol_table);
+  // Collect used symbols so that accumulate doesn't copy the whole frame.
+  for (auto &named_expr : with.named_expressions_) {
+    named_expr->expression_->Accept(symbol_collector);
+  }
+  auto symbols = symbol_collector.symbols();
+  // TODO: Check whether we need aggregate instead of accumulate.
+  LogicalOperator *last_op =
+      new Accumulate(std::shared_ptr<LogicalOperator>(input_op),
+                     std::vector<Symbol>(symbols.begin(), symbols.end()), true);
+  last_op = new Produce(std::shared_ptr<LogicalOperator>(last_op),
+                        with.named_expressions_);
+  if (with.where_) {
+    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
+                         with.where_->expression_);
+  }
+  return last_op;
+}
+
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
@@ -223,6 +277,8 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
       input_op =
           new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
                                  input_symbol, rem->labels_);
+    } else if (auto *with = dynamic_cast<query::With *>(clause_ptr)) {
+      input_op = GenWith(*with, input_op, symbol_table);
     } else {
       throw NotYetImplemented();
     }
