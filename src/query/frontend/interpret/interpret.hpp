@@ -7,7 +7,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/assert.hpp"
-#include <utils/exceptions/not_yet_implemented.hpp>
+#include "utils/exceptions/not_yet_implemented.hpp"
 
 namespace query {
 

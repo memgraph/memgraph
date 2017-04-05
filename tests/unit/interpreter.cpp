@@ -1265,3 +1265,88 @@ TEST(Interpreter, ExpandUniquenessFilter) {
   EXPECT_EQ(0, check_expand_results(true, false));
   EXPECT_EQ(1, check_expand_results(false, true));
 }
+
+TEST(Interpreter, Accumulate) {
+  // simulate the following two query execution on an empty db
+  // CREATE ({x:0})-[:T]->({x:0})
+  // MATCH (n)--(m) SET n.x = n.x + 1, m.x = m.x + 1 RETURN n.x, m.x
+  // without accumulation we expected results to be [[1, 1], [2, 2]]
+  // with accumulation we expect them to be [[2, 2], [2, 2]]
+
+  auto check = [&](bool accumulate) {
+    Dbms dbms;
+    auto dba = dbms.active();
+    auto prop = dba->property("x");
+
+    auto v1 = dba->insert_vertex();
+    v1.PropsSet(prop, 0);
+    auto v2 = dba->insert_vertex();
+    v2.PropsSet(prop, 0);
+    dba->insert_edge(v1, v2, dba->edge_type("T"));
+    dba->advance_command();
+
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::BOTH, false, "m", false);
+
+    auto one = LITERAL(1);
+    auto n_p = PROPERTY_LOOKUP("n", prop);
+    symbol_table[*n_p->expression_] = n.sym_;
+    auto set_n_p =
+        std::make_shared<plan::SetProperty>(r_m.op_, n_p, ADD(n_p, one));
+    auto m_p = PROPERTY_LOOKUP("m", prop);
+    symbol_table[*m_p->expression_] = r_m.node_sym_;
+    auto set_m_p =
+        std::make_shared<plan::SetProperty>(set_n_p, m_p, ADD(m_p, one));
+
+    std::shared_ptr<LogicalOperator> last_op = set_m_p;
+    if (accumulate) {
+      last_op = std::make_shared<Accumulate>(
+          last_op, std::vector<Symbol>{n.sym_, r_m.node_sym_});
+    }
+
+    auto n_p_ne = NEXPR("n.p", n_p);
+    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n_p_ne");
+    auto m_p_ne = NEXPR("m.p", m_p);
+    symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne");
+    auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
+    ResultStreamFaker results = CollectProduce(produce, symbol_table, *dba);
+    std::vector<int> results_data;
+    for (const auto &row : results.GetResults())
+      for (const auto &column : row)
+        results_data.emplace_back(column.Value<int64_t>());
+    if (accumulate)
+      EXPECT_THAT(results_data, testing::ElementsAre(2, 2, 2, 2));
+    else
+      EXPECT_THAT(results_data, testing::ElementsAre(1, 1, 2, 2));
+  };
+
+  check(false);
+  check(true);
+}
+
+TEST(Interpreter, AccumulateAdvance) {
+  // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
+  // to get correct results we need to advance the command
+
+  auto check = [&](bool advance) {
+    Dbms dbms;
+    auto dba = dbms.active();
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+
+    auto node = NODE("n");
+    auto sym_n = symbol_table.CreateSymbol("n");
+    symbol_table[*node->identifier_] = sym_n;
+    auto create = std::make_shared<CreateNode>(node, nullptr);
+    auto accumulate = std::make_shared<Accumulate>(
+        create, std::vector<Symbol>{sym_n}, advance);
+    auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
+    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
+  };
+  check(false);
+  check(true);
+}

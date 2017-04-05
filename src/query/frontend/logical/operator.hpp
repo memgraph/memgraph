@@ -742,25 +742,57 @@ class ExpandUniquenessFilter : public LogicalOperator {
   };
 };
 
+/** @brief Pulls everything from the input before passing it through.
+ * Optionally advances the command after accumulation and before emitting.
+ *
+ * On the first Pull from this Op's Cursor the input Cursor will be
+ * Pulled until it is empty. The results will be accumulated in the
+ * temporary cache. Once the input Cursor is empty, this Op's Cursor
+ * will start returning cached stuff from it's Pull.
+ *
+ * This technique is used for ensuring all the operations from the
+ * previous LogicalOp have been performed before exposing data
+ * to the next. A typical use-case is the `MATCH - SET - RETURN`
+ * query in which every SET iteration must be performed before
+ * RETURN starts iterating (see Memgraph Wiki for detailed reasoning).
+ *
+ * IMPORTANT: This Op does not cache all the results but only those
+ * elements from the frame whose symbols (frame positions) it was given.
+ * All other frame positions will contain undefined junk after this
+ * op has executed, and should not be used.
+ *
+ * This op can also advance the command after the accumulation and
+ * before emitting. If the command gets advanced, every value that
+ * has been cached will be reconstructed before Pull returns.
+ *
+ * @param input Input @c LogicalOperator.
+ * @param symbols A vector of Symbols that need to be accumulated
+ *  and exposed to the next op.
+ */
 class Accumulate : public LogicalOperator {
  public:
-  Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols);
+  Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols,
+             bool advance_command=false);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   std::shared_ptr<LogicalOperator> input_;
   const std::vector<Symbol> symbols_;
-};
+  bool advance_command_{false};
 
-class AdvanceCommand : public LogicalOperator {
- public:
-  AdvanceCommand(std::shared_ptr<LogicalOperator> input);
-  void Accept(LogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
-
- private:
-  std::shared_ptr<LogicalOperator> input_;
+  class AccumulateCursor : public Cursor {
+   public:
+    AccumulateCursor(Accumulate &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+   private:
+    Accumulate &self_;
+    GraphDbAccessor &db_;
+    std::unique_ptr<Cursor> input_cursor_;
+    std::list<std::list<TypedValue>> cache_;
+    decltype(cache_.begin()) cache_it_ = cache_.begin();
+    bool pulled_all_input_{false};
+  };
 };
 
 }  // namespace plan

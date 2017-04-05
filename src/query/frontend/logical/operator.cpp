@@ -185,8 +185,7 @@ bool ScanAll::ScanAllCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   // if we have no more vertices, we're done (if input_ is set we have
   // just tried to re-init vertices_it_, and if not we only iterate
   // through it once
-  if (vertices_it_ == vertices_.end())
-    return false;
+  if (vertices_it_ == vertices_.end()) return false;
 
   frame[symbol_table[*self_.node_atom_->identifier_]] = *vertices_it_++;
   return true;
@@ -791,7 +790,8 @@ ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilter(
       previous_symbols_(previous_symbols) {}
 
 template <typename TAccessor>
-void ExpandUniquenessFilter<TAccessor>::Accept(LogicalOperatorVisitor &visitor) {
+void ExpandUniquenessFilter<TAccessor>::Accept(
+    LogicalOperatorVisitor &visitor) {
   visitor.Visit(*this);
   input_->Accept(visitor);
   visitor.PostVisit(*this);
@@ -812,7 +812,6 @@ ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::
 template <typename TAccessor>
 bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     Frame &frame, SymbolTable &symbol_table) {
-
   auto expansion_ok = [&]() {
     TypedValue &expand_value = frame[self_.expand_symbol_];
     TAccessor &expand_accessor = expand_value.Value<TAccessor>();
@@ -825,8 +824,7 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
   };
 
   while (input_cursor_->Pull(frame, symbol_table))
-    if (expansion_ok())
-      return true;
+    if (expansion_ok()) return true;
   return false;
 }
 
@@ -835,8 +833,38 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
 template class ExpandUniquenessFilter<VertexAccessor>;
 template class ExpandUniquenessFilter<EdgeAccessor>;
 
-Accumulate::Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols) :
-    input_(input), symbols_(symbols) {}
+namespace {
+
+/**
+ * Helper function for recursively reconstructing all the accessors in the
+ * given TypedValue.
+ */
+void ReconstructTypedValue(TypedValue &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Vertex:
+      value.Value<VertexAccessor>().Reconstruct();
+      break;
+    case TypedValue::Type::Edge:
+      value.Value<EdgeAccessor>().Reconstruct();
+      break;
+    case TypedValue::Type::List:
+      for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())
+        ReconstructTypedValue(inner_value);
+      break;
+    case TypedValue::Type::Map:
+      for (auto &kv : value.Value<std::map<std::string, TypedValue>>())
+        ReconstructTypedValue(kv.second);
+      break;
+    default:
+      break;
+      // TODO implement path reconstruct?
+  }
+}
+}
+
+Accumulate::Accumulate(std::shared_ptr<LogicalOperator> input,
+                       const std::vector<Symbol> &symbols, bool advance_command)
+    : input_(input), symbols_(symbols), advance_command_(advance_command) {}
 
 void Accumulate::Accept(LogicalOperatorVisitor &visitor) {
   visitor.Visit(*this);
@@ -844,18 +872,37 @@ void Accumulate::Accept(LogicalOperatorVisitor &visitor) {
   visitor.PostVisit(*this);
 }
 std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) {
-  return std::unique_ptr<Cursor>();
+  return std::make_unique<Accumulate::AccumulateCursor>(*this, db);
 }
 
-AdvanceCommand::AdvanceCommand(std::shared_ptr<LogicalOperator> input) : input_(input) {}
+Accumulate::AccumulateCursor::AccumulateCursor(Accumulate &self,
+                                               GraphDbAccessor &db)
+    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
-void AdvanceCommand::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
-}
-std::unique_ptr<Cursor> AdvanceCommand::MakeCursor(GraphDbAccessor &db) {
-  return std::unique_ptr<Cursor>();
+bool Accumulate::AccumulateCursor::Pull(Frame &frame,
+                                        SymbolTable &symbol_table) {
+  // cache all the input
+  if (!pulled_all_input_) {
+    while (input_cursor_->Pull(frame, symbol_table)) {
+      cache_.emplace_back();
+      auto &row = cache_.back();
+      for (const Symbol &symbol : self_.symbols_)
+        row.emplace_back(frame[symbol]);
+    }
+    pulled_all_input_ = true;
+    cache_it_ = cache_.begin();
+
+    if (self_.advance_command_) {
+      db_.advance_command();
+      for (auto &row : cache_)
+        for (auto &col : row) ReconstructTypedValue(col);
+    }
+  }
+
+  if (cache_it_ == cache_.end()) return false;
+  auto row_it = (cache_it_++)->begin();
+  for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
+  return true;
 }
 
 }  // namespace plan
