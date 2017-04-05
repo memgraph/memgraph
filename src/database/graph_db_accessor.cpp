@@ -42,7 +42,16 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
 
   bool success = db_.vertices_.access().insert(vertex_vlist).second;
   if (success) return VertexAccessor(*vertex_vlist, *this);
-  throw CreationException("Unable to create a Vertex after 5 attempts");
+  throw CreationException("Unable to create a Vertex.");
+}
+
+void GraphDbAccessor::update_label_index(
+    const GraphDbTypes::Label &label, const VertexAccessor &vertex_accessor) {
+  this->db_.labels_index_.Update(label, vertex_accessor.vlist_);
+}
+
+size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) {
+  return this->db_.labels_index_.Count(label);
 }
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
@@ -59,15 +68,16 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor &vertex_accessor) {
   for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
   vertex_accessor.SwitchNew();
   for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
-  vertex_accessor.vlist_->remove(vertex_accessor.SwitchNew().current_, *transaction_);
+  vertex_accessor.vlist_->remove(vertex_accessor.SwitchNew().current_,
+                                 *transaction_);
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
                                           VertexAccessor &to,
                                           GraphDbTypes::EdgeType edge_type) {
   // create an edge
-  auto edge_vlist = new mvcc::VersionList<Edge>(
-      *transaction_, *from.vlist_, *to.vlist_, edge_type);
+  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, *from.vlist_,
+                                                *to.vlist_, edge_type);
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
@@ -79,9 +89,25 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
   to.update().in_.emplace_back(edge_vlist);
 
   bool success = db_.edges_.access().insert(edge_vlist).second;
-  if (success) return EdgeAccessor(*edge_vlist, *this);
+  const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
+  if (success) {
+    // This has to be here because there is no single method called for
+    // type seting. It's set here, and sometimes in set_edge_type method.
+    update_edge_type_index(edge_type, edge_accessor);
+    return edge_accessor;
+  }
 
-  throw CreationException("Unable to create an Edge after 5 attempts");
+  throw CreationException("Unable to create an Edge.");
+}
+
+void GraphDbAccessor::update_edge_type_index(
+    const GraphDbTypes::EdgeType &edge_type,
+    const EdgeAccessor &edge_accessor) {
+  this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_);
+}
+
+size_t GraphDbAccessor::edges_count(const GraphDbTypes::EdgeType &edge_type) {
+  return this->db_.edge_types_index_.Count(edge_type);
 }
 
 /**
@@ -99,7 +125,8 @@ void swap_out_edge(std::vector<mvcc::VersionList<Edge> *> &edges,
 void GraphDbAccessor::remove_edge(EdgeAccessor &edge_accessor) {
   swap_out_edge(edge_accessor.from().update().out_, edge_accessor.vlist_);
   swap_out_edge(edge_accessor.to().update().in_, edge_accessor.vlist_);
-  edge_accessor.vlist_->remove(edge_accessor.SwitchNew().current_, *transaction_);
+  edge_accessor.vlist_->remove(edge_accessor.SwitchNew().current_,
+                               *transaction_);
 }
 
 GraphDbTypes::Label GraphDbAccessor::label(const std::string &label_name) {

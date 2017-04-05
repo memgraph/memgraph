@@ -91,6 +91,18 @@ class GraphDbAccessor {
   }
 
   /**
+   * Return VertexAccessors which contain the current label for the current
+   * transaction visibilty.
+   * @param label - label for which to return VertexAccessors
+   * @return iterable collection
+   */
+  auto vertices(const GraphDbTypes::Label &label) {
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        db_.labels_index_.Acquire(label, *transaction_));
+  }
+
+  /**
    * Creates a new Edge and returns an accessor to it.
    *
    * @param from The 'from' vertex.
@@ -127,35 +139,48 @@ class GraphDbAccessor {
   }
 
   /**
+   * Return EdgeAccessors which contain the edge_type for the current
+   * transaction visibilty.
+   * @param edge_type - edge_type for which to return EdgeAccessors
+   * @return iterable collection
+   */
+  auto edges(const GraphDbTypes::EdgeType &edge_type) {
+    return iter::imap(
+        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
+        db_.edge_types_index_.Acquire(edge_type, *transaction_));
+  }
+
+  /**
    * Insert this record into corresponding label index.
    * @param label - label index into which to insert record
    * @param record - record which to insert
    */
-  template <typename TRecord>
-  void update_index(const GraphDbTypes::Label &label, const TRecord &record) {
-    db_.labels_index_.Add(label, record.vlist_);
-  }
+  void update_label_index(const GraphDbTypes::Label &label,
+                          const VertexAccessor &vertex_accessor);
 
   /**
-   * Return VertexAccessors which contain the current label for the current
-   * transaction visibilty.
-   * @param label - label for which to return VertexAccessors
-   * @return iterable collection
+   * Insert this record into corresponding edge_type index.
+   * @param edge_type  - edge_type index into which to insert record
+   * @param record - record which to insert
    */
-  auto vertices_by_label(const GraphDbTypes::Label &label) {
-    return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
-        db_.labels_index_.Acquire(label, *transaction_));
-  }
+  void update_edge_type_index(const GraphDbTypes::EdgeType &edge_type,
+                              const EdgeAccessor &edge_accessor);
+
   /**
    * Return approximate number of vertices under indexes with the given label.
    * Note that this is always an over-estimate and never an under-estimate.
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  size_t vertices_by_label_count(const GraphDbTypes::Label &label) {
-    return db_.labels_index_.Count(label);
-  }
+  size_t vertices_count(const GraphDbTypes::Label &label);
+
+  /**
+   * Return approximate number of edges under indexes with the given edge_type.
+   * Note that this is always an over-estimate and never an under-estimate.
+   * @param edge_type - edge_type to check for
+   * @return number of edges with the given edge_type
+   */
+  size_t edges_count(const GraphDbTypes::EdgeType &edge_type);
 
   /**
    * Obtains the Label for the label's name.

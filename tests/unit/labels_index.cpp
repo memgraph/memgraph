@@ -23,7 +23,7 @@ TEST(LabelsIndex, Count) {
     }
     // Greater or equal since we said that we always estimate at least the
     // real number.
-    EXPECT_GE(accessor->vertices_by_label_count(accessor->label("test")), cnt);
+    EXPECT_GE(accessor->vertices_count(accessor->label("test")), cnt);
   }
 }
 
@@ -33,9 +33,9 @@ TEST(LabelsIndex, AddGetZeroLabels) {
   auto accessor = dbms.active();
   auto vertex = accessor->insert_vertex();
   vertex.add_label(accessor->label("test"));
-  accessor->commit();
-  auto collection = accessor->vertices_by_label(accessor->label("test"));
-  std::vector<VertexAccessor> collection_vector;
+  auto collection = accessor->vertices(accessor->label("test"));
+  std::vector<VertexAccessor> collection_vector(collection.begin(),
+                                                collection.end());
   EXPECT_EQ(collection_vector.size(), (size_t)0);
 }
 
@@ -60,7 +60,7 @@ TEST(LabelsIndex, AddGetRemoveLabel) {
   {
     auto accessor = dbms.active();
 
-    auto filtered = accessor->vertices_by_label(accessor->label("test"));
+    auto filtered = accessor->vertices(accessor->label("test"));
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
     auto vertices = accessor->vertices();
 
@@ -89,7 +89,7 @@ TEST(LabelsIndex, AddGetRemoveLabel) {
   {
     auto accessor = dbms.active();
 
-    auto filtered = accessor->vertices_by_label(accessor->label("test"));
+    auto filtered = accessor->vertices(accessor->label("test"));
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
     auto vertices = accessor->vertices();
 

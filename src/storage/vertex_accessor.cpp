@@ -16,7 +16,7 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
 
   // not a duplicate label, add it
   update().labels_.emplace_back(label);
-  this->db_accessor().update_index(label, *this);
+  this->db_accessor().update_label_index(label, *this);
   return true;
 }
 
