@@ -54,14 +54,15 @@ class RemoveProperty;
 class RemoveLabels;
 template <typename TAccessor>
 class ExpandUniquenessFilter;
+class Accumulate;
+class AdvanceCommand;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
-using LogicalOperatorVisitor =
-    ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
-                     EdgeFilter, Filter, Produce, Delete, SetProperty,
-                     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-                     ExpandUniquenessFilter<VertexAccessor>,
-                     ExpandUniquenessFilter<EdgeAccessor>>;
+using LogicalOperatorVisitor = ::utils::Visitor<
+    CreateNode, CreateExpand, ScanAll, Expand, NodeFilter, EdgeFilter, Filter,
+    Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
+    RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
+    ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand>;
 
 /** @brief Base class for logical operators.
  *
@@ -739,6 +740,27 @@ class ExpandUniquenessFilter : public LogicalOperator {
     ExpandUniquenessFilter &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
+};
+
+class Accumulate : public LogicalOperator {
+ public:
+  Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  const std::vector<Symbol> symbols_;
+};
+
+class AdvanceCommand : public LogicalOperator {
+ public:
+  AdvanceCommand(std::shared_ptr<LogicalOperator> input);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
 };
 
 }  // namespace plan

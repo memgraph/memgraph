@@ -835,5 +835,28 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
 template class ExpandUniquenessFilter<VertexAccessor>;
 template class ExpandUniquenessFilter<EdgeAccessor>;
 
+Accumulate::Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols) :
+    input_(input), symbols_(symbols) {}
+
+void Accumulate::Accept(LogicalOperatorVisitor &visitor) {
+  visitor.Visit(*this);
+  input_->Accept(visitor);
+  visitor.PostVisit(*this);
+}
+std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) {
+  return std::unique_ptr<Cursor>();
+}
+
+AdvanceCommand::AdvanceCommand(std::shared_ptr<LogicalOperator> input) : input_(input) {}
+
+void AdvanceCommand::Accept(LogicalOperatorVisitor &visitor) {
+  visitor.Visit(*this);
+  input_->Accept(visitor);
+  visitor.PostVisit(*this);
+}
+std::unique_ptr<Cursor> AdvanceCommand::MakeCursor(GraphDbAccessor &db) {
+  return std::unique_ptr<Cursor>();
+}
+
 }  // namespace plan
 }  // namespace query

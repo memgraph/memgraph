@@ -550,6 +550,27 @@ class Return : public Clause {
   Return(int uid) : Clause(uid) {}
 };
 
+class With : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    for (auto &expr : named_expressions_) {
+      expr->Accept(visitor);
+    }
+    if (where_) where_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+  bool distinct_{false};
+  std::vector<NamedExpression *> named_expressions_;
+  Where *where_ = nullptr;
+
+ protected:
+  With(int uid) : Clause(uid) {}
+};
+
 class Delete : public Clause {
   friend class AstTreeStorage;
 
