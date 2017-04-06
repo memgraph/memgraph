@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "communication/bolt/v1/constants.hpp"
 #include "logging/loggable.hpp"
 #include "utils/bswap.hpp"
 
@@ -15,16 +16,7 @@ namespace communication::bolt {
 //       -> test for more TCP packets!
 
 /**
- * Sizes related to the chunk defined in Bolt protocol.
- */
-static constexpr size_t CHUNK_HEADER_SIZE = 2;
-static constexpr size_t MAX_CHUNK_SIZE = 65535;
-static constexpr size_t CHUNK_END_MARKER_SIZE = 2;
-static constexpr size_t WHOLE_CHUNK_SIZE =
-    CHUNK_HEADER_SIZE + MAX_CHUNK_SIZE + CHUNK_END_MARKER_SIZE;
-
-/**
- * @brief ChunkedBuffer
+ * @brief ChunkedEncoderBuffer
  *
  * Has methods for writing and flushing data into the message buffer.
  *
@@ -44,9 +36,9 @@ static constexpr size_t WHOLE_CHUNK_SIZE =
  * @tparam Socket the output socket that should be used
  */
 template <class Socket>
-class ChunkedBuffer : public Loggable {
+class ChunkedEncoderBuffer : public Loggable {
  public:
-  ChunkedBuffer(Socket &socket) : Loggable("Chunked Buffer"), socket_(socket) {}
+  ChunkedEncoderBuffer(Socket &socket) : Loggable("Chunked Encoder Buffer"), socket_(socket) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size

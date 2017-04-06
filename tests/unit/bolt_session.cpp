@@ -6,7 +6,7 @@
 
 using ResultStreamT =
     communication::bolt::ResultStream<communication::bolt::Encoder<
-        communication::bolt::ChunkedBuffer<TestSocket>>>;
+        communication::bolt::ChunkedEncoderBuffer<TestSocket>>>;
 using SessionT = communication::bolt::Session<TestSocket>;
 
 /**

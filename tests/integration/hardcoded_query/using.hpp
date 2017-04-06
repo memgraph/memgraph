@@ -6,7 +6,7 @@
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "io/network/socket.hpp"
 using Stream = communication::bolt::ResultStream<communication::bolt::Encoder<
-    communication::bolt::ChunkedBuffer<io::network::Socket>>>;
+    communication::bolt::ChunkedEncoderBuffer<io::network::Socket>>>;
 #else
 #include "../stream/print_record_stream.hpp"
 using Stream = PrintRecordStream;

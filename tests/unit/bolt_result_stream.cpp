@@ -1,17 +1,13 @@
 #include "bolt_common.hpp"
 
-#include "communication/bolt/v1/encoder/chunked_buffer.hpp"
+#include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 
-using BufferT = communication::bolt::ChunkedBuffer<TestSocket>;
+using BufferT = communication::bolt::ChunkedEncoderBuffer<TestSocket>;
 using EncoderT = communication::bolt::Encoder<BufferT>;
 using ResultStreamT = communication::bolt::ResultStream<EncoderT>;
-
-/**
- * TODO (mferencevic): document
- */
 
 const uint8_t header_output[] =
     "\x00\x29\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x9A\x82\x61\x61\x82\x62"

@@ -31,7 +31,7 @@ template <typename Socket>
 class Session : public Loggable {
  public:
   using Decoder = BoltDecoder;
-  using OutputStream = ResultStream<Encoder<ChunkedBuffer<Socket>>>;
+  using OutputStream = ResultStream<Encoder<ChunkedEncoderBuffer<Socket>>>;
 
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
       : Loggable("communication::bolt::Session"),
@@ -63,7 +63,7 @@ class Session : public Loggable {
    * @param data pointer on bytes received from a client
    * @param len  length of data received from a client
    */
-  void Execute(const byte *data, size_t len) {
+  void Execute(const uint8_t *data, size_t len) {
     // mark the end of the message
     auto end = data + len;
 
@@ -112,8 +112,8 @@ class Session : public Loggable {
   Socket socket_;
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
-  ChunkedBuffer<Socket> encoder_buffer_;
-  Encoder<ChunkedBuffer<Socket>> encoder_;
+  ChunkedEncoderBuffer<Socket> encoder_buffer_;
+  Encoder<ChunkedEncoderBuffer<Socket>> encoder_;
   OutputStream output_stream_;
   Decoder decoder_;
   io::network::Epoll::Event event_;

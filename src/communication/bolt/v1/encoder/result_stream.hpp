@@ -1,6 +1,6 @@
 #pragma once
 
-#include "communication/bolt/v1/encoder/chunked_buffer.hpp"
+#include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 

@@ -1,9 +1,9 @@
 #include "bolt_common.hpp"
-#include "communication/bolt/v1/encoder/chunked_buffer.hpp"
+#include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 
 // aliases
 using SocketT = TestSocket;
-using BufferT = communication::bolt::ChunkedBuffer<SocketT>;
+using BufferT = communication::bolt::ChunkedEncoderBuffer<SocketT>;
 
 // "alias" constants
 static constexpr auto CHS = communication::bolt::CHUNK_HEADER_SIZE;
@@ -41,7 +41,7 @@ void VerifyChunkOfOnes(uint8_t *data, int size, uint8_t element) {
   ASSERT_EQ(*(data + CHS + size + 1), 0x00);
 }
 
-TEST(BoltChunkedBuffer, OneSmallChunk) {
+TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
   // initialize array of 100 ones (small chunk)
   int size = 100;
   uint8_t element = '1';
@@ -60,7 +60,7 @@ TEST(BoltChunkedBuffer, OneSmallChunk) {
   VerifyChunkOfOnes(socket.output.data(), size, element);
 }
 
-TEST(BoltChunkedBuffer, TwoSmallChunks) {
+TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   // initialize the small arrays
   int size1 = 100;
   uint8_t element1 = '1';
@@ -87,7 +87,7 @@ TEST(BoltChunkedBuffer, TwoSmallChunks) {
   VerifyChunkOfOnes(data + CHS + size1 + CEMS, size2, element2);
 }
 
-TEST(BoltChunkedBuffer, OneAndAHalfOfMaxChunk) {
+TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // initialize a big chunk
   int size = 100000;
   uint8_t element = '1';

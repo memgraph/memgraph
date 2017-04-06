@@ -1,15 +1,10 @@
 #pragma once
 
+#include "io/network/stream_buffer.hpp"
 #include "io/network/stream_listener.hpp"
 #include "memory/literals.hpp"
 
 namespace io::network {
-using namespace memory::literals;
-
-struct StreamBuffer {
-  char* ptr;
-  size_t len;
-};
 
 /**
  * This class is used to get data from a socket that has been notified
@@ -62,7 +57,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
       auto buf = this->derived().OnAlloc(stream);
 
       // read from the buffer at most buf.len bytes
-      buf.len = stream.socket_.Read(buf.ptr, buf.len);
+      buf.len = stream.socket_.Read(buf.data, buf.len);
 
       // check for read errors
       if (buf.len == -1) {

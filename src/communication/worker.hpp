@@ -73,7 +73,7 @@ class Worker
     logger_.trace("[on_read] Received {}B", buf.len);
 
     try {
-      session.Execute(reinterpret_cast<const byte *>(buf.ptr), buf.len);
+      session.Execute(buf.data, buf.len);
     } catch (const std::exception &e) {
       logger_.error("Error occured while executing statement.");
       logger_.error("{}", e.what());
@@ -96,7 +96,7 @@ class Worker
     // TODO: Do something about it
   }
 
-  char buf_[65536];
+  uint8_t buf_[65536];
   std::thread thread_;
 
   void Start(std::atomic<bool> &alive) {

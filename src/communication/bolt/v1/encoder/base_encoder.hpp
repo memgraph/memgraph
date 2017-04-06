@@ -1,5 +1,6 @@
 #pragma once
 
+#include "communication/bolt/v1/codes.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "logging/default.hpp"
 #include "logging/logger.hpp"
@@ -9,12 +10,6 @@
 #include <string>
 
 namespace communication::bolt {
-
-static constexpr uint8_t TSTRING = 0, TLIST = 1, TMAP = 2;
-static constexpr uint8_t type_tiny_marker[3] = {0x80, 0x90, 0xA0};
-static constexpr uint8_t type_8_marker[3] = {0xD0, 0xD4, 0xD8};
-static constexpr uint8_t type_16_marker[3] = {0xD1, 0xD5, 0xD9};
-static constexpr uint8_t type_32_marker[3] = {0xD2, 0xD6, 0xDA};
 
 /**
  * Bolt BaseEncoder.
@@ -62,45 +57,36 @@ class BaseEncoder : public Loggable {
   }
 
   void WriteNull() {
-    // 0xC0 = null marker
-    WriteRAW(0xC0);
+    WriteRAW(underlying_cast(Marker::Null));
   }
 
   void WriteBool(const bool &value) {
-    if (value) {
-      // 0xC3 = true marker
-      WriteRAW(0xC3);
-    } else {
-      // 0xC2 = false marker
-      WriteRAW(0xC2);
-    }
+    if (value)
+      WriteRAW(underlying_cast(Marker::True));
+    else
+      WriteRAW(underlying_cast(Marker::False));
   }
 
   void WriteInt(const int64_t &value) {
     if (value >= -16L && value < 128L) {
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -128L && value < -16L) {
-      // 0xC8 = int8 marker
-      WriteRAW(0xC8);
+      WriteRAW(underlying_cast(Marker::Int8));
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -32768L && value < 32768L) {
-      // 0xC9 = int16 marker
-      WriteRAW(0xC9);
+      WriteRAW(underlying_cast(Marker::Int16));
       WriteValue(static_cast<int16_t>(value));
     } else if (value >= -2147483648L && value < 2147483648L) {
-      // 0xCA = int32 marker
-      WriteRAW(0xCA);
+      WriteRAW(underlying_cast(Marker::Int32));
       WriteValue(static_cast<int32_t>(value));
     } else {
-      // 0xCB = int64 marker
-      WriteRAW(0xCB);
+      WriteRAW(underlying_cast(Marker::Int64));
       WriteValue(value);
     }
   }
 
   void WriteDouble(const double &value) {
-    // 0xC1 = float64 marker
-    WriteRAW(0xC1);
+    WriteRAW(underlying_cast(Marker::Float64));
     WriteValue(*reinterpret_cast<const int64_t *>(&value));
   }
 
@@ -108,38 +94,34 @@ class BaseEncoder : public Loggable {
     if (size <= 15) {
       uint8_t len = size;
       len &= 0x0F;
-      // tiny marker (+len)
-      WriteRAW(type_tiny_marker[typ] + len);
+      WriteRAW(underlying_cast(MarkerTiny[typ]) + len);
     } else if (size <= 255) {
       uint8_t len = size;
-      // 8 marker
-      WriteRAW(type_8_marker[typ]);
+      WriteRAW(underlying_cast(Marker8[typ]));
       WriteRAW(len);
     } else if (size <= 65536) {
       uint16_t len = size;
-      // 16 marker
-      WriteRAW(type_16_marker[typ]);
+      WriteRAW(underlying_cast(Marker16[typ]));
       WriteValue(len);
     } else {
       uint32_t len = size;
-      // 32 marker
-      WriteRAW(type_32_marker[typ]);
+      WriteRAW(underlying_cast(Marker32[typ]));
       WriteValue(len);
     }
   }
 
   void WriteString(const std::string &value) {
-    WriteTypeSize(value.size(), TSTRING);
+    WriteTypeSize(value.size(), MarkerString);
     WriteRAW(value.c_str(), value.size());
   }
 
   void WriteList(const std::vector<TypedValue> &value) {
-    WriteTypeSize(value.size(), TLIST);
+    WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteTypedValue(x);
   }
 
   void WriteMap(const std::map<std::string, TypedValue> &value) {
-    WriteTypeSize(value.size(), TMAP);
+    WriteTypeSize(value.size(), MarkerMap);
     for (auto &x : value) {
       WriteString(x.first);
       WriteTypedValue(x.second);
@@ -147,8 +129,8 @@ class BaseEncoder : public Loggable {
   }
 
   void WriteVertex(const VertexAccessor &vertex) {
-    // 0xB3 = struct 3; 0x4E = vertex signature
-    WriteRAW("\xB3\x4E", 2);
+    WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
+    WriteRAW(underlying_cast(Signature::Node));
 
     if (encode_ids_) {
       // IMPORTANT: this is used only in the database snapshotter!
@@ -163,13 +145,13 @@ class BaseEncoder : public Loggable {
 
     // write labels
     const auto &labels = vertex.labels();
-    WriteTypeSize(labels.size(), TLIST);
+    WriteTypeSize(labels.size(), MarkerList);
     for (const auto &label : labels)
       WriteString(vertex.db_accessor().label_name(label));
 
     // write properties
     const auto &props = vertex.Properties();
-    WriteTypeSize(props.size(), TMAP);
+    WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
       WriteString(vertex.db_accessor().property_name(prop.first));
       WriteTypedValue(prop.second);
@@ -177,8 +159,8 @@ class BaseEncoder : public Loggable {
   }
 
   void WriteEdge(const EdgeAccessor &edge) {
-    // 0xB5 = struct 5; 0x52 = edge signature
-    WriteRAW("\xB5\x52", 2);
+    WriteRAW(underlying_cast(Marker::TinyStruct) + 5);
+    WriteRAW(underlying_cast(Signature::Relationship));
 
     if (encode_ids_) {
       // IMPORTANT: this is used only in the database snapshotter!
@@ -200,7 +182,7 @@ class BaseEncoder : public Loggable {
 
     // write properties
     const auto &props = edge.Properties();
-    WriteTypeSize(props.size(), TMAP);
+    WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
       WriteString(edge.db_accessor().property_name(prop.first));
       WriteTypedValue(prop.second);
