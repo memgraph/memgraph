@@ -35,15 +35,13 @@ class VersionList {
   VersionList() = delete;
   VersionList(const VersionList &) = delete;
   VersionList &operator=(const VersionList &) = delete;
-
-  /* @brief Move constructs the version list
-   * Note: use only at the beginning of the "other's" lifecycle since this
-   * constructor doesn't move the RecordLock, but only the head pointer
-   */
-  VersionList(VersionList &&other) {
-    this->head = other.head.load();
-    other.head = nullptr;
-  }
+  // We do a lot of raw-pointer ops with VLists, and these ops assume that a
+  // VList's address identifies a vertex/edge absolutely and during it's whole
+  // lifteme. We also assume that the VList owner is the database and that
+  // ownership is also handled via raw pointers so this shouldn't be moved or
+  // move assigned.
+  VersionList(const VersionList &&other) = delete;
+  VersionList &operator=(const VersionList &&other) = delete;
 
   ~VersionList() { delete head.load(); }
 
@@ -154,8 +152,7 @@ class VersionList {
     new_ref = nullptr;
     old_ref = head.load(std::memory_order_seq_cst);
     while (old_ref != nullptr && !old_ref->visible(t)) {
-      if (!new_ref && old_ref->is_created_by(t))
-        new_ref = old_ref;
+      if (!new_ref && old_ref->is_created_by(t)) new_ref = old_ref;
       old_ref = old_ref->next(std::memory_order_seq_cst);
     }
   }
