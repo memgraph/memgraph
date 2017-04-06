@@ -16,7 +16,6 @@
 #include "gtest/gtest.h"
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/default.cpp"
 #include "utils/random/random_generator.hpp"
 
 using utils::random::NumberGenerator;
@@ -410,9 +409,6 @@ TEST(SkipListReverseIteratorTest, DeleteWhileIteratingTest) {
 }
 
 int main(int argc, char** argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
-
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
