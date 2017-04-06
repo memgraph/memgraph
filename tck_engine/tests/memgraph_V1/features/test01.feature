@@ -6,7 +6,7 @@ Feature: Test01
             CREATE (n)
             """
         Then the result should be empty
-    
+
     Scenario: Create node with label without clearing database
         When executing query:
             """
@@ -20,7 +20,7 @@ Feature: Test01
             CREATE (n{a: 1})
             """
         Then the result should be empty
-    
+
     Scenario: Create node with float property without clearing database
         When executing query:
             """
@@ -48,21 +48,21 @@ Feature: Test01
             CREATE (n{a: NULL})
             """
         Then the result should be empty
-    
+
     Scenario: Create node with properties without clearing database
         When executing query:
             """
             CREATE (n{a: 1.0, b: false, c: 1, d: 'neki"string"', e: NULL})
             """
         Then the result should be empty
-    
+
     Scenario: Create node with properties without clearing database
         When executing query:
             """
             CREATE (n:L:K:T {a: 1.0, b: false, c: 1, d: 'neki"string"', e: NULL})
             """
         Then the result should be empty
-    
+
     Scenario: Create multiple nodes connected by relationships
         When executing query:
             """
@@ -85,7 +85,7 @@ Feature: Test01
         Then the result should be empty
 
 
-    
+
 
     Scenario: Create empty node without clearing database:
         When executing query:
@@ -95,7 +95,7 @@ Feature: Test01
         Then the result should be:
             | n |
             |( )|
-    
+
     Scenario: Create node with labels without clearing database and return it
         When executing query:
             """
@@ -433,4 +433,3 @@ Feature: Test01
             |              n                |
             |     (:Person {age: 20})       |
             |  (:Person :Student {age: 20}) |
-

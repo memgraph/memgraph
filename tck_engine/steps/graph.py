@@ -3,15 +3,22 @@ import os
 from behave import *
 
 
+def clear_graph(context):
+    database.query("MATCH (n) DETACH DELETE n", context)
+    if context.exception != None:
+        context.exception = None
+        database.query("MATCH (n) DETACH DELETE n", context)
+
+
 @given('an empty graph')
 def empty_graph_step(context):
-    database.query("MATCH (n) DETACH DELETE n", context)
+    clear_graph(context)
     context.graph_properties.set_beginning_parameters()
 
 
 @given('any graph')
 def any_graph_step(context):
-    database.query("MATCH (n) DETACH DELETE n", context)
+    clear_graph(context)
     context.graph_properties.set_beginning_parameters()
 
 
@@ -27,7 +34,7 @@ def create_graph(name, context):
     executes queries written in a .cypher file separated by ';'
     and sets graph properties to beginning values.
     """
-    database.query("MATCH (n) DETACH DELETE n", context)
+    clear_graph(context)
     path = find_graph_path(name, context.config.graphs_root)
 
     q_marks = ["'", '"', '`']

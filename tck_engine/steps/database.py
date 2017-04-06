@@ -13,16 +13,20 @@ def query(q, context, params={}):
     """
     results_list = []
 
-    if context.config.database == "neo4j":
-        session = context.session
+    if (context.config.database == "neo4j" or
+        context.config.database == "memgraph"):
+        session = context.driver.session()
         try:
             # executing query
             results = session.run(q, params)
-            summary = results.summary()
             if not context.config.no_side_effects:
+                summary = results.summary()
                 add_side_effects(context, summary.counters)
             results_list = list(results)
             """
+            This code snippet should replace code which is now
+            executing queries when session.transactions will be supported.
+
             with session.begin_transaction() as tx:
                 results = tx.run(q, params)
                 summary = results.summary()
@@ -30,16 +34,13 @@ def query(q, context, params={}):
                     add_side_effects(context, summary.counters)
                 results_list = list(results)
                 tx.success = True
-
-            This code snippet should replace code which is now
-            executing queries when session.transactions will be supported.
             """
         except Exception as e:
             # exception
             context.exception = e
             context.log.info('%s', str(e))
-            # not working if removed
-            query("match (n) detach delete(n)", context)
+        finally:
+            session.close()
     return results_list
 
 

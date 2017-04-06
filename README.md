@@ -20,15 +20,15 @@ Python script used to run tck tests against memgraph. To run script execute:
 Script uses Behave to run Cucumber tests.
 
 The following tck tests have been changed:
-	
-    1. Tests where example injection did not work. Behave stores the first row 
+
+    1. Tests where example injection did not work. Behave stores the first row
        in Cucumber tables as headings and the example injection is not working in
        headings. To correct this behavior, one row was added to tables where
        injection was used.
 
     2. Tests where the results were not always in the same order. Query does not
-       specify the result order, but tests specified it. It led to the test failure. 
-       To correct tests, tag "the result should be" was changed with a 
+       specify the result order, but tests specified it. It led to the test failure.
+       To correct tests, tag "the result should be" was changed with a
        tag "the result should be (ignoring element order for lists)".
 
 Comparability.feature tests are failing because integers are compared to strings
@@ -45,13 +45,13 @@ TCK Engine problems:
 
     2. Properties side effects
          | +properties | 1 |
-         | -properties | 1 | 
+         | -properties | 1 |
 
          Database is returning properties_set, not properties_created and properties_deleted.
- 
+
 ## KPI Service
 
-Flask application used to get results from executing tests with TCK Engine. 
+Flask application used to get results from executing tests with TCK Engine.
 Application can be ran executing:
-	
+
     1. python3 kpi_service/kpi_service.py

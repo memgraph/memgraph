@@ -1,20 +1,31 @@
 #!/bin/bash
 
+function print_usage_and_exit {
+    echo "./init [--no-clone-dependencies] [--arc-diff DIFF_ID]"
+    exit 1
+}
+
 # read arguments
+arcanist_diff_id=""
 clone_dependencies=true
-while [[ $# -gt 0 ]]
-do
-key="$1"
-case $key in
-    --no-clone-dependencies)
-    clone_dependencies=false
-    shift # past argument
-    ;;
-    *)
-	# unknown option
-    ;;
-esac
-shift # past argument
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-clone-dependencies)
+            clone_dependencies=false
+            shift
+            ;;
+        --arc-diff)
+            if [[ -z $2 ]]; then
+                print_usage_and_exit
+            fi
+            arcanist_diff_id=$2
+            shift 2
+            ;;
+        *)
+            # unknown option
+            print_usage_and_exit
+            ;;
+    esac
 done
 
 # exit if any subcommand returns a non-zero status
@@ -22,26 +33,23 @@ set -e
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# optional argument; if diff_id exists arcanist patch will be applied
-arcanist_diff_id=${1:-""}
-
 # install all dependencies on debian based operating systems
-for pkg in git arcanist python3-virtualenv python3-pip; do
+for pkg in git arcanist python-virtualenv python3-pip; do
     dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
 done
 
 # TODO: use pullbot and read a password from program arg or env var
 #       (in order to use this script inside CI infrastructure)
 
-# clean tests folder
+# create tests folder
 tests_folder=${script_dir}/tests
 mkdir -p ${tests_folder}
 
 # clone dressipi's tests
 cd ${tests_folder}
-if ${clone_dependencies} ; then
-rm -rf ${tests_folder}/*
-git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
+if ${clone_dependencies}; then
+    rm -rf ${tests_folder}/*
+    git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
 fi
 
 # clean dbms folder
@@ -51,8 +59,8 @@ mkdir -p ${dbms_folder}
 # clone memgraph & checkout right commit
 cd ${dbms_folder}
 if ${clone_dependencies} ; then
-rm -rf ${dbms_folder}/*
-git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
+    rm -rf ${dbms_folder}/*
+    git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
 fi
 memgraph_folder=${dbms_folder}/memgraph
 cd ${memgraph_folder}
@@ -63,6 +71,13 @@ if [[ !  -z  ${arcanist_diff_id}  ]]; then
     # and it fails if user isn't set (inside CI infrastructure the user
     # probably won't be defined because CI infrastructure doesn't push
     # any code back to the repository)
-    arc parch ${arcanist_diff_id} --nocommit
+    arc patch ${arcanist_diff_id} --nocommit
 fi
 ./init
+
+# compile memgraph
+memgraph_build_dir=${script_dir}/dbms/memgraph/build
+cd ${memgraph_build_dir}
+cmake ..
+make -j8
+make copy_hardcoded_queries
