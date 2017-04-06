@@ -905,5 +905,20 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
   return true;
 }
 
+Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
+                     const std::vector<Aggregate::Element> &aggregations,
+                     std::vector<NamedExpression *> group_by)
+    : input_(input), aggregations_(aggregations), group_by_(group_by) {}
+
+void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
+  visitor.Visit(*this);
+  input_->Accept(visitor);
+  visitor.PostVisit(*this);
+}
+
+std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
+  return std::unique_ptr<Cursor>();
+}
+
 }  // namespace plan
 }  // namespace query

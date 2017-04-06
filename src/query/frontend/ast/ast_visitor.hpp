@@ -9,6 +9,7 @@ class Query;
 class NamedExpression;
 class Identifier;
 class PropertyLookup;
+class Aggregation;
 class Create;
 class Match;
 class Return;
@@ -48,6 +49,7 @@ using TreeVisitorBase = ::utils::Visitor<
     DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     UnaryPlusOperator, UnaryMinusOperator, Identifier, Literal, PropertyLookup,
-    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels>;
+    Aggregation, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
+    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
+    RemoveLabels>;
 }

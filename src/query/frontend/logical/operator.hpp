@@ -56,13 +56,16 @@ template <typename TAccessor>
 class ExpandUniquenessFilter;
 class Accumulate;
 class AdvanceCommand;
+class Aggregate;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
-using LogicalOperatorVisitor = ::utils::Visitor<
-    CreateNode, CreateExpand, ScanAll, Expand, NodeFilter, EdgeFilter, Filter,
-    Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
-    ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand>;
+using LogicalOperatorVisitor =
+    ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
+                     EdgeFilter, Filter, Produce, Delete, SetProperty,
+                     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+                     ExpandUniquenessFilter<VertexAccessor>,
+                     ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
+                     AdvanceCommand, Aggregate>;
 
 /** @brief Base class for logical operators.
  *
@@ -771,8 +774,8 @@ class ExpandUniquenessFilter : public LogicalOperator {
  */
 class Accumulate : public LogicalOperator {
  public:
-  Accumulate(std::shared_ptr<LogicalOperator> input, const std::vector<Symbol> &symbols,
-             bool advance_command=false);
+  Accumulate(std::shared_ptr<LogicalOperator> input,
+             const std::vector<Symbol> &symbols, bool advance_command = false);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
@@ -785,6 +788,7 @@ class Accumulate : public LogicalOperator {
    public:
     AccumulateCursor(Accumulate &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+
    private:
     Accumulate &self_;
     GraphDbAccessor &db_;
@@ -793,6 +797,39 @@ class Accumulate : public LogicalOperator {
     decltype(cache_.begin()) cache_it_ = cache_.begin();
     bool pulled_all_input_{false};
   };
+};
+
+/** @brief Performs an arbitrary number of aggregations of data
+ * from the given input grouped by the given criteria.
+ *
+ * Aggregations are defined by triples that define
+ * (input data expression, type of aggregation, output symbol).
+ * Input data is grouped based on the given set of named
+ * expressions. Grouping is done on unique values.
+ *
+ * IMPORTANT:
+ * Ops taking their input from an aggregation are only
+ * allowed to use frame values that are either aggregation
+ * outputs or group-by named-expressions. All other frame
+ * elements are in an undefined state after aggregation.
+ */
+class Aggregate : public LogicalOperator {
+ public:
+  /** @brief An aggregation element, contains:
+   * (input data expression, type of aggregation, output symbol).
+   */
+  using Element = std::tuple<Expression *, Aggregation::Op, Symbol>;
+
+  Aggregate(const std::shared_ptr<LogicalOperator> &input,
+            const std::vector<Element> &aggregations,
+            std::vector<NamedExpression *> group_by);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Element> aggregations_;
+  std::vector<NamedExpression *> group_by_;
 };
 
 }  // namespace plan

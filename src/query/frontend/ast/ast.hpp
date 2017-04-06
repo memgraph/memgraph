@@ -363,6 +363,24 @@ class PropertyLookup : public Expression {
       : Expression(uid), expression_(expression), property_(property) {}
 };
 
+class Aggregation : public UnaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  enum class Op { COUNT, MIN, MAX, SUM, AVG };
+  Op op_;
+
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  Aggregation(int uid, Expression *expression, Op op)
+      : UnaryOperator(uid, expression), op_(op) {}
+};
+
 class NamedExpression : public Tree {
   friend class AstTreeStorage;
 
