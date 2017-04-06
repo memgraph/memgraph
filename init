@@ -1,11 +1,77 @@
 #!/bin/bash
 
-echo "START"
+function print_help () {
+    echo "Usage: $0 [OPTION]"
+    echo -e "Check for missing packages and install them if possible.\n"
+    echo "Optional arguments:"
+    echo -e "  -s\tuse sudo apt-get for installing packages"
+    echo -e "  -h\tdisplay this help and exit"
+}
+
+required_pkgs=(git cmake clang-3.8 llvm-3.8 doxygen
+               wget # for downloading libs, e.g. antlr
+               uuid-dev default-jre-headless # required by antlr
+              )
+
+optional_pkgs=(clang-format-3.8 # source code formatting
+               libreadline-dev # for Memgraph CLI
+              )
+
+use_sudo=0
+
+if [[ $# -gt 1 ]]; then
+    print_help
+    exit 1
+elif  [[ $# -eq 1 ]]; then
+    case "$1" in
+      -s)
+          use_sudo=1
+      ;;
+      -h)
+          print_help
+          exit 0
+      ;;
+      *)
+          # unknown option
+          print_help
+          exit 1
+      ;;
+  esac
+fi
+
+echo "Started installing dependencies for Memgraph"
+
+required_missing=0
 
 # install all dependencies on debian based operating systems
-for pkg in wget git cmake uuid-dev clang-3.8 llvm-3.8 clang-format-3.8 doxygen libreadline-dev; do
-    dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
+for pkg in ${required_pkgs[@]}; do
+    if dpkg -s $pkg 2>/dev/null >/dev/null; then
+        echo "Found $pkg"
+    elif (( $use_sudo )); then
+        echo "Installing $pkg"
+        if [[ ! `sudo apt-get -y install $pkg` ]]; then
+            echo "Didn't install $pkg [required]"
+            required_missing=1
+        fi
+    else
+        echo "Missing $pkg [required]"
+        required_missing=1
+    fi
 done
+
+for pkg in ${optional_pkgs[@]}; do
+    if dpkg -s $pkg 2>/dev/null >/dev/null; then
+        echo "Found $pkg [optional]"
+    else
+        echo "Missing $pkg [optional]"
+    fi
+done
+
+if (( $required_missing )); then
+    echo "Missing required packages. EXITING!"
+    echo "Please, install required packages and rerun $0 again."
+    exit 2
+fi
 
 # create a default build directory
 mkdir -p ./build
@@ -15,4 +81,4 @@ cd libs
 ./setup.sh
 cd ..
 
-echo "DONE"
+echo "Done installing dependencies for Memgraph"
