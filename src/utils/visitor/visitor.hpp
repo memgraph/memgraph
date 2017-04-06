@@ -11,6 +11,7 @@ class VisitorBase {
  public:
   virtual ~VisitorBase() = default;
 
+  virtual bool PreVisit(T &) { return true; }
   virtual void Visit(T &) {}
   virtual void PostVisit(T &) {}
 };
@@ -22,9 +23,11 @@ template <typename Head, typename... Tail>
 class RecursiveVisitorBase<Head, Tail...>
     : public VisitorBase<Head>, public RecursiveVisitorBase<Tail...> {
  public:
+  using VisitorBase<Head>::PreVisit;
   using VisitorBase<Head>::Visit;
   using VisitorBase<Head>::PostVisit;
 
+  using RecursiveVisitorBase<Tail...>::PreVisit;
   using RecursiveVisitorBase<Tail...>::Visit;
   using RecursiveVisitorBase<Tail...>::PostVisit;
 };
@@ -32,19 +35,22 @@ class RecursiveVisitorBase<Head, Tail...>
 template <typename T>
 class RecursiveVisitorBase<T> : public VisitorBase<T> {
  public:
+  using VisitorBase<T>::PreVisit;
   using VisitorBase<T>::Visit;
   using VisitorBase<T>::PostVisit;
 };
 
 }  // namespace detail
 
-/// Inherit from this class if you want to visit TVisitable types.
+/// @brief Inherit from this class if you want to visit TVisitable types.
+///
 /// Example usage:
 ///
 ///     // Typedef for convenience or to establish a base class of visitors.
 ///     typedef Visitor<Identifier, Literal> ExpressionVisitorBase;
 ///     class ExpressionVisitor : public ExpressionVisitorBase {
 ///      public:
+///       using ExpressionVisitorBase::PreVisit;
 ///       using ExpressionVisitorBase::Visit;
 ///       using ExpressionVisitorBase::PostVisit;
 ///
@@ -57,6 +63,7 @@ class RecursiveVisitorBase<T> : public VisitorBase<T> {
 template <typename... TVisitable>
 class Visitor : public detail::RecursiveVisitorBase<TVisitable...> {
  public:
+  using detail::RecursiveVisitorBase<TVisitable...>::PreVisit;
   using detail::RecursiveVisitorBase<TVisitable...>::Visit;
   using detail::RecursiveVisitorBase<TVisitable...>::PostVisit;
 };

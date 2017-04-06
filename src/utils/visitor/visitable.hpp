@@ -18,6 +18,11 @@ namespace utils {
 ///      public:
 ///        void Accept(ExpressionVisitor &visitor) override {
 ///          // Implement custom Accept.
+///          if (visitor.PreVisit(*this)) {
+///            visitor.Visit(*this);
+///            ...  // e.g. send visitor to children
+///            visitor.PostVisit(*this);
+///          }
 ///        }
 ///     };
 ///
@@ -34,8 +39,10 @@ class Visitable {
 /// @sa utils::Visitable
 #define DEFVISITABLE(TVisitor)              \
   void Accept(TVisitor &visitor) override { \
-    visitor.Visit(*this);                   \
-    visitor.PostVisit(*this);               \
+    if (visitor.PreVisit(*this)) {          \
+      visitor.Visit(*this);                 \
+      visitor.PostVisit(*this);             \
+    }                                       \
   }
 };
 

@@ -12,9 +12,11 @@ CreateNode::CreateNode(NodeAtom *node_atom,
     : node_atom_(node_atom), input_(input) {}
 
 void CreateNode::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  if (input_) input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    if (input_) input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> CreateNode::MakeCursor(GraphDbAccessor &db) {
@@ -69,9 +71,11 @@ CreateExpand::CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
       node_existing_(node_existing) {}
 
 void CreateExpand::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> CreateExpand::MakeCursor(GraphDbAccessor &db) {
@@ -155,9 +159,11 @@ ScanAll::ScanAll(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input)
     : node_atom_(node_atom), input_(input) {}
 
 void ScanAll::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  if (input_) input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    if (input_) input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
@@ -202,9 +208,11 @@ Expand::Expand(NodeAtom *node_atom, EdgeAtom *edge_atom,
       edge_cycle_(edge_cycle) {}
 
 void Expand::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> Expand::MakeCursor(GraphDbAccessor &db) {
@@ -323,9 +331,11 @@ NodeFilter::NodeFilter(std::shared_ptr<LogicalOperator> input,
     : input_(input), input_symbol_(input_symbol), node_atom_(node_atom) {}
 
 void NodeFilter::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> NodeFilter::MakeCursor(GraphDbAccessor &db) {
@@ -373,9 +383,11 @@ EdgeFilter::EdgeFilter(std::shared_ptr<LogicalOperator> input,
     : input_(input), input_symbol_(input_symbol), edge_atom_(edge_atom) {}
 
 void EdgeFilter::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> EdgeFilter::MakeCursor(GraphDbAccessor &db) {
@@ -426,9 +438,11 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input_,
     : input_(input_), expression_(expression_) {}
 
 void Filter::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> Filter::MakeCursor(GraphDbAccessor &db) {
@@ -458,9 +472,11 @@ Produce::Produce(std::shared_ptr<LogicalOperator> input,
     : input_(input), named_expressions_(named_expressions) {}
 
 void Produce::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  if (input_) input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    if (input_) input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> Produce::MakeCursor(GraphDbAccessor &db) {
@@ -499,9 +515,11 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_,
     : input_(input_), expressions_(expressions), detach_(detach_) {}
 
 void Delete::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> Delete::MakeCursor(GraphDbAccessor &db) {
@@ -550,9 +568,11 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> input,
     : input_(input), lhs_(lhs), rhs_(rhs) {}
 
 void SetProperty::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> SetProperty::MakeCursor(GraphDbAccessor &db) {
@@ -599,9 +619,11 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> input,
     : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
 
 void SetProperties::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> SetProperties::MakeCursor(GraphDbAccessor &db) {
@@ -682,9 +704,11 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> input,
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 void SetLabels::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> SetLabels::MakeCursor(GraphDbAccessor &db) {
@@ -711,9 +735,11 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> input,
     : input_(input), lhs_(lhs) {}
 
 void RemoveProperty::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> RemoveProperty::MakeCursor(GraphDbAccessor &db) {
@@ -756,9 +782,11 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> input,
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 void RemoveLabels::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> RemoveLabels::MakeCursor(GraphDbAccessor &db) {
@@ -792,9 +820,11 @@ ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilter(
 template <typename TAccessor>
 void ExpandUniquenessFilter<TAccessor>::Accept(
     LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 template <typename TAccessor>
@@ -867,9 +897,11 @@ Accumulate::Accumulate(std::shared_ptr<LogicalOperator> input,
     : input_(input), symbols_(symbols), advance_command_(advance_command) {}
 
 void Accumulate::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<Accumulate::AccumulateCursor>(*this, db);
@@ -911,9 +943,11 @@ Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
     : input_(input), aggregations_(aggregations), group_by_(group_by) {}
 
 void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
-  visitor.Visit(*this);
-  input_->Accept(visitor);
-  visitor.PostVisit(*this);
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
 }
 
 std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {

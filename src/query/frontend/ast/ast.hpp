@@ -64,11 +64,13 @@ class OrOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    // TODO: Should we short-circuit?
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      // TODO: Should we short-circuit?
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -80,10 +82,12 @@ class XorOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -95,11 +99,13 @@ class AndOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    // TODO: Should we short-circuit?
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      // TODO: Should we short-circuit?
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -111,10 +117,12 @@ class AdditionOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -126,10 +134,12 @@ class SubtractionOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -141,10 +151,12 @@ class MultiplicationOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -156,10 +168,12 @@ class DivisionOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -171,10 +185,12 @@ class ModOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -186,10 +202,12 @@ class NotEqualOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -201,10 +219,12 @@ class EqualOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -216,10 +236,12 @@ class LessOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -231,10 +253,12 @@ class GreaterOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -246,10 +270,12 @@ class LessEqualOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -261,10 +287,12 @@ class GreaterEqualOperator : public BinaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression1_->Accept(visitor);
-    expression2_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -276,9 +304,11 @@ class NotOperator : public UnaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -290,9 +320,11 @@ class UnaryPlusOperator : public UnaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -304,9 +336,11 @@ class UnaryMinusOperator : public UnaryOperator {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -342,9 +376,11 @@ class PropertyLookup : public Expression {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
   Expression *expression_ = nullptr;
@@ -371,9 +407,11 @@ class Aggregation : public UnaryOperator {
   Op op_;
 
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
  protected:
@@ -386,9 +424,11 @@ class NamedExpression : public Tree {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
   std::string name_;
@@ -418,9 +458,11 @@ class NodeAtom : public PatternAtom {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    identifier_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      identifier_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
   std::vector<GraphDbTypes::Label> labels_;
@@ -441,9 +483,11 @@ class EdgeAtom : public PatternAtom {
   enum class Direction { LEFT, RIGHT, BOTH };
 
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    identifier_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      identifier_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
 
   Direction direction_ = Direction::BOTH;
@@ -469,11 +513,13 @@ class Pattern : public Tree {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &part : atoms_) {
-      part->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &part : atoms_) {
+        part->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
   std::vector<PatternAtom *> atoms_;
@@ -487,11 +533,13 @@ class Query : public Tree {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &clause : clauses_) {
-      clause->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &clause : clauses_) {
+        clause->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    visitor.PostVisit(*this);
   }
   std::vector<Clause *> clauses_;
 
@@ -506,11 +554,13 @@ class Create : public Clause {
   Create(int uid) : Clause(uid) {}
   std::vector<Pattern *> patterns_;
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &pattern : patterns_) {
-      pattern->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &pattern : patterns_) {
+        pattern->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    visitor.PostVisit(*this);
   }
 };
 
@@ -519,9 +569,11 @@ class Where : public Tree {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   Expression *expression_ = nullptr;
 
@@ -535,14 +587,16 @@ class Match : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &pattern : patterns_) {
-      pattern->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &pattern : patterns_) {
+        pattern->Accept(visitor);
+      }
+      if (where_) {
+        where_->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    if (where_) {
-      where_->Accept(visitor);
-    }
-    visitor.PostVisit(*this);
   }
   std::vector<Pattern *> patterns_;
   Where *where_ = nullptr;
@@ -556,11 +610,13 @@ class Return : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &expr : named_expressions_) {
-      expr->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &expr : named_expressions_) {
+        expr->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    visitor.PostVisit(*this);
   }
   std::vector<NamedExpression *> named_expressions_;
 
@@ -573,12 +629,14 @@ class With : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &expr : named_expressions_) {
-      expr->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &expr : named_expressions_) {
+        expr->Accept(visitor);
+      }
+      if (where_) where_->Accept(visitor);
+      visitor.PostVisit(*this);
     }
-    if (where_) where_->Accept(visitor);
-    visitor.PostVisit(*this);
   }
 
   bool distinct_ = false;
@@ -594,11 +652,13 @@ class Delete : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    for (auto &expr : expressions_) {
-      expr->Accept(visitor);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto &expr : expressions_) {
+        expr->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
     }
-    visitor.PostVisit(*this);
   }
   std::vector<Expression *> expressions_;
   bool detach_ = false;
@@ -612,10 +672,12 @@ class SetProperty : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    property_lookup_->Accept(visitor);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      property_lookup_->Accept(visitor);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   PropertyLookup *property_lookup_ = nullptr;
   Expression *expression_ = nullptr;
@@ -633,10 +695,12 @@ class SetProperties : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    identifier_->Accept(visitor);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      identifier_->Accept(visitor);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   Identifier *identifier_ = nullptr;
   Expression *expression_ = nullptr;
@@ -657,9 +721,11 @@ class SetLabels : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    identifier_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      identifier_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   Identifier *identifier_ = nullptr;
   std::vector<GraphDbTypes::Label> labels_;
@@ -676,9 +742,11 @@ class RemoveProperty : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    property_lookup_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      property_lookup_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   PropertyLookup *property_lookup_ = nullptr;
 
@@ -693,9 +761,11 @@ class RemoveLabels : public Clause {
 
  public:
   void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    identifier_->Accept(visitor);
-    visitor.PostVisit(*this);
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      identifier_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
   }
   Identifier *identifier_ = nullptr;
   std::vector<GraphDbTypes::Label> labels_;
