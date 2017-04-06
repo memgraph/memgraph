@@ -1,6 +1,5 @@
 #pragma once
 
-#include "logging/default.hpp"
 #include "query/backend/cpp/typed_value.hpp"
 #include "utils/assert.hpp"
 

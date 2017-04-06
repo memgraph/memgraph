@@ -35,7 +35,10 @@ class DynamicLib : public Loggable {
   DynamicLib(const fs::path &lib_path)
       : Loggable("DynamicLib"), lib_path(lib_path), lib_object(nullptr) {
     // load dynamic lib
-    dynamic_lib = dlopen(lib_path.c_str(), RTLD_NOW);
+    // I've added the RTL_DEEPBIND flag when we are opening the dynamic_lib to
+    // resolve symbols locally instead of globally. For additional information
+    // take a look at: http://man7.org/linux/man-pages/man3/dlopen.3.html
+    dynamic_lib = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_DEEPBIND);
     if (!dynamic_lib) throw DynamicLibException(dlerror());
     dlerror(); /* Clear any existing error */
     logger.trace("dynamic lib at ADDRESS({}) was opened", dynamic_lib);

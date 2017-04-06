@@ -117,7 +117,7 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
 }
 
 /**
- * Executa all query plans in file on the path.
+ * Execute all query plans in file on the path.
  *
  * @param log external logger reference
  * @param engine query engine
