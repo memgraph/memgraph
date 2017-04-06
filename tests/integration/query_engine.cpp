@@ -29,6 +29,9 @@ int main(int argc, char *argv[]) {
   // Manually set config compile_path to avoid loading whole config file with
   // the test.
   CONFIG(config::COMPILE_PATH) = "../compiled/";
+  // Set the interpret to false to avoid calling the interpreter which doesn't
+  // support all the queries yet.
+  CONFIG(config::INTERPRET) = "false";
   Dbms dbms;
   StreamT stream(std::cout);
   QueryEngineT query_engine;
