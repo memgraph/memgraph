@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "communication/bolt/v1/bolt_exception.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "logging/loggable.hpp"
 #include "utils/bswap.hpp"
@@ -112,7 +113,8 @@ class ChunkedEncoderBuffer : public Loggable {
     if (size_ == 0) return;
 
     // Flush the whole buffer.
-    socket_.Write(buffer_.data(), size_);
+    bool written = socket_.Write(buffer_.data(), size_);
+    if (!written) throw BoltException("Socket write failed!");
     logger.trace("Flushed {} bytes.", size_);
 
     // Cleanup.

@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "communication/bolt/v1/bolt_exception.hpp"
 #include "communication/bolt/v1/messaging/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "logging/default.hpp"
@@ -13,6 +14,17 @@ struct Query {
   Query(std::string &&statement) : statement(statement) {}
   std::string statement;
 };
+
+template <typename Session>
+void StateExecutorFailure(Session &session, Logger &logger,
+                          const std::map<std::string, TypedValue> &metadata) {
+  try {
+    session.encoder_.MessageFailure(metadata);
+  } catch (const BoltException &e) {
+    logger.debug("MessageFailure failed because: {}", e.what());
+    session.Close();
+  }
+}
 
 /**
  * TODO (mferencevic): finish & document
@@ -41,7 +53,8 @@ State StateExecutorRun(Session &session) {
 
       if (!is_successfully_executed) {
         db_accessor->abort();
-        session.encoder_.MessageFailure(
+        StateExecutorFailure<Session>(
+            session, logger,
             {{"code", "Memgraph.QueryExecutionFail"},
              {"message",
               "Query execution has failed (probably there is no "
@@ -57,23 +70,31 @@ State StateExecutorRun(Session &session) {
       // !! QUERY ENGINE -> RUN METHOD -> EXCEPTION HANDLING !!
     } catch (const query::SyntaxException &e) {
       db_accessor->abort();
-      session.encoder_.MessageFailure(
+      StateExecutorFailure<Session>(
+          session, logger,
           {{"code", "Memgraph.SyntaxException"}, {"message", "Syntax error"}});
       return ERROR;
     } catch (const query::QueryEngineException &e) {
       db_accessor->abort();
-      session.encoder_.MessageFailure(
+      StateExecutorFailure<Session>(
+          session, logger,
           {{"code", "Memgraph.QueryEngineException"},
            {"message", "Query engine was unable to execute the query"}});
       return ERROR;
     } catch (const StacktraceException &e) {
       db_accessor->abort();
-      session.encoder_.MessageFailure({{"code", "Memgraph.StacktraceException"},
-                                       {"message", "Unknown exception"}});
+      StateExecutorFailure<Session>(session, logger,
+                                    {{"code", "Memgraph.StacktraceException"},
+                                     {"message", "Unknown exception"}});
       return ERROR;
+    } catch (const BoltException &e) {
+      db_accessor->abort();
+      logger.debug("Failed because: {}", e.what());
+      session.Close();
     } catch (std::exception &e) {
       db_accessor->abort();
-      session.encoder_.MessageFailure(
+      StateExecutorFailure<Session>(
+          session, logger,
           {{"code", "Memgraph.Exception"}, {"message", "Unknown exception"}});
       return ERROR;
     }
