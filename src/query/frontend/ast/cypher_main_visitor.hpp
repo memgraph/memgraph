@@ -350,19 +350,25 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::Expression3Context *ctx) override;
 
   /**
-  * Property lookup, test for node labels existence...
-  *
-  * @return Expression*
-  */
+   * Property lookup, test for node labels existence...
+   *
+   * @return Expression*
+   */
   antlrcpp::Any visitExpression2(
       CypherParser::Expression2Context *ctx) override;
 
   /**
-  * Literals, params, list comprehension...
-  *
-  * @return Expression*
-  */
+   * Literals, params, list comprehension...
+   *
+   * @return Expression*
+   */
   antlrcpp::Any visitAtom(CypherParser::AtomContext *ctx) override;
+
+  /**
+   * @return Expression*
+   */
+  antlrcpp::Any visitParenthesizedExpression(
+      CypherParser::ParenthesizedExpressionContext *ctx) override;
 
   /**
    * @return Literal*

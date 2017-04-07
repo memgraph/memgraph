@@ -121,6 +121,16 @@ TEST(CypherMainVisitorTest, NullLiteral) {
   ASSERT_EQ(literal->value_.type(), TypedValue::Type::Null);
 }
 
+TEST(CypherMainVisitorTest, ParenthesizedExpression) {
+  AstGenerator ast_generator("RETURN (2)");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *literal = dynamic_cast<Literal *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<int64_t>(), 2);
+}
+
 TEST(CypherMainVisitorTest, OrOperator) {
   AstGenerator ast_generator("RETURN true Or false oR n");
   auto *query = ast_generator.query_;

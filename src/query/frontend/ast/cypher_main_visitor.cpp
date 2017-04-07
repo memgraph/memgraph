@@ -360,7 +360,7 @@ antlrcpp::Any CypherMainVisitor::visitRangeLiteral(
 
 antlrcpp::Any CypherMainVisitor::visitExpression(
     CypherParser::ExpressionContext *ctx) {
-  return visitChildren(ctx);
+  return static_cast<Expression *>(ctx->expression12()->accept(this));
 }
 
 // OR.
@@ -499,7 +499,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3(
   if (ctx->children.size() > 1u) {
     throw NotYetImplemented();
   }
-  return visitChildren(ctx);
+  return static_cast<Expression *>(visitChildren(ctx));
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2(
@@ -525,11 +525,12 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     // TODO: implement other clauses.
     throw NotYetImplemented();
   } else if (ctx->parenthesizedExpression()) {
-    return ctx->parenthesizedExpression()->accept(this);
+    return static_cast<Expression *>(
+        ctx->parenthesizedExpression()->accept(this));
   } else if (ctx->variable()) {
     std::string variable = ctx->variable()->accept(this);
     users_identifiers.insert(variable);
-    return (Expression *)storage_.Create<Identifier>(variable);
+    return static_cast<Expression *>(storage_.Create<Identifier>(variable));
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.
@@ -554,6 +555,11 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     throw NotYetImplemented();
   }
   return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(
+    CypherParser::ParenthesizedExpressionContext *ctx) {
+  return static_cast<Expression *>(ctx->expression()->accept(this));
 }
 
 antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
