@@ -141,21 +141,35 @@ Feature: Test01
             |        b       |
             |  [:X{a: 1.0}]  |
 
-    Scenario: Create node and self relationships and match
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (n)-[:X]->(n)<-[:Y]-(n)
-            """
-        When executing query:
-            """
-            MATCH ()-[a]-()-[b]-() RETURN a, b
-            """
-        Then the result should be:
-            |   a    |    b    |
-            |  [:X]  |   [:Y]  |
-            |  [:Y]  |   [:X]  |
-
+	    #    Scenario: Create node and self relationships and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (n)-[:X]->(n)<-[:Y]-(n)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a]-()-[b]-() RETURN a, b
+	    #            """
+	    #        Then the result should be:
+	    #            |   a    |    b    |
+	    #            |  [:X]  |   [:Y]  |
+	    #	    |  [:Y]  |   [:X]  |
+	    #
+	    #    Scenario: Create node and self relationship and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (n)-[:X]->(n)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a]-() RETURN a
+	    #            """
+	    #        Then the result should be:
+	    #            |   a    |
+	    #            |  [:X]  |
+	    #
     Scenario: Create node and self relationships and match
         Given an empty graph
         And having executed:
@@ -297,69 +311,69 @@ Feature: Test01
             |  [:Z]  |   [:Y]  |   [:X]  |
             |  [:Z]  |   [:X]  |   [:Y]  |
 
-    Scenario: Create two nodes with three relationships and match
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y]->(a)-[:Z]->(b)
-            """
-        When executing query:
-            """
-            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c]-() RETURN a, b, c
-            """
-        Then the result should be:
-            |   a            |    b    |    c    |
-            |  [:X{a: 1.0}]  |   [:Y]  |   [:Z]  |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
-            |  [:X{a: 1.0}]  |   [:Y]  |   [:Z]  |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
-
-    Scenario: Create two nodes with three relationships and match
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y]->(a)-[:Z]->(b)
-            """
-        When executing query:
-            """
-            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c:Y]-() RETURN a, b, c
-            """
-        Then the result should be:
-            |   a            |    b    |    c    |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
-
-    Scenario: Create two nodes with three relationships and match
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y{a: 1.0}]->(a)-[:Z]->(b)
-            """
-        When executing query:
-            """
-            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c:Y]-() RETURN a, b, c
-            """
-        Then the result should be:
-            |   a            |    b    |    c            |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  |
-
-    Scenario: Create two nodes with three relationships and match
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y{a: 1.0}]->(a)-[:Z]->(b)
-            """
-        When executing query:
-            """
-            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c{a: 1.0}]-() RETURN a, b, c, c.a as t
-            """
-        Then the result should be:
-            |   a            |    b    |    c            |  t  |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  | 1.0 |
-            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  | 1.0 |
-            |  [:Y{a: 1.0}]  |   [:Z]  |   [:X{a: 1.0}]  | 1.0 |
-            |  [:Y{a: 1.0}]  |   [:Z]  |   [:X{a: 1.0}]  | 1.0 |
+	    #    Scenario: Create two nodes with three relationships and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y]->(a)-[:Z]->(b)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c]-() RETURN a, b, c
+	    #            """
+	    #        Then the result should be:
+	    #            |   a            |    b    |    c    |
+	    #            |  [:X{a: 1.0}]  |   [:Y]  |   [:Z]  |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
+	    #            |  [:X{a: 1.0}]  |   [:Y]  |   [:Z]  |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
+	    #
+	    #    Scenario: Create two nodes with three relationships and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y]->(a)-[:Z]->(b)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c:Y]-() RETURN a, b, c
+	    #            """
+	    #        Then the result should be:
+	    #            |   a            |    b    |    c    |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y]  |
+	    #
+	    #    Scenario: Create two nodes with three relationships and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y{a: 1.0}]->(a)-[:Z]->(b)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c:Y]-() RETURN a, b, c
+	    #            """
+	    #        Then the result should be:
+	    #            |   a            |    b    |    c            |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  |
+	    #
+	    #    Scenario: Create two nodes with three relationships and match
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (a)-[:X{a: 1.0}]->(b)-[:Y{a: 1.0}]->(a)-[:Z]->(b)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[a{a: 1.0}]-()-[b]-()-[c{a: 1.0}]-() RETURN a, b, c, c.a as t
+	    #            """
+	    #        Then the result should be:
+	    #            |   a            |    b    |    c            |  t  |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  | 1.0 |
+	    #            |  [:X{a: 1.0}]  |   [:Z]  |   [:Y{a: 1.0}]  | 1.0 |
+	    #            |  [:Y{a: 1.0}]  |   [:Z]  |   [:X{a: 1.0}]  | 1.0 |
+	    #            |  [:Y{a: 1.0}]  |   [:Z]  |   [:X{a: 1.0}]  | 1.0 |
 
      Scenario: Create two nodes with three relationships and match
         Given an empty graph

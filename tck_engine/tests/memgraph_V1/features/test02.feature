@@ -4,7 +4,7 @@ Feature: Test02
         Given an empty graph
         And having executed
             """
-            CREATE (:x_1), (:z2_), (:qw34) 
+            CREATE (:x_1), (:z2_), (:qw34)
             """
         When executing query:
             """
@@ -136,74 +136,74 @@ Feature: Test02
 
 
 
-    Scenario: Create node and delete it
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (n)
-            DELETE (n)
-            """
-        When executing query:
-            """
-            MATCH (n) 
-            RETURN n
-            """
-        Then the result should be empty
+	    #    Scenario: Create node and delete it
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (n)
+	    #            DELETE (n)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH (n)
+	    #            RETURN n
+	    #            """
+	    #        Then the result should be empty
 
-    Scenario: Create node with relationships and delete it, check for relationships
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (n)-[:X]->()
-            CREATE (n)-[:Y]->()
-            DETACH DELETE (n)
-            """
-        When executing query:
-            """
-            MATCH ()-[n]->()
-            RETURN n
-            """
-        Then the result should be empty
+	    #    Scenario: Create node with relationships and delete it, check for relationships
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (n)-[:X]->()
+	    #            CREATE (n)-[:Y]->()
+	    #            DETACH DELETE (n)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH ()-[n]->()
+	    #            RETURN n
+	    #            """
+	    #        Then the result should be empty
 
-    Scenario: Create node with relationships and delete it, check for nodes
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (n:l{a: 1})-[:X]->()
-            CREATE (n)-[:Y]->()
-            DETACH DELETE (n)
-            """
-        When executing query:
-            """
-            MATCH (n)
-            RETURN n
-            """
-        Then the result should be:
-            | n |
-            |( )|
-            |( )|
+	    #    Scenario: Create node with relationships and delete it, check for nodes
+	    #        Given an empty graph
+	    #        And having executed:
+	    #            """
+	    #            CREATE (n:l{a: 1})-[:X]->()
+	    #            CREATE (n)-[:Y]->()
+	    #            DETACH DELETE (n)
+	    #            """
+	    #        When executing query:
+	    #            """
+	    #            MATCH (n)
+	    #            RETURN n
+	    #            """
+	    #        Then the result should be:
+	    #            | n |
+	    #            |( )|
+	    #            |( )|
+	    #
 
 
-
-    Scenario: Test equal operator
-        When executing query:
-            """
-            CREATE (a)
-            RETURN 1=1 and 1.0=1.0 and 'abc'='abc' and false=false and a.age is null as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test not equal operator
-        When executing query:
-            """
-            CREATE (a{age: 1})
-            RETURN not 1<>1 and 1.0<>1.1 and 'abcd'<>'abc' and false<>true and a.age is not null as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
+	    #    Scenario: Test equal operator
+	    #        When executing query:
+	    #            """
+	    #            CREATE (a)
+	    #            RETURN 1=1 and 1.0=1.0 and 'abc'='abc' and false=false and a.age is null as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
+	    #
+	    #    Scenario: Test not equal operator
+	    #        When executing query:
+	    #            """
+	    #            CREATE (a{age: 1})
+	    #            RETURN not 1<>1 and 1.0<>1.1 and 'abcd'<>'abc' and false<>true and a.age is not null as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
 
     Scenario: Test greater operator
         When executing query:
@@ -212,7 +212,7 @@ Feature: Test02
             """
         Then the result should be:
             |   n  |
-            | true |   
+            | true |
 
     Scenario: Test less operator
         When executing query:
@@ -240,8 +240,8 @@ Feature: Test02
         Then the result should be:
             |   n  |
             | true |
- 
-     
+
+
 
 
     Scenario: Test plus operator
@@ -252,7 +252,7 @@ Feature: Test02
         Then the result should be:
             |   n  |
             | true |
- 
+
     Scenario: Test minus operator
         When executing query:
             """
@@ -261,7 +261,7 @@ Feature: Test02
         Then the result should be:
             |   n  |
             | true |
-  
+
     Scenario: Test multiply operator
         When executing query:
             """
@@ -298,29 +298,29 @@ Feature: Test02
             |   n  |
             | true |
 
-    Scenario: Test exponential operator
-        When executing query:
-            """
-            RETURN 3^2=81^0.5 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
+	    #    Scenario: Test exponential operator
+	    #        When executing query:
+	    #            """
+	    #            RETURN 3^2=81^0.5 as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
+	    #
+	    #    Scenario: Test one big mathematical equation
+	    #        When executing query:
+	    #            """
+	    #            RETURN (3+2*4-3/2%2*10)/5.0^2.0=0.04 as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
 
-    Scenario: Test one big mathematical equation
-        When executing query:
-            """
-            RETURN (3+2*4-3/2%2*10)/5.0^2.0=0.04 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |  
-
-     Scenario: Test one big logical equation
-        When executing query:
-            """
-            RETURN not true or true and false or not ((true xor false or true) and true or false xor true ) as n
-            """
-        Then the result should be:
-            |   n   |
-            | false |  
+	    #     Scenario: Test one big logical equation
+	    #        When executing query:
+	    #            """
+	    #            RETURN not true or true and false or not ((true xor false or true) and true or false xor true ) as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n   |
+	    #            | false |

@@ -2,6 +2,7 @@ from behave.__main__ import main as behave_main
 from behave import configuration
 from argparse import ArgumentParser
 import os
+import sys
 
 
 def parse_args():
@@ -80,8 +81,8 @@ def main():
     behave_options.append(args.root)
 
     # runs tests with options
-    behave_main(behave_options)
+    return behave_main(behave_options)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
