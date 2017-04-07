@@ -46,40 +46,38 @@ class StreamReader : public StreamListener<Derived, Stream> {
   void OnData(Stream& stream) {
     logger_.trace("On data");
 
-    while (true) {
-      if (UNLIKELY(!stream.Alive())) {
-        logger_.trace("Calling OnClose because the stream isn't alive!");
-        this->derived().OnClose(stream);
-        break;
-      }
-
-      // allocate the buffer to fill the data
-      auto buf = this->derived().OnAlloc(stream);
-
-      // read from the buffer at most buf.len bytes
-      buf.len = stream.socket_.Read(buf.data, buf.len);
-
-      // check for read errors
-      if (buf.len == -1) {
-        // this means we have read all available data
-        if (LIKELY(errno == EAGAIN || errno == EWOULDBLOCK)) {
-          break;
-        }
-
-        // some other error occurred, check errno
-        this->derived().OnError(stream);
-        break;
-      }
-
-      // end of file, the client has closed the connection
-      if (UNLIKELY(buf.len == 0)) {
-        logger_.trace("Calling OnClose because the socket is closed!");
-        this->derived().OnClose(stream);
-        break;
-      }
-
-      this->derived().OnRead(stream, buf);
+    if (UNLIKELY(!stream.Alive())) {
+      logger_.trace("Calling OnClose because the stream isn't alive!");
+      this->derived().OnClose(stream);
+      return;
     }
+
+    // allocate the buffer to fill the data
+    auto buf = this->derived().OnAlloc(stream);
+
+    // read from the buffer at most buf.len bytes
+    buf.len = stream.socket_.Read(buf.data, buf.len);
+
+    // check for read errors
+    if (buf.len == -1) {
+      // this means we have read all available data
+      if (LIKELY(errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return;
+      }
+
+      // some other error occurred, check errno
+      this->derived().OnError(stream);
+      return;
+    }
+
+    // end of file, the client has closed the connection
+    if (UNLIKELY(buf.len == 0)) {
+      logger_.trace("Calling OnClose because the socket is closed!");
+      this->derived().OnClose(stream);
+      return;
+    }
+
+    this->derived().OnRead(stream, buf);
   }
 
  private:

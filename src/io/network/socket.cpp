@@ -85,12 +85,21 @@ bool Socket::Bind(NetworkEndpoint& endpoint) {
 
     if (bind(sfd, it->ai_addr, it->ai_addrlen) == 0) {
       socket_ = sfd;
-      endpoint_ = endpoint;
       break;
     }
   }
 
   if (socket_ == -1) return false;
+
+  // detect bound port, used when the server binds to a random port
+  struct sockaddr_in6 portdata;
+  socklen_t portdatalen = sizeof(portdata);
+  if (getsockname(socket_, (struct sockaddr *) &portdata, &portdatalen) < 0) {
+    return false;
+  }
+
+  endpoint_ = NetworkEndpoint(endpoint.address(), ntohs(portdata.sin6_port));
+
   return true;
 }
 
@@ -123,6 +132,20 @@ bool Socket::SetKeepAlive() {
 
   optval = 15; // send keep-alive packets every 15s
   if (setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void*)&optval, optlen) < 0)
+    return false;
+
+  return true;
+}
+
+bool Socket::SetTimeout(long sec, long usec) {
+  struct timeval tv;
+  tv.tv_sec = sec;
+  tv.tv_usec = usec;
+
+  if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+    return false;
+
+  if (setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
     return false;
 
   return true;
@@ -180,7 +203,10 @@ bool Socket::Write(const char* data, size_t len) {
 
 bool Socket::Write(const uint8_t* data, size_t len) {
   while (len > 0) {
-    auto written = send(socket_, data, len, 0);
+    // MSG_NOSIGNAL is here to disable raising a SIGPIPE
+    // signal when a connection dies mid-write, the socket
+    // will only return an EPIPE error
+    auto written = send(socket_, data, len, MSG_NOSIGNAL);
     if (UNLIKELY(written == -1)) return false;
     len -= written;
     data += written;

@@ -97,6 +97,18 @@ class Socket {
    */
   bool SetKeepAlive();
 
+  /**
+   * Sets the socket timeout.
+   *
+   * @param sec timeout seconds value
+   * @param usec timeout microseconds value
+   * @return set socket timeout status:
+   *             true if the timeout was successfully set to
+   *                 sec seconds + usec microseconds
+   *             false if the timeout was not set
+   */
+  bool SetTimeout(long sec, long usec);
+
   // TODO: this will be removed
   operator int();
 

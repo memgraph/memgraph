@@ -7,7 +7,6 @@
 #include "network_common.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
-static constexpr const char port[] = "40000";
 
 unsigned char data[SIZE];
 
@@ -20,11 +19,15 @@ TEST(Network, SessionLeak) {
   initialize_data(data, SIZE);
 
   // initialize listen socket
-  endpoint_t endpoint(interface, port);
+  endpoint_t endpoint(interface, "0");
   socket_t socket;
   ASSERT_TRUE(socket.Bind(endpoint));
   ASSERT_TRUE(socket.SetNonBlocking());
   ASSERT_TRUE(socket.Listen(1024));
+
+  // get bound address
+  auto ep = socket.endpoint();
+  printf("ADDRESS: %s, PORT: %d\n", ep.address(), ep.port());
 
   // initialize server
   Dbms dbms;
@@ -42,7 +45,7 @@ TEST(Network, SessionLeak) {
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
     clients.push_back(
-        std::thread(client_run, i, interface, port, data, testlen, testlen));
+        std::thread(client_run, i, interface, ep.port_str(), data, testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }
 
