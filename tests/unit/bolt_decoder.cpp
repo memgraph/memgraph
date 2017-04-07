@@ -25,14 +25,11 @@ class TestDecoderBuffer {
     return true;
   }
 
-	void Write(const uint8_t *data, size_t len) {
-    for (size_t i = 0; i < len; ++i)
-      buffer_.push_back(data[i]);
-	}
-
-  void Clear() {
-    buffer_.clear();
+  void Write(const uint8_t *data, size_t len) {
+    for (size_t i = 0; i < len; ++i) buffer_.push_back(data[i]);
   }
+
+  void Clear() { buffer_.clear(); }
 
  private:
   std::vector<uint8_t> buffer_;
@@ -71,7 +68,7 @@ TEST(BoltDecoder, Int) {
 
   // test invalid marker
   buffer.Clear();
-  buffer.Write((uint8_t *)"\xCD", 1); // 0xCD is reserved in the protocol
+  buffer.Write((uint8_t *)"\xCD", 1);  // 0xCD is reserved in the protocol
   ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
 
   for (int i = 0; i < 28; ++i) {
@@ -116,7 +113,8 @@ TEST(BoltDecoder, String) {
 
   TypedValue tv;
 
-  uint8_t headers[][6] = {"\x8F", "\xD0\x0F", "\xD1\x00\x0F", "\xD2\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\x8F", "\xD0\x0F", "\xD1\x00\x0F",
+                          "\xD2\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   for (int i = 0; i < 4; ++i) {
@@ -138,8 +136,7 @@ TEST(BoltDecoder, String) {
     ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
     ASSERT_EQ(tv.type(), TypedValue::Type::String);
     std::string &str = tv.Value<std::string>();
-    for (int j = 0; j < 15; ++j)
-      EXPECT_EQ((uint8_t)str[j], data[j]);
+    for (int j = 0; j < 15; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
   }
 }
 
@@ -149,7 +146,8 @@ TEST(BoltDecoder, List) {
 
   TypedValue tv;
 
-  uint8_t headers[][6] = {"\x9F", "\xD4\x0F", "\xD5\x00\x0F", "\xD6\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\x9F", "\xD4\x0F", "\xD5\x00\x0F",
+                          "\xD6\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   for (int i = 0; i < 4; ++i) {
@@ -161,21 +159,18 @@ TEST(BoltDecoder, List) {
     // test missing elements
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
-    for (uint8_t j = 0; j < 14; ++j)
-      buffer.Write(&j, 1);
+    for (uint8_t j = 0; j < 14; ++j) buffer.Write(&j, 1);
     ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
 
     // test all ok
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
-    for (uint8_t j = 0; j < 15; ++j)
-      buffer.Write(&j, 1);
+    for (uint8_t j = 0; j < 15; ++j) buffer.Write(&j, 1);
     ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
     ASSERT_EQ(tv.type(), TypedValue::Type::List);
     std::vector<TypedValue> &val = tv.Value<std::vector<TypedValue>>();
     ASSERT_EQ(val.size(), 15);
-    for (int j = 0; j < 15; ++j)
-      EXPECT_EQ(val[j].Value<int64_t>(), j);
+    for (int j = 0; j < 15; ++j) EXPECT_EQ(val[j].Value<int64_t>(), j);
   }
 }
 
@@ -185,7 +180,8 @@ TEST(BoltDecoder, Map) {
 
   TypedValue tv;
 
-  uint8_t headers[][6] = {"\xAF", "\xD8\x0F", "\xD9\x00\x0F", "\xDA\x00\x00\x00\x0F"};
+  uint8_t headers[][6] = {"\xAF", "\xD8\x0F", "\xD9\x00\x0F",
+                          "\xDA\x00\x00\x00\x0F"};
   int headers_len[] = {1, 2, 3, 5};
 
   uint8_t index[] = "\x81\x61";
@@ -223,7 +219,6 @@ TEST(BoltDecoder, Map) {
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     for (uint8_t j = 0; j < 15; ++j) {
-      uint8_t tmp = 'a' + j;
       buffer.Write(index, 2);
       buffer.Write(&j, 1);
     }
@@ -240,7 +235,8 @@ TEST(BoltDecoder, Map) {
     }
     ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
     ASSERT_EQ(tv.type(), TypedValue::Type::Map);
-    std::map<std::string, TypedValue> &val = tv.Value<std::map<std::string, TypedValue>>();
+    std::map<std::string, TypedValue> &val =
+        tv.Value<std::map<std::string, TypedValue>>();
     ASSERT_EQ(val.size(), 15);
     for (int j = 0; j < 15; ++j) {
       char tmp_chr = 'a' + j;
@@ -336,7 +332,6 @@ TEST(BoltDecoder, Edge) {
   uint8_t test_int2[] = "\x02";
   uint8_t test_int3[] = "\x03";
   uint8_t test_str[] = "\x81\x61";
-  uint8_t test_list[] = "\x91";
   uint8_t test_map[] = "\xA1";
 
   // test missing signature
