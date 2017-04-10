@@ -29,6 +29,7 @@ class DivisionOperator;
 class ModOperator;
 class UnaryPlusOperator;
 class UnaryMinusOperator;
+class IsNullOperator;
 class NotEqualOperator;
 class EqualOperator;
 class LessOperator;
@@ -48,8 +49,8 @@ using TreeVisitorBase = ::utils::Visitor<
     AdditionOperator, SubtractionOperator, MultiplicationOperator,
     DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    UnaryPlusOperator, UnaryMinusOperator, Identifier, Literal, PropertyLookup,
-    Aggregation, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels>;
+    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier, Literal,
+    PropertyLookup, Aggregation, Create, Match, Return, With, Pattern, NodeAtom,
+    EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels>;
 }

@@ -347,6 +347,20 @@ class UnaryMinusOperator : public UnaryOperator {
   using UnaryOperator::UnaryOperator;
 };
 
+class IsNullOperator : public UnaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    visitor.Visit(*this);
+    expression_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+
+ protected:
+  using UnaryOperator::UnaryOperator;
+};
+
 class Literal : public Expression {
   friend class AstTreeStorage;
 

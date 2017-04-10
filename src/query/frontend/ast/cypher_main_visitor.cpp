@@ -496,7 +496,21 @@ antlrcpp::Any CypherMainVisitor::visitExpression3(
   // that child is expression2. Other operations are not implemented at the
   // moment.
   // TODO: implement this.
-  if (ctx->children.size() > 1u) {
+  // This is a hack. Unfortunately, grammar for expression3 contains a lot of
+  // different expressions. We should break that production in parts so that
+  // we can easily implement its visitor.
+  Expression *expression = ctx->expression2()[0]->accept(this);
+  if (ctx->children.size() - ctx->SP().size() == 3U && ctx->IS().size() == 1U &&
+      ctx->CYPHERNULL().size() == 1U) {
+    return static_cast<Expression *>(
+        storage_.Create<IsNullOperator>(expression));
+  }
+  if (ctx->children.size() - ctx->SP().size() == 4U && ctx->IS().size() == 1U &&
+      ctx->NOT().size() == 1U && ctx->CYPHERNULL().size() == 1U) {
+    return static_cast<Expression *>(storage_.Create<NotOperator>(
+        storage_.Create<IsNullOperator>(expression)));
+  }
+  if (ctx->children.size() > 1U) {
     throw NotYetImplemented();
   }
   return static_cast<Expression *>(visitChildren(ctx));

@@ -232,3 +232,15 @@ TEST(ExpressionEvaluator, UnaryMinusOperator) {
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -5);
 }
+
+TEST(ExpressionEvaluator, IsNullOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *op = storage.Create<IsNullOperator>(storage.Create<Literal>(1));
+  op->Accept(eval.eval);
+  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
+  op =
+      storage.Create<IsNullOperator>(storage.Create<Literal>(TypedValue::Null));
+  op->Accept(eval.eval);
+  ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+}

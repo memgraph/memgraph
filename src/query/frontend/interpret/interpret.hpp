@@ -105,6 +105,12 @@ class ExpressionEvaluator : public TreeVisitorBase {
   UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +);
   UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -);
 
+  void PostVisit(IsNullOperator &) override {
+    auto expression = PopBack();
+    result_stack_.push_back(
+        TypedValue(expression.type() == TypedValue::Type::Null));
+  }
+
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 

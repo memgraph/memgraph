@@ -277,6 +277,30 @@ TEST(CypherMainVisitorTest, ComparisonOperators) {
 
 #undef CHECK_COMPARISON
 
+TEST(CypherMainVisitorTest, IsNull) {
+  AstGenerator ast_generator("RETURN 2 iS NulL");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *is_type_operator = dynamic_cast<IsNullOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(is_type_operator->expression_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+}
+
+TEST(CypherMainVisitorTest, IsNotNull) {
+  AstGenerator ast_generator("RETURN 2 iS nOT NulL");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *not_operator = dynamic_cast<NotOperator *>(
+      return_clause->named_expressions_[0]->expression_);
+  auto *is_type_operator =
+      dynamic_cast<IsNullOperator *>(not_operator->expression_);
+  auto *operand1 = dynamic_cast<Literal *>(is_type_operator->expression_);
+  ASSERT_TRUE(operand1);
+  ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
+}
+
 TEST(CypherMainVisitorTest, NotOperator) {
   AstGenerator ast_generator("RETURN not true");
   auto *query = ast_generator.query_;
