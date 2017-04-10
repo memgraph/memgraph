@@ -61,7 +61,7 @@ auto ReducePattern(
 
 auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
                          const query::SymbolTable &symbol_table,
-                         std::unordered_set<int> bound_symbols) {
+                         std::unordered_set<int> &bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
     if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
       return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
@@ -92,7 +92,7 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
 
 auto GenCreate(Create &create, LogicalOperator *input_op,
                const query::SymbolTable &symbol_table,
-               std::unordered_set<int> bound_symbols) {
+               std::unordered_set<int> &bound_symbols) {
   auto last_op = input_op;
   for (auto pattern : create.patterns_) {
     last_op =

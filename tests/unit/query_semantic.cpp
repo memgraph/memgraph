@@ -340,4 +340,40 @@ TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
 }
 
+TEST(TestSymbolGenerator, CreateMultiExpand) {
+  // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  auto p_type = dba->edge_type("p");
+  AstTreeStorage storage;
+  auto node_n1 = NODE("n");
+  auto edge_r = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto node_m = NODE("m");
+  auto node_n2 = NODE("n");
+  auto edge_p = EDGE("p", p_type, EdgeAtom::Direction::RIGHT);
+  auto node_l = NODE("l");
+  auto query = QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
+                            PATTERN(node_n2, edge_p, node_l)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto n1 = symbol_table.at(*node_n1->identifier_);
+  auto n2 = symbol_table.at(*node_n2->identifier_);
+  EXPECT_EQ(n1, n2);
+  EXPECT_EQ(n1.type_, Symbol::Type::Vertex);
+  auto m = symbol_table.at(*node_m->identifier_);
+  EXPECT_EQ(m.type_, Symbol::Type::Vertex);
+  EXPECT_NE(m, n1);
+  auto l = symbol_table.at(*node_l->identifier_);
+  EXPECT_EQ(l.type_, Symbol::Type::Vertex);
+  EXPECT_NE(l, n1);
+  EXPECT_NE(l, m);
+  auto r = symbol_table.at(*edge_r->identifier_);
+  auto p = symbol_table.at(*edge_p->identifier_);
+  EXPECT_EQ(r.type_, Symbol::Type::Edge);
+  EXPECT_EQ(p.type_, Symbol::Type::Edge);
+  EXPECT_NE(r, p);
+}
+
 }

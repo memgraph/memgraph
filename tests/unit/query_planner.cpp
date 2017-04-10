@@ -279,4 +279,17 @@ TEST(TestLogicalPlanner, MatchWithWhereReturn) {
   CheckPlan<ScanAll, Accumulate, Produce, Filter, Produce>(*query);
 }
 
+TEST(TestLogicalPlanner, CreateMultiExpand) {
+  // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r = dba->edge_type("r");
+  auto p = dba->edge_type("p");
+  AstTreeStorage storage;
+  auto query = QUERY(
+      CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::RIGHT), NODE("m")),
+             PATTERN(NODE("n"), EDGE("p", p, Direction::RIGHT), NODE("l"))));
+  CheckPlan<CreateNode, CreateExpand, CreateExpand>(*query);
+}
+
 }  // namespace
