@@ -1,15 +1,16 @@
 #include <iostream>
 #include <string>
 
-#include "query/backend/cpp/typed_value.hpp"
 #include "query/parameters.hpp"
 #include "query/plan_interface.hpp"
+#include "query/typed_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
 
 using std::cout;
 using std::endl;
+using query::TypedValue;
 
 // Query: MATCH (p:profile {profile_id: 111, partner_id: 55}), (g:garment
 // {garment_id: 1234}) CREATE (p)-[s:score]->(g) SET s.score=1500 RETURN s

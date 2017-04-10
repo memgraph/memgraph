@@ -40,3 +40,5 @@ class EdgeAccessor : public RecordAccessor<Edge> {
 
   //  void remove();
 };
+
+std::ostream &operator<<(std::ostream &, const EdgeAccessor &);

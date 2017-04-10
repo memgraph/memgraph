@@ -2,7 +2,7 @@
 
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
 
 #include "logging/default.hpp"
 
@@ -27,10 +27,10 @@ class ResultStream {
    * @param fields the header fields that should be sent.
    */
   void Header(const std::vector<std::string> &fields) {
-    std::vector<TypedValue> vec;
-    std::map<std::string, TypedValue> data;
-    for (auto &i : fields) vec.push_back(TypedValue(i));
-    data.insert(std::make_pair(std::string("fields"), TypedValue(vec)));
+    std::vector<query::TypedValue> vec;
+    std::map<std::string, query::TypedValue> data;
+    for (auto &i : fields) vec.push_back(query::TypedValue(i));
+    data.insert(std::make_pair(std::string("fields"), query::TypedValue(vec)));
     // this call will automaticaly send the data to the client
     encoder_.MessageSuccess(data);
   }
@@ -47,7 +47,7 @@ class ResultStream {
    *
    * @param values the values that should be sent
    */
-  void Result(std::vector<TypedValue> &values) {
+  void Result(std::vector<query::TypedValue> &values) {
     encoder_.MessageRecord(values);
   }
 
@@ -63,7 +63,7 @@ class ResultStream {
    *
    * @param summary the summary map object that should be sent
    */
-  void Summary(const std::map<std::string, TypedValue> &summary) {
+  void Summary(const std::map<std::string, query::TypedValue> &summary) {
     // at this point message should not flush the socket so
     // here is false because chunk has to be called instead of flush
     encoder_.MessageSuccess(summary, false);

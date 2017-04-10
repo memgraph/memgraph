@@ -4,7 +4,9 @@
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
+
+using query::TypedValue;
 
 /**
  * TODO (mferencevic): document

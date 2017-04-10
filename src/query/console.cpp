@@ -2,15 +2,17 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 23.03.17.
 //
+#include "console.hpp"
 
 #include <algorithm>
 #include <iostream>
 #include <iterator>
 #include <sstream>
 
-#include "console.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/typed_value.hpp"
+#include "utils/algorithm.hpp"
 
 #ifdef HAS_READLINE
 
@@ -48,58 +50,16 @@ std::string ReadLine(const char *prompt) {
 #endif  // HAS_READLINE
 
 /**
- * Helper function that outputs a collection of items to
- * the given stream, separating them with the given delimiter.
- */
-template <typename TStream, typename TIterable, typename TConverter>
-void PrintIterable(TStream &stream, const TIterable &iterable,
-                   const std::string &delim, TConverter converter = {}) {
-  bool first = true;
-  for (const auto &item : iterable) {
-    if (first)
-      first = false;
-    else
-      stream << delim;
-    stream << converter(item);
-  }
-}
-
-/**
  * Converts the given TypedValue into a string (single line).
  */
-std::string TypedValueToString(const TypedValue &value) {
+std::string TypedValueToString(const query::TypedValue &value) {
   std::stringstream ss;
   switch (value.type()) {
-    case TypedValue::Type::Vertex: {
-      auto va = value.Value<VertexAccessor>();
-      ss << "V(";
-      PrintIterable(ss, va.labels(), ":", [&](auto label) {
-        return va.db_accessor().label_name(label);
-      });
-      ss << " {";
-      PrintIterable(ss, va.Properties(), ", ", [&](const auto kv) {
-        return va.db_accessor().property_name(kv.first) + ": " +
-               TypedValueToString(kv.second);
-      });
-      ss << "})";
+    case query::TypedValue::Type::List:
       break;
-    }
-    case TypedValue::Type::Edge: {
-      auto ea = value.Value<EdgeAccessor>();
-      ss << "E[" << ea.db_accessor().edge_type_name(ea.edge_type());
-      ss << " {";
-      PrintIterable(ss, ea.Properties(), ", ", [&](const auto kv) {
-        return ea.db_accessor().property_name(kv.first) + ": " +
-               TypedValueToString(kv.second);
-      });
-      ss << "}]";
+    case query::TypedValue::Type::Map:
       break;
-    }
-    case TypedValue::Type::List:
-      break;
-    case TypedValue::Type::Map:
-      break;
-    case TypedValue::Type::Path:
+    case query::TypedValue::Type::Path:
       break;
     default:
       ss << value;

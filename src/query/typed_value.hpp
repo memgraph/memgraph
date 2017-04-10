@@ -15,6 +15,8 @@
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
+namespace query {
+
 typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
@@ -164,3 +166,5 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b);
 
 // stream output
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type);
+
+}  // namespace query

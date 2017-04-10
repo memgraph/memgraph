@@ -23,3 +23,27 @@ ForwardIt action_remove_if(ForwardIt first, ForwardIt last, UnaryPredicate p,
   std::for_each(it, last, a);
   return it;
 }
+
+/**
+ * Outputs a collection of items to the given stream, separating them with the
+ * given delimiter.
+ *
+ * @param stream Destination stream.
+ * @param iterable An iterable collection of items.
+ * @param delim Delimiter that is put between items.
+ * @param converter Function which converts an item to a type which supports
+ *        @c operator<<.
+ */
+template <typename TStream, typename TIterable, typename TConverter>
+void PrintIterable(TStream &stream, const TIterable &iterable,
+                   const std::string &delim = ", ", TConverter converter = {}) {
+  bool first = true;
+  for (const auto &item : iterable) {
+    if (first)
+      first = false;
+    else
+      stream << delim;
+    stream << converter(item);
+  }
+}
+

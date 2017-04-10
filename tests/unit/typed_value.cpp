@@ -6,9 +6,12 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
 
 namespace {
+
+using query::TypedValue;
+using query::TypedValueException;
 
 std::vector<TypedValue> MakePropsAllTypes() {
   return {

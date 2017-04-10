@@ -1,9 +1,10 @@
+#include "storage/vertex_accessor.hpp"
+
 #include <algorithm>
 
 #include "database/graph_db_accessor.hpp"
-#include "storage/edge_accessor.hpp"
 #include "storage/util.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "utils/algorithm.hpp"
 
 size_t VertexAccessor::out_degree() const { return current().out_.size(); }
 
@@ -37,4 +38,18 @@ bool VertexAccessor::has_label(GraphDbTypes::Label label) const {
 
 const std::vector<GraphDbTypes::Label> &VertexAccessor::labels() const {
   return this->current().labels_;
+}
+
+std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
+  os << "V(";
+  PrintIterable(os, va.labels(), ":",
+                [&](auto label) { return va.db_accessor().label_name(label); });
+  os << " {";
+  auto prop_to_string = [&](const auto kv) {
+    std::stringstream ss;
+    ss << va.db_accessor().property_name(kv.first) << ": " << kv.second;
+    return ss.str();
+  };
+  PrintIterable(os, va.Properties(), ", ", prop_to_string);
+  return os << "})";
 }

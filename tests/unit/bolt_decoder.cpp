@@ -2,7 +2,9 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
+
+using query::TypedValue;
 
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];

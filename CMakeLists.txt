@@ -361,7 +361,7 @@ set(memgraph_src_files
     ${src_dir}/query/stripper.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
-    ${src_dir}/query/backend/cpp/typed_value.cpp
+    ${src_dir}/query/typed_value.cpp
     ${src_dir}/query/frontend/logical/operator.cpp
     ${src_dir}/query/frontend/logical/planner.cpp
     ${src_dir}/query/frontend/semantic/symbol_generator.cpp

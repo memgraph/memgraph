@@ -2,10 +2,8 @@
 
 #include <map>
 
-#include "query/backend/cpp/typed_value.hpp"
-#include "storage/property_value_store.hpp"
-
 #include "parameters.hpp"
+#include "storage/property_value_store.hpp"
 #include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
 

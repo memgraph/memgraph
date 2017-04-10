@@ -6,6 +6,9 @@
 #include "gtest/gtest.h"
 
 #include "query/stripper.hpp"
+#include "query/typed_value.hpp"
+
+using query::TypedValue;
 
 void EXPECT_PROP_TRUE(const TypedValue& a) {
   EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.Value<bool>());

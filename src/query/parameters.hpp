@@ -6,7 +6,7 @@
 #ifndef MEMGRAPH_PARAMETERS_HPP
 #define MEMGRAPH_PARAMETERS_HPP
 
-#include <query/backend/cpp/typed_value.hpp>
+#include "query/typed_value.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)
@@ -21,7 +21,7 @@ struct Parameters {
    * @param value
    * @return
    */
-  const std::string &Add(const TypedValue &value) {
+  const std::string &Add(const query::TypedValue &value) {
     return storage_.emplace(NextName(), value).first->first;
   }
 
@@ -33,7 +33,7 @@ struct Parameters {
    *  @param name Param name.
    *  @return Value for the given param.
    */
-  const TypedValue &At(const std::string &name) const {
+  const query::TypedValue &At(const std::string &name) const {
     auto found = storage_.find(name);
     permanent_assert(found != storage_.end(),
                      "Name must be present in stripped arg container");
@@ -51,7 +51,7 @@ struct Parameters {
    * @param position Which stripped param is sought.
    * @return Stripped param.
    */
-  const TypedValue &At(const size_t position) const {
+  const query::TypedValue &At(const size_t position) const {
     permanent_assert(position < storage_.size(), "Invalid position");
     return storage_.find(NameForPosition(position))->second;
   }
@@ -60,7 +60,7 @@ struct Parameters {
   const size_t Size() const { return storage_.size(); }
 
  private:
-  std::map<std::string, TypedValue> storage_;
+  std::map<std::string, query::TypedValue> storage_;
 
   /** Generates and returns a new name */
   std::string NextName() const { return NameForPosition(storage_.size()); }

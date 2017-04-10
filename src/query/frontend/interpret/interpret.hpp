@@ -3,9 +3,9 @@
 #include <map>
 #include <vector>
 
-#include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 #include "utils/exceptions/not_yet_implemented.hpp"
 

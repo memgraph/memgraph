@@ -4,9 +4,9 @@
 #include <string>
 
 #include "data_structures/bitset/static_bitset.hpp"
-#include "query/backend/cpp/typed_value.hpp"
 #include "query/parameters.hpp"
 #include "query/plan_interface.hpp"
+#include "query/typed_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "using.hpp"
@@ -56,11 +56,11 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
         vertices[i].has_label(db_accessor.label("profile"))) {
       auto has_prop =
           vertices[i].PropsAt(db_accessor.property("profile_id")) == args.At(0);
-      if (has_prop.type() == TypedValue::Type::Null) continue;
+      if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
       has_prop =
           vertices[i].PropsAt(db_accessor.property("partner_id")) == args.At(1);
-      if (has_prop.type() == TypedValue::Type::Null) continue;
+      if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
       profile_index = i;
     }
@@ -121,7 +121,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     const VertexAccessor v = *vertices_indexed[i];
     auto cmp_res = v.PropsAt(db_accessor.property("garment_id")) ==
                    args.At(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0);
-    if (cmp_res.type() != TypedValue::Type::Bool) continue;
+    if (cmp_res.type() != query::TypedValue::Type::Bool) continue;
     if (cmp_res.Value<bool>() != true) continue;
     auto neigh = connected[i].Ones();
     for (int j : neigh) {
@@ -186,8 +186,8 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     for (auto x : V) {
       auto edge = get_edge(vertices[profile_index], *vertices_indexed[x]);
       if (edge == nullptr) continue;
-      auto prop = TypedValue(edge->PropsAt(db_accessor.property("score")));
-      if (prop.type() == TypedValue::Type::Int) res += prop.Value<int64_t>();
+      auto prop = query::TypedValue(edge->PropsAt(db_accessor.property("score")));
+      if (prop.type() == query::TypedValue::Type::Int) res += prop.Value<int64_t>();
     }
     return res;
   };
@@ -203,7 +203,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
                         ? args.At((int)args.Size() - 1).Value<int64_t>()
                         : (int)results.size();
   for (int i = 0; i < std::min(limit, (int)results.size()); ++i) {
-    std::vector<TypedValue> result;
+    std::vector<query::TypedValue> result;
     for (auto x : results[i]) {
       result.push_back(vertices_indexed[x]
                            ->PropsAt(db_accessor.property("garment_id"))
@@ -213,8 +213,8 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       result.push_back(calc_score(results[i]));
     stream.Result(result);
   }
-  std::map<std::string, TypedValue> meta{
-      std::make_pair(std::string("type"), TypedValue(std::string("r")))};
+  std::map<std::string, query::TypedValue> meta{
+      std::make_pair(std::string("type"), query::TypedValue(std::string("r")))};
   stream.Summary(meta);
   return true;
 }

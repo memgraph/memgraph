@@ -16,8 +16,9 @@ struct Query {
 };
 
 template <typename Session>
-void StateExecutorFailure(Session &session, Logger &logger,
-                          const std::map<std::string, TypedValue> &metadata) {
+void StateExecutorFailure(
+    Session &session, Logger &logger,
+    const std::map<std::string, query::TypedValue> &metadata) {
   try {
     session.encoder_.MessageFailure(metadata);
   } catch (const BoltException &e) {

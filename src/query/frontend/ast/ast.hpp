@@ -6,8 +6,8 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "query/backend/cpp/typed_value.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/typed_value.hpp"
 #include "utils/visitor/visitable.hpp"
 
 namespace query {

@@ -39,7 +39,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param values the fields list object that should be sent
    */
-  void MessageRecord(const std::vector<TypedValue> &values) {
+  void MessageRecord(const std::vector<query::TypedValue> &values) {
     // 0xB1 = struct 1; 0x71 = record signature
     WriteRAW("\xB1\x71", 2);
     WriteList(values);
@@ -57,7 +57,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @param metadata the metadata map object that should be sent
    * @param flush should method flush the socket
    */
-  void MessageSuccess(const std::map<std::string, TypedValue> &metadata,
+  void MessageSuccess(const std::map<std::string, query::TypedValue> &metadata,
                       bool flush = true) {
     // 0xB1 = struct 1; 0x70 = success signature
     WriteRAW("\xB1\x70", 2);
@@ -74,7 +74,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * This function sends a success message without additional metadata.
    */
   void MessageSuccess() {
-    std::map<std::string, TypedValue> metadata;
+    std::map<std::string, query::TypedValue> metadata;
     MessageSuccess(metadata);
   }
 
@@ -88,7 +88,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param metadata the metadata map object that should be sent
    */
-  void MessageFailure(const std::map<std::string, TypedValue> &metadata) {
+  void MessageFailure(const std::map<std::string, query::TypedValue> &metadata) {
     // 0xB1 = struct 1; 0x7F = failure signature
     WriteRAW("\xB1\x7F", 2);
     WriteMap(metadata);
@@ -105,7 +105,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param metadata the metadata map object that should be sent
    */
-  void MessageIgnored(const std::map<std::string, TypedValue> &metadata) {
+  void MessageIgnored(const std::map<std::string, query::TypedValue> &metadata) {
     // 0xB1 = struct 1; 0x7E = ignored signature
     WriteRAW("\xB1\x7E", 2);
     WriteMap(metadata);

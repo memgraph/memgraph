@@ -12,11 +12,13 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/typed_value.hpp"
 
 namespace {
 
 using namespace query;
 using namespace query::frontend;
+using query::TypedValue;
 using testing::UnorderedElementsAre;
 using testing::Pair;
 

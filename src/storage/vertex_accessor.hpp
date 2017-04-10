@@ -73,3 +73,5 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto out() { return make_accessor_iterator<EdgeAccessor>(current().out_, db_accessor()); }
 };
+
+std::ostream &operator<<(std::ostream &, const VertexAccessor &);

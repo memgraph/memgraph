@@ -4,7 +4,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "logging/default.hpp"
 #include "logging/logger.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
 #include "utils/underlying_cast.hpp"
 
@@ -19,7 +19,7 @@ namespace communication::bolt {
 struct DecodedVertex {
   int64_t id;
   std::vector<std::string> labels;
-  std::map<std::string, TypedValue> properties;
+  std::map<std::string, query::TypedValue> properties;
 };
 
 /**
@@ -31,7 +31,7 @@ struct DecodedEdge {
   int64_t from;
   int64_t to;
   std::string type;
-  std::map<std::string, TypedValue> properties;
+  std::map<std::string, query::TypedValue> properties;
 };
 
 /**
@@ -57,7 +57,7 @@ class Decoder : public Loggable {
    * @returns true if data has been written to the data pointer,
    *          false otherwise
    */
-  bool ReadTypedValue(TypedValue *data) {
+  bool ReadTypedValue(query::TypedValue *data) {
     uint8_t value;
 
     logger.trace("[ReadTypedValue] Start");
@@ -124,7 +124,7 @@ class Decoder : public Loggable {
    * @returns true if data has been written to the data pointer and the type
    *          matches the expected type, false otherwise
    */
-  bool ReadTypedValue(TypedValue *data, TypedValue::Type type) {
+  bool ReadTypedValue(query::TypedValue *data, query::TypedValue::Type type) {
     if (!ReadTypedValue(data)) {
       logger.debug("[ReadTypedValue] ReadTypedValue call failed!");
       return false;
@@ -146,7 +146,7 @@ class Decoder : public Loggable {
    */
   bool ReadVertex(DecodedVertex *data) {
     uint8_t value[2];
-    TypedValue tv;
+    query::TypedValue tv;
 
     logger.trace("[ReadVertex] Start");
 
@@ -166,21 +166,21 @@ class Decoder : public Loggable {
     }
 
     // read ID
-    if (!ReadTypedValue(&tv, TypedValue::Type::Int)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
       logger.debug("[ReadVertex] Couldn't read ID!");
       return false;
     }
     data->id = tv.Value<int64_t>();
 
     // read labels
-    if (!ReadTypedValue(&tv, TypedValue::Type::List)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::List)) {
       logger.debug("[ReadVertex] Couldn't read labels!");
       return false;
     }
-    std::vector<TypedValue> &labels = tv.Value<std::vector<TypedValue>>();
+    auto &labels = tv.Value<std::vector<query::TypedValue>>();
     data->labels.resize(labels.size());
     for (size_t i = 0; i < labels.size(); ++i) {
-      if (labels[i].type() != TypedValue::Type::String) {
+      if (labels[i].type() != query::TypedValue::Type::String) {
         logger.debug("[ReadVertex] Label has wrong type!");
         return false;
       }
@@ -188,11 +188,11 @@ class Decoder : public Loggable {
     }
 
     // read properties
-    if (!ReadTypedValue(&tv, TypedValue::Type::Map)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Map)) {
       logger.debug("[ReadVertex] Couldn't read properties!");
       return false;
     }
-    data->properties = tv.Value<std::map<std::string, TypedValue>>();
+    data->properties = tv.Value<std::map<std::string, query::TypedValue>>();
 
     logger.trace("[ReadVertex] Success");
 
@@ -209,7 +209,7 @@ class Decoder : public Loggable {
    */
   bool ReadEdge(DecodedEdge *data) {
     uint8_t value[2];
-    TypedValue tv;
+    query::TypedValue tv;
 
     logger.trace("[ReadEdge] Start");
 
@@ -229,39 +229,39 @@ class Decoder : public Loggable {
     }
 
     // read ID
-    if (!ReadTypedValue(&tv, TypedValue::Type::Int)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
       logger.debug("[ReadEdge] couldn't read ID!");
       return false;
     }
     data->id = tv.Value<int64_t>();
 
     // read from
-    if (!ReadTypedValue(&tv, TypedValue::Type::Int)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
       logger.debug("[ReadEdge] Couldn't read from_id!");
       return false;
     }
     data->from = tv.Value<int64_t>();
 
     // read to
-    if (!ReadTypedValue(&tv, TypedValue::Type::Int)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
       logger.debug("[ReadEdge] Couldn't read to_id!");
       return false;
     }
     data->to = tv.Value<int64_t>();
 
     // read type
-    if (!ReadTypedValue(&tv, TypedValue::Type::String)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::String)) {
       logger.debug("[ReadEdge] Couldn't read type!");
       return false;
     }
     data->type = tv.Value<std::string>();
 
     // read properties
-    if (!ReadTypedValue(&tv, TypedValue::Type::Map)) {
+    if (!ReadTypedValue(&tv, query::TypedValue::Type::Map)) {
       logger.debug("[ReadEdge] Couldn't read properties!");
       return false;
     }
-    data->properties = tv.Value<std::map<std::string, TypedValue>>();
+    data->properties = tv.Value<std::map<std::string, query::TypedValue>>();
 
     logger.trace("[ReadEdge] Success");
 
@@ -272,28 +272,28 @@ class Decoder : public Loggable {
   Buffer &buffer_;
 
  private:
-  bool ReadNull(const Marker &marker, TypedValue *data) {
+  bool ReadNull(const Marker &marker, query::TypedValue *data) {
     logger.trace("[ReadNull] Start");
     debug_assert(marker == Marker::Null, "Received invalid marker!");
-    *data = TypedValue::Null;
+    *data = query::TypedValue::Null;
     logger.trace("[ReadNull] Success");
     return true;
   }
 
-  bool ReadBool(const Marker &marker, TypedValue *data) {
+  bool ReadBool(const Marker &marker, query::TypedValue *data) {
     logger.trace("[ReadBool] Start");
     debug_assert(marker == Marker::False || marker == Marker::True,
                  "Received invalid marker!");
     if (marker == Marker::False) {
-      *data = TypedValue(false);
+      *data = query::TypedValue(false);
     } else {
-      *data = TypedValue(true);
+      *data = query::TypedValue(true);
     }
     logger.trace("[ReadBool] Success");
     return true;
   }
 
-  bool ReadInt(const Marker &marker, TypedValue *data) {
+  bool ReadInt(const Marker &marker, query::TypedValue *data) {
     uint8_t value = underlying_cast(marker);
     bool success = true;
     int64_t ret;
@@ -338,13 +338,13 @@ class Decoder : public Loggable {
       return false;
     }
     if (success) {
-      *data = TypedValue(ret);
+      *data = query::TypedValue(ret);
       logger.trace("[ReadInt] Success");
     }
     return success;
   }
 
-  bool ReadDouble(const Marker marker, TypedValue *data) {
+  bool ReadDouble(const Marker marker, query::TypedValue *data) {
     uint64_t value;
     double ret;
     logger.trace("[ReadDouble] Start");
@@ -355,7 +355,7 @@ class Decoder : public Loggable {
     }
     value = bswap(value);
     ret = *reinterpret_cast<double *>(&value);
-    *data = TypedValue(ret);
+    *data = query::TypedValue(ret);
     logger.trace("[ReadDouble] Success");
     return true;
   }
@@ -397,7 +397,7 @@ class Decoder : public Loggable {
     }
   }
 
-  bool ReadString(const Marker &marker, TypedValue *data) {
+  bool ReadString(const Marker &marker, query::TypedValue *data) {
     logger.trace("[ReadString] Start");
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
@@ -409,31 +409,31 @@ class Decoder : public Loggable {
       logger.debug("[ReadString] Missing data!");
       return false;
     }
-    *data = TypedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
+    *data = query::TypedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
     logger.trace("[ReadString] Success");
     return true;
   }
 
-  bool ReadList(const Marker &marker, TypedValue *data) {
+  bool ReadList(const Marker &marker, query::TypedValue *data) {
     logger.trace("[ReadList] Start");
     auto size = ReadTypeSize(marker, MarkerList);
     if (size == -1) {
       logger.debug("[ReadList] Couldn't get size!");
       return false;
     }
-    std::vector<TypedValue> ret(size);
+    std::vector<query::TypedValue> ret(size);
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadTypedValue(&ret[i])) {
         logger.debug("[ReadList] Couldn't read element {}", i);
         return false;
       }
     }
-    *data = TypedValue(ret);
+    *data = query::TypedValue(ret);
     logger.trace("[ReadList] Success");
     return true;
   }
 
-  bool ReadMap(const Marker &marker, TypedValue *data) {
+  bool ReadMap(const Marker &marker, query::TypedValue *data) {
     logger.trace("[ReadMap] Start");
     auto size = ReadTypeSize(marker, MarkerMap);
     if (size == -1) {
@@ -441,15 +441,15 @@ class Decoder : public Loggable {
       return false;
     }
 
-    TypedValue tv;
+    query::TypedValue tv;
     std::string str;
-    std::map<std::string, TypedValue> ret;
+    std::map<std::string, query::TypedValue> ret;
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadTypedValue(&tv)) {
         logger.debug("[ReadMap] Couldn't read index {}", i);
         return false;
       }
-      if (tv.type() != TypedValue::Type::String) {
+      if (tv.type() != query::TypedValue::Type::String) {
         logger.debug("[ReadMap] Index {} isn't a string!", i);
         return false;
       }
@@ -466,7 +466,7 @@ class Decoder : public Loggable {
       return false;
     }
 
-    *data = TypedValue(ret);
+    *data = query::TypedValue(ret);
     logger.trace("[ReadMap] Success");
     return true;
   }

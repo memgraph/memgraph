@@ -1,4 +1,4 @@
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
 
 #include <fmt/format.h>
 #include <cmath>
@@ -6,6 +6,8 @@
 #include <memory>
 
 #include "utils/assert.hpp"
+
+namespace query {
 
 TypedValue::TypedValue(const PropertyValue &value) {
   switch (value.type()) {
@@ -728,3 +730,5 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
                               a.type(), b.type());
   }
 }
+
+}  // namespace query

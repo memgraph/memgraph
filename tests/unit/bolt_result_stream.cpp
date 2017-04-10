@@ -3,7 +3,9 @@
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
+
+using query::TypedValue;
 
 using BufferT = communication::bolt::ChunkedEncoderBuffer<TestSocket>;
 using EncoderT = communication::bolt::Encoder<BufferT>;

@@ -4,7 +4,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "logging/default.hpp"
 #include "logging/logger.hpp"
-#include "query/backend/cpp/typed_value.hpp"
+#include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
 
 #include <string>
@@ -115,12 +115,12 @@ class BaseEncoder : public Loggable {
     WriteRAW(value.c_str(), value.size());
   }
 
-  void WriteList(const std::vector<TypedValue> &value) {
+  void WriteList(const std::vector<query::TypedValue> &value) {
     WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteTypedValue(x);
   }
 
-  void WriteMap(const std::map<std::string, TypedValue> &value) {
+  void WriteMap(const std::map<std::string, query::TypedValue> &value) {
     WriteTypeSize(value.size(), MarkerMap);
     for (auto &x : value) {
       WriteString(x.first);
@@ -193,36 +193,36 @@ class BaseEncoder : public Loggable {
     // TODO: this isn't implemented in the backend!
   }
 
-  void WriteTypedValue(const TypedValue &value) {
+  void WriteTypedValue(const query::TypedValue &value) {
     switch (value.type()) {
-      case TypedValue::Type::Null:
+      case query::TypedValue::Type::Null:
         WriteNull();
         break;
-      case TypedValue::Type::Bool:
+      case query::TypedValue::Type::Bool:
         WriteBool(value.Value<bool>());
         break;
-      case TypedValue::Type::Int:
+      case query::TypedValue::Type::Int:
         WriteInt(value.Value<int64_t>());
         break;
-      case TypedValue::Type::Double:
+      case query::TypedValue::Type::Double:
         WriteDouble(value.Value<double>());
         break;
-      case TypedValue::Type::String:
+      case query::TypedValue::Type::String:
         WriteString(value.Value<std::string>());
         break;
-      case TypedValue::Type::List:
-        WriteList(value.Value<std::vector<TypedValue>>());
+      case query::TypedValue::Type::List:
+        WriteList(value.Value<std::vector<query::TypedValue>>());
         break;
-      case TypedValue::Type::Map:
-        WriteMap(value.Value<std::map<std::string, TypedValue>>());
+      case query::TypedValue::Type::Map:
+        WriteMap(value.Value<std::map<std::string, query::TypedValue>>());
         break;
-      case TypedValue::Type::Vertex:
+      case query::TypedValue::Type::Vertex:
         WriteVertex(value.Value<VertexAccessor>());
         break;
-      case TypedValue::Type::Edge:
+      case query::TypedValue::Type::Edge:
         WriteEdge(value.Value<EdgeAccessor>());
         break;
-      case TypedValue::Type::Path:
+      case query::TypedValue::Type::Path:
         // TODO: this is not implemeted yet!
         WritePath();
         break;

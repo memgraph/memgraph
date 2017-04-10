@@ -1,6 +1,8 @@
 #pragma once
 
-#include "query/backend/cpp/typed_value.hpp"
+#include <map>
+
+#include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 
 /**
@@ -18,13 +20,13 @@ class ResultStreamFaker {
     current_state_ = State::WritingResults;
   }
 
-  void Result(const std::vector<TypedValue> &values) {
+  void Result(const std::vector<query::TypedValue> &values) {
     debug_assert(current_state_ == State::WritingResults,
                  "Can't accept results before header nor after summary");
     results_.push_back(values);
   }
 
-  void Summary(const std::map<std::string, TypedValue> &summary) {
+  void Summary(const std::map<std::string, query::TypedValue> &summary) {
     debug_assert(current_state_ != State::Done, "Can only send a summary once");
     summary_ = summary;
     current_state_ = State::Done;
@@ -54,6 +56,6 @@ class ResultStreamFaker {
 
   // the data that the record stream can accept
   std::vector<std::string> header_;
-  std::vector<std::vector<TypedValue>> results_;
-  std::map<std::string, TypedValue> summary_;
+  std::vector<std::vector<query::TypedValue>> results_;
+  std::map<std::string, query::TypedValue> summary_;
 };

@@ -1,14 +1,15 @@
 #include <iostream>
 #include <string>
 
-#include "query/backend/cpp/typed_value.hpp"
 #include "query/parameters.hpp"
 #include "query/plan_interface.hpp"
 #include "query/stripped.hpp"
+#include "query/typed_value.hpp"
 #include "using.hpp"
 
 using std::cout;
 using std::endl;
+using query::TypedValue;
 
 // Query: MATCH (n) DETACH DELETE n
 
