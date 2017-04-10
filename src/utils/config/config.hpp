@@ -56,24 +56,24 @@ class Config {
     load_configuration(homedir);
 
     // environment variable configuratoin
-    if (const char* env_path = std::getenv(Definition::env_config_key))
+    if (const char *env_path = std::getenv(Definition::env_config_key))
       load_configuration(env_path);
   }
 
  public:
-  static Config<Definition>& instance() {
+  static Config<Definition> &instance() {
     static Config<Definition> config;
     return config;
   }
 
-  void register_args(int argc, char** argv) {
+  void register_args(int argc, char **argv) {
     REGISTER_ARGS(argc, argv);
 
-    for (const auto& argument : Definition::arguments) {
+    for (const auto &argument : Definition::arguments) {
       dict[argument] = GET_ARG("--" + argument, dict[argument]).get_string();
     }
   }
 
-  std::string& operator[](const char* key) { return dict[key]; }
+  std::string &operator[](const char *key) { return dict[key]; }
 };
 }

@@ -64,11 +64,10 @@ TEST(VersionList, GcDeleted) {
  * Test integration of garbage collector with MVCC GC. Delete mvcc's which are
  * empty (not visible from any future transaction) from the skiplist.
  */
-TEST(GarbageCollector, WaitAndClean) {
+TEST(GarbageCollector, GcClean) {
   SkipList<mvcc::VersionList<Prop> *> skiplist;
   tx::Engine engine;
   GarbageCollector<Prop> gc(&skiplist, &engine);
-  gc.Run(std::chrono::seconds(1));
 
   auto t1 = engine.begin();
   std::atomic<int> count;
@@ -76,39 +75,16 @@ TEST(GarbageCollector, WaitAndClean) {
 
   auto access = skiplist.access();
   access.insert(vl);
+  gc.Run();
   t1->commit();
+  gc.Run();
+
   auto t2 = engine.begin();
   EXPECT_EQ(vl->remove(*t2), true);
   t2->commit();
 
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  gc.Run();
   EXPECT_EQ(access.size(), (size_t)0);
-}
-
-/**
- * Same as above, but, the GarbageCollector will never be run because the time
- * between garbage collections is set to -1.
- */
-TEST(GarbageCollector, WaitAndDontClean) {
-  SkipList<mvcc::VersionList<Prop> *> skiplist;
-  tx::Engine engine;
-  GarbageCollector<Prop> gc(&skiplist, &engine);
-  gc.Run(std::chrono::seconds(-1));  // Never run GC. This test is identical to
-                                     // the top one except GC is never run.
-
-  auto t1 = engine.begin();
-  std::atomic<int> count;
-  auto vl = new mvcc::VersionList<Prop>(*t1, count);
-
-  auto access = skiplist.access();
-  access.insert(vl);
-  t1->commit();
-  auto t2 = engine.begin();
-  EXPECT_EQ(vl->remove(*t2), true);
-  t2->commit();
-
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  EXPECT_EQ(access.size(), (size_t)1);
 }
 
 int main(int argc, char **argv) {

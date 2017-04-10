@@ -29,7 +29,7 @@ constexpr const char *MAX_RETAINED_SNAPSHOTS = "max_retained_snapshots";
 constexpr const char *INTERPRET = "interpret";
 // -- all possible Memgraph's keys --
 
-inline size_t to_int(std::string &&s) { return stoull(s); }
+inline size_t to_int(std::string &s) { return stoull(s); }
 // TODO: move this to register args because it doesn't make sense to convert
 // str to bool for every lookup
 inline bool to_bool(std::string &s) {

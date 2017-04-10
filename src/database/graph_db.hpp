@@ -13,6 +13,7 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/pass_key.hpp"
+#include "utils/scheduler.hpp"
 
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new
 // layer would hold SnapshotEngine and his kind of concept objects. Some
@@ -69,4 +70,8 @@ class GraphDb {
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
+
+  // Schedulers
+  Scheduler<std::mutex> gc_vertices_scheduler_;
+  Scheduler<std::mutex> gc_edges_scheduler_;
 };
