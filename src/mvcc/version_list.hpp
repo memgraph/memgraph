@@ -1,5 +1,7 @@
 #pragma once
 
+#include <shared_mutex>
+
 #include "threading/sync/lockable.hpp"
 #include "transactions/transaction.hpp"
 
@@ -16,10 +18,11 @@ class VersionList {
   using uptr = std::unique_ptr<VersionList<T>>;
   using item_t = T;
 
-  /* @brief Constructor that is used to insert one item into VersionList.
-     @param t - transaction
-     @param args - args forwarded to constructor of item T (for
-     creating the first Record (Version) in this VersionList.
+  /**
+   * @brief Constructor that is used to insert one item into VersionList.
+   * @param t - transaction
+   * @param args - args forwarded to constructor of item T (for
+   * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
   VersionList(tx::Transaction &t, Args &&... args) {
@@ -88,16 +91,30 @@ class VersionList {
           newest_deleted_record->next(std::memory_order_seq_cst);
     }
 
+    // This can happen only if the head already points to a deleted record or
+    // the version list is empty. This means that the version_list is ready
+    // for complete destruction.
     if (oldest_not_deleted_record == nullptr) {
-      // This can happen only if the head already points to a deleted record or
-      // the version list is empty. This means that the version_list is ready
-      // for complete destruction.
-      if (newest_deleted_record != nullptr) delete newest_deleted_record;
-      head.store(nullptr, std::memory_order_seq_cst);
+      // Head points to a deleted record.
+      if (newest_deleted_record != nullptr) {
+        {
+          // We need to take an exclusive lock here since if some thread is
+          // currently doing the find operation we could free something to which
+          // find method points.
+          std::unique_lock<std::shared_timed_mutex> lock(head_mutex_);
+          head.store(nullptr, std::memory_order_seq_cst);
+        }
+        // This is safe to do since we unlinked head and now no record* in
+        // another thread which is executing the find function can see any of
+        // the nodes we are going to delete.
+        delete newest_deleted_record;
+      }
       return true;
     }
     // oldest_not_deleted_record might be visible to some transaction but
-    // newest_deleted_record is not.
+    // newest_deleted_record is not and will never be visted by the find
+    // function and as such doesn't represent pointer invalidation
+    // race-condition risk.
     oldest_not_deleted_record->next(
         nullptr, std::memory_order_seq_cst);  // No transaction will look
                                               // further than this record and
@@ -111,7 +128,11 @@ class VersionList {
     return false;
   }
 
-  T *find(const tx::Transaction &t) const {
+  T *find(const tx::Transaction &t) {
+    // We need to take a shared_lock here because GC could delete the first
+    // entry pointed by head, or some later entry when following head->next
+    // pointers.
+    std::shared_lock<std::shared_timed_mutex> slock(head_mutex_);
     auto r = head.load(std::memory_order_seq_cst);
 
     //    nullptr
@@ -145,8 +166,10 @@ class VersionList {
    *
    * @param t The transaction
    */
-  void find_set_new_old(const tx::Transaction &t, T *&old_ref,
-                        T *&new_ref) const {
+  void find_set_new_old(const tx::Transaction &t, T *&old_ref, T *&new_ref) {
+    // Take a look in find to understand why this is needed.
+    std::shared_lock<std::shared_timed_mutex> slock(head_mutex_);
+
     // assume that the sought old record is further down the list
     // from new record, so that if we found old we can stop looking
     new_ref = nullptr;
@@ -167,24 +190,8 @@ class VersionList {
     return update(record, t);
   }
 
-  T *update(T *record, tx::Transaction &t) {
-    debug_assert(record != nullptr, "Record is nullptr on update.");
-    lock_and_validate(record, t);
-
-    // It could be done with unique_ptr but while this could mean memory
-    // leak on exception, unique_ptr could mean use after free. Memory
-    // leak is less dangerous.
-    auto updated = new T(*record);
-
-    updated->mark_created(t);
-    record->mark_deleted(t);
-
-    updated->next(record, std::memory_order_seq_cst);
-    head.store(updated, std::memory_order_seq_cst);
-
-    return updated;
-  }
-
+  // TODO(flor): This should also be private but can't be right now because of
+  // the way graph_db_accessor works.
   bool remove(tx::Transaction &t) {
     debug_assert(head != nullptr, "Head is nullptr on removal.");
     auto record = find(t);
@@ -220,7 +227,36 @@ class VersionList {
     throw SerializationError();
   }
 
+  T *update(T *record, tx::Transaction &t) {
+    debug_assert(record != nullptr, "Record is nullptr on update.");
+    lock_and_validate(record, t);
+
+    // It could be done with unique_ptr but while this could mean memory
+    // leak on exception, unique_ptr could mean use after free. Memory
+    // leak is less dangerous.
+    auto updated = new T(*record);
+
+    updated->mark_created(t);
+    record->mark_deleted(t);
+
+    // Updated version should point to the latest available version. Older
+    // versions that can be deleted will be removed during the GC phase.
+    updated->next(head.load(), std::memory_order_seq_cst);
+
+    // Store the updated version as the first version point to by head.
+    head.store(updated, std::memory_order_seq_cst);
+
+    return updated;
+  }
+
   std::atomic<T *> head{nullptr};
   RecordLock lock;
+  // We need this mutex to make the nodes deletion operation (to avoid memory
+  // leak) atomic with regards to the find operation. Otherwise we might have a
+  // pointer to a version that is currently being deleted, and accessing it will
+  // throw a SEGFAULT.
+  // TODO(C++17)
+  std::shared_timed_mutex head_mutex_;  // This should be changed
+                                        // when we migrate to C++17.
 };
 }

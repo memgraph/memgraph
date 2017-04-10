@@ -18,7 +18,7 @@ class Transaction {
   friend class Engine;
 
  public:
-  Transaction(Engine &engine);
+  explicit Transaction(Engine &engine);
   Transaction(const Id &&id, const Snapshot<Id> &&snapshot, Engine &engine);
   Transaction(const Id &id, const Snapshot<Id> &snapshot, Engine &engine);
   Transaction(const Transaction &) = delete;

@@ -94,7 +94,7 @@ class Record : public Version<T> {
   }
 
   bool exp_committed(const tx::Transaction &t) {
-    return committed(hints.exp, tx.exp(), t);
+    return committed(hints.exp, tx.exp(), t.engine);
   }
 
   bool cre_committed(const Id &id, const tx::Transaction &t) {
@@ -143,20 +143,28 @@ class Record : public Version<T> {
 
  protected:
   template <class U>
+  /**
+   * @brief - Check if the id is commited from the perspective of transactio,
+   * i.e. transaction can see the transaction with that id (it happened before
+   * the transaction, and is not in the snapshot). This method is used to test
+   * for visibility of some record.
+   * @param hints - hints to use to determine commit/abort
+   * about transactions commit/abort status
+   * @param id - id to check if it's commited and visible
+   * @return true if the id is commited and visible for the transaction t.
+   */
   bool committed(U &hints, const Id &id, const tx::Transaction &t) {
-    // This whole section below is commented out because even though you can't
-    // see something with greater id you should still able to check if it's
-    // commited - consult the MVCC tests to better understand this behaviour.
-    // you certainly can't see the transaction with id greater than yours
-    // as that means it started after this transaction and if it committed,
-    // it committed after this transaction had started.
-    // if (id >= t.id) return false;
+    // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
+    // if you think they're not, you're wrong, and you should think about it
+    // again. I know, it happened to me (and also to Matej Gradicek).
 
-    // This is commented out because something even though was started before
-    // and not ended yet could have ended in the meantime and data should now be
-    // visible if it's commited.
+    // You certainly can't see the transaction with id greater than yours as
+    // that means it started after this transaction and if it commited, it
+    // commited after this transaction has started.
+    if (id >= t.id) return false;
+
     // The creating transaction is still in progress (examine snapshot)
-    // if (t.in_snapshot(id)) return false;
+    if (t.in_snapshot(id)) return false;
 
     auto hint_bits = hints.load();
 
@@ -169,18 +177,32 @@ class Record : public Version<T> {
     auto info = t.engine.clog.fetch_info(id);
 
     if (info.is_committed()) return hints.set_committed(), true;
-    if (info.is_aborted()) return hints.set_aborted(), false;
 
+    debug_assert(info.is_aborted(),
+                 "Info isn't aborted, but function would return as aborted.");
+    return hints.set_aborted(), false;
+  }
+
+  template <class U>
+  /**
+   * @brief - Check if the id is commited.
+   * @param hints - hints to use to determine commit/abort
+   * @param id - id to check if commited
+   * @param engine - engine instance with information about transactions
+   * statuses
+   * @return true if it's commited, false otherwise
+   */
+  bool committed(U &hints, const Id &id, tx::Engine &engine) {
+    auto hint_bits = hints.load();
+    // if hints are set, return if xid is committed
+    if (!hint_bits.is_unknown()) return hint_bits.is_committed();
+
+    // if hints are not set:
+    // - you are the first one to check since it ended, consult commit log
+    auto info = engine.clog.fetch_info(id);
+    if (info.is_committed()) return hints.set_committed(), true;
+    if (info.is_aborted()) return hints.set_aborted(), false;
     return false;
-    /*
-      BLAME dgleich and matej.gradicek. This check shouldn't be done here since
-      this function should only check if transaction commited or not, and not
-      actually assume that transaction associated with this record either
-      aborted or commited.
-      debug_assert(info.is_aborted(),
-                  "Info isn't aborted, but function would return as aborted.");
-      return hints.set_aborted(), false;
-    */
   }
 };
 }

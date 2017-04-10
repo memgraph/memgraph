@@ -13,7 +13,6 @@
 /**
   @template T type of underlying record in mvcc
  */
-
 template <typename T>
 class GarbageCollector : public Loggable {
  public:
