@@ -391,7 +391,6 @@ Feature: Test01
 
 
 
-
     Scenario: Create and match with label
         Given graph "graph_01"
         When executing query:
