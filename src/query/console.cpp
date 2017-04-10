@@ -188,6 +188,8 @@ void query::Repl(Dbms &dbms) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::SemanticException &e) {
       std::cout << "SEMANTIC EXCEPTION: " << e.what() << std::endl;
+    } catch (const query::QueryRuntimeException &e) {
+      std::cout << "RUNTIME EXCEPTION: " << e.what() << std::endl;
     }
   }
 }
