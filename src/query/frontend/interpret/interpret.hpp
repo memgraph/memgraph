@@ -15,7 +15,9 @@ class Frame {
  public:
   Frame(int size) : size_(size), elems_(size_) {}
 
-  TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position_]; }
+  TypedValue &operator[](const Symbol &symbol) {
+    return elems_[symbol.position_];
+  }
   const TypedValue &operator[](const Symbol &symbol) const {
     return elems_[symbol.position_];
   }
@@ -151,6 +153,15 @@ class ExpressionEvaluator : public TreeVisitorBase {
     // just to be sure.
     SwitchAccessors(value);
     result_stack_.emplace_back(std::move(value));
+  }
+
+  void PostVisit(Function &function) override {
+    std::vector<TypedValue> arguments;
+    for (int i = 0; i < static_cast<int>(function.arguments_.size()); ++i) {
+      arguments.push_back(PopBack());
+    }
+    reverse(arguments.begin(), arguments.end());
+    result_stack_.emplace_back(function.function_(arguments));
   }
 
  private:

@@ -413,6 +413,30 @@ class PropertyLookup : public Expression {
       : Expression(uid), expression_(expression), property_(property) {}
 };
 
+class Function : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto *argument : arguments_) {
+        argument->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
+    }
+  }
+
+  std::function<TypedValue(const std::vector<TypedValue> &)> function_;
+  std::vector<Expression *> arguments_;
+
+ protected:
+  Function(int uid,
+           std::function<TypedValue(const std::vector<TypedValue> &)> function,
+           const std::vector<Expression *> &arguments)
+      : Expression(uid), function_(function), arguments_(arguments) {}
+};
+
 class Aggregation : public UnaryOperator {
   friend class AstTreeStorage;
 

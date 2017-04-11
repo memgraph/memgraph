@@ -11,6 +11,7 @@
 
 #include "database/graph_db.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/interpret/awesome_memgraph_functions.hpp"
 #include "utils/assert.hpp"
 
 namespace query {
@@ -640,11 +641,11 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
   if (ctx->DISTINCT()) {
     throw NotYetImplemented();
   }
+  std::string function_name = ctx->functionName()->accept(this);
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {
     expressions.push_back(expression->accept(this));
   }
-  std::string function_name = ctx->functionName()->accept(this);
   if (expressions.size() == 1U) {
     if (function_name == Aggregation::kCount) {
       return static_cast<Expression *>(
@@ -667,9 +668,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
           storage_.Create<Aggregation>(expressions[0], Aggregation::Op::AVG));
     }
   }
-  // it is not a aggregation, it is a regular function,
-  // will be implemented in next diff
-  throw NotYetImplemented();
+  auto function = NameToFunction(function_name);
+  if (!function) throw SemanticException();
+  return static_cast<Expression *>(
+      storage_.Create<Function>(function, expressions));
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionName(

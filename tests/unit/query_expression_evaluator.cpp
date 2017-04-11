@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/interpret/awesome_memgraph_functions.hpp"
 #include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 
@@ -243,4 +244,40 @@ TEST(ExpressionEvaluator, IsNullOperator) {
       storage.Create<IsNullOperator>(storage.Create<Literal>(TypedValue::Null));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+}
+
+TEST(ExpressionEvaluator, Function) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  {
+    std::vector<Expression *> arguments = {
+        storage.Create<Literal>(TypedValue::Null)};
+    auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
+    op->Accept(eval.eval);
+    ASSERT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
+  {
+    std::vector<Expression *> arguments = {storage.Create<Literal>(-2)};
+    auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
+    op->Accept(eval.eval);
+    ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 2);
+  }
+  {
+    std::vector<Expression *> arguments = {storage.Create<Literal>(-2.5)};
+    auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
+    op->Accept(eval.eval);
+    ASSERT_EQ(eval.eval.PopBack().Value<double>(), 2.5);
+  }
+  {
+    std::vector<Expression *> arguments = {storage.Create<Literal>(true)};
+    auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
+    op->Accept(eval.eval);
+    ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  }
+  {
+    std::vector<Expression *> arguments = {
+        storage.Create<Literal>(std::vector<TypedValue>(5))};
+    auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
+    ASSERT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
 }

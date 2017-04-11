@@ -349,6 +349,27 @@ TEST(CypherMainVisitorTest, Aggregation) {
   }
 }
 
+TEST(CypherMainVisitorTest, UndefinedFunction) {
+  ASSERT_THROW(AstGenerator("RETURN "
+                            "IHopeWeWillNeverHaveAwesomeMemgraphProcedureWithS"
+                            "uchALongAndAwesomeNameSinceThisTestWouldFail(1)"),
+               SemanticException);
+}
+
+TEST(CypherMainVisitorTest, Function) {
+  AstGenerator ast_generator("RETURN abs(n, 2)");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_EQ(return_clause->named_expressions_.size(), 1);
+  auto *function = dynamic_cast<Function *>(
+      return_clause->named_expressions_[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_TRUE(function->function_);
+  // Check if function is abs.
+  ASSERT_EQ(function->function_({-2}).Value<int64_t>(), 2);
+  ASSERT_EQ(function->arguments_.size(), 2);
+}
+
 TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   AstGenerator ast_generator("RETURN \"mi'rko\"");
   auto *query = ast_generator.query_;
