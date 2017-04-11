@@ -31,6 +31,49 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
                               child_clauses.end());
     }
   }
+
+  // Check if ordering of clauses makes sense.
+  //
+  // TODO: should we forbid multiple consecutive set clauses? That case is
+  // little bit problematic because multiple barriers are needed. Multiple
+  // consecutive SET clauses are undefined behaviour in neo4j.
+  bool has_update = false;
+  bool has_return = false;
+  for (Clause *clause : query_->clauses_) {
+    if (dynamic_cast<Match *>(clause)) {
+      if (has_update || has_return) {
+        throw SemanticException("Match can't be after return or update clause");
+      }
+    } else if (dynamic_cast<Create *>(clause) ||
+               dynamic_cast<Delete *>(clause) ||
+               dynamic_cast<SetProperty *>(clause) ||
+               dynamic_cast<SetProperties *>(clause) ||
+               dynamic_cast<SetLabels *>(clause) ||
+               dynamic_cast<RemoveProperty *>(clause) ||
+               dynamic_cast<RemoveLabels *>(clause)) {
+      if (has_return) {
+        throw SemanticException("Update clauses can't be after return");
+      }
+      has_update = true;
+    } else if (dynamic_cast<Return *>(clause)) {
+      if (has_return) {
+        throw SemanticException("There can be only one return in a clause");
+      }
+      has_return = true;
+    } else if (dynamic_cast<With *>(clause)) {
+      if (has_return) {
+        throw SemanticException("Return can't be before with");
+      }
+      has_update = has_return = false;
+    } else {
+      debug_assert(false, "Can't happen");
+    }
+  }
+  if (!has_update && !has_return) {
+    throw SemanticException(
+        "Query should either update something or return results");
+  }
+
   // Construct unique names for anonymous identifiers;
   int id = 1;
   for (auto **identifier : anonymous_identifiers) {

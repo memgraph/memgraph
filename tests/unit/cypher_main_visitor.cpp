@@ -402,9 +402,10 @@ TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
 }
 
 TEST(CypherMainVisitorTest, NodePattern) {
-  AstGenerator ast_generator("MATCH (:label1:label2:label3 {a : 5, b : 10})");
+  AstGenerator ast_generator(
+      "MATCH (:label1:label2:label3 {a : 5, b : 10}) RETURN 1");
   auto *query = ast_generator.query_;
-  ASSERT_EQ(query->clauses_.size(), 1U);
+  ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_TRUE(match);
   ASSERT_FALSE(match->where_);
@@ -434,7 +435,7 @@ TEST(CypherMainVisitorTest, NodePattern) {
 }
 
 TEST(CypherMainVisitorTest, NodePatternIdentifier) {
-  AstGenerator ast_generator("MATCH (var)");
+  AstGenerator ast_generator("MATCH (var) RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_FALSE(match->where_);
@@ -446,7 +447,7 @@ TEST(CypherMainVisitorTest, NodePatternIdentifier) {
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
-  AstGenerator ast_generator("MATCH ()--()");
+  AstGenerator ast_generator("MATCH ()--() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_FALSE(match->where_);
@@ -467,7 +468,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
 
 // PatternPart in braces.
 TEST(CypherMainVisitorTest, PatternPartBraces) {
-  AstGenerator ast_generator("MATCH ((()--()))");
+  AstGenerator ast_generator("MATCH ((()--())) RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_FALSE(match->where_);
@@ -487,7 +488,8 @@ TEST(CypherMainVisitorTest, PatternPartBraces) {
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
-  AstGenerator ast_generator("MATCH ()<-[:type1|type2 {a : 5, b : 10}]-()");
+  AstGenerator ast_generator(
+      "MATCH ()<-[:type1|type2 {a : 5, b : 10}]-() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_FALSE(match->where_);
@@ -511,7 +513,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
-  AstGenerator ast_generator("MATCH ()-[var]->()");
+  AstGenerator ast_generator("MATCH ()-[var]->() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_FALSE(match->where_);
@@ -644,19 +646,19 @@ TEST(CypherMainVisitorTest, DeleteDetach) {
   ASSERT_EQ(identifier1->name_, "n");
 }
 
-TEST(Visitor, MatchWhere) {
-  AstGenerator ast_generator("MATCH (n) WHERE n");
+TEST(CypherMainVisitorTest, MatchWhere) {
+  AstGenerator ast_generator("MATCH (n) WHERE m RETURN 1");
   auto *query = ast_generator.query_;
-  ASSERT_EQ(query->clauses_.size(), 1U);
+  ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_TRUE(match);
   ASSERT_TRUE(match->where_);
   auto *identifier = dynamic_cast<Identifier *>(match->where_->expression_);
   ASSERT_TRUE(identifier);
-  ASSERT_EQ(identifier->name_, "n");
+  ASSERT_EQ(identifier->name_, "m");
 }
 
-TEST(Visitor, Set) {
+TEST(CypherMainVisitorTest, Set) {
   AstGenerator ast_generator("SET a.x = b, c = d, e += f, g : h : i ");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 4U);
@@ -710,7 +712,7 @@ TEST(Visitor, Set) {
   }
 }
 
-TEST(Visitor, Remove) {
+TEST(CypherMainVisitorTest, Remove) {
   AstGenerator ast_generator("REMOVE a.x, g : h : i");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 2U);
@@ -737,10 +739,10 @@ TEST(Visitor, Remove) {
   }
 }
 
-TEST(Visitor, With) {
-  AstGenerator ast_generator("WITH n AS m");
+TEST(CypherMainVisitorTest, With) {
+  AstGenerator ast_generator("WITH n AS m RETURN 1");
   auto *query = ast_generator.query_;
-  ASSERT_EQ(query->clauses_.size(), 1U);
+  ASSERT_EQ(query->clauses_.size(), 2U);
   auto *with = dynamic_cast<With *>(query->clauses_[0]);
   ASSERT_TRUE(with);
   ASSERT_FALSE(with->where_);
@@ -751,10 +753,10 @@ TEST(Visitor, With) {
   ASSERT_EQ(identifier->name_, "n");
 }
 
-TEST(Visitor, WithWhere) {
-  AstGenerator ast_generator("WITH n AS m WHERE k");
+TEST(CypherMainVisitorTest, WithWhere) {
+  AstGenerator ast_generator("WITH n AS m WHERE k RETURN 1");
   auto *query = ast_generator.query_;
-  ASSERT_EQ(query->clauses_.size(), 1U);
+  ASSERT_EQ(query->clauses_.size(), 2U);
   auto *with = dynamic_cast<With *>(query->clauses_[0]);
   ASSERT_TRUE(with);
   ASSERT_TRUE(with->where_);
@@ -766,5 +768,35 @@ TEST(Visitor, WithWhere) {
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier2 = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier2->name_, "n");
+}
+
+TEST(CypherMainVisitorTest, ClausesOrdering) {
+  // Obviously some of the ridiculous combinations don't fail here, but they
+  // will fail in semantic analysis or they make perfect sense AS a part of
+  // bigger query.
+  AstGenerator("RETURN 1");
+  ASSERT_THROW(AstGenerator("RETURN 1 RETURN 1"), SemanticException);
+  ASSERT_THROW(AstGenerator("RETURN 1 MATCH (n) RETURN n"), SemanticException);
+  ASSERT_THROW(AstGenerator("RETURN 1 DELETE n"), SemanticException);
+  ASSERT_THROW(AstGenerator("RETURN 1 WITH n AS m RETURN 1"),
+               SemanticException);
+
+  AstGenerator("CREATE (n)");
+  ASSERT_THROW(AstGenerator("SET n:x MATCH (n) RETURN n"), SemanticException);
+  AstGenerator("REMOVE n.x SET n.x = 1");
+  AstGenerator("REMOVE n:L RETURN n");
+  AstGenerator("SET n.x = 1 WITH n AS m RETURN m");
+
+  ASSERT_THROW(AstGenerator("MATCH (n)"), SemanticException);
+  AstGenerator("MATCH (n) MATCH (n) RETURN n");
+  AstGenerator("MATCH (n) SET n = m");
+  AstGenerator("MATCH (n) RETURN n");
+  AstGenerator("MATCH (n) WITH n AS m RETURN m");
+
+  ASSERT_THROW(AstGenerator("WITH 1 AS n"), SemanticException);
+  AstGenerator("WITH 1 AS n WITH n AS m RETURN m");
+  AstGenerator("WITH 1 AS n RETURN n");
+  AstGenerator("WITH 1 AS n SET n += m");
+  AstGenerator("WITH 1 AS n MATCH (n) RETURN n");
 }
 }
