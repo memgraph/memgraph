@@ -4,10 +4,39 @@
 
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
+
 #include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
-#include "query/util.hpp"
 #include "utils/command_line/arguments.hpp"
+#include "utils/exceptions/basic_exception.hpp"
+#include "utils/file.hpp"
+#include "utils/string/file.hpp"
+#include "utils/string/trim.hpp"
+
+std::string extract_query(const fs::path &path) {
+  auto comment_mark = std::string("// ");
+  auto query_mark = comment_mark + std::string("Query: ");
+  auto lines = utils::read_lines(path);
+  // find the line with a query (the query can be split across multiple
+  // lines)
+  for (int i = 0; i < (int)lines.size(); ++i) {
+    // find query in the line
+    auto &line = lines[i];
+    auto pos = line.find(query_mark);
+    // if query doesn't exist pass
+    if (pos == std::string::npos) continue;
+    auto query = utils::trim(line.substr(pos + query_mark.size()));
+    while (i + 1 < (int)lines.size() &&
+           lines[i + 1].find(comment_mark) != std::string::npos) {
+      query += lines[i + 1].substr(lines[i + 1].find(comment_mark) +
+                                   comment_mark.length());
+      ++i;
+    }
+    return query;
+  }
+
+  throw BasicException("Unable to find query!");
+}
 
 int main(int argc, char **argv) {
   logging::init_sync();
