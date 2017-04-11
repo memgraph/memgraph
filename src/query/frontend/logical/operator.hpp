@@ -34,7 +34,7 @@ class Cursor {
    *      iteration.
    *  @param SymbolTable Used to get the position of symbols in frame.
    */
-  virtual bool Pull(Frame &, SymbolTable &) = 0;
+  virtual bool Pull(Frame &, const SymbolTable &) = 0;
   virtual ~Cursor() {}
 };
 
@@ -101,32 +101,33 @@ class CreateNode : public LogicalOperator {
    *    If a valid input, then a node will be created for each
    *    successful pull from the given input.
    */
-  CreateNode(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input);
+  CreateNode(const NodeAtom *node_atom,
+             const std::shared_ptr<LogicalOperator> &input);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  NodeAtom *node_atom_ = nullptr;
-  std::shared_ptr<LogicalOperator> input_;
+  const NodeAtom *node_atom_ = nullptr;
+  const std::shared_ptr<LogicalOperator> input_;
 
   class CreateNodeCursor : public Cursor {
    public:
-    CreateNodeCursor(CreateNode &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    CreateNodeCursor(const CreateNode &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    CreateNode &self_;
+    const CreateNode &self_;
     GraphDbAccessor &db_;
     // optional, used in situations in which this create op
     // pulls from an input (in MATCH CREATE, CREATE ... CREATE)
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
     // control switch when creating only one node (nullptr input)
     bool did_create_{false};
 
     /**
      * Creates a single node and places it in the frame.
      */
-    void Create(Frame &frame, SymbolTable &symbol_table);
+    void Create(Frame &frame, const SymbolTable &symbol_table);
   };
 };
 
@@ -157,41 +158,41 @@ class CreateExpand : public LogicalOperator {
    * @param node_existing @c bool indicating whether the @c node_atom refers to
    *     an existing node. If @c false, the operator will also create the node.
    */
-  CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+  CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
-               const Symbol &input_symbol, bool node_existing);
+               Symbol input_symbol, bool node_existing);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   // info on what's getting expanded
-  NodeAtom *node_atom_;
-  EdgeAtom *edge_atom_;
+  const NodeAtom *node_atom_;
+  const EdgeAtom *edge_atom_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
 
   // if the given node atom refers to an existing node
   // (either matched or created)
-  bool node_existing_;
+  const bool node_existing_;
 
   class CreateExpandCursor : public Cursor {
    public:
-    CreateExpandCursor(CreateExpand &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    CreateExpandCursor(const CreateExpand &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    CreateExpand &self_;
+    const CreateExpand &self_;
     GraphDbAccessor &db_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
 
     /**
      *  Helper function for getting an existing node or creating a new one.
      *  @return The newly created or already existing node.
      */
-    VertexAccessor &OtherVertex(Frame &frame, SymbolTable &symbol_table,
+    VertexAccessor &OtherVertex(Frame &frame, const SymbolTable &symbol_table,
                                 ExpressionEvaluator &evaluator);
 
     /**
@@ -203,7 +204,8 @@ class CreateExpand : public LogicalOperator {
      * @param evaluator Expression evaluator for property value eval.
      */
     void CreateEdge(VertexAccessor &from, VertexAccessor &to, Frame &frame,
-                    SymbolTable &symbol_table, ExpressionEvaluator &evaluator);
+                    const SymbolTable &symbol_table,
+                    ExpressionEvaluator &evaluator);
   };
 };
 
@@ -217,23 +219,24 @@ class CreateExpand : public LogicalOperator {
  */
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(NodeAtom *node_atom);
-  ScanAll(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input);
+  ScanAll(const NodeAtom *node_atom);
+  ScanAll(const NodeAtom *node_atom,
+          const std::shared_ptr<LogicalOperator> &input);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  NodeAtom *node_atom_ = nullptr;
-  std::shared_ptr<LogicalOperator> input_;
+  const NodeAtom *node_atom_ = nullptr;
+  const std::shared_ptr<LogicalOperator> input_;
 
   class ScanAllCursor : public Cursor {
    public:
-    ScanAllCursor(ScanAll &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    ScanAllCursor(const ScanAll &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    ScanAll &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const ScanAll &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
     decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
     // if this is the first pull from this cursor
@@ -281,36 +284,36 @@ class Expand : public LogicalOperator {
    *    present in the Frame and should just be checked for equality.
    * @param edge_cycle Same like 'node_cycle', but for edges.
    */
-  Expand(NodeAtom *node_atom, EdgeAtom *edge_atom,
-         const std::shared_ptr<LogicalOperator> &input,
-         const Symbol &input_symbol, bool node_cycle, bool edge_cycle);
+  Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
+         const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+         bool node_cycle, bool edge_cycle);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   // info on what's getting expanded
-  NodeAtom *node_atom_;
-  EdgeAtom *edge_atom_;
+  const NodeAtom *node_atom_;
+  const EdgeAtom *edge_atom_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
 
   // if the given node and edge atom refer to symbols
   // (query identifiers) that have already been expanded
   // and should be just validated in the frame
-  bool node_cycle_;
-  bool edge_cycle_;
+  const bool node_cycle_;
+  const bool edge_cycle_;
 
   class ExpandCursor : public Cursor {
    public:
-    ExpandCursor(Expand &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    ExpandCursor(const Expand &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    Expand &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const Expand &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
 
     // the iterable over edges and the current edge iterator are referenced via
     // unique pointers because they can not be initialized in the constructor of
@@ -320,7 +323,7 @@ class Expand : public LogicalOperator {
     std::unique_ptr<OutEdgeT> out_edges_;
     std::unique_ptr<OutEdgeIteratorT> out_edges_it_;
 
-    bool InitEdges(Frame &frame, SymbolTable &symbol_table);
+    bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
 
     /**
      * For a newly expanded edge handles cycle checking and frame insertion.
@@ -329,8 +332,8 @@ class Expand : public LogicalOperator {
      * valid only when doing an edge-cycle and the new_edge does not match the
      * old.
      */
-    bool HandleEdgeCycle(EdgeAccessor &new_edge, Frame &frame,
-                         SymbolTable &symbol_table);
+    bool HandleEdgeCycle(const EdgeAccessor &new_edge, Frame &frame,
+                         const SymbolTable &symbol_table);
 
     /**
      * Expands a node for the given newly expanded edge.
@@ -339,8 +342,8 @@ class Expand : public LogicalOperator {
      * expanded. Returns false only when doing a node-cycle and the
      * new node does not qualify.
      */
-    bool PullNode(EdgeAccessor &new_edge, EdgeAtom::Direction direction,
-                  Frame &frame, SymbolTable &symbol_table);
+    bool PullNode(const EdgeAccessor &new_edge, EdgeAtom::Direction direction,
+                  Frame &frame, const SymbolTable &symbol_table);
 
     /**
      * For a newly expanded node handles cycle checking and frame insertion.
@@ -349,8 +352,8 @@ class Expand : public LogicalOperator {
      * valid only when doing a node-cycle and the new_node does not match the
      * old.
      */
-    bool HandleNodeCycle(VertexAccessor new_node, Frame &frame,
-                         SymbolTable &symbol_table);
+    bool HandleNodeCycle(const VertexAccessor new_node, Frame &frame,
+                         const SymbolTable &symbol_table);
   };
 };
 
@@ -367,29 +370,29 @@ class NodeFilter : public LogicalOperator {
    * @param input_symbol @c Symbol where the node to be filtered is stored.
    * @param node_atom @c NodeAtom with labels and properties to filter by.
    */
-  NodeFilter(std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
-             NodeAtom *node_atom);
+  NodeFilter(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+             const NodeAtom *node_atom);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  NodeAtom *node_atom_;
+  const NodeAtom *node_atom_;
 
   class NodeFilterCursor : public Cursor {
    public:
-    NodeFilterCursor(NodeFilter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    NodeFilterCursor(const NodeFilter &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    NodeFilter &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const NodeFilter &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function for checking if the given vertex
      * passes this filter. */
     bool VertexPasses(const VertexAccessor &vertex, Frame &frame,
-                      SymbolTable &symbol_table);
+                      const SymbolTable &symbol_table);
   };
 };
 
@@ -406,29 +409,29 @@ class EdgeFilter : public LogicalOperator {
    * @param input_symbol @c Symbol where the edge to be filtered is stored.
    * @param edge_atom @c EdgeAtom with edge types and properties to filter by.
    */
-  EdgeFilter(std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
-             EdgeAtom *edge_atom);
+  EdgeFilter(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+             const EdgeAtom *edge_atom);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  EdgeAtom *edge_atom_;
+  const EdgeAtom *edge_atom_;
 
   class EdgeFilterCursor : public Cursor {
    public:
-    EdgeFilterCursor(EdgeFilter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    EdgeFilterCursor(const EdgeFilter &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    EdgeFilter &self_;
+    const EdgeFilter &self_;
     std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function for checking if the given edge satisfied
      *  the criteria of this edge filter. */
     bool EdgePasses(const EdgeAccessor &edge, Frame &frame,
-                    SymbolTable &symbol_table);
+                    const SymbolTable &symbol_table);
   };
 };
 
@@ -447,17 +450,17 @@ class Filter : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
 
   class FilterCursor : public Cursor {
    public:
-    FilterCursor(Filter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    FilterCursor(const Filter &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    Filter &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const Filter &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -474,25 +477,25 @@ class Filter : public LogicalOperator {
  */
 class Produce : public LogicalOperator {
  public:
-  Produce(std::shared_ptr<LogicalOperator> input,
-          std::vector<NamedExpression *> named_expressions);
+  Produce(const std::shared_ptr<LogicalOperator> &input,
+          const std::vector<NamedExpression *> named_expressions);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   const std::vector<NamedExpression *> &named_expressions();
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
-  std::vector<NamedExpression *> named_expressions_;
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::vector<NamedExpression *> named_expressions_;
 
   class ProduceCursor : public Cursor {
    public:
-    ProduceCursor(Produce &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    ProduceCursor(const Produce &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    Produce &self_;
+    const Produce &self_;
     // optional, see class documentation
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
     // control switch when creating only one node (nullptr input)
     bool did_produce_{false};
   };
@@ -512,20 +515,20 @@ class Delete : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
-  std::vector<Expression *> expressions_;
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::vector<Expression *> expressions_;
   // if the vertex should be detached before deletion
   // if not detached, and has connections, an error is raised
   // ignored when deleting edges
-  bool detach_;
+  const bool detach_;
 
   class DeleteCursor : public Cursor {
    public:
-    DeleteCursor(Delete &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    DeleteCursor(const Delete &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    Delete &self_;
+    const Delete &self_;
     GraphDbAccessor &db_;
     std::unique_ptr<Cursor> input_cursor_;
   };
@@ -539,23 +542,23 @@ class Delete : public LogicalOperator {
  */
 class SetProperty : public LogicalOperator {
  public:
-  SetProperty(const std::shared_ptr<LogicalOperator> input, PropertyLookup *lhs,
-              Expression *rhs);
+  SetProperty(const std::shared_ptr<LogicalOperator> &input,
+              PropertyLookup *lhs, Expression *rhs);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   PropertyLookup *lhs_;
   Expression *rhs_;
 
   class SetPropertyCursor : public Cursor {
    public:
-    SetPropertyCursor(SetProperty &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    SetPropertyCursor(const SetProperty &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    SetProperty &self_;
+    const SetProperty &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -581,26 +584,26 @@ class SetProperties : public LogicalOperator {
    */
   enum class Op { UPDATE, REPLACE };
 
-  SetProperties(const std::shared_ptr<LogicalOperator> input,
-                const Symbol input_symbol, Expression *rhs, Op op);
+  SetProperties(const std::shared_ptr<LogicalOperator> &input,
+                Symbol input_symbol, Expression *rhs, Op op);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
   Expression *rhs_;
   Op op_;
 
   class SetPropertiesCursor : public Cursor {
    public:
-    SetPropertiesCursor(SetProperties &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    SetPropertiesCursor(const SetProperties &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    SetProperties &self_;
+    const SetProperties &self_;
     GraphDbAccessor &db_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function that sets the given values on either
      * a VertexRecord or an EdgeRecord.
@@ -620,24 +623,23 @@ class SetProperties : public LogicalOperator {
  */
 class SetLabels : public LogicalOperator {
  public:
-  SetLabels(const std::shared_ptr<LogicalOperator> input,
-            const Symbol input_symbol,
+  SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
             const std::vector<GraphDbTypes::Label> &labels);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  std::vector<GraphDbTypes::Label> labels_;
+  const std::vector<GraphDbTypes::Label> labels_;
 
   class SetLabelsCursor : public Cursor {
    public:
-    SetLabelsCursor(SetLabels &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    SetLabelsCursor(const SetLabels &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    SetLabels &self_;
+    const SetLabels &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -648,22 +650,22 @@ class SetLabels : public LogicalOperator {
  */
 class RemoveProperty : public LogicalOperator {
  public:
-  RemoveProperty(const std::shared_ptr<LogicalOperator> input,
+  RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
                  PropertyLookup *lhs);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   PropertyLookup *lhs_;
 
   class RemovePropertyCursor : public Cursor {
    public:
-    RemovePropertyCursor(RemoveProperty &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    RemovePropertyCursor(const RemoveProperty &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    RemoveProperty &self_;
+    const RemoveProperty &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -676,24 +678,24 @@ class RemoveProperty : public LogicalOperator {
  */
 class RemoveLabels : public LogicalOperator {
  public:
-  RemoveLabels(const std::shared_ptr<LogicalOperator> input,
-               const Symbol input_symbol,
+  RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
+               Symbol input_symbol,
                const std::vector<GraphDbTypes::Label> &labels);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  std::vector<GraphDbTypes::Label> labels_;
+  const std::vector<GraphDbTypes::Label> labels_;
 
   class RemoveLabelsCursor : public Cursor {
    public:
-    RemoveLabelsCursor(RemoveLabels &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    RemoveLabelsCursor(const RemoveLabels &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    RemoveLabels &self_;
+    const RemoveLabels &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -729,18 +731,18 @@ class ExpandUniquenessFilter : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   Symbol expand_symbol_;
-  std::vector<Symbol> previous_symbols_;
+  const std::vector<Symbol> previous_symbols_;
 
   class ExpandUniquenessFilterCursor : public Cursor {
    public:
-    ExpandUniquenessFilterCursor(ExpandUniquenessFilter &self,
+    ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
                                  GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    ExpandUniquenessFilter &self_;
+    const ExpandUniquenessFilter &self_;
     std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -774,25 +776,25 @@ class ExpandUniquenessFilter : public LogicalOperator {
  */
 class Accumulate : public LogicalOperator {
  public:
-  Accumulate(std::shared_ptr<LogicalOperator> input,
+  Accumulate(const std::shared_ptr<LogicalOperator> &input,
              const std::vector<Symbol> &symbols, bool advance_command = false);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> input_;
   const std::vector<Symbol> symbols_;
-  bool advance_command_{false};
+  const bool advance_command_;
 
   class AccumulateCursor : public Cursor {
    public:
-    AccumulateCursor(Accumulate &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, SymbolTable &symbol_table) override;
+    AccumulateCursor(const Accumulate &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
 
    private:
-    Accumulate &self_;
+    const Accumulate &self_;
     GraphDbAccessor &db_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
     std::list<std::list<TypedValue>> cache_;
     decltype(cache_.begin()) cache_it_ = cache_.begin();
     bool pulled_all_input_{false};
@@ -822,14 +824,14 @@ class Aggregate : public LogicalOperator {
 
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
             const std::vector<Element> &aggregations,
-            std::vector<NamedExpression *> group_by);
+            const std::vector<NamedExpression *> group_by);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  std::shared_ptr<LogicalOperator> input_;
-  std::vector<Element> aggregations_;
-  std::vector<NamedExpression *> group_by_;
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::vector<Element> aggregations_;
+  const std::vector<NamedExpression *> group_by_;
 };
 
 }  // namespace plan

@@ -15,8 +15,8 @@ class Frame {
  public:
   Frame(int size) : size_(size), elems_(size_) {}
 
-  auto &operator[](const Symbol &symbol) { return elems_[symbol.position_]; }
-  const auto &operator[](const Symbol &symbol) const {
+  TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position_]; }
+  const TypedValue &operator[](const Symbol &symbol) const {
     return elems_[symbol.position_];
   }
 
@@ -27,7 +27,7 @@ class Frame {
 
 class ExpressionEvaluator : public TreeVisitorBase {
  public:
-  ExpressionEvaluator(Frame &frame, SymbolTable &symbol_table)
+  ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table)
       : frame_(frame), symbol_table_(symbol_table) {}
 
   /** When evaluting @c RecordAccessor, use @c SwitchNew to get the new data, as
@@ -63,12 +63,12 @@ class ExpressionEvaluator : public TreeVisitorBase {
   using TreeVisitorBase::PostVisit;
 
   void PostVisit(NamedExpression &named_expression) override {
-    auto symbol = symbol_table_[named_expression];
+    auto symbol = symbol_table_.at(named_expression);
     frame_[symbol] = PopBack();
   }
 
   void Visit(Identifier &ident) override {
-    auto value = frame_[symbol_table_[ident]];
+    auto value = frame_[symbol_table_.at(ident)];
     SwitchAccessors(value);
     result_stack_.emplace_back(std::move(value));
   }
@@ -180,7 +180,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
   Frame &frame_;
-  SymbolTable &symbol_table_;
+  const SymbolTable &symbol_table_;
   std::list<TypedValue> result_stack_;
   // If true, use SwitchNew on evaluated record accessors. This should be done
   // only in expressions which may return one. E.g. identifier, list indexing.

@@ -42,8 +42,8 @@ class SymbolTable {
 
   auto &operator[](const Tree &tree) { return table_[tree.uid()]; }
 
-  auto &at(const Tree &tree) { return table_.at(tree.uid()); }
-  const auto &at(const Tree &tree) const { return table_.at(tree.uid()); }
+  Symbol &at(const Tree &tree) { return table_.at(tree.uid()); }
+  const Symbol &at(const Tree &tree) const { return table_.at(tree.uid()); }
 
   int max_position() const { return position_; }
 

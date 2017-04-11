@@ -1151,7 +1151,8 @@ TEST(Interpreter, NodeFilterSet) {
       std::make_shared<NodeFilter>(expand.op_, scan_all.sym_, scan_all.node_);
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP("n", prop);
-  auto add = ADD(PROPERTY_LOOKUP("n", prop), LITERAL(1));
+  symbol_table[*set_prop->expression_] = scan_all.sym_;
+  auto add = ADD(set_prop, LITERAL(1));
   auto set = std::make_shared<plan::SetProperty>(node_filter, set_prop, add);
   EXPECT_EQ(2, PullAll(set, *dba, symbol_table));
   dba->advance_command();

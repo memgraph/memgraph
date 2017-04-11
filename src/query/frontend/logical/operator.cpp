@@ -7,8 +7,8 @@
 namespace query {
 namespace plan {
 
-CreateNode::CreateNode(NodeAtom *node_atom,
-                       std::shared_ptr<LogicalOperator> input)
+CreateNode::CreateNode(const NodeAtom *node_atom,
+                       const std::shared_ptr<LogicalOperator> &input)
     : node_atom_(node_atom), input_(input) {}
 
 void CreateNode::Accept(LogicalOperatorVisitor &visitor) {
@@ -23,14 +23,14 @@ std::unique_ptr<Cursor> CreateNode::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<CreateNodeCursor>(*this, db);
 }
 
-CreateNode::CreateNodeCursor::CreateNodeCursor(CreateNode &self,
+CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
                                                GraphDbAccessor &db)
     : self_(self),
       db_(db),
       input_cursor_(self.input_ ? self.input_->MakeCursor(db) : nullptr) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame,
-                                        SymbolTable &symbol_table) {
+                                        const SymbolTable &symbol_table) {
   if (input_cursor_) {
     if (input_cursor_->Pull(frame, symbol_table)) {
       Create(frame, symbol_table);
@@ -46,7 +46,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame,
 }
 
 void CreateNode::CreateNodeCursor::Create(Frame &frame,
-                                          SymbolTable &symbol_table) {
+                                          const SymbolTable &symbol_table) {
   auto new_node = db_.insert_vertex();
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
@@ -58,12 +58,12 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
     kv.second->Accept(evaluator);
     new_node.PropsSet(kv.first, evaluator.PopBack());
   }
-  frame[symbol_table[*self_.node_atom_->identifier_]] = new_node;
+  frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
 }
 
-CreateExpand::CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+CreateExpand::CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                            const std::shared_ptr<LogicalOperator> &input,
-                           const Symbol &input_symbol, bool node_existing)
+                           Symbol input_symbol, bool node_existing)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
       input_(input),
@@ -82,12 +82,12 @@ std::unique_ptr<Cursor> CreateExpand::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<CreateExpandCursor>(*this, db);
 }
 
-CreateExpand::CreateExpandCursor::CreateExpandCursor(CreateExpand &self,
+CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self,
                                                      GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
-                                            SymbolTable &symbol_table) {
+                                            const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   // get the origin vertex
@@ -121,10 +121,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
 }
 
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
-    Frame &frame, SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
+    Frame &frame, const SymbolTable &symbol_table,
+    ExpressionEvaluator &evaluator) {
   if (self_.node_existing_) {
     TypedValue &dest_node_value =
-        frame[symbol_table[*self_.node_atom_->identifier_]];
+        frame[symbol_table.at(*self_.node_atom_->identifier_)];
     return dest_node_value.Value<VertexAccessor>();
   } else {
     // the node does not exist, it needs to be created
@@ -134,7 +135,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
       kv.second->Accept(evaluator);
       node.PropsSet(kv.first, evaluator.PopBack());
     }
-    auto symbol = symbol_table[*self_.node_atom_->identifier_];
+    auto symbol = symbol_table.at(*self_.node_atom_->identifier_);
     frame[symbol] = node;
     return frame[symbol].Value<VertexAccessor>();
   }
@@ -142,20 +143,21 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
 
 void CreateExpand::CreateExpandCursor::CreateEdge(
     VertexAccessor &from, VertexAccessor &to, Frame &frame,
-    SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
+    const SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
   EdgeAccessor edge =
       db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
   for (auto kv : self_.edge_atom_->properties_) {
     kv.second->Accept(evaluator);
     edge.PropsSet(kv.first, evaluator.PopBack());
   }
-  frame[symbol_table[*self_.edge_atom_->identifier_]] = edge;
+  frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 
-ScanAll::ScanAll(NodeAtom *node_atom)
+ScanAll::ScanAll(const NodeAtom *node_atom)
     : node_atom_(node_atom), input_(nullptr) {}
 
-ScanAll::ScanAll(NodeAtom *node_atom, std::shared_ptr<LogicalOperator> input)
+ScanAll::ScanAll(const NodeAtom *node_atom,
+                 const std::shared_ptr<LogicalOperator> &input)
     : node_atom_(node_atom), input_(input) {}
 
 void ScanAll::Accept(LogicalOperatorVisitor &visitor) {
@@ -170,13 +172,14 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<ScanAllCursor>(*this, db);
 }
 
-ScanAll::ScanAllCursor::ScanAllCursor(ScanAll &self, GraphDbAccessor &db)
+ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_ ? self.input_->MakeCursor(db) : nullptr),
       vertices_(db.vertices()),
       vertices_it_(vertices_.begin()) {}
 
-bool ScanAll::ScanAllCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool ScanAll::ScanAllCursor::Pull(Frame &frame,
+                                  const SymbolTable &symbol_table) {
   if (input_cursor_) {
     // using an input. we need to pull from it if we are in the first pull
     // of this cursor, or if we have exhausted vertices_it_
@@ -193,13 +196,13 @@ bool ScanAll::ScanAllCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   // through it once
   if (vertices_it_ == vertices_.end()) return false;
 
-  frame[symbol_table[*self_.node_atom_->identifier_]] = *vertices_it_++;
+  frame[symbol_table.at(*self_.node_atom_->identifier_)] = *vertices_it_++;
   return true;
 }
 
-Expand::Expand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+Expand::Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
-               const Symbol &input_symbol, bool node_cycle, bool edge_cycle)
+               Symbol input_symbol, bool node_cycle, bool edge_cycle)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
       input_(input),
@@ -219,10 +222,10 @@ std::unique_ptr<Cursor> Expand::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<ExpandCursor>(*this, db);
 }
 
-Expand::ExpandCursor::ExpandCursor(Expand &self, GraphDbAccessor &db)
+Expand::ExpandCursor::ExpandCursor(const Expand &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
-bool Expand::ExpandCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   while (true) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
@@ -253,7 +256,8 @@ bool Expand::ExpandCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   }
 }
 
-bool Expand::ExpandCursor::InitEdges(Frame &frame, SymbolTable &symbol_table) {
+bool Expand::ExpandCursor::InitEdges(Frame &frame,
+                                     const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -286,22 +290,23 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, SymbolTable &symbol_table) {
   return true;
 }
 
-bool Expand::ExpandCursor::HandleEdgeCycle(EdgeAccessor &new_edge, Frame &frame,
-                                           SymbolTable &symbol_table) {
+bool Expand::ExpandCursor::HandleEdgeCycle(const EdgeAccessor &new_edge,
+                                           Frame &frame,
+                                           const SymbolTable &symbol_table) {
   if (self_.edge_cycle_) {
     TypedValue &old_edge_value =
-        frame[symbol_table[*self_.edge_atom_->identifier_]];
+        frame[symbol_table.at(*self_.edge_atom_->identifier_)];
     return old_edge_value.Value<EdgeAccessor>() == new_edge;
   } else {
     // not doing a cycle, so put the new_edge into the frame and return true
-    frame[symbol_table[*self_.edge_atom_->identifier_]] = new_edge;
+    frame[symbol_table.at(*self_.edge_atom_->identifier_)] = new_edge;
     return true;
   }
 }
 
-bool Expand::ExpandCursor::PullNode(EdgeAccessor &new_edge,
+bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction, Frame &frame,
-                                    SymbolTable &symbol_table) {
+                                    const SymbolTable &symbol_table) {
   switch (direction) {
     case EdgeAtom::Direction::LEFT:
       return HandleNodeCycle(new_edge.from(), frame, symbol_table);
@@ -312,22 +317,22 @@ bool Expand::ExpandCursor::PullNode(EdgeAccessor &new_edge,
   }
 }
 
-bool Expand::ExpandCursor::HandleNodeCycle(VertexAccessor new_node,
+bool Expand::ExpandCursor::HandleNodeCycle(const VertexAccessor new_node,
                                            Frame &frame,
-                                           SymbolTable &symbol_table) {
+                                           const SymbolTable &symbol_table) {
   if (self_.node_cycle_) {
     TypedValue &old_node_value =
-        frame[symbol_table[*self_.node_atom_->identifier_]];
+        frame[symbol_table.at(*self_.node_atom_->identifier_)];
     return old_node_value.Value<VertexAccessor>() == new_node;
   } else {
     // not doing a cycle, so put the new_edge into the frame and return true
-    frame[symbol_table[*self_.node_atom_->identifier_]] = new_node;
+    frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
     return true;
   }
 }
 
-NodeFilter::NodeFilter(std::shared_ptr<LogicalOperator> input,
-                       Symbol input_symbol, NodeAtom *node_atom)
+NodeFilter::NodeFilter(const std::shared_ptr<LogicalOperator> &input,
+                       Symbol input_symbol, const NodeAtom *node_atom)
     : input_(input), input_symbol_(input_symbol), node_atom_(node_atom) {}
 
 void NodeFilter::Accept(LogicalOperatorVisitor &visitor) {
@@ -342,12 +347,12 @@ std::unique_ptr<Cursor> NodeFilter::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<NodeFilterCursor>(*this, db);
 }
 
-NodeFilter::NodeFilterCursor::NodeFilterCursor(NodeFilter &self,
+NodeFilter::NodeFilterCursor::NodeFilterCursor(const NodeFilter &self,
                                                GraphDbAccessor &db)
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool NodeFilter::NodeFilterCursor::Pull(Frame &frame,
-                                        SymbolTable &symbol_table) {
+                                        const SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
     auto &vertex = frame[self_.input_symbol_].Value<VertexAccessor>();
     // Filter needs to use the old, unmodified vertex, even though we may change
@@ -358,9 +363,9 @@ bool NodeFilter::NodeFilterCursor::Pull(Frame &frame,
   return false;
 }
 
-bool NodeFilter::NodeFilterCursor::VertexPasses(const VertexAccessor &vertex,
-                                                Frame &frame,
-                                                SymbolTable &symbol_table) {
+bool NodeFilter::NodeFilterCursor::VertexPasses(
+    const VertexAccessor &vertex, Frame &frame,
+    const SymbolTable &symbol_table) {
   for (auto label : self_.node_atom_->labels_)
     if (!vertex.has_label(label)) return false;
 
@@ -378,8 +383,8 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(const VertexAccessor &vertex,
   return true;
 }
 
-EdgeFilter::EdgeFilter(std::shared_ptr<LogicalOperator> input,
-                       Symbol input_symbol, EdgeAtom *edge_atom)
+EdgeFilter::EdgeFilter(const std::shared_ptr<LogicalOperator> &input,
+                       Symbol input_symbol, const EdgeAtom *edge_atom)
     : input_(input), input_symbol_(input_symbol), edge_atom_(edge_atom) {}
 
 void EdgeFilter::Accept(LogicalOperatorVisitor &visitor) {
@@ -393,12 +398,12 @@ void EdgeFilter::Accept(LogicalOperatorVisitor &visitor) {
 std::unique_ptr<Cursor> EdgeFilter::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<EdgeFilterCursor>(*this, db);
 }
-EdgeFilter::EdgeFilterCursor::EdgeFilterCursor(EdgeFilter &self,
+EdgeFilter::EdgeFilterCursor::EdgeFilterCursor(const EdgeFilter &self,
                                                GraphDbAccessor &db)
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool EdgeFilter::EdgeFilterCursor::Pull(Frame &frame,
-                                        SymbolTable &symbol_table) {
+                                        const SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
     auto &edge = frame[self_.input_symbol_].Value<EdgeAccessor>();
     // Filter needs to use the old, unmodified edge, even though we may change
@@ -411,7 +416,7 @@ bool EdgeFilter::EdgeFilterCursor::Pull(Frame &frame,
 
 bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
                                               Frame &frame,
-                                              SymbolTable &symbol_table) {
+                                              const SymbolTable &symbol_table) {
   // edge type filtering - logical OR
   const auto &types = self_.edge_atom_->edge_types_;
   GraphDbTypes::EdgeType type = edge.edge_type();
@@ -449,10 +454,10 @@ std::unique_ptr<Cursor> Filter::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<FilterCursor>(*this, db);
 }
 
-Filter::FilterCursor::FilterCursor(Filter &self, GraphDbAccessor &db)
+Filter::FilterCursor::FilterCursor(const Filter &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
-bool Filter::FilterCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table);
   // Like all filters, newly set values should not affect filtering of old nodes
   // and edges.
@@ -467,8 +472,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   return false;
 }
 
-Produce::Produce(std::shared_ptr<LogicalOperator> input,
-                 std::vector<NamedExpression *> named_expressions)
+Produce::Produce(const std::shared_ptr<LogicalOperator> &input,
+                 const std::vector<NamedExpression *> named_expressions)
     : input_(input), named_expressions_(named_expressions) {}
 
 void Produce::Accept(LogicalOperatorVisitor &visitor) {
@@ -487,10 +492,11 @@ const std::vector<NamedExpression *> &Produce::named_expressions() {
   return named_expressions_;
 }
 
-Produce::ProduceCursor::ProduceCursor(Produce &self, GraphDbAccessor &db)
+Produce::ProduceCursor::ProduceCursor(const Produce &self, GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_ ? self_.input_->MakeCursor(db) : nullptr) {}
-bool Produce::ProduceCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool Produce::ProduceCursor::Pull(Frame &frame,
+                                  const SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table);
   // Produce should always yield the latest results.
   evaluator.SwitchNew();
@@ -526,10 +532,10 @@ std::unique_ptr<Cursor> Delete::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<DeleteCursor>(*this, db);
 }
 
-Delete::DeleteCursor::DeleteCursor(Delete &self, GraphDbAccessor &db)
+Delete::DeleteCursor::DeleteCursor(const Delete &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
-bool Delete::DeleteCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
@@ -563,7 +569,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   return true;
 }
 
-SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> input,
+SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
                          PropertyLookup *lhs, Expression *rhs)
     : input_(input), lhs_(lhs), rhs_(rhs) {}
 
@@ -579,12 +585,12 @@ std::unique_ptr<Cursor> SetProperty::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<SetPropertyCursor>(*this, db);
 }
 
-SetProperty::SetPropertyCursor::SetPropertyCursor(SetProperty &self,
+SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self,
                                                   GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
-                                          SymbolTable &symbol_table) {
+                                          const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
@@ -614,8 +620,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
   return true;
 }
 
-SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> input,
-                             const Symbol input_symbol, Expression *rhs, Op op)
+SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input,
+                             Symbol input_symbol, Expression *rhs, Op op)
     : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
 
 void SetProperties::Accept(LogicalOperatorVisitor &visitor) {
@@ -630,12 +636,12 @@ std::unique_ptr<Cursor> SetProperties::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<SetPropertiesCursor>(*this, db);
 }
 
-SetProperties::SetPropertiesCursor::SetPropertiesCursor(SetProperties &self,
-                                                        GraphDbAccessor &db)
+SetProperties::SetPropertiesCursor::SetPropertiesCursor(
+    const SetProperties &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
-                                              SymbolTable &symbol_table) {
+                                              const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &lhs = frame[self_.input_symbol_];
@@ -698,8 +704,8 @@ template void SetProperties::SetPropertiesCursor::Set(
 template void SetProperties::SetPropertiesCursor::Set(
     RecordAccessor<Edge> &record, const TypedValue &rhs);
 
-SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> input,
-                     const Symbol input_symbol,
+SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input,
+                     Symbol input_symbol,
                      const std::vector<GraphDbTypes::Label> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
@@ -715,11 +721,12 @@ std::unique_ptr<Cursor> SetLabels::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<SetLabelsCursor>(*this, db);
 }
 
-SetLabels::SetLabelsCursor::SetLabelsCursor(SetLabels &self,
+SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self,
                                             GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
-bool SetLabels::SetLabelsCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
+bool SetLabels::SetLabelsCursor::Pull(Frame &frame,
+                                      const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -730,7 +737,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, SymbolTable &symbol_table) {
   return true;
 }
 
-RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> input,
+RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
                                PropertyLookup *lhs)
     : input_(input), lhs_(lhs) {}
 
@@ -746,12 +753,12 @@ std::unique_ptr<Cursor> RemoveProperty::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<RemovePropertyCursor>(*this, db);
 }
 
-RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(RemoveProperty &self,
-                                                           GraphDbAccessor &db)
+RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(
+    const RemoveProperty &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
-bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
-                                                SymbolTable &symbol_table) {
+bool RemoveProperty::RemovePropertyCursor::Pull(
+    Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   ExpressionEvaluator evaluator(frame, symbol_table);
@@ -776,8 +783,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   return true;
 }
 
-RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> input,
-                           const Symbol input_symbol,
+RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
+                           Symbol input_symbol,
                            const std::vector<GraphDbTypes::Label> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
@@ -793,12 +800,12 @@ std::unique_ptr<Cursor> RemoveLabels::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<RemoveLabelsCursor>(*this, db);
 }
 
-RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(RemoveLabels &self,
+RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self,
                                                      GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
-                                            SymbolTable &symbol_table) {
+                                            const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -835,13 +842,13 @@ std::unique_ptr<Cursor> ExpandUniquenessFilter<TAccessor>::MakeCursor(
 
 template <typename TAccessor>
 ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::
-    ExpandUniquenessFilterCursor(ExpandUniquenessFilter &self,
+    ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
                                  GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 template <typename TAccessor>
 bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
-    Frame &frame, SymbolTable &symbol_table) {
+    Frame &frame, const SymbolTable &symbol_table) {
   auto expansion_ok = [&]() {
     TypedValue &expand_value = frame[self_.expand_symbol_];
     TAccessor &expand_accessor = expand_value.Value<TAccessor>();
@@ -892,7 +899,7 @@ void ReconstructTypedValue(TypedValue &value) {
 }
 }
 
-Accumulate::Accumulate(std::shared_ptr<LogicalOperator> input,
+Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
                        const std::vector<Symbol> &symbols, bool advance_command)
     : input_(input), symbols_(symbols), advance_command_(advance_command) {}
 
@@ -907,12 +914,12 @@ std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<Accumulate::AccumulateCursor>(*this, db);
 }
 
-Accumulate::AccumulateCursor::AccumulateCursor(Accumulate &self,
+Accumulate::AccumulateCursor::AccumulateCursor(const Accumulate &self,
                                                GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Accumulate::AccumulateCursor::Pull(Frame &frame,
-                                        SymbolTable &symbol_table) {
+                                        const SymbolTable &symbol_table) {
   // cache all the input
   if (!pulled_all_input_) {
     while (input_cursor_->Pull(frame, symbol_table)) {
@@ -939,7 +946,7 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
 
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
                      const std::vector<Aggregate::Element> &aggregations,
-                     std::vector<NamedExpression *> group_by)
+                     const std::vector<NamedExpression *> group_by)
     : input_(input), aggregations_(aggregations), group_by_(group_by) {}
 
 void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
