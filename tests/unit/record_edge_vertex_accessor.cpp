@@ -202,6 +202,19 @@ TEST(RecordAccessor, EdgeType) {
   EXPECT_NE(edge.edge_type(), hates);
 }
 
+TEST(RecordAccessor, EdgeIsCycle) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto likes = dba->edge_type("edge_type");
+
+  EXPECT_TRUE(dba->insert_edge(v1, v1, likes).is_cycle());
+  EXPECT_TRUE(dba->insert_edge(v2, v2, likes).is_cycle());
+  EXPECT_FALSE(dba->insert_edge(v1, v2, likes).is_cycle());
+  EXPECT_FALSE(dba->insert_edge(v2, v1, likes).is_cycle());
+}
+
 TEST(RecordAccessor, VertexEdgeConnections) {
   Dbms dbms;
   auto dba = dbms.active();

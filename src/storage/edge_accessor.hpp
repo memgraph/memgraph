@@ -38,7 +38,9 @@ class EdgeAccessor : public RecordAccessor<Edge> {
    */
   VertexAccessor to() const;
 
-  //  void remove();
+  /** Returns true if this edge is a cycle (start and end node are
+   * the same. */
+  bool is_cycle() const;
 };
 
 std::ostream &operator<<(std::ostream &, const EdgeAccessor &);

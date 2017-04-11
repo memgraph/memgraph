@@ -242,6 +242,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
     // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
       EdgeAccessor edge = *(*out_edges_it_)++;
+      // when expanding in EdgeAtom::Direction::BOTH directions
+      // we should do only one expansion for cycles, and it was
+      // already done in the block above
+      if (self_.edge_atom_->direction_ == EdgeAtom::Direction::BOTH &&
+          edge.is_cycle())
+        continue;
       if (HandleEdgeCycle(edge, frame, symbol_table) &&
           PullNode(edge, EdgeAtom::Direction::RIGHT, frame, symbol_table))
         return true;

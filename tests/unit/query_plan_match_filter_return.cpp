@@ -314,6 +314,25 @@ TEST(QueryPlan, ExpandEdgeCycle) {
   test_cycle(false, 6);
 }
 
+TEST(QueryPlan, ExpandBothCycleEdgeCase) {
+  // we're testing that expanding on BOTH
+  // does only one expansion for a cycle
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto v = dba->insert_vertex();
+  dba->insert_edge(v, v, dba->edge_type("et"));
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                       EdgeAtom::Direction::BOTH, false, "_", false);
+  EXPECT_EQ(1, PullAll(r_.op_, *dba, symbol_table));
+}
+
 TEST(QueryPlan, EdgeFilter) {
   Dbms dbms;
   auto dba = dbms.active();

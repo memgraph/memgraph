@@ -15,6 +15,9 @@ VertexAccessor EdgeAccessor::from() const {
 VertexAccessor EdgeAccessor::to() const {
   return VertexAccessor(current().to_, db_accessor());
 }
+bool EdgeAccessor::is_cycle() const {
+  return &current().to_ == &current().from_;
+}
 
 std::ostream &operator<<(std::ostream &os, const EdgeAccessor &ea) {
   os << "E[" << ea.db_accessor().edge_type_name(ea.edge_type());
