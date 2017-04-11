@@ -1,13 +1,20 @@
 #!/bin/bash
 
 function print_usage_and_exit {
-    echo "./init [--no-clone-dependencies] [--arc-diff DIFF_ID]"
+    echo "./init [-s] [--no-clone-dependencies] [--arc-diff DIFF_ID]"
+    echo -e "Prepare the environment for Memgraph QA.\n"
+    echo "Optional arguments:"
+    echo -e "  -s\tuse sudo apt-get for installing required packages"
+    echo -e "  -h\tdisplay this help and exit"
+    echo -e "  --no-clone-dependencies\tskip cloning memgraph sources"
+    echo -e "  --arc-diff\tcheckout the DIFF_ID from Phabricator"
     exit 1
 }
 
 # read arguments
 arcanist_diff_id=""
 clone_dependencies=true
+use_sudo=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-clone-dependencies)
@@ -21,6 +28,10 @@ while [[ $# -gt 0 ]]; do
             arcanist_diff_id=$2
             shift 2
             ;;
+        -s)
+            use_sudo=1
+            shift
+            ;;
         *)
             # unknown option
             print_usage_and_exit
@@ -33,10 +44,31 @@ set -e
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+required_pkgs=(git arcanist # used to clone sources
+               python-virtualenv python3-pip # required by 'run' script
+              )
+
 # install all dependencies on debian based operating systems
-for pkg in git arcanist python-virtualenv python3-pip; do
-    dpkg -s $pkg 2>/dev/null >/dev/null || sudo apt-get -y install $pkg
+for pkg in ${required_pkgs[@]}; do
+    if dpkg -s $pkg 2>/dev/null >/dev/null; then
+        echo "Found $pkg"
+    elif (( $use_sudo )); then
+        echo "Installing $pkg"
+        if [[ ! `sudo apt-get -y install $pkg` ]]; then
+            echo "Didn't install $pkg [required]"
+            required_missing=1
+        fi
+    else
+        echo "Missing $pkg [required]"
+        required_missing=1
+    fi
 done
+
+if (( $required_missing )); then
+    echo "Missing required packages. EXITING!"
+    echo "Please, install required packages and rerun $0 again."
+    exit 2
+fi
 
 # TODO: use pullbot and read a password from program arg or env var
 #       (in order to use this script inside CI infrastructure)
