@@ -2,12 +2,16 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "utils/hashing/fnv.hpp"
 #include "utils/visitor/visitable.hpp"
 #include "utils/visitor/visitor.hpp"
 
@@ -824,14 +828,94 @@ class Aggregate : public LogicalOperator {
 
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
             const std::vector<Element> &aggregations,
-            const std::vector<NamedExpression *> group_by);
+            const std::vector<Expression *> &group_by,
+            const std::vector<Symbol> &remember, bool advance_command = false);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   const std::shared_ptr<LogicalOperator> input_;
   const std::vector<Element> aggregations_;
-  const std::vector<NamedExpression *> group_by_;
+  const std::vector<Expression *> group_by_;
+  const std::vector<Symbol> remember_;
+  const bool advance_command_;
+
+  class AggregateCursor : public Cursor {
+   public:
+    AggregateCursor(Aggregate &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+
+   private:
+    // custom equality function for the unordered map
+    struct TypedValueListEqual {
+      bool operator()(const std::list<TypedValue> &left,
+                      const std::list<TypedValue> &right) const;
+    };
+
+    // Data structure for a single aggregation cache.
+    // does NOT include the group-by values since those
+    // are a key in the aggregation map.
+    // The vectors in an AggregationValue contain one element
+    // for each aggregation in this LogicalOp.
+    struct AggregationValue {
+      // how many input rows has been aggregated in respective
+      // values_ element so far
+      std::vector<int> counts_;
+      // aggregated values. Initially Null (until at least one
+      // input row with a valid value gets processed)
+      std::vector<TypedValue> values_;
+      // remember values.
+      std::vector<TypedValue> remember_;
+    };
+
+    Aggregate &self_;
+    GraphDbAccessor &db_;
+    std::unique_ptr<Cursor> input_cursor_;
+    // storage for aggregated data
+    // map key is the list of group-by values
+    // map value is an AggregationValue struct
+    std::unordered_map<
+        std::list<TypedValue>, AggregationValue,
+        // use FNV collection hashing specialized for a list of TypedValues
+        FnvCollection<std::list<TypedValue>, TypedValue, TypedValue::Hash>,
+        // custom equality
+        TypedValueListEqual>
+        aggregation_;
+    // iterator over the accumulated cache
+    decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
+    // this LogicalOp pulls all from the input on it's first pull
+    // this switch tracks if this has been performed
+    bool pulled_all_input_{false};
+
+    /**
+     * Pulls from the input until it's exhausted. Accumulates the results
+     * in the `aggregation_` map.
+     *
+     * Accumulation automatically groups the results so that `aggregation_`
+     * cache cardinality depends on number of
+     * aggregation results, and not on the number of inputs.
+     */
+    void PullAllInput(Frame &frame, const SymbolTable &symbolTable);
+
+    /** Ensures the new AggregationValue has been initialized. This means
+     * that the value vectors are filled with an appropriate number of Nulls,
+     * counts are set to 0 and remember values are remembered.
+     */
+    void EnsureInitialized(Frame &frame, AggregationValue &agg_value);
+
+    /** Updates the given AggregationValue with new data. Assumes that
+     * the AggregationValue has been initialized */
+    void Update(Frame &frame, const SymbolTable &symbol_table,
+                ExpressionEvaluator &evaluator, AggregationValue &agg_value);
+
+    /** Checks if the given TypedValue is legal in MIN and MAX. If not
+     * an appropriate exception is thrown. */
+    void EnsureOkForMinMax(const TypedValue &value);
+
+    /** Checks if the given TypedValue is legal in AVG and SUM. If not
+     * an appropriate exception is thrown. */
+    void EnsureOkForAvgSum(const TypedValue &value);
+  };
 };
 
 }  // namespace plan

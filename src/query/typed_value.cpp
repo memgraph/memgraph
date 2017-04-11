@@ -6,6 +6,8 @@
 #include <memory>
 
 #include "utils/assert.hpp"
+#include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/hashing/fnv.hpp"
 
 namespace query {
 
@@ -441,6 +443,10 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
     return TypedValue::Null;
 
+  if (a.type() == TypedValue::Type::Map || b.type() == TypedValue::Type::Map) {
+    throw NotYetImplemented();
+  }
+
   if (a.type() == TypedValue::Type::List ||
       b.type() == TypedValue::Type::List) {
     if (a.type() == TypedValue::Type::List &&
@@ -729,6 +735,68 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
     throw TypedValueException("Invalid logical and operand types({} && {})",
                               a.type(), b.type());
   }
+}
+
+bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
+                                          const TypedValue &rhs) const {
+  if (lhs.type() == TypedValue::Type::Null &&
+      rhs.type() == TypedValue::Type::Null)
+    return true;
+
+  // legal comparisons are only between same types
+  // only int -> float is promoted
+  if (lhs.type() == rhs.type() ||
+      (lhs.type() == Type::Double && rhs.type() == Type::Int) ||
+      (rhs.type() == Type::Double && lhs.type() == Type::Int))
+  {
+    TypedValue equality_result = lhs == rhs;
+    switch (equality_result.type()) {
+      case TypedValue::Type::Bool:
+        return equality_result.Value<bool>();
+      case TypedValue::Type::Null:
+        // we already tested if both operands are null,
+        // so only one is null here. this evaluates to false equality
+        return false;
+      default:
+      permanent_fail(
+          "Equality between two TypedValues resulted in something other "
+              "then Null or bool");
+    }
+  }
+
+  return false;
+}
+
+size_t TypedValue::Hash::operator()(const TypedValue &value) const {
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      return 31;
+    case TypedValue::Type::Bool:
+      return std::hash<bool>{}(value.Value<bool>());
+    case TypedValue::Type::Int:
+      // we cast int to double for hashing purposes
+      // to be consistent with TypedValue equality
+      // in which (2.0 == 2) returns true
+      return std::hash<double>{}((double)value.Value<int64_t>());
+    case TypedValue::Type::Double:
+      return std::hash<double>{}(value.Value<double>());
+    case TypedValue::Type::String:
+      return std::hash<std::string>{}(value.Value<std::string>());
+    case TypedValue::Type::List: {
+      return FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
+          value.Value<std::vector<TypedValue>>());
+    }
+    case TypedValue::Type::Map:
+      throw NotYetImplemented();
+    case TypedValue::Type::Vertex:
+      return value.Value<VertexAccessor>().temporary_id();
+    case TypedValue::Type::Edge:
+      return value.Value<EdgeAccessor>().temporary_id();
+    case TypedValue::Type::Path:
+      throw NotYetImplemented();
+      break;
+  }
+  permanent_fail("Unhandled TypedValue.type() in hash function");
 }
 
 }  // namespace query

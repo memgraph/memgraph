@@ -38,8 +38,8 @@ int main(int argc, char **argv) {
 
   auto elements = utils::random::generate_vector(generator, 1 << 16);
 
-  StringHashFunction hash1 = fnv64<std::string>;
-  StringHashFunction hash2 = fnv1a64<std::string>;
+  StringHashFunction hash1 = fnv64;
+  StringHashFunction hash2 = fnv1a64;
   std::vector<StringHashFunction> funcs = {hash1, hash2};
 
   BloomFilter<std::string, 128> bloom(funcs);

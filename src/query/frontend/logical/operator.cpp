@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "query/frontend/logical/operator.hpp"
 
 #include "query/exceptions.hpp"
@@ -285,7 +287,6 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   // will need it). For now only Back expansion (left to right) is
   // supported
   // TODO add support for named paths
-  // TODO add support for uniqueness (edge, vertex)
 
   return true;
 }
@@ -892,9 +893,11 @@ void ReconstructTypedValue(TypedValue &value) {
       for (auto &kv : value.Value<std::map<std::string, TypedValue>>())
         ReconstructTypedValue(kv.second);
       break;
+    case TypedValue::Type::Path:
+      // TODO implement path reconstruct?
+      throw NotYetImplemented("Path reconstruction not yet supported");
     default:
       break;
-      // TODO implement path reconstruct?
   }
 }
 }
@@ -946,8 +949,13 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
 
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
                      const std::vector<Aggregate::Element> &aggregations,
-                     const std::vector<NamedExpression *> group_by)
-    : input_(input), aggregations_(aggregations), group_by_(group_by) {}
+                     const std::vector<Expression *> &group_by,
+                     const std::vector<Symbol> &remember, bool advance_command)
+    : input_(input),
+      aggregations_(aggregations),
+      group_by_(group_by),
+      remember_(remember),
+      advance_command_(advance_command) {}
 
 void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -958,7 +966,182 @@ void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
 }
 
 std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
-  return std::unique_ptr<Cursor>();
+  return std::make_unique<AggregateCursor>(*this, db);
+}
+
+Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
+                                            GraphDbAccessor &db)
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+bool Aggregate::AggregateCursor::Pull(Frame &frame,
+                                      const SymbolTable &symbol_table) {
+  if (!pulled_all_input_) {
+    PullAllInput(frame, symbol_table);
+    pulled_all_input_ = true;
+    aggregation_it_ = aggregation_.begin();
+
+    if (self_.advance_command_) {
+      db_.advance_command();
+      // regarding reconstruction after advance_command
+      // we have to reconstruct only the remember values
+      // because aggregation results are primitives and
+      // group-by elements won't be used directly (possibly re-evaluated
+      // using remember values)
+      for (auto &kv : aggregation_)
+        for (TypedValue &remember : kv.second.remember_)
+          ReconstructTypedValue(remember);
+    }
+  }
+
+  if (aggregation_it_ == aggregation_.end()) return false;
+
+  // place aggregation values on the frame
+  auto aggregation_values_it = aggregation_it_->second.values_.begin();
+  for (const auto &aggregation_elem : self_.aggregations_)
+    frame[std::get<2>(aggregation_elem)] = *aggregation_values_it++;
+
+  // place remember values on the frame
+  auto remember_values_it = aggregation_it_->second.remember_.begin();
+  for (const Symbol &remember_sym : self_.remember_)
+    frame[remember_sym] = *remember_values_it++;
+
+  aggregation_it_++;
+  return true;
+}
+
+void Aggregate::AggregateCursor::PullAllInput(Frame &frame,
+                                              const SymbolTable &symbol_table) {
+  ExpressionEvaluator evaluator(frame, symbol_table);
+  evaluator.SwitchNew();
+
+  while (input_cursor_->Pull(frame, symbol_table)) {
+    // create the group-by list of values
+    std::list<TypedValue> group_by;
+    for (Expression *expression : self_.group_by_) {
+      expression->Accept(evaluator);
+      group_by.emplace_back(evaluator.PopBack());
+    }
+
+    AggregationValue &agg_value = aggregation_[group_by];
+    EnsureInitialized(frame, agg_value);
+    Update(frame, symbol_table, evaluator, agg_value);
+  }
+
+  // calculate AVG aggregations (so far they have only been summed)
+  for (int pos = 0; pos < self_.aggregations_.size(); ++pos) {
+    if (std::get<1>(self_.aggregations_[pos]) != Aggregation::Op::AVG) continue;
+    for (auto &kv : aggregation_) {
+      AggregationValue &agg_value = kv.second;
+      int count = agg_value.counts_[pos];
+      if (count > 0)
+        agg_value.values_[pos] = agg_value.values_[pos] / (double)count;
+    }
+  }
+}
+
+void Aggregate::AggregateCursor::EnsureInitialized(
+    Frame &frame, Aggregate::AggregateCursor::AggregationValue &agg_value) {
+  if (agg_value.values_.size() > 0) return;
+
+  agg_value.values_.resize(self_.aggregations_.size(), TypedValue::Null);
+  agg_value.counts_.resize(self_.aggregations_.size(), 0);
+
+  for (const Symbol &remember_sym : self_.remember_)
+    agg_value.remember_.push_back(frame[remember_sym]);
+}
+
+void Aggregate::AggregateCursor::Update(
+    Frame &frame, const SymbolTable &symbol_table,
+    ExpressionEvaluator &evaluator,
+    Aggregate::AggregateCursor::AggregationValue &agg_value) {
+  debug_assert(self_.aggregations_.size() == agg_value.values_.size(),
+               "Inappropriate AggregationValue.values_ size");
+  debug_assert(self_.aggregations_.size() == agg_value.counts_.size(),
+               "Inappropriate AggregationValue.counts_ size");
+
+  // we iterate over counts, values and aggregation info at the same time
+  auto count_it = agg_value.counts_.begin();
+  auto value_it = agg_value.values_.begin();
+  auto agg_elem_it = self_.aggregations_.begin();
+  for (; count_it < agg_value.counts_.end();
+       count_it++, value_it++, agg_elem_it++) {
+    std::get<0>(*agg_elem_it)->Accept(evaluator);
+    TypedValue input_value = evaluator.PopBack();
+
+    if (input_value.type() == TypedValue::Type::Null) continue;
+
+    *count_it += 1;
+    if (*count_it == 1) {
+      // first value, nothing to aggregate. set and continue.
+      *value_it = input_value;
+      continue;
+    }
+
+    // aggregation of existing values
+    switch (std::get<1>(*agg_elem_it)) {
+      case Aggregation::Op::COUNT:
+        *value_it = *count_it;
+        break;
+      case Aggregation::Op::MIN: {
+        EnsureOkForMinMax(input_value);
+        // TODO an illegal comparison here will throw a TypedValueException
+        // consider catching and throwing something else
+        TypedValue comparison_result = input_value < *value_it;
+        // since we skip nulls we either have a valid comparison, or
+        // an exception was just thrown above
+        // safe to assume a bool TypedValue
+        if (comparison_result.Value<bool>()) *value_it = input_value;
+        break;
+      }
+      case Aggregation::Op::MAX: {
+        //  all comments as for Op::Min
+        EnsureOkForMinMax(input_value);
+        TypedValue comparison_result = input_value > *value_it;
+        if (comparison_result.Value<bool>()) *value_it = input_value;
+        break;
+      }
+      case Aggregation::Op::AVG:
+      // for averaging we sum first and divide by count once all
+      // the input has been processed
+      case Aggregation::Op::SUM:
+        EnsureOkForAvgSum(input_value);
+        *value_it = *value_it + input_value;
+        break;
+    }  // end switch over Aggregation::Op enum
+  }    // end loop over all aggregations
+}
+
+void Aggregate::AggregateCursor::EnsureOkForMinMax(const TypedValue &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+      return;
+    default:
+      // TODO consider better error feedback
+      throw TypedValueException(
+          "Only Bool, Int, Double and String properties are allowed in "
+          "MIN and MAX aggregations");
+  }
+}
+void Aggregate::AggregateCursor::EnsureOkForAvgSum(const TypedValue &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      return;
+    default:
+      // TODO consider better error feedback
+      throw TypedValueException(
+          "Only numeric properties allowed in SUM and AVG aggregations");
+  }
+}
+
+bool Aggregate::AggregateCursor::TypedValueListEqual::operator()(
+    const std::list<TypedValue> &left,
+    const std::list<TypedValue> &right) const {
+  return std::equal(left.begin(), left.end(), right.begin(),
+                    TypedValue::BoolEqual{});
 }
 
 }  // namespace plan

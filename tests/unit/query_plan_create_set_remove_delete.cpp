@@ -15,300 +15,14 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/interpret/interpret.hpp"
-#include "query/frontend/logical/planner.hpp"
+#include "query/frontend/logical/operator.hpp"
 
-#include "query_common.hpp"
+#include "query_plan_common.hpp"
 
 using namespace query;
 using namespace query::plan;
 
-/**
- * Helper function that collects all the results from the given
- * Produce into a ResultStreamFaker and returns that object.
- *
- * @param produce
- * @param symbol_table
- * @param db_accessor
- * @return
- */
-auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
-                    GraphDbAccessor &db_accessor) {
-  ResultStreamFaker stream;
-  Frame frame(symbol_table.max_position());
-
-  // top level node in the operator tree is a produce (return)
-  // so stream out results
-
-  // generate header
-  std::vector<std::string> header;
-  for (auto named_expression : produce->named_expressions())
-    header.push_back(named_expression->name_);
-  stream.Header(header);
-
-  // collect the symbols from the return clause
-  std::vector<Symbol> symbols;
-  for (auto named_expression : produce->named_expressions())
-    symbols.emplace_back(symbol_table[*named_expression]);
-
-  // stream out results
-  auto cursor = produce->MakeCursor(db_accessor);
-  while (cursor->Pull(frame, symbol_table)) {
-    std::vector<TypedValue> values;
-    for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
-    stream.Result(values);
-  }
-
-  stream.Summary({{std::string("type"), TypedValue("r")}});
-
-  return stream;
-}
-
-int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
-            SymbolTable symbol_table) {
-  Frame frame(symbol_table.max_position());
-  auto cursor = logical_op->MakeCursor(db);
-  int count = 0;
-  while (cursor->Pull(frame, symbol_table)) count++;
-  return count;
-}
-
-template <typename... TNamedExpressions>
-auto MakeProduce(std::shared_ptr<LogicalOperator> input,
-                 TNamedExpressions... named_expressions) {
-  return std::make_shared<Produce>(
-      input, std::vector<NamedExpression *>{named_expressions...});
-}
-
-struct ScanAllTuple {
-  NodeAtom *node_;
-  std::shared_ptr<LogicalOperator> op_;
-  Symbol sym_;
-};
-
-/**
- * Creates and returns a tuple of stuff for a scan-all starting
- * from the node with the given name.
- *
- * Returns (node_atom, scan_all_logical_op, symbol).
- */
-ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
-                         const std::string &identifier,
-                         std::shared_ptr<LogicalOperator> input = {nullptr}) {
-  auto node = NODE(identifier);
-  auto logical_op = std::make_shared<ScanAll>(node, input);
-  auto symbol = symbol_table.CreateSymbol(identifier);
-  symbol_table[*node->identifier_] = symbol;
-  //  return std::make_tuple(node, logical_op, symbol);
-  return ScanAllTuple{node, logical_op, symbol};
-}
-
-struct ExpandTuple {
-  EdgeAtom *edge_;
-  Symbol edge_sym_;
-  NodeAtom *node_;
-  Symbol node_sym_;
-  std::shared_ptr<LogicalOperator> op_;
-};
-
-ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
-                       std::shared_ptr<LogicalOperator> input,
-                       Symbol input_symbol, const std::string &edge_identifier,
-                       EdgeAtom::Direction direction, bool edge_cycle,
-                       const std::string &node_identifier, bool node_cycle) {
-  auto edge = EDGE(edge_identifier, direction);
-  auto edge_sym = symbol_table.CreateSymbol(edge_identifier);
-  symbol_table[*edge->identifier_] = edge_sym;
-
-  auto node = NODE(node_identifier);
-  auto node_sym = symbol_table.CreateSymbol(node_identifier);
-  symbol_table[*node->identifier_] = node_sym;
-
-  auto op = std::make_shared<Expand>(node, edge, input, input_symbol,
-                                     node_cycle, edge_cycle);
-
-  return ExpandTuple{edge, edge_sym, node, node_sym, op};
-}
-
-template <typename TIterable>
-auto CountIterable(TIterable iterable) {
-  return std::distance(iterable.begin(), iterable.end());
-}
-
-/*
- * Actual tests start here.
- */
-
-TEST(Interpreter, MatchReturn) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a few nodes to the database
-  dba->insert_vertex();
-  dba->insert_vertex();
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
-}
-
-TEST(Interpreter, MatchReturnCartesian) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  dba->insert_vertex().add_label(dba->label("l1"));
-  dba->insert_vertex().add_label(dba->label("l2"));
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
-  auto return_n = NEXPR("n", IDENT("n"));
-  symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] = symbol_table.CreateSymbol("named_expression_1");
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] = symbol_table.CreateSymbol("named_expression_2");
-  auto produce = MakeProduce(m.op_, return_n, return_m);
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  auto result_data = result.GetResults();
-  EXPECT_EQ(result_data.size(), 4);
-  // ensure the result ordering is OK:
-  // "n" from the results is the same for the first two rows, while "m" isn't
-  EXPECT_EQ(result_data[0][0].Value<VertexAccessor>(),
-            result_data[1][0].Value<VertexAccessor>());
-  EXPECT_NE(result_data[0][1].Value<VertexAccessor>(),
-            result_data[1][1].Value<VertexAccessor>());
-}
-
-TEST(Interpreter, StandaloneReturn) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a few nodes to the database
-  dba->insert_vertex();
-  dba->insert_vertex();
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto output = NEXPR("n", LITERAL(42));
-  auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
-  EXPECT_EQ(result.GetResults()[0].size(), 1);
-  EXPECT_EQ(result.GetResults()[0][0].Value<int64_t>(), 42);
-}
-
-TEST(Interpreter, NodeFilterLabelsAndProperties) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a few nodes to the database
-  GraphDbTypes::Label label = dba->label("Label");
-  GraphDbTypes::Property property = dba->property("Property");
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto v3 = dba->insert_vertex();
-  auto v4 = dba->insert_vertex();
-  auto v5 = dba->insert_vertex();
-  dba->insert_vertex();
-  // test all combination of (label | no_label) * (no_prop | wrong_prop |
-  // right_prop)
-  // only v1 will have the right labels
-  v1.add_label(label);
-  v2.add_label(label);
-  v3.add_label(label);
-  v1.PropsSet(property, 42);
-  v2.PropsSet(property, 1);
-  v4.PropsSet(property, 42);
-  v5.PropsSet(property, 1);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(label);
-  n.node_->properties_[property] = LITERAL(42);
-
-  // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
-
-  // make a named expression and a produce
-  auto output = NEXPR("x", IDENT("n"));
-  symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  auto produce = MakeProduce(node_filter, output);
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
-}
-
-TEST(Interpreter, NodeFilterMultipleLabels) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a few nodes to the database
-  GraphDbTypes::Label label1 = dba->label("label1");
-  GraphDbTypes::Label label2 = dba->label("label2");
-  GraphDbTypes::Label label3 = dba->label("label3");
-  // the test will look for nodes that have label1 and label2
-  dba->insert_vertex();                    // NOT accepted
-  dba->insert_vertex().add_label(label1);  // NOT accepted
-  dba->insert_vertex().add_label(label2);  // NOT accepted
-  dba->insert_vertex().add_label(label3);  // NOT accepted
-  auto v1 = dba->insert_vertex();          // YES accepted
-  v1.add_label(label1);
-  v1.add_label(label2);
-  auto v2 = dba->insert_vertex();  // NOT accepted
-  v2.add_label(label1);
-  v2.add_label(label3);
-  auto v3 = dba->insert_vertex();  // YES accepted
-  v3.add_label(label1);
-  v3.add_label(label2);
-  v3.add_label(label3);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(label1);
-  n.node_->labels_.emplace_back(label2);
-
-  // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
-
-  // make a named expression and a produce
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(node_filter, output);
-
-  // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  symbol_table[*output->expression_] = n.sym_;
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
-}
-
-TEST(Interpreter, CreateNodeWithAttributes) {
+TEST(QueryPlan, CreateNodeWithAttributes) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -341,7 +55,7 @@ TEST(Interpreter, CreateNodeWithAttributes) {
   EXPECT_EQ(vertex_count, 1);
 }
 
-TEST(Interpreter, CreateReturn) {
+TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   Dbms dbms;
   auto dba = dbms.active();
@@ -384,7 +98,7 @@ TEST(Interpreter, CreateReturn) {
   EXPECT_EQ(1, CountIterable(dba->vertices()));
 }
 
-TEST(Interpreter, CreateExpand) {
+TEST(QueryPlan, CreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -457,7 +171,7 @@ TEST(Interpreter, CreateExpand) {
   }
 }
 
-TEST(Interpreter, MatchCreateNode) {
+TEST(QueryPlan, MatchCreateNode) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -484,7 +198,7 @@ TEST(Interpreter, MatchCreateNode) {
   EXPECT_EQ(CountIterable(dba->vertices()), 6);
 }
 
-TEST(Interpreter, MatchCreateExpand) {
+TEST(QueryPlan, MatchCreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -535,223 +249,7 @@ TEST(Interpreter, MatchCreateExpand) {
   test_create_path(true, 0, 6);
 }
 
-TEST(Interpreter, Expand) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  auto v1 = dba->insert_vertex();
-  v1.add_label((GraphDbTypes::Label)1);
-  auto v2 = dba->insert_vertex();
-  v2.add_label((GraphDbTypes::Label)2);
-  auto v3 = dba->insert_vertex();
-  v3.add_label((GraphDbTypes::Label)3);
-  auto edge_type = dba->edge_type("Edge");
-  dba->insert_edge(v1, v2, edge_type);
-  dba->insert_edge(v1, v3, edge_type);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto test_expand = [&](EdgeAtom::Direction direction,
-                         int expected_result_count) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
-                          false, "m", false);
-
-    // make a named expression and a produce
-    auto output = NEXPR("m", IDENT("m"));
-    symbol_table[*output->expression_] = r_m.node_sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(r_m.op_, output);
-
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
-  };
-
-  test_expand(EdgeAtom::Direction::RIGHT, 2);
-  test_expand(EdgeAtom::Direction::LEFT, 2);
-  test_expand(EdgeAtom::Direction::BOTH, 4);
-}
-
-TEST(Interpreter, ExpandNodeCycle) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a graph (v1)->(v2) that
-  // has a recursive edge (v1)->(v1)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto edge_type = dba->edge_type("Edge");
-  dba->insert_edge(v1, v1, edge_type);
-  dba->insert_edge(v1, v2, edge_type);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto test_cycle = [&](bool with_cycle, int expected_result_count) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::RIGHT, false, "n", with_cycle);
-    if (with_cycle)
-      symbol_table[*r_n.node_->identifier_] =
-          symbol_table[*n.node_->identifier_];
-
-    // make a named expression and a produce
-    auto output = NEXPR("n", IDENT("n"));
-    symbol_table[*output->expression_] = n.sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(r_n.op_, output);
-
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
-  };
-
-  test_cycle(true, 1);
-  test_cycle(false, 2);
-}
-
-TEST(Interpreter, ExpandEdgeCycle) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  auto v1 = dba->insert_vertex();
-  v1.add_label((GraphDbTypes::Label)1);
-  auto v2 = dba->insert_vertex();
-  v2.add_label((GraphDbTypes::Label)2);
-  auto v3 = dba->insert_vertex();
-  v3.add_label((GraphDbTypes::Label)3);
-  auto edge_type = dba->edge_type("Edge");
-  dba->insert_edge(v1, v2, edge_type);
-  dba->insert_edge(v1, v3, edge_type);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto test_cycle = [&](bool with_cycle, int expected_result_count) {
-    auto i = MakeScanAll(storage, symbol_table, "i");
-    auto r_j = MakeExpand(storage, symbol_table, i.op_, i.sym_, "r",
-                          EdgeAtom::Direction::BOTH, false, "j", false);
-    auto r_k = MakeExpand(storage, symbol_table, r_j.op_, r_j.node_sym_, "r",
-                          EdgeAtom::Direction::BOTH, with_cycle, "k", false);
-    if (with_cycle)
-      symbol_table[*r_k.edge_->identifier_] =
-          symbol_table[*r_j.edge_->identifier_];
-
-    // make a named expression and a produce
-    auto output = NEXPR("r", IDENT("r"));
-    symbol_table[*output->expression_] = r_j.edge_sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-    auto produce = MakeProduce(r_k.op_, output);
-
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
-
-  };
-
-  test_cycle(true, 4);
-  test_cycle(false, 6);
-}
-
-TEST(Interpreter, EdgeFilter) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make an N-star expanding from (v1)
-  // where only one edge will qualify
-  // and there are all combinations of
-  // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<GraphDbTypes::EdgeType> edge_types;
-  for (int j = 0; j < 2; ++j)
-    edge_types.push_back(dba->edge_type("et" + std::to_string(j)));
-  std::vector<VertexAccessor> vertices;
-  for (int i = 0; i < 7; ++i) vertices.push_back(dba->insert_vertex());
-  GraphDbTypes::Property prop = dba->property("prop");
-  std::vector<EdgeAccessor> edges;
-  for (int i = 0; i < 6; ++i) {
-    edges.push_back(
-        dba->insert_edge(vertices[0], vertices[i + 1], edge_types[i % 2]));
-    switch (i % 3) {
-      case 0:
-        edges.back().PropsSet(prop, 42);
-        break;
-      case 1:
-        edges.back().PropsSet(prop, 100);
-        break;
-      default:
-        break;
-    }
-  }
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  // define an operator tree for query
-  // MATCH (n)-[r]->(m) RETURN m
-
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
-  r_m.edge_->edge_types_.push_back(edge_types[0]);
-  r_m.edge_->properties_[prop] = LITERAL(42);
-  auto edge_filter =
-      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
-
-  // make a named expression and a produce
-  auto output = NEXPR("m", IDENT("m"));
-  symbol_table[*output->expression_] = r_m.node_sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  auto produce = MakeProduce(edge_filter, output);
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
-}
-
-TEST(Interpreter, EdgeFilterMultipleTypes) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto type_1 = dba->edge_type("type_1");
-  auto type_2 = dba->edge_type("type_2");
-  auto type_3 = dba->edge_type("type_3");
-  dba->insert_edge(v1, v2, type_1);
-  dba->insert_edge(v1, v2, type_2);
-  dba->insert_edge(v1, v2, type_3);
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
-  // add a property filter
-  auto edge_filter =
-      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
-  r_m.edge_->edge_types_.push_back(type_1);
-  r_m.edge_->edge_types_.push_back(type_2);
-
-  // make a named expression and a produce
-  auto output = NEXPR("m", IDENT("m"));
-  auto produce = MakeProduce(edge_filter, output);
-
-  // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  symbol_table[*output->expression_] = r_m.node_sym_;
-
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
-}
-
-TEST(Interpreter, Delete) {
+TEST(QueryPlan, Delete) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -826,7 +324,7 @@ TEST(Interpreter, Delete) {
   }
 }
 
-TEST(Interpreter, DeleteReturn) {
+TEST(QueryPlan, DeleteReturn) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -864,36 +362,7 @@ TEST(Interpreter, DeleteReturn) {
   EXPECT_EQ(0, CountIterable(dba->vertices()));
 }
 
-TEST(Interpreter, Filter) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a 6 nodes with property 'prop', 2 have true as value
-  GraphDbTypes::Property property = dba->property("Property");
-  for (int i = 0; i < 6; ++i)
-    dba->insert_vertex().PropsSet(property, i % 3 == 0);
-  dba->insert_vertex();  // prop not set, gives NULL
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto e =
-      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
-  symbol_table[*e->expression_] = n.sym_;
-  auto f = std::make_shared<Filter>(n.op_, e);
-
-  auto output =
-      storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
-  symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  auto produce = MakeProduce(f, output);
-
-  EXPECT_EQ(CollectProduce(produce, symbol_table, *dba).GetResults().size(), 2);
-}
-
-TEST(Interpreter, SetProperty) {
+TEST(QueryPlan, SetProperty) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -943,7 +412,7 @@ TEST(Interpreter, SetProperty) {
   }
 }
 
-TEST(Interpreter, SetProperties) {
+TEST(QueryPlan, SetProperties) {
   auto test_set_properties = [](bool update) {
     Dbms dbms;
     auto dba = dbms.active();
@@ -1013,7 +482,7 @@ TEST(Interpreter, SetProperties) {
   test_set_properties(false);
 }
 
-TEST(Interpreter, SetLabels) {
+TEST(QueryPlan, SetLabels) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -1040,7 +509,7 @@ TEST(Interpreter, SetLabels) {
   }
 }
 
-TEST(Interpreter, RemoveProperty) {
+TEST(QueryPlan, RemoveProperty) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -1092,7 +561,7 @@ TEST(Interpreter, RemoveProperty) {
   }
 }
 
-TEST(Interpreter, RemoveLabels) {
+TEST(QueryPlan, RemoveLabels) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -1124,7 +593,7 @@ TEST(Interpreter, RemoveLabels) {
   }
 }
 
-TEST(Interpreter, NodeFilterSet) {
+TEST(QueryPlan, NodeFilterSet) {
   Dbms dbms;
   auto dba = dbms.active();
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
@@ -1162,7 +631,7 @@ TEST(Interpreter, NodeFilterSet) {
   EXPECT_TRUE(prop_eq.Value<bool>());
 }
 
-TEST(Interpreter, FilterRemove) {
+TEST(QueryPlan, FilterRemove) {
   Dbms dbms;
   auto dba = dbms.active();
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
@@ -1198,7 +667,7 @@ TEST(Interpreter, FilterRemove) {
   EXPECT_EQ(v1.PropsAt(prop).type(), PropertyValue::Type::Null);
 }
 
-TEST(Interpreter, SetRemove) {
+TEST(QueryPlan, SetRemove) {
   Dbms dbms;
   auto dba = dbms.active();
   auto v = dba->insert_vertex();
@@ -1221,133 +690,4 @@ TEST(Interpreter, SetRemove) {
   v.Reconstruct();
   EXPECT_FALSE(v.has_label(label1));
   EXPECT_FALSE(v.has_label(label2));
-}
-
-TEST(Interpreter, ExpandUniquenessFilter) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto edge_type = dba->edge_type("edge_type");
-  dba->insert_edge(v1, v2, edge_type);
-  dba->insert_edge(v1, v1, edge_type);
-  dba->advance_command();
-
-  auto check_expand_results = [&](bool vertex_uniqueness,
-                                  bool edge_uniqueness) {
-    AstTreeStorage storage;
-    SymbolTable symbol_table;
-
-    auto n1 = MakeScanAll(storage, symbol_table, "n1");
-    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
-                            EdgeAtom::Direction::RIGHT, false, "n2", false);
-    std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
-    if (vertex_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
-          last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
-    auto r2_n3 =
-        MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
-                   EdgeAtom::Direction::RIGHT, false, "n3", false);
-    last_op = r2_n3.op_;
-    if (edge_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
-          last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
-    if (vertex_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
-          last_op, r2_n3.node_sym_,
-          std::vector<Symbol>{n1.sym_, r1_n2.node_sym_});
-
-    return PullAll(last_op, *dba, symbol_table);
-  };
-
-  EXPECT_EQ(2, check_expand_results(false, false));
-  EXPECT_EQ(0, check_expand_results(true, false));
-  EXPECT_EQ(1, check_expand_results(false, true));
-}
-
-TEST(Interpreter, Accumulate) {
-  // simulate the following two query execution on an empty db
-  // CREATE ({x:0})-[:T]->({x:0})
-  // MATCH (n)--(m) SET n.x = n.x + 1, m.x = m.x + 1 RETURN n.x, m.x
-  // without accumulation we expected results to be [[1, 1], [2, 2]]
-  // with accumulation we expect them to be [[2, 2], [2, 2]]
-
-  auto check = [&](bool accumulate) {
-    Dbms dbms;
-    auto dba = dbms.active();
-    auto prop = dba->property("x");
-
-    auto v1 = dba->insert_vertex();
-    v1.PropsSet(prop, 0);
-    auto v2 = dba->insert_vertex();
-    v2.PropsSet(prop, 0);
-    dba->insert_edge(v1, v2, dba->edge_type("T"));
-    dba->advance_command();
-
-    AstTreeStorage storage;
-    SymbolTable symbol_table;
-
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::BOTH, false, "m", false);
-
-    auto one = LITERAL(1);
-    auto n_p = PROPERTY_LOOKUP("n", prop);
-    symbol_table[*n_p->expression_] = n.sym_;
-    auto set_n_p =
-        std::make_shared<plan::SetProperty>(r_m.op_, n_p, ADD(n_p, one));
-    auto m_p = PROPERTY_LOOKUP("m", prop);
-    symbol_table[*m_p->expression_] = r_m.node_sym_;
-    auto set_m_p =
-        std::make_shared<plan::SetProperty>(set_n_p, m_p, ADD(m_p, one));
-
-    std::shared_ptr<LogicalOperator> last_op = set_m_p;
-    if (accumulate) {
-      last_op = std::make_shared<Accumulate>(
-          last_op, std::vector<Symbol>{n.sym_, r_m.node_sym_});
-    }
-
-    auto n_p_ne = NEXPR("n.p", n_p);
-    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n_p_ne");
-    auto m_p_ne = NEXPR("m.p", m_p);
-    symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne");
-    auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
-    ResultStreamFaker results = CollectProduce(produce, symbol_table, *dba);
-    std::vector<int> results_data;
-    for (const auto &row : results.GetResults())
-      for (const auto &column : row)
-        results_data.emplace_back(column.Value<int64_t>());
-    if (accumulate)
-      EXPECT_THAT(results_data, testing::ElementsAre(2, 2, 2, 2));
-    else
-      EXPECT_THAT(results_data, testing::ElementsAre(1, 1, 2, 2));
-  };
-
-  check(false);
-  check(true);
-}
-
-TEST(Interpreter, AccumulateAdvance) {
-  // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
-  // to get correct results we need to advance the command
-
-  auto check = [&](bool advance) {
-    Dbms dbms;
-    auto dba = dbms.active();
-    AstTreeStorage storage;
-    SymbolTable symbol_table;
-
-    auto node = NODE("n");
-    auto sym_n = symbol_table.CreateSymbol("n");
-    symbol_table[*node->identifier_] = sym_n;
-    auto create = std::make_shared<CreateNode>(node, nullptr);
-    auto accumulate = std::make_shared<Accumulate>(
-        create, std::vector<Symbol>{sym_n}, advance);
-    auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
-    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
-  };
-  check(false);
-  check(true);
 }

@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "storage/edge_accessor.hpp"
@@ -29,6 +30,34 @@ typedef traversal_template::Path<VertexAccessor, EdgeAccessor> Path;
  */
 class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
  public:
+  /** Custom TypedValue equality function that returns a bool
+   * (as opposed to returning TypedValue as the default equality does).
+   * This implementation treats two nulls as being equal and null
+   * not being equal to everything else.
+   */
+  struct BoolEqual {
+    bool operator()(const TypedValue &left, const TypedValue &right) const;
+  };
+
+  /** Hash operator for TypedValue.
+   *
+   * Not injecting into std
+   * due to linking problems. If the implementation is in this header,
+   * then it implicitly instantiates TypedValue::Value<T> before
+   * explicit instantiation in .cpp file. If the implementation is in
+   * the .cpp file, it won't link.
+   */
+  struct Hash {
+    size_t operator()(const TypedValue &value) const;
+  };
+
+  /**
+   * Unordered set of TypedValue items. Can contain at most one Null element,
+   * and treats an integral and floating point value as same if they are equal
+   * in the floating point domain (TypedValue operator== behaves the same).
+   * */
+  using unordered_set = std::unordered_set<TypedValue, Hash, BoolEqual>;
+
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
 
@@ -163,7 +192,6 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b);
 // Be careful: since ^ is binary operator and || and && are logical operators
 // they have different priority in c++.
 TypedValue operator^(const TypedValue &a, const TypedValue &b);
-
 // stream output
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type);
 

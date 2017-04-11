@@ -146,7 +146,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
   void Visit(Aggregation &aggregation) override {
-    auto value = frame_[symbol_table_[aggregation]];
+    auto value = frame_[symbol_table_.at(aggregation)];
     // Aggregation is probably always simple type, but let's switch accessor
     // just to be sure.
     SwitchAccessors(value);

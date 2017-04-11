@@ -9,8 +9,8 @@
 using StringHashFunction = std::function<uint64_t(const std::string &)>;
 
 TEST(BloomFilterTest, InsertContains) {
-  StringHashFunction hash1 = fnv64<std::string>;
-  StringHashFunction hash2 = fnv1a64<std::string>;
+  StringHashFunction hash1 = fnv64;
+  StringHashFunction hash2 = fnv1a64;
   std::vector<StringHashFunction> funcs = {hash1, hash2};
 
   BloomFilter<std::string, 64> bloom(funcs);
