@@ -329,6 +329,26 @@ TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   ASSERT_EQ(operand->value_.Value<int64_t>(), 5);
 }
 
+TEST(CypherMainVisitorTest, Aggregation) {
+  AstGenerator ast_generator("RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e)");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_EQ(return_clause->named_expressions_.size(), 5);
+  Aggregation::Op ops[] = {Aggregation::Op::COUNT, Aggregation::Op::MIN,
+                           Aggregation::Op::MAX, Aggregation::Op::SUM,
+                           Aggregation::Op::AVG};
+  std::string ids[] = {"a", "b", "c", "d", "e"};
+  for (int i = 0; i < 5; ++i) {
+    auto *aggregation = dynamic_cast<Aggregation *>(
+        return_clause->named_expressions_[i]->expression_);
+    ASSERT_TRUE(aggregation);
+    ASSERT_EQ(aggregation->op_, ops[i]);
+    auto *identifier = dynamic_cast<Identifier *>(aggregation->expression_);
+    ASSERT_TRUE(identifier);
+    ASSERT_EQ(identifier->name_, ids[i]);
+  }
+}
+
 TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   AstGenerator ast_generator("RETURN \"mi'rko\"");
   auto *query = ast_generator.query_;

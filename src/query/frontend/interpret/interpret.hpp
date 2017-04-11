@@ -145,6 +145,14 @@ class ExpressionEvaluator : public TreeVisitorBase {
     result_stack_.push_back(literal.value_);
   }
 
+  void Visit(Aggregation &aggregation) override {
+    auto value = frame_[symbol_table_[aggregation]];
+    // Aggregation is probably always simple type, but let's switch accessor
+    // just to be sure.
+    SwitchAccessors(value);
+    result_stack_.emplace_back(std::move(value));
+  }
+
  private:
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.

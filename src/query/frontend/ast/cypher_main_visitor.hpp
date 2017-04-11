@@ -371,6 +371,18 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::ParenthesizedExpressionContext *ctx) override;
 
   /**
+   * @return Expression*
+   */
+  antlrcpp::Any visitFunctionInvocation(
+      CypherParser::FunctionInvocationContext *ctx) override;
+
+  /**
+   * @return string - uppercased
+   */
+  antlrcpp::Any visitFunctionName(
+      CypherParser::FunctionNameContext *ctx) override;
+
+  /**
    * @return Literal*
    */
   antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override;

@@ -588,6 +588,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     std::string variable = ctx->variable()->accept(this);
     users_identifiers.insert(variable);
     return static_cast<Expression *>(storage_.Create<Identifier>(variable));
+  } else if (ctx->functionInvocation()) {
+    return static_cast<Expression *>(ctx->functionInvocation()->accept(this));
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.
@@ -631,6 +633,51 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
     debug_assert(false, "can't happen");
     throw std::exception();
   }
+}
+
+antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
+    CypherParser::FunctionInvocationContext *ctx) {
+  if (ctx->DISTINCT()) {
+    throw NotYetImplemented();
+  }
+  std::vector<Expression *> expressions;
+  for (auto *expression : ctx->expression()) {
+    expressions.push_back(expression->accept(this));
+  }
+  std::string function_name = ctx->functionName()->accept(this);
+  if (expressions.size() == 1U) {
+    if (function_name == Aggregation::kCount) {
+      return static_cast<Expression *>(
+          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::COUNT));
+    }
+    if (function_name == Aggregation::kMin) {
+      return static_cast<Expression *>(
+          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::MIN));
+    }
+    if (function_name == Aggregation::kMax) {
+      return static_cast<Expression *>(
+          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::MAX));
+    }
+    if (function_name == Aggregation::kSum) {
+      return static_cast<Expression *>(
+          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::SUM));
+    }
+    if (function_name == Aggregation::kAvg) {
+      return static_cast<Expression *>(
+          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::AVG));
+    }
+  }
+  // it is not a aggregation, it is a regular function,
+  // will be implemented in next diff
+  throw NotYetImplemented();
+}
+
+antlrcpp::Any CypherMainVisitor::visitFunctionName(
+    CypherParser::FunctionNameContext *ctx) {
+  std::string function_name = ctx->getText();
+  std::transform(function_name.begin(), function_name.end(),
+                 function_name.begin(), toupper);
+  return function_name;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(

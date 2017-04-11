@@ -418,7 +418,11 @@ class Aggregation : public UnaryOperator {
 
  public:
   enum class Op { COUNT, MIN, MAX, SUM, AVG };
-  Op op_;
+  static const constexpr char *const kCount = "COUNT";
+  static const constexpr char *const kMin = "MIN";
+  static const constexpr char *const kMax = "MAX";
+  static const constexpr char *const kSum = "SUM";
+  static const constexpr char *const kAvg = "AVG";
 
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -427,6 +431,7 @@ class Aggregation : public UnaryOperator {
       visitor.PostVisit(*this);
     }
   }
+  Op op_;
 
  protected:
   Aggregation(int uid, Expression *expression, Op op)
