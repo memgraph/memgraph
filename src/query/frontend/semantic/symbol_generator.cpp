@@ -73,12 +73,10 @@ void SymbolGenerator::PostVisit(With &with) {
 
 void SymbolGenerator::Visit(Identifier &ident) {
   Symbol symbol;
-  if (scope_.in_pattern) {
+  if (scope_.in_pattern && !scope_.in_property_map) {
     // Patterns can bind new symbols or reference already bound. But there
     // are the following special cases:
-    //  1) Expressions in property maps `{prop_name: expr}` can only reference
-    //     bound variables.
-    //  2) Patterns used to create nodes and edges cannot redeclare already
+    //  1) Patterns used to create nodes and edges cannot redeclare already
     //     established bindings. Declaration only happens in single node
     //     patterns and in edge patterns. OpenCypher example,
     //     `MATCH (n) CREATE (n)` should throw an error that `n` is already
@@ -87,12 +85,9 @@ void SymbolGenerator::Visit(Identifier &ident) {
     //     Additionally, we will support edge referencing in pattern:
     //     `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r`, which would
     //     usually raise redeclaration of `r`.
-    if (scope_.in_property_map && !HasSymbol(ident.name_)) {
-      // Case 1)
-      throw UnboundVariableError(ident.name_);
-    } else if ((scope_.in_create_node || scope_.in_create_edge) &&
+    if ((scope_.in_create_node || scope_.in_create_edge) &&
                HasSymbol(ident.name_)) {
-      // Case 2)
+      // Case 1)
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::Vertex;

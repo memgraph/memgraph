@@ -447,4 +447,25 @@ TEST(TestSymbolGenerator, NestedAggregation) {
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
+TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
+  // Test MATCH (n) CREATE (m {prop: n.prop})
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  auto node_m = NODE("m");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  node_m->properties_[prop] = n_prop;
+  auto query = QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 2);
+  auto n = symbol_table.at(*node_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  auto m = symbol_table.at(*node_m->identifier_);
+  EXPECT_NE(n, m);
+}
+
 }
