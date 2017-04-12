@@ -388,6 +388,26 @@ TEST(QueryPlan, EdgeFilter) {
   EXPECT_EQ(result.GetResults().size(), 1);
 }
 
+TEST(QueryPlan, EdgeFilterEmpty) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  dba->insert_edge(v1, v2, dba->edge_type("type"));
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
+  auto edge_filter =
+      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
+  EXPECT_EQ(1, PullAll(edge_filter, *dba, symbol_table));
+}
+
 TEST(QueryPlan, EdgeFilterMultipleTypes) {
   Dbms dbms;
   auto dba = dbms.active();

@@ -427,8 +427,8 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
   // edge type filtering - logical OR
   const auto &types = self_.edge_atom_->edge_types_;
   GraphDbTypes::EdgeType type = edge.edge_type();
-  if (!std::any_of(types.begin(), types.end(),
-                   [type](auto t) { return t == type; }))
+  if (types.size() && std::none_of(types.begin(), types.end(),
+                                   [type](auto t) { return t == type; }))
     return false;
 
   ExpressionEvaluator expression_evaluator(frame, symbol_table);
