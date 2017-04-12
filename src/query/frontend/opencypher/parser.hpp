@@ -26,23 +26,38 @@ class Parser {
    */
   Parser(const std::string query) : query_(std::move(query)) {
     parser_.removeErrorListeners();
+    parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::SyntaxException();
+      throw query::SyntaxException(error_listener_.error_);
     }
   }
 
   auto tree() { return tree_; }
 
  private:
+  class FirstMessageErrorListener : public antlr4::BaseErrorListener {
+    void syntaxError(IRecognizer *, Token *, size_t line, size_t position,
+                     const std::string &message, std::exception_ptr) override {
+      if (error_.empty()) {
+        error_ = "line " + std::to_string(line) + ":" +
+                 std::to_string(position) + " " + message;
+      }
+    }
+
+   public:
+    std::string error_;
+  };
+
+  FirstMessageErrorListener error_listener_;
   std::string query_;
   ANTLRInputStream input_{query_.c_str()};
   CypherLexer lexer_{&input_};
   CommonTokenStream tokens_{&lexer_};
 
   // generate ast
-CypherParser parser_{&tokens_};
-tree::ParseTree *tree_ = nullptr;
+  CypherParser parser_{&tokens_};
+  tree::ParseTree *tree_ = nullptr;
 };
 }
 }
