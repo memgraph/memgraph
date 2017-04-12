@@ -12,7 +12,7 @@
 #include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "traversal/path.hpp"
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions/basic_exception.hpp"
 #include "utils/total_ordering.hpp"
 #include "utils/underlying_cast.hpp"
 
@@ -165,9 +165,9 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
  * trying to perform operations (such as addition) on TypedValues
  * of incompatible Types.
  */
-class TypedValueException : public StacktraceException {
+class TypedValueException : public BasicException {
  public:
-  using ::StacktraceException::StacktraceException;
+  using ::BasicException::BasicException;
 };
 
 // comparison operators

@@ -150,6 +150,8 @@ void query::Repl(Dbms &dbms) {
       std::cout << "SEMANTIC EXCEPTION: " << e.what() << std::endl;
     } catch (const query::QueryRuntimeException &e) {
       std::cout << "RUNTIME EXCEPTION: " << e.what() << std::endl;
+    } catch (const query::TypedValueException &e) {
+      std::cout << "TYPED VALUE EXCEPTION: " << e.what() << std::endl;
     }
   }
 }

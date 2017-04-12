@@ -7,10 +7,16 @@
 
 namespace query {
 
-class SyntaxException : public BasicException {
- public:
+/** @brief Base class of all query language related exceptions.
+ */
+class QueryException : public BasicException {
   using BasicException::BasicException;
-  SyntaxException() : BasicException("") {}
+};
+
+class SyntaxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SyntaxException() : QueryException("") {}
 };
 
 // TODO: Figure out what information to put in exception.
@@ -22,10 +28,10 @@ class SyntaxException : public BasicException {
 // query and only report line numbers of semantic errors (not position in the
 // line) if multiple line strings are not allowed by grammar. We could also
 // print whole line that contains error instead of specifying line number.
-class SemanticException : public BasicException {
+class SemanticException : public QueryException {
  public:
-  using BasicException::BasicException;
-  SemanticException() : BasicException("") {}
+  using QueryException::QueryException;
+  SemanticException() : QueryException("") {}
 };
 
 class UnboundVariableError : public SemanticException {
@@ -53,9 +59,9 @@ class TypeMismatchError : public SemanticException {
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.
  */
-class QueryRuntimeException : public BasicException {
+class QueryRuntimeException : public QueryException {
 public:
-  using BasicException::BasicException;
+  using QueryException::QueryException;
 };
 
 class CppCodeGeneratorException : public StacktraceException {
