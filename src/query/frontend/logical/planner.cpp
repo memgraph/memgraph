@@ -60,7 +60,7 @@ auto ReducePattern(
 }
 
 auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
-                         const query::SymbolTable &symbol_table,
+                         const SymbolTable &symbol_table,
                          std::unordered_set<int> &bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
     if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
@@ -91,7 +91,7 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
 }
 
 auto GenCreate(Create &create, LogicalOperator *input_op,
-               const query::SymbolTable &symbol_table,
+               const SymbolTable &symbol_table,
                std::unordered_set<int> &bound_symbols) {
   auto last_op = input_op;
   for (auto pattern : create.patterns_) {
@@ -102,7 +102,7 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
 }
 
 auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
-                        const query::SymbolTable &symbol_table,
+                        const SymbolTable &symbol_table,
                         std::unordered_set<int> &bound_symbols,
                         std::vector<Symbol> &edge_symbols) {
   auto base = [&](NodeAtom *node) {
@@ -162,7 +162,7 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
 }
 
 auto GenMatch(Match &match, LogicalOperator *input_op,
-              const query::SymbolTable &symbol_table,
+              const SymbolTable &symbol_table,
               std::unordered_set<int> &bound_symbols) {
   auto last_op = input_op;
   std::vector<Symbol> edge_symbols;
@@ -177,20 +177,87 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
   return last_op;
 }
 
-// Ast tree visitor which collects all the symbols referenced by identifiers.
-class SymbolCollector : public TreeVisitorBase {
+// Ast tree visitor which collects the context for a return body. The return
+// body are the named expressions found in WITH and RETURN clauses. The
+// collected context consists of used symbols, aggregations and group by named
+// expressions.
+class ReturnBodyContext : public TreeVisitorBase {
  public:
-  SymbolCollector(const SymbolTable &symbol_table)
+  ReturnBodyContext(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
+  using TreeVisitorBase::PreVisit;
   using TreeVisitorBase::Visit;
   using TreeVisitorBase::PostVisit;
 
+  void Visit(Literal &) override { has_aggregation_.emplace_back(false); }
+
   void Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
+    has_aggregation_.emplace_back(false);
   }
 
+#define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
+  void PostVisit(BinaryOperator &op) override {                            \
+    /* has_aggregation_ stack is reversed, last result is from the 2nd     \
+     * expression. */                                                      \
+    bool aggr2 = has_aggregation_.back();                                  \
+    has_aggregation_.pop_back();                                           \
+    bool aggr1 = has_aggregation_.back();                                  \
+    has_aggregation_.pop_back();                                           \
+    bool has_aggr = aggr1 || aggr2;                                        \
+    if (has_aggr) {                                                        \
+      /* Group by the expression which does not contain aggregation. */    \
+      /* Possible optimization is to ignore constant value expressions */  \
+      group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);   \
+    }                                                                      \
+    /* Propagate that this whole expression may contain an aggregation. */ \
+    has_aggregation_.emplace_back(has_aggr);                               \
+  }
+
+  VISIT_BINARY_OPERATOR(OrOperator)
+  VISIT_BINARY_OPERATOR(XorOperator)
+  VISIT_BINARY_OPERATOR(AndOperator)
+  VISIT_BINARY_OPERATOR(AdditionOperator)
+  VISIT_BINARY_OPERATOR(SubtractionOperator)
+  VISIT_BINARY_OPERATOR(MultiplicationOperator)
+  VISIT_BINARY_OPERATOR(DivisionOperator)
+  VISIT_BINARY_OPERATOR(ModOperator)
+  VISIT_BINARY_OPERATOR(NotEqualOperator)
+  VISIT_BINARY_OPERATOR(EqualOperator)
+  VISIT_BINARY_OPERATOR(LessOperator)
+  VISIT_BINARY_OPERATOR(GreaterOperator)
+  VISIT_BINARY_OPERATOR(LessEqualOperator)
+  VISIT_BINARY_OPERATOR(GreaterEqualOperator)
+
+#undef VISIT_BINARY_OPERATOR
+
+  void PostVisit(Aggregation &aggr) override {
+    // Aggregation contains a virtual symbol, where the result will be stored.
+    const auto &symbol = symbol_table_.at(aggr);
+    aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
+    has_aggregation_.back() = true;
+    // Possible optimization is to skip remembering symbols inside aggregation.
+    // If and when implementing this, don't forget that Accumulate needs *all*
+    // the symbols, including those inside aggregation.
+  }
+
+  void PostVisit(NamedExpression &named_expr) override {
+    if (!has_aggregation_.back()) {
+      group_by_.emplace_back(named_expr.expression_);
+    }
+    has_aggregation_.pop_back();
+  }
+
+  // Set of symbols used inside the visited expressions outside of aggregation
+  // expression.
   const auto &symbols() const { return symbols_; }
+  // List of aggregation elements found in expressions.
+  const auto &aggregations() const { return aggregations_; }
+  // When there is at least one aggregation element, all the non-aggregate (sub)
+  // expressions are used for grouping. For example, in `WITH sum(n.a) + 2 * n.b
+  // AS sum, n.c AS nc`, we will group by `2 * n.b` and `n.c`.
+  const auto &group_by() const { return group_by_; }
 
  private:
   // Calculates the Symbol hash based on its position.
@@ -202,27 +269,55 @@ class SymbolCollector : public TreeVisitorBase {
 
   const SymbolTable &symbol_table_;
   std::unordered_set<Symbol, SymbolHash> symbols_;
+  std::vector<Aggregate::Element> aggregations_;
+  std::vector<Expression *> group_by_;
+  // Flag indicating whether an expression contains an aggregation.
+  std::list<bool> has_aggregation_;
 };
 
+auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
+                   const std::vector<NamedExpression *> &named_expressions,
+                   const SymbolTable &symbol_table, bool accumulate = false) {
+  ReturnBodyContext context(symbol_table);
+  // Generate context for all named expressions.
+  for (auto &named_expr : named_expressions) {
+    named_expr->Accept(context);
+  }
+  auto symbols =
+      std::vector<Symbol>(context.symbols().begin(), context.symbols().end());
+  auto last_op = input_op;
+  if (accumulate) {
+    // We only advance the command in Accumulate. This is done for WITH clause,
+    // when the first part updated the database. RETURN clause may only need an
+    // accumulation after updates, without advancing the command.
+    last_op = new Accumulate(std::shared_ptr<LogicalOperator>(last_op), symbols,
+                             advance_command);
+  }
+  if (!context.aggregations().empty()) {
+    last_op =
+        new Aggregate(std::shared_ptr<LogicalOperator>(last_op),
+                      context.aggregations(), context.group_by(), symbols);
+  }
+  return new Produce(std::shared_ptr<LogicalOperator>(last_op),
+                     named_expressions);
+}
+
 auto GenWith(With &with, LogicalOperator *input_op,
-             const query::SymbolTable &symbol_table) {
+             const SymbolTable &symbol_table, bool is_write) {
+  // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
+  // optional Filter.
   if (with.distinct_) {
-    // TODO: Plan disctint with, when operator available.
+    // TODO: Plan distinct with, when operator available.
     throw NotYetImplemented();
   }
-  // WITH clause is Accumulate/Aggregate (advance_command) + Produce.
-  SymbolCollector symbol_collector(symbol_table);
-  // Collect used symbols so that accumulate doesn't copy the whole frame.
-  for (auto &named_expr : with.named_expressions_) {
-    named_expr->expression_->Accept(symbol_collector);
-  }
-  auto symbols = symbol_collector.symbols();
-  // TODO: Check whether we need aggregate instead of accumulate.
+  // In case of update and aggregation, we want to accumulate first, so that
+  // when aggregating, we get the latest results. Similar to RETURN clause.
+  bool accumulate = is_write;
+  // No need to advance the command if we only performed reads.
+  bool advance_command = is_write;
   LogicalOperator *last_op =
-      new Accumulate(std::shared_ptr<LogicalOperator>(input_op),
-                     std::vector<Symbol>(symbols.begin(), symbols.end()), true);
-  last_op = new Produce(std::shared_ptr<LogicalOperator>(last_op),
-                        with.named_expressions_);
+      GenReturnBody(input_op, advance_command, with.named_expressions_,
+                    symbol_table, accumulate);
   if (with.where_) {
     last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
                          with.where_->expression_);
@@ -230,55 +325,80 @@ auto GenWith(With &with, LogicalOperator *input_op,
   return last_op;
 }
 
+auto GenReturn(Return &ret, LogicalOperator *input_op,
+               const SymbolTable &symbol_table, bool is_write) {
+  // Similar to WITH clause, but we want to accumulate and advance command when
+  // the query writes to the database. This way we handle the case when we want
+  // to return expressions with the latest updated results. For example,
+  // `MATCH (n) -- () SET n.prop = n.prop + 1 RETURN n.prop`. If we match same
+  // `n` multiple 'k' times, we want to return 'k' results where the property
+  // value is the same, final result of 'k' increments.
+  bool accumulate = is_write;
+  bool advance_command = false;
+  return GenReturnBody(input_op, advance_command, ret.named_expressions_,
+                       symbol_table, accumulate);
+}
+
+// Generate an operator for a clause which writes to the database. If the clause
+// isn't handled, returns nullptr.
+LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
+                                   const SymbolTable &symbol_table,
+                                   std::unordered_set<int> &bound_symbols) {
+  if (auto *create = dynamic_cast<Create *>(clause)) {
+    return GenCreate(*create, input_op, symbol_table, bound_symbols);
+  } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
+    return new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
+                            del->expressions_, del->detach_);
+  } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
+    return new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
+                                 set->property_lookup_, set->expression_);
+  } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
+    auto op = set->update_ ? plan::SetProperties::Op::UPDATE
+                           : plan::SetProperties::Op::REPLACE;
+    const auto &input_symbol = symbol_table.at(*set->identifier_);
+    return new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
+                                   input_symbol, set->expression_, op);
+  } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
+    const auto &input_symbol = symbol_table.at(*set->identifier_);
+    return new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
+                               input_symbol, set->labels_);
+  } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
+    return new plan::RemoveProperty(std::shared_ptr<LogicalOperator>(input_op),
+                                    rem->property_lookup_);
+  } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
+    const auto &input_symbol = symbol_table.at(*rem->identifier_);
+    return new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
+                                  input_symbol, rem->labels_);
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
     query::Query &query, const query::SymbolTable &symbol_table) {
-  // TODO: Extract functions and state into a class with methods. Possibly a
-  // visitor or similar to avoid all those dynamic casts.
-  LogicalOperator *input_op = nullptr;
   // bound_symbols set is used to differentiate cycles in pattern matching, so
   // that the operator can be correctly initialized whether to read the symbol
   // or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and write) the first
   // `n`, but the latter `n` would only read the already written information.
   std::unordered_set<int> bound_symbols;
+  // Set to true if a query command performs a writes to the database.
+  bool is_write = false;
+  LogicalOperator *input_op = nullptr;
   for (auto &clause : query.clauses_) {
-    auto *clause_ptr = clause;
-    if (auto *match = dynamic_cast<Match *>(clause_ptr)) {
+    // Clauses which read from the database.
+    if (auto *match = dynamic_cast<Match *>(clause)) {
       input_op = GenMatch(*match, input_op, symbol_table, bound_symbols);
-    } else if (auto *ret = dynamic_cast<Return *>(clause_ptr)) {
-      input_op = new Produce(std::shared_ptr<LogicalOperator>(input_op),
-                             ret->named_expressions_);
-    } else if (auto *create = dynamic_cast<Create *>(clause_ptr)) {
-      input_op = GenCreate(*create, input_op, symbol_table, bound_symbols);
-    } else if (auto *del = dynamic_cast<query::Delete *>(clause_ptr)) {
-      input_op = new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
-                                  del->expressions_, del->detach_);
-    } else if (auto *set = dynamic_cast<query::SetProperty *>(clause_ptr)) {
-      input_op =
-          new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
-                                set->property_lookup_, set->expression_);
-    } else if (auto *set = dynamic_cast<query::SetProperties *>(clause_ptr)) {
-      auto op = set->update_ ? plan::SetProperties::Op::UPDATE
-                             : plan::SetProperties::Op::REPLACE;
-      const auto &input_symbol = symbol_table.at(*set->identifier_);
-      input_op =
-          new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
-                                  input_symbol, set->expression_, op);
-    } else if (auto *set = dynamic_cast<query::SetLabels *>(clause_ptr)) {
-      const auto &input_symbol = symbol_table.at(*set->identifier_);
-      input_op = new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
-                                     input_symbol, set->labels_);
-    } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause_ptr)) {
-      input_op = new plan::RemoveProperty(
-          std::shared_ptr<LogicalOperator>(input_op), rem->property_lookup_);
-    } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause_ptr)) {
-      const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      input_op =
-          new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
-                                 input_symbol, rem->labels_);
-    } else if (auto *with = dynamic_cast<query::With *>(clause_ptr)) {
-      input_op = GenWith(*with, input_op, symbol_table);
+    } else if (auto *ret = dynamic_cast<Return *>(clause)) {
+      input_op = GenReturn(*ret, input_op, symbol_table, is_write);
+    } else if (auto *with = dynamic_cast<query::With *>(clause)) {
+      input_op = GenWith(*with, input_op, symbol_table, is_write);
+      // WITH clause advances the command, so reset the flag.
+      is_write = false;
+    } else if (auto *op = HandleWriteClause(clause, input_op, symbol_table,
+                                            bound_symbols)) {
+      is_write = true;
+      input_op = op;
     } else {
       throw NotYetImplemented();
     }

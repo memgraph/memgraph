@@ -24,23 +24,25 @@ class SymbolGenerator : public TreeVisitorBase {
   using TreeVisitorBase::PostVisit;
 
   // Clauses
-  void Visit(Create &create) override;
-  void PostVisit(Create &create) override;
-  void PostVisit(Return &ret) override;
-  void Visit(With &with) override;
-  void PostVisit(With &with) override;
-  void Visit(Where &where) override;
+  void Visit(Create &) override;
+  void PostVisit(Create &) override;
+  void PostVisit(Return &) override;
+  void Visit(With &) override;
+  void PostVisit(With &) override;
+  void Visit(Where &) override;
 
   // Expressions
-  void Visit(Identifier &ident) override;
+  void Visit(Identifier &) override;
+  void Visit(Aggregation &) override;
+  void PostVisit(Aggregation &) override;
 
   // Pattern and its subparts.
-  void Visit(Pattern &pattern) override;
-  void PostVisit(Pattern &pattern) override;
-  void Visit(NodeAtom &node_atom) override;
-  void PostVisit(NodeAtom &node_atom) override;
-  void Visit(EdgeAtom &edge_atom) override;
-  void PostVisit(EdgeAtom &edge_atom) override;
+  void Visit(Pattern &) override;
+  void PostVisit(Pattern &) override;
+  void Visit(NodeAtom &) override;
+  void PostVisit(NodeAtom &) override;
+  void Visit(EdgeAtom &) override;
+  void PostVisit(EdgeAtom &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of
@@ -56,6 +58,7 @@ class SymbolGenerator : public TreeVisitorBase {
     bool in_node_atom{false};
     bool in_edge_atom{false};
     bool in_property_map{false};
+    bool in_aggregation{false};
     // Pointer to With clause if we are inside it, otherwise nullptr.
     With *with{nullptr};
     std::map<std::string, Symbol> symbols;

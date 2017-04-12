@@ -1,5 +1,6 @@
 #include <list>
-#include <typeinfo>
+#include <tuple>
+#include <unordered_set>
 
 #include "gtest/gtest.h"
 
@@ -20,69 +21,137 @@ using Direction = query::EdgeAtom::Direction;
 
 namespace {
 
+class BaseOpChecker {
+ public:
+  virtual ~BaseOpChecker() {}
+
+  virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
+};
+
+template <class TOp>
+class OpChecker : public BaseOpChecker {
+ public:
+  void CheckOp(LogicalOperator &op, const SymbolTable &symbol_table) override {
+    auto *expected_op = dynamic_cast<TOp *>(&op);
+    ASSERT_TRUE(expected_op);
+    ExpectOp(*expected_op, symbol_table);
+  }
+
+  virtual void ExpectOp(TOp &op, const SymbolTable &) {}
+};
+
+using ExpectCreateNode = OpChecker<CreateNode>;
+using ExpectCreateExpand = OpChecker<CreateExpand>;
+using ExpectDelete = OpChecker<Delete>;
+using ExpectScanAll = OpChecker<ScanAll>;
+using ExpectExpand = OpChecker<Expand>;
+using ExpectNodeFilter = OpChecker<NodeFilter>;
+using ExpectEdgeFilter = OpChecker<EdgeFilter>;
+using ExpectFilter = OpChecker<Filter>;
+using ExpectProduce = OpChecker<Produce>;
+using ExpectSetProperty = OpChecker<SetProperty>;
+using ExpectSetProperties = OpChecker<SetProperties>;
+using ExpectSetLabels = OpChecker<SetLabels>;
+using ExpectRemoveProperty = OpChecker<RemoveProperty>;
+using ExpectRemoveLabels = OpChecker<RemoveLabels>;
+template <class TAccessor>
+using ExpectExpandUniquenessFilter =
+    OpChecker<ExpandUniquenessFilter<TAccessor>>;
+using ExpectAccumulate = OpChecker<Accumulate>;
+
+class ExpectAggregate : public OpChecker<Aggregate> {
+ public:
+  ExpectAggregate() = default;
+  ExpectAggregate(const std::vector<query::Aggregation *> &aggregations,
+                  const std::unordered_set<query::Expression *> &group_by)
+      : aggregations_(aggregations), group_by_(group_by) {}
+
+  void ExpectOp(Aggregate &op, const SymbolTable &symbol_table) override {
+    auto aggr_it = aggregations_.begin();
+    for (const auto &aggr_elem : op.aggregations()) {
+      ASSERT_NE(aggr_it, aggregations_.end());
+      auto aggr = *aggr_it++;
+      auto expected =
+          std::make_tuple(aggr->expression_, aggr->op_, symbol_table.at(*aggr));
+      EXPECT_EQ(expected, aggr_elem);
+    }
+    EXPECT_EQ(aggr_it, aggregations_.end());
+    auto got_group_by = std::unordered_set<query::Expression *>(
+        op.group_by().begin(), op.group_by().end());
+    EXPECT_EQ(group_by_, got_group_by);
+  }
+
+ private:
+  const std::vector<query::Aggregation *> aggregations_;
+  const std::unordered_set<query::Expression *> group_by_;
+};
+
 class PlanChecker : public LogicalOperatorVisitor {
  public:
   using LogicalOperatorVisitor::Visit;
   using LogicalOperatorVisitor::PostVisit;
 
-  PlanChecker(const std::list<size_t> &types) : types_(types) {}
+  PlanChecker(const std::list<BaseOpChecker *> &checkers,
+              const SymbolTable &symbol_table)
+      : checkers_(checkers), symbol_table_(symbol_table) {}
 
-  void Visit(CreateNode &op) override { AssertType(op); }
-  void Visit(CreateExpand &op) override { AssertType(op); }
-  void Visit(Delete &op) override { AssertType(op); }
-  void Visit(ScanAll &op) override { AssertType(op); }
-  void Visit(Expand &op) override { AssertType(op); }
-  void Visit(NodeFilter &op) override { AssertType(op); }
-  void Visit(EdgeFilter &op) override { AssertType(op); }
-  void Visit(Filter &op) override { AssertType(op); }
-  void Visit(Produce &op) override { AssertType(op); }
-  void Visit(SetProperty &op) override { AssertType(op); }
-  void Visit(SetProperties &op) override { AssertType(op); }
-  void Visit(SetLabels &op) override { AssertType(op); }
-  void Visit(RemoveProperty &op) override { AssertType(op); }
-  void Visit(RemoveLabels &op) override { AssertType(op); }
+  void Visit(CreateNode &op) override { CheckOp(op); }
+  void Visit(CreateExpand &op) override { CheckOp(op); }
+  void Visit(Delete &op) override { CheckOp(op); }
+  void Visit(ScanAll &op) override { CheckOp(op); }
+  void Visit(Expand &op) override { CheckOp(op); }
+  void Visit(NodeFilter &op) override { CheckOp(op); }
+  void Visit(EdgeFilter &op) override { CheckOp(op); }
+  void Visit(Filter &op) override { CheckOp(op); }
+  void Visit(Produce &op) override { CheckOp(op); }
+  void Visit(SetProperty &op) override { CheckOp(op); }
+  void Visit(SetProperties &op) override { CheckOp(op); }
+  void Visit(SetLabels &op) override { CheckOp(op); }
+  void Visit(RemoveProperty &op) override { CheckOp(op); }
+  void Visit(RemoveLabels &op) override { CheckOp(op); }
   void Visit(ExpandUniquenessFilter<VertexAccessor> &op) override {
-    AssertType(op);
+    CheckOp(op);
   }
-  void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
-    AssertType(op);
-  }
-  void Visit(Accumulate &op) override { AssertType(op); }
+  void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override { CheckOp(op); }
+  void Visit(Accumulate &op) override { CheckOp(op); }
+  void Visit(Aggregate &op) override { CheckOp(op); }
 
- std::list<size_t> types_;
+  std::list<BaseOpChecker *> checkers_;
 
  private:
-  void AssertType(const LogicalOperator &op) {
-    ASSERT_FALSE(types_.empty());
-    ASSERT_EQ(types_.back(), typeid(op).hash_code());
-    types_.pop_back();
+  void CheckOp(LogicalOperator &op) {
+    ASSERT_FALSE(checkers_.empty());
+    checkers_.back()->CheckOp(op, symbol_table_);
+    checkers_.pop_back();
   }
+
+  const SymbolTable &symbol_table_;
 };
 
-template <class... TOps>
-auto CheckPlan(query::Query &query) {
+template <class... TChecker>
+auto CheckPlan(query::Query &query, TChecker... checker) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query.Accept(symbol_generator);
   auto plan = MakeLogicalPlan(query, symbol_table);
-  std::list<size_t> type_hashes{typeid(TOps).hash_code()...};
-  PlanChecker plan_checker(type_hashes);
+  std::list<BaseOpChecker *> checkers{&checker...};
+  PlanChecker plan_checker(checkers, symbol_table);
   plan->Accept(plan_checker);
-  EXPECT_TRUE(plan_checker.types_.empty());
+  EXPECT_TRUE(plan_checker.checkers_.empty());
 }
 
 TEST(TestLogicalPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n AS n
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
-  CheckPlan<ScanAll, Produce>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstTreeStorage storage;
   auto query = QUERY(CREATE(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
-  CheckPlan<CreateNode, Produce>(*query);
+  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, CreateExpand) {
@@ -93,14 +162,14 @@ TEST(TestLogicalPlanner, CreateExpand) {
   auto relationship = dba->edge_type("relationship");
   auto query = QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", relationship, Direction::RIGHT), NODE("m"))));
-  CheckPlan<CreateNode, CreateExpand>(*query);
+  CheckPlan(*query, ExpectCreateNode(), ExpectCreateExpand());
 }
 
 TEST(TestLogicalPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
   AstTreeStorage storage;
   auto query = QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m"))));
-  CheckPlan<CreateNode, CreateNode>(*query);
+  CheckPlan(*query, ExpectCreateNode(), ExpectCreateNode());
 }
 
 TEST(TestLogicalPlanner, CreateNodeExpandNode) {
@@ -112,7 +181,8 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   auto query = QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", relationship, Direction::RIGHT), NODE("m")),
       PATTERN(NODE("l"))));
-  CheckPlan<CreateNode, CreateExpand, CreateNode>(*query);
+  CheckPlan(*query, ExpectCreateNode(), ExpectCreateExpand(),
+            ExpectCreateNode());
 }
 
 TEST(TestLogicalPlanner, MatchCreateExpand) {
@@ -125,7 +195,7 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
       QUERY(MATCH(PATTERN(NODE("n"))),
             CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::RIGHT),
                            NODE("m"))));
-  CheckPlan<ScanAll, CreateExpand>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectCreateExpand());
 }
 
 TEST(TestLogicalPlanner, MatchLabeledNodes) {
@@ -136,7 +206,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   auto label = dba->label("label");
   auto query =
       QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(IDENT("n"), AS("n")));
-  CheckPlan<ScanAll, NodeFilter, Produce>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectNodeFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchPathReturn) {
@@ -148,7 +218,8 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   auto query =
       QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", relationship), NODE("m"))),
             RETURN(IDENT("n"), AS("n")));
-  CheckPlan<ScanAll, Expand, EdgeFilter, Produce>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectEdgeFilter(),
+            ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWhereReturn) {
@@ -160,14 +231,14 @@ TEST(TestLogicalPlanner, MatchWhereReturn) {
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))),
                      RETURN(IDENT("n"), AS("n")));
-  CheckPlan<ScanAll, Filter, Produce>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchDelete) {
   // Test MATCH (n) DELETE n
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n")));
-  CheckPlan<ScanAll, Delete>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectDelete());
 }
 
 TEST(TestLogicalPlanner, MatchNodeSet) {
@@ -180,7 +251,8 @@ TEST(TestLogicalPlanner, MatchNodeSet) {
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
                      SET("n", IDENT("n")), SET("n", {label}));
-  CheckPlan<ScanAll, SetProperty, SetProperties, SetLabels>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
+            ExpectSetLabels());
 }
 
 TEST(TestLogicalPlanner, MatchRemove) {
@@ -192,7 +264,8 @@ TEST(TestLogicalPlanner, MatchRemove) {
   auto label = dba->label("label");
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label}));
-  CheckPlan<ScanAll, RemoveProperty, RemoveLabels>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectRemoveProperty(),
+            ExpectRemoveLabels());
 }
 
 TEST(TestLogicalPlanner, MatchMultiPattern) {
@@ -202,8 +275,8 @@ TEST(TestLogicalPlanner, MatchMultiPattern) {
                            PATTERN(NODE("j"), EDGE("e"), NODE("i"))));
   // We expect the expansions after the first to have a uniqueness filter in a
   // single MATCH clause.
-  CheckPlan<ScanAll, Expand, ScanAll, Expand,
-            ExpandUniquenessFilter<EdgeAccessor>>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
+            ExpectExpand(), ExpectExpandUniquenessFilter<EdgeAccessor>());
 }
 
 TEST(TestLogicalPlanner, MatchMultiPatternSameStart) {
@@ -213,7 +286,7 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameStart) {
       MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))));
   // We expect the second pattern to generate only an Expand, since another
   // ScanAll would be redundant.
-  CheckPlan<ScanAll, Expand>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand());
 }
 
 TEST(TestLogicalPlanner, MatchMultiPatternSameExpandStart) {
@@ -224,8 +297,8 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameExpandStart) {
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
   // expansion. Additionally, a uniqueness filter is expected.
-  CheckPlan<ScanAll, Expand, Expand, ExpandUniquenessFilter<EdgeAccessor>>(
-      *query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
+            ExpectExpandUniquenessFilter<EdgeAccessor>());
 }
 
 TEST(TestLogicalPlanner, MultiMatch) {
@@ -236,8 +309,9 @@ TEST(TestLogicalPlanner, MultiMatch) {
       MATCH(PATTERN(NODE("j"), EDGE("e"), NODE("i"), EDGE("f"), NODE("h"))));
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
-  CheckPlan<ScanAll, Expand, ScanAll, Expand, Expand,
-            ExpandUniquenessFilter<EdgeAccessor>>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
+            ExpectExpand(), ExpectExpand(),
+            ExpectExpandUniquenessFilter<EdgeAccessor>());
 }
 
 TEST(TestLogicalPlanner, MultiMatchSameStart) {
@@ -247,7 +321,7 @@ TEST(TestLogicalPlanner, MultiMatchSameStart) {
                      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
-  CheckPlan<ScanAll, Expand>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand());
 }
 
 TEST(TestLogicalPlanner, MatchEdgeCycle) {
@@ -256,7 +330,7 @@ TEST(TestLogicalPlanner, MatchEdgeCycle) {
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("r"), NODE("j"))));
   // There is no ExpandUniquenessFilter for referencing the same edge.
-  CheckPlan<ScanAll, Expand, Expand>(*query);
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectExpand());
 }
 
 TEST(TestLogicalPlanner, MatchWithReturn) {
@@ -264,7 +338,8 @@ TEST(TestLogicalPlanner, MatchWithReturn) {
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
                      RETURN(IDENT("new"), AS("new")));
-  CheckPlan<ScanAll, Accumulate, Produce, Produce>(*query);
+  // No accumulation since we only do reads.
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWithWhereReturn) {
@@ -276,7 +351,9 @@ TEST(TestLogicalPlanner, MatchWithWhereReturn) {
   auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
                      WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))),
                      RETURN(IDENT("new"), AS("new")));
-  CheckPlan<ScanAll, Accumulate, Produce, Filter, Produce>(*query);
+  // No accumulation since we only do reads.
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectFilter(),
+            ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, CreateMultiExpand) {
@@ -289,7 +366,56 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
   auto query = QUERY(
       CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::RIGHT), NODE("m")),
              PATTERN(NODE("n"), EDGE("p", p, Direction::RIGHT), NODE("l"))));
-  CheckPlan<CreateNode, CreateExpand, CreateExpand>(*query);
+  CheckPlan(*query, ExpectCreateNode(), ExpectCreateExpand(),
+            ExpectCreateExpand());
+}
+
+TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
+  // Test MATCH (n) WITH SUM(n.prop) + 42 AS sum WHERE sum < 42
+  //      RETURN sum AS result
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto literal = LITERAL(42);
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
+            WHERE(LESS(IDENT("sum"), LITERAL(42))),
+            RETURN(IDENT("sum"), AS("result")));
+  auto aggr = ExpectAggregate({sum}, {literal});
+  CheckPlan(*query, ExpectScanAll(), aggr, ExpectProduce(), ExpectFilter(),
+            ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchReturnSum) {
+  // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop1 = dba->property("prop1");
+  auto prop2 = dba->property("prop2");
+  AstTreeStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
+  auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     RETURN(sum, AS("sum"), n_prop2, AS("group")));
+  auto aggr = ExpectAggregate({sum}, {n_prop2});
+  CheckPlan(*query, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, CreateWithSum) {
+  // Test CREATE (n) WITH SUM(n.prop) AS sum
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum")));
+  auto aggr = ExpectAggregate({sum}, {});
+  // We expect both the accumulation and aggregation because the part before
+  // WITH updates the database.
+  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), aggr,
+            ExpectProduce());
 }
 
 }  // namespace

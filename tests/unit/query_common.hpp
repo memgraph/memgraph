@@ -270,3 +270,5 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 // Various operators
 #define ADD(expr1, expr2) storage.Create<query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))
+#define SUM(expr) \
+  storage.Create<query::Aggregation>((expr), query::Aggregation::Op::SUM)

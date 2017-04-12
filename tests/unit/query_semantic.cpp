@@ -358,6 +358,7 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 5);
   auto n1 = symbol_table.at(*node_n1->identifier_);
   auto n2 = symbol_table.at(*node_n2->identifier_);
   EXPECT_EQ(n1, n2);
@@ -403,6 +404,44 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   n_prop->properties_[prop] = LITERAL(42);
   auto query = QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT), n_prop)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, MatchReturnSum) {
+  // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node = NODE("n");
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto as_result = AS("result");
+  auto query =
+      QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // 3 symbols for: 'n', 'sum' and 'result'.
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto node_symbol = symbol_table.at(*node->identifier_);
+  auto sum_symbol = symbol_table.at(*sum);
+  EXPECT_NE(node_symbol, sum_symbol);
+  auto result_symbol = symbol_table.at(*as_result);
+  EXPECT_NE(result_symbol, node_symbol);
+  EXPECT_NE(result_symbol, sum_symbol);
+}
+
+TEST(TestSymbolGenerator, NestedAggregation) {
+  // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);

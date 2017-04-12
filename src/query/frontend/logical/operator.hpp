@@ -833,6 +833,9 @@ class Aggregate : public LogicalOperator {
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
+  const auto &aggregations() const { return aggregations_; }
+  const auto &group_by() const { return group_by_; }
+
  private:
   const std::shared_ptr<LogicalOperator> input_;
   const std::vector<Element> aggregations_;

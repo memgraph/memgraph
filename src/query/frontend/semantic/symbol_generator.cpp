@@ -108,6 +108,20 @@ void SymbolGenerator::Visit(Identifier &ident) {
   symbol_table_[ident] = symbol;
 }
 
+void SymbolGenerator::Visit(Aggregation &aggr) {
+  // Create a virtual symbol for aggregation result.
+  symbol_table_[aggr] = symbol_table_.CreateSymbol("");
+  if (scope_.in_aggregation) {
+    throw SemanticException(
+        "Using aggregate functions inside aggregate functions is not allowed");
+  }
+  scope_.in_aggregation = true;
+}
+
+void SymbolGenerator::PostVisit(Aggregation &aggr) {
+  scope_.in_aggregation = false;
+}
+
 // Pattern and its subparts.
 
 void SymbolGenerator::Visit(Pattern &pattern) {

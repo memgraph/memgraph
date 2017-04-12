@@ -281,3 +281,17 @@ TEST(ExpressionEvaluator, Function) {
     ASSERT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
 }
+
+TEST(ExpressionEvaluator, Aggregation) {
+  AstTreeStorage storage;
+  auto aggr = storage.Create<Aggregation>(storage.Create<Literal>(42),
+                                          Aggregation::Op::COUNT);
+  SymbolTable symbol_table;
+  auto aggr_sym = symbol_table.CreateSymbol("aggr");
+  symbol_table[*aggr] = aggr_sym;
+  Frame frame{symbol_table.max_position()};
+  frame[aggr_sym] = TypedValue(1);
+  ExpressionEvaluator eval{frame, symbol_table};
+  aggr->Accept(eval);
+  EXPECT_EQ(eval.PopBack().Value<int64_t>(), 1);
+}

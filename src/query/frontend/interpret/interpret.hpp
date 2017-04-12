@@ -61,6 +61,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
     return last;
   }
 
+  using TreeVisitorBase::PreVisit;
   using TreeVisitorBase::Visit;
   using TreeVisitorBase::PostVisit;
 
@@ -147,12 +148,14 @@ class ExpressionEvaluator : public TreeVisitorBase {
     result_stack_.push_back(literal.value_);
   }
 
-  void Visit(Aggregation &aggregation) override {
+  bool PreVisit(Aggregation &aggregation) override {
     auto value = frame_[symbol_table_.at(aggregation)];
     // Aggregation is probably always simple type, but let's switch accessor
     // just to be sure.
     SwitchAccessors(value);
     result_stack_.emplace_back(std::move(value));
+    // Prevent evaluation of expressions inside the aggregation.
+    return false;
   }
 
   void PostVisit(Function &function) override {
