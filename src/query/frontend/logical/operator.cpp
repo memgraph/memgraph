@@ -1049,7 +1049,12 @@ void Aggregate::AggregateCursor::EnsureInitialized(
     Frame &frame, Aggregate::AggregateCursor::AggregationValue &agg_value) {
   if (agg_value.values_.size() > 0) return;
 
-  agg_value.values_.resize(self_.aggregations_.size(), TypedValue::Null);
+  for (const auto &agg_elem : self_.aggregations_) {
+    if (std::get<1>(agg_elem) == Aggregation::Op::COUNT)
+      agg_value.values_.emplace_back(TypedValue(0));
+    else
+      agg_value.values_.emplace_back(TypedValue::Null);
+  }
   agg_value.counts_.resize(self_.aggregations_.size(), 0);
 
   for (const Symbol &remember_sym : self_.remember_)
@@ -1074,17 +1079,19 @@ void Aggregate::AggregateCursor::Update(
     std::get<0>(*agg_elem_it)->Accept(evaluator);
     TypedValue input_value = evaluator.PopBack();
 
+    // Aggregations skip Null input values.
     if (input_value.type() == TypedValue::Type::Null) continue;
 
+    const auto &agg_op = std::get<1>(*agg_elem_it);
     *count_it += 1;
     if (*count_it == 1) {
       // first value, nothing to aggregate. set and continue.
-      *value_it = input_value;
+      *value_it = agg_op == Aggregation::Op::COUNT ? 1 : input_value;
       continue;
     }
 
     // aggregation of existing values
-    switch (std::get<1>(*agg_elem_it)) {
+    switch (agg_op) {
       case Aggregation::Op::COUNT:
         *value_it = *count_it;
         break;
