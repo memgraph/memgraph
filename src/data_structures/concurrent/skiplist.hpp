@@ -570,7 +570,7 @@ class SkipList : private Lockable<lock_t> {
     Accessor(SkipList *skiplist) : skiplist(skiplist) {
       debug_assert(skiplist != nullptr, "Skiplist is nullptr.");
 
-      skiplist->gc.add_ref();
+      skiplist->gc.AddRef();
     }
 
    public:
@@ -583,7 +583,7 @@ class SkipList : private Lockable<lock_t> {
     ~Accessor() {
       if (skiplist == nullptr) return;
 
-      skiplist->gc.release_ref();
+      skiplist->gc.ReleaseRef();
     }
 
     Iterator begin() { return skiplist->begin(); }
@@ -1122,7 +1122,7 @@ class SkipList : private Lockable<lock_t> {
         preds[level]->forward(level, node->forward(level));
 
       // TODO: review and test
-      gc.collect(node);
+      gc.Collect(node);
 
       count.fetch_sub(1);
       return true;

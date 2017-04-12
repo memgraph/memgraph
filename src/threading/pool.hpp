@@ -8,6 +8,11 @@
 
 #include "threading/sync/lockable.hpp"
 
+/**
+ * ThreadPool which will invoke maximum concurrent number of threads for the
+ * used hardware and will schedule tasks on thread as they are added to the
+ * pool.
+ */
 class Pool : Lockable<std::mutex> {
   using task_t = std::function<void()>;
 
@@ -31,6 +36,10 @@ class Pool : Lockable<std::mutex> {
     for (auto& thread : threads) thread.join();
   }
 
+  /**
+   * Runs an asynchronous task.
+   * @param f - task to run.
+   */
   void run(task_t f) {
     {
       auto lock = acquire_unique();
@@ -64,6 +73,7 @@ class Pool : Lockable<std::mutex> {
         tasks.pop();
       }
 
+      // Start the execution of task.
       task();
     }
   }
