@@ -376,4 +376,36 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   EXPECT_NE(r, p);
 }
 
+TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
+  // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  auto label = dba->label("label");
+  AstTreeStorage storage;
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      CREATE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT),
+                     NODE("n", label))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, CreateExpandProperty) {
+  // Test CREATE (n) -[r :r]-> (n {prop: 42})
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto n_prop = NODE("n");
+  n_prop->properties_[prop] = LITERAL(42);
+  auto query = QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT), n_prop)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
 }

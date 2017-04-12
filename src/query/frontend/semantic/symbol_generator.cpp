@@ -123,6 +123,14 @@ void SymbolGenerator::PostVisit(Pattern &pattern) { scope_.in_pattern = false; }
 
 void SymbolGenerator::Visit(NodeAtom &node_atom) {
   scope_.in_node_atom = true;
+  bool props_or_labels =
+      !node_atom.properties_.empty() || !node_atom.labels_.empty();
+  const auto &node_name = node_atom.identifier_->name_;
+  if (scope_.in_create && props_or_labels && HasSymbol(node_name)) {
+    throw SemanticException(
+        "Cannot create node '" + node_name +
+        "' with labels or properties, because it is already declared.");
+  }
   scope_.in_property_map = true;
   for (auto kv : node_atom.properties_) {
     kv.second->Accept(*this);
