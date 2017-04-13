@@ -1,12 +1,4 @@
-Feature: Unstable
-  Scenario: Fail scenario:
-    Given an empty graph
-    When executing query:
-      """
-      CREATE (a:A) CREATE (a:B)
-      """
-    Then the result should be empty
-
+Feature: Unstable 
   Scenario: Set test:
     Given an empty graph
     And having executed:

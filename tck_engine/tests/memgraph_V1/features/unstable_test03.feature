@@ -1099,3 +1099,11 @@ Feature: test03
       """
     Then the result should be empty
 
+  Scenario: Exception test scenario:
+    Given an empty graph
+    When executing query:
+      """
+      CREATE(a:A) CREATE(a:B)
+      """
+    Then an error should be raised
+
