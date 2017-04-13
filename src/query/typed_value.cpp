@@ -437,70 +437,75 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-// TODO: 2 = "2" -> false, I don't think this is handled correctly at the
-// moment.
+/** Equality between two typed values that returns either a bool
+ * or Null TypedValue (never raises an exception).
+ *
+ * For the old version of equality that raised an exception
+ * when comparing incompatible types, see the version of
+ * this file at 2017-04-12.
+ */
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
     return TypedValue::Null;
 
-  if (a.type() == TypedValue::Type::Map || b.type() == TypedValue::Type::Map) {
-    throw NotYetImplemented();
-  }
+  // check we have values that can be compared
+  // this means that either they're the same type, or (int, double) combo
+  if (!(a.type() == b.type() || (a.type() == TypedValue::Type::Double &&
+                                 b.type() == TypedValue::Type::Int) ||
+        (b.type() == TypedValue::Type::Double &&
+         a.type() == TypedValue::Type::Int)))
+    return false;
 
-  if (a.type() == TypedValue::Type::List ||
-      b.type() == TypedValue::Type::List) {
-    if (a.type() == TypedValue::Type::List &&
-        b.type() == TypedValue::Type::List) {
-      // Potential optimisation: There is no need to copies of both lists to
-      // compare them. If operator becomes a friend of TypedValue class then
-      // we
-      // can compare list_v-s directly.
-      auto list1 = a.Value<std::vector<TypedValue>>();
-      auto list2 = b.Value<std::vector<TypedValue>>();
-      if (list1.size() != list2.size()) return false;
-      for (int i = 0; i < (int)list1.size(); ++i) {
-        if (!(list1[i] == list2[i]).Value<bool>()) {
+  switch (a.type()) {
+    case TypedValue::Type::Bool:
+      return a.Value<bool>() == b.Value<bool>();
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+      return ToDouble(a) == ToDouble(b);
+    case TypedValue::Type::String:
+      return a.Value<std::string>() == b.Value<std::string>();
+    case TypedValue::Type::Vertex:
+      return a.Value<VertexAccessor>() == b.Value<VertexAccessor>();
+    case TypedValue::Type::Edge:
+      return a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>();
+    case TypedValue::Type::List: {
+      // We are not compatible with neo4j at this point. In neo4j 2 = [2]
+      // compares
+      // to true. That is not the end of unselfishness of developers at neo4j so
+      // they allow us to use as many braces as we want to get to the truth in
+      // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
+      // well. Because, why not?
+      // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
+      // 2 = [2] compares to false.
+      auto &list_a = a.Value<std::vector<TypedValue>>();
+      auto &list_b = b.Value<std::vector<TypedValue>>();
+      if (list_a.size() != list_b.size()) return false;
+      // two arrays are considered equal (by neo) if all their
+      // elements are bool-equal. this means that:
+      //    [1] == [null] -> false
+      //    [null] == [null] -> true
+      // in that sense array-comparison never results in Null
+      return std::equal(list_a.begin(), list_a.end(), list_b.begin(),
+                        TypedValue::BoolEqual{});
+    }
+    case TypedValue::Type::Map: {
+      auto &map_a = a.Value<std::map<std::string, TypedValue>>();
+      auto &map_b = b.Value<std::map<std::string, TypedValue>>();
+      if (map_a.size() != map_b.size()) return false;
+      for (auto &kv_a : map_a) {
+        auto found_b_it = map_b.find(kv_a.first);
+        if (found_b_it == map_b.end()) return false;
+        TypedValue comparison = kv_a.second == found_b_it->second;
+        if (comparison.type() == TypedValue::Type::Null ||
+            !comparison.Value<bool>())
           return false;
-        }
       }
       return true;
     }
-    // We are not compatible with neo4j at this point. In neo4j 2 = [2]
-    // compares
-    // to true. That is not the end of unselfishness of developers at neo4j so
-    // they allow us to use as many braces as we want to get to the truth in
-    // list comparison, so [[2]] = [[[[[[2]]]]]] compares to true in neo4j as
-    // well. Because, why not?
-    // At memgraph we prefer sanity so [1,2] = [1,2] compares to true and
-    // 2 = [2] compares to false.
-    return false;
-  }
-
-  if (a.type() == TypedValue::Type::String ||
-      b.type() == TypedValue::Type::String) {
-    if (a.type() != b.type()) {
-      throw TypedValueException("Invalid equality operand types({} + {})",
-                                a.type(), b.type());
-    } else {
-      return a.Value<std::string>() == b.Value<std::string>();
-    }
-  }
-
-  if (a.type() == TypedValue::Type::Bool ||
-      b.type() == TypedValue::Type::Bool) {
-    if (a.type() != b.type()) {
-      throw TypedValueException("Invalid equality operand types({} + {})",
-                                a.type(), b.type());
-    } else {
-      return a.Value<bool>() == b.Value<bool>();
-    }
-  }
-  // at this point we only have int and double
-  if (a.type() == TypedValue::Type::Double ||
-      b.type() == TypedValue::Type::Double) {
-    return ToDouble(a) == ToDouble(b);
-  } else {
-    return a.Value<int64_t>() == b.Value<int64_t>();
+    case TypedValue::Type::Path:
+      throw NotYetImplemented();
+    default:
+      permanent_fail("Unhandled comparison for types");
   }
 }
 
@@ -738,33 +743,21 @@ TypedValue operator^(const TypedValue &a, const TypedValue &b) {
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
-                                          const TypedValue &rhs) const {
+                                       const TypedValue &rhs) const {
   if (lhs.type() == TypedValue::Type::Null &&
       rhs.type() == TypedValue::Type::Null)
     return true;
-
-  // legal comparisons are only between same types
-  // only int -> float is promoted
-  if (lhs.type() == rhs.type() ||
-      (lhs.type() == Type::Double && rhs.type() == Type::Int) ||
-      (rhs.type() == Type::Double && lhs.type() == Type::Int))
-  {
-    TypedValue equality_result = lhs == rhs;
-    switch (equality_result.type()) {
-      case TypedValue::Type::Bool:
-        return equality_result.Value<bool>();
-      case TypedValue::Type::Null:
-        // we already tested if both operands are null,
-        // so only one is null here. this evaluates to false equality
-        return false;
-      default:
+  TypedValue equality_result = lhs == rhs;
+  switch (equality_result.type()) {
+    case TypedValue::Type::Bool:
+      return equality_result.Value<bool>();
+    case TypedValue::Type::Null:
+      return false;
+    default:
       permanent_fail(
           "Equality between two TypedValues resulted in something other "
-              "then Null or bool");
-    }
+          "then Null or bool");
   }
-
-  return false;
 }
 
 size_t TypedValue::Hash::operator()(const TypedValue &value) const {
@@ -786,8 +779,14 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
           value.Value<std::vector<TypedValue>>());
     }
-    case TypedValue::Type::Map:
-      throw NotYetImplemented();
+    case TypedValue::Type::Map: {
+      size_t hash = 6543457;
+      for (const auto &kv : value.Value<std::map<std::string, TypedValue>>()) {
+        hash ^= std::hash<std::string>{}(kv.first);
+        hash ^= this->operator()(kv.second);
+      }
+      return hash;
+    }
     case TypedValue::Type::Vertex:
       return value.Value<VertexAccessor>().temporary_id();
     case TypedValue::Type::Edge:

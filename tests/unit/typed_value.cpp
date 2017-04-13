@@ -91,8 +91,54 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue(std::string("str3")), TypedValue("str3"));
 
   EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{1}), TypedValue(1));
+  EXPECT_PROP_NE(TypedValue(std::vector<TypedValue>{1, true, "a"}),
+                 TypedValue(std::vector<TypedValue>{1, true, "b"}));
   EXPECT_PROP_EQ(TypedValue(std::vector<TypedValue>{1, true, "a"}),
                  TypedValue(std::vector<TypedValue>{1, true, "a"}));
+
+  EXPECT_PROP_EQ(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", 1}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+                 TypedValue(1));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"b", 1}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", 2}}));
+  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+                 TypedValue(std::map<std::string, TypedValue>{{"a", 1}, {"b", 1}}));
+}
+
+TEST(TypedValue, BoolEquals) {
+  auto eq = TypedValue::BoolEqual{};
+  EXPECT_TRUE(eq(TypedValue(1), TypedValue(1)));
+  EXPECT_FALSE(eq(TypedValue(1), TypedValue(2)));
+  EXPECT_FALSE(eq(TypedValue(1), TypedValue("asd")));
+  EXPECT_FALSE(eq(TypedValue(1), TypedValue::Null));
+  EXPECT_TRUE(eq(TypedValue::Null, TypedValue::Null));
+}
+
+TEST(TypedValue, Hash) {
+  auto hash = TypedValue::Hash{};
+
+  EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1)));
+  EXPECT_EQ(hash(TypedValue(1)), hash(TypedValue(1.0)));
+  EXPECT_EQ(hash(TypedValue(1.5)), hash(TypedValue(1.5)));
+  EXPECT_EQ(hash(TypedValue::Null), hash(TypedValue::Null));
+  EXPECT_EQ(hash(TypedValue("bla")), hash(TypedValue("bla")));
+  EXPECT_EQ(hash(TypedValue(std::vector<TypedValue>{1, 2})),
+            hash(TypedValue(std::vector<TypedValue>{1, 2})));
+  EXPECT_EQ(hash(TypedValue(std::map<std::string, TypedValue>{{"a", 1}})),
+            hash(TypedValue(std::map<std::string, TypedValue>{{"a", 1}})));
+
+  // these tests are not really true since they expect
+  // hashes to differ, but it's the thought that counts
+  EXPECT_NE(hash(TypedValue(1)), hash(TypedValue(42)));
+  EXPECT_NE(hash(TypedValue(1.5)), hash(TypedValue(2.5)));
+  EXPECT_NE(hash(TypedValue("bla")), hash(TypedValue("johnny")));
+  EXPECT_NE(hash(TypedValue(std::vector<TypedValue>{1, 1})),
+            hash(TypedValue(std::vector<TypedValue>{1, 2})));
+  EXPECT_NE(hash(TypedValue(std::map<std::string, TypedValue>{{"b", 1}})),
+            hash(TypedValue(std::map<std::string, TypedValue>{{"a", 1}})));
 }
 
 TEST(TypedValue, Less) {
