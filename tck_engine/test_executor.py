@@ -27,6 +27,8 @@ def parse_args():
                       help="Test result output folder, default is results/.")
     argp.add_argument("--logging", default="DEBUG", choices=[
                       "INFO", "DEBUG"], help="Logging level, default is DEBUG.")
+    argp.add_argument("--unstable", action="store_true",
+                      help="Include unstable feature from features.")
     return argp.parse_args()
 
 
@@ -65,6 +67,9 @@ def main():
         behave_options.append("--stop")
     if args.no_side_effects:
         behave_options.append("--no-side-effects")
+    if not args.unstable:
+        behave_options.append("-e")
+        behave_options.append("unstable*")
     behave_options.append("--database")
     behave_options.append(args.db)
     behave_options.append("--database-password")
