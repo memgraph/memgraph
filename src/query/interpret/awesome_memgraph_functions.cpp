@@ -1,4 +1,4 @@
-#include "query/frontend/interpret/awesome_memgraph_functions.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <cmath>
 #include <cstdlib>

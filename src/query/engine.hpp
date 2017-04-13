@@ -142,7 +142,7 @@ private:
     auto generated_path = fs::path(CONFIG(config::COMPILE_PATH) +
                                    std::to_string(stripped.hash) + ".cpp");
 
-    frontend::opencypher::Parser parser(stripped.query);
+    query::frontend::opencypher::Parser parser(stripped.query);
     // backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
     //                         generated_path);
     return LoadCpp(generated_path, stripped.hash);

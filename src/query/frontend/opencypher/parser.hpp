@@ -7,6 +7,7 @@
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
 
+namespace query {
 namespace frontend {
 namespace opencypher {
 
@@ -59,5 +60,6 @@ class Parser {
   CypherParser parser_{&tokens_};
   tree::ParseTree *tree_ = nullptr;
 };
-}
-}
+}  // namespace opencypher
+}  // namespace frontend
+}  // namespace query

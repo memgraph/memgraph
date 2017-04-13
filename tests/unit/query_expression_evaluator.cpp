@@ -11,9 +11,9 @@
 #include "gtest/gtest.h"
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/interpret/awesome_memgraph_functions.hpp"
-#include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/interpret/eval.hpp"
 
 using namespace query;
 

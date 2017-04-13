@@ -5,10 +5,10 @@
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/interpret/interpret.hpp"
-#include "query/frontend/logical/planner.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/interpret/frame.hpp"
+#include "query/plan/planner.hpp"
 
 namespace query {
 
@@ -22,7 +22,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   std::map<std::string, TypedValue> summary;
 
   // query -> AST
-  ::frontend::opencypher::Parser parser(query);
+  frontend::opencypher::Parser parser(query);
   auto low_level_tree = parser.tree();
 
   // AST -> high level tree

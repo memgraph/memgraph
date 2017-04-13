@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "query/frontend/logical/operator.hpp"
+#include "query/plan/operator.hpp"
 
 namespace query {
 

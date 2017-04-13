@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/frontend/interpret/interpret.hpp"
+#include "query/interpret/frame.hpp"
 
 #include "query_common.hpp"
 

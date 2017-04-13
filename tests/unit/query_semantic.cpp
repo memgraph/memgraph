@@ -4,7 +4,6 @@
 
 #include "dbms/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/interpret/interpret.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 

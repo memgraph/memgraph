@@ -11,7 +11,7 @@
 
 #include "database/graph_db.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/interpret/awesome_memgraph_functions.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/assert.hpp"
 
 namespace query {

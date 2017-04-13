@@ -1,4 +1,4 @@
-#include "query/frontend/logical/planner.hpp"
+#include "query/plan/planner.hpp"
 
 #include <functional>
 #include <unordered_set>

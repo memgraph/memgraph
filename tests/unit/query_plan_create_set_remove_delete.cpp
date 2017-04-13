@@ -14,8 +14,8 @@
 #include "dbms/dbms.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/interpret/interpret.hpp"
-#include "query/frontend/logical/operator.hpp"
+#include "query/interpret/frame.hpp"
+#include "query/plan/operator.hpp"
 
 #include "query_plan_common.hpp"
 

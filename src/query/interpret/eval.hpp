@@ -5,27 +5,12 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 #include "utils/exceptions/not_yet_implemented.hpp"
 
 namespace query {
-
-class Frame {
- public:
-  Frame(int size) : size_(size), elems_(size_) {}
-
-  TypedValue &operator[](const Symbol &symbol) {
-    return elems_[symbol.position_];
-  }
-  const TypedValue &operator[](const Symbol &symbol) const {
-    return elems_[symbol.position_];
-  }
-
- private:
-  int size_;
-  std::vector<TypedValue> elems_;
-};
 
 class ExpressionEvaluator : public TreeVisitorBase {
  public:
