@@ -873,6 +873,7 @@ class Aggregate : public LogicalOperator {
 
     Aggregate &self_;
     GraphDbAccessor &db_;
+    // optional
     std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data
     // map key is the list of group-by values
@@ -891,14 +892,21 @@ class Aggregate : public LogicalOperator {
     bool pulled_all_input_{false};
 
     /**
-     * Pulls from the input until it's exhausted. Accumulates the results
-     * in the `aggregation_` map.
+     * Pulls from the input operator until exhausted and aggregates the
+     * results. If the input operator is not provided, a single call
+     * to ProccessOne is issued.
      *
      * Accumulation automatically groups the results so that `aggregation_`
      * cache cardinality depends on number of
      * aggregation results, and not on the number of inputs.
      */
-    void PullAllInput(Frame &frame, const SymbolTable &symbolTable);
+    void ProcessAll(Frame &frame, const SymbolTable &symbol_table);
+
+    /**
+     * Performs a single accumulation.
+     */
+    void ProcessOne(Frame &frame, const SymbolTable &symbolTable,
+                    ExpressionEvaluator &evaluator);
 
     /** Ensures the new AggregationValue has been initialized. This means
      * that the value vectors are filled with an appropriate number of Nulls,

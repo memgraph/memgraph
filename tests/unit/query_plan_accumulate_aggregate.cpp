@@ -326,6 +326,26 @@ TEST(QueryPlan, AggregateAdvance) {
   check(true);
 }
 
+TEST(QueryPlan, AggregateNoInput) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto two = LITERAL(2);
+  auto output = NEXPR("two", IDENT("two"));
+  symbol_table[*output->expression_] = symbol_table.CreateSymbol("two");
+
+  auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
+                                        {Aggregation::Op::COUNT},
+                                        {}, {});
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  EXPECT_EQ(1, results.size());
+  EXPECT_EQ(1, results[0].size());
+  EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
+  EXPECT_EQ(1, results[0][0].Value<int64_t>());
+}
+
 TEST(QueryPlan, AggregateCountEdgeCases) {
   // tests for detected bugs in the COUNT aggregation behavior
   // ensure that COUNT returns correctly for

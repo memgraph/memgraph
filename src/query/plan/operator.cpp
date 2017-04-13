@@ -977,12 +977,15 @@ std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
 
 Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
                                             GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self),
+      db_(db),
+      input_cursor_(self.input_ ? self_.input_->MakeCursor(db) : nullptr) {}
 
 bool Aggregate::AggregateCursor::Pull(Frame &frame,
                                       const SymbolTable &symbol_table) {
   if (!pulled_all_input_) {
-    PullAllInput(frame, symbol_table);
+    ProcessAll(frame, symbol_table);
+
     pulled_all_input_ = true;
     aggregation_it_ = aggregation_.begin();
 
@@ -1015,23 +1018,15 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame,
   return true;
 }
 
-void Aggregate::AggregateCursor::PullAllInput(Frame &frame,
-                                              const SymbolTable &symbol_table) {
+void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
+                                            const SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table);
   evaluator.SwitchNew();
-
-  while (input_cursor_->Pull(frame, symbol_table)) {
-    // create the group-by list of values
-    std::list<TypedValue> group_by;
-    for (Expression *expression : self_.group_by_) {
-      expression->Accept(evaluator);
-      group_by.emplace_back(evaluator.PopBack());
-    }
-
-    AggregationValue &agg_value = aggregation_[group_by];
-    EnsureInitialized(frame, agg_value);
-    Update(frame, symbol_table, evaluator, agg_value);
-  }
+  if (input_cursor_)
+    while (input_cursor_->Pull(frame, symbol_table))
+      ProcessOne(frame, symbol_table, evaluator);
+  else
+    ProcessOne(frame, symbol_table, evaluator);
 
   // calculate AVG aggregations (so far they have only been summed)
   for (int pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -1043,6 +1038,21 @@ void Aggregate::AggregateCursor::PullAllInput(Frame &frame,
         agg_value.values_[pos] = agg_value.values_[pos] / (double)count;
     }
   }
+}
+
+void Aggregate::AggregateCursor::ProcessOne(Frame &frame,
+                                            const SymbolTable &symbol_table,
+                                            ExpressionEvaluator &evaluator) {
+  // create the group-by list of values
+  std::list<TypedValue> group_by;
+  for (Expression *expression : self_.group_by_) {
+    expression->Accept(evaluator);
+    group_by.emplace_back(evaluator.PopBack());
+  }
+
+  AggregationValue &agg_value = aggregation_[group_by];
+  EnsureInitialized(frame, agg_value);
+  Update(frame, symbol_table, evaluator, agg_value);
 }
 
 void Aggregate::AggregateCursor::EnsureInitialized(
