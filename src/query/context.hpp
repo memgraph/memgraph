@@ -5,22 +5,11 @@
 
 namespace query {
 
-class TypedcheckedTree {};
-
-class LogicalPlan {};
-
-class Context;
-class Query;
-
-class LogicalPlanGenerator {
-public:
-  std::vector<LogicalPlan> Generate(TypedcheckedTree &, Context &) {
-    return {LogicalPlan()};
-  }
-};
-
+/**
+ * Future-proofing for the time when we'll actually have
+ * something to configure in query execution.
+ */
 struct Config {
-  LogicalPlanGenerator logical_plan_generator;
 };
 
 class Context {
