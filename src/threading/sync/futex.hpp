@@ -4,9 +4,19 @@
 #include <stdint.h>
 #include <atomic>
 
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "lock_timeout_error.hpp"
 #include "utils/cpu_relax.hpp"
-#include "utils/sys.hpp"
+
+namespace sys {
+inline int futex(void *addr1, int op, int val1, const struct timespec *timeout,
+                 void *addr2, int val3) {
+  return syscall(SYS_futex, addr1, op, val1, timeout, addr2, val3);
+};
+}
 
 class Futex {
   using futex_t = uint32_t;
@@ -61,7 +71,7 @@ class Futex {
            UNLOCKED;
   }
 
-  void lock(const struct timespec* timeout = nullptr) {
+  void lock(const struct timespec *timeout = nullptr) {
     // try to fast lock a few times before going to sleep
     for (size_t i = 0; i < LOCK_RETRIES; ++i) {
       // try to lock and exit if we succeed
@@ -125,7 +135,7 @@ class Futex {
  private:
   mutex_t mutex;
 
-  int futex_wait(int value, const struct timespec* timeout = nullptr) {
+  int futex_wait(int value, const struct timespec *timeout = nullptr) {
     return sys::futex(&mutex.all, FUTEX_WAIT_PRIVATE, value, timeout, nullptr,
                       0);
   }

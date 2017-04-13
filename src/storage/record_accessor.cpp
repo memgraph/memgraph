@@ -1,6 +1,6 @@
-#include "storage/record_accessor.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "storage/edge.hpp"
+#include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "utils/assert.hpp"
 
@@ -48,7 +48,7 @@ GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 }
 
 template <typename TRecord>
-const uint64_t RecordAccessor<TRecord>::temporary_id() const {
+uint64_t RecordAccessor<TRecord>::temporary_id() const {
   return (uint64_t)vlist_;
 }
 

@@ -4,7 +4,6 @@
 //#include "database/graph_db_accessor.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
-#include "utils/pass_key.hpp"
 
 #include "storage/property_value_store.hpp"
 
@@ -134,7 +133,7 @@ class RecordAccessor {
    *
    * @return See above.
    */
-  const uint64_t temporary_id() const;
+  uint64_t temporary_id() const;
 
   /*
    * Switches this record accessor to use the latest

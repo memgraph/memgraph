@@ -8,8 +8,10 @@
 #pragma once
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <sys/inotify.h>
+#include <unistd.h>
 #include <unistd.h>
 #include <atomic>
 #include <chrono>
@@ -23,11 +25,26 @@ namespace fs = std::experimental::filesystem;
 #include "logging/loggable.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
-#include "utils/exceptions/stacktrace_exception.hpp"
-#include "utils/linux.hpp"
+#include "utils/exceptions/basic_exception.hpp"
+#include "utils/likely.hpp"
 #include "utils/underlying_cast.hpp"
 
 namespace utils {
+namespace linux_os {
+void set_non_blocking(int fd) {
+  auto flags = fcntl(fd, F_GETFL, 0);
+
+  if (UNLIKELY(flags == -1))
+    throw BasicException("Cannot read flags from file descriptor.");
+
+  flags |= O_NONBLOCK;
+
+  auto status = fcntl(fd, F_SETFL, flags);
+
+  if (UNLIKELY(status == -1))
+    throw BasicException("Can't set NON_BLOCK flag to file descriptor");
+}
+}
 
 using ms = std::chrono::milliseconds;
 
@@ -112,7 +129,7 @@ struct WatchDescriptor : public FSEventBase {
   WatchDescriptor(const fs::path &directory, const FSEventType type)
       : FSEventBase(directory, type) {
     debug_assert(fs::is_directory(path),
-                   "The path parameter should be directory");
+                 "The path parameter should be directory");
   }
 };
 

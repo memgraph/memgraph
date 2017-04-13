@@ -8,7 +8,6 @@
 
 #include "utils/exceptions/stacktrace_exception.hpp"
 #include "utils/total_ordering.hpp"
-#include "utils/underlying_cast.hpp"
 
 /**
  * Encapsulation of a value and it's type encapsulated in a class that has no

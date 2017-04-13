@@ -12,7 +12,6 @@
 #include "storage/unique_object_store.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
-#include "utils/pass_key.hpp"
 #include "utils/scheduler.hpp"
 
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new

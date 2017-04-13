@@ -14,7 +14,6 @@
 #include "traversal/path.hpp"
 #include "utils/exceptions/basic_exception.hpp"
 #include "utils/total_ordering.hpp"
-#include "utils/underlying_cast.hpp"
 
 namespace query {
 

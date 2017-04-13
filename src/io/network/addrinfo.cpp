@@ -4,7 +4,6 @@
 #include "io/network/addrinfo.hpp"
 
 #include "io/network/network_error.hpp"
-#include "utils/underlying_cast.hpp"
 
 namespace io::network {
 

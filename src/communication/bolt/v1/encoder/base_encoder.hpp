@@ -6,6 +6,7 @@
 #include "logging/logger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
+#include "utils/underlying_cast.hpp"
 
 #include <string>
 
@@ -56,9 +57,7 @@ class BaseEncoder : public Loggable {
     WriteRAW(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
   }
 
-  void WriteNull() {
-    WriteRAW(underlying_cast(Marker::Null));
-  }
+  void WriteNull() { WriteRAW(underlying_cast(Marker::Null)); }
 
   void WriteBool(const bool &value) {
     if (value)

@@ -11,19 +11,54 @@
  */
 template <typename TLhs, typename TRhs = TLhs, typename TReturn = bool>
 struct TotalOrdering {
-  friend constexpr TReturn operator!=(const TLhs &a, const TRhs &b) {
+  friend constexpr TReturn operator!=(const TLhs& a, const TRhs& b) {
     return !(a == b);
   }
 
-  friend constexpr TReturn operator<=(const TLhs &a, const TRhs &b) {
+  friend constexpr TReturn operator<=(const TLhs& a, const TRhs& b) {
     return a < b || a == b;
   }
 
-  friend constexpr TReturn operator>(const TLhs &a, const TRhs &b) {
+  friend constexpr TReturn operator>(const TLhs& a, const TRhs& b) {
     return !(a <= b);
   }
 
-  friend constexpr TReturn operator>=(const TLhs &a, const TRhs &b) {
+  friend constexpr TReturn operator>=(const TLhs& a, const TRhs& b) {
+    return !(a < b);
+  }
+};
+
+template <class Derived, class T>
+struct TotalOrderingWith {
+  friend constexpr bool operator!=(const Derived& a, const T& b) {
+    return !(a == b);
+  }
+
+  friend constexpr bool operator<=(const Derived& a, const T& b) {
+    return a < b || a == b;
+  }
+
+  friend constexpr bool operator>(const Derived& a, const T& b) {
+    return !(a <= b);
+  }
+
+  friend constexpr bool operator>=(const Derived& a, const T& b) {
+    return !(a < b);
+  }
+
+  friend constexpr bool operator!=(const T& a, const Derived& b) {
+    return !(a == b);
+  }
+
+  friend constexpr bool operator<=(const T& a, const Derived& b) {
+    return a < b || a == b;
+  }
+
+  friend constexpr bool operator>(const T& a, const Derived& b) {
+    return !(a <= b);
+  }
+
+  friend constexpr bool operator>=(const T& a, const Derived& b) {
     return !(a < b);
   }
 };

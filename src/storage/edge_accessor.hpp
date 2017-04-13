@@ -4,7 +4,6 @@
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "utils/assert.hpp"
-#include "utils/reference_wrapper.hpp"
 
 // forward declaring the VertexAccessor because it's returned
 // by some functions

@@ -3,8 +3,6 @@
 #include <atomic>
 #include <thread>
 
-#include "utils/underlying_cast.hpp"
-
 class Thread {
   static std::atomic<unsigned> thread_counter;
 
