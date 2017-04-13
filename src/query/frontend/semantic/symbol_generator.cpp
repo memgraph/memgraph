@@ -127,7 +127,10 @@ void SymbolGenerator::Visit(Pattern &pattern) {
   }
 }
 
-void SymbolGenerator::PostVisit(Pattern &pattern) { scope_.in_pattern = false; }
+void SymbolGenerator::PostVisit(Pattern &pattern) {
+  scope_.in_pattern = false;
+  scope_.in_create_node = false;
+}
 
 void SymbolGenerator::Visit(NodeAtom &node_atom) {
   scope_.in_node_atom = true;

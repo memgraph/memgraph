@@ -107,8 +107,10 @@ TEST(TestSymbolGenerator, CreatePropertyUnbound) {
   AstTreeStorage storage;
   // AST with unbound variable in create: CREATE ({prop: x})
   auto node = NODE("anon");
-  std::string prop_name = "prop";
-  node->properties_[&prop_name] = IDENT("x");
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  node->properties_[prop] = IDENT("x");
   auto query_ast = QUERY(CREATE(PATTERN(node)));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
@@ -172,9 +174,11 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   AstTreeStorage storage;
   // AST with redeclaring a match edge variable in create:
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
-  std::string relationship("relationship");
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto relationship = dba->edge_type("relationship");
   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                     CREATE(PATTERN(NODE("n"), EDGE("r", &relationship,
+                     CREATE(PATTERN(NODE("n"), EDGE("r", relationship,
                                                     EdgeAtom::Direction::RIGHT),
                                     NODE("l"))));
   SymbolGenerator symbol_generator(symbol_table);
@@ -208,10 +212,12 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   AstTreeStorage storage;
   // Multiple edge relationship are not allowed when creating edges.
   // CREATE (n) -[r :rel1 | :rel2]-> (m)
-  std::string rel1("rel1");
-  std::string rel2("rel2");
-  auto edge = EDGE("r", &rel1, EdgeAtom::Direction::RIGHT);
-  edge->edge_types_.emplace_back(&rel2);
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto rel1 = dba->edge_type("rel1");
+  auto rel2 = dba->edge_type("rel2");
+  auto edge = EDGE("r", rel1, EdgeAtom::Direction::RIGHT);
+  edge->edge_types_.emplace_back(rel2);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -222,8 +228,10 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   AstTreeStorage storage;
   // Bidirectional relationships are not allowed when creating edges.
   // CREATE (n) -[r :rel1]- (m)
-  std::string rel1("rel1");
-  auto query = QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", &rel1), NODE("m"))));
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto rel1 = dba->edge_type("rel1");
+  auto query = QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", rel1), NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -232,7 +240,6 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
 TEST(TestSymbolGenerator, MatchWhereUnbound) {
   // Test MATCH (n) WHERE missing < 42 RETURN n AS n
   AstTreeStorage storage;
-  std::string property("property");
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      WHERE(LESS(IDENT("missing"), LITERAL(42))),
                      RETURN(IDENT("n"), AS("n")));
@@ -479,6 +486,27 @@ TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
   auto m = symbol_table.at(*node_m->identifier_);
   EXPECT_NE(n, m);
+}
+
+TEST(TestSymbolGenerator, CreateNodeEdge) {
+  // Test CREATE (n), (n) -[r :r]-> (n)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  AstTreeStorage storage;
+  auto node_1 = NODE("n");
+  auto node_2 = NODE("n");
+  auto edge = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto node_3 = NODE("n");
+  auto query = QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 2);
+  auto n = symbol_table.at(*node_1->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*node_2->identifier_));
+  EXPECT_EQ(n, symbol_table.at(*node_3->identifier_));
+  EXPECT_NE(n, symbol_table.at(*edge->identifier_));
 }
 
 }
