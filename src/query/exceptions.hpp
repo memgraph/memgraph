@@ -60,15 +60,11 @@ class TypeMismatchError : public SemanticException {
  * before the query starts executing over data.
  */
 class QueryRuntimeException : public QueryException {
-public:
+ public:
   using QueryException::QueryException;
 };
 
-class CppCodeGeneratorException : public StacktraceException {
- public:
-  using StacktraceException::StacktraceException;
-};
-
+// TODO: Move this elsewhere, it has no place in query.
 class DecoderException : public StacktraceException {
  public:
   using StacktraceException::StacktraceException;
@@ -84,8 +80,4 @@ class PlanExecutionException : public StacktraceException {
   using StacktraceException::StacktraceException;
 };
 
-class QueryEngineException : public StacktraceException {
- public:
-  using StacktraceException::StacktraceException;
-};
-}
+}  // namespace query
