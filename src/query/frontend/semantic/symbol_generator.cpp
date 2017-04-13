@@ -31,15 +31,24 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
 void SymbolGenerator::Visit(Create &create) { scope_.in_create = true; }
 void SymbolGenerator::PostVisit(Create &create) { scope_.in_create = false; }
 
+void SymbolGenerator::Visit(Return &ret) {
+  scope_.in_return = true;
+}
 void SymbolGenerator::PostVisit(Return &ret) {
   for (auto &named_expr : ret.named_expressions_) {
     // Named expressions establish bindings for expressions which come after
     // return, but not for the expressions contained inside.
     symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
   }
+  scope_.in_return = false;
 }
 
-void SymbolGenerator::SetWithSymbols(With &with) {
+bool SymbolGenerator::PreVisit(With &with) {
+  scope_.in_with = true;
+  for (auto &expr : with.named_expressions_) {
+    expr->Accept(*this);
+  }
+  scope_.in_with = false;
   // WITH clause removes declarations of all the previous variables and declares
   // only those established through named expressions. New declarations must not
   // be visible inside named expressions themselves.
@@ -47,26 +56,8 @@ void SymbolGenerator::SetWithSymbols(With &with) {
   for (auto &named_expr : with.named_expressions_) {
     symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
   }
-}
-
-void SymbolGenerator::Visit(With &with) {
-  scope_.with = &with;
-}
-
-void SymbolGenerator::Visit(Where &where) {
-  if (scope_.with) {
-    // New symbols must be visible in WHERE clause, so this must be done here
-    // and not in PostVisit(With&).
-    SetWithSymbols(*scope_.with);
-  }
-}
-
-void SymbolGenerator::PostVisit(With &with) {
-  if (!with.where_) {
-    // This wasn't done when visiting Where, so do it here.
-    SetWithSymbols(with);
-  }
-  scope_.with = nullptr;
+  if (with.where_) with.where_->Accept(*this);
+  return false;  // We handled the traversal ourselves.
 }
 
 // Expressions
@@ -104,12 +95,20 @@ void SymbolGenerator::Visit(Identifier &ident) {
 }
 
 void SymbolGenerator::Visit(Aggregation &aggr) {
-  // Create a virtual symbol for aggregation result.
-  symbol_table_[aggr] = symbol_table_.CreateSymbol("");
+  // Check if the aggregation can be used in this context. This check should
+  // probably move to a separate phase, which checks if the query is well
+  // formed.
+  if (!scope_.in_return && !scope_.in_with) {
+    throw SemanticException(
+        "Aggregation functions are only allowed in WITH and RETURN");
+  }
   if (scope_.in_aggregation) {
     throw SemanticException(
-        "Using aggregate functions inside aggregate functions is not allowed");
+        "Using aggregation functions inside aggregation functions is not "
+        "allowed");
   }
+  // Create a virtual symbol for aggregation result.
+  symbol_table_[aggr] = symbol_table_.CreateSymbol("");
   scope_.in_aggregation = true;
 }
 

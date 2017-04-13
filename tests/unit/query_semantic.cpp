@@ -446,6 +446,20 @@ TEST(TestSymbolGenerator, NestedAggregation) {
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
+TEST(TestSymbolGenerator, WrongAggregationContext) {
+  // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
+                     WHERE(LESS(SUM(IDENT("prop")), LITERAL(42))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
 TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   // Test MATCH (n) CREATE (m {prop: n.prop})
   Dbms dbms;
