@@ -1108,7 +1108,19 @@ void Aggregate::AggregateCursor::Update(
     const auto &agg_op = std::get<1>(*agg_elem_it);
     *count_it += 1;
     if (*count_it == 1) {
-      // first value, nothing to aggregate. set and continue.
+      // first value, nothing to aggregate. check type, set and continue.
+      switch (agg_op) {
+        case Aggregation::Op::MIN:
+        case Aggregation::Op::MAX:
+          EnsureOkForMinMax(input_value);
+          break;
+        case Aggregation::Op::SUM:
+        case Aggregation::Op::AVG:
+          EnsureOkForAvgSum(input_value);
+          break;
+        case Aggregation::Op::COUNT:
+          break;
+      }
       *value_it = agg_op == Aggregation::Op::COUNT ? 1 : input_value;
       continue;
     }

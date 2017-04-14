@@ -403,6 +403,58 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(2, count());
 }
 
+TEST(QueryPlan, AggregateFirstValueTypes) {
+  // testing exceptions that get emitted by the first-value
+  // type check
+
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  auto v1 = dba->insert_vertex();
+  auto prop_string = dba->property("string");
+  v1.PropsSet(prop_string, "johhny");
+  auto prop_int = dba->property("int");
+  v1.PropsSet(prop_int, 12);
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_prop_string = PROPERTY_LOOKUP("n", prop_string);
+  symbol_table[*n_prop_string->expression_] = n.sym_;
+  auto n_prop_int = PROPERTY_LOOKUP("n", prop_int);
+  symbol_table[*n_prop_int->expression_] = n.sym_;
+  auto n_id = n_prop_string->expression_;
+
+  auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
+                                          {expression}, {aggr_op}, {}, {});
+    CollectProduce(produce, symbol_table, *dba).GetResults();
+  };
+
+  // everything except for COUNT fails on a Vertex
+  aggregate(n_id, Aggregation::Op::COUNT);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), TypedValueException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), TypedValueException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), TypedValueException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), TypedValueException);
+
+  // on strings AVG and SUM fail
+  aggregate(n_prop_string, Aggregation::Op::COUNT);
+  aggregate(n_prop_string, Aggregation::Op::MIN);
+  aggregate(n_prop_string, Aggregation::Op::MAX);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::AVG), TypedValueException);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::SUM), TypedValueException);
+
+  // on ints nothing fails
+  aggregate(n_prop_int, Aggregation::Op::COUNT);
+  aggregate(n_prop_int, Aggregation::Op::MIN);
+  aggregate(n_prop_int, Aggregation::Op::MAX);
+  aggregate(n_prop_int, Aggregation::Op::AVG);
+  aggregate(n_prop_int, Aggregation::Op::SUM);
+}
+
 TEST(QueryPlan, AggregateTypes) {
   // testing exceptions that can get emitted by an aggregation
   // does not check all combinations that can result in an exception
