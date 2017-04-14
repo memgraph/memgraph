@@ -41,10 +41,12 @@
   }
 
 #define permanent_fail(message)                                   \
+  {                                                               \
   std::ostringstream s;                                           \
   s << message;                                                   \
   __handle_assert_message(s.str());                               \
   std::exit(EXIT_FAILURE);                                        \
+  }
 /**                                                               \
  * debug assertion is more like standard C assert but with custom \
  * define which controls when the assertion will be active        \

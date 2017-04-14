@@ -549,30 +549,43 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // Delete should get the latest information, this way it is also possible to
   // delete newly added nodes and edges.
   evaluator.SwitchNew();
+  // collect expressions results so edges can get deleted before vertices
+  // this is necessary because an edge that gets deleted could block vertex
+  // deletion
+  std::vector<TypedValue> expression_results;
+  expression_results.reserve(self_.expressions_.size());
   for (Expression *expression : self_.expressions_) {
     expression->Accept(evaluator);
-    TypedValue value = evaluator.PopBack();
-    switch (value.type()) {
-      case TypedValue::Type::Null:
-        // if we got a Null, that's OK, probably it's an OPTIONAL MATCH
-        return true;
-      case TypedValue::Type::Vertex:
+    expression_results.emplace_back(evaluator.PopBack());
+  }
+
+  // delete edges first
+  for (TypedValue &expression_result : expression_results)
+    if (expression_result.type() == TypedValue::Type::Edge)
+      db_.remove_edge(expression_result.Value<EdgeAccessor>());
+
+  // delete vertices
+  for (TypedValue &expression_result : expression_results)
+    switch (expression_result.type()) {
+      case TypedValue::Type::Vertex: {
+        VertexAccessor &va = expression_result.Value<VertexAccessor>();
+        va.SwitchNew();  //  necessary because an edge deletion could have
+                         //  updated
         if (self_.detach_)
-          db_.detach_remove_vertex(value.Value<VertexAccessor>());
-        else if (!db_.remove_vertex(value.Value<VertexAccessor>()))
+          db_.detach_remove_vertex(va);
+        else if (!db_.remove_vertex(va))
           throw query::QueryRuntimeException(
               "Failed to remove vertex because of it's existing "
               "connections. Consider using DETACH DELETE.");
         break;
+      }
       case TypedValue::Type::Edge:
-        db_.remove_edge(value.Value<EdgeAccessor>());
         break;
-      case TypedValue::Type::Path:
-      // TODO consider path deletion
+      // check we're not trying to delete anything except vertices and edges
       default:
         throw TypedValueException("Can only delete edges and vertices");
     }
-  }
+
   return true;
 }
 

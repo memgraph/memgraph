@@ -59,6 +59,9 @@ class GraphDbAccessor {
    * or incoming edges, it is not deleted. See `detach_remove_vertex` if you
    * want to remove a vertex regardless of connectivity.
    *
+   * If the vertex has already been deleted by the current transaction+command,
+   * this function will not do anything and will return true.
+   *
    * @param vertex_accessor Accessor to vertex.
    * @return  If or not the vertex was deleted.
    */

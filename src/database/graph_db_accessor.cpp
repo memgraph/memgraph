@@ -23,14 +23,14 @@ void GraphDbAccessor::advance_command() {
 }
 
 void GraphDbAccessor::commit() {
-  debug_assert(commited_ == false && aborted_ == false,
+  debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
   transaction_->commit();
   commited_ = true;
 }
 
 void GraphDbAccessor::abort() {
-  debug_assert(commited_ == false && aborted_ == false,
+  debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
   transaction_->abort();
   aborted_ = true;
@@ -56,6 +56,10 @@ size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) {
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
   vertex_accessor.SwitchNew();
+  // it's possible the vertex was removed already in this transaction
+  // due to it getting matched multiple times by some patterns
+  // we can only delete it once, so check if it's already deleted
+  if (vertex_accessor.current_->is_deleted_by(*transaction_)) return true;
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
@@ -68,8 +72,8 @@ void GraphDbAccessor::detach_remove_vertex(VertexAccessor &vertex_accessor) {
   for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
   vertex_accessor.SwitchNew();
   for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
-  vertex_accessor.vlist_->remove(vertex_accessor.SwitchNew().current_,
-                                 *transaction_);
+  if (!remove_vertex(vertex_accessor))
+    permanent_fail("Unable to remove vertex after all edges detached");
 }
 
 EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
@@ -123,10 +127,14 @@ void swap_out_edge(std::vector<mvcc::VersionList<Edge> *> &edges,
 }
 
 void GraphDbAccessor::remove_edge(EdgeAccessor &edge_accessor) {
+  // it's possible the edge was removed already in this transaction
+  // due to it getting matched multiple times by some patterns
+  // we can only delete it once, so check if it's already deleted
+  edge_accessor.SwitchNew();
+  if (edge_accessor.current_->is_deleted_by(*transaction_)) return;
   swap_out_edge(edge_accessor.from().update().out_, edge_accessor.vlist_);
   swap_out_edge(edge_accessor.to().update().in_, edge_accessor.vlist_);
-  edge_accessor.vlist_->remove(edge_accessor.SwitchNew().current_,
-                               *transaction_);
+  edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
 }
 
 GraphDbTypes::Label GraphDbAccessor::label(const std::string &label_name) {

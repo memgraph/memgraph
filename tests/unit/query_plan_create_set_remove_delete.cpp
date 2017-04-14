@@ -324,6 +324,56 @@ TEST(QueryPlan, Delete) {
   }
 }
 
+TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
+  // test deleting the same vertex and edge multiple times
+  //
+  // also test vertex deletion succeeds if the prohibiting
+  // edge is deleted in the same logical op
+  //
+  // we test both with the following queries (note the
+  // undirected edge in MATCH):
+  //
+  // CREATE ()-[:T]->()
+  // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
+
+  auto test_delete = [](bool detach) {
+    Dbms dbms;
+    auto dba = dbms.active();
+
+    auto v1 = dba->insert_vertex();
+    auto v2 = dba->insert_vertex();
+    dba->insert_edge(v1, v2, dba->edge_type("T"));
+    dba->advance_command();
+    EXPECT_EQ(2, CountIterable(dba->vertices()));
+    EXPECT_EQ(1, CountIterable(dba->edges()));
+
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::BOTH, false, "m", false);
+
+    // getter expressions for deletion
+    auto n_get = storage.Create<Identifier>("n");
+    symbol_table[*n_get] = n.sym_;
+    auto r_get = storage.Create<Identifier>("r");
+    symbol_table[*r_get] = r_m.edge_sym_;
+    auto m_get = storage.Create<Identifier>("m");
+    symbol_table[*m_get] = r_m.node_sym_;
+
+    auto delete_op = std::make_shared<plan::Delete>(
+        r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
+    EXPECT_EQ(2, PullAll(delete_op, *dba, symbol_table));
+    dba->advance_command();
+    EXPECT_EQ(0, CountIterable(dba->vertices()));
+    EXPECT_EQ(0, CountIterable(dba->edges()));
+  };
+
+  test_delete(true);
+  test_delete(false);
+}
+
 TEST(QueryPlan, DeleteReturn) {
   Dbms dbms;
   auto dba = dbms.active();
