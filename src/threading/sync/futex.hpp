@@ -67,7 +67,7 @@ class Futex {
   bool try_lock() {
     // we took the lock if we stored the LOCKED state and previous
     // state was UNLOCKED
-    return mutex.state.locked.exchange(LOCKED, std::memory_order_acquire) ==
+    return mutex.state.locked.exchange(LOCKED, std::memory_order_seq_cst) ==
            UNLOCKED;
   }
 
@@ -83,7 +83,7 @@ class Futex {
 
     // the lock is contended, go to sleep. when someone
     // wakes you up, try taking the lock again
-    while (mutex.all.exchange(LOCKED_CONTENDED, std::memory_order_acquire) &
+    while (mutex.all.exchange(LOCKED_CONTENDED, std::memory_order_seq_cst) &
            LOCKED) {
       // wait in the kernel for someone to wake us up when unlocking
       auto status = futex_wait(LOCKED_CONTENDED, timeout);
@@ -99,26 +99,26 @@ class Futex {
 
     // if we're locked and uncontended, try to unlock the mutex before
     // it becomes contended
-    if (mutex.all.load(std::memory_order_acquire) == LOCKED &&
+    if (mutex.all.load(std::memory_order_seq_cst) == LOCKED &&
         mutex.all.compare_exchange_strong(state, UNLOCKED,
-                                          std::memory_order_release,
-                                          std::memory_order_relaxed))
+                                          std::memory_order_seq_cst,
+                                          std::memory_order_seq_cst))
       return;
 
     // we are contended, just release the lock
-    mutex.state.locked.store(UNLOCKED, std::memory_order_release);
+    mutex.state.locked.store(UNLOCKED, std::memory_order_seq_cst);
 
     // spin and hope someone takes a lock so we don't have to wake up
     // anyone because that's quite expensive
     for (size_t i = 0; i < UNLOCK_RETRIES; ++i) {
       // if someone took the lock, we're ok
-      if (is_locked(std::memory_order_acquire)) return;
+      if (is_locked(std::memory_order_seq_cst)) return;
 
       relax();
     }
 
     // store that we are becoming uncontended
-    mutex.state.contended.store(UNCONTENDED, std::memory_order_release);
+    mutex.state.contended.store(UNCONTENDED, std::memory_order_seq_cst);
 
     // we need to wake someone up
     futex_wake(LOCKED);
