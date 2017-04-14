@@ -1,20 +1,13 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "mvcc/id.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 
-class Prop : public mvcc::Record<Prop> {};
-class PropCount : public mvcc::Record<PropCount> {
- public:
-  PropCount(std::atomic<int> &count) : count_(count) {}
-  ~PropCount() { ++count_; }
-
- private:
-  std::atomic<int> &count_;
-};
+#include "gc_common.hpp"
 
 TEST(MVCC, Case1Test3) {
   tx::Engine engine;
@@ -70,6 +63,20 @@ TEST(MVCC, UpdateDontDelete) {
     t3->commit();
   }
   EXPECT_EQ(count, 3);
+}
+
+// Check that we get the oldest record.
+TEST(MVCC, Oldest) {
+  tx::Engine engine;
+  auto t1 = engine.begin();
+  mvcc::VersionList<Prop> version_list(*t1);
+  auto first = version_list.Oldest();
+  EXPECT_NE(first, nullptr);
+  for (int i = 0; i < 10; ++i) {
+    engine.advance(t1->id);
+    version_list.update(*t1);
+    EXPECT_EQ(version_list.Oldest(), first);
+  }
 }
 
 int main(int argc, char **argv) {

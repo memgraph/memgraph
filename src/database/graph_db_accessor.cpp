@@ -45,9 +45,10 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
   throw CreationException("Unable to create a Vertex.");
 }
 
-void GraphDbAccessor::update_label_index(
-    const GraphDbTypes::Label &label, const VertexAccessor &vertex_accessor) {
-  this->db_.labels_index_.Update(label, vertex_accessor.vlist_);
+void GraphDbAccessor::update_label_index(const GraphDbTypes::Label &label,
+                                         const VertexAccessor &vertex_accessor,
+                                         const Vertex *vertex) {
+  this->db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
 }
 
 size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) {
@@ -95,9 +96,9 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
   bool success = db_.edges_.access().insert(edge_vlist).second;
   const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
   if (success) {
-    // This has to be here because there is no single method called for
-    // type seting. It's set here, and sometimes in set_edge_type method.
-    update_edge_type_index(edge_type, edge_accessor);
+    // This has to be here because there is no additional method for setting
+    // edge type.
+    update_edge_type_index(edge_type, edge_accessor, &edge_accessor.current());
     return edge_accessor;
   }
 
@@ -105,9 +106,9 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
 }
 
 void GraphDbAccessor::update_edge_type_index(
-    const GraphDbTypes::EdgeType &edge_type,
-    const EdgeAccessor &edge_accessor) {
-  this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_);
+    const GraphDbTypes::EdgeType &edge_type, const EdgeAccessor &edge_accessor,
+    const Edge *edge) {
+  this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 
 size_t GraphDbAccessor::edges_count(const GraphDbTypes::EdgeType &edge_type) {

@@ -7,6 +7,7 @@
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 #include "storage/unique_object_store.hpp"
@@ -34,6 +35,11 @@ class GraphDb {
    *                        into the db.
    */
   GraphDb(const std::string &name, bool import_snapshot = true);
+  /**
+   * @brief - Destruct database object. Delete all vertices and edges and free
+   * all deferred deleters.
+   */
+  ~GraphDb();
 
   /**
    * Database object can't be copied.
@@ -57,8 +63,18 @@ class GraphDb {
   // main storage for the graph
   SkipList<mvcc::VersionList<Vertex> *> vertices_;
   SkipList<mvcc::VersionList<Edge> *> edges_;
+
+  // Garbage collectors
   GarbageCollector<Vertex> gc_vertices_;
   GarbageCollector<Edge> gc_edges_;
+
+  // Deleters for not relevant records
+  DeferredDeleter<Vertex> vertex_record_deleter_;
+  DeferredDeleter<Edge> edge_record_deleter_;
+
+  // Deleters for not relevant version_lists
+  DeferredDeleter<mvcc::VersionList<Vertex>> vertex_version_list_deleter_;
+  DeferredDeleter<mvcc::VersionList<Edge>> edge_version_list_deleter_;
 
   // unique object stores
   // TODO this should be also garbage collected
@@ -71,6 +87,5 @@ class GraphDb {
   KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
 
   // Schedulers
-  Scheduler<std::mutex> gc_vertices_scheduler_;
-  Scheduler<std::mutex> gc_edges_scheduler_;
+  Scheduler<std::mutex> gc_scheduler_;
 };

@@ -102,7 +102,7 @@ class GraphDbAccessor {
   auto vertices(const GraphDbTypes::Label &label) {
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(*vlist, *this); },
-        db_.labels_index_.Acquire(label, *transaction_));
+        db_.labels_index_.GetVlists(label, *transaction_));
   }
 
   /**
@@ -150,24 +150,28 @@ class GraphDbAccessor {
   auto edges(const GraphDbTypes::EdgeType &edge_type) {
     return iter::imap(
         [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
-        db_.edge_types_index_.Acquire(edge_type, *transaction_));
+        db_.edge_types_index_.GetVlists(edge_type, *transaction_));
   }
 
   /**
-   * Insert this record into corresponding label index.
-   * @param label - label index into which to insert record
-   * @param record - record which to insert
+   * Insert this vertex into corresponding label index.
+   * @param label - label index into which to insert vertex label record
+   * @param vertex_accessor - vertex_accessor to insert
+   * @param vertex - vertex record to insert
    */
   void update_label_index(const GraphDbTypes::Label &label,
-                          const VertexAccessor &vertex_accessor);
+                          const VertexAccessor &vertex_accessor,
+                          const Vertex *vertex);
 
   /**
-   * Insert this record into corresponding edge_type index.
+   * Insert this edge into corresponding edge_type index.
    * @param edge_type  - edge_type index into which to insert record
-   * @param record - record which to insert
+   * @param edge_accessor - edge_accessor to insert
+   * @param edge - edge record to insert
    */
   void update_edge_type_index(const GraphDbTypes::EdgeType &edge_type,
-                              const EdgeAccessor &edge_accessor);
+                              const EdgeAccessor &edge_accessor,
+                              const Edge *edge);
 
   /**
    * Return approximate number of vertices under indexes with the given label.

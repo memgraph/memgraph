@@ -99,6 +99,9 @@ class DynamicLib : public Loggable {
       // http://stackoverflow.com/questions/6450828/segmentation-fault-when-using-dlclose-on-android-platform
       // // for now it is not crucial so I've created a task for that
       // // ! 0 is success
+      // Return early because dlclose seems to be casuing the problem again. So
+      // strange.
+      return;
       int closing_status = dlclose(dynamic_lib);
       if (closing_status != 0) throw DynamicLibException(dlerror());
     } else {

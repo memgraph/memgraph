@@ -20,6 +20,10 @@ TEST(IdTest, BasicUsageAndTotalOrdering) {
   ASSERT_EQ(id3 <= id4, true);
 }
 
+TEST(IdTest, MaxId) {
+  EXPECT_TRUE(Id(std::numeric_limits<uint64_t>::max()) == Id::MaximalId());
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

@@ -3,7 +3,9 @@
 
 #include "data_structures/ptr_int.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "dbms/dbms.hpp"
+#include "storage/vertex.hpp"
 
 using testing::UnorderedElementsAreArray;
 
@@ -27,8 +29,116 @@ TEST(LabelsIndex, Count) {
   }
 }
 
+// Test index does it insert everything uniquely
+TEST(LabelsIndex, UniqueInsert) {
+  KeyIndex<GraphDbTypes::Label, Vertex> index;
+  Dbms dbms;
+  auto access = dbms.active();
+  tx::Engine engine;
+  auto t1 = engine.begin();
+  mvcc::VersionList<Vertex> vlist(*t1);
+  t1->commit();
+  auto t2 = engine.begin();
+
+  vlist.find(*t2)->labels_.push_back(access->label("1"));
+  index.Update(access->label("1"), &vlist, vlist.find(*t2));
+  // Try multiple inserts
+  index.Update(access->label("1"), &vlist, vlist.find(*t2));
+
+  vlist.find(*t2)->labels_.push_back(access->label("2"));
+  index.Update(access->label("2"), &vlist, vlist.find(*t2));
+
+  vlist.find(*t2)->labels_.push_back(access->label("3"));
+  index.Update(access->label("3"), &vlist, vlist.find(*t2));
+  t2->commit();
+
+  EXPECT_EQ(index.Count(access->label("1")), 1);
+  EXPECT_EQ(index.Count(access->label("2")), 1);
+  EXPECT_EQ(index.Count(access->label("3")), 1);
+}
+
+// Check if index filters duplicates.
+TEST(LabelsIndex, UniqueFilter) {
+  KeyIndex<GraphDbTypes::Label, Vertex> index;
+  Dbms dbms;
+  auto access = dbms.active();
+  tx::Engine engine;
+
+  auto t1 = engine.begin();
+  mvcc::VersionList<Vertex> vlist1(*t1);
+  mvcc::VersionList<Vertex> vlist2(*t1);
+  t1->engine.advance(
+      t1->id);  // advance command so we can see our inserted version
+  auto r1v1 = vlist1.find(*t1);
+  auto r1v2 = vlist1.find(*t1);
+  EXPECT_NE(vlist1.find(*t1), nullptr);
+
+  auto label1 = access->label("1");
+  vlist1.find(*t1)->labels_.push_back(label1);
+  vlist2.find(*t1)->labels_.push_back(label1);
+  index.Update(label1, &vlist1, r1v1);
+  index.Update(label1, &vlist2, r1v2);
+  t1->commit();
+
+  auto t2 = engine.begin();
+  auto r2v1 = vlist1.update(*t2);
+  auto r2v2 = vlist2.update(*t2);
+  index.Update(label1, &vlist1, r2v1);
+  index.Update(label1, &vlist2, r2v2);
+  t2->commit();
+
+  auto t3 = engine.begin();
+  std::vector<mvcc::VersionList<Vertex> *> expected = {&vlist1, &vlist2};
+  sort(expected.begin(),
+       expected.end());  // Entries will be sorted by vlist pointers.
+  int cnt = 0;
+  for (auto vlist : index.GetVlists(label1, *t3)) {
+    EXPECT_LT(cnt, expected.size());
+    EXPECT_EQ(vlist, expected[cnt++]);
+  }
+}
+
+// Delete not anymore relevant recods from index.
+TEST(LabelsIndex, Refresh) {
+  KeyIndex<GraphDbTypes::Label, Vertex> index;
+  Dbms dbms;
+  auto access = dbms.active();
+  tx::Engine engine;
+
+  auto t1 = engine.begin();
+  mvcc::VersionList<Vertex> vlist1(*t1);
+  mvcc::VersionList<Vertex> vlist2(*t1);
+  t1->engine.advance(
+      t1->id);  // advance command so we can see our inserted version
+  auto r1v1 = vlist1.find(*t1);
+  auto r1v2 = vlist2.find(*t1);
+  EXPECT_NE(vlist1.find(*t1), nullptr);
+
+  auto label1 = access->label("1");
+  vlist1.find(*t1)->labels_.push_back(label1);
+  vlist2.find(*t1)->labels_.push_back(label1);
+  index.Update(label1, &vlist1, r1v1);
+  index.Update(label1, &vlist2, r1v2);
+  t1->commit();
+
+  auto t2 = engine.begin();
+  auto r2v1 = vlist1.update(*t2);
+  auto r2v2 = vlist2.update(*t2);
+  index.Update(label1, &vlist1, r2v1);
+  index.Update(label1, &vlist2, r2v2);
+  int last_id = t2->id;
+  t2->commit();
+  EXPECT_EQ(index.Count(label1), 4);
+
+  index.Refresh(last_id, engine);
+  EXPECT_EQ(index.Count(label1), 4);
+
+  index.Refresh(last_id + 1, engine);
+  EXPECT_EQ(index.Count(label1), 2);
+}
+
 // Transaction hasn't ended and so the vertex is not visible.
-TEST(LabelsIndex, AddGetZeroLabels) {
+TEST(LabelsIndexDb, AddGetZeroLabels) {
   Dbms dbms;
   auto accessor = dbms.active();
   auto vertex = accessor->insert_vertex();
@@ -41,7 +151,7 @@ TEST(LabelsIndex, AddGetZeroLabels) {
 
 // Test label index by adding and removing one vertex, and removing label from
 // another, while the third one with an irrelevant label exists.
-TEST(LabelsIndex, AddGetRemoveLabel) {
+TEST(LabelsIndexDb, AddGetRemoveLabel) {
   Dbms dbms;
   {
     auto accessor = dbms.active();

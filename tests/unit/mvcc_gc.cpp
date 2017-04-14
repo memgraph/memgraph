@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <memory>
+#include <thread>
 
 #include "config/config.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
@@ -14,18 +15,7 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 
-/**
- * Class which takes an atomic variable to count number of destructor calls (to
- * test if GC is actually deleting records).
- */
-class Prop : public mvcc::Record<Prop> {
- public:
-  Prop(std::atomic<int> &count) : count_(count) {}
-  ~Prop() { ++count_; }
-
- private:
-  std::atomic<int> &count_;
-};
+#include "gc_common.hpp"
 
 /**
  * Test will the mvcc gc delete records inside the version list because they
@@ -37,7 +27,7 @@ TEST(VersionList, GcDeleted) {
   std::vector<uint64_t> ids;
   auto t1 = engine.begin();
   std::atomic<int> count{0};
-  mvcc::VersionList<Prop> version_list(*t1, count);
+  mvcc::VersionList<PropCount> version_list(*t1, count);
   ids.push_back(t1->id);
   t1->commit();
 
@@ -48,16 +38,36 @@ TEST(VersionList, GcDeleted) {
     t2->commit();
   }
 
-  EXPECT_EQ(version_list.GcDeleted(ids[0]), false);
+  EXPECT_EQ(version_list.GcDeleted(ids[0], engine),
+            std::make_pair(false, (PropCount *)nullptr));
   EXPECT_EQ(count, 0);
-  EXPECT_EQ(version_list.GcDeleted(ids.back() + 1), false);
+  auto ret = version_list.GcDeleted(ids.back() + 1, engine);
+  EXPECT_EQ(ret.first, false);
+  EXPECT_NE(ret.second, nullptr);
+  delete ret.second;
   EXPECT_EQ(count, UPDATES);
 
   auto tl = engine.begin();
   version_list.remove(*tl);
-  EXPECT_EQ(version_list.GcDeleted(tl->id + 1), true);
+  auto id = tl->id + 1;
+  tl->abort();
+
+  auto ret2 = version_list.GcDeleted(id, engine);
+  EXPECT_EQ(ret2.first, false);
+  EXPECT_EQ(ret2.second, nullptr);
+
+  auto tk = engine.begin();
+  version_list.remove(*tk);
+  auto id2 = tk->id + 1;
+  tk->commit();
+
+  auto ret3 = version_list.GcDeleted(id2, engine);
+  EXPECT_EQ(ret3.first, true);
+  EXPECT_NE(ret3.second, nullptr);
+
+  delete ret3.second;
+
   EXPECT_EQ(count, UPDATES + 1);
-  tl->commit();
 }
 
 /**
@@ -65,25 +75,35 @@ TEST(VersionList, GcDeleted) {
  * empty (not visible from any future transaction) from the skiplist.
  */
 TEST(GarbageCollector, GcClean) {
-  SkipList<mvcc::VersionList<Prop> *> skiplist;
+  SkipList<mvcc::VersionList<PropCount> *> skiplist;
   tx::Engine engine;
-  GarbageCollector<Prop> gc(&skiplist, &engine);
+  DeferredDeleter<PropCount> deleter;
+  DeferredDeleter<mvcc::VersionList<PropCount>> vlist_deleter;
+  GarbageCollector<PropCount> gc(skiplist, deleter, vlist_deleter);
 
   auto t1 = engine.begin();
-  std::atomic<int> count;
-  auto vl = new mvcc::VersionList<Prop>(*t1, count);
+  std::atomic<int> count{0};
+  auto vl = new mvcc::VersionList<PropCount>(*t1, count);
 
   auto access = skiplist.access();
   access.insert(vl);
-  gc.Run();
+  gc.Run(Id(2), engine);
   t1->commit();
-  gc.Run();
 
   auto t2 = engine.begin();
   EXPECT_EQ(vl->remove(*t2), true);
   t2->commit();
+  gc.Run(Id(3), engine);
 
-  gc.Run();
+  EXPECT_EQ(deleter.Count(), 1);
+  deleter.FreeExpiredObjects(engine.count() + 1);
+  EXPECT_EQ(deleter.Count(), 0);
+  EXPECT_EQ(count, 1);
+
+  EXPECT_EQ(vlist_deleter.Count(), 1);
+  vlist_deleter.FreeExpiredObjects(engine.count() + 1);
+  EXPECT_EQ(vlist_deleter.Count(), 0);
+
   EXPECT_EQ(access.size(), (size_t)0);
 }
 

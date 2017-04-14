@@ -105,9 +105,12 @@ class Record : public Version<T> {
     return committed(hints.cre, tx.cre(), t);
   }
 
-  // True if record was deleted before id.
-  bool is_deleted_before(const Id &id) {
-    return tx.exp() != Id(0) && tx.exp() < id;
+  // Record won'te be visible to any transaction after or at `id` if it was
+  // expired before id or it's creation was aborted.
+  bool is_not_visible_from(const Id &id, tx::Engine &engine) const {
+    return (tx.exp() != Id(0) && tx.exp() < id &&
+            engine.clog.is_committed(tx.exp())) ||
+           engine.clog.is_aborted(tx.cre());
   }
 
   // TODO: Test this
@@ -142,7 +145,6 @@ class Record : public Version<T> {
   }
 
  protected:
-  template <class U>
   /**
    * @brief - Check if the id is commited from the perspective of transactio,
    * i.e. transaction can see the transaction with that id (it happened before
@@ -153,6 +155,7 @@ class Record : public Version<T> {
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
+  template <class U>
   bool committed(U &hints, const Id &id, const tx::Transaction &t) {
     // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
@@ -183,7 +186,6 @@ class Record : public Version<T> {
     return hints.set_aborted(), false;
   }
 
-  template <class U>
   /**
    * @brief - Check if the id is commited.
    * @param hints - hints to use to determine commit/abort
@@ -192,6 +194,7 @@ class Record : public Version<T> {
    * statuses
    * @return true if it's commited, false otherwise
    */
+  template <class U>
   bool committed(U &hints, const Id &id, tx::Engine &engine) {
     auto hint_bits = hints.load();
     // if hints are set, return if xid is committed
