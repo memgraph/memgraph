@@ -31,8 +31,10 @@ class ResultStream {
     std::map<std::string, query::TypedValue> data;
     for (auto &i : fields) vec.push_back(query::TypedValue(i));
     data.insert(std::make_pair(std::string("fields"), query::TypedValue(vec)));
-    // this call will automaticaly send the data to the client
-    encoder_.MessageSuccess(data);
+    // this message shouldn't send directly to the client because if an error
+    // happened the client will receive two messages (success and failure)
+    // instead of only one
+    encoder_.MessageSuccess(data, false);
   }
 
   /**

@@ -31,7 +31,8 @@ TEST(Bolt, ResultStream) {
   for (int i = 0; i < 10; ++i)
     headers.push_back(std::string(2, (char)('a' + i)));
 
-  result_stream.Header(headers); // this method automatically calls Flush
+  result_stream.Header(headers);
+  buffer.FlushFirstChunk();
   PrintOutput(output);
   CheckOutput(output, header_output, 45);
 

@@ -1,53 +1,62 @@
 #pragma once
 
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
-#include "communication/bolt/v1/messaging/codes.hpp"
-#include "communication/bolt/v1/packing/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "communication/bolt/v1/transport/bolt_decoder.hpp"
 #include "logging/default.hpp"
 #include "utils/likely.hpp"
 
 namespace communication::bolt {
 
 /**
- * TODO (mferencevic): finish & document
+ * Init state run function
+ * This function runs everything to initialize a Bolt session with the client.
+ * @param session the session that should be used for the run
  */
 template <typename Session>
 State StateInitRun(Session &session) {
   static Logger logger = logging::log->logger("State INIT");
   logger.debug("Parsing message");
 
-  auto struct_type = session.decoder_.read_byte();
-
-  if (UNLIKELY((struct_type & 0x0F) > pack::Rule::MaxInitStructSize)) {
-    logger.debug("{}", struct_type);
-    logger.debug(
-        "Expected struct marker of max size 0x{:02} instead of 0x{:02X}",
-        (unsigned)pack::Rule::MaxInitStructSize, (unsigned)struct_type);
-    return NULLSTATE;
+  Marker marker;
+  Signature signature;
+  if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
+    logger.debug("Missing header data!");
+    return State::Close;
   }
 
-  auto message_type = session.decoder_.read_byte();
-
-  if (UNLIKELY(message_type != MessageCode::Init)) {
-    logger.debug("Expected Init (0x01) instead of (0x{:02X})",
-                 (unsigned)message_type);
-    return NULLSTATE;
+  if (UNLIKELY(signature != Signature::Init)) {
+    logger.debug("Expected Init signature, but received 0x{:02X}!",
+                 underlying_cast(signature));
+    return State::Close;
+  }
+  if (UNLIKELY(marker != Marker::TinyStruct2)) {
+    logger.debug("Expected TinyStruct2 marker, but received 0x{:02X}!",
+                 underlying_cast(marker));
+    return State::Close;
   }
 
-  auto client_name = session.decoder_.read_string();
-
-  if (struct_type == pack::Code::StructTwo) {
-    // TODO process authentication tokens
+  query::TypedValue client_name;
+  if (!session.decoder_.ReadTypedValue(&client_name,
+                                       query::TypedValue::Type::String)) {
+    logger.debug("Couldn't read client name!");
+    return State::Close;
   }
 
-  logger.debug("Executing state");
-  logger.debug("Client connected '{}'", client_name);
+  query::TypedValue metadata;
+  if (!session.decoder_.ReadTypedValue(&metadata,
+                                       query::TypedValue::Type::Map)) {
+    logger.debug("Couldn't read metadata!");
+    return State::Close;
+  }
 
-  // TODO: write_success, chunk, send
-  session.encoder_.MessageSuccess();
+  logger.debug("Client connected '{}'", client_name.Value<std::string>());
 
-  return EXECUTOR;
+  if (!session.encoder_.MessageSuccess()) {
+    logger.debug("Couldn't send success message to the client!");
+    return State::Close;
+  }
+
+  return State::Executor;
 }
 }

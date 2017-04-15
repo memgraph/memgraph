@@ -6,15 +6,19 @@
 #include "dbms/dbms.hpp"
 #include "query/engine.hpp"
 
+#include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
 #include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 
+#include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
+#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
-#include "communication/bolt/v1/transport/bolt_decoder.hpp"
+
+#include "io/network/stream_buffer.hpp"
 
 #include "logging/loggable.hpp"
 
@@ -29,10 +33,11 @@ namespace communication::bolt {
  */
 template <typename Socket>
 class Session : public Loggable {
- public:
-  using Decoder = BoltDecoder;
+ private:
   using OutputStream = ResultStream<Encoder<ChunkedEncoderBuffer<Socket>>>;
+  using StreamBuffer = io::network::StreamBuffer;
 
+ public:
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
       : Loggable("communication::bolt::Session"),
         socket_(std::move(socket)),
@@ -40,16 +45,17 @@ class Session : public Loggable {
         query_engine_(query_engine),
         encoder_buffer_(socket_),
         encoder_(encoder_buffer_),
-        output_stream_(encoder_) {
+        output_stream_(encoder_),
+        decoder_buffer_(buffer_),
+        decoder_(decoder_buffer_),
+        state_(State::Handshake) {
     event_.data.ptr = this;
-    // start with a handshake state
-    state_ = HANDSHAKE;
   }
 
   /**
    * @return is the session in a valid state
    */
-  bool Alive() const { return state_ != NULLSTATE; }
+  bool Alive() const { return state_ != State::Close; }
 
   /**
    * @return the socket id
@@ -57,47 +63,82 @@ class Session : public Loggable {
   int Id() const { return socket_.id(); }
 
   /**
-   * Reads the data from a client and goes through the bolt states in
-   * order to execute command from the client.
-   *
-   * @param data pointer on bytes received from a client
-   * @param len  length of data received from a client
+   * Executes the session after data has been read into the buffer.
+   * Goes through the bolt states in order to execute commands from the client.
    */
-  void Execute(const uint8_t *data, size_t len) {
-    // mark the end of the message
-    auto end = data + len;
-
-    while (true) {
-      auto size = end - data;
-
+  void Execute() {
+    // while there is data in the buffers
+    while (buffer_.size() > 0 || decoder_buffer_.Size() > 0) {
       if (LIKELY(connected_)) {
-        logger.debug("Decoding chunk of size {}", size);
-        if (!decoder_.decode(data, size)) return;
+        logger.debug("Decoding chunk of size {}", buffer_.size());
+        auto chunk_state = decoder_buffer_.GetChunk();
+        if (chunk_state == ChunkState::Partial) {
+          logger.trace("Chunk isn't complete!");
+          return;
+        } else if (chunk_state == ChunkState::Invalid) {
+          logger.trace("Chunk is invalid!");
+          ClientFailureInvalidData();
+          return;
+        }
+        // if chunk_state == ChunkState::Whole then we continue with
+        // execution of the select below
+      } else if (buffer_.size() < HANDSHAKE_SIZE) {
+        logger.debug("Received partial handshake of size {}", buffer_.size());
+        return;
+      } else if (buffer_.size() > HANDSHAKE_SIZE) {
+        logger.debug("Received too large handshake of size {}", buffer_.size());
+        ClientFailureInvalidData();
+        return;
       } else {
-        logger.debug("Decoding handshake of size {}", size);
-        decoder_.handshake(data, size);
+        logger.debug("Decoding handshake of size {}", buffer_.size());
       }
 
       switch (state_) {
-        case HANDSHAKE:
+        case State::Handshake:
           state_ = StateHandshakeRun<Session<Socket>>(*this);
           break;
-        case INIT:
+        case State::Init:
           state_ = StateInitRun<Session<Socket>>(*this);
           break;
-        case EXECUTOR:
+        case State::Executor:
           state_ = StateExecutorRun<Session<Socket>>(*this);
           break;
-        case ERROR:
+        case State::Error:
           state_ = StateErrorRun<Session<Socket>>(*this);
           break;
-        case NULLSTATE:
+        case State::Close:
+          // This state is handled below
           break;
       }
 
-      decoder_.reset();
+      // State::Close is handled here because we always want to check for
+      // it after the above select. If any of the states above return a
+      // State::Close then the connection should be terminated immediately.
+      if (state_ == State::Close) {
+        ClientFailureInvalidData();
+        return;
+      }
+
+      logger.trace("Buffer size: {}", buffer_.size());
+      logger.trace("Decoder buffer size: {}", decoder_buffer_.Size());
     }
   }
+
+  /**
+   * Allocates data from the internal buffer.
+   * Used in the underlying network stack to asynchronously read data
+   * from the client.
+   * @returns a StreamBuffer to the allocated internal data buffer
+   */
+  StreamBuffer Allocate() { return buffer_.Allocate(); }
+
+  /**
+   * Notifies the internal buffer of written data.
+   * Used in the underlying network stack to notify the internal buffer
+   * how many bytes of data have been written.
+   * @param len how many data was written to the buffer
+   */
+  void Written(size_t len) { buffer_.Written(len); }
 
   /**
    * Closes the session (client socket).
@@ -112,12 +153,29 @@ class Session : public Loggable {
   Socket socket_;
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
+
   ChunkedEncoderBuffer<Socket> encoder_buffer_;
   Encoder<ChunkedEncoderBuffer<Socket>> encoder_;
   OutputStream output_stream_;
-  Decoder decoder_;
+
+  Buffer<> buffer_;
+  ChunkedDecoderBuffer decoder_buffer_;
+  Decoder<ChunkedDecoderBuffer> decoder_;
+
   io::network::Epoll::Event event_;
   bool connected_{false};
   State state_;
+
+ private:
+  void ClientFailureInvalidData() {
+    // set the state to Close
+    state_ = State::Close;
+    // don't care about the return status because this is always
+    // called when we are about to close the connection to the client
+    encoder_.MessageFailure({{"code", "Memgraph.InvalidData"},
+                             {"message", "The client has sent invalid data!"}});
+    // close the connection
+    Close();
+  }
 };
 }

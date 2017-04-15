@@ -328,8 +328,6 @@ set(memgraph_src_files
     ${src_dir}/utils/string/join.cpp
     ${src_dir}/utils/string/file.cpp
     ${src_dir}/utils/numerics/saturate.cpp
-    ${src_dir}/communication/bolt/v1/transport/bolt_decoder.cpp
-    ${src_dir}/communication/bolt/v1/transport/buffer.cpp
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp
     ${src_dir}/io/network/socket.cpp

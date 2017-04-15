@@ -21,7 +21,11 @@ namespace communication::bolt {
  * Allocating, writing and written stores data in the buffer. The stored
  * data can then be read using the pointer returned with the data function.
  * The current implementation stores data in a single fixed length buffer.
+ *
+ * @tparam Size the size of the internal byte array, defaults to the maximum
+ *         size of a chunk in the Bolt protocol
  */
+template <size_t Size = WHOLE_CHUNK_SIZE>
 class Buffer : public Loggable {
  private:
   using StreamBufferT = io::network::StreamBuffer;
@@ -36,7 +40,7 @@ class Buffer : public Loggable {
    * available memory.
    */
   StreamBufferT Allocate() {
-    return StreamBufferT{&data_[size_], WHOLE_CHUNK_SIZE - size_};
+    return StreamBufferT{&data_[size_], Size - size_};
   }
 
   /**
@@ -51,7 +55,7 @@ class Buffer : public Loggable {
    */
   void Written(size_t len) {
     size_ += len;
-    debug_assert(size_ <= WHOLE_CHUNK_SIZE, "Written more than storage has space!");
+    debug_assert(size_ <= Size, "Written more than storage has space!");
   }
 
   /**
@@ -70,9 +74,7 @@ class Buffer : public Loggable {
   /**
    * This method clears the buffer.
    */
-  void Clear() {
-    size_ = 0;
-  }
+  void Clear() { size_ = 0; }
 
   /**
    * This function returns a pointer to the internal buffer. It is used for
@@ -86,7 +88,7 @@ class Buffer : public Loggable {
   size_t size() { return size_; }
 
  private:
-  uint8_t data_[WHOLE_CHUNK_SIZE];
+  uint8_t data_[Size];
   size_t size_{0};
 };
 }

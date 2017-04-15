@@ -5,7 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include "communication/bolt/v1/bolt_exception.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "logging/loggable.hpp"
 #include "utils/bswap.hpp"
@@ -39,7 +38,8 @@ namespace communication::bolt {
 template <class Socket>
 class ChunkedEncoderBuffer : public Loggable {
  public:
-  ChunkedEncoderBuffer(Socket &socket) : Loggable("Chunked Encoder Buffer"), socket_(socket) {}
+  ChunkedEncoderBuffer(Socket &socket)
+      : Loggable("Chunked Encoder Buffer"), socket_(socket) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size
@@ -51,7 +51,7 @@ class ChunkedEncoderBuffer : public Loggable {
   void Write(const uint8_t *values, size_t n) {
     while (n > 0) {
       // Define number of bytes  which will be copied into chunk because
-      // chunk is a fixed lenght array.
+      // chunk is a fixed length array.
       auto size = n < MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_
                       ? n
                       : MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_;
@@ -90,13 +90,16 @@ class ChunkedEncoderBuffer : public Loggable {
     debug_assert(pos_ <= WHOLE_CHUNK_SIZE,
                  "Internal variable pos_ is bigger than the whole chunk size.");
 
-    // 3. Copy whole chunk into the buffer.
+    // 3. Remember first chunk size.
+    if (first_chunk_size_ == -1) first_chunk_size_ = pos_;
+
+    // 4. Copy whole chunk into the buffer.
     size_ += pos_;
     buffer_.reserve(size_);
     std::copy(chunk_.begin(), chunk_.begin() + pos_,
               std::back_inserter(buffer_));
 
-    // 4. Cleanup.
+    // 5. Cleanup.
     //     * pos_ has to be reset to the size of chunk header (reserved
     //       space for the chunk size)
     pos_ = CHUNK_HEADER_SIZE;
@@ -104,23 +107,71 @@ class ChunkedEncoderBuffer : public Loggable {
 
   /**
    * Sends the whole buffer(message) to the client.
+   * @returns true if the data was successfully sent to the client
+   *          false otherwise
    */
-  void Flush() {
+  bool Flush() {
     // Call chunk if is hasn't been called.
     if (pos_ > CHUNK_HEADER_SIZE) Chunk();
 
     // Early return if buffer is empty because there is nothing to write.
-    if (size_ == 0) return;
+    if (size_ == 0) return true;
 
     // Flush the whole buffer.
-    bool written = socket_.Write(buffer_.data(), size_);
-    if (!written) throw BoltException("Socket write failed!");
+    if (!socket_.Write(buffer_.data() + offset_, size_ - offset_)) return false;
     logger.trace("Flushed {} bytes.", size_);
 
     // Cleanup.
+    Clear();
+    return true;
+  }
+
+  /**
+   * Sends only the first message chunk in the buffer to the client.
+   * @returns true if the data was successfully sent to the client
+   *          false otherwise
+   */
+  bool FlushFirstChunk() {
+    // Call chunk if is hasn't been called.
+    if (pos_ > CHUNK_HEADER_SIZE) Chunk();
+
+    // Early return if buffer is empty because there is nothing to write.
+    if (size_ == 0) return false;
+
+    // Early return if there is no first chunk
+    if (first_chunk_size_ == -1) return false;
+
+    // Flush the first chunk
+    if (!socket_.Write(buffer_.data(), first_chunk_size_)) return false;
+    logger.trace("Flushed {} bytes.", first_chunk_size_);
+
+    // Cleanup.
+    // Here we use offset as a method of deleting from the front of the
+    // data vector. Because the first chunk will always be relatively
+    // small comparing to the rest of the data it is more optimal just to
+    // skip the first part of the data than to shift everything in the
+    // vector buffer.
+    offset_ = first_chunk_size_;
+    first_chunk_size_ = -1;
+    return true;
+  }
+
+  /**
+   * Clears the internal buffers.
+   */
+  void Clear() {
     buffer_.clear();
     size_ = 0;
+    first_chunk_size_ = -1;
+    offset_ = 0;
   }
+
+  /**
+   * Returns a boolean indicating whether there is data in the buffer.
+   * @returns true if there is data in the buffer,
+   *          false otherwise
+   */
+  bool HasData() { return buffer_.size() > 0 || size_ > 0; }
 
  private:
   /**
@@ -142,6 +193,16 @@ class ChunkedEncoderBuffer : public Loggable {
    * Size of the message.
    */
   size_t size_{0};
+
+  /**
+   * Size of first chunk in the buffer.
+   */
+  int32_t first_chunk_size_{-1};
+
+  /**
+   * Offset from the start of the buffer.
+   */
+  size_t offset_{0};
 
   /**
    * Current position in chunk array.

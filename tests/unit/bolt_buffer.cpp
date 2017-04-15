@@ -4,7 +4,7 @@
 constexpr const int SIZE = 4096;
 uint8_t data[SIZE];
 
-using BufferT = communication::bolt::Buffer;
+using BufferT = communication::bolt::Buffer<>;
 using StreamBufferT = io::network::StreamBuffer;
 
 TEST(BoltBuffer, AllocateAndWritten) {

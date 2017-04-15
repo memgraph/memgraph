@@ -15,6 +15,7 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
 #include "dbms/dbms.hpp"
 #include "io/network/epoll.hpp"
@@ -40,8 +41,16 @@ class TestSession {
 
   int Id() const { return socket_.id(); }
 
-  void Execute(const byte* data, size_t len) {
-    this->socket_.Write(data, len);
+  void Execute() {
+    this->socket_.Write(buffer_.data(), buffer_.size());
+  }
+
+  io::network::StreamBuffer Allocate() {
+    return buffer_.Allocate();
+  }
+
+  void Written(size_t len) {
+    buffer_.Written(len);
   }
 
   void Close() {
@@ -49,6 +58,7 @@ class TestSession {
   }
 
   socket_t socket_;
+  communication::bolt::Buffer<> buffer_;
   io::network::Epoll::Event event_;
 };
 

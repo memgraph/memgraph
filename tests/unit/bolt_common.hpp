@@ -29,19 +29,25 @@ class TestSocket {
 
   int id() const { return socket; }
 
-  int Write(const std::string &str) { return Write(str.c_str(), str.size()); }
-  int Write(const char *data, size_t len) {
+  bool Write(const std::string &str) { return Write(str.c_str(), str.size()); }
+  bool Write(const char *data, size_t len) {
     return Write(reinterpret_cast<const uint8_t *>(data), len);
   }
-  int Write(const uint8_t *data, size_t len) {
+  bool Write(const uint8_t *data, size_t len) {
+    if (!write_success_) return false;
     for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
-    return len;
+    return true;
+  }
+
+  void SetWriteSuccess(bool success) {
+    write_success_ = success;
   }
 
   std::vector<uint8_t> output;
 
  protected:
   int socket;
+  bool write_success_{true};
 };
 
 /**
@@ -53,7 +59,7 @@ class TestBuffer {
 
   void Write(const uint8_t *data, size_t n) { socket_.Write(data, n); }
   void Chunk() {}
-  void Flush() {}
+  bool Flush() { return true; }
 
  private:
   TestSocket &socket_;

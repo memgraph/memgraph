@@ -6,5 +6,5 @@ class NotYetImplemented : public StacktraceException {
  public:
   using StacktraceException::StacktraceException;
 
-  NotYetImplemented() : StacktraceException("") {}
+  NotYetImplemented() : StacktraceException("Not yet implemented!") {}
 };

@@ -63,17 +63,11 @@ class Worker
 
   void OnWaitTimeout() {}
 
-  StreamBuffer OnAlloc(Session &) {
-    /* logger.trace("[on_alloc] Allocating {}B", sizeof buf); */
-
-    return StreamBuffer{buf_, sizeof buf_};
-  }
-
-  void OnRead(Session &session, StreamBuffer &buf) {
-    logger_.trace("[on_read] Received {}B", buf.len);
+  void OnRead(Session &session) {
+    logger_.trace("OnRead");
 
     try {
-      session.Execute(buf.data, buf.len);
+      session.Execute();
     } catch (const std::exception &e) {
       logger_.error("Error occured while executing statement.");
       logger_.error("{}", e.what());
@@ -96,7 +90,6 @@ class Worker
     // TODO: Do something about it
   }
 
-  uint8_t buf_[65536];
   std::thread thread_;
 
   void Start(std::atomic<bool> &alive) {

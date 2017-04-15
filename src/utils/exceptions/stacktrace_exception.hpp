@@ -11,7 +11,7 @@ class StacktraceException : public std::exception {
  public:
   StacktraceException(const std::string &message) noexcept : message_(message) {
     Stacktrace stacktrace;
-    message_.append(stacktrace.dump());
+    stacktrace_ = stacktrace.dump();
   }
 
   template <class... Args>
@@ -25,6 +25,9 @@ class StacktraceException : public std::exception {
 
   const char *what() const noexcept override { return message_.c_str(); }
 
+  const char *trace() const noexcept { return stacktrace_.c_str(); }
+
  private:
   std::string message_;
+  std::string stacktrace_;
 };

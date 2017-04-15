@@ -13,6 +13,22 @@
 namespace communication::bolt {
 
 /**
+ * This class is used as the return value of the GetChunk function of the
+ * ChunkedDecoderBuffer. It represents the 3 situations that can happen when
+ * reading a chunk.
+ */
+enum class ChunkState : uint8_t {
+  // The chunk isn't complete, we have to read more data
+  Partial,
+
+  // The chunk is invalid, it's tail isn't 0x00 0x00
+  Invalid,
+
+  // The chunk is whole and correct and has been loaded into the buffer
+  Whole
+};
+
+/**
  * @brief ChunkedDecoderBuffer
  *
  * Has methods for getting chunks and reading their data.
@@ -27,7 +43,8 @@ class ChunkedDecoderBuffer : public Loggable {
   using StreamBufferT = io::network::StreamBuffer;
 
  public:
-  ChunkedDecoderBuffer(Buffer &buffer) : Loggable("ChunkedDecoderBuffer"), buffer_(buffer) {}
+  ChunkedDecoderBuffer(Buffer<> &buffer)
+      : Loggable("ChunkedDecoderBuffer"), buffer_(buffer) {}
 
   /**
    * Reads data from the internal buffer.
@@ -55,27 +72,27 @@ class ChunkedDecoderBuffer : public Loggable {
    * @returns true if a chunk was successfully copied into the internal
    *          buffer, false otherwise
    */
-  bool GetChunk() {
+  ChunkState GetChunk() {
     uint8_t *data = buffer_.data();
     size_t size = buffer_.size();
     if (size < 2) {
       logger.trace("Size < 2");
-      return false;
+      return ChunkState::Partial;
     }
 
     size_t chunk_size = data[0];
     chunk_size <<= 8;
     chunk_size += data[1];
     if (size < chunk_size + 4) {
-      logger.trace("Chunk size is {} but only have {} data bytes.", chunk_size, size);
-      return false;
+      logger.trace("Chunk size is {} but only have {} data bytes.", chunk_size,
+                   size);
+      return ChunkState::Partial;
     }
 
     if (data[chunk_size + 2] != 0 || data[chunk_size + 3] != 0) {
       logger.trace("Invalid chunk!");
       buffer_.Shift(chunk_size + 4);
-      // TODO: raise an exception!
-      return false;
+      return ChunkState::Invalid;
     }
 
     pos_ = 0;
@@ -83,11 +100,18 @@ class ChunkedDecoderBuffer : public Loggable {
     memcpy(data_, data + 2, size - 4);
     buffer_.Shift(chunk_size + 4);
 
-    return true;
+    return ChunkState::Whole;
   }
 
+  /**
+   * Gets the size of currently available data in the loaded chunk.
+   *
+   * @returns size of available data
+   */
+  size_t Size() { return size_ - pos_; }
+
  private:
-  Buffer &buffer_;
+  Buffer<> &buffer_;
   uint8_t data_[MAX_CHUNK_SIZE];
   size_t size_{0};
   size_t pos_{0};

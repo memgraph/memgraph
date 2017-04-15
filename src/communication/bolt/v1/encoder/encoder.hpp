@@ -1,5 +1,6 @@
 #pragma once
 
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 
 namespace communication::bolt {
@@ -21,8 +22,7 @@ class Encoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::buffer_;
 
  public:
-  Encoder(Buffer &buffer)
-      : BaseEncoder<Buffer>(buffer) {
+  Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {
     logger = logging::log->logger("communication::bolt::Encoder");
   }
 
@@ -40,8 +40,8 @@ class Encoder : private BaseEncoder<Buffer> {
    * @param values the fields list object that should be sent
    */
   void MessageRecord(const std::vector<query::TypedValue> &values) {
-    // 0xB1 = struct 1; 0x71 = record signature
-    WriteRAW("\xB1\x71", 2);
+    WriteRAW(underlying_cast(Marker::TinyStruct1));
+    WriteRAW(underlying_cast(Signature::Record));
     WriteList(values);
     buffer_.Chunk();
   }
@@ -56,26 +56,34 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param metadata the metadata map object that should be sent
    * @param flush should method flush the socket
+   * @returns true if the data was successfully sent to the client
+   *          when flushing, false otherwise
    */
-  void MessageSuccess(const std::map<std::string, query::TypedValue> &metadata,
+  bool MessageSuccess(const std::map<std::string, query::TypedValue> &metadata,
                       bool flush = true) {
-    // 0xB1 = struct 1; 0x70 = success signature
-    WriteRAW("\xB1\x70", 2);
+    WriteRAW(underlying_cast(Marker::TinyStruct1));
+    WriteRAW(underlying_cast(Signature::Success));
     WriteMap(metadata);
-    if (flush)
-      buffer_.Flush();
-    else
+    if (flush) {
+      return buffer_.Flush();
+    } else {
       buffer_.Chunk();
+      // Chunk always succeeds, so return true
+      return true;
+    }
   }
 
   /**
    * Sends a Success message.
    *
    * This function sends a success message without additional metadata.
+   *
+   * @returns true if the data was successfully sent to the client,
+   *          false otherwise
    */
-  void MessageSuccess() {
+  bool MessageSuccess() {
     std::map<std::string, query::TypedValue> metadata;
-    MessageSuccess(metadata);
+    return MessageSuccess(metadata);
   }
 
   /**
@@ -87,12 +95,15 @@ class Encoder : private BaseEncoder<Buffer> {
    *   }
    *
    * @param metadata the metadata map object that should be sent
+   * @returns true if the data was successfully sent to the client,
+   *          false otherwise
    */
-  void MessageFailure(const std::map<std::string, query::TypedValue> &metadata) {
-    // 0xB1 = struct 1; 0x7F = failure signature
-    WriteRAW("\xB1\x7F", 2);
+  bool MessageFailure(
+      const std::map<std::string, query::TypedValue> &metadata) {
+    WriteRAW(underlying_cast(Marker::TinyStruct1));
+    WriteRAW(underlying_cast(Signature::Failure));
     WriteMap(metadata);
-    buffer_.Flush();
+    return buffer_.Flush();
   }
 
   /**
@@ -104,23 +115,29 @@ class Encoder : private BaseEncoder<Buffer> {
    *   }
    *
    * @param metadata the metadata map object that should be sent
+   * @returns true if the data was successfully sent to the client,
+   *          false otherwise
    */
-  void MessageIgnored(const std::map<std::string, query::TypedValue> &metadata) {
-    // 0xB1 = struct 1; 0x7E = ignored signature
-    WriteRAW("\xB1\x7E", 2);
+  bool MessageIgnored(
+      const std::map<std::string, query::TypedValue> &metadata) {
+    WriteRAW(underlying_cast(Marker::TinyStruct1));
+    WriteRAW(underlying_cast(Signature::Ignored));
     WriteMap(metadata);
-    buffer_.Flush();
+    return buffer_.Flush();
   }
 
   /**
    * Sends an Ignored message.
    *
    * This function sends an ignored message without additional metadata.
+   *
+   * @returns true if the data was successfully sent to the client,
+   *          false otherwise
    */
-  void MessageIgnored() {
-    // 0xB0 = struct 0; 0x7E = ignored signature
-    WriteRAW("\xB0\x7E", 2);
-    buffer_.Flush();
+  bool MessageIgnored() {
+    WriteRAW(underlying_cast(Marker::TinyStruct));
+    WriteRAW(underlying_cast(Signature::Ignored));
+    return buffer_.Flush();
   }
 };
 }

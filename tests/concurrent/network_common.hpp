@@ -11,6 +11,7 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
 #include "dbms/dbms.hpp"
 #include "io/network/epoll.hpp"
@@ -38,23 +39,26 @@ class TestSession {
 
   int Id() const { return socket_.id(); }
 
-  void Execute(const byte* data, size_t len) {
-    if (size_ == 0) {
-      size_ = data[0];
-      size_ <<= 8;
-      size_ += data[1];
-      data += 2;
-      len -= 2;
-    }
-    memcpy(buffer_ + have_, data, len);
-    have_ += len;
-    if (have_ < size_) return;
+  void Execute() {
+    if (buffer_.size() < 2) return;
+    const uint8_t *data = buffer_.data();
+    size_t size = data[0];
+    size <<= 8;
+    size += data[1];
+    if (buffer_.size() < size + 2) return;
 
     for (int i = 0; i < REPLY; ++i)
-      ASSERT_TRUE(this->socket_.Write(buffer_, size_));
+      ASSERT_TRUE(this->socket_.Write(data + 2, size));
 
-    have_ = 0;
-    size_ = 0;
+    buffer_.Shift(size + 2);
+  }
+
+  io::network::StreamBuffer Allocate() {
+    return buffer_.Allocate();
+  }
+
+  void Written(size_t len) {
+    buffer_.Written(len);
   }
 
   void Close() {
@@ -62,9 +66,7 @@ class TestSession {
     this->socket_.Close();
   }
 
-  char buffer_[SIZE * 2];
-  uint32_t have_, size_;
-
+  communication::bolt::Buffer<SIZE * 2> buffer_;
   Logger logger_;
   socket_t socket_;
   io::network::Epoll::Event event_;
@@ -87,6 +89,7 @@ void client_run(int num, const char* interface, const char* port,
   endpoint_t endpoint(interface, port);
   socket_t socket;
   ASSERT_TRUE(socket.Connect(endpoint));
+  ASSERT_TRUE(socket.SetTimeout(2, 0));
   logger.trace("Socket create: {}", socket.id());
   for (int len = lo; len <= hi; len += 100) {
     have = 0;

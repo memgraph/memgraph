@@ -6,7 +6,6 @@
 #include "logging/logger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
-#include "utils/underlying_cast.hpp"
 
 #include <string>
 

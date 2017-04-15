@@ -46,8 +46,7 @@ template <typename Buffer>
 class Decoder : public Loggable {
  public:
   Decoder(Buffer &buffer)
-      : Loggable("communication::bolt::Decoder"),
-        buffer_(buffer) {}
+      : Loggable("communication::bolt::Decoder"), buffer_(buffer) {}
 
   /**
    * Reads a TypedValue from the available data in the buffer.
@@ -133,6 +132,31 @@ class Decoder : public Loggable {
       logger.debug("[ReadTypedValue] Typed value has wrong type!");
       return false;
     }
+    return true;
+  }
+
+  /**
+   * Reads a Message header from the available data in the buffer.
+   *
+   * @param signature pointer to a Signature where the signature should be
+   *                  stored
+   * @param marker pointer to a Signature where the marker should be stored
+   * @returns true if data has been written into the data pointers,
+   *          false otherwise
+   */
+  bool ReadMessageHeader(Signature *signature, Marker *marker) {
+    uint8_t values[2];
+
+    logger.trace("[ReadMessageHeader] Start");
+
+    if (!buffer_.Read(values, 2)) {
+      logger.debug("[ReadMessageHeader] Marker data missing!");
+      return false;
+    }
+
+    *marker = (Marker)values[0];
+    *signature = (Signature)values[1];
+    logger.trace("[ReadMessageHeader] Success");
     return true;
   }
 
@@ -306,7 +330,7 @@ class Decoder : public Loggable {
       logger.trace("[ReadInt] Found an Int8");
       int8_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadInt] Int8 missing data!");
+        logger.debug("[ReadInt] Int8 missing data!");
         return false;
       }
       ret = tmp;
@@ -314,7 +338,7 @@ class Decoder : public Loggable {
       logger.trace("[ReadInt] Found an Int16");
       int16_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadInt] Int16 missing data!");
+        logger.debug("[ReadInt] Int16 missing data!");
         return false;
       }
       ret = bswap(tmp);
@@ -322,19 +346,20 @@ class Decoder : public Loggable {
       logger.trace("[ReadInt] Found an Int32");
       int32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadInt] Int32 missing data!");
+        logger.debug("[ReadInt] Int32 missing data!");
         return false;
       }
       ret = bswap(tmp);
     } else if (marker == Marker::Int64) {
       logger.trace("[ReadInt] Found an Int64");
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&ret), sizeof(ret))) {
-        logger.debug( "[ReadInt] Int64 missing data!");
+        logger.debug("[ReadInt] Int64 missing data!");
         return false;
       }
       ret = bswap(ret);
     } else {
-      logger.debug("[ReadInt] Received invalid marker ({})!", underlying_cast(marker));
+      logger.debug("[ReadInt] Received invalid marker ({})!",
+                   underlying_cast(marker));
       return false;
     }
     if (success) {
@@ -350,7 +375,7 @@ class Decoder : public Loggable {
     logger.trace("[ReadDouble] Start");
     debug_assert(marker == Marker::Float64, "Received invalid marker!");
     if (!buffer_.Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) {
-      logger.debug( "[ReadDouble] Missing data!");
+      logger.debug("[ReadDouble] Missing data!");
       return false;
     }
     value = bswap(value);
@@ -369,7 +394,7 @@ class Decoder : public Loggable {
       logger.trace("[ReadTypeSize] Found a Type8");
       uint8_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadTypeSize] Type8 missing data!");
+        logger.debug("[ReadTypeSize] Type8 missing data!");
         return -1;
       }
       return tmp;
@@ -377,7 +402,7 @@ class Decoder : public Loggable {
       logger.trace("[ReadTypeSize] Found a Type16");
       uint16_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadTypeSize] Type16 missing data!");
+        logger.debug("[ReadTypeSize] Type16 missing data!");
         return -1;
       }
       tmp = bswap(tmp);
@@ -386,13 +411,14 @@ class Decoder : public Loggable {
       logger.trace("[ReadTypeSize] Found a Type32");
       uint32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
-        logger.debug( "[ReadTypeSize] Type32 missing data!");
+        logger.debug("[ReadTypeSize] Type32 missing data!");
         return -1;
       }
       tmp = bswap(tmp);
       return tmp;
     } else {
-      logger.debug("[ReadTypeSize] Received invalid marker ({})!", underlying_cast(marker));
+      logger.debug("[ReadTypeSize] Received invalid marker ({})!",
+                   underlying_cast(marker));
       return -1;
     }
   }
@@ -409,7 +435,8 @@ class Decoder : public Loggable {
       logger.debug("[ReadString] Missing data!");
       return false;
     }
-    *data = query::TypedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
+    *data = query::TypedValue(
+        std::string(reinterpret_cast<char *>(ret.get()), size));
     logger.trace("[ReadString] Success");
     return true;
   }
@@ -462,7 +489,8 @@ class Decoder : public Loggable {
       ret.insert(std::make_pair(str, tv));
     }
     if (ret.size() != size) {
-      logger.debug("[ReadMap] The client sent multiple objects with same indexes!");
+      logger.debug(
+          "[ReadMap] The client sent multiple objects with same indexes!");
       return false;
     }
 

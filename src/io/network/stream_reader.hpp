@@ -53,13 +53,13 @@ class StreamReader : public StreamListener<Derived, Stream> {
     }
 
     // allocate the buffer to fill the data
-    auto buf = this->derived().OnAlloc(stream);
+    auto buf = stream.Allocate();
 
     // read from the buffer at most buf.len bytes
-    buf.len = stream.socket_.Read(buf.data, buf.len);
+    int len = stream.socket_.Read(buf.data, buf.len);
 
     // check for read errors
-    if (buf.len == -1) {
+    if (len == -1) {
       // this means we have read all available data
       if (LIKELY(errno == EAGAIN || errno == EWOULDBLOCK)) {
         return;
@@ -71,13 +71,16 @@ class StreamReader : public StreamListener<Derived, Stream> {
     }
 
     // end of file, the client has closed the connection
-    if (UNLIKELY(buf.len == 0)) {
+    if (UNLIKELY(len == 0)) {
       logger_.trace("Calling OnClose because the socket is closed!");
       this->derived().OnClose(stream);
       return;
     }
 
-    this->derived().OnRead(stream, buf);
+    // notify the stream that it has new data
+    stream.Written(len);
+
+    this->derived().OnRead(stream);
   }
 
  private:
