@@ -4,6 +4,8 @@
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 
+#include <unordered_set>
+
 namespace query {
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, Symbol::Type type) {
@@ -28,21 +30,30 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
   return CreateSymbol(name, type);
 }
 
+void SymbolGenerator::BindNamedExpressionSymbols(
+    const std::vector<NamedExpression *> &named_expressions) {
+  std::unordered_set<std::string> seen_names;
+  for (auto &named_expr : named_expressions) {
+    // Improvement would be to infer the type of the expression.
+    const auto &name = named_expr->name_;
+    if (!seen_names.insert(name).second) {
+      throw SemanticException(
+          "Multiple results with the same name '{}' are not allowed.", name);
+    }
+    symbol_table_[*named_expr] = CreateSymbol(name);
+  }
+}
+
 // Clauses
 
 void SymbolGenerator::Visit(Create &create) { scope_.in_create = true; }
 void SymbolGenerator::PostVisit(Create &create) { scope_.in_create = false; }
 
-void SymbolGenerator::Visit(Return &ret) {
-  scope_.in_return = true;
-}
+void SymbolGenerator::Visit(Return &ret) { scope_.in_return = true; }
 void SymbolGenerator::PostVisit(Return &ret) {
-  for (auto &named_expr : ret.named_expressions_) {
-    // Named expressions establish bindings for expressions which come after
-    // return, but not for the expressions contained inside.
-    symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
-    // Improvement to type checking system would be to infer the type of the expression.
-  }
+  // Named expressions establish bindings for expressions which come after
+  // return, but not for the expressions contained inside.
+  BindNamedExpressionSymbols(ret.named_expressions_);
   scope_.in_return = false;
 }
 
@@ -56,10 +67,7 @@ bool SymbolGenerator::PreVisit(With &with) {
   // only those established through named expressions. New declarations must not
   // be visible inside named expressions themselves.
   scope_.symbols.clear();
-  for (auto &named_expr : with.named_expressions_) {
-    // Improvement would be to infer the type of the expression.
-    symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
-  }
+  BindNamedExpressionSymbols(with.named_expressions_);
   if (with.where_) with.where_->Accept(*this);
   return false;  // We handled the traversal ourselves.
 }

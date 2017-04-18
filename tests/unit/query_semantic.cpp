@@ -534,4 +534,25 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   EXPECT_EQ(m, symbol_table.at(*node_3->identifier_));
 }
 
+TEST(TestSymbolGenerator, SameResults) {
+  // Test MATCH (n) WITH n AS m, n AS m
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                       WITH(IDENT("n"), AS("m"), IDENT("n"), AS("m")));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+  // Test MATCH (n) RETURN n, n
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                       RETURN(IDENT("n"), AS("n"), IDENT("n"), AS("n")));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+}
+
 }

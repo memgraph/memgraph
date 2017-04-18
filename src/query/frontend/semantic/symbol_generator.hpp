@@ -76,6 +76,9 @@ class SymbolGenerator : public TreeVisitorBase {
   auto GetOrCreateSymbol(const std::string &name,
                          Symbol::Type type = Symbol::Type::Any);
 
+  void BindNamedExpressionSymbols(
+      const std::vector<NamedExpression *> &named_expressions);
+
   SymbolTable &symbol_table_;
   Scope scope_;
 };
