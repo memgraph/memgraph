@@ -315,29 +315,29 @@ Feature: Test02
             |   n  |
             | true |
 
-        #    Scenario: Test exponential operator
-        #        When executing query:
-        #            """
-        #            RETURN 3^2=81^0.5 as n
-        #            """
-        #        Then the result should be:
-        #            |   n  |
-        #            | true |
-        #
-        #    Scenario: Test one big mathematical equation
-        #        When executing query:
-        #            """
-        #            RETURN (3+2*4-3/2%2*10)/5.0^2.0=0.04 as n
-        #            """
-        #        Then the result should be:
-        #            |   n  |
-        #            | true |
+	    #    Scenario: Test exponential operator
+	    #        When executing query:
+	    #            """
+	    #            RETURN 3^2=81^0.5 as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
+	    #
+	    #    Scenario: Test one big mathematical equation
+	    #        When executing query:
+	    #            """
+	    #            RETURN (3+2*4-3/2%2*10)/5.0^2.0=0.04 as n
+	    #            """
+	    #        Then the result should be:
+	    #            |   n  |
+	    #            | true |
 
-     Scenario: Test one big logical equation
-        When executing query:
-            """
-            RETURN not true or true and false or not ((true xor false or true) and true or false xor true ) as n
-            """
-        Then the result should be:
-            |   n   |
-            | false |
+	 Scenario: Test one big logical equation
+	    When executing query:
+		"""
+		RETURN not true or true and false or not ((true xor false or true) and true or false xor true ) as n
+		"""
+	    Then the result should be:
+		|   n   |
+		| false |
