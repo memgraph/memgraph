@@ -460,6 +460,10 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Bool:
       return a.Value<bool>() == b.Value<bool>();
     case TypedValue::Type::Int:
+      if (b.type() == TypedValue::Type::Double)
+        return ToDouble(a) == ToDouble(b);
+      else
+        return a.Value<int64_t>() == b.Value<int64_t>();
     case TypedValue::Type::Double:
       return ToDouble(a) == ToDouble(b);
     case TypedValue::Type::String:

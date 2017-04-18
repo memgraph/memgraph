@@ -80,6 +80,11 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue(42), TypedValue(42));
   EXPECT_PROP_NE(TypedValue(0), TypedValue(1));
 
+  // compare two ints close to 2 ^ 62
+  // this will fail if they are converted to float at any point
+  EXPECT_PROP_NE(TypedValue(4611686018427387905),
+                 TypedValue(4611686018427387900));
+
   EXPECT_PROP_NE(TypedValue(0.5), TypedValue(0.12));
   EXPECT_PROP_EQ(TypedValue(0.123), TypedValue(0.123));
 
