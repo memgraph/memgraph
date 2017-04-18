@@ -17,7 +17,9 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
   auto search = scope_.symbols.find(name);
   if (search != scope_.symbols.end()) {
     auto symbol = search->second;
-    if (type != Symbol::Type::Any && type != symbol.type_) {
+    // Unless we have `Any` type, check that types match.
+    if (type != Symbol::Type::Any && symbol.type_ != Symbol::Type::Any &&
+        type != symbol.type_) {
       throw TypeMismatchError(name, Symbol::TypeToString(symbol.type_),
                               Symbol::TypeToString(type));
     }
@@ -39,6 +41,7 @@ void SymbolGenerator::PostVisit(Return &ret) {
     // Named expressions establish bindings for expressions which come after
     // return, but not for the expressions contained inside.
     symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
+    // Improvement to type checking system would be to infer the type of the expression.
   }
   scope_.in_return = false;
 }
@@ -54,6 +57,7 @@ bool SymbolGenerator::PreVisit(With &with) {
   // be visible inside named expressions themselves.
   scope_.symbols.clear();
   for (auto &named_expr : with.named_expressions_) {
+    // Improvement would be to infer the type of the expression.
     symbol_table_[*named_expr] = CreateSymbol(named_expr->name_);
   }
   if (with.where_) with.where_->Accept(*this);
@@ -108,7 +112,8 @@ void SymbolGenerator::Visit(Aggregation &aggr) {
         "allowed");
   }
   // Create a virtual symbol for aggregation result.
-  symbol_table_[aggr] = symbol_table_.CreateSymbol("");
+  // Currently, we only have aggregation operators which return numbers.
+  symbol_table_[aggr] = symbol_table_.CreateSymbol("", Symbol::Type::Number);
   scope_.in_aggregation = true;
 }
 
@@ -120,7 +125,7 @@ void SymbolGenerator::PostVisit(Aggregation &aggr) {
 
 void SymbolGenerator::Visit(Pattern &pattern) {
   scope_.in_pattern = true;
-  if (scope_.in_create && pattern.atoms_.size() == 1) {
+  if (scope_.in_create && pattern.atoms_.size() == 1U) {
     debug_assert(dynamic_cast<NodeAtom *>(pattern.atoms_[0]),
                  "Expected a single NodeAtom in Pattern");
     scope_.in_create_node = true;
@@ -157,7 +162,7 @@ void SymbolGenerator::Visit(EdgeAtom &edge_atom) {
   scope_.in_edge_atom = true;
   if (scope_.in_create) {
     scope_.in_create_edge = true;
-    if (edge_atom.edge_types_.size() != 1) {
+    if (edge_atom.edge_types_.size() != 1U) {
       throw SemanticException(
           "A single relationship type must be specified "
           "when creating an edge.");

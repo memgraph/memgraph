@@ -509,4 +509,29 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   EXPECT_NE(n, symbol_table.at(*edge->identifier_));
 }
 
+TEST(TestSymbolGenerator, MatchWithCreate) {
+  // Test MATCH (n) WITH n AS m CREATE (m) -[r :r]-> (m)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  AstTreeStorage storage;
+  auto node_1 = NODE("n");
+  auto node_2 = NODE("m");
+  auto edge = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto node_3 = NODE("m");
+  auto query = QUERY(MATCH(PATTERN(node_1)), WITH(IDENT("n"), AS("m")),
+                     CREATE(PATTERN(node_2, edge, node_3)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto n = symbol_table.at(*node_1->identifier_);
+  EXPECT_EQ(n.type_, Symbol::Type::Vertex);
+  auto m = symbol_table.at(*node_2->identifier_);
+  EXPECT_NE(n, m);
+  // Currently we don't infer expression types, so we lost true type of 'm'.
+  EXPECT_EQ(m.type_, Symbol::Type::Any);
+  EXPECT_EQ(m, symbol_table.at(*node_3->identifier_));
+}
+
 }
