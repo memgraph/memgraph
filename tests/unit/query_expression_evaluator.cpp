@@ -246,7 +246,7 @@ TEST(ExpressionEvaluator, IsNullOperator) {
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
 
-TEST(ExpressionEvaluator, Function) {
+TEST(ExpressionEvaluator, AbsFunction) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
   {
@@ -271,8 +271,7 @@ TEST(ExpressionEvaluator, Function) {
   {
     std::vector<Expression *> arguments = {storage.Create<Literal>(true)};
     auto *op = storage.Create<Function>(NameToFunction("ABS"), arguments);
-    op->Accept(eval.eval);
-    ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+    ASSERT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
   {
     std::vector<Expression *> arguments = {

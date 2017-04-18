@@ -15,8 +15,6 @@ TypedValue Abs(const std::vector<TypedValue> &args) {
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
-    case TypedValue::Type::Bool:
-      return args[0].Value<bool>();
     case TypedValue::Type::Int:
       return static_cast<int64_t>(
           std::abs(static_cast<long long>(args[0].Value<int64_t>())));
