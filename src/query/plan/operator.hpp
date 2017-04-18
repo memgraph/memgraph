@@ -61,6 +61,8 @@ class ExpandUniquenessFilter;
 class Accumulate;
 class AdvanceCommand;
 class Aggregate;
+class Skip;
+class Limit;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
@@ -69,7 +71,7 @@ using LogicalOperatorVisitor =
                      SetProperties, SetLabels, RemoveProperty, RemoveLabels,
                      ExpandUniquenessFilter<VertexAccessor>,
                      ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
-                     AdvanceCommand, Aggregate>;
+                     AdvanceCommand, Aggregate, Skip, Limit>;
 
 /** @brief Base class for logical operators.
  *
@@ -926,6 +928,83 @@ class Aggregate : public LogicalOperator {
     /** Checks if the given TypedValue is legal in AVG and SUM. If not
      * an appropriate exception is thrown. */
     void EnsureOkForAvgSum(const TypedValue &value);
+  };
+};
+
+/** @brief Skips a number of Pulls from the input op.
+ *
+ * The given expression determines how many Pulls from the input
+ * should be skipped (ignored).
+ * All other successful Pulls from the
+ * input are simply passed through.
+ *
+ * The given expression is evaluated after the first Pull from
+ * the input, and only once. Neo does not allow this expression
+ * to contain identifiers, and neither does Memgraph, but this
+ * operator's implementation does not expect this.
+ */
+class Skip : public LogicalOperator {
+ public:
+  Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  Expression *expression_;
+
+  class SkipCursor : public Cursor {
+   public:
+    SkipCursor(Skip &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+
+   private:
+    Skip &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+    // init to_skip_ to -1, indicating
+    // that it's still unknown (input has not been Pulled yet)
+    int to_skip_{-1};
+    int skipped_{0};
+  };
+};
+
+/** @brief Limits the number of Pulls from the input op.
+ *
+ * The given expression determines how many
+ * input Pulls should be passed through. The input is not
+ * Pulled once this limit is reached. Note that this has
+ * implications: the out-of-bounds input Pulls are never
+ * evaluated.
+ *
+ * The limit expression must NOT use anything from the
+ * Frame. It is evaluated before the first Pull from the
+ * input. This is consistent with Neo (they don't allow
+ * identifiers in limit expressions), and it's necessary
+ * when limit evaluates to 0 (because 0 Pulls from the
+ * input should be performed).
+ */
+class Limit : public LogicalOperator {
+ public:
+  Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  Expression *expression_;
+
+  class LimitCursor : public Cursor {
+   public:
+    LimitCursor(Limit &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+
+   private:
+    Limit &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+    // init limit_ to -1, indicating
+    // that it's still unknown (Cursor has not been Pulled yet)
+    int limit_{-1};
+    int pulled_{0};
   };
 };
 

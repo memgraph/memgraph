@@ -1198,5 +1198,92 @@ bool Aggregate::AggregateCursor::TypedValueListEqual::operator()(
                     TypedValue::BoolEqual{});
 }
 
+Skip::Skip(const std::shared_ptr<LogicalOperator> &input,
+           Expression *expression)
+    : input_(input), expression_(expression) {}
+
+void Skip::Accept(LogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+}
+
+std::unique_ptr<Cursor> Skip::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<SkipCursor>(*this, db);
+}
+
+Skip::SkipCursor::SkipCursor(Skip &self, GraphDbAccessor &db)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+bool Skip::SkipCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+  while (input_cursor_->Pull(frame, symbol_table)) {
+    if (to_skip_ == -1) {
+      // first successful pull from the input
+      // evaluate the skip expression
+      ExpressionEvaluator evaluator(frame, symbol_table);
+      self_.expression_->Accept(evaluator);
+      TypedValue to_skip = evaluator.PopBack();
+      if (to_skip.type() != TypedValue::Type::Int)
+        throw QueryRuntimeException("Result of SKIP expression must be an int");
+
+      to_skip_ = to_skip.Value<int64_t>();
+      if (to_skip_ < 0)
+        throw QueryRuntimeException(
+            "Result of SKIP expression must be greater or equal to zero");
+    }
+
+    if (skipped_++ < to_skip_) continue;
+    return true;
+  }
+  return false;
+}
+
+Limit::Limit(const std::shared_ptr<LogicalOperator> &input,
+             Expression *expression)
+    : input_(input), expression_(expression) {}
+
+void Limit::Accept(LogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+}
+
+std::unique_ptr<Cursor> Limit::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<LimitCursor>(*this, db);
+}
+
+Limit::LimitCursor::LimitCursor(Limit &self, GraphDbAccessor &db)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+
+  // we need to evaluate the limit expression before the first input Pull
+  // because it might be 0 and thereby we shouldn't Pull from input at all
+  // we can do this before Pulling from the input because the limit expression
+  // is not allowed to contain any identifiers
+  if (limit_ == -1) {
+    ExpressionEvaluator evaluator(frame, symbol_table);
+    self_.expression_->Accept(evaluator);
+    TypedValue limit = evaluator.PopBack();
+    if (limit.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Result of LIMIT expression must be an int");
+
+    limit_ = limit.Value<int64_t>();
+    if (limit_ < 0)
+      throw QueryRuntimeException(
+          "Result of LIMIT expression must be greater or equal to zero");
+  }
+
+  // check we have not exceeded the limit before pulling
+  if (pulled_++ >= limit_)
+    return false;
+
+  return input_cursor_->Pull(frame, symbol_table);
+}
+
 }  // namespace plan
 }  // namespace query

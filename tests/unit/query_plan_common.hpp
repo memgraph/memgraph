@@ -57,7 +57,7 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
 }
 
 int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
-            SymbolTable symbol_table) {
+            SymbolTable &symbol_table) {
   Frame frame(symbol_table.max_position());
   auto cursor = logical_op->MakeCursor(db);
   int count = 0;

@@ -658,10 +658,14 @@ class Return : public Clause {
       for (auto &expr : named_expressions_) {
         expr->Accept(visitor);
       }
+      if (skip_) skip_->Accept(visitor);
+      if (limit_) limit_->Accept(visitor);
       visitor.PostVisit(*this);
     }
   }
   std::vector<NamedExpression *> named_expressions_;
+  Expression *skip_ = nullptr;
+  Expression *limit_ = nullptr;
 
  protected:
   Return(int uid) : Clause(uid) {}
@@ -678,6 +682,8 @@ class With : public Clause {
         expr->Accept(visitor);
       }
       if (where_) where_->Accept(visitor);
+      if (skip_) skip_->Accept(visitor);
+      if (limit_) limit_->Accept(visitor);
       visitor.PostVisit(*this);
     }
   }
@@ -685,6 +691,8 @@ class With : public Clause {
   bool distinct_ = false;
   std::vector<NamedExpression *> named_expressions_;
   Where *where_ = nullptr;
+  Expression *skip_ = nullptr;
+  Expression *limit_ = nullptr;
 
  protected:
   With(int uid) : Clause(uid) {}
