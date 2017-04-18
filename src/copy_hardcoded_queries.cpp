@@ -10,23 +10,31 @@ namespace fs = std::experimental::filesystem;
 #include "utils/command_line/arguments.hpp"
 #include "utils/exceptions/basic_exception.hpp"
 #include "utils/file.hpp"
-#include "utils/string/file.hpp"
-#include "utils/string/trim.hpp"
+#include "utils/string.hpp"
 
-std::string extract_query(const fs::path &path) {
+/**
+ * Reads a query from the file specified by the path argument.
+ * The first line of a query should start with "// Query: ". Query can be
+ * in more than one line but every line has to start with "//".
+ *
+ * @param path to the query file.
+ * @return query as a string.
+ */
+
+std::string ExtractQuery(const fs::path &path) {
   auto comment_mark = std::string("// ");
   auto query_mark = comment_mark + std::string("Query: ");
-  auto lines = utils::read_lines(path);
+  auto lines = utils::ReadLines(path);
   // find the line with a query (the query can be split across multiple
   // lines)
-  for (int i = 0; i < (int)lines.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
     // find query in the line
     auto &line = lines[i];
     auto pos = line.find(query_mark);
     // if query doesn't exist pass
     if (pos == std::string::npos) continue;
-    auto query = utils::trim(line.substr(pos + query_mark.size()));
-    while (i + 1 < (int)lines.size() &&
+    auto query = utils::Trim(line.substr(pos + query_mark.size()));
+    while (i + 1 < static_cast<int>(lines.size()) &&
            lines[i + 1].find(comment_mark) != std::string::npos) {
       query += lines[i + 1].substr(lines[i + 1].find(comment_mark) +
                                    comment_mark.length());
@@ -61,7 +69,7 @@ int main(int argc, char **argv) {
 
   QueryPreprocessor preprocessor;
   for (auto &src_file : src_files) {
-    auto query = extract_query(src_file);
+    auto query = ExtractQuery(src_file);
     auto query_hash = preprocessor.preprocess(query).hash;
     auto dst_file = dst_path / fs::path(std::to_string(query_hash) + ".cpp");
     fs::copy(src_file, dst_file, fs::copy_options::overwrite_existing);

@@ -9,10 +9,10 @@ namespace fs = std::experimental::filesystem;
 #include "logging/loggable.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/interpreter.hpp"
 #include "query/plan_compiler.hpp"
 #include "query/plan_interface.hpp"
 #include "query/preprocessor.hpp"
-#include "query/interpreter.hpp"
 #include "utils/dynamic_lib.hpp"
 
 /**
@@ -26,11 +26,12 @@ namespace fs = std::experimental::filesystem;
  *         the results should be returned (more optimal then just return
  *         the whole result set)
  */
-template <typename Stream> class QueryEngine : public Loggable {
-private:
+template <typename Stream>
+class QueryEngine : public Loggable {
+ private:
   using QueryPlanLib = DynamicLib<QueryPlanTrait<Stream>>;
 
-public:
+ public:
   QueryEngine() : Loggable("QueryEngine") {}
 
   /**
@@ -63,7 +64,6 @@ public:
    */
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
-
     if (CONFIG_BOOL(config::INTERPRET)) {
       query::Interpret(query, db_accessor, stream);
       return true;
@@ -109,12 +109,12 @@ public:
    *
    * @return size_t the number of loaded query plans
    */
-  auto Size() { // TODO: const once whan ConcurrentMap::Accessor becomes const
+  auto Size() {  // TODO: const once whan ConcurrentMap::Accessor becomes const
     return query_plans.access().size();
   }
   // return query_plans.access().size(); }
 
-private:
+ private:
   /**
    * Loads query plan eather from hardcoded folder or from the file that is
    * generated in this method.
@@ -175,13 +175,13 @@ private:
     auto path_so = CONFIG(config::COMPILE_PATH) + std::to_string(hash) + "_" +
                    (std::string)Timestamp::now() + ".so";
 
-    plan_compiler.compile(path_cpp, path_so);
+    plan_compiler.Compile(path_cpp, path_so);
 
     auto query_plan = std::make_unique<QueryPlanLib>(path_so);
     // TODO: underlying object has to be live during query execution
     //       fix that when Antler will be introduced into the database
 
-    auto query_plan_instance = query_plan->instance(); // because of move
+    auto query_plan_instance = query_plan->instance();  // because of move
     plans_accessor.insert(hash, std::move(query_plan));
 
     // return an instance of runnable code (PlanInterface)

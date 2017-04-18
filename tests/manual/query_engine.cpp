@@ -41,14 +41,14 @@ int main(int argc, char* argv[]) {
 
           auto comment = std::string("// ");
           auto query_mark = comment + std::string("Query: ");
-          auto lines = read_lines(event.path);
+          auto lines = utils::ReadLines(event.path);
           for (int i = 0; i < (int)lines.size(); ++i) {
             // find query in the line
             auto& line = lines[i];
             auto pos = line.find(query_mark);
             // if query doesn't exist pass
             if (pos == std::string::npos) continue;
-            auto query = trim(line.substr(pos + query_mark.size()));
+            auto query = utils::Trim(line.substr(pos + query_mark.size()));
             while (i + 1 < (int)lines.size() &&
                    lines[i + 1].find(comment) != std::string::npos) {
               query += lines[i + 1].substr(lines[i + 1].find(comment) +

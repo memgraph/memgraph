@@ -12,8 +12,7 @@ namespace fs = std::experimental::filesystem;
 #include "stream/print_record_stream.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/file.hpp"
-#include "utils/string/file.hpp"
-#include "utils/string/trim.hpp"
+#include "utils/string.hpp"
 
 namespace tests {
 namespace integration {
@@ -55,7 +54,7 @@ auto LoadQueryHashes(Logger &log, const fs::path &path) {
   // hashes calculated from all queries in queries file
   QueryHashesT query_hashes;
   // fill the above set
-  auto queries = utils::read_lines(path);
+  auto queries = utils::ReadLines(path);
   for (auto &query : queries) {
     if (query.empty()) continue;
     query_hashes.insert(preprocessor.preprocess(query).hash);
@@ -86,7 +85,7 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
   auto comment = std::string("// ");
   auto query_mark = comment + std::string("Query: ");
   for (auto &plan_path : plan_paths) {
-    auto lines = read_lines(plan_path);
+    auto lines = utils::ReadLines(plan_path);
     // find the line with a query in order
     // be able to place it in the dynamic libs container (base on query
     // hash)
@@ -96,7 +95,7 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
       auto pos = line.find(query_mark);
       // if query doesn't exist pass
       if (pos == std::string::npos) continue;
-      auto query = trim(line.substr(pos + query_mark.size()));
+      auto query = utils::Trim(line.substr(pos + query_mark.size()));
       while (i + 1 < (int)lines.size() &&
              lines[i + 1].find(comment) != std::string::npos) {
         query +=
@@ -131,10 +130,10 @@ auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine, Dbms &dbms,
                        const fs::path &path, StreamT &stream) {
   log.info("*** Execute the queries from the queries_file ***");
   // execute all queries from queries_file
-  auto queries = utils::read_lines(path);
+  auto queries = utils::ReadLines(path);
   for (auto &query : queries) {
     if (query.empty()) continue;
-    permanent_assert(engine.Loaded(trim(query)),
+    permanent_assert(engine.Loaded(utils::Trim(query)),
                      "Implementation wasn't loaded");
     // Create new db_accessor since one query is associated with one
     // transaction.

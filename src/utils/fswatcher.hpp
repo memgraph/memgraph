@@ -12,7 +12,6 @@
 #include <limits.h>
 #include <sys/inotify.h>
 #include <unistd.h>
-#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <mutex>

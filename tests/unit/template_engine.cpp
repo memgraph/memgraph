@@ -3,7 +3,7 @@
 #include "template_engine/engine.hpp"
 
 TEST(TemplateEngine, BasicPlaceholderReplacement) {
-  auto rendered = template_engine::render("{{one}} {{two}}",
+  auto rendered = template_engine::Render("{{one}} {{two}}",
                                           {{"one", "two"}, {"two", "one"}});
 
   ASSERT_EQ(rendered, "two one");

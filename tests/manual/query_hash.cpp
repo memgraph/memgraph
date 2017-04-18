@@ -5,11 +5,7 @@
 #include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "utils/string/file.hpp"
 #include "utils/type_discovery.hpp"
-#include "utils/variadic/variadic.hpp"
-
-using utils::println;
 
 /**
  * Useful when somebody wants to get a hash for some query.
@@ -32,13 +28,14 @@ int main(int argc, char **argv) {
   auto preprocessed = preprocessor.preprocess(query);
 
   // print query, stripped query, hash and variable values (propertie values)
-  println("Query: ", query);
-  println("Stripped query: ", preprocessed.query);
-  println("Query hash: ", preprocessed.hash);
-  println("Property values:");
-  for (int i = 0; i < preprocessed.arguments.Size(); ++i)
-    println("    ", preprocessed.arguments.At(i));
-  println("");
+  std::cout << fmt::format("Query: {}\n", query);
+  std::cout << fmt::format("Stripped query: {}\n", preprocessed.query);
+  std::cout << fmt::format("Query hash: {}\n", preprocessed.hash);
+  std::cout << fmt::format("Property values:\n");
+  for (int i = 0; i < static_cast<int>(preprocessed.arguments.Size()); ++i) {
+    fmt::format("    {}", preprocessed.arguments.At(i));
+  }
+  std::cout << std::endl;
 
   return 0;
 }

@@ -324,9 +324,6 @@ set(memgraph_src_files
     ${src_dir}/config/config.cpp
     ${src_dir}/dbms/dbms.cpp
 #    ${src_dir}/dbms/cleaner.cpp
-    ${src_dir}/utils/string/transform.cpp
-    ${src_dir}/utils/string/join.cpp
-    ${src_dir}/utils/string/file.cpp
     ${src_dir}/utils/numerics/saturate.cpp
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp

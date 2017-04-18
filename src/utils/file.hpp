@@ -1,7 +1,7 @@
 #pragma once
 
-#include <fstream>
 #include <experimental/filesystem>
+#include <fstream>
 namespace fs = std::experimental::filesystem;
 
 namespace utils {
@@ -49,5 +49,37 @@ inline auto LoadFilePaths(const fs::path &directory,
   }
 
   return file_paths;
+}
+
+// TODO: add error checking
+/**
+ * Reads all lines from the file specified by path.
+ *
+ * @param path file path.
+ * @return vector of all lines from the file.
+ */
+std::vector<std::string> ReadLines(const fs::path &path) {
+  std::vector<std::string> lines;
+
+  std::ifstream stream(path.c_str());
+  std::string line;
+  while (std::getline(stream, line)) {
+    lines.emplace_back(line);
+  }
+
+  return lines;
+}
+
+/**
+ * Writes test into the file specified by path.
+ *
+ * @param text content which will be written in the file.
+ * @param path a path to the file.
+ */
+void Write(const std::string &text, const fs::path &path) {
+  std::ofstream stream;
+  stream.open(path.c_str());
+  stream << text;
+  stream.close();
 }
 }
