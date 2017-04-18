@@ -418,4 +418,17 @@ TEST(TestLogicalPlanner, CreateWithSum) {
             ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, MatchWithCreate) {
+  // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  AstTreeStorage storage;
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"))), WITH(IDENT("n"), AS("a")),
+            CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::RIGHT),
+                           NODE("b"))));
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
+}
+
 }  // namespace

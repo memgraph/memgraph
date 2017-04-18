@@ -303,7 +303,8 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
 }
 
 auto GenWith(With &with, LogicalOperator *input_op,
-             const SymbolTable &symbol_table, bool is_write) {
+             const SymbolTable &symbol_table, bool is_write,
+             std::unordered_set<int> &bound_symbols) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter.
   if (with.distinct_) {
@@ -318,6 +319,11 @@ auto GenWith(With &with, LogicalOperator *input_op,
   LogicalOperator *last_op =
       GenReturnBody(input_op, advance_command, with.named_expressions_,
                     symbol_table, accumulate);
+  // Reset bound symbols, so that only those in WITH are exposed.
+  bound_symbols.clear();
+  for (auto &named_expr : with.named_expressions_) {
+    BindSymbol(bound_symbols, symbol_table.at(*named_expr));
+  }
   if (with.where_) {
     last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
                          with.where_->expression_);
@@ -392,7 +398,8 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
     } else if (auto *ret = dynamic_cast<Return *>(clause)) {
       input_op = GenReturn(*ret, input_op, symbol_table, is_write);
     } else if (auto *with = dynamic_cast<query::With *>(clause)) {
-      input_op = GenWith(*with, input_op, symbol_table, is_write);
+      input_op =
+          GenWith(*with, input_op, symbol_table, is_write, bound_symbols);
       // WITH clause advances the command, so reset the flag.
       is_write = false;
     } else if (auto *op = HandleWriteClause(clause, input_op, symbol_table,
