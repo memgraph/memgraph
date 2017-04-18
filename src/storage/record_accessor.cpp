@@ -1,6 +1,6 @@
+#include "storage/record_accessor.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "storage/edge.hpp"
-#include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "utils/assert.hpp"
 
@@ -59,13 +59,11 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
     // we can just Reconstruct the pointers, old_ will get initialized
     // to the same value as it has now, and the amount of work is the
     // same as just looking for a new_ record
-    Reconstruct();
+    if (!Reconstruct())
+      debug_fail(
+          "RecordAccessor::SwitchNew - accessor invalid after Reconstruct");
   }
-  // set new if we have it
-  // if we don't then current_ is old_ and remains there
-  if (new_) current_ = new_;
-  debug_assert(current_ != nullptr,
-               "RecordAccessor::SwitchNew - current_ is nullptr");
+  current_ = new_ ? new_ : old_;
   return *this;
 }
 
@@ -81,8 +79,8 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 }
 
 template <typename TRecord>
-void RecordAccessor<TRecord>::Reconstruct() {
-  db_accessor().Reconstruct(*this);
+bool RecordAccessor<TRecord>::Reconstruct() {
+  return db_accessor().Reconstruct(*this);
 }
 
 template <typename TRecord>

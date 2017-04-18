@@ -412,6 +412,34 @@ TEST(QueryPlan, DeleteReturn) {
   EXPECT_EQ(0, CountIterable(dba->vertices()));
 }
 
+TEST(QueryPlan, DeleteAdvance) {
+  // test queries on empty DB:
+  // CREATE (n)
+  // MATCH (n) DELETE n WITH n ...
+  // this fails due to us advancing the command
+  // when processing the WITH clause
+  //
+  // note that Neo does not fail when the deleted
+  // record is not used in subsequent clauses, but
+  // we are not yet compatible with that
+  Dbms dbms;
+  auto dba = dbms.active();
+  dba->insert_vertex();
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  auto advance = std::make_shared<Accumulate>(
+      delete_op, std::vector<Symbol>{n.sym_}, true);
+  EXPECT_THROW(PullAll(advance, *dba, symbol_table), QueryRuntimeException);
+}
+
 TEST(QueryPlan, SetProperty) {
   Dbms dbms;
   auto dba = dbms.active();

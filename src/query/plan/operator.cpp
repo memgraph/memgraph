@@ -899,10 +899,16 @@ namespace {
 void ReconstructTypedValue(TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Vertex:
-      value.Value<VertexAccessor>().Reconstruct();
+      if (!value.Value<VertexAccessor>().Reconstruct())
+        throw QueryRuntimeException(
+            "Vertex invalid after WITH clause, (most likely deleted by a "
+            "preceeding DELETE clause)");
       break;
     case TypedValue::Type::Edge:
-      value.Value<EdgeAccessor>().Reconstruct();
+      if (!value.Value<VertexAccessor>().Reconstruct())
+        throw QueryRuntimeException(
+            "Edge invalid after WITH clause, (most likely deleted by a "
+            "preceeding DELETE clause)");
       break;
     case TypedValue::Type::List:
       for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())

@@ -159,9 +159,11 @@ class RecordAccessor {
    * accessor so it uses the versions appropriate
    * to this transaction+command.
    *
-   * TODO consider what it does after delete+advance_command
+   * @return True if this accessor is valid after reconstruction.
+   * This means that at least one record pointer was found
+   * (either new_ or old_), possibly both.
    */
-  void Reconstruct();
+  bool Reconstruct();
 
  protected:
   /**

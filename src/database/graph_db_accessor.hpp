@@ -251,12 +251,17 @@ class GraphDbAccessor {
    * The old_ and new_ pointers need to be initialized
    * with appropriate values, and current_ set to old_
    * if it exists and to new_ otherwise.
+   *
+   * @return True if accessor is valid after reconstruction.
+   * This means that at least one record pointer was found
+   * (either new_ or old_), possibly both.
    */
   template <typename TRecord>
-  void Reconstruct(RecordAccessor<TRecord> &accessor) {
+  bool Reconstruct(RecordAccessor<TRecord> &accessor) {
     accessor.vlist_->find_set_new_old(*transaction_, accessor.old_,
                                       accessor.new_);
     accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
+    return accessor.old_ != nullptr || accessor.new_ != nullptr;
     // TODO review: we should never use a record accessor that
     // does not have either old_ or new_ (both are null), but
     // we can't assert that here because we construct such an accessor

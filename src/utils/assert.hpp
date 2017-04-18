@@ -56,6 +56,8 @@
  */
 #ifdef DEBUG_ASSERT_ON
 #define debug_assert(condition, message) permanent_assert(condition, message)
+#define debug_fail(message) permanent_fail(message)
 #else
-#define debug_assert(condition, message)
+#define debug_assert(condition, message) {}
+#define debug_fail(message) {}
 #endif
