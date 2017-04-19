@@ -13,6 +13,7 @@
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/exceptions/not_yet_implemented.hpp"
 
 #ifdef HAS_READLINE
 
@@ -152,6 +153,8 @@ void query::Repl(Dbms &dbms) {
       std::cout << "RUNTIME EXCEPTION: " << e.what() << std::endl;
     } catch (const query::TypedValueException &e) {
       std::cout << "TYPED VALUE EXCEPTION: " << e.what() << std::endl;
+    } catch (const NotYetImplemented &e) {
+      std::cout << e.what() << std::endl;
     }
   }
 }
