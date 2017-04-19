@@ -917,7 +917,7 @@ void ReconstructTypedValue(TypedValue &value) {
       break;
     case TypedValue::Type::Path:
       // TODO implement path reconstruct?
-      throw NotYetImplemented("Path reconstruction not yet supported");
+      throw utils::NotYetImplemented("Path reconstruction not yet supported");
     default:
       break;
   }

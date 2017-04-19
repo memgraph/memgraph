@@ -9,7 +9,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/named_antlr_tokens.hpp"
 #include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
-#include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/exceptions.hpp"
 
 namespace query {
 namespace frontend {
@@ -55,7 +55,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       case kGeTokenId:
         return storage_.Create<GreaterEqualOperator>(e1, e2);
       default:
-        throw NotYetImplemented();
+        throw utils::NotYetImplemented();
     }
   }
 
@@ -68,7 +68,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       case kUnaryMinusTokenId:
         return storage_.Create<UnaryMinusOperator>(e);
       default:
-        throw NotYetImplemented();
+        throw utils::NotYetImplemented();
     }
   }
 

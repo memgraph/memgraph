@@ -10,7 +10,7 @@ struct Object {
 };
 
 TEST(StackAllocatorTest, AllocationAndObjectValidity) {
-  StackAllocator allocator;
+  utils::StackAllocator allocator;
   for (int i = 0; i < 64 * 1024; ++i) {
     auto object = allocator.make<Object>(1, 2);
     ASSERT_EQ(object->a, 1);

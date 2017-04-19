@@ -24,7 +24,7 @@ namespace fs = std::experimental::filesystem;
 #include "logging/loggable.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
 #include "utils/underlying_cast.hpp"
 

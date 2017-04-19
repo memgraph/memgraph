@@ -1,8 +1,8 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 
-class LockTimeoutException : public BasicException {
+class LockTimeoutException : public utils::BasicException {
  public:
-  using BasicException::BasicException;
+  using utils::BasicException::BasicException;
 };

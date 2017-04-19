@@ -4,10 +4,20 @@
 #include <experimental/filesystem>
 #include <stdexcept>
 #include <string>
-#include "utils/exceptions/dynamic_lib_exception.hpp"
+#include "utils/exceptions.hpp"
 namespace fs = std::experimental::filesystem;
 
 #include "logging/loggable.hpp"
+
+namespace utils {
+
+/**
+ * @brief Exception raised by @c DynamicLib.
+ */
+class DynamicLibException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
 
 /**
  * DynamicLib is a wrapper aroung dynamic object returned by dlopen.
@@ -116,3 +126,5 @@ class DynamicLib : public Loggable {
   typename T::ProducePrototype produce_method;
   typename T::DestructPrototype destruct_method;
 };
+
+}  // namespace utils

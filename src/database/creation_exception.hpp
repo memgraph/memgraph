@@ -5,13 +5,13 @@
 
 #pragma once
 
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions.hpp"
 
 /**
  * Thrown when something (Edge or a Vertex) can not
  * be created. Typically due to database overload.
  */
-class CreationException : public StacktraceException {
+class CreationException : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };

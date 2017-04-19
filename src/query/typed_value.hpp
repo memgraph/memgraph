@@ -12,7 +12,7 @@
 #include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "traversal/path.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/total_ordering.hpp"
 
 namespace query {
@@ -171,9 +171,9 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
  * trying to perform operations (such as addition) on TypedValues
  * of incompatible Types.
  */
-class TypedValueException : public BasicException {
+class TypedValueException : public utils::BasicException {
  public:
-  using ::BasicException::BasicException;
+  using utils::BasicException::BasicException;
 };
 
 // comparison operators

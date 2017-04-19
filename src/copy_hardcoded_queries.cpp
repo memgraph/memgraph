@@ -8,7 +8,7 @@ namespace fs = std::experimental::filesystem;
 #include "logging/streams/stdout.hpp"
 #include "query/preprocessor.hpp"
 #include "utils/command_line/arguments.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
@@ -43,7 +43,7 @@ std::string ExtractQuery(const fs::path &path) {
     return query;
   }
 
-  throw BasicException("Unable to find query!");
+  throw utils::BasicException("Unable to find query!");
 }
 
 int main(int argc, char **argv) {

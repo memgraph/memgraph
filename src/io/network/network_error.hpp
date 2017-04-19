@@ -1,13 +1,11 @@
 #pragma once
 
-#include <stdexcept>
-
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions.hpp"
 
 namespace io::network {
 
-class NetworkError : public StacktraceException {
+class NetworkError : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 }

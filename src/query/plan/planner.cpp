@@ -4,7 +4,7 @@
 #include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
-#include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/exceptions.hpp"
 
 namespace query {
 namespace plan {
@@ -309,7 +309,7 @@ auto GenWith(With &with, LogicalOperator *input_op,
   // optional Filter.
   if (with.body_.distinct) {
     // TODO: Plan distinct with, when operator available.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   // In case of update and aggregation, we want to accumulate first, so that
   // when aggregating, we get the latest results. Similar to RETURN clause.
@@ -407,7 +407,7 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
       is_write = true;
       input_op = op;
     } else {
-      throw NotYetImplemented();
+      throw utils::NotYetImplemented();
     }
   }
   return std::unique_ptr<LogicalOperator>(input_op);

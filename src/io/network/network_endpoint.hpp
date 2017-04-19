@@ -1,15 +1,15 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 
 #include <netinet/in.h>
 #include <string>
 
 namespace io::network {
 
-class NetworkEndpointException : public BasicException {
+class NetworkEndpointException : public utils::BasicException {
  public:
-  using BasicException::BasicException;
+  using utils::BasicException::BasicException;
 };
 
 /**

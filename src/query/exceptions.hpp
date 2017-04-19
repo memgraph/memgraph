@@ -1,7 +1,6 @@
 #pragma once
 
-#include "utils/exceptions/basic_exception.hpp"
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions.hpp"
 
 #include <fmt/format.h>
 
@@ -9,8 +8,8 @@ namespace query {
 
 /** @brief Base class of all query language related exceptions.
  */
-class QueryException : public BasicException {
-  using BasicException::BasicException;
+class QueryException : public utils::BasicException {
+  using utils::BasicException::BasicException;
 };
 
 class SyntaxException : public QueryException {
@@ -65,19 +64,19 @@ class QueryRuntimeException : public QueryException {
 };
 
 // TODO: Move this elsewhere, it has no place in query.
-class DecoderException : public StacktraceException {
+class DecoderException : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 
-class PlanCompilationException : public StacktraceException {
+class PlanCompilationException : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 
-class PlanExecutionException : public StacktraceException {
+class PlanExecutionException : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 
 }  // namespace query

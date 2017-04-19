@@ -13,6 +13,7 @@
 #include "query/exceptions.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/assert.hpp"
+#include "utils/exceptions.hpp"
 
 namespace query {
 namespace frontend {
@@ -117,7 +118,7 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
     return static_cast<Clause *>(ctx->with()->accept(this).as<With *>());
   }
   // TODO: implement other clauses.
-  throw NotYetImplemented();
+  throw utils::NotYetImplemented();
   return 0;
 }
 
@@ -126,7 +127,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherMatch(
   auto *match = storage_.Create<Match>();
   if (ctx->OPTIONAL()) {
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   if (ctx->where()) {
     match->where_ = ctx->where()->accept(this);
@@ -147,7 +148,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(
   auto *return_clause = storage_.Create<Return>();
   if (ctx->DISTINCT()) {
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return_clause->body_.named_expressions =
       ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
@@ -158,7 +159,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnBody(
     CypherParser::ReturnBodyContext *ctx) {
   if (ctx->order() || ctx->skip() || ctx->limit()) {
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return ctx->returnItems()->accept(this);
 }
@@ -167,7 +168,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItems(
     CypherParser::ReturnItemsContext *ctx) {
   if (ctx->getTokens(kReturnAllTokenId).size()) {
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   std::vector<NamedExpression *> named_expressions;
   for (auto *item : ctx->returnItem()) {
@@ -230,7 +231,7 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
     // better logical plan if we have an information about properties at
     // compile time.
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return ctx->mapLiteral()->accept(this);
 }
@@ -257,7 +258,7 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     // because we would have t ofigure out how escaping works since same
     // variable can be referenced in two ways: escaped and unescaped.
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   // TODO: We should probably escape string.
   return std::string(ctx->getText());
@@ -333,7 +334,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
       // TODO: implement other clauses.
-      throw NotYetImplemented();
+      throw utils::NotYetImplemented();
     }
   }
   //    relationship.has_range = true;
@@ -521,7 +522,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression5(
   if (ctx->expression4().size() > 1u) {
     // TODO: implement power operator. In neo4j power is left associative and
     // int^int -> float.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return visitChildren(ctx);
 }
@@ -555,7 +556,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3(
         storage_.Create<IsNullOperator>(expression)));
   }
   if (ctx->children.size() > 1U) {
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return static_cast<Expression *>(visitChildren(ctx));
 }
@@ -565,7 +566,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2(
   if (ctx->nodeLabels().size()) {
     // TODO: Implement this. We don't currently support label checking in
     // expresssion.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
@@ -581,7 +582,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return static_cast<Expression *>(visitChildren(ctx).as<Literal *>());
   } else if (ctx->parameter()) {
     // TODO: implement other clauses.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   } else if (ctx->parenthesizedExpression()) {
     return static_cast<Expression *>(
         ctx->parenthesizedExpression()->accept(this));
@@ -594,7 +595,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   }
   // TODO: Implement this. We don't support comprehensions, functions,
   // filtering... at the moment.
-  throw NotYetImplemented();
+  throw utils::NotYetImplemented();
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(
@@ -612,7 +613,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
         ctx->numberLiteral()->accept(this).as<TypedValue>());
   } else {
     // TODO: Implement map and list literals.
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   return visitChildren(ctx);
 }
@@ -639,7 +640,7 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
 antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
     CypherParser::FunctionInvocationContext *ctx) {
   if (ctx->DISTINCT()) {
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   std::string function_name = ctx->functionName()->accept(this);
   std::vector<Expression *> expressions;
@@ -908,7 +909,7 @@ antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
   auto *with = storage_.Create<With>();
   if (ctx->DISTINCT()) {
     // TODO: implement this
-    throw NotYetImplemented();
+    throw utils::NotYetImplemented();
   }
   with->body_.named_expressions =
       ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();

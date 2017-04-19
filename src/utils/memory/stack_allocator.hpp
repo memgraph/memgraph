@@ -2,11 +2,21 @@
 
 #include <cmath>
 
-#include "utils/exceptions/out_of_memory.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
 #include "utils/memory/block_allocator.hpp"
 
 // http://en.cppreference.com/w/cpp/language/new
+
+namespace utils {
+
+///
+/// @brief Raised by @c StackAllocator when it cannot allocate the object.
+///
+class OutOfMemory : public StacktraceException {
+ public:
+  using StacktraceException::StacktraceException;
+};
 
 // Useful for allocating memory which can be freed with one call.
 // Most performant for data which need to be present to the end.
@@ -107,3 +117,5 @@ class StackAllocator {
   char *head = {nullptr};
   char *end = {nullptr};
 };
+
+}  // namespace utils

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions.hpp"
 
-class DatetimeError : public StacktraceException {
+class DatetimeError : public utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };

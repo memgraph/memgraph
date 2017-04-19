@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/datetime/datetime_error.hpp"
 
 class Datetime {
  public:

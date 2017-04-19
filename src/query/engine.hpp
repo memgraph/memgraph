@@ -29,7 +29,7 @@ namespace fs = std::experimental::filesystem;
 template <typename Stream>
 class QueryEngine : public Loggable {
  private:
-  using QueryPlanLib = DynamicLib<QueryPlanTrait<Stream>>;
+  using QueryPlanLib = utils::DynamicLib<QueryPlanTrait<Stream>>;
 
  public:
   QueryEngine() : Loggable("QueryEngine") {}

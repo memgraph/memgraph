@@ -7,7 +7,6 @@
 #include <query/exceptions.hpp>
 #include <tuple>
 #include <unordered_map>
-#include <utils/exceptions/not_yet_implemented.hpp>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"

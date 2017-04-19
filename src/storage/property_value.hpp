@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "utils/exceptions/stacktrace_exception.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/total_ordering.hpp"
 
 /**
@@ -90,9 +90,9 @@ class PropertyValue {
  * trying to perform operations (such as addition) on PropertyValues
  * of incompatible Types.
  */
-class PropertyValueException : public StacktraceException {
+class PropertyValueException : public utils::StacktraceException {
  public:
-  using ::StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 
 // stream output

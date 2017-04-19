@@ -6,6 +6,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "logging/default.hpp"
 #include "query/exceptions.hpp"
+#include "utils/exceptions.hpp"
 
 namespace communication::bolt {
 
@@ -91,7 +92,7 @@ State StateExecutorRun(Session &session) {
         return State::Executor;
       }
 
-    } catch (const BasicException &e) {
+    } catch (const utils::BasicException &e) {
       // clear header success message
       session.encoder_buffer_.Clear();
       db_accessor->abort();
@@ -104,7 +105,7 @@ State StateExecutorRun(Session &session) {
       }
       return State::Error;
 
-    } catch (const StacktraceException &e) {
+    } catch (const utils::StacktraceException &e) {
       // clear header success message
       session.encoder_buffer_.Clear();
       db_accessor->abort();

@@ -8,7 +8,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
-#include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/exceptions.hpp"
 
 namespace query {
 
@@ -117,7 +117,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
       }
       case TypedValue::Type::Map:
         // TODO implement me
-        throw NotYetImplemented();
+        throw utils::NotYetImplemented();
         break;
 
       default:

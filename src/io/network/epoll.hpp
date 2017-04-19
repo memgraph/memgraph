@@ -5,13 +5,14 @@
 
 #include "io/network/socket.hpp"
 #include "logging/default.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
 
 namespace io::network {
 
-class EpollError : StacktraceException {
+class EpollError : utils::StacktraceException {
  public:
-  using StacktraceException::StacktraceException;
+  using utils::StacktraceException::StacktraceException;
 };
 
 /**

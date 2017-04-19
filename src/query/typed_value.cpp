@@ -6,7 +6,7 @@
 #include <memory>
 
 #include "utils/assert.hpp"
-#include "utils/exceptions/not_yet_implemented.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
 
 namespace query {
@@ -505,7 +505,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return true;
     }
     case TypedValue::Type::Path:
-      throw NotYetImplemented();
+      throw utils::NotYetImplemented();
     default:
       permanent_fail("Unhandled comparison for types");
   }
@@ -784,7 +784,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Edge:
       return value.Value<EdgeAccessor>().temporary_id();
     case TypedValue::Type::Path:
-      throw NotYetImplemented();
+      throw utils::NotYetImplemented();
       break;
   }
   permanent_fail("Unhandled TypedValue.type() in hash function");
