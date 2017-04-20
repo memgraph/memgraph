@@ -698,52 +698,47 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-inline bool IsLogicallyOk(const TypedValue &a) {
-  return a.type() == TypedValue::Type::Bool ||
-         a.type() == TypedValue::Type::Null;
+inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b,
+                              const std::string &op_name) {
+  if ((a.type() != TypedValue::Type::Bool &&
+       a.type() != TypedValue::Type::Null) ||
+      (b.type() != TypedValue::Type::Bool &&
+       b.type() != TypedValue::Type::Null))
+    throw TypedValueException("Invalid {} operand types({} && {})", op_name,
+                              a.type(), b.type());
 }
 
-// TODO: Fix bugs in && and ||. null or true -> true; false and null -> false
 TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
-  if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
-    if (a.type() == TypedValue::Type::Null ||
-        b.type() == TypedValue::Type::Null) {
-      return TypedValue::Null;
-    } else {
-      return a.Value<bool>() && b.Value<bool>();
-    }
-  } else {
-    throw TypedValueException("Invalid logical and operand types({} && {})",
-                              a.type(), b.type());
-  }
+  EnsureLogicallyOk(a, b, "logical AND");
+  // at this point we only have null and bool
+  // if either operand is false, the result is false
+  if (a.type() == TypedValue::Type::Bool && !a.Value<bool>()) return false;
+  if (b.type() == TypedValue::Type::Bool && !b.Value<bool>()) return false;
+  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
+    return TypedValue::Null;
+  // neither is false, neither is null, thus both are true
+  return true;
 }
 
 TypedValue operator||(const TypedValue &a, const TypedValue &b) {
-  if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
-    if (a.type() == TypedValue::Type::Null ||
-        b.type() == TypedValue::Type::Null) {
-      return TypedValue::Null;
-    } else {
-      return a.Value<bool>() || b.Value<bool>();
-    }
-  } else {
-    throw TypedValueException("Invalid logical and operand types({} && {})",
-                              a.type(), b.type());
-  }
+  EnsureLogicallyOk(a, b, "logical OR");
+  // at this point we only have null and bool
+  // if either operand is true, the result is true
+  if (a.type() == TypedValue::Type::Bool && a.Value<bool>()) return true;
+  if (b.type() == TypedValue::Type::Bool && b.Value<bool>()) return true;
+  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
+    return TypedValue::Null;
+  // neither is true, neither is null, thus both are false
+  return false;
 }
 
 TypedValue operator^(const TypedValue &a, const TypedValue &b) {
-  if (IsLogicallyOk(a) && IsLogicallyOk(b)) {
-    if (a.type() == TypedValue::Type::Null ||
-        b.type() == TypedValue::Type::Null) {
-      return TypedValue::Null;
-    } else {
-      return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
-    }
-  } else {
-    throw TypedValueException("Invalid logical and operand types({} && {})",
-                              a.type(), b.type());
-  }
+  EnsureLogicallyOk(a, b, "logical XOR");
+  // at this point we only have null and bool
+  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
+    return TypedValue::Null;
+  else
+    return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,

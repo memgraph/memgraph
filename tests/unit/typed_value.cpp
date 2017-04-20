@@ -379,7 +379,9 @@ void TestLogicalThrows(
 TEST(TypedValue, LogicalAnd) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
+
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
+  EXPECT_PROP_EQ(TypedValue::Null && TypedValue(false), TypedValue(false));
   EXPECT_PROP_EQ(TypedValue(true) && TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));
 }
@@ -387,7 +389,9 @@ TEST(TypedValue, LogicalAnd) {
 TEST(TypedValue, LogicalOr) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
-  EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
+
+  EXPECT_PROP_ISNULL(TypedValue::Null || TypedValue(false));
+  EXPECT_PROP_EQ(TypedValue::Null || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) || TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));
 }
@@ -395,6 +399,7 @@ TEST(TypedValue, LogicalOr) {
 TEST(TypedValue, LogicalXor) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
+
   EXPECT_PROP_ISNULL(TypedValue::Null && TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(true), TypedValue(false));
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(true), TypedValue(true));
