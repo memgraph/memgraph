@@ -149,7 +149,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     // TODO: implement other clauses.
     throw NotYetImplemented();
   }
-  return_clause->named_expressions_ =
+  return_clause->body_.named_expressions =
       ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
   return return_clause;
 }
@@ -910,7 +910,7 @@ antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
     // TODO: implement this
     throw NotYetImplemented();
   }
-  with->named_expressions_ =
+  with->body_.named_expressions =
       ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
   if (ctx->where()) {
     with->where_ = ctx->where()->accept(this);

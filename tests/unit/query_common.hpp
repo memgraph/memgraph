@@ -112,26 +112,26 @@ auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
 /// Create the return clause with given named expressions.
 ///
 auto GetReturn(Return *ret, NamedExpression *named_expr) {
-  ret->named_expressions_.emplace_back(named_expr);
+  ret->body_.named_expressions.emplace_back(named_expr);
   return ret;
 }
 auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
-  ret->named_expressions_.emplace_back(named_expr);
+  ret->body_.named_expressions.emplace_back(named_expr);
   return ret;
 }
 template <class... T>
 auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr,
                T *... rest) {
   named_expr->expression_ = expr;
-  ret->named_expressions_.emplace_back(named_expr);
+  ret->body_.named_expressions.emplace_back(named_expr);
   return GetReturn(ret, rest...);
 }
 template <class... T>
 auto GetReturn(Return *ret, NamedExpression *named_expr, T *... rest) {
-  ret->named_expressions_.emplace_back(named_expr);
+  ret->body_.named_expressions.emplace_back(named_expr);
   return GetReturn(ret, rest...);
 }
 template <class... T>
@@ -144,26 +144,26 @@ auto GetReturn(AstTreeStorage &storage, T *... exprs) {
 /// Create the with clause with given named expressions.
 ///
 auto GetWith(With *with, NamedExpression *named_expr) {
-  with->named_expressions_.emplace_back(named_expr);
+  with->body_.named_expressions.emplace_back(named_expr);
   return with;
 }
 auto GetWith(With *with, Expression *expr, NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
-  with->named_expressions_.emplace_back(named_expr);
+  with->body_.named_expressions.emplace_back(named_expr);
   return with;
 }
 template <class... T>
 auto GetWith(With *with, Expression *expr, NamedExpression *named_expr,
              T *... rest) {
   named_expr->expression_ = expr;
-  with->named_expressions_.emplace_back(named_expr);
+  with->body_.named_expressions.emplace_back(named_expr);
   return GetWith(with, rest...);
 }
 template <class... T>
 auto GetWith(With *with, NamedExpression *named_expr, T *... rest) {
-  with->named_expressions_.emplace_back(named_expr);
+  with->body_.named_expressions.emplace_back(named_expr);
   return GetWith(with, rest...);
 }
 template <class... T>

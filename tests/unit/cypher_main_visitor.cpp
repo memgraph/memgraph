@@ -59,7 +59,7 @@ TEST(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *property_lookup = dynamic_cast<PropertyLookup *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(property_lookup->expression_);
   auto identifier = dynamic_cast<Identifier *>(property_lookup->expression_);
   ASSERT_TRUE(identifier);
@@ -72,7 +72,7 @@ TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
   AstGenerator ast_generator("RETURN var AS var5");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  auto *named_expr = return_clause->named_expressions_[0];
+  auto *named_expr = return_clause->body_.named_expressions[0];
   ASSERT_EQ(named_expr->name_, "var5");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "var");
@@ -83,7 +83,7 @@ TEST(CypherMainVisitorTest, IntegerLiteral) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<int64_t>(), 42);
 }
@@ -98,7 +98,7 @@ TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<bool>(), true);
 }
@@ -108,7 +108,7 @@ TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<bool>(), false);
 }
@@ -118,7 +118,7 @@ TEST(CypherMainVisitorTest, NullLiteral) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.type(), TypedValue::Type::Null);
 }
@@ -128,7 +128,7 @@ TEST(CypherMainVisitorTest, ParenthesizedExpression) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<int64_t>(), 2);
 }
@@ -139,7 +139,7 @@ TEST(CypherMainVisitorTest, OrOperator) {
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *or_operator2 = dynamic_cast<OrOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(or_operator2);
   auto *or_operator1 = dynamic_cast<OrOperator *>(or_operator2->expression1_);
   ASSERT_TRUE(or_operator1);
@@ -159,7 +159,7 @@ TEST(CypherMainVisitorTest, XorOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *xor_operator = dynamic_cast<XorOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(xor_operator->expression1_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<bool>(), true);
@@ -173,7 +173,7 @@ TEST(CypherMainVisitorTest, AndOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *and_operator = dynamic_cast<AndOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(and_operator->expression1_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<bool>(), true);
@@ -187,7 +187,7 @@ TEST(CypherMainVisitorTest, AdditionSubtractionOperators) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *addition_operator = dynamic_cast<AdditionOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(addition_operator);
   auto *subtraction_operator =
       dynamic_cast<SubtractionOperator *>(addition_operator->expression1_);
@@ -208,7 +208,7 @@ TEST(CypherMainVisitorTest, MulitplicationOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *mult_operator = dynamic_cast<MultiplicationOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(mult_operator->expression1_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
@@ -222,7 +222,7 @@ TEST(CypherMainVisitorTest, DivisionOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *div_operator = dynamic_cast<DivisionOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(div_operator->expression1_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
@@ -236,7 +236,7 @@ TEST(CypherMainVisitorTest, ModOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *mod_operator = dynamic_cast<ModOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(mod_operator->expression1_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
@@ -262,7 +262,7 @@ TEST(CypherMainVisitorTest, ComparisonOperators) {
   AstGenerator ast_generator("RETURN 2 = 3 != 4 <> 5 < 6 > 7 <= 8 >= 9");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  Expression *_operator = return_clause->named_expressions_[0]->expression_;
+  Expression *_operator = return_clause->body_.named_expressions[0]->expression_;
   CHECK_COMPARISON(GreaterEqualOperator, 8, 9);
   CHECK_COMPARISON(LessEqualOperator, 7, 8);
   CHECK_COMPARISON(GreaterOperator, 6, 7);
@@ -284,7 +284,7 @@ TEST(CypherMainVisitorTest, IsNull) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *is_type_operator = dynamic_cast<IsNullOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand1 = dynamic_cast<Literal *>(is_type_operator->expression_);
   ASSERT_TRUE(operand1);
   ASSERT_EQ(operand1->value_.Value<int64_t>(), 2);
@@ -295,7 +295,7 @@ TEST(CypherMainVisitorTest, IsNotNull) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *not_operator = dynamic_cast<NotOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *is_type_operator =
       dynamic_cast<IsNullOperator *>(not_operator->expression_);
   auto *operand1 = dynamic_cast<Literal *>(is_type_operator->expression_);
@@ -308,7 +308,7 @@ TEST(CypherMainVisitorTest, NotOperator) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *not_operator = dynamic_cast<NotOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   auto *operand = dynamic_cast<Literal *>(not_operator->expression_);
   ASSERT_TRUE(operand);
   ASSERT_EQ(operand->value_.Value<bool>(), true);
@@ -319,7 +319,7 @@ TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *unary_minus_operator = dynamic_cast<UnaryMinusOperator *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(unary_minus_operator);
   auto *unary_plus_operator =
       dynamic_cast<UnaryPlusOperator *>(unary_minus_operator->expression_);
@@ -333,14 +333,14 @@ TEST(CypherMainVisitorTest, Aggregation) {
   AstGenerator ast_generator("RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e)");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  ASSERT_EQ(return_clause->named_expressions_.size(), 5);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 5);
   Aggregation::Op ops[] = {Aggregation::Op::COUNT, Aggregation::Op::MIN,
                            Aggregation::Op::MAX, Aggregation::Op::SUM,
                            Aggregation::Op::AVG};
   std::string ids[] = {"a", "b", "c", "d", "e"};
   for (int i = 0; i < 5; ++i) {
     auto *aggregation = dynamic_cast<Aggregation *>(
-        return_clause->named_expressions_[i]->expression_);
+        return_clause->body_.named_expressions[i]->expression_);
     ASSERT_TRUE(aggregation);
     ASSERT_EQ(aggregation->op_, ops[i]);
     auto *identifier = dynamic_cast<Identifier *>(aggregation->expression_);
@@ -360,9 +360,9 @@ TEST(CypherMainVisitorTest, Function) {
   AstGenerator ast_generator("RETURN abs(n, 2)");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  ASSERT_EQ(return_clause->named_expressions_.size(), 1);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
   auto *function = dynamic_cast<Function *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
   ASSERT_TRUE(function->function_);
   // Check if function is abs.
@@ -375,7 +375,7 @@ TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<std::string>(), "mi'rko");
 }
@@ -385,7 +385,7 @@ TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<std::string>(), "mi\"rko");
 }
@@ -396,7 +396,7 @@ TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<std::string>(), "\\'\"\b\b\f\f\n\n\r\r\t\t");
 }
@@ -406,7 +406,7 @@ TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<std::string>(), u8"\u221daaa\u221daaa");
 }
@@ -416,7 +416,7 @@ TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<std::string>(),
             u8"\U0001F600aaaa\U0001F600aaaaaaaa");
@@ -427,7 +427,7 @@ TEST(CypherMainVisitorTest, DoubleLiteral) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<double>(), 3.5);
 }
@@ -437,7 +437,7 @@ TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<Literal *>(
-      return_clause->named_expressions_[0]->expression_);
+      return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
   ASSERT_EQ(literal->value_.Value<double>(), 0.5);
 }
@@ -634,8 +634,8 @@ TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   ASSERT_TRUE(return_clause);
-  ASSERT_EQ(return_clause->named_expressions_.size(), 1U);
-  auto *named_expr = return_clause->named_expressions_[0];
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1U);
+  auto *named_expr = return_clause->body_.named_expressions[0];
   ASSERT_TRUE(named_expr);
   ASSERT_EQ(named_expr->name_, "var");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
@@ -787,8 +787,8 @@ TEST(CypherMainVisitorTest, With) {
   auto *with = dynamic_cast<With *>(query->clauses_[0]);
   ASSERT_TRUE(with);
   ASSERT_FALSE(with->where_);
-  ASSERT_EQ(with->named_expressions_.size(), 1U);
-  auto *named_expr = with->named_expressions_[0];
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  auto *named_expr = with->body_.named_expressions[0];
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "n");
@@ -804,8 +804,8 @@ TEST(CypherMainVisitorTest, WithWhere) {
   auto *identifier = dynamic_cast<Identifier *>(with->where_->expression_);
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "k");
-  ASSERT_EQ(with->named_expressions_.size(), 1U);
-  auto *named_expr = with->named_expressions_[0];
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  auto *named_expr = with->body_.named_expressions[0];
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier2 = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier2->name_, "n");

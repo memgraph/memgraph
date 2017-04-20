@@ -53,13 +53,13 @@ void SymbolGenerator::Visit(Return &ret) { scope_.in_return = true; }
 void SymbolGenerator::PostVisit(Return &ret) {
   // Named expressions establish bindings for expressions which come after
   // return, but not for the expressions contained inside.
-  BindNamedExpressionSymbols(ret.named_expressions_);
+  BindNamedExpressionSymbols(ret.body_.named_expressions);
   scope_.in_return = false;
 }
 
 bool SymbolGenerator::PreVisit(With &with) {
   scope_.in_with = true;
-  for (auto &expr : with.named_expressions_) {
+  for (auto &expr : with.body_.named_expressions) {
     expr->Accept(*this);
   }
   scope_.in_with = false;
@@ -67,7 +67,7 @@ bool SymbolGenerator::PreVisit(With &with) {
   // only those established through named expressions. New declarations must not
   // be visible inside named expressions themselves.
   scope_.symbols.clear();
-  BindNamedExpressionSymbols(with.named_expressions_);
+  BindNamedExpressionSymbols(with.body_.named_expressions);
   if (with.where_) with.where_->Accept(*this);
   return false;  // We handled the traversal ourselves.
 }

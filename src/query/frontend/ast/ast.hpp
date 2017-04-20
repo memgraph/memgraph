@@ -648,6 +648,25 @@ class Match : public Clause {
   Match(int uid) : Clause(uid) {}
 };
 
+/** @brief Defines the order for sorting values (ascending or descending). */
+enum class Ordering { ASC, DESC };
+
+/**
+ * @brief Contents common to @c Return and @c With clauses.
+ */
+struct ReturnBody {
+  /** @brief True if distinct results should be produced. */
+  bool distinct = false;
+  /** @brief Expressions which are used to produce results. */
+  std::vector<NamedExpression *> named_expressions;
+  /** @brief Expressions used for ordering the results. */
+  std::vector<std::pair<Ordering, Expression *>> order_by;
+  /** @brief Optional expression on how many results to skip. */
+  Expression *skip = nullptr;
+  /** @brief Optional expression on how much to limit the results. */
+  Expression *limit = nullptr;
+};
+
 class Return : public Clause {
   friend class AstTreeStorage;
 
@@ -655,17 +674,19 @@ class Return : public Clause {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      for (auto &expr : named_expressions_) {
+      for (auto &expr : body_.named_expressions) {
         expr->Accept(visitor);
       }
-      if (skip_) skip_->Accept(visitor);
-      if (limit_) limit_->Accept(visitor);
+      for (auto &order_by : body_.order_by) {
+        order_by.second->Accept(visitor);
+      }
+      if (body_.skip) body_.skip->Accept(visitor);
+      if (body_.limit) body_.limit->Accept(visitor);
       visitor.PostVisit(*this);
     }
   }
-  std::vector<NamedExpression *> named_expressions_;
-  Expression *skip_ = nullptr;
-  Expression *limit_ = nullptr;
+
+  ReturnBody body_;
 
  protected:
   Return(int uid) : Clause(uid) {}
@@ -678,21 +699,21 @@ class With : public Clause {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      for (auto &expr : named_expressions_) {
+      for (auto &expr : body_.named_expressions) {
         expr->Accept(visitor);
       }
+      for (auto &order_by : body_.order_by) {
+        order_by.second->Accept(visitor);
+      }
       if (where_) where_->Accept(visitor);
-      if (skip_) skip_->Accept(visitor);
-      if (limit_) limit_->Accept(visitor);
+      if (body_.skip) body_.skip->Accept(visitor);
+      if (body_.limit) body_.limit->Accept(visitor);
       visitor.PostVisit(*this);
     }
   }
 
-  bool distinct_ = false;
-  std::vector<NamedExpression *> named_expressions_;
+  ReturnBody body_;
   Where *where_ = nullptr;
-  Expression *skip_ = nullptr;
-  Expression *limit_ = nullptr;
 
  protected:
   With(int uid) : Clause(uid) {}

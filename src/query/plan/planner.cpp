@@ -307,7 +307,7 @@ auto GenWith(With &with, LogicalOperator *input_op,
              std::unordered_set<int> &bound_symbols) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter.
-  if (with.distinct_) {
+  if (with.body_.distinct) {
     // TODO: Plan distinct with, when operator available.
     throw NotYetImplemented();
   }
@@ -317,11 +317,11 @@ auto GenWith(With &with, LogicalOperator *input_op,
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
   LogicalOperator *last_op =
-      GenReturnBody(input_op, advance_command, with.named_expressions_,
+      GenReturnBody(input_op, advance_command, with.body_.named_expressions,
                     symbol_table, accumulate);
   // Reset bound symbols, so that only those in WITH are exposed.
   bound_symbols.clear();
-  for (auto &named_expr : with.named_expressions_) {
+  for (auto &named_expr : with.body_.named_expressions) {
     BindSymbol(bound_symbols, symbol_table.at(*named_expr));
   }
   if (with.where_) {
@@ -341,7 +341,7 @@ auto GenReturn(Return &ret, LogicalOperator *input_op,
   // value is the same, final result of 'k' increments.
   bool accumulate = is_write;
   bool advance_command = false;
-  return GenReturnBody(input_op, advance_command, ret.named_expressions_,
+  return GenReturnBody(input_op, advance_command, ret.body_.named_expressions,
                        symbol_table, accumulate);
 }
 
