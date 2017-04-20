@@ -833,7 +833,7 @@ class Aggregate : public LogicalOperator {
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
             const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by,
-            const std::vector<Symbol> &remember, bool advance_command = false);
+            const std::vector<Symbol> &remember);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
@@ -845,7 +845,6 @@ class Aggregate : public LogicalOperator {
   const std::vector<Element> aggregations_;
   const std::vector<Expression *> group_by_;
   const std::vector<Symbol> remember_;
-  const bool advance_command_;
 
   class AggregateCursor : public Cursor {
    public:
@@ -876,7 +875,6 @@ class Aggregate : public LogicalOperator {
     };
 
     Aggregate &self_;
-    GraphDbAccessor &db_;
     // optional
     std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data

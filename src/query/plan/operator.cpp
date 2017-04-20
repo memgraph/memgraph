@@ -972,12 +972,11 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
                      const std::vector<Aggregate::Element> &aggregations,
                      const std::vector<Expression *> &group_by,
-                     const std::vector<Symbol> &remember, bool advance_command)
+                     const std::vector<Symbol> &remember)
     : input_(input),
       aggregations_(aggregations),
       group_by_(group_by),
-      remember_(remember),
-      advance_command_(advance_command) {}
+      remember_(remember) {}
 
 void Aggregate::Accept(LogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -994,28 +993,14 @@ std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
 Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
                                             GraphDbAccessor &db)
     : self_(self),
-      db_(db),
       input_cursor_(self.input_ ? self_.input_->MakeCursor(db) : nullptr) {}
 
 bool Aggregate::AggregateCursor::Pull(Frame &frame,
                                       const SymbolTable &symbol_table) {
   if (!pulled_all_input_) {
     ProcessAll(frame, symbol_table);
-
     pulled_all_input_ = true;
     aggregation_it_ = aggregation_.begin();
-
-    if (self_.advance_command_) {
-      db_.advance_command();
-      // regarding reconstruction after advance_command
-      // we have to reconstruct only the remember values
-      // because aggregation results are primitives and
-      // group-by elements won't be used directly (possibly re-evaluated
-      // using remember values)
-      for (auto &kv : aggregation_)
-        for (TypedValue &remember : kv.second.remember_)
-          ReconstructTypedValue(remember);
-    }
   }
 
   if (aggregation_it_ == aggregation_.end()) return false;

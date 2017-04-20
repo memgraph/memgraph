@@ -294,38 +294,6 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   EXPECT_EQ(results.size(), 2 * 3 * 5);
 }
 
-TEST(QueryPlan, AggregateAdvance) {
-  // we simulate 'CREATE (n {x: 42}) WITH count(n.x) AS c MATCH (m) RETURN m,
-  // m.x, c'
-  // to get correct results we need to advance the command in aggregation
-  // since we only test aggregation, we'll simplify the logical plan and only
-  // check the count and not all the results
-
-  auto check = [&](bool advance) {
-    Dbms dbms;
-    auto dba = dbms.active();
-    AstTreeStorage storage;
-    SymbolTable symbol_table;
-
-    auto node = NODE("n");
-    auto sym_n = symbol_table.CreateSymbol("n");
-    symbol_table[*node->identifier_] = sym_n;
-    auto create = std::make_shared<CreateNode>(node, nullptr);
-
-    auto aggr_sym = symbol_table.CreateSymbol("aggr_sym");
-    auto n_p = PROPERTY_LOOKUP("n", dba->property("x"));
-    symbol_table[*n_p->expression_] = sym_n;
-    auto aggregate = std::make_shared<Aggregate>(
-        create, std::vector<Aggregate::Element>{Aggregate::Element{
-                    n_p, Aggregation::Op::COUNT, aggr_sym}},
-        std::vector<Expression *>{}, std::vector<Symbol>{}, advance);
-    auto match = MakeScanAll(storage, symbol_table, "m", aggregate);
-    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
-  };
-  //  check(false);
-  check(true);
-}
-
 TEST(QueryPlan, AggregateNoInput) {
   Dbms dbms;
   auto dba = dbms.active();
