@@ -36,9 +36,7 @@ void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
   EXPECT_PROP_TRUE(a == b);
 }
 
-void EXPECT_PROP_ISNULL(const TypedValue &a) {
-  EXPECT_TRUE(a.type() == TypedValue::Type::Null);
-}
+void EXPECT_PROP_ISNULL(const TypedValue &a) { EXPECT_TRUE(a.IsNull()); }
 
 void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) {
   EXPECT_PROP_TRUE(a != b);
@@ -109,8 +107,9 @@ TEST(TypedValue, Equals) {
                  TypedValue(std::map<std::string, TypedValue>{{"b", 1}}));
   EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
                  TypedValue(std::map<std::string, TypedValue>{{"a", 2}}));
-  EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
-                 TypedValue(std::map<std::string, TypedValue>{{"a", 1}, {"b", 1}}));
+  EXPECT_PROP_NE(
+      TypedValue(std::map<std::string, TypedValue>{{"a", 1}}),
+      TypedValue(std::map<std::string, TypedValue>{{"a", 1}, {"b", 1}}));
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -365,10 +364,8 @@ void TestLogicalThrows(
     for (int j = 0; j < (int)props.size(); ++j) {
       auto p2 = props.at(j);
       // skip situations when both p1 and p2 are either bool or null
-      auto p1_ok = p1.type() == TypedValue::Type::Bool ||
-                   p1.type() == TypedValue::Type::Null;
-      auto p2_ok = p2.type() == TypedValue::Type::Bool ||
-                   p2.type() == TypedValue::Type::Null;
+      auto p1_ok = p1.type() == TypedValue::Type::Bool || p1.IsNull();
+      auto p2_ok = p2.type() == TypedValue::Type::Bool || p2.IsNull();
       if (p1_ok && p2_ok) continue;
 
       EXPECT_THROW(op(p1, p2), TypedValueException);

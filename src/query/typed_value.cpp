@@ -249,6 +249,12 @@ TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   permanent_fail("Unsupported TypedValue::Type");
 }
 
+bool TypedValue::IsNull() const { return type() == TypedValue::Type::Null; }
+
+bool TypedValue::IsNumeric() const {
+  return type() == TypedValue::Type::Int || type() == TypedValue::Type::Double;
+}
+
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
   switch (type) {
     case TypedValue::Type::Null:
@@ -415,13 +421,12 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(),
                               b.type());
 
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   if (a.type() == TypedValue::Type::String ||
       b.type() == TypedValue::Type::String) {
     if (a.type() != b.type()) {
-      throw TypedValueException("Invalid equality operand types({} + {})",
+      throw TypedValueException("Invalid 'less' operand types({} + {})",
                                 a.type(), b.type());
     } else {
       return a.Value<std::string>() < b.Value<std::string>();
@@ -445,16 +450,11 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
  * this file at 2017-04-12.
  */
 TypedValue operator==(const TypedValue &a, const TypedValue &b) {
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   // check we have values that can be compared
   // this means that either they're the same type, or (int, double) combo
-  if (!(a.type() == b.type() || (a.type() == TypedValue::Type::Double &&
-                                 b.type() == TypedValue::Type::Int) ||
-        (b.type() == TypedValue::Type::Double &&
-         a.type() == TypedValue::Type::Int)))
-    return false;
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric()))) return false;
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
@@ -500,9 +500,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
         auto found_b_it = map_b.find(kv_a.first);
         if (found_b_it == map_b.end()) return false;
         TypedValue comparison = kv_a.second == found_b_it->second;
-        if (comparison.type() == TypedValue::Type::Null ||
-            !comparison.Value<bool>())
-          return false;
+        if (comparison.IsNull() || !comparison.Value<bool>()) return false;
       }
       return true;
     }
@@ -600,8 +598,7 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b,
 }
 
 TypedValue operator+(const TypedValue &a, const TypedValue &b) {
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   if (a.type() == TypedValue::Type::List ||
       b.type() == TypedValue::Type::List) {
@@ -638,8 +635,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "subtraction");
 
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -653,8 +649,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "division");
 
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -670,8 +665,7 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
 TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "multiplication");
 
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -685,8 +679,7 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b) {
 TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   EnsureArithmeticallyOk(a, b, false, "modulo");
 
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -714,7 +707,7 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   // if either operand is false, the result is false
   if (a.type() == TypedValue::Type::Bool && !a.Value<bool>()) return false;
   if (b.type() == TypedValue::Type::Bool && !b.Value<bool>()) return false;
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
+  if (a.IsNull() || b.IsNull())
     return TypedValue::Null;
   // neither is false, neither is null, thus both are true
   return true;
@@ -726,26 +719,26 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   // if either operand is true, the result is true
   if (a.type() == TypedValue::Type::Bool && a.Value<bool>()) return true;
   if (b.type() == TypedValue::Type::Bool && b.Value<bool>()) return true;
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
+  if (a.IsNull() || b.IsNull())
     return TypedValue::Null;
   // neither is true, neither is null, thus both are false
   return false;
 }
 
 TypedValue operator^(const TypedValue &a, const TypedValue &b) {
-  EnsureLogicallyOk(a, b, "logical XOR");
+  EnsureLogicallyOk(a,b, "logical XOR");
   // at this point we only have null and bool
-  if (a.type() == TypedValue::Type::Null || b.type() == TypedValue::Type::Null)
-    return TypedValue::Null;
-  else
-    return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
+    if (a.IsNull() ||
+        b.IsNull())
+      return TypedValue::Null;
+     else
+      return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
+
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
                                        const TypedValue &rhs) const {
-  if (lhs.type() == TypedValue::Type::Null &&
-      rhs.type() == TypedValue::Type::Null)
-    return true;
+  if (lhs.IsNull() && rhs.IsNull()) return true;
   TypedValue equality_result = lhs == rhs;
   switch (equality_result.type()) {
     case TypedValue::Type::Bool:

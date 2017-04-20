@@ -383,8 +383,7 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
         vertex.PropsAt(prop_pair.first) == expression_evaluator.PopBack();
-    if (comparison_result.type() == TypedValue::Type::Null ||
-        !comparison_result.Value<bool>())
+    if (comparison_result.IsNull() || !comparison_result.Value<bool>())
       return false;
   }
   return true;
@@ -438,8 +437,7 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
         edge.PropsAt(prop_pair.first) == expression_evaluator.PopBack();
-    if (comparison_result.type() == TypedValue::Type::Null ||
-        !comparison_result.Value<bool>())
+    if (comparison_result.IsNull() || !comparison_result.Value<bool>())
       return false;
   }
   return true;
@@ -472,8 +470,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
     self_.expression_->Accept(evaluator);
     TypedValue result = evaluator.PopBack();
-    if (result.type() == TypedValue::Type::Null || !result.Value<bool>())
-      continue;
+    if (result.IsNull() || !result.Value<bool>()) continue;
     return true;
   }
   return false;
@@ -1109,7 +1106,7 @@ void Aggregate::AggregateCursor::Update(
     TypedValue input_value = evaluator.PopBack();
 
     // Aggregations skip Null input values.
-    if (input_value.type() == TypedValue::Type::Null) continue;
+    if (input_value.IsNull()) continue;
 
     const auto &agg_op = std::get<1>(*agg_elem_it);
     *count_it += 1;
@@ -1260,7 +1257,6 @@ Limit::LimitCursor::LimitCursor(Limit &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
-
   // we need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all
   // we can do this before Pulling from the input because the limit expression
@@ -1279,10 +1275,148 @@ bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   }
 
   // check we have not exceeded the limit before pulling
-  if (pulled_++ >= limit_)
-    return false;
+  if (pulled_++ >= limit_) return false;
 
   return input_cursor_->Pull(frame, symbol_table);
+}
+
+OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
+                 const std::vector<std::pair<Ordering, Expression *>> order_by,
+                 const std::vector<Symbol> remember)
+    : input_(input), remember_(remember) {
+  // split the order_by vector into two vectors of orderings and expressions
+  std::vector<Ordering> ordering;
+  ordering.reserve(order_by.size());
+  order_by_.reserve(order_by.size());
+  for (const auto &ordering_expression_pair : order_by) {
+    ordering.emplace_back(ordering_expression_pair.first);
+    order_by_.emplace_back(ordering_expression_pair.second);
+  }
+  compare_ = TypedValueListCompare(ordering);
+}
+
+void OrderBy::Accept(LogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+}
+
+std::unique_ptr<Cursor> OrderBy::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<OrderByCursor>(*this, db);
+}
+
+OrderBy::OrderByCursor::OrderByCursor(OrderBy &self, GraphDbAccessor &db)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+bool OrderBy::OrderByCursor::Pull(Frame &frame,
+                                  const SymbolTable &symbol_table) {
+  if (!did_pull_all_) {
+    ExpressionEvaluator evaluator(frame, symbol_table);
+    while (input_cursor_->Pull(frame, symbol_table)) {
+      // collect the order_by elements
+      std::list<TypedValue> order_by;
+      for (auto expression_ptr : self_.order_by_) {
+        expression_ptr->Accept(evaluator);
+        order_by.emplace_back(evaluator.PopBack());
+      }
+
+      // collect the remember elements
+      std::list<TypedValue> remember;
+      for (const Symbol &remember_sym : self_.remember_)
+        remember.emplace_back(frame[remember_sym]);
+
+      cache_.emplace_back(order_by, remember);
+    }
+
+    std::sort(cache_.begin(), cache_.end(),
+              [this](const auto &pair1, const auto &pair2) {
+                return self_.compare_(pair1.first, pair2.first);
+              });
+
+    did_pull_all_ = true;
+    cache_it_ = cache_.begin();
+  }
+
+  if (cache_it_ == cache_.end()) return false;
+
+  // place the remembered values on the frame
+  debug_assert(self_.remember_.size() == cache_it_->second.size(),
+               "Number of values does not match the number of remember symbols "
+               "in OrderBy");
+  auto remember_sym_it = self_.remember_.begin();
+  for (const TypedValue &remember : cache_it_->second)
+    frame[*remember_sym_it++] = remember;
+
+  cache_it_++;
+  return true;
+}
+
+bool OrderBy::TypedValueCompare(const TypedValue &a, const TypedValue &b) {
+  // in ordering null comes after everything else
+  // at the same time Null is not less that null
+  // first deal with Null < Whatever case
+  if (a.IsNull()) return false;
+  // now deal with NotNull < Null case
+  if (b.IsNull()) return true;
+
+  // comparisons are from this point legal only between values of
+  // the  same type, or int+float combinations
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
+    throw QueryRuntimeException(
+        "Can't compare value of type {} to value of type {}", a.type(),
+        b.type());
+
+  switch (a.type()) {
+    case TypedValue::Type::Bool:
+      return !a.Value<bool>() && b.Value<bool>();
+    case TypedValue::Type::Int:
+      if (b.type() == TypedValue::Type::Double)
+        return a.Value<int64_t>() < b.Value<double>();
+      else
+        return a.Value<int64_t>() < b.Value<int64_t>();
+    case TypedValue::Type::Double:
+      if (b.type() == TypedValue::Type::Int)
+        return a.Value<double>() < b.Value<int64_t>();
+      else
+        return a.Value<double>() < b.Value<double>();
+    case TypedValue::Type::String:
+      return a.Value<std::string>() < b.Value<std::string>();
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      throw QueryRuntimeException(
+          "Comparison is not defined for values of type {}", a.type());
+    default:
+      permanent_fail("Unhandled comparison for types");
+  }
+}
+
+bool OrderBy::TypedValueListCompare::operator()(
+    const std::list<TypedValue> &c1, const std::list<TypedValue> &c2) const {
+  auto c1_it = c1.begin();
+  auto c2_it = c2.begin();
+  // ordering is invalid if there are more elements in the collections
+  // then there are in the ordering_ vector
+  debug_assert(std::distance(c1_it, c1.end()) <= ordering_.size() &&
+                   std::distance(c2_it, c2.end()) <= ordering_.size(),
+               "Collections contain more elements then there are orderings");
+
+  auto ordering_it = ordering_.begin();
+  for (; c1_it != c1.end() && c2_it != c2.end();
+       c1_it++, c2_it++, ordering_it++) {
+    if (OrderBy::TypedValueCompare(*c1_it, *c2_it))
+      return *ordering_it == Ordering::ASC;
+    if (OrderBy::TypedValueCompare(*c2_it, *c1_it))
+      return *ordering_it == Ordering::DESC;
+  }
+
+  // at least one collection is exhausted
+  // c1 is less then c2 iff c1 reached the end but c2 didn't
+  return (c1_it == c1.end()) && (c2_it != c2.end());
 }
 
 }  // namespace plan

@@ -95,8 +95,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
 
   void PostVisit(IsNullOperator &) override {
     auto expression = PopBack();
-    result_stack_.push_back(
-        TypedValue(expression.type() == TypedValue::Type::Null));
+    result_stack_.push_back(TypedValue(expression.IsNull()));
   }
 
 #undef BINARY_OPERATOR_VISITOR

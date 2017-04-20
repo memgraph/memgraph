@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <query/exceptions.hpp>
 #include <tuple>
 #include <unordered_map>
+#include <utils/exceptions/not_yet_implemented.hpp>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
@@ -63,6 +65,7 @@ class AdvanceCommand;
 class Aggregate;
 class Skip;
 class Limit;
+class OrderBy;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
@@ -71,7 +74,7 @@ using LogicalOperatorVisitor =
                      SetProperties, SetLabels, RemoveProperty, RemoveLabels,
                      ExpandUniquenessFilter<VertexAccessor>,
                      ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
-                     AdvanceCommand, Aggregate, Skip, Limit>;
+                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy>;
 
 /** @brief Base class for logical operators.
  *
@@ -1005,6 +1008,73 @@ class Limit : public LogicalOperator {
     // that it's still unknown (Cursor has not been Pulled yet)
     int limit_{-1};
     int pulled_{0};
+  };
+};
+
+/** @brief Logical operator for ordering (sorting) results.
+ *
+ * Sorts the input rows based on an arbitrary number of
+ * Expressions. Ascending or descending ordering can be chosen
+ * for each independently (not providing enough orderings
+ * results in a runtime error).
+ *
+ * For each row an arbitrary number of Frame elements can be
+ * remembered. Only these elements (defined by their Symbols)
+ * are valid for usage after the OrderBy operator.
+ */
+class OrderBy : public LogicalOperator {
+ public:
+  OrderBy(const std::shared_ptr<LogicalOperator> &input,
+          const std::vector<std::pair<Ordering, Expression *>> order_by,
+          const std::vector<Symbol> remember);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  // custom Comparator type for comparing lists of TypedValues
+  // does lexicographical ordering of elements based on the above
+  // defined TypedValueCompare, and also accepts a vector of Orderings
+  // the define how respective elements compare
+  class TypedValueListCompare {
+   public:
+    TypedValueListCompare() {}
+    TypedValueListCompare(const std::vector<Ordering> &ordering)
+        : ordering_(ordering) {}
+    bool operator()(const std::list<TypedValue> &c1,
+                    const std::list<TypedValue> &c2) const;
+
+   private:
+    std::vector<Ordering> ordering_;
+  };
+
+  const std::shared_ptr<LogicalOperator> input_;
+  TypedValueListCompare compare_;
+  std::vector<Expression *> order_by_;
+  const std::vector<Symbol> remember_;
+
+  // custom comparison for TypedValue objects
+  // behaves generally like Neo's ORDER BY comparison operator:
+  //  - null is greater than anything else
+  //  - primitives compare naturally, only implicit cast is int->double
+  //  - (list, map, path, vertex, edge) can't compare to anything
+  static bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
+
+  class OrderByCursor : public Cursor {
+   public:
+    OrderByCursor(OrderBy &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+
+   private:
+    OrderBy &self_;
+    std::unique_ptr<Cursor> input_cursor_;
+    bool did_pull_all_{false};
+    // a cache of elements pulled from the input
+    // first pair element is the order-by list
+    // second pair is the remember list
+    // the cache is filled and sorted (only on first pair elem) on first Pull
+    std::vector<std::pair<std::list<TypedValue>, std::list<TypedValue>>> cache_;
+    // iterator over the cache_, maintains state between Pulls
+    decltype(cache_.begin()) cache_it_ = cache_.begin();
   };
 };
 

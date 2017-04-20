@@ -130,6 +130,13 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   const T &Value() const;
 
+  /** Convenience function for checking if this TypedValue is Null */
+  bool IsNull() const;
+
+  /** Convenience function for checking if this TypedValue is either
+   * an integer or double */
+  bool IsNumeric() const;
+
   friend std::ostream &operator<<(std::ostream &stream, const TypedValue &prop);
 
  private:
