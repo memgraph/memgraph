@@ -555,4 +555,34 @@ TEST(TestSymbolGenerator, SameResults) {
   }
 }
 
+TEST(TestSymbolGenerator, SkipLimitIdentifier) {
+  // Test MATCH (old) WITH old AS new SKIP old
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("old"))),
+                       WITH(IDENT("old"), AS("new"), SKIP(IDENT("old"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+  // Test MATCH (old) WITH old AS new SKIP new
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("old"))),
+                       WITH(IDENT("old"), AS("new"), SKIP(IDENT("new"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+  // Test MATCH (n) RETURN n AS n LIMIT n
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                       RETURN(IDENT("n"), AS("n"), SKIP(IDENT("n"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+}
+
 }

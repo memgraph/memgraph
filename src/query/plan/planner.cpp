@@ -177,14 +177,25 @@ auto GenMatch(Match &match, LogicalOperator *input_op,
   return last_op;
 }
 
-// Ast tree visitor which collects the context for a return body. The return
-// body are the named expressions found in WITH and RETURN clauses. The
-// collected context consists of used symbols, aggregations and group by named
-// expressions.
+// Ast tree visitor which collects the context for a return body.
+// The return body of WITH and RETURN clauses consists of:
+//
+//   * named expressions (used to produce results);
+//   * flag whether the results need to be DISTINCT;
+//   * optional SKIP expression;
+//   * optional LIMIT expression and
+//   * optional ORDER BY expression.
+//
+// In addition to the above, we collect information on used symbols,
+// aggregations and expressions used for group by.
 class ReturnBodyContext : public TreeVisitorBase {
  public:
-  ReturnBodyContext(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
+  ReturnBodyContext(const ReturnBody &body, const SymbolTable &symbol_table)
+      : body_(body), symbol_table_(symbol_table) {
+    for (auto &named_expr : body_.named_expressions) {
+      named_expr->Accept(*this);
+    }
+  }
 
   using TreeVisitorBase::PreVisit;
   using TreeVisitorBase::Visit;
@@ -249,6 +260,14 @@ class ReturnBodyContext : public TreeVisitorBase {
     has_aggregation_.pop_back();
   }
 
+  // If true, results need to be distinct.
+  bool distinct() const { return body_.distinct; }
+  // Named expressions which are used to produce results.
+  const auto &named_expressions() const { return body_.named_expressions; }
+  // Optional expression which determines how many results to skip.
+  auto *skip() const { return body_.skip; }
+  // Optional expression which determines how many results to produce.
+  auto *limit() const { return body_.limit; }
   // Set of symbols used inside the visited expressions outside of aggregation
   // expression.
   const auto &symbols() const { return symbols_; }
@@ -267,6 +286,7 @@ class ReturnBodyContext : public TreeVisitorBase {
     }
   };
 
+  const ReturnBody &body_;
   const SymbolTable &symbol_table_;
   std::unordered_set<Symbol, SymbolHash> symbols_;
   std::vector<Aggregate::Element> aggregations_;
@@ -275,17 +295,36 @@ class ReturnBodyContext : public TreeVisitorBase {
   std::list<bool> has_aggregation_;
 };
 
+auto GenSkipLimit(LogicalOperator *input_op, const ReturnBodyContext &body) {
+  auto last_op = input_op;
+  // SKIP is always before LIMIT clause.
+  if (body.skip()) {
+    last_op = new Skip(std::shared_ptr<LogicalOperator>(last_op), body.skip());
+  }
+  if (body.limit()) {
+    last_op =
+        new Limit(std::shared_ptr<LogicalOperator>(last_op), body.limit());
+  }
+  return last_op;
+}
+
 auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
-                   const std::vector<NamedExpression *> &named_expressions,
-                   const SymbolTable &symbol_table, bool accumulate = false) {
-  ReturnBodyContext context(symbol_table);
-  // Generate context for all named expressions.
-  for (auto &named_expr : named_expressions) {
-    named_expr->Accept(context);
+                   const ReturnBodyContext &body, bool accumulate = false) {
+  if (body.distinct()) {
+    // TODO: Plan with distinct, when operator available.
+    throw utils::NotYetImplemented();
   }
   auto symbols =
-      std::vector<Symbol>(context.symbols().begin(), context.symbols().end());
+      std::vector<Symbol>(body.symbols().begin(), body.symbols().end());
   auto last_op = input_op;
+  if (body.aggregations().empty()) {
+    // In case when we have SKIP/LIMIT and we don't perform aggregations, we
+    // want to put them before (optional) accumulation. This way we ensure that
+    // write part of the query will be limited.
+    // For example, `MATCH (n) SET n.x = n.x + 1 RETURN n LIMIT 1` should
+    // increment `n.x` only once.
+    last_op = GenSkipLimit(last_op, body);
+  }
   if (accumulate) {
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
@@ -293,32 +332,30 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
     last_op = new Accumulate(std::shared_ptr<LogicalOperator>(last_op), symbols,
                              advance_command);
   }
-  if (!context.aggregations().empty()) {
-    last_op =
+  if (!body.aggregations().empty()) {
+    // When we have aggregation, SKIP/LIMIT should always come after it.
+    last_op = GenSkipLimit(
         new Aggregate(std::shared_ptr<LogicalOperator>(last_op),
-                      context.aggregations(), context.group_by(), symbols);
+                      body.aggregations(), body.group_by(), symbols),
+        body);
   }
   return new Produce(std::shared_ptr<LogicalOperator>(last_op),
-                     named_expressions);
+                     body.named_expressions());
 }
 
 auto GenWith(With &with, LogicalOperator *input_op,
              const SymbolTable &symbol_table, bool is_write,
              std::unordered_set<int> &bound_symbols) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
-  // optional Filter.
-  if (with.body_.distinct) {
-    // TODO: Plan distinct with, when operator available.
-    throw utils::NotYetImplemented();
-  }
-  // In case of update and aggregation, we want to accumulate first, so that
-  // when aggregating, we get the latest results. Similar to RETURN clause.
+  // optional Filter. In case of update and aggregation, we want to accumulate
+  // first, so that when aggregating, we get the latest results. Similar to
+  // RETURN clause.
   bool accumulate = is_write;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
+  ReturnBodyContext body(with.body_, symbol_table);
   LogicalOperator *last_op =
-      GenReturnBody(input_op, advance_command, with.body_.named_expressions,
-                    symbol_table, accumulate);
+      GenReturnBody(input_op, advance_command, body, accumulate);
   // Reset bound symbols, so that only those in WITH are exposed.
   bound_symbols.clear();
   for (auto &named_expr : with.body_.named_expressions) {
@@ -341,8 +378,8 @@ auto GenReturn(Return &ret, LogicalOperator *input_op,
   // value is the same, final result of 'k' increments.
   bool accumulate = is_write;
   bool advance_command = false;
-  return GenReturnBody(input_op, advance_command, ret.body_.named_expressions,
-                       symbol_table, accumulate);
+  ReturnBodyContext body(ret.body_, symbol_table);
+  return GenReturnBody(input_op, advance_command, body, accumulate);
 }
 
 // Generate an operator for a clause which writes to the database. If the clause

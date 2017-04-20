@@ -4,6 +4,15 @@ namespace query {
 
 namespace test_common {
 
+// Custom types for SKIP and LIMIT and expressions, so that they can be used to
+// resolve function calls.
+struct Skip {
+  query::Expression *expression = nullptr;
+};
+struct Limit {
+  query::Expression *expression = nullptr;
+};
+
 ///
 /// Create PropertyLookup with given name and property.
 ///
@@ -115,6 +124,15 @@ auto GetReturn(Return *ret, NamedExpression *named_expr) {
   ret->body_.named_expressions.emplace_back(named_expr);
   return ret;
 }
+auto GetReturn(Return *ret, Skip skip, Limit limit = Limit{}) {
+  ret->body_.skip = skip.expression;
+  ret->body_.limit = limit.expression;
+  return ret;
+}
+auto GetReturn(Return *ret, Limit limit) {
+  ret->body_.limit = limit.expression;
+  return ret;
+}
 auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
@@ -124,18 +142,18 @@ auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr) {
 }
 template <class... T>
 auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr,
-               T *... rest) {
+               T... rest) {
   named_expr->expression_ = expr;
   ret->body_.named_expressions.emplace_back(named_expr);
   return GetReturn(ret, rest...);
 }
 template <class... T>
-auto GetReturn(Return *ret, NamedExpression *named_expr, T *... rest) {
+auto GetReturn(Return *ret, NamedExpression *named_expr, T... rest) {
   ret->body_.named_expressions.emplace_back(named_expr);
   return GetReturn(ret, rest...);
 }
 template <class... T>
-auto GetReturn(AstTreeStorage &storage, T *... exprs) {
+auto GetReturn(AstTreeStorage &storage, T... exprs) {
   auto ret = storage.Create<Return>();
   return GetReturn(ret, exprs...);
 }
@@ -147,6 +165,15 @@ auto GetWith(With *with, NamedExpression *named_expr) {
   with->body_.named_expressions.emplace_back(named_expr);
   return with;
 }
+auto GetWith(With *with, Skip skip, Limit limit = {}) {
+  with->body_.skip = skip.expression;
+  with->body_.limit = limit.expression;
+  return with;
+}
+auto GetWith(With *with, Limit limit) {
+  with->body_.limit = limit.expression;
+  return with;
+}
 auto GetWith(With *with, Expression *expr, NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
@@ -156,18 +183,18 @@ auto GetWith(With *with, Expression *expr, NamedExpression *named_expr) {
 }
 template <class... T>
 auto GetWith(With *with, Expression *expr, NamedExpression *named_expr,
-             T *... rest) {
+             T... rest) {
   named_expr->expression_ = expr;
   with->body_.named_expressions.emplace_back(named_expr);
   return GetWith(with, rest...);
 }
 template <class... T>
-auto GetWith(With *with, NamedExpression *named_expr, T *... rest) {
+auto GetWith(With *with, NamedExpression *named_expr, T... rest) {
   with->body_.named_expressions.emplace_back(named_expr);
   return GetWith(with, rest...);
 }
 template <class... T>
-auto GetWith(AstTreeStorage &storage, T *... exprs) {
+auto GetWith(AstTreeStorage &storage, T... exprs) {
   auto with = storage.Create<With>();
   return GetWith(with, exprs...);
 }
@@ -261,6 +288,8 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 #define AS(name) storage.Create<query::NamedExpression>((name))
 #define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
 #define WITH(...) query::test_common::GetWith(storage, __VA_ARGS__)
+#define SKIP(expr) query::test_common::Skip{(expr)}
+#define LIMIT(expr) query::test_common::Limit{(expr)}
 #define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)

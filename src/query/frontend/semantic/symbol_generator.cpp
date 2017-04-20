@@ -44,17 +44,35 @@ void SymbolGenerator::BindNamedExpressionSymbols(
   }
 }
 
+void SymbolGenerator::VisitSkipAndLimit(Expression *skip, Expression *limit) {
+  if (skip) {
+    scope_.in_skip = true;
+    skip->Accept(*this);
+    scope_.in_skip = false;
+  }
+  if (limit) {
+    scope_.in_limit = true;
+    limit->Accept(*this);
+    scope_.in_limit = false;
+  }
+}
+
 // Clauses
 
 void SymbolGenerator::Visit(Create &create) { scope_.in_create = true; }
 void SymbolGenerator::PostVisit(Create &create) { scope_.in_create = false; }
 
-void SymbolGenerator::Visit(Return &ret) { scope_.in_return = true; }
-void SymbolGenerator::PostVisit(Return &ret) {
+bool SymbolGenerator::PreVisit(Return &ret) {
+  scope_.in_return = true;
+  for (auto &expr : ret.body_.named_expressions) {
+    expr->Accept(*this);
+  }
   // Named expressions establish bindings for expressions which come after
   // return, but not for the expressions contained inside.
   BindNamedExpressionSymbols(ret.body_.named_expressions);
+  VisitSkipAndLimit(ret.body_.skip, ret.body_.limit);
   scope_.in_return = false;
+  return false;  // We handled the traversal ourselves.
 }
 
 bool SymbolGenerator::PreVisit(With &with) {
@@ -68,6 +86,7 @@ bool SymbolGenerator::PreVisit(With &with) {
   // be visible inside named expressions themselves.
   scope_.symbols.clear();
   BindNamedExpressionSymbols(with.body_.named_expressions);
+  VisitSkipAndLimit(with.body_.skip, with.body_.limit);
   if (with.where_) with.where_->Accept(*this);
   return false;  // We handled the traversal ourselves.
 }
@@ -75,6 +94,10 @@ bool SymbolGenerator::PreVisit(With &with) {
 // Expressions
 
 void SymbolGenerator::Visit(Identifier &ident) {
+  if (scope_.in_skip || scope_.in_limit) {
+    throw SemanticException("Variables are not allowed in {}",
+                            scope_.in_skip ? "SKIP" : "LIMIT");
+  }
   Symbol symbol;
   if (scope_.in_pattern && !scope_.in_property_map) {
     // Patterns can bind new symbols or reference already bound. But there
@@ -89,7 +112,7 @@ void SymbolGenerator::Visit(Identifier &ident) {
     //     `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r`, which would
     //     usually raise redeclaration of `r`.
     if ((scope_.in_create_node || scope_.in_create_edge) &&
-               HasSymbol(ident.name_)) {
+        HasSymbol(ident.name_)) {
       // Case 1)
       throw RedeclareVariableError(ident.name_);
     }

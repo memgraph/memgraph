@@ -58,6 +58,8 @@ template <class TAccessor>
 using ExpectExpandUniquenessFilter =
     OpChecker<ExpandUniquenessFilter<TAccessor>>;
 using ExpectAccumulate = OpChecker<Accumulate>;
+using ExpectSkip = OpChecker<Skip>;
+using ExpectLimit = OpChecker<Limit>;
 
 class ExpectAggregate : public OpChecker<Aggregate> {
  public:
@@ -115,6 +117,8 @@ class PlanChecker : public LogicalOperatorVisitor {
   void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override { CheckOp(op); }
   void Visit(Accumulate &op) override { CheckOp(op); }
   void Visit(Aggregate &op) override { CheckOp(op); }
+  void Visit(Skip &op) override { CheckOp(op); }
+  void Visit(Limit &op) override { CheckOp(op); }
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -429,6 +433,48 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
             CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::RIGHT),
                            NODE("b"))));
   CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
+}
+
+TEST(TestLogicalPlanner, MatchReturnSkipLimit) {
+  // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
+  AstTreeStorage storage;
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"))),
+            RETURN(IDENT("n"), AS("n"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+  // A simple Skip and Limit combo which should come before Produce.
+  CheckPlan(*query, ExpectScanAll(), ExpectSkip(), ExpectLimit(),
+            ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
+  // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
+  AstTreeStorage storage;
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))),
+                     WITH(IDENT("n"), AS("m"), SKIP(LITERAL(2))),
+                     RETURN(IDENT("m"), AS("m"), LIMIT(LITERAL(1))));
+  // Since we have a write query, we need to have Accumulate, so Skip and Limit
+  // need to come before it. This is a bit different than Neo4j, which optimizes
+  // WITH followed by RETURN as a single RETURN clause. This would cause the
+  // Limit operator to also appear before Accumulate, thus changing the
+  // behaviour. We've decided to diverge from Neo4j here, for consistency sake.
+  CheckPlan(*query, ExpectCreateNode(), ExpectSkip(), ExpectAccumulate(),
+            ExpectProduce(), ExpectLimit(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
+  // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))),
+                     RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+  auto aggr = ExpectAggregate({sum}, {});
+  // We have a write query and aggregation, therefore Skip and Limit should come
+  // after Accumulate and Aggregate.
+  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), aggr, ExpectSkip(),
+            ExpectLimit(), ExpectProduce());
 }
 
 }  // namespace
