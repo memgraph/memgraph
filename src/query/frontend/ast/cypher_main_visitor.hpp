@@ -175,6 +175,16 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitReturnItem(CypherParser::ReturnItemContext *ctx) override;
 
   /**
+   * @return vector<pair<Ordering, Expression*>>
+   */
+  antlrcpp::Any visitOrder(CypherParser::OrderContext *ctx) override;
+
+  /**
+   * @return pair<Ordering, Expression*>
+   */
+  antlrcpp::Any visitSortItem(CypherParser::SortItemContext *ctx) override;
+
+  /**
    * @return NodeAtom*
    */
   antlrcpp::Any visitNodePattern(

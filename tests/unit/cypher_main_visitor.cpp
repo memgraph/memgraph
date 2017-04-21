@@ -68,6 +68,64 @@ TEST(CypherMainVisitorTest, PropertyLookup) {
             ast_generator.db_accessor_->property("x"));
 }
 
+TEST(CypherMainVisitor, ReturnNoDistinctNoBagSemantics) {
+  AstGenerator ast_generator("RETURN x");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.order_by.size(), 0U);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1U);
+  ASSERT_FALSE(return_clause->body_.limit);
+  ASSERT_FALSE(return_clause->body_.skip);
+  ASSERT_FALSE(return_clause->body_.distinct);
+}
+
+TEST(CypherMainVisitor, ReturnDistinct) {
+  AstGenerator ast_generator("RETURN DISTINCT x");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(return_clause->body_.distinct);
+}
+
+TEST(CypherMainVisitor, ReturnLimit) {
+  AstGenerator ast_generator("RETURN x LIMIT 5");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(return_clause->body_.limit);
+  auto *literal = dynamic_cast<Literal *>(return_clause->body_.limit);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<int64_t>(), 5);
+}
+
+TEST(CypherMainVisitor, ReturnSkip) {
+  AstGenerator ast_generator("RETURN x SKIP 5");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(return_clause->body_.skip);
+  auto *literal = dynamic_cast<Literal *>(return_clause->body_.skip);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<int64_t>(), 5);
+}
+
+TEST(CypherMainVisitor, ReturnOrderBy) {
+  AstGenerator ast_generator("RETURN x, y, z ORDER BY z ASC, x, y DESC");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.order_by.size(), 3U);
+  std::vector<std::pair<Ordering, std::string>> ordering;
+  for (const auto &sort_item : return_clause->body_.order_by) {
+    auto *identifier = dynamic_cast<Identifier *>(sort_item.second);
+    ordering.emplace_back(sort_item.first, identifier->name_);
+  }
+  ASSERT_THAT(ordering, UnorderedElementsAre(Pair(Ordering::ASC, "z"),
+                                             Pair(Ordering::ASC, "x"),
+                                             Pair(Ordering::DESC, "y")));
+}
+
 TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
   AstGenerator ast_generator("RETURN var AS var5");
   auto *query = ast_generator.query_;
@@ -262,7 +320,8 @@ TEST(CypherMainVisitorTest, ComparisonOperators) {
   AstGenerator ast_generator("RETURN 2 = 3 != 4 <> 5 < 6 > 7 <= 8 >= 9");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  Expression *_operator = return_clause->body_.named_expressions[0]->expression_;
+  Expression *_operator =
+      return_clause->body_.named_expressions[0]->expression_;
   CHECK_COMPARISON(GreaterEqualOperator, 8, 9);
   CHECK_COMPARISON(LessEqualOperator, 7, 8);
   CHECK_COMPARISON(GreaterOperator, 6, 7);
@@ -786,12 +845,44 @@ TEST(CypherMainVisitorTest, With) {
   ASSERT_EQ(query->clauses_.size(), 2U);
   auto *with = dynamic_cast<With *>(query->clauses_[0]);
   ASSERT_TRUE(with);
+  ASSERT_FALSE(with->body_.distinct);
+  ASSERT_FALSE(with->body_.limit);
+  ASSERT_FALSE(with->body_.skip);
+  ASSERT_EQ(with->body_.order_by.size(), 0U);
   ASSERT_FALSE(with->where_);
   ASSERT_EQ(with->body_.named_expressions.size(), 1U);
   auto *named_expr = with->body_.named_expressions[0];
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "n");
+}
+
+TEST(CypherMainVisitorTest, WithDistinct) {
+  AstGenerator ast_generator("WITH DISTINCT n AS m RETURN 1");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *with = dynamic_cast<With *>(query->clauses_[0]);
+  ASSERT_TRUE(with->body_.distinct);
+  ASSERT_FALSE(with->where_);
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  auto *named_expr = with->body_.named_expressions[0];
+  ASSERT_EQ(named_expr->name_, "m");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier->name_, "n");
+}
+
+TEST(CypherMainVisitorTest, WithBag) {
+  AstGenerator ast_generator("WITH n as m ORDER BY m SKIP 1 LIMIT 2 RETURN 1");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *with = dynamic_cast<With *>(query->clauses_[0]);
+  ASSERT_FALSE(with->body_.distinct);
+  ASSERT_FALSE(with->where_);
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  // No need to check contents of body. That is checked in RETURN clause tests.
+  ASSERT_EQ(with->body_.order_by.size(), 1U);
+  ASSERT_TRUE(with->body_.limit);
+  ASSERT_TRUE(with->body_.skip);
 }
 
 TEST(CypherMainVisitorTest, WithWhere) {

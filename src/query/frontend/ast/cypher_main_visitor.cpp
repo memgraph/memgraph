@@ -15,8 +15,7 @@
 #include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 
-namespace query {
-namespace frontend {
+namespace query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
@@ -146,28 +145,36 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     CypherParser::CypherReturnContext *ctx) {
   auto *return_clause = storage_.Create<Return>();
+  return_clause->body_ = ctx->returnBody()->accept(this);
   if (ctx->DISTINCT()) {
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented();
+    return_clause->body_.distinct = true;
   }
-  return_clause->body_.named_expressions =
-      ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
   return return_clause;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(
     CypherParser::ReturnBodyContext *ctx) {
-  if (ctx->order() || ctx->skip() || ctx->limit()) {
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented();
+  ReturnBody body;
+  if (ctx->order()) {
+    body.order_by = ctx->order()
+                        ->accept(this)
+                        .as<std::vector<std::pair<Ordering, Expression *>>>();
   }
-  return ctx->returnItems()->accept(this);
+  if (ctx->skip()) {
+    body.skip = static_cast<Expression *>(ctx->skip()->accept(this));
+  }
+  if (ctx->limit()) {
+    body.limit = static_cast<Expression *>(ctx->limit()->accept(this));
+  }
+  body.named_expressions =
+      ctx->returnItems()->accept(this).as<std::vector<NamedExpression *>>();
+  return body;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(
     CypherParser::ReturnItemsContext *ctx) {
   if (ctx->getTokens(kReturnAllTokenId).size()) {
-    // TODO: implement other clauses.
+    // TODO: implement *
     throw utils::NotYetImplemented();
   }
   std::vector<NamedExpression *> named_expressions;
@@ -189,6 +196,21 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
   }
   named_expr->expression_ = ctx->expression()->accept(this);
   return named_expr;
+}
+
+antlrcpp::Any CypherMainVisitor::visitOrder(CypherParser::OrderContext *ctx) {
+  std::vector<std::pair<Ordering, Expression *>> order_by;
+  for (auto *sort_item : ctx->sortItem()) {
+    order_by.push_back(sort_item->accept(this));
+  }
+  return order_by;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSortItem(
+    CypherParser::SortItemContext *ctx) {
+  return std::pair<Ordering, Expression *>(
+      ctx->DESC() || ctx->DESCENDING() ? Ordering::DESC : Ordering::ASC,
+      ctx->expression()->accept(this));
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodePattern(
@@ -907,16 +929,13 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
 
 antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
   auto *with = storage_.Create<With>();
+  with->body_ = ctx->returnBody()->accept(this);
   if (ctx->DISTINCT()) {
-    // TODO: implement this
-    throw utils::NotYetImplemented();
+    with->body_.distinct = true;
   }
-  with->body_.named_expressions =
-      ctx->returnBody()->accept(this).as<std::vector<NamedExpression *>>();
   if (ctx->where()) {
     with->where_ = ctx->where()->accept(this);
   }
   return with;
-}
 }
 }
