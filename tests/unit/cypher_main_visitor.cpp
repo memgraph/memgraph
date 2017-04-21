@@ -857,6 +857,23 @@ TEST(CypherMainVisitorTest, With) {
   ASSERT_EQ(identifier->name_, "n");
 }
 
+TEST(CypherMainVisitorTest, WithNonAliasedExpression) {
+  ASSERT_THROW(AstGenerator("WITH n.x RETURN 1"), SemanticException);
+}
+
+TEST(CypherMainVisitorTest, WithNonAliasedVariable) {
+  AstGenerator ast_generator("WITH n RETURN 1");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *with = dynamic_cast<With *>(query->clauses_[0]);
+  ASSERT_TRUE(with);
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  auto *named_expr = with->body_.named_expressions[0];
+  ASSERT_EQ(named_expr->name_, "n");
+  auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
+  ASSERT_EQ(identifier->name_, "n");
+}
+
 TEST(CypherMainVisitorTest, WithDistinct) {
   AstGenerator ast_generator("WITH DISTINCT n AS m RETURN 1");
   auto *query = ast_generator.query_;

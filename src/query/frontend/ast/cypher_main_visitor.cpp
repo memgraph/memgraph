@@ -187,14 +187,17 @@ antlrcpp::Any CypherMainVisitor::visitReturnItems(
 antlrcpp::Any CypherMainVisitor::visitReturnItem(
     CypherParser::ReturnItemContext *ctx) {
   auto *named_expr = storage_.Create<NamedExpression>();
+  named_expr->expression_ = ctx->expression()->accept(this);
   if (ctx->variable()) {
     named_expr->name_ =
         std::string(ctx->variable()->accept(this).as<std::string>());
   } else {
+    if (in_with_ && !dynamic_cast<Identifier *>(named_expr->expression_)) {
+      throw SemanticException("Only variables can be non aliased in with");
+    }
     // TODO: Should we get this by text or some escaping is needed?
     named_expr->name_ = std::string(ctx->getText());
   }
-  named_expr->expression_ = ctx->expression()->accept(this);
   return named_expr;
 }
 
@@ -929,7 +932,9 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
 
 antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
   auto *with = storage_.Create<With>();
+  in_with_ = true;
   with->body_ = ctx->returnBody()->accept(this);
+  in_with_ = false;
   if (ctx->DISTINCT()) {
     with->body_.distinct = true;
   }

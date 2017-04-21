@@ -482,6 +482,10 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   std::vector<Identifier **> anonymous_identifiers;
   AstTreeStorage storage_;
   Query *query_ = nullptr;
+  // All return items which are not variables must be aliased in with.
+  // We use this variable in visitReturnItem to check if we are in with or
+  // return.
+  bool in_with_ = false;
 };
 }
 }
