@@ -43,6 +43,7 @@ class Cursor {
   virtual ~Cursor() {}
 };
 
+class Once;
 class CreateNode;
 class CreateExpand;
 class ScanAll;
@@ -68,10 +69,10 @@ class OrderBy;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
-    ::utils::Visitor<CreateNode, CreateExpand, ScanAll, Expand, NodeFilter,
-                     EdgeFilter, Filter, Produce, Delete, SetProperty,
-                     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-                     ExpandUniquenessFilter<VertexAccessor>,
+    ::utils::Visitor<Once, CreateNode, CreateExpand, ScanAll, Expand,
+                     NodeFilter, EdgeFilter, Filter, Produce, Delete,
+                     SetProperty, SetProperties, SetLabels, RemoveProperty,
+                     RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
                      ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
                      AdvanceCommand, Aggregate, Skip, Limit, OrderBy>;
 
@@ -89,6 +90,24 @@ class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
    */
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) = 0;
   virtual ~LogicalOperator() {}
+};
+
+/**
+ * A logical operator whose Cursor returns true on the first Pull
+ * and false on every following Pull.
+ */
+class Once : public LogicalOperator {
+ public:
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  class OnceCursor : public Cursor {
+   public:
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+   private:
+    bool did_pull_{false};
+  };
 };
 
 /** @brief Operator for creating a node.
@@ -126,11 +145,7 @@ class CreateNode : public LogicalOperator {
    private:
     const CreateNode &self_;
     GraphDbAccessor &db_;
-    // optional, used in situations in which this create op
-    // pulls from an input (in MATCH CREATE, CREATE ... CREATE)
     const std::unique_ptr<Cursor> input_cursor_;
-    // control switch when creating only one node (nullptr input)
-    bool did_create_{false};
 
     /**
      * Creates a single node and places it in the frame.
@@ -227,7 +242,6 @@ class CreateExpand : public LogicalOperator {
  */
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(const NodeAtom *node_atom);
   ScanAll(const NodeAtom *node_atom,
           const std::shared_ptr<LogicalOperator> &input);
   void Accept(LogicalOperatorVisitor &visitor) override;
@@ -247,8 +261,6 @@ class ScanAll : public LogicalOperator {
     const std::unique_ptr<Cursor> input_cursor_;
     decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
     decltype(vertices_.begin()) vertices_it_;
-    // if this is the first pull from this cursor
-    bool first_pull_{true};
   };
 };
 
@@ -478,7 +490,7 @@ class Filter : public LogicalOperator {
  * for the RETURN clause).
  *
  * Supports optional input. When the input is provided,
- * it is Pulled from and the Produce succeds once for
+ * it is Pulled from and the Produce succeeds once for
  * every input Pull (typically a MATCH/RETURN query).
  * When the input is not provided (typically a standalone
  * RETURN clause) the Produce's pull succeeds exactly once.
@@ -502,10 +514,7 @@ class Produce : public LogicalOperator {
 
    private:
     const Produce &self_;
-    // optional, see class documentation
     const std::unique_ptr<Cursor> input_cursor_;
-    // control switch when creating only one node (nullptr input)
-    bool did_produce_{false};
   };
 };
 
@@ -875,7 +884,6 @@ class Aggregate : public LogicalOperator {
     };
 
     Aggregate &self_;
-    // optional
     std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data
     // map key is the list of group-by values
@@ -896,7 +904,7 @@ class Aggregate : public LogicalOperator {
     /**
      * Pulls from the input operator until exhausted and aggregates the
      * results. If the input operator is not provided, a single call
-     * to ProccessOne is issued.
+     * to ProcessOne is issued.
      *
      * Accumulation automatically groups the results so that `aggregation_`
      * cache cardinality depends on number of
