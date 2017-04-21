@@ -51,8 +51,12 @@ void GraphDbAccessor::update_label_index(const GraphDbTypes::Label &label,
   this->db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
 }
 
-size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) {
-  return this->db_.labels_index_.Count(label);
+size_t GraphDbAccessor::vertices_count() const {
+  return db_.vertices_.access().size();
+}
+
+size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) const {
+  return db_.labels_index_.Count(label);
 }
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
@@ -111,8 +115,13 @@ void GraphDbAccessor::update_edge_type_index(
   this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 
-size_t GraphDbAccessor::edges_count(const GraphDbTypes::EdgeType &edge_type) {
-  return this->db_.edge_types_index_.Count(edge_type);
+size_t GraphDbAccessor::edges_count() const {
+  return db_.edges_.access().size();
+}
+
+size_t GraphDbAccessor::edges_count(
+    const GraphDbTypes::EdgeType &edge_type) const {
+  return db_.edge_types_index_.Count(edge_type);
 }
 
 /**

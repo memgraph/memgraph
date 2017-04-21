@@ -178,7 +178,7 @@ class VersionList {
    *
    * @param t The transaction
    */
-  void find_set_new_old(const tx::Transaction &t, T *&old_ref, T *&new_ref) {
+  void find_set_old_new(const tx::Transaction &t, T *&old_ref, T *&new_ref) {
     // assume that the sought old record is further down the list
     // from new record, so that if we found old we can stop looking
     new_ref = nullptr;

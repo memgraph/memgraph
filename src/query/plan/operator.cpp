@@ -188,12 +188,8 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
 ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(db)),
-      // TODO change to db.vertices(self.graph_view_ == GraphView::NEW)
-      // once this GraphDbAccessor API is available
-      vertices_(db.vertices()),
-      vertices_it_(vertices_.end()) {
-  if (self.graph_view_ == GraphView::NEW) throw utils::NotYetImplemented();
-}
+      vertices_(db.vertices(self.graph_view_ == GraphView::NEW)),
+      vertices_it_(vertices_.end()) {}
 
 bool ScanAll::ScanAllCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {

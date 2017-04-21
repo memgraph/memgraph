@@ -78,8 +78,13 @@ class GraphDbAccessor {
   /**
    * Returns iterable over accessors to all the vertices in the graph
    * visible to the current transaction.
+   *
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
    */
-  auto vertices() {
+  auto vertices(bool current_state = false) {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
@@ -87,8 +92,12 @@ class GraphDbAccessor {
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
-        [this](const VertexAccessor &accessor) {
-          return accessor.old_ != nullptr;
+        [this, current_state](const VertexAccessor &accessor) {
+          return (accessor.old_ &&
+                  !(current_state &&
+                    accessor.old_->is_deleted_by(*transaction_))) ||
+                 (current_state && accessor.new_ &&
+                  !accessor.new_->is_deleted_by(*transaction_));
         },
         std::move(accessors));
   }
@@ -97,12 +106,18 @@ class GraphDbAccessor {
    * Return VertexAccessors which contain the current label for the current
    * transaction visibilty.
    * @param label - label for which to return VertexAccessors
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
    * @return iterable collection
    */
-  auto vertices(const GraphDbTypes::Label &label) {
+  auto vertices(const GraphDbTypes::Label &label, bool current_state = false) {
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
-        db_.labels_index_.GetVlists(label, *transaction_));
+        [this, current_state](auto vlist) {
+          return VertexAccessor(*vlist, *this);
+        },
+        db_.labels_index_.GetVlists(label, *transaction_, current_state));
   }
 
   /**
@@ -126,8 +141,13 @@ class GraphDbAccessor {
   /**
    * Returns iterable over accessors to all the edges in the graph
    * visible to the current transaction.
+   *
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
    */
-  auto edges() {
+  auto edges(bool current_state = false) {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return EdgeAccessor(*vlist, *this); },
@@ -135,22 +155,32 @@ class GraphDbAccessor {
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
-        [this](const EdgeAccessor &accessor) {
-          return accessor.old_ != nullptr;
+        [this, current_state](const EdgeAccessor &accessor) {
+          return (accessor.old_ &&
+                  !(current_state &&
+                    accessor.old_->is_deleted_by(*transaction_))) ||
+                 (current_state && accessor.new_ &&
+                  !accessor.new_->is_deleted_by(*transaction_));
         },
         std::move(accessors));
   }
 
   /**
    * Return EdgeAccessors which contain the edge_type for the current
-   * transaction visibilty.
+   * transaction visibility.
    * @param edge_type - edge_type for which to return EdgeAccessors
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
    * @return iterable collection
    */
-  auto edges(const GraphDbTypes::EdgeType &edge_type) {
-    return iter::imap(
-        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
-        db_.edge_types_index_.GetVlists(edge_type, *transaction_));
+  auto edges(const GraphDbTypes::EdgeType &edge_type,
+             bool current_state = false) {
+    return iter::imap([this, current_state](
+                          auto vlist) { return EdgeAccessor(*vlist, *this); },
+                      db_.edge_types_index_.GetVlists(edge_type, *transaction_,
+                                                      current_state));
   }
 
   /**
@@ -174,12 +204,24 @@ class GraphDbAccessor {
                               const Edge *edge);
 
   /**
+   * Return approximate number of all vertices in the database.
+   * Note that this is always an over-estimate and never an under-estimate.
+   */
+  size_t vertices_count() const;
+
+ /*
+  * Return approximate number of all edges in the database.
+  * Note that this is always an over-estimate and never an under-estimate.
+  */
+  size_t edges_count() const;
+
+  /**
    * Return approximate number of vertices under indexes with the given label.
    * Note that this is always an over-estimate and never an under-estimate.
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  size_t vertices_count(const GraphDbTypes::Label &label);
+  size_t vertices_count(const GraphDbTypes::Label &label) const;
 
   /**
    * Return approximate number of edges under indexes with the given edge_type.
@@ -187,7 +229,7 @@ class GraphDbAccessor {
    * @param edge_type - edge_type to check for
    * @return number of edges with the given edge_type
    */
-  size_t edges_count(const GraphDbTypes::EdgeType &edge_type);
+  size_t edges_count(const GraphDbTypes::EdgeType &edge_type) const;
 
   /**
    * Obtains the Label for the label's name.
@@ -258,7 +300,7 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   bool Reconstruct(RecordAccessor<TRecord> &accessor) {
-    accessor.vlist_->find_set_new_old(*transaction_, accessor.old_,
+    accessor.vlist_->find_set_old_new(*transaction_, accessor.old_,
                                       accessor.new_);
     accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
     return accessor.old_ != nullptr || accessor.new_ != nullptr;

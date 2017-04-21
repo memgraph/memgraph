@@ -44,19 +44,40 @@ class KeyIndex {
    * still have that label visible in this transaction.
    * @param key - key to query.
    * @param t - current transaction, which determines visibility.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
    * @return iterable collection of vlists records<TRecord> with the requested
    * TKey.
    */
-  auto GetVlists(const TKey &key, tx::Transaction &t) {
+  auto GetVlists(const TKey &key, tx::Transaction &t,
+                 bool current_state = false) {
     auto index = GetKeyStorage(key);
     mvcc::VersionList<TRecord> *prev = nullptr;
     auto filtered = iter::filter(
-        [this, &key, &t, prev](auto entry) mutable {
+        [this, &key, &t, prev, current_state](auto entry) mutable {
+          // we check for previous match first as an optimization
+          // it's legal because if the first v-list pair does not
+          // pass, neither will any other identical one
           if (entry.vlist_ == prev) return false;
-          auto version = entry.vlist_->find(t);
           prev = entry.vlist_;
-          if (version == nullptr) return false;
-          return Exists(key, version);
+          // TODO when refactoring MVCC reconsider the return-value-arg idiom here
+          TRecord *old_record, *new_record;
+          entry.vlist_->find_set_old_new(t, old_record, new_record);
+          // filtering out records not visible to the current
+          // transaction+command
+          // taking into account the current_state flag
+          bool visible =
+              (old_record &&
+               !(current_state && old_record->is_deleted_by(t))) ||
+              (current_state && new_record && !new_record->is_deleted_by(t));
+          if (!visible) return false;
+          // if we current_state and we have the new record, then that's the
+          // reference value, and that needs to be compared with the index
+          // predicate
+          return (current_state && new_record) ? Exists(key, new_record)
+                                               : Exists(key, old_record);
         },
         index->access());
     return iter::imap([this](auto entry) { return entry.vlist_; },
