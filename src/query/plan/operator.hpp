@@ -40,6 +40,12 @@ class Cursor {
    *  @param SymbolTable Used to get the position of symbols in frame.
    */
   virtual bool Pull(Frame &, const SymbolTable &) = 0;
+
+  /**
+   * Resets the Cursor to it's initial state.
+   */
+  virtual void Reset() = 0;
+
   virtual ~Cursor() {}
 };
 
@@ -105,6 +111,8 @@ class Once : public LogicalOperator {
   class OnceCursor : public Cursor {
    public:
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
    private:
     bool did_pull_{false};
   };
@@ -141,6 +149,7 @@ class CreateNode : public LogicalOperator {
    public:
     CreateNodeCursor(const CreateNode &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const CreateNode &self_;
@@ -205,6 +214,7 @@ class CreateExpand : public LogicalOperator {
    public:
     CreateExpandCursor(const CreateExpand &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const CreateExpand &self_;
@@ -255,6 +265,7 @@ class ScanAll : public LogicalOperator {
    public:
     ScanAllCursor(const ScanAll &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const ScanAll &self_;
@@ -330,6 +341,7 @@ class Expand : public LogicalOperator {
    public:
     ExpandCursor(const Expand &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const Expand &self_;
@@ -404,6 +416,7 @@ class NodeFilter : public LogicalOperator {
    public:
     NodeFilterCursor(const NodeFilter &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const NodeFilter &self_;
@@ -443,10 +456,11 @@ class EdgeFilter : public LogicalOperator {
    public:
     EdgeFilterCursor(const EdgeFilter &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const EdgeFilter &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function for checking if the given edge satisfied
      *  the criteria of this edge filter. */
@@ -477,6 +491,7 @@ class Filter : public LogicalOperator {
    public:
     FilterCursor(const Filter &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const Filter &self_;
@@ -511,6 +526,7 @@ class Produce : public LogicalOperator {
    public:
     ProduceCursor(const Produce &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const Produce &self_;
@@ -543,11 +559,12 @@ class Delete : public LogicalOperator {
    public:
     DeleteCursor(const Delete &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const Delete &self_;
     GraphDbAccessor &db_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -573,10 +590,11 @@ class SetProperty : public LogicalOperator {
    public:
     SetPropertyCursor(const SetProperty &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const SetProperty &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -616,6 +634,7 @@ class SetProperties : public LogicalOperator {
    public:
     SetPropertiesCursor(const SetProperties &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const SetProperties &self_;
@@ -628,7 +647,7 @@ class SetProperties : public LogicalOperator {
      * RecordAccessor<Edge>
      */
     template <typename TRecordAccessor>
-    void Set(TRecordAccessor &record, const TypedValue &rhs);
+    void Set(TRecordAccessor &record, const TypedValue &rhs) const;
   };
 };
 
@@ -654,10 +673,11 @@ class SetLabels : public LogicalOperator {
    public:
     SetLabelsCursor(const SetLabels &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const SetLabels &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -680,10 +700,11 @@ class RemoveProperty : public LogicalOperator {
    public:
     RemovePropertyCursor(const RemoveProperty &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const RemoveProperty &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -710,10 +731,11 @@ class RemoveLabels : public LogicalOperator {
    public:
     RemoveLabelsCursor(const RemoveLabels &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const RemoveLabels &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -757,10 +779,11 @@ class ExpandUniquenessFilter : public LogicalOperator {
     ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
                                  GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const ExpandUniquenessFilter &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> input_cursor_;
   };
 };
 
@@ -807,6 +830,7 @@ class Accumulate : public LogicalOperator {
    public:
     AccumulateCursor(const Accumulate &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     const Accumulate &self_;
@@ -859,6 +883,7 @@ class Aggregate : public LogicalOperator {
    public:
     AggregateCursor(Aggregate &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     // custom equality function for the unordered map
@@ -883,8 +908,8 @@ class Aggregate : public LogicalOperator {
       std::vector<TypedValue> remember_;
     };
 
-    Aggregate &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const Aggregate &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data
     // map key is the list of group-by values
     // map value is an AggregationValue struct
@@ -922,7 +947,7 @@ class Aggregate : public LogicalOperator {
      * that the value vectors are filled with an appropriate number of Nulls,
      * counts are set to 0 and remember values are remembered.
      */
-    void EnsureInitialized(Frame &frame, AggregationValue &agg_value);
+    void EnsureInitialized(Frame &frame, AggregationValue &agg_value) const;
 
     /** Updates the given AggregationValue with new data. Assumes that
      * the AggregationValue has been initialized */
@@ -931,11 +956,11 @@ class Aggregate : public LogicalOperator {
 
     /** Checks if the given TypedValue is legal in MIN and MAX. If not
      * an appropriate exception is thrown. */
-    void EnsureOkForMinMax(const TypedValue &value);
+    void EnsureOkForMinMax(const TypedValue &value) const;
 
     /** Checks if the given TypedValue is legal in AVG and SUM. If not
      * an appropriate exception is thrown. */
-    void EnsureOkForAvgSum(const TypedValue &value);
+    void EnsureOkForAvgSum(const TypedValue &value) const;
   };
 };
 
@@ -965,10 +990,11 @@ class Skip : public LogicalOperator {
    public:
     SkipCursor(Skip &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
-    Skip &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const Skip &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
     // init to_skip_ to -1, indicating
     // that it's still unknown (input has not been Pulled yet)
     int to_skip_{-1};
@@ -1005,6 +1031,7 @@ class Limit : public LogicalOperator {
    public:
     LimitCursor(Limit &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
     Limit &self_;
@@ -1068,10 +1095,11 @@ class OrderBy : public LogicalOperator {
    public:
     OrderByCursor(OrderBy &self, GraphDbAccessor &db);
     bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
 
    private:
-    OrderBy &self_;
-    std::unique_ptr<Cursor> input_cursor_;
+    const OrderBy &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
     bool did_pull_all_{false};
     // a cache of elements pulled from the input
     // first pair element is the order-by list
