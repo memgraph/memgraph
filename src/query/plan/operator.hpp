@@ -187,12 +187,12 @@ class CreateExpand : public LogicalOperator {
    *     For each successful @c Cursor::Pull, this operator will create an
    *     expansion.
    * @param input_symbol @c Symbol for the node at the start of the edge.
-   * @param node_existing @c bool indicating whether the @c node_atom refers to
+   * @param existing_node @c bool indicating whether the @c node_atom refers to
    *     an existing node. If @c false, the operator will also create the node.
    */
   CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
-               Symbol input_symbol, bool node_existing);
+               Symbol input_symbol, bool existing_node);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
@@ -208,7 +208,7 @@ class CreateExpand : public LogicalOperator {
 
   // if the given node atom refers to an existing node
   // (either matched or created)
-  const bool node_existing_;
+  const bool existing_node_;
 
   class CreateExpandCursor : public Cursor {
    public:
@@ -281,10 +281,11 @@ class ScanAll : public LogicalOperator {
  *
  * This class does not handle node/edge filtering based on
  * properties, labels and edge types. However, it does handle
- * cycle filtering.
+ * filtering on existing node / edge.
  *
- * Cycle filtering means that for a pattern that references
- * the same node or edge in two places (for example `(n)-->(n)`),
+ * Filtering on existing means that for a pattern that references
+ * an already declared node or edge (for example in
+ * MATCH (a) MATCH (a)--(b)),
  * only expansions that match defined equalities are succesfully
  * pulled.
  */
@@ -299,7 +300,7 @@ class Expand : public LogicalOperator {
   /**
    * @brief Creates an expansion.
    *
-   * Cycle-checking is controlled via booleans. A true value
+   * Edge/Node existence is controlled via booleans. A true value
    * simply denotes that this expansion references an already
    * Pulled node/edge, and should only be checked for equalities
    * during expansion.
@@ -311,13 +312,13 @@ class Expand : public LogicalOperator {
    * @param input LogicalOperation that preceeds this one.
    * @param input_symbol Symbol that points to a VertexAccessor
    *    in the Frame that expansion should emanate from.
-   * @param node_cycle If or not the node to be expanded is already
+   * @param existing_node If or not the node to be expanded is already
    *    present in the Frame and should just be checked for equality.
-   * @param edge_cycle Same like 'node_cycle', but for edges.
+   * @param existing_edge Same like 'existing_node', but for edges.
    */
   Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
          const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-         bool node_cycle, bool edge_cycle);
+         bool existing_node, bool existing_edge);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
@@ -334,8 +335,8 @@ class Expand : public LogicalOperator {
   // if the given node and edge atom refer to symbols
   // (query identifiers) that have already been expanded
   // and should be just validated in the frame
-  const bool node_cycle_;
-  const bool edge_cycle_;
+  const bool existing_node_;
+  const bool existing_edge_;
 
   class ExpandCursor : public Cursor {
    public:
@@ -349,7 +350,7 @@ class Expand : public LogicalOperator {
 
     // the iterable over edges and the current edge iterator are referenced via
     // unique pointers because they can not be initialized in the constructor of
-    // this class. they are initialized once for each pull from the input
+    // this class. They are initialized once for each pull from the input
     std::unique_ptr<InEdgeT> in_edges_;
     std::unique_ptr<InEdgeIteratorT> in_edges_it_;
     std::unique_ptr<OutEdgeT> out_edges_;
@@ -358,34 +359,36 @@ class Expand : public LogicalOperator {
     bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
 
     /**
-     * For a newly expanded edge handles cycle checking and frame insertion.
+     * For a newly expanded edge handles existence checking and frame insertion.
      *
      * @return If or not the given new_edge is a valid expansion. It is not
-     * valid only when doing an edge-cycle and the new_edge does not match the
+     * valid only when matching and existing edge and new_edge does not match
+     * the
      * old.
      */
-    bool HandleEdgeCycle(const EdgeAccessor &new_edge, Frame &frame,
-                         const SymbolTable &symbol_table);
+    bool HandleExistingEdge(const EdgeAccessor &new_edge, Frame &frame,
+                            const SymbolTable &symbol_table);
 
     /**
      * Expands a node for the given newly expanded edge.
      *
      * @return True if after this call a new node has been successfully
-     * expanded. Returns false only when doing a node-cycle and the
+     * expanded. Returns false only when matching an existing node and the
      * new node does not qualify.
      */
     bool PullNode(const EdgeAccessor &new_edge, EdgeAtom::Direction direction,
                   Frame &frame, const SymbolTable &symbol_table);
 
     /**
-     * For a newly expanded node handles cycle checking and frame insertion.
+     * For a newly expanded node handles existence checking and frame insertion.
      *
      * @return If or not the given new_node is a valid expansion. It is not
-     * valid only when doing a node-cycle and the new_node does not match the
+     * valid only when matching and existing node and new_node does not match
+     * the
      * old.
      */
-    bool HandleNodeCycle(const VertexAccessor new_node, Frame &frame,
-                         const SymbolTable &symbol_table);
+    bool HandleExistingNode(const VertexAccessor new_node, Frame &frame,
+                            const SymbolTable &symbol_table);
   };
 };
 

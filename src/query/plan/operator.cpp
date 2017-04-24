@@ -83,12 +83,12 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
 
 CreateExpand::CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                            const std::shared_ptr<LogicalOperator> &input,
-                           Symbol input_symbol, bool node_existing)
+                           Symbol input_symbol, bool existing_node)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
       input_(input),
       input_symbol_(input_symbol),
-      node_existing_(node_existing) {}
+      existing_node_(existing_node) {}
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
@@ -139,7 +139,7 @@ void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     Frame &frame, const SymbolTable &symbol_table,
     ExpressionEvaluator &evaluator) {
-  if (self_.node_existing_) {
+  if (self_.existing_node_) {
     TypedValue &dest_node_value =
         frame[symbol_table.at(*self_.node_atom_->identifier_)];
     return dest_node_value.Value<VertexAccessor>();
@@ -207,13 +207,13 @@ void ScanAll::ScanAllCursor::Reset() {
 
 Expand::Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
-               Symbol input_symbol, bool node_cycle, bool edge_cycle)
+               Symbol input_symbol, bool existing_node, bool existing_edge)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
       input_(input),
       input_symbol_(input_symbol),
-      node_cycle_(node_cycle),
-      edge_cycle_(edge_cycle) {}
+      existing_node_(existing_node),
+      existing_edge_(existing_edge) {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -229,7 +229,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       EdgeAccessor edge = *(*in_edges_it_)++;
-      if (HandleEdgeCycle(edge, frame, symbol_table) &&
+      if (HandleExistingEdge(edge, frame, symbol_table) &&
           PullNode(edge, EdgeAtom::Direction::LEFT, frame, symbol_table))
         return true;
       else
@@ -245,7 +245,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
       if (self_.edge_atom_->direction_ == EdgeAtom::Direction::BOTH &&
           edge.is_cycle())
         continue;
-      if (HandleEdgeCycle(edge, frame, symbol_table) &&
+      if (HandleExistingEdge(edge, frame, symbol_table) &&
           PullNode(edge, EdgeAtom::Direction::RIGHT, frame, symbol_table))
         return true;
       else
@@ -302,15 +302,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   return true;
 }
 
-bool Expand::ExpandCursor::HandleEdgeCycle(const EdgeAccessor &new_edge,
-                                           Frame &frame,
-                                           const SymbolTable &symbol_table) {
-  if (self_.edge_cycle_) {
+bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
+                                              Frame &frame,
+                                              const SymbolTable &symbol_table) {
+  if (self_.existing_edge_) {
     TypedValue &old_edge_value =
         frame[symbol_table.at(*self_.edge_atom_->identifier_)];
     return old_edge_value.Value<EdgeAccessor>() == new_edge;
   } else {
-    // not doing a cycle, so put the new_edge into the frame and return true
+    // not matching existing, so put the new_edge into the frame and return true
     frame[symbol_table.at(*self_.edge_atom_->identifier_)] = new_edge;
     return true;
   }
@@ -321,23 +321,23 @@ bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
                                     const SymbolTable &symbol_table) {
   switch (direction) {
     case EdgeAtom::Direction::LEFT:
-      return HandleNodeCycle(new_edge.from(), frame, symbol_table);
+      return HandleExistingNode(new_edge.from(), frame, symbol_table);
     case EdgeAtom::Direction::RIGHT:
-      return HandleNodeCycle(new_edge.to(), frame, symbol_table);
+      return HandleExistingNode(new_edge.to(), frame, symbol_table);
     case EdgeAtom::Direction::BOTH:
       permanent_fail("Must indicate exact expansion direction here");
   }
 }
 
-bool Expand::ExpandCursor::HandleNodeCycle(const VertexAccessor new_node,
-                                           Frame &frame,
-                                           const SymbolTable &symbol_table) {
-  if (self_.node_cycle_) {
+bool Expand::ExpandCursor::HandleExistingNode(const VertexAccessor new_node,
+                                              Frame &frame,
+                                              const SymbolTable &symbol_table) {
+  if (self_.existing_node_) {
     TypedValue &old_node_value =
         frame[symbol_table.at(*self_.node_atom_->identifier_)];
     return old_node_value.Value<VertexAccessor>() == new_node;
   } else {
-    // not doing a cycle, so put the new_edge into the frame and return true
+    // not matching existing, so put the new_edge into the frame and return true
     frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
     return true;
   }
