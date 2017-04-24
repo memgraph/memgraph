@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "utils/exceptions.hpp"
+
 namespace utils {
 
 /**
@@ -18,7 +20,7 @@ namespace utils {
  *
  * @return trimmed string
  */
-std::string Trim(const std::string& s) {
+inline std::string Trim(const std::string& s) {
   auto begin = s.begin();
   auto end = s.end();
   if (begin == end) {
@@ -37,7 +39,7 @@ std::string Trim(const std::string& s) {
 /**
  * Return string with all lowercased characters (locale independent).
  */
-std::string ToLowerCase(std::string s) {
+inline std::string ToLowerCase(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(),
                  [](char c) { return tolower(c); });
   return s;
@@ -46,7 +48,7 @@ std::string ToLowerCase(std::string s) {
 /**
  * Return string with all uppercased characters (locale independent).
  */
-std::string ToUpperCase(std::string s) {
+inline std::string ToUpperCase(std::string s) {
   std::string s2(s.size(), ' ');
   std::transform(s.begin(), s.end(), s.begin(),
                  [](char c) { return toupper(c); });
@@ -56,8 +58,8 @@ std::string ToUpperCase(std::string s) {
 /**
  * Join strings in vector separated by a given separator.
  */
-std::string Join(const std::vector<std::string>& strings,
-                 const char* separator) {
+inline std::string Join(const std::vector<std::string>& strings,
+                        const char* separator) {
   std::ostringstream oss;
   std::copy(strings.begin(), strings.end(),
             std::ostream_iterator<std::string>(oss, separator));
@@ -68,8 +70,8 @@ std::string Join(const std::vector<std::string>& strings,
  * Replaces all occurences of <match> in <src> with <replacement>.
  */
 // TODO: This could be implemented much more efficient.
-std::string Replace(std::string src, const std::string& match,
-                    const std::string& replacement) {
+inline std::string Replace(std::string src, const std::string& match,
+                           const std::string& replacement) {
   for (size_t pos = src.find(match); pos != std::string::npos;
        pos = src.find(match, pos + replacement.size())) {
     src.erase(pos, match.length()).insert(pos, replacement);
@@ -80,8 +82,8 @@ std::string Replace(std::string src, const std::string& match,
 /**
  * Split string by delimeter and return vector of results.
  */
-std::vector<std::string> Split(const std::string& src,
-                               const std::string& delimiter) {
+inline std::vector<std::string> Split(const std::string& src,
+                                      const std::string& delimiter) {
   size_t index = 0;
   std::vector<std::string> res;
   size_t n = src.find(delimiter, index);
@@ -91,5 +93,21 @@ std::vector<std::string> Split(const std::string& src,
     index = n + delimiter.size();
   }
   return res;
+}
+
+/**
+ * Parse double using classic locale, throws BasicException if it wasn't able to
+ * parse whole string.
+ */
+inline double ParseDouble(const std::string& s) {
+  // stod would be nicer but it uses current locale so we shouldn't use it.
+  double t = 0LL;
+  std::istringstream iss(s);
+  iss.imbue(std::locale::classic());
+  iss >> t;
+  if (!iss.eof()) {
+    throw BasicException("Couldn't parse string");
+  }
+  return t;
 }
 }

@@ -14,6 +14,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 
 namespace query::frontend {
 
@@ -706,35 +707,26 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
 
 antlrcpp::Any CypherMainVisitor::visitFunctionName(
     CypherParser::FunctionNameContext *ctx) {
-  std::string function_name = ctx->getText();
-  std::transform(function_name.begin(), function_name.end(),
-                 function_name.begin(), toupper);
-  return function_name;
+  return utils::ToUpperCase(ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(
     CypherParser::DoubleLiteralContext *ctx) {
-  // stod would be nicer but it uses current locale so we shouldn't use it.
-  double t = 0LL;
-  std::istringstream iss(ctx->getText());
-  iss.imbue(std::locale::classic());
-  iss >> t;
-  if (!iss.eof()) {
-    throw SemanticException();
+  try {
+    return utils::ParseDouble(ctx->getText());
+  } catch (const utils::BasicException &) {
+    throw SemanticException("Couldn't parse string to double");
   }
-  return t;
 }
 
 antlrcpp::Any CypherMainVisitor::visitIntegerLiteral(
     CypherParser::IntegerLiteralContext *ctx) {
-  int64_t t = 0LL;
   try {
     // Not really correct since long long can have a bigger range than int64_t.
-    t = std::stoll(ctx->getText(), 0, 0);
-  } catch (std::out_of_range) {
+    return static_cast<int64_t>(std::stoll(ctx->getText(), 0, 0));
+  } catch (const std::out_of_range &) {
     throw SemanticException();
   }
-  return t;
 }
 
 antlrcpp::Any CypherMainVisitor::visitStringLiteral(

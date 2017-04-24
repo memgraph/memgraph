@@ -1,16 +1,307 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 
 #include "query/exceptions.hpp"
+#include "utils/string.hpp"
 
 namespace query {
 namespace {
 
+// Predicate functions.
+// Neo4j has all, any, exists, none, single
+// Those functions are a little bit different since they take a filterExpression
+// as an argument.
+// There is all, any, none and single productions in opencypher grammar, but it
+// will be trivial to also add exists.
+// TODO: Implement this.
+
+// Scalar functions.
+// We don't have a way to implement id function since we don't store any. If it
+// is really neccessary we could probably map vlist* to id.
+// TODO: Implement length (it works on a path, but we didn't define path
+// structure yet).
+// TODO: Implement size(pattern), for example size((a)-[:X]-()) should return
+// number of results of this pattern. I don't think we will ever do this.
+// TODO: Implement timestamp, every time it is called in a query it needs to
+// return same time. We need to store query start time somwhere.
+// TODO: Implement rest of the list functions.
+// TODO: Implement rand
+// TODO: Implement logarithmic, trigonometric, string and spatial functions
+
+TypedValue Coalesce(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() == 0U) {
+    throw QueryRuntimeException("coalesce requires at least one argument");
+  }
+  for (auto &arg : args) {
+    if (arg.type() != TypedValue::Type::Null) {
+      return arg;
+    }
+  }
+  return TypedValue::Null;
+}
+
+TypedValue EndNode(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("endNode requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Edge:
+      return args[0].Value<EdgeAccessor>().to();
+    default:
+      throw QueryRuntimeException("endNode called with incompatible type");
+  }
+}
+
+TypedValue Head(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("head requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::List: {
+      const auto &list = args[0].Value<std::vector<TypedValue>>();
+      if (list.empty()) return TypedValue::Null;
+      return list[0];
+    }
+    default:
+      throw QueryRuntimeException("head called with incompatible type");
+  }
+}
+
+TypedValue Last(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("last requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::List: {
+      const auto &list = args[0].Value<std::vector<TypedValue>>();
+      if (list.empty()) return TypedValue::Null;
+      return list.back();
+    }
+    default:
+      throw QueryRuntimeException("last called with incompatible type");
+  }
+}
+
+TypedValue Properties(const std::vector<TypedValue> &args,
+                      GraphDbAccessor &db_accessor) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("properties requires one argument");
+  }
+  auto get_properties = [&](const auto &record_accessor) {
+    std::map<std::string, TypedValue> properties;
+    for (const auto &property : record_accessor.Properties()) {
+      properties[db_accessor.property_name(property.first)] = property.second;
+    }
+    return properties;
+  };
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex:
+      return get_properties(args[0].Value<VertexAccessor>());
+    case TypedValue::Type::Edge:
+      return get_properties(args[0].Value<EdgeAccessor>());
+    default:
+      throw QueryRuntimeException("properties called with incompatible type");
+  }
+}
+
+TypedValue Size(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("size requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::List:
+      return static_cast<int64_t>(
+          args[0].Value<std::vector<TypedValue>>().size());
+    case TypedValue::Type::String:
+      return static_cast<int64_t>(args[0].Value<std::string>().size());
+    case TypedValue::Type::Map:
+      // neo4j doesn't implement size for map, but I don't see a good reason not
+      // to do it.
+      return static_cast<int64_t>(
+          args[0].Value<std::map<std::string, TypedValue>>().size());
+    default:
+      throw QueryRuntimeException("size called with incompatible type");
+  }
+}
+
+TypedValue StartNode(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("startNode requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Edge:
+      return args[0].Value<EdgeAccessor>().from();
+    default:
+      throw QueryRuntimeException("startNode called with incompatible type");
+  }
+}
+
+TypedValue ToBoolean(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("toBoolean requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Bool:
+      return args[0].Value<bool>();
+    case TypedValue::Type::String: {
+      auto s = utils::ToUpperCase(utils::Trim(args[0].Value<std::string>()));
+      if (s == "TRUE") return true;
+      if (s == "FALSE") return false;
+      // I think this is just stupid and that exception should be thrown, but
+      // neo4j does it this way...
+      return TypedValue::Null;
+    }
+    default:
+      throw QueryRuntimeException("toBoolean called with incompatible type");
+  }
+}
+
+TypedValue ToFloat(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("toFloat requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return static_cast<double>(args[0].Value<int64_t>());
+    case TypedValue::Type::Double:
+      return args[0];
+    case TypedValue::Type::String:
+      try {
+        return utils::ParseDouble(utils::Trim(args[0].Value<std::string>()));
+      } catch (const utils::BasicException &) {
+        return TypedValue::Null;
+      }
+    default:
+      throw QueryRuntimeException("toFloat called with incompatible type");
+  }
+}
+
+TypedValue ToInteger(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("toInteger requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return args[0];
+    case TypedValue::Type::Double:
+      return static_cast<int64_t>(args[0].Value<double>());
+    case TypedValue::Type::String:
+      try {
+        // Yup, this is correct. String is valid if it has floating point
+        // number, then it is parsed and converted to int.
+        return static_cast<int64_t>(
+            utils::ParseDouble(utils::Trim(args[0].Value<std::string>())));
+      } catch (const utils::BasicException &) {
+        return TypedValue::Null;
+      }
+    default:
+      throw QueryRuntimeException("toInteger called with incompatible type");
+  }
+}
+
+TypedValue Type(const std::vector<TypedValue> &args,
+                GraphDbAccessor &db_accessor) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("type requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Edge:
+      return db_accessor.edge_type_name(
+          args[0].Value<EdgeAccessor>().edge_type());
+    default:
+      throw QueryRuntimeException("type called with incompatible type");
+  }
+}
+
+TypedValue Keys(const std::vector<TypedValue> &args,
+                GraphDbAccessor &db_accessor) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("keys requires one argument");
+  }
+  auto get_keys = [&](const auto &record_accessor) {
+    std::vector<TypedValue> keys;
+    for (const auto &property : record_accessor.Properties()) {
+      keys.push_back(db_accessor.property_name(property.first));
+    }
+    return keys;
+  };
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex:
+      return get_keys(args[0].Value<VertexAccessor>());
+    case TypedValue::Type::Edge:
+      return get_keys(args[0].Value<EdgeAccessor>());
+    default:
+      throw QueryRuntimeException("keys called with incompatible type");
+  }
+}
+
+TypedValue Labels(const std::vector<TypedValue> &args,
+                  GraphDbAccessor &db_accessor) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("labels requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex: {
+      std::vector<TypedValue> labels;
+      for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
+        labels.push_back(db_accessor.label_name(label));
+      }
+      return labels;
+    }
+    default:
+      throw QueryRuntimeException("labels called with incompatible type");
+  }
+}
+
+TypedValue Tail(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("tail requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::List: {
+      auto list = args[0].Value<std::vector<TypedValue>>();
+      if (list.empty()) return list;
+      list.erase(list.begin());
+      return list;
+    }
+    default:
+      throw QueryRuntimeException("tail called with incompatible type");
+  }
+}
+
 TypedValue Abs(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("ABS requires one argument");
+    throw QueryRuntimeException("abs requires one argument");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -21,16 +312,99 @@ TypedValue Abs(const std::vector<TypedValue> &args, GraphDbAccessor &) {
     case TypedValue::Type::Double:
       return std::abs(args[0].Value<double>());
     default:
-      throw QueryRuntimeException("ABS called with incompatible type");
+      throw QueryRuntimeException("abs called with incompatible type");
+  }
+}
+
+TypedValue Ceil(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("ceil requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return ceil(args[0].Value<int64_t>());
+    case TypedValue::Type::Double:
+      return ceil(args[0].Value<double>());
+    default:
+      throw QueryRuntimeException("ceil called with incompatible type");
+  }
+}
+
+TypedValue Floor(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("floor requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return floor(args[0].Value<int64_t>());
+    case TypedValue::Type::Double:
+      return floor(args[0].Value<double>());
+    default:
+      throw QueryRuntimeException("floor called with incompatible type");
+  }
+}
+
+// We are not completely compatible with neoj4 in this function because,
+// neo4j rounds -0.5, -1.5, -2.5... to 0, -1, -2...
+TypedValue Round(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("round requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return round(args[0].Value<int64_t>());
+    case TypedValue::Type::Double:
+      return round(args[0].Value<double>());
+    default:
+      throw QueryRuntimeException("round called with incompatible type");
+  }
+}
+
+TypedValue Sign(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("sign requires one argument");
+  }
+  auto sign = [](auto x) { return (0 < x) - (x < 0); };
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Int:
+      return sign(args[0].Value<int64_t>());
+    case TypedValue::Type::Double:
+      return sign(args[0].Value<double>());
+    default:
+      throw QueryRuntimeException("sign called with incompatible type");
   }
 }
 }
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
 NameToFunction(const std::string &function_name) {
-  if (function_name == "ABS") {
-    return Abs;
-  }
+  if (function_name == "COALESCE") return Coalesce;
+  if (function_name == "ENDNODE") return EndNode;
+  if (function_name == "HEAD") return Head;
+  if (function_name == "LAST") return Last;
+  if (function_name == "PROPERTIES") return Properties;
+  if (function_name == "SIZE") return Size;
+  if (function_name == "STARTNODE") return StartNode;
+  if (function_name == "TOBOOLEAN") return ToBoolean;
+  if (function_name == "TOFLOAT") return ToFloat;
+  if (function_name == "TOINTEGER") return ToInteger;
+  if (function_name == "TYPE") return Type;
+  if (function_name == "KEYS") return Keys;
+  if (function_name == "LABELS") return Labels;
+  if (function_name == "TAIL") return Tail;
+  if (function_name == "ABS") return Abs;
+  if (function_name == "CEIL") return Ceil;
+  if (function_name == "FLOOR") return Floor;
+  if (function_name == "ROUND") return Round;
+  if (function_name == "SIGN") return Sign;
   return nullptr;
 }
 }

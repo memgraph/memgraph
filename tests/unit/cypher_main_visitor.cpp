@@ -918,7 +918,7 @@ TEST(CypherMainVisitorTest, WithWhere) {
 
 TEST(CypherMainVisitorTest, ClausesOrdering) {
   // Obviously some of the ridiculous combinations don't fail here, but they
-  // will fail in semantic analysis or they make perfect sense AS a part of
+  // will fail in semantic analysis or they make perfect sense as a part of
   // bigger query.
   AstGenerator("RETURN 1");
   ASSERT_THROW(AstGenerator("RETURN 1 RETURN 1"), SemanticException);

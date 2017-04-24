@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "database/graph_db_datatypes.hpp"
+#include "query/frontend/ast/ast.hpp"
 
 namespace query {
 
