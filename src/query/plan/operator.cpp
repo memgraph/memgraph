@@ -26,11 +26,11 @@ void Once::Accept(LogicalOperatorVisitor &visitor) {
     visitor.PostVisit(*this);
   }
 }
-std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &) {
   return std::make_unique<OnceCursor>();
 }
 
-bool Once::OnceCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+bool Once::OnceCursor::Pull(Frame &, const SymbolTable &) {
   if (!did_pull_) {
     did_pull_ = true;
     return true;
@@ -70,7 +70,7 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   auto new_node = db_.insert_vertex();
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
   evaluator.SwitchNew();
@@ -108,7 +108,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   TypedValue &vertex_value = frame[self_.input_symbol_];
   auto &v1 = vertex_value.Value<VertexAccessor>();
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
   // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
@@ -355,7 +355,7 @@ std::unique_ptr<Cursor> NodeFilter::MakeCursor(GraphDbAccessor &db) {
 
 NodeFilter::NodeFilterCursor::NodeFilterCursor(const NodeFilter &self,
                                                GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool NodeFilter::NodeFilterCursor::Pull(Frame &frame,
                                         const SymbolTable &symbol_table) {
@@ -377,7 +377,7 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(
   for (auto label : self_.node_atom_->labels_)
     if (!vertex.has_label(label)) return false;
 
-  ExpressionEvaluator expression_evaluator(frame, symbol_table);
+  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_);
   // We don't want newly set properties to affect filtering.
   expression_evaluator.SwitchOld();
   for (auto prop_pair : self_.node_atom_->properties_) {
@@ -401,7 +401,7 @@ std::unique_ptr<Cursor> EdgeFilter::MakeCursor(GraphDbAccessor &db) {
 }
 EdgeFilter::EdgeFilterCursor::EdgeFilterCursor(const EdgeFilter &self,
                                                GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool EdgeFilter::EdgeFilterCursor::Pull(Frame &frame,
                                         const SymbolTable &symbol_table) {
@@ -427,7 +427,7 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
                                    [type](auto t) { return t == type; }))
     return false;
 
-  ExpressionEvaluator expression_evaluator(frame, symbol_table);
+  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_);
   // We don't want newly set properties to affect filtering.
   expression_evaluator.SwitchOld();
   for (auto prop_pair : self_.edge_atom_->properties_) {
@@ -451,10 +451,10 @@ std::unique_ptr<Cursor> Filter::MakeCursor(GraphDbAccessor &db) {
 }
 
 Filter::FilterCursor::FilterCursor(const Filter &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Like all filters, newly set values should not affect filtering of old nodes
   // and edges.
   evaluator.SwitchOld();
@@ -485,12 +485,12 @@ const std::vector<NamedExpression *> &Produce::named_expressions() {
 }
 
 Produce::ProduceCursor::ProduceCursor(const Produce &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {
   if (input_cursor_->Pull(frame, symbol_table)) {
-    ExpressionEvaluator evaluator(frame, symbol_table);
+    ExpressionEvaluator evaluator(frame, symbol_table, db_);
     // Produce should always yield the latest results.
     evaluator.SwitchNew();
     for (auto named_expr : self_.named_expressions_)
@@ -518,7 +518,7 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, GraphDbAccessor &db)
 bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Delete should get the latest information, this way it is also possible to
   // delete newly added nodes and edges.
   evaluator.SwitchNew();
@@ -576,13 +576,13 @@ std::unique_ptr<Cursor> SetProperty::MakeCursor(GraphDbAccessor &db) {
 
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self,
                                                   GraphDbAccessor &db)
-    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
                                           const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Set, just like Create needs to see the latest changes.
   evaluator.SwitchNew();
   self_.lhs_->expression_->Accept(evaluator);
@@ -631,7 +631,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   TypedValue &lhs = frame[self_.input_symbol_];
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Set, just like Create needs to see the latest changes.
   evaluator.SwitchNew();
   self_.rhs_->Accept(evaluator);
@@ -732,13 +732,13 @@ std::unique_ptr<Cursor> RemoveProperty::MakeCursor(GraphDbAccessor &db) {
 
 RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(
     const RemoveProperty &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(
     Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Remove, just like Delete needs to see the latest changes.
   evaluator.SwitchNew();
   self_.lhs_->expression_->Accept(evaluator);
@@ -944,7 +944,7 @@ std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
 
 Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
                                             GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Aggregate::AggregateCursor::Pull(Frame &frame,
                                       const SymbolTable &symbol_table) {
@@ -972,7 +972,7 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame,
 
 void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
                                             const SymbolTable &symbol_table) {
-  ExpressionEvaluator evaluator(frame, symbol_table);
+  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   evaluator.SwitchNew();
   while (input_cursor_->Pull(frame, symbol_table))
     ProcessOne(frame, symbol_table, evaluator);
@@ -1149,14 +1149,14 @@ std::unique_ptr<Cursor> Skip::MakeCursor(GraphDbAccessor &db) {
 }
 
 Skip::SkipCursor::SkipCursor(Skip &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   while (input_cursor_->Pull(frame, symbol_table)) {
     if (to_skip_ == -1) {
       // first successful pull from the input
       // evaluate the skip expression
-      ExpressionEvaluator evaluator(frame, symbol_table);
+      ExpressionEvaluator evaluator(frame, symbol_table, db_);
       self_.expression_->Accept(evaluator);
       TypedValue to_skip = evaluator.PopBack();
       if (to_skip.type() != TypedValue::Type::Int)
@@ -1191,7 +1191,7 @@ std::unique_ptr<Cursor> Limit::MakeCursor(GraphDbAccessor &db) {
 }
 
 Limit::LimitCursor::LimitCursor(Limit &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // we need to evaluate the limit expression before the first input Pull
@@ -1199,7 +1199,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // we can do this before Pulling from the input because the limit expression
   // is not allowed to contain any identifiers
   if (limit_ == -1) {
-    ExpressionEvaluator evaluator(frame, symbol_table);
+    ExpressionEvaluator evaluator(frame, symbol_table, db_);
     self_.expression_->Accept(evaluator);
     TypedValue limit = evaluator.PopBack();
     if (limit.type() != TypedValue::Type::Int)
@@ -1245,12 +1245,12 @@ std::unique_ptr<Cursor> OrderBy::MakeCursor(GraphDbAccessor &db) {
 }
 
 OrderBy::OrderByCursor::OrderByCursor(OrderBy &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool OrderBy::OrderByCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {
   if (!did_pull_all_) {
-    ExpressionEvaluator evaluator(frame, symbol_table);
+    ExpressionEvaluator evaluator(frame, symbol_table, db_);
     while (input_cursor_->Pull(frame, symbol_table)) {
       // collect the order_by elements
       std::list<TypedValue> order_by;

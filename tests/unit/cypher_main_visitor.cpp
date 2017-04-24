@@ -424,9 +424,6 @@ TEST(CypherMainVisitorTest, Function) {
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
   ASSERT_TRUE(function->function_);
-  // Check if function is abs.
-  ASSERT_EQ(function->function_({-2}).Value<int64_t>(), 2);
-  ASSERT_EQ(function->arguments_.size(), 2);
 }
 
 TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {

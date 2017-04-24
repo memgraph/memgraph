@@ -10,6 +10,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "database/graph_db_accessor.hpp"
+#include "dbms/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -21,7 +23,9 @@ struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{0};
   SymbolTable symbol_table;
-  ExpressionEvaluator eval{frame, symbol_table};
+  Dbms dbms;
+  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  ExpressionEvaluator eval{frame, symbol_table, *dba};
 };
 
 TEST(ExpressionEvaluator, OrOperator) {
@@ -290,7 +294,9 @@ TEST(ExpressionEvaluator, Aggregation) {
   symbol_table[*aggr] = aggr_sym;
   Frame frame{symbol_table.max_position()};
   frame[aggr_sym] = TypedValue(1);
-  ExpressionEvaluator eval{frame, symbol_table};
+  Dbms dbms;
+  auto dba = dbms.active();
+  ExpressionEvaluator eval{frame, symbol_table, *dba};
   aggr->Accept(eval);
   EXPECT_EQ(eval.PopBack().Value<int64_t>(), 1);
 }

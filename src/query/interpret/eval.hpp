@@ -3,6 +3,7 @@
 #include <map>
 #include <vector>
 
+#include "database/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
@@ -14,19 +15,22 @@ namespace query {
 
 class ExpressionEvaluator : public TreeVisitorBase {
  public:
-  ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table)
-      : frame_(frame), symbol_table_(symbol_table) {}
+  ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table,
+                      GraphDbAccessor &db_accessor)
+      : frame_(frame), symbol_table_(symbol_table), db_accessor_(db_accessor) {}
 
-  /** When evaluting @c RecordAccessor, use @c SwitchNew to get the new data, as
-   * modified during the current command.
+  /**
+   * When evaluting @c RecordAccessor, use @c SwitchNew to get the new
+   * data, as modified during the current command.
    */
   auto &SwitchNew() {
     use_new_ = true;
     return *this;
   };
 
-  /** When evaluting @c RecordAccessor, use @c SwitchOld to get the old data,
-   * before the modification done by the current command.
+  /**
+   * When evaluting @c RecordAccessor, use @c SwitchOld to get the old
+   * data, before the modification done by the current command.
    */
   auto &SwitchOld() {
     use_new_ = false;
@@ -127,8 +131,8 @@ class ExpressionEvaluator : public TreeVisitorBase {
   }
 
   void Visit(Literal &literal) override {
-    // TODO: no need to evaluate constants, we can write it to frame in one of
-    // the previous phases.
+    // TODO: no need to evaluate constants, we can write it to frame in one
+    // of the previous phases.
     result_stack_.push_back(literal.value_);
   }
 
@@ -148,7 +152,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
       arguments.push_back(PopBack());
     }
     reverse(arguments.begin(), arguments.end());
-    result_stack_.emplace_back(function.function_(arguments));
+    result_stack_.emplace_back(function.function_(arguments, db_accessor_));
   }
 
  private:
@@ -188,8 +192,10 @@ class ExpressionEvaluator : public TreeVisitorBase {
   Frame &frame_;
   const SymbolTable &symbol_table_;
   std::list<TypedValue> result_stack_;
-  // If true, use SwitchNew on evaluated record accessors. This should be done
-  // only in expressions which may return one. E.g. identifier, list indexing.
+  // If true, use SwitchNew on evaluated record accessors. This should be
+  // done only in expressions which may return one. E.g. identifier, list
+  // indexing.
   bool use_new_ = false;
+  GraphDbAccessor &db_accessor_;
 };
 }

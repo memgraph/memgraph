@@ -427,12 +427,14 @@ class Function : public Expression {
     }
   }
 
-  std::function<TypedValue(const std::vector<TypedValue> &)> function_;
+  std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
+      function_;
   std::vector<Expression *> arguments_;
 
  protected:
-  Function(int uid,
-           std::function<TypedValue(const std::vector<TypedValue> &)> function,
+  Function(int uid, std::function<TypedValue(const std::vector<TypedValue> &,
+                                             GraphDbAccessor &)>
+                        function,
            const std::vector<Expression *> &arguments)
       : Expression(uid), function_(function), arguments_(arguments) {}
 };

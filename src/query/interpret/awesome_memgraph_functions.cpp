@@ -8,7 +8,7 @@
 namespace query {
 namespace {
 
-TypedValue Abs(const std::vector<TypedValue> &args) {
+TypedValue Abs(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("ABS requires one argument");
   }
@@ -26,8 +26,8 @@ TypedValue Abs(const std::vector<TypedValue> &args) {
 }
 }
 
-std::function<TypedValue(const std::vector<TypedValue> &)> NameToFunction(
-    const std::string &function_name) {
+std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
+NameToFunction(const std::string &function_name) {
   if (function_name == "ABS") {
     return Abs;
   }

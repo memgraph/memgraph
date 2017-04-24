@@ -420,6 +420,7 @@ class NodeFilter : public LogicalOperator {
 
    private:
     const NodeFilter &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function for checking if the given vertex
@@ -460,6 +461,7 @@ class EdgeFilter : public LogicalOperator {
 
    private:
     const EdgeFilter &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
 
     /** Helper function for checking if the given edge satisfied
@@ -495,6 +497,7 @@ class Filter : public LogicalOperator {
 
    private:
     const Filter &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -530,6 +533,7 @@ class Produce : public LogicalOperator {
 
    private:
     const Produce &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -594,6 +598,7 @@ class SetProperty : public LogicalOperator {
 
    private:
     const SetProperty &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -704,6 +709,7 @@ class RemoveProperty : public LogicalOperator {
 
    private:
     const RemoveProperty &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
 };
@@ -909,6 +915,7 @@ class Aggregate : public LogicalOperator {
     };
 
     const Aggregate &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data
     // map key is the list of group-by values
@@ -994,6 +1001,7 @@ class Skip : public LogicalOperator {
 
    private:
     const Skip &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
     // init to_skip_ to -1, indicating
     // that it's still unknown (input has not been Pulled yet)
@@ -1035,6 +1043,7 @@ class Limit : public LogicalOperator {
 
    private:
     Limit &self_;
+    GraphDbAccessor &db_;
     std::unique_ptr<Cursor> input_cursor_;
     // init limit_ to -1, indicating
     // that it's still unknown (Cursor has not been Pulled yet)
@@ -1099,6 +1108,7 @@ class OrderBy : public LogicalOperator {
 
    private:
     const OrderBy &self_;
+    GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
     bool did_pull_all_{false};
     // a cache of elements pulled from the input
