@@ -15,6 +15,7 @@
 
 using namespace query::plan;
 using query::AstTreeStorage;
+using query::Symbol;
 using query::SymbolTable;
 using query::SymbolGenerator;
 using Direction = query::EdgeAtom::Direction;
@@ -57,13 +58,27 @@ using ExpectRemoveLabels = OpChecker<RemoveLabels>;
 template <class TAccessor>
 using ExpectExpandUniquenessFilter =
     OpChecker<ExpandUniquenessFilter<TAccessor>>;
-using ExpectAccumulate = OpChecker<Accumulate>;
 using ExpectSkip = OpChecker<Skip>;
 using ExpectLimit = OpChecker<Limit>;
+using ExpectOrderBy = OpChecker<OrderBy>;
+
+class ExpectAccumulate : public OpChecker<Accumulate> {
+ public:
+  ExpectAccumulate(const std::unordered_set<Symbol, Symbol::Hash> &symbols)
+      : symbols_(symbols) {}
+
+  void ExpectOp(Accumulate &op, const SymbolTable &symbol_table) override {
+    std::unordered_set<Symbol, Symbol::Hash> got_symbols(op.symbols().begin(),
+                                                         op.symbols().end());
+    EXPECT_EQ(symbols_, got_symbols);
+  }
+
+ private:
+  const std::unordered_set<Symbol, Symbol::Hash> symbols_;
+};
 
 class ExpectAggregate : public OpChecker<Aggregate> {
  public:
-  ExpectAggregate() = default;
   ExpectAggregate(const std::vector<query::Aggregation *> &aggregations,
                   const std::unordered_set<query::Expression *> &group_by)
       : aggregations_(aggregations), group_by_(group_by) {}
@@ -119,6 +134,7 @@ class PlanChecker : public LogicalOperatorVisitor {
   void Visit(Aggregate &op) override { CheckOp(op); }
   void Visit(Skip &op) override { CheckOp(op); }
   void Visit(Limit &op) override { CheckOp(op); }
+  void Visit(OrderBy &op) override { CheckOp(op); }
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -132,16 +148,27 @@ class PlanChecker : public LogicalOperatorVisitor {
   const SymbolTable &symbol_table_;
 };
 
-template <class... TChecker>
-auto CheckPlan(query::Query &query, TChecker... checker) {
+auto MakeSymbolTable(query::Query &query) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query.Accept(symbol_generator);
-  auto plan = MakeLogicalPlan(query, symbol_table);
+  return symbol_table;
+}
+
+template <class... TChecker>
+auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
+               TChecker... checker) {
   std::list<BaseOpChecker *> checkers{&checker...};
   PlanChecker plan_checker(checkers, symbol_table);
-  plan->Accept(plan_checker);
+  plan.Accept(plan_checker);
   EXPECT_TRUE(plan_checker.checkers_.empty());
+}
+
+template <class... TChecker>
+auto CheckPlan(query::Query &query, TChecker... checker) {
+  auto symbol_table = MakeSymbolTable(query);
+  auto plan = MakeLogicalPlan(query, symbol_table);
+  CheckPlan(*plan, symbol_table, checker...);
 }
 
 TEST(TestLogicalPlanner, MatchNodeReturn) {
@@ -154,8 +181,12 @@ TEST(TestLogicalPlanner, MatchNodeReturn) {
 TEST(TestLogicalPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstTreeStorage storage;
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
-  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), ExpectProduce());
+  auto ident_n = IDENT("n");
+  auto query = QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n")));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, CreateExpand) {
@@ -413,12 +444,16 @@ TEST(TestLogicalPlanner, CreateWithSum) {
   auto dba = dbms.active();
   auto prop = dba->property("prop");
   AstTreeStorage storage;
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto sum = SUM(n_prop);
   auto query = QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum")));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
-  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), aggr,
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr,
             ExpectProduce());
 }
 
@@ -449,15 +484,19 @@ TEST(TestLogicalPlanner, MatchReturnSkipLimit) {
 TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
   // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
   AstTreeStorage storage;
+  auto ident_n = IDENT("n");
   auto query = QUERY(CREATE(PATTERN(NODE("n"))),
-                     WITH(IDENT("n"), AS("m"), SKIP(LITERAL(2))),
+                     WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
                      RETURN(IDENT("m"), AS("m"), LIMIT(LITERAL(1))));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
   // Since we have a write query, we need to have Accumulate, so Skip and Limit
   // need to come before it. This is a bit different than Neo4j, which optimizes
   // WITH followed by RETURN as a single RETURN clause. This would cause the
   // Limit operator to also appear before Accumulate, thus changing the
   // behaviour. We've decided to diverge from Neo4j here, for consistency sake.
-  CheckPlan(*query, ExpectCreateNode(), ExpectSkip(), ExpectAccumulate(),
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectSkip(), acc,
             ExpectProduce(), ExpectLimit(), ExpectProduce());
 }
 
@@ -467,14 +506,69 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   auto dba = dbms.active();
   auto prop = dba->property("prop");
   AstTreeStorage storage;
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto sum = SUM(n_prop);
   auto query = QUERY(CREATE(PATTERN(NODE("n"))),
                      RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
   // We have a write query and aggregation, therefore Skip and Limit should come
   // after Accumulate and Aggregate.
-  CheckPlan(*query, ExpectCreateNode(), ExpectAccumulate(), aggr, ExpectSkip(),
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectSkip(),
             ExpectLimit(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchReturnOrderBy) {
+  // Test MATCH (n) RETURN n ORDER BY n.prop
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto ret = RETURN(IDENT("n"), AS("n"), ORDER_BY(PROPERTY_LOOKUP("n", prop)));
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
+}
+
+TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
+  // Test CREATE (n) -[r :r]-> (m)
+  //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  auto r_type = dba->edge_type("r");
+  AstTreeStorage storage;
+  auto ident_n = IDENT("n");
+  auto new_prop = PROPERTY_LOOKUP("new", prop);
+  auto r_prop = PROPERTY_LOOKUP("r", prop);
+  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto query =
+      QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r_type, Direction::RIGHT),
+                           NODE("m"))),
+            WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
+            WHERE(LESS(m_prop, LITERAL(42))));
+  auto symbol_table = MakeSymbolTable(*query);
+  // Since this is a write query, we expect to accumulate to old used symbols.
+  auto acc = ExpectAccumulate({
+      symbol_table.at(*ident_n),              // `n` in WITH
+      symbol_table.at(*r_prop->expression_),  // `r` in ORDER BY
+      symbol_table.at(*m_prop->expression_),  // `m` in WHERE
+  });
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc,
+            ExpectProduce(), ExpectFilter(), ExpectOrderBy());
+}
+
+TEST(TestLogicalPlanner, ReturnAddSumCountOrderBy) {
+  // Test RETURN SUM(1) + COUNT(2) AS result ORDER BY result
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(1));
+  auto count = COUNT(LITERAL(2));
+  auto query =
+      QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result"))));
+  auto aggr = ExpectAggregate({sum, count}, {});
+  CheckPlan(*query, aggr, ExpectProduce(), ExpectOrderBy());
 }
 
 }  // namespace

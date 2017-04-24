@@ -13,9 +13,16 @@ class Symbol {
   enum class Type { Any, Vertex, Edge, Path, Number };
 
   static std::string TypeToString(Type type) {
-    const char *enum_string[] = {"Any", "Vertex", "Edge", "Path"};
+    const char *enum_string[] = {"Any", "Vertex", "Edge", "Path", "Number"};
     return enum_string[static_cast<int>(type)];
   }
+
+  // Calculates the Symbol hash based on its position.
+  struct Hash {
+    size_t operator()(const Symbol &symbol) const {
+      return std::hash<int>{}(symbol.position_);
+    }
+  };
 
   Symbol() {}
   Symbol(const std::string &name, int position, Type type = Type::Any)

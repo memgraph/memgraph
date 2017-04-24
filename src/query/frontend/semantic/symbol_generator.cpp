@@ -30,31 +30,63 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
   return CreateSymbol(name, type);
 }
 
-void SymbolGenerator::BindNamedExpressionSymbols(
-    const std::vector<NamedExpression *> &named_expressions) {
-  std::unordered_set<std::string> seen_names;
-  for (auto &named_expr : named_expressions) {
-    // Improvement would be to infer the type of the expression.
+void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
+  for (auto &expr : body.named_expressions) {
+    expr->Accept(*this);
+  }
+  // WITH/RETURN clause removes declarations of all the previous variables and
+  // declares only those established through named expressions. New declarations
+  // must not be visible inside named expressions themselves.
+  bool removed_old_names = false;
+  if ((!where && body.order_by.empty()) || scope_.has_aggregation) {
+    // WHERE and ORDER BY need to see both the old and new symbols, unless we
+    // have an aggregation. Therefore, we can clear the symbols immediately if
+    // there is neither ORDER BY nor WHERE, or we have an aggregation.
+    scope_.symbols.clear();
+    removed_old_names = true;
+  }
+  // Create symbols for named expressions.
+  std::unordered_set<std::string> new_names;
+  for (auto &named_expr : body.named_expressions) {
     const auto &name = named_expr->name_;
-    if (!seen_names.insert(name).second) {
+    if (!new_names.insert(name).second) {
       throw SemanticException(
           "Multiple results with the same name '{}' are not allowed.", name);
     }
+    // An improvement would be to infer the type of the expression, so that the
+    // new symbol would have a more specific type.
     symbol_table_[*named_expr] = CreateSymbol(name);
   }
-}
-
-void SymbolGenerator::VisitSkipAndLimit(Expression *skip, Expression *limit) {
-  if (skip) {
+  scope_.in_order_by = true;
+  for (const auto &order_pair : body.order_by) {
+    order_pair.second->Accept(*this);
+  }
+  scope_.in_order_by = false;
+  if (body.skip) {
     scope_.in_skip = true;
-    skip->Accept(*this);
+    body.skip->Accept(*this);
     scope_.in_skip = false;
   }
-  if (limit) {
+  if (body.limit) {
     scope_.in_limit = true;
-    limit->Accept(*this);
+    body.limit->Accept(*this);
     scope_.in_limit = false;
   }
+  if (where) where->Accept(*this);
+  if (!removed_old_names) {
+    // We have an ORDER BY or WHERE, but no aggregation, which means we didn't
+    // clear the old symbols, so do it now. We cannot just call clear, because
+    // we've added new symbols.
+    for (auto sym_it = scope_.symbols.begin();
+         sym_it != scope_.symbols.end();) {
+      if (new_names.find(sym_it->first) == new_names.end()) {
+        sym_it = scope_.symbols.erase(sym_it);
+      } else {
+        sym_it++;
+      }
+    }
+  }
+  scope_.has_aggregation = false;
 }
 
 // Clauses
@@ -64,32 +96,20 @@ void SymbolGenerator::PostVisit(Create &create) { scope_.in_create = false; }
 
 bool SymbolGenerator::PreVisit(Return &ret) {
   scope_.in_return = true;
-  for (auto &expr : ret.body_.named_expressions) {
-    expr->Accept(*this);
-  }
-  // Named expressions establish bindings for expressions which come after
-  // return, but not for the expressions contained inside.
-  BindNamedExpressionSymbols(ret.body_.named_expressions);
-  VisitSkipAndLimit(ret.body_.skip, ret.body_.limit);
+  VisitReturnBody(ret.body_);
   scope_.in_return = false;
   return false;  // We handled the traversal ourselves.
 }
 
 bool SymbolGenerator::PreVisit(With &with) {
   scope_.in_with = true;
-  for (auto &expr : with.body_.named_expressions) {
-    expr->Accept(*this);
-  }
+  VisitReturnBody(with.body_, with.where_);
   scope_.in_with = false;
-  // WITH clause removes declarations of all the previous variables and declares
-  // only those established through named expressions. New declarations must not
-  // be visible inside named expressions themselves.
-  scope_.symbols.clear();
-  BindNamedExpressionSymbols(with.body_.named_expressions);
-  VisitSkipAndLimit(with.body_.skip, with.body_.limit);
-  if (with.where_) with.where_->Accept(*this);
   return false;  // We handled the traversal ourselves.
 }
+
+void SymbolGenerator::Visit(Where &) { scope_.in_where = true; }
+void SymbolGenerator::PostVisit(Where &) { scope_.in_where = false; }
 
 // Expressions
 
@@ -133,7 +153,8 @@ void SymbolGenerator::Visit(Aggregation &aggr) {
   // Check if the aggregation can be used in this context. This check should
   // probably move to a separate phase, which checks if the query is well
   // formed.
-  if (!scope_.in_return && !scope_.in_with) {
+  if ((!scope_.in_return && !scope_.in_with) || scope_.in_order_by ||
+      scope_.in_skip || scope_.in_limit || scope_.in_where) {
     throw SemanticException(
         "Aggregation functions are only allowed in WITH and RETURN");
   }
@@ -146,6 +167,7 @@ void SymbolGenerator::Visit(Aggregation &aggr) {
   // Currently, we only have aggregation operators which return numbers.
   symbol_table_[aggr] = symbol_table_.CreateSymbol("", Symbol::Type::Number);
   scope_.in_aggregation = true;
+  scope_.has_aggregation = true;
 }
 
 void SymbolGenerator::PostVisit(Aggregation &aggr) {

@@ -42,25 +42,32 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   Frame frame(symbol_table.max_position());
 
   std::vector<std::string> header;
+  bool is_return = false;
+  std::vector<Symbol> output_symbols;
   if (auto produce = dynamic_cast<plan::Produce *>(logical_plan.get())) {
-    // top level node in the operator tree is a produce (return)
+    is_return = true;
+    // collect the symbols from the return clause
+    for (auto named_expression : produce->named_expressions())
+      output_symbols.emplace_back(symbol_table[*named_expression]);
+  } else if (auto order_by =
+                 dynamic_cast<plan::OrderBy *>(logical_plan.get())) {
+    is_return = true;
+    output_symbols = order_by->output_symbols();
+  }
+  if (is_return) {
+    // top level node in the operator tree is a produce/order_by (return)
     // so stream out results
 
     // generate header
-    for (auto named_expression : produce->named_expressions())
-      header.push_back(named_expression->name_);
+    for (const auto &symbol : output_symbols) header.push_back(symbol.name_);
     stream.Header(header);
 
-    // collect the symbols from the return clause
-    std::vector<Symbol> symbols;
-    for (auto named_expression : produce->named_expressions())
-      symbols.emplace_back(symbol_table[*named_expression]);
-
     // stream out results
-    auto cursor = produce->MakeCursor(db_accessor);
+    auto cursor = logical_plan->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table)) {
       std::vector<TypedValue> values;
-      for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
+      for (const auto &symbol : output_symbols)
+        values.emplace_back(frame[symbol]);
       stream.Result(values);
     }
   } else if (dynamic_cast<plan::CreateNode *>(logical_plan.get()) ||
@@ -72,7 +79,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
              dynamic_cast<plan::RemoveLabels *>(logical_plan.get()) ||
              dynamic_cast<plan::Delete *>(logical_plan.get())) {
     stream.Header(header);
-    auto cursor = logical_plan.get()->MakeCursor(db_accessor);
+    auto cursor = logical_plan->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table)) continue;
   } else {
     throw QueryRuntimeException("Unknown top level LogicalOp");

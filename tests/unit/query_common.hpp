@@ -1,17 +1,73 @@
+///
+/// @file
+/// This file provides macros for easier construction of openCypher query AST.
+/// The usage of macros is very similar to how one would write openCypher. For
+/// example:
+///
+///     AstTreeStorage storage;  // Macros rely on storage being in scope.
+///
+///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
+///           WHERE(LESS(PROPERTY_LOOKUP("e", edge_prop), LITERAL(3))),
+///           RETURN(SUM(PROPERTY_LOOKUP("m", prop)), AS("sum"),
+///                  ORDER_BY(IDENT("sum")),
+///                  SKIP(ADD(LITERAL(1), LITERAL(2)))));
+///
+/// Each of the macros is accompanied by a function. The functions use overload
+/// resolution and template magic to provide a type safe way of constructing
+/// queries. Although the functions can be used by themselves, it is more
+/// convenient to use the macros.
+///
+
+#include <utility>
+#include <vector>
+
 #include "database/graph_db_datatypes.hpp"
 
 namespace query {
 
 namespace test_common {
 
-// Custom types for SKIP and LIMIT and expressions, so that they can be used to
-// resolve function calls.
+// Custom types for ORDER BY, SKIP and LIMIT and expressions, so that they can
+// be used to resolve function calls.
+struct OrderBy {
+  std::vector<std::pair<Ordering, Expression *>> expressions;
+};
 struct Skip {
-  query::Expression *expression = nullptr;
+  Expression *expression = nullptr;
 };
 struct Limit {
-  query::Expression *expression = nullptr;
+  Expression *expression = nullptr;
 };
+
+// Helper functions for filling the OrderBy with expressions.
+auto FillOrderBy(OrderBy &order_by, Expression *expression,
+                 Ordering ordering = Ordering::ASC) {
+  order_by.expressions.emplace_back(ordering, expression);
+}
+template <class... T>
+auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering,
+                 T... rest) {
+  FillOrderBy(order_by, expression, ordering);
+  FillOrderBy(order_by, rest...);
+}
+template <class... T>
+auto FillOrderBy(OrderBy &order_by, Expression *expression, T... rest) {
+  FillOrderBy(order_by, expression);
+  FillOrderBy(order_by, rest...);
+}
+
+///
+/// Create OrderBy expressions.
+///
+/// The supported combination of arguments is: (Expression, [Ordering])+
+/// Since the Ordering is optional, by default it is ascending.
+///
+template <class... T>
+auto GetOrderBy(T... exprs) {
+  OrderBy order_by;
+  FillOrderBy(order_by, exprs...);
+  return order_by;
+}
 
 ///
 /// Create PropertyLookup with given name and property.
@@ -117,86 +173,77 @@ auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
   return GetQuery(storage, clauses...);
 }
 
-///
-/// Create the return clause with given named expressions.
-///
-auto GetReturn(Return *ret, NamedExpression *named_expr) {
-  ret->body_.named_expressions.emplace_back(named_expr);
-  return ret;
+// Helper functions for constructing RETURN and WITH clauses.
+void FillReturnBody(ReturnBody &body, NamedExpression *named_expr) {
+  body.named_expressions.emplace_back(named_expr);
 }
-auto GetReturn(Return *ret, Skip skip, Limit limit = Limit{}) {
-  ret->body_.skip = skip.expression;
-  ret->body_.limit = limit.expression;
-  return ret;
+void FillReturnBody(ReturnBody &body, Limit limit) {
+  body.limit = limit.expression;
 }
-auto GetReturn(Return *ret, Limit limit) {
-  ret->body_.limit = limit.expression;
-  return ret;
+void FillReturnBody(ReturnBody &body, Skip skip, Limit limit = Limit{}) {
+  body.skip = skip.expression;
+  body.limit = limit.expression;
 }
-auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr) {
+void FillReturnBody(ReturnBody &body, OrderBy order_by, Limit limit = Limit{}) {
+  body.order_by = order_by.expressions;
+  body.limit = limit.expression;
+}
+void FillReturnBody(ReturnBody &body, OrderBy order_by, Skip skip,
+                    Limit limit = Limit{}) {
+  body.order_by = order_by.expressions;
+  body.skip = skip.expression;
+  body.limit = limit.expression;
+}
+void FillReturnBody(ReturnBody &body, Expression *expr,
+                    NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
-  ret->body_.named_expressions.emplace_back(named_expr);
-  return ret;
+  body.named_expressions.emplace_back(named_expr);
 }
 template <class... T>
-auto GetReturn(Return *ret, Expression *expr, NamedExpression *named_expr,
-               T... rest) {
+void FillReturnBody(ReturnBody &body, Expression *expr,
+                    NamedExpression *named_expr, T... rest) {
   named_expr->expression_ = expr;
-  ret->body_.named_expressions.emplace_back(named_expr);
-  return GetReturn(ret, rest...);
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(body, rest...);
 }
 template <class... T>
-auto GetReturn(Return *ret, NamedExpression *named_expr, T... rest) {
-  ret->body_.named_expressions.emplace_back(named_expr);
-  return GetReturn(ret, rest...);
-}
-template <class... T>
-auto GetReturn(AstTreeStorage &storage, T... exprs) {
-  auto ret = storage.Create<Return>();
-  return GetReturn(ret, exprs...);
+void FillReturnBody(ReturnBody &body, NamedExpression *named_expr, T... rest) {
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(body, rest...);
 }
 
 ///
-/// Create the with clause with given named expressions.
+/// Create the return clause with given expressions.
 ///
-auto GetWith(With *with, NamedExpression *named_expr) {
-  with->body_.named_expressions.emplace_back(named_expr);
-  return with;
-}
-auto GetWith(With *with, Skip skip, Limit limit = {}) {
-  with->body_.skip = skip.expression;
-  with->body_.limit = limit.expression;
-  return with;
-}
-auto GetWith(With *with, Limit limit) {
-  with->body_.limit = limit.expression;
-  return with;
-}
-auto GetWith(With *with, Expression *expr, NamedExpression *named_expr) {
-  // This overload supports `RETURN(expr, AS(name))` construct, since
-  // NamedExpression does not inherit Expression.
-  named_expr->expression_ = expr;
-  with->body_.named_expressions.emplace_back(named_expr);
-  return with;
-}
+/// The supported expression combination of arguments is:
+///
+/// (NamedExpression | (Expression NamedExpression))+ [OrderBy] [Skip] [Limit]
+///
+/// When the pair (Expression NamedExpression) is given, the Expression will be
+/// moved inside the NamedExpression. This is done, so that the constructs like
+/// RETURN(expr, AS("name"), ...) are supported.
+///
+/// @sa GetWith
 template <class... T>
-auto GetWith(With *with, Expression *expr, NamedExpression *named_expr,
-             T... rest) {
-  named_expr->expression_ = expr;
-  with->body_.named_expressions.emplace_back(named_expr);
-  return GetWith(with, rest...);
+auto GetReturn(AstTreeStorage &storage, T... exprs) {
+  auto ret = storage.Create<Return>();
+  FillReturnBody(ret->body_, exprs...);
+  return ret;
 }
-template <class... T>
-auto GetWith(With *with, NamedExpression *named_expr, T... rest) {
-  with->body_.named_expressions.emplace_back(named_expr);
-  return GetWith(with, rest...);
-}
+
+///
+/// Create the with clause with given expressions.
+///
+/// The supported expression combination is the same as for @c GetReturn.
+///
+/// @sa GetReturn
 template <class... T>
 auto GetWith(AstTreeStorage &storage, T... exprs) {
   auto with = storage.Create<With>();
-  return GetWith(with, exprs...);
+  FillReturnBody(with->body_, exprs...);
+  return with;
 }
 
 ///
@@ -288,8 +335,11 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 #define AS(name) storage.Create<query::NamedExpression>((name))
 #define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
 #define WITH(...) query::test_common::GetWith(storage, __VA_ARGS__)
-#define SKIP(expr) query::test_common::Skip{(expr)}
-#define LIMIT(expr) query::test_common::Limit{(expr)}
+#define ORDER_BY(...) query::test_common::GetOrderBy(__VA_ARGS__)
+#define SKIP(expr) \
+  query::test_common::Skip { (expr) }
+#define LIMIT(expr) \
+  query::test_common::Limit { (expr) }
 #define DELETE(...) query::test_common::GetDelete(storage, {__VA_ARGS__})
 #define DETACH_DELETE(...) \
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
@@ -297,7 +347,10 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 #define REMOVE(...) query::test_common::GetRemove(storage, __VA_ARGS__)
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 // Various operators
-#define ADD(expr1, expr2) storage.Create<query::AdditionOperator>((expr1), (expr2))
+#define ADD(expr1, expr2) \
+  storage.Create<query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))
 #define SUM(expr) \
   storage.Create<query::Aggregation>((expr), query::Aggregation::Op::SUM)
+#define COUNT(expr) \
+  storage.Create<query::Aggregation>((expr), query::Aggregation::Op::COUNT)

@@ -334,13 +334,14 @@ TEST(TestSymbolGenerator, MatchWithWhere) {
 }
 
 TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
-  // Test MATCH (old) WITH old AS n WHERE old.prop < 42
+  // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   Dbms dbms;
   auto dba = dbms.active();
   auto prop = dba->property("prop");
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("n")),
-                     WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42))));
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
+            WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -582,6 +583,69 @@ TEST(TestSymbolGenerator, SkipLimitIdentifier) {
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+}
+
+TEST(TestSymbolGenerator, OrderBy) {
+  // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
+  {
+    AstTreeStorage storage;
+    auto query =
+        QUERY(MATCH(PATTERN(NODE("old"))),
+              RETURN(IDENT("old"), AS("new"), ORDER_BY(COUNT(LITERAL(1)))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
+  {
+    AstTreeStorage storage;
+    auto query =
+        QUERY(MATCH(PATTERN(NODE("old"))),
+              RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+  }
+  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY new
+  {
+    AstTreeStorage storage;
+    auto node = NODE("old");
+    auto ident_old = IDENT("old");
+    auto as_new = AS("new");
+    auto ident_new = IDENT("new");
+    auto query = QUERY(MATCH(PATTERN(node)),
+                       RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new)));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    query->Accept(symbol_generator);
+    // Symbols for `old`, `count(old)` and `new`
+    EXPECT_EQ(symbol_table.max_position(), 3);
+    auto old = symbol_table.at(*node->identifier_);
+    EXPECT_EQ(old, symbol_table.at(*ident_old));
+    auto new_sym = symbol_table.at(*as_new);
+    EXPECT_NE(old, new_sym);
+    EXPECT_EQ(new_sym, symbol_table.at(*ident_new));
+  }
+  // Test MATCH (old) RETURN old AS new ORDER BY old
+  {
+    AstTreeStorage storage;
+    auto node = NODE("old");
+    auto ident_old = IDENT("old");
+    auto as_new = AS("new");
+    auto by_old = IDENT("old");
+    auto query = QUERY(MATCH(PATTERN(node)),
+                       RETURN(ident_old, as_new, ORDER_BY(by_old)));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    query->Accept(symbol_generator);
+    // Symbols for `old` and `new`
+    EXPECT_EQ(symbol_table.max_position(), 2);
+    auto old = symbol_table.at(*node->identifier_);
+    EXPECT_EQ(old, symbol_table.at(*ident_old));
+    EXPECT_EQ(old, symbol_table.at(*by_old));
+    auto new_sym = symbol_table.at(*as_new);
+    EXPECT_NE(old, new_sym);
   }
 }
 

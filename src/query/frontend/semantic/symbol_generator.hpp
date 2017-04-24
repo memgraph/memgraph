@@ -29,6 +29,8 @@ class SymbolGenerator : public TreeVisitorBase {
   void PostVisit(Create &) override;
   bool PreVisit(Return &) override;
   bool PreVisit(With &) override;
+  void Visit(Where &) override;
+  void PostVisit(Where &) override;
 
   // Expressions
   void Visit(Identifier &) override;
@@ -62,6 +64,11 @@ class SymbolGenerator : public TreeVisitorBase {
     bool in_with{false};
     bool in_skip{false};
     bool in_limit{false};
+    bool in_order_by{false};
+    bool in_where{false};
+    // True if the return/with contains an aggregation in any named expression.
+    bool has_aggregation{false};
+    // Map from variable names to symbols.
     std::map<std::string, Symbol> symbols;
   };
 
@@ -77,10 +84,7 @@ class SymbolGenerator : public TreeVisitorBase {
   auto GetOrCreateSymbol(const std::string &name,
                          Symbol::Type type = Symbol::Type::Any);
 
-  void BindNamedExpressionSymbols(
-      const std::vector<NamedExpression *> &named_expressions);
-
-  void VisitSkipAndLimit(Expression *skip, Expression *limit);
+  void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   SymbolTable &symbol_table_;
   Scope scope_;

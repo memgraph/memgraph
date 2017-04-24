@@ -827,6 +827,8 @@ class Accumulate : public LogicalOperator {
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
+  const auto &symbols() const { return symbols_; };
+
  private:
   const std::shared_ptr<LogicalOperator> input_;
   const std::vector<Symbol> symbols_;
@@ -1066,10 +1068,12 @@ class Limit : public LogicalOperator {
 class OrderBy : public LogicalOperator {
  public:
   OrderBy(const std::shared_ptr<LogicalOperator> &input,
-          const std::vector<std::pair<Ordering, Expression *>> order_by,
-          const std::vector<Symbol> remember);
+          const std::vector<std::pair<Ordering, Expression *>> &order_by,
+          const std::vector<Symbol> &output_symbols);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  const auto &output_symbols() const { return output_symbols_; }
 
  private:
   // custom Comparator type for comparing lists of TypedValues
@@ -1091,7 +1095,7 @@ class OrderBy : public LogicalOperator {
   const std::shared_ptr<LogicalOperator> input_;
   TypedValueListCompare compare_;
   std::vector<Expression *> order_by_;
-  const std::vector<Symbol> remember_;
+  const std::vector<Symbol> output_symbols_;
 
   // custom comparison for TypedValue objects
   // behaves generally like Neo's ORDER BY comparison operator:

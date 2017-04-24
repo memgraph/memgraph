@@ -1224,9 +1224,9 @@ void Limit::LimitCursor::Reset() {
 }
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
-                 const std::vector<std::pair<Ordering, Expression *>> order_by,
-                 const std::vector<Symbol> remember)
-    : input_(input), remember_(remember) {
+                 const std::vector<std::pair<Ordering, Expression *>> &order_by,
+                 const std::vector<Symbol> &output_symbols)
+    : input_(input), output_symbols_(output_symbols) {
   // split the order_by vector into two vectors of orderings and expressions
   std::vector<Ordering> ordering;
   ordering.reserve(order_by.size());
@@ -1259,12 +1259,12 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame,
         order_by.emplace_back(evaluator.PopBack());
       }
 
-      // collect the remember elements
-      std::list<TypedValue> remember;
-      for (const Symbol &remember_sym : self_.remember_)
-        remember.emplace_back(frame[remember_sym]);
+      // collect the output elements
+      std::list<TypedValue> output;
+      for (const Symbol &output_sym : self_.output_symbols_)
+        output.emplace_back(frame[output_sym]);
 
-      cache_.emplace_back(order_by, remember);
+      cache_.emplace_back(order_by, output);
     }
 
     std::sort(cache_.begin(), cache_.end(),
@@ -1278,13 +1278,13 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame,
 
   if (cache_it_ == cache_.end()) return false;
 
-  // place the remembered values on the frame
-  debug_assert(self_.remember_.size() == cache_it_->second.size(),
-               "Number of values does not match the number of remember symbols "
+  // place the output values on the frame
+  debug_assert(self_.output_symbols_.size() == cache_it_->second.size(),
+               "Number of values does not match the number of output symbols "
                "in OrderBy");
-  auto remember_sym_it = self_.remember_.begin();
-  for (const TypedValue &remember : cache_it_->second)
-    frame[*remember_sym_it++] = remember;
+  auto output_sym_it = self_.output_symbols_.begin();
+  for (const TypedValue &output : cache_it_->second)
+    frame[*output_sym_it++] = output;
 
   cache_it_++;
   return true;
