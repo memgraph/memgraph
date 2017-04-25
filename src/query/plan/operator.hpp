@@ -73,6 +73,7 @@ class Aggregate;
 class Skip;
 class Limit;
 class OrderBy;
+class Merge;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
@@ -81,7 +82,7 @@ using LogicalOperatorVisitor =
                      SetProperty, SetProperties, SetLabels, RemoveProperty,
                      RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
                      ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
-                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy>;
+                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy, Merge>;
 
 /** @brief Base class for logical operators.
  *
@@ -1140,6 +1141,52 @@ class OrderBy : public LogicalOperator {
     std::vector<std::pair<std::list<TypedValue>, std::list<TypedValue>>> cache_;
     // iterator over the cache_, maintains state between Pulls
     decltype(cache_.begin()) cache_it_ = cache_.begin();
+  };
+};
+
+/**
+ * Merge operator. For every sucessful Pull from the
+ * input operator a Pull from the merge_match is attempted. All
+ * successfull Pulls from the merge_match are passed on as output.
+ * If merge_match Pull does not yield any elements, a single Pull
+ * from the merge_create op is performed.
+ *
+ * The input logical op is optional. If false (nullptr)
+ * it will be replaced by a Once op.
+ *
+ * For an argumentation of this implementation see the wiki
+ * documentation.
+ */
+class Merge : public LogicalOperator {
+ public:
+  Merge(const std::shared_ptr<LogicalOperator> input,
+        const std::shared_ptr<LogicalOperator> merge_match,
+        const std::shared_ptr<LogicalOperator> merge_create);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> merge_match_;
+  const std::shared_ptr<LogicalOperator> merge_create_;
+
+  class MergeCursor : public Cursor {
+   public:
+    MergeCursor(Merge &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
+   private:
+    const std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> merge_match_cursor_;
+    const std::unique_ptr<Cursor> merge_create_cursor_;
+
+    // indicates if the next Pull from this cursor
+    // should perform a pull from input_cursor_
+    // this is true when:
+    //  - first Pulling from this cursor
+    //  - previous Pull from this cursor exhausted the merge_match_cursor
+    bool pull_input_{true};
   };
 };
 

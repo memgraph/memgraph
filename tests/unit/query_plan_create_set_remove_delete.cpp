@@ -769,3 +769,72 @@ TEST(QueryPlan, SetRemove) {
   EXPECT_FALSE(v.has_label(label1));
   EXPECT_FALSE(v.has_label(label2));
 }
+
+TEST(QueryPlan, Merge) {
+  // test setup:
+  //  - three nodes, two of them connected with T
+  //  - merge input branch matches all nodes
+  //  - merge_match branch looks for an expansion (any direction)
+  //    and sets some property (for result validation)
+  //  - merge_create branch just sets some other property
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  dba->insert_edge(v1, v2, dba->edge_type("Type"));
+  auto v3 = dba->insert_vertex();
+  dba->advance_command();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto prop = dba->property("prop");
+  auto n = MakeScanAll(storage, symbol_table, "n");
+
+  // merge_match branch
+  auto r_m = MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_,
+                        "r", EdgeAtom::Direction::BOTH, false, "m", false);
+  auto m_p = PROPERTY_LOOKUP("m", prop);
+  symbol_table[*m_p->expression_] = r_m.node_sym_;
+  auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, m_p, LITERAL(1));
+
+  // merge_create branch
+  auto n_p = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_set = std::make_shared<plan::SetProperty>(std::make_shared<Once>(),
+                                                   n_p, LITERAL(2));
+
+  auto merge = std::make_shared<plan::Merge>(n.op_, m_set, n_set);
+  ASSERT_EQ(3, PullAll(merge, *dba, symbol_table));
+  dba->advance_command();
+  v1.Reconstruct();
+  v2.Reconstruct();
+  v3.Reconstruct();
+
+  ASSERT_EQ(v1.PropsAt(prop).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v1.PropsAt(prop).Value<int64_t>(), 1);
+  ASSERT_EQ(v2.PropsAt(prop).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v2.PropsAt(prop).Value<int64_t>(), 1);
+  ASSERT_EQ(v3.PropsAt(prop).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v3.PropsAt(prop).Value<int64_t>(), 2);
+}
+
+TEST(QueryPlan, MergeNoInput) {
+  // merge with no input, creates a single node
+
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto node = NODE("n");
+  auto sym_n = symbol_table.CreateSymbol("n");
+  symbol_table[*node->identifier_] = sym_n;
+  auto create = std::make_shared<CreateNode>(node, nullptr);
+  auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
+
+  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, PullAll(merge, *dba, symbol_table));
+  dba->advance_command();
+  EXPECT_EQ(1, CountIterable(dba->vertices()));
+}

@@ -126,7 +126,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
       CreateEdge(v1, v2, frame, symbol_table, evaluator);
       break;
     case EdgeAtom::Direction::BOTH:
-      permanent_fail("Undefined direction not allowed in create");
+      // in the case of an undirected CreateExpand we choose an arbitrary
+      // direction. this is used in the MERGE clause
+      // it is not allowed in the CREATE clause, and the semantic
+      // checker needs to ensure it doesn't reach this point
+      CreateEdge(v1, v2, frame, symbol_table, evaluator);
   }
 
   return true;
@@ -185,10 +189,13 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
 ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(db)),
-      // TODO change to db.vertices(self.switch_ == GraphView::NEW)
+      // TODO change to db.vertices(self.graph_view_ == GraphView::NEW)
       // once this GraphDbAccessor API is available
       vertices_(db.vertices()),
-      vertices_it_(vertices_.end()) {}
+      vertices_it_(vertices_.end()) {
+        if (self.graph_view_ == GraphView::NEW)
+          throw utils::NotYetImplemented();
+      }
 
 bool ScanAll::ScanAllCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {
@@ -1367,6 +1374,76 @@ bool OrderBy::TypedValueListCompare::operator()(
   // at least one collection is exhausted
   // c1 is less then c2 iff c1 reached the end but c2 didn't
   return (c1_it == c1.end()) && (c2_it != c2.end());
+}
+
+Merge::Merge(const std::shared_ptr<LogicalOperator> input,
+             const std::shared_ptr<LogicalOperator> merge_match,
+             const std::shared_ptr<LogicalOperator> merge_create)
+    : input_(input ? input : std::make_shared<Once>()),
+      merge_match_(merge_match),
+      merge_create_(merge_create) {}
+
+void Merge::Accept(LogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    merge_match_->Accept(visitor);
+    merge_create_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+}
+
+std::unique_ptr<Cursor> Merge::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<MergeCursor>(*this, db);
+}
+
+Merge::MergeCursor::MergeCursor(Merge &self, GraphDbAccessor &db)
+    : input_cursor_(self.input_->MakeCursor(db)),
+      merge_match_cursor_(self.merge_match_->MakeCursor(db)),
+      merge_create_cursor_(self.merge_create_->MakeCursor(db)) {}
+
+bool Merge::MergeCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+  // the loop is here to go back to input pull
+  // when the merge_match gets exhausted
+  while (true) {
+    if (pull_input_) {
+      if (input_cursor_->Pull(frame, symbol_table)) {
+        // after a successful input from the input
+        // reset merge_match (it's expand iterators maintain state)
+        // and merge_create (could have a Once at the beginning)
+        merge_match_cursor_->Reset();
+        merge_create_cursor_->Reset();
+      } else
+        // input is exhausted, we're done
+        return false;
+    }
+
+    // pull from the merge_match cursor
+    if (merge_match_cursor_->Pull(frame, symbol_table)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    } else {
+      // failed to Pull from the merge_match cursor
+      if (pull_input_) {
+        // if we have just now pulled from the input
+        // and failed to pull from merge_match, we should create
+        bool merge_create_pull_result =
+            merge_create_cursor_->Pull(frame, symbol_table);
+        debug_assert(merge_create_pull_result, "MergeCreate must never fail");
+        return true;
+      }
+      // we have exhausted merge_match
+      // so we should pull from input on next pull
+      pull_input_ = true;
+    }
+  }
+}
+
+void Merge::MergeCursor::Reset() {
+  input_cursor_->Reset();
+  merge_match_cursor_->Reset();
+  merge_create_cursor_->Reset();
 }
 
 }  // namespace plan
