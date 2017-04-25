@@ -137,18 +137,19 @@ class RecordAccessor {
 
   /*
    * Switches this record accessor to use the latest
-   * version (visible to the current transaction+command).
+   * version visible to the current transaction+command.
+   * Possibly the one that was created by this transaction+command.
    *
    * @return A reference to this.
    */
   RecordAccessor<TRecord> &SwitchNew();
 
   /**
-   * Switches this record accessor to use the old
-   * (not updated) version visible to the current transaction+command.
-   *
-   * It is not legal to call this function on a Vertex/Edge that
-   * was created by the current transaction+command.
+   * Attempts to switch this accessor to use the
+   * latest version not updated by the current transaction+command.
+   * If that is not possible (vertex/edge was created
+   * by the current transaction/command), it does nothing
+   * (current remains pointing to the new version).
    *
    * @return A reference to this.
    */

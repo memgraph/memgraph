@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
+#include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
@@ -16,26 +17,12 @@ namespace query {
 class ExpressionEvaluator : public TreeVisitorBase {
  public:
   ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table,
-                      GraphDbAccessor &db_accessor)
-      : frame_(frame), symbol_table_(symbol_table), db_accessor_(db_accessor) {}
-
-  /**
-   * When evaluting @c RecordAccessor, use @c SwitchNew to get the new
-   * data, as modified during the current command.
-   */
-  auto &SwitchNew() {
-    use_new_ = true;
-    return *this;
-  };
-
-  /**
-   * When evaluting @c RecordAccessor, use @c SwitchOld to get the old
-   * data, before the modification done by the current command.
-   */
-  auto &SwitchOld() {
-    use_new_ = false;
-    return *this;
-  };
+                      GraphDbAccessor &db_accessor,
+                      GraphView graph_view = GraphView::AS_IS)
+      : frame_(frame),
+        symbol_table_(symbol_table),
+        db_accessor_(db_accessor),
+        graph_view_(graph_view) {}
 
   /**
    * Removes and returns the last value from the result stack.
@@ -159,30 +146,45 @@ class ExpressionEvaluator : public TreeVisitorBase {
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.
   void SwitchAccessors(TypedValue &value) {
+    if (graph_view_ == GraphView::AS_IS) return;
     switch (value.type()) {
       case TypedValue::Type::Vertex: {
         auto &vertex = value.Value<VertexAccessor>();
-        if (use_new_)
-          vertex.SwitchNew();
-        else
-          vertex.SwitchOld();
+        switch (graph_view_) {
+          case GraphView::NEW:
+            vertex.SwitchNew();
+            break;
+          case GraphView::OLD:
+            vertex.SwitchOld();
+            break;
+          default:
+            permanent_fail("Unhandled GraphView enum");
+        }
         break;
       }
       case TypedValue::Type::Edge: {
         auto &edge = value.Value<EdgeAccessor>();
-        if (use_new_)
-          edge.SwitchNew();
-        else
-          edge.SwitchOld();
+        switch (graph_view_) {
+          case GraphView::NEW:
+            edge.SwitchNew();
+            break;
+          case GraphView::OLD:
+            edge.SwitchOld();
+            break;
+          default:
+            permanent_fail("Unhandled GraphView enum");
+        }
         break;
       }
       case TypedValue::Type::List: {
         auto &list = value.Value<std::vector<TypedValue>>();
         for (auto &list_value : list) SwitchAccessors(list_value);
+        break;
       }
       case TypedValue::Type::Map: {
         auto &map = value.Value<std::map<std::string, TypedValue>>();
         for (auto &kv : map) SwitchAccessors(kv.second);
+        break;
       }
       default:
         break;
@@ -191,11 +193,9 @@ class ExpressionEvaluator : public TreeVisitorBase {
 
   Frame &frame_;
   const SymbolTable &symbol_table_;
-  std::list<TypedValue> result_stack_;
-  // If true, use SwitchNew on evaluated record accessors. This should be
-  // done only in expressions which may return one. E.g. identifier, list
-  // indexing.
-  bool use_new_ = false;
   GraphDbAccessor &db_accessor_;
+  // which switching approach should be used when evaluating
+  const GraphView graph_view_;
+  std::list<TypedValue> result_stack_;
 };
 }

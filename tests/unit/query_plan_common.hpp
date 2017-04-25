@@ -7,8 +7,11 @@
 #include <memory>
 #include <vector>
 
+#include "communication/result_stream_faker.hpp"
+#include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/operator.hpp"
 
 #include "query_common.hpp"
 
@@ -86,9 +89,10 @@ struct ScanAllTuple {
  */
 ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
                          const std::string &identifier,
-                         std::shared_ptr<LogicalOperator> input = {nullptr}) {
+                         std::shared_ptr<LogicalOperator> input = {nullptr},
+                         GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
-  auto logical_op = std::make_shared<ScanAll>(node, input);
+  auto logical_op = std::make_shared<ScanAll>(node, input, graph_view);
   auto symbol = symbol_table.CreateSymbol(identifier);
   symbol_table[*node->identifier_] = symbol;
   //  return std::make_tuple(node, logical_op, symbol);
@@ -106,8 +110,9 @@ struct ExpandTuple {
 ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                        std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier,
-                       EdgeAtom::Direction direction, bool edge_cycle,
-                       const std::string &node_identifier, bool node_cycle) {
+                       EdgeAtom::Direction direction, bool existing_edge,
+                       const std::string &node_identifier, bool existing_node,
+                       GraphView graph_view = GraphView::AS_IS) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier);
   symbol_table[*edge->identifier_] = edge_sym;
@@ -117,7 +122,7 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
   symbol_table[*node->identifier_] = node_sym;
 
   auto op = std::make_shared<Expand>(node, edge, input, input_symbol,
-                                     node_cycle, edge_cycle);
+                                     existing_node, existing_edge, graph_view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }

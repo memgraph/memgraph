@@ -11,6 +11,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
+#include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor/visitable.hpp"
@@ -249,17 +250,23 @@ class CreateExpand : public LogicalOperator {
  * It accepts an optional input. If provided then this op scans all the nodes
  * currently in the database for each successful Pull from it's input, thereby
  * producing a cartesian product of input Pulls and database elements.
+ *
+ * ScanAll can either iterate over the previous graph state (state before
+ * the current transacton+command) or over current state. This is controlled
+ * with a constructor argument.
  */
 class ScanAll : public LogicalOperator {
  public:
   ScanAll(const NodeAtom *node_atom,
-          const std::shared_ptr<LogicalOperator> &input);
+          const std::shared_ptr<LogicalOperator> &input,
+          GraphView graph_view = GraphView::OLD);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
   const NodeAtom *node_atom_ = nullptr;
   const std::shared_ptr<LogicalOperator> input_;
+  const GraphView graph_view_;
 
   class ScanAllCursor : public Cursor {
    public:
@@ -305,6 +312,10 @@ class Expand : public LogicalOperator {
    * Pulled node/edge, and should only be checked for equalities
    * during expansion.
    *
+   * Expansion can be done from old or new state of the vertex
+   * the expansion originates from. This is controlled with a
+   * constructor argument.
+   *
    * @param node_atom Describes the node to be expanded. Only the
    *    identifier is used, labels and properties are ignored.
    * @param edge_atom Describes the edge to be expanded. Identifier
@@ -318,7 +329,8 @@ class Expand : public LogicalOperator {
    */
   Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
          const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-         bool existing_node, bool existing_edge);
+         bool existing_node, bool existing_edge,
+         GraphView graph_view = GraphView::AS_IS);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
@@ -337,6 +349,9 @@ class Expand : public LogicalOperator {
   // and should be just validated in the frame
   const bool existing_node_;
   const bool existing_edge_;
+
+  // from which state the input node should get expanded
+  const GraphView graph_view_;
 
   class ExpandCursor : public Cursor {
    public:

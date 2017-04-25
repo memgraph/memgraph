@@ -33,14 +33,24 @@ TEST(QueryPlan, MatchReturn) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  auto test_pull_count = [&](GraphView graph_view) {
+    auto scan_all =
+        MakeScanAll(storage, symbol_table, "n", nullptr, graph_view);
+    auto output = NEXPR("n", IDENT("n"));
+    auto produce = MakeProduce(scan_all.op_, output);
+    symbol_table[*output->expression_] = scan_all.sym_;
+    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    return PullAll(produce, *dba, symbol_table);
+  };
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
+  EXPECT_EQ(2, test_pull_count(GraphView::NEW));
+  EXPECT_EQ(2, test_pull_count(GraphView::OLD));
+  dba->insert_vertex();
+  // TODO uncomment once the functionality is implemented
+  // EXPECT_EQ(3, test_pull_count(GraphView::NEW));
+  EXPECT_EQ(2, test_pull_count(GraphView::OLD));
+  dba->advance_command();
+  EXPECT_EQ(3, test_pull_count(GraphView::OLD));
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
@@ -112,10 +122,11 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   dba->insert_vertex();
   // test all combination of (label | no_label) * (no_prop | wrong_prop |
   // right_prop)
-  // only v1 will have the right labels
+  // only v1-v3 will have the right labels
   v1.add_label(label);
   v2.add_label(label);
   v3.add_label(label);
+  // v1 and v4 will have the right properties
   v1.PropsSet(property, 42);
   v2.PropsSet(property, 1);
   v4.PropsSet(property, 42);
@@ -139,8 +150,14 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
   auto produce = MakeProduce(node_filter, output);
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
+  EXPECT_EQ(1, PullAll(produce, *dba, symbol_table));
+
+  //  test that filtering works with old records
+  v4.Reconstruct();
+  v4.add_label(label);
+  EXPECT_EQ(1, PullAll(produce, *dba, symbol_table));
+  dba->advance_command();
+  EXPECT_EQ(2, PullAll(produce, *dba, symbol_table));
 }
 
 TEST(QueryPlan, NodeFilterMultipleLabels) {
@@ -210,11 +227,10 @@ TEST(QueryPlan, Expand) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto test_expand = [&](EdgeAtom::Direction direction,
-                         int expected_result_count) {
+  auto test_expand = [&](EdgeAtom::Direction direction, GraphView graph_view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
-                          false, "m", false);
+                          false, "m", false, graph_view);
 
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
@@ -222,16 +238,32 @@ TEST(QueryPlan, Expand) {
     symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
     auto produce = MakeProduce(r_m.op_, output);
 
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
+    return PullAll(produce, *dba, symbol_table);
   };
 
-  test_expand(EdgeAtom::Direction::RIGHT, 2);
-  test_expand(EdgeAtom::Direction::LEFT, 2);
-  test_expand(EdgeAtom::Direction::BOTH, 4);
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::RIGHT, GraphView::AS_IS));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::LEFT, GraphView::AS_IS));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::AS_IS));
+  //
+  // test that expand works well for both old and new graph state
+  v1.Reconstruct();
+  v2.Reconstruct();
+  v3.Reconstruct();
+  dba->insert_edge(v1, v2, edge_type);
+  dba->insert_edge(v1, v3, edge_type);
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::RIGHT, GraphView::OLD));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::LEFT, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::RIGHT, GraphView::NEW));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::LEFT, GraphView::NEW));
+  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::NEW));
+  dba->advance_command();
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::RIGHT, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::LEFT, GraphView::OLD));
+  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 }
 
-TEST(QueryPlan, ExpandNodeCycle) {
+TEST(QueryPlan, ExpandExistingNode) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -247,11 +279,12 @@ TEST(QueryPlan, ExpandNodeCycle) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto test_cycle = [&](bool with_cycle, int expected_result_count) {
+  auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::RIGHT, false, "n", with_cycle);
-    if (with_cycle)
+    auto r_n =
+        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                   EdgeAtom::Direction::RIGHT, false, "n", with_existing);
+    if (with_existing)
       symbol_table[*r_n.node_->identifier_] =
           symbol_table[*n.node_->identifier_];
 
@@ -265,11 +298,11 @@ TEST(QueryPlan, ExpandNodeCycle) {
     EXPECT_EQ(result.GetResults().size(), expected_result_count);
   };
 
-  test_cycle(true, 1);
-  test_cycle(false, 2);
+  test_existing(true, 1);
+  test_existing(false, 2);
 }
 
-TEST(QueryPlan, ExpandEdgeCycle) {
+TEST(QueryPlan, ExpandExistingEdge) {
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -288,13 +321,13 @@ TEST(QueryPlan, ExpandEdgeCycle) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto test_cycle = [&](bool with_cycle, int expected_result_count) {
+  auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto i = MakeScanAll(storage, symbol_table, "i");
     auto r_j = MakeExpand(storage, symbol_table, i.op_, i.sym_, "r",
                           EdgeAtom::Direction::BOTH, false, "j", false);
     auto r_k = MakeExpand(storage, symbol_table, r_j.op_, r_j.node_sym_, "r",
-                          EdgeAtom::Direction::BOTH, with_cycle, "k", false);
-    if (with_cycle)
+                          EdgeAtom::Direction::BOTH, with_existing, "k", false);
+    if (with_existing)
       symbol_table[*r_k.edge_->identifier_] =
           symbol_table[*r_j.edge_->identifier_];
 
@@ -309,8 +342,8 @@ TEST(QueryPlan, ExpandEdgeCycle) {
 
   };
 
-  test_cycle(true, 4);
-  test_cycle(false, 6);
+  test_existing(true, 4);
+  test_existing(false, 6);
 }
 
 TEST(QueryPlan, ExpandBothCycleEdgeCase) {
@@ -362,29 +395,39 @@ TEST(QueryPlan, EdgeFilter) {
     }
   }
   dba->advance_command();
+  for (auto &vertex : vertices) vertex.Reconstruct();
+  for (auto &edge : edges) edge.Reconstruct();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  // define an operator tree for query
-  // MATCH (n)-[r]->(m) RETURN m
+  auto test_filter = [&]() {
+    // define an operator tree for query
+    // MATCH (n)-[r]->(m) RETURN m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
-  r_m.edge_->edge_types_.push_back(edge_types[0]);
-  r_m.edge_->properties_[prop] = LITERAL(42);
-  auto edge_filter =
-      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::RIGHT, false, "m", false);
+    r_m.edge_->edge_types_.push_back(edge_types[0]);
+    r_m.edge_->properties_[prop] = LITERAL(42);
+    auto edge_filter =
+        std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
 
-  // make a named expression and a produce
-  auto output = NEXPR("m", IDENT("m"));
-  symbol_table[*output->expression_] = r_m.node_sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
-  auto produce = MakeProduce(edge_filter, output);
+    // make a named expression and a produce
+    auto output = NEXPR("m", IDENT("m"));
+    symbol_table[*output->expression_] = r_m.node_sym_;
+    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    auto produce = MakeProduce(edge_filter, output);
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
+    return PullAll(produce, *dba, symbol_table);
+  };
+
+  EXPECT_EQ(1, test_filter());
+  // test that edge filtering always filters on old state
+  for (auto &edge : edges) edge.PropsSet(prop, 42);
+  EXPECT_EQ(1, test_filter());
+  dba->advance_command();
+  EXPECT_EQ(3, test_filter());
 }
 
 TEST(QueryPlan, EdgeFilterEmpty) {

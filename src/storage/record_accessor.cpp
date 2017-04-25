@@ -69,12 +69,7 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
 
 template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
-  // if this whole record is new (new version-list) then we don't
-  // have a valid old_ version. in such a situation SwitchOld
-  // is not a legal function call
-  debug_assert(old_ != nullptr,
-               "RecordAccessor.old_ is nullptr and SwitchOld called");
-  current_ = old_;
+  current_ = old_ ? old_ : new_;
   return *this;
 }
 

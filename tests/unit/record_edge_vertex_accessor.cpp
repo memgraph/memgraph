@@ -80,11 +80,11 @@ TEST(RecordAccessor, RecordLessThan) {
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
   Dbms dbms;
 
-  // test SwitchOld failure on new record, SwitchNew OK
+  // test both Switches work on new record
   {
     auto dba = dbms.active();
     auto v1 = dba->insert_vertex();
-    EXPECT_DEATH(v1.SwitchOld(), "");
+    v1.SwitchOld();
     v1.SwitchNew();
     dba->commit();
   }

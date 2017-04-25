@@ -70,10 +70,9 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   auto new_node = db_.insert_vertex();
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   for (auto &kv : self_.node_atom_->properties_) {
     kv.second->Accept(evaluator);
     new_node.PropsSet(kv.first, evaluator.PopBack());
@@ -108,12 +107,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
   TypedValue &vertex_value = frame[self_.input_symbol_];
   auto &v1 = vertex_value.Value<VertexAccessor>();
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
   v1.SwitchNew();
-  evaluator.SwitchNew();
 
   // get the destination vertex (possibly an existing node)
   auto &v2 = OtherVertex(frame, symbol_table, evaluator);
@@ -170,9 +168,14 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
 }
 
 ScanAll::ScanAll(const NodeAtom *node_atom,
-                 const std::shared_ptr<LogicalOperator> &input)
-    : node_atom_(node_atom), input_(input ? input : std::make_shared<Once>()) {}
-
+                 const std::shared_ptr<LogicalOperator> &input,
+                 GraphView graph_view)
+    : node_atom_(node_atom),
+      input_(input ? input : std::make_shared<Once>()),
+      graph_view_(graph_view) {
+  permanent_assert(graph_view != GraphView::AS_IS,
+                   "ScanAll must have explicitly defined GraphView")
+}
 ACCEPT_WITH_INPUT(ScanAll)
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
@@ -182,6 +185,8 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
 ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(db)),
+      // TODO change to db.vertices(self.switch_ == GraphView::NEW)
+      // once this GraphDbAccessor API is available
       vertices_(db.vertices()),
       vertices_it_(vertices_.end()) {}
 
@@ -207,13 +212,15 @@ void ScanAll::ScanAllCursor::Reset() {
 
 Expand::Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
-               Symbol input_symbol, bool existing_node, bool existing_edge)
+               Symbol input_symbol, bool existing_node, bool existing_edge,
+               GraphView graph_view)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
       input_(input),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
-      existing_edge_(existing_edge) {}
+      existing_edge_(existing_edge),
+      graph_view_(graph_view) {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -275,11 +282,17 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   auto &vertex = vertex_value.Value<VertexAccessor>();
-  // We don't want newly created edges, so switch to old. If we included new
-  // edges, e.g. created by CreateExpand operator, the behaviour would be wrong
-  // and may cause infinite loops by continually creating edges and traversing
-  // them.
-  vertex.SwitchOld();
+  // switch the expansion origin vertex to the desired state
+  switch (self_.graph_view_) {
+    case GraphView::NEW:
+      vertex.SwitchNew();
+      break;
+    case GraphView::OLD:
+      vertex.SwitchOld();
+      break;
+    case GraphView::AS_IS:
+      break;
+  }
 
   auto direction = self_.edge_atom_->direction_;
   if (direction == EdgeAtom::Direction::LEFT ||
@@ -377,9 +390,9 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(
   for (auto label : self_.node_atom_->labels_)
     if (!vertex.has_label(label)) return false;
 
-  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_);
+  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_,
+                                           GraphView::OLD);
   // We don't want newly set properties to affect filtering.
-  expression_evaluator.SwitchOld();
   for (auto prop_pair : self_.node_atom_->properties_) {
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
@@ -427,9 +440,9 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
                                    [type](auto t) { return t == type; }))
     return false;
 
-  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_);
   // We don't want newly set properties to affect filtering.
-  expression_evaluator.SwitchOld();
+  ExpressionEvaluator expression_evaluator(frame, symbol_table, db_,
+                                           GraphView::OLD);
   for (auto prop_pair : self_.edge_atom_->properties_) {
     prop_pair.second->Accept(expression_evaluator);
     TypedValue comparison_result =
@@ -454,10 +467,9 @@ Filter::FilterCursor::FilterCursor(const Filter &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Like all filters, newly set values should not affect filtering of old nodes
   // and edges.
-  evaluator.SwitchOld();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::OLD);
   while (input_cursor_->Pull(frame, symbol_table)) {
     self_.expression_->Accept(evaluator);
     TypedValue result = evaluator.PopBack();
@@ -490,9 +502,8 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, GraphDbAccessor &db)
 bool Produce::ProduceCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {
   if (input_cursor_->Pull(frame, symbol_table)) {
-    ExpressionEvaluator evaluator(frame, symbol_table, db_);
     // Produce should always yield the latest results.
-    evaluator.SwitchNew();
+    ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
     for (auto named_expr : self_.named_expressions_)
       named_expr->Accept(evaluator);
     return true;
@@ -518,10 +529,9 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, GraphDbAccessor &db)
 bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Delete should get the latest information, this way it is also possible to
   // delete newly added nodes and edges.
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   // collect expressions results so edges can get deleted before vertices
   // this is necessary because an edge that gets deleted could block vertex
   // deletion
@@ -547,7 +557,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
         if (self_.detach_)
           db_.detach_remove_vertex(va);
         else if (!db_.remove_vertex(va))
-          throw query::QueryRuntimeException(
+          throw QueryRuntimeException(
               "Failed to remove vertex because of it's existing "
               "connections. Consider using DETACH DELETE.");
         break;
@@ -582,9 +592,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
                                           const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Set, just like Create needs to see the latest changes.
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   self_.lhs_->expression_->Accept(evaluator);
   TypedValue lhs = evaluator.PopBack();
   self_.rhs_->Accept(evaluator);
@@ -631,9 +640,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   TypedValue &lhs = frame[self_.input_symbol_];
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Set, just like Create needs to see the latest changes.
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   self_.rhs_->Accept(evaluator);
   TypedValue rhs = evaluator.PopBack();
 
@@ -738,9 +746,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(
     Frame &frame, const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
   // Remove, just like Delete needs to see the latest changes.
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   self_.lhs_->expression_->Accept(evaluator);
   TypedValue lhs = evaluator.PopBack();
 
@@ -972,8 +979,7 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame,
 
 void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
                                             const SymbolTable &symbol_table) {
-  ExpressionEvaluator evaluator(frame, symbol_table, db_);
-  evaluator.SwitchNew();
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   while (input_cursor_->Pull(frame, symbol_table))
     ProcessOne(frame, symbol_table, evaluator);
 
