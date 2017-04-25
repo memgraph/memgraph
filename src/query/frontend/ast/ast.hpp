@@ -851,6 +851,31 @@ class RemoveLabels : public Clause {
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 };
 
+class Merge : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      pattern_->Accept(visitor);
+      for (auto &set : on_match_) {
+        set->Accept(visitor);
+      }
+      for (auto &set : on_create_) {
+        set->Accept(visitor);
+      }
+    }
+  }
+
+  Pattern *pattern_ = nullptr;
+  std::vector<Clause *> on_match_;
+  std::vector<Clause *> on_create_;
+
+ protected:
+  Merge(int uid) : Clause(uid) {}
+};
+
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...

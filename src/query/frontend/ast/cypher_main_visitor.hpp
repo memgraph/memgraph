@@ -470,6 +470,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    */
   antlrcpp::Any visitWith(CypherParser::WithContext *ctx) override;
 
+  /**
+   * @return Merge*
+   */
+  antlrcpp::Any visitMerge(CypherParser::MergeContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;

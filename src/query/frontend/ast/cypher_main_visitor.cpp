@@ -51,7 +51,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
                dynamic_cast<SetProperties *>(clause) ||
                dynamic_cast<SetLabels *>(clause) ||
                dynamic_cast<RemoveProperty *>(clause) ||
-               dynamic_cast<RemoveLabels *>(clause)) {
+               dynamic_cast<RemoveLabels *>(clause) ||
+               dynamic_cast<Merge *>(clause)) {
       if (has_return) {
         throw SemanticException("Update clauses can't be after return");
       }
@@ -115,6 +116,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   }
   if (ctx->with()) {
     return static_cast<Clause *>(ctx->with()->accept(this).as<With *>());
+  }
+  if (ctx->merge()) {
+    return static_cast<Clause *>(ctx->merge()->accept(this).as<Merge *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented();
@@ -943,4 +947,20 @@ antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {
   }
   return with;
 }
+
+antlrcpp::Any CypherMainVisitor::visitMerge(CypherParser::MergeContext *ctx) {
+  auto *merge = storage_.Create<Merge>();
+  merge->pattern_ = ctx->patternPart()->accept(this);
+  for (auto &merge_action : ctx->mergeAction()) {
+    auto set = merge_action->set()->accept(this).as<std::vector<Clause *>>();
+    if (merge_action->MATCH()) {
+      merge->on_match_.insert(merge->on_match_.end(), set.begin(), set.end());
+    } else {
+      debug_assert(merge_action->CREATE(), "Expected ON MATCH or ON CREATE");
+      merge->on_create_.insert(merge->on_create_.end(), set.begin(), set.end());
+    }
+  }
+  return merge;
 }
+
+}  // namespace query::frontend

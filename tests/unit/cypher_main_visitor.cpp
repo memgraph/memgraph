@@ -924,6 +924,7 @@ TEST(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(AstGenerator("RETURN 1 RETURN 1"), SemanticException);
   ASSERT_THROW(AstGenerator("RETURN 1 MATCH (n) RETURN n"), SemanticException);
   ASSERT_THROW(AstGenerator("RETURN 1 DELETE n"), SemanticException);
+  ASSERT_THROW(AstGenerator("RETURN 1 MERGE (n)"), SemanticException);
   ASSERT_THROW(AstGenerator("RETURN 1 WITH n AS m RETURN 1"),
                SemanticException);
 
@@ -945,4 +946,21 @@ TEST(CypherMainVisitorTest, ClausesOrdering) {
   AstGenerator("WITH 1 AS n SET n += m");
   AstGenerator("WITH 1 AS n MATCH (n) RETURN n");
 }
+
+TEST(CypherMainVisitorTest, Merge) {
+  AstGenerator ast_generator(
+      "MERGE (a) -[:r]- (b) ON MATCH SET a.x = b.x "
+      "ON CREATE SET b :label ON MATCH SET b = a");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *merge = dynamic_cast<Merge *>(query->clauses_[0]);
+  ASSERT_TRUE(merge);
+  EXPECT_TRUE(dynamic_cast<Pattern *>(merge->pattern_));
+  ASSERT_EQ(merge->on_match_.size(), 2U);
+  EXPECT_TRUE(dynamic_cast<SetProperty *>(merge->on_match_[0]));
+  EXPECT_TRUE(dynamic_cast<SetProperties *>(merge->on_match_[1]));
+  ASSERT_EQ(merge->on_create_.size(), 1U);
+  EXPECT_TRUE(dynamic_cast<SetLabels *>(merge->on_create_[0]));
+}
+
 }

@@ -44,6 +44,7 @@ class SetProperties;
 class SetLabels;
 class RemoveProperty;
 class RemoveLabels;
+class Merge;
 
 using TreeVisitorBase = ::utils::Visitor<
     Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
@@ -53,5 +54,5 @@ using TreeVisitorBase = ::utils::Visitor<
     UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier, Literal,
     PropertyLookup, Aggregation, Function, Create, Match, Return, With, Pattern,
     NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels>;
+    RemoveProperty, RemoveLabels, Merge>;
 }
