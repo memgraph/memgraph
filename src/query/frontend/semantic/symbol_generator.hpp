@@ -31,6 +31,8 @@ class SymbolGenerator : public TreeVisitorBase {
   bool PreVisit(With &) override;
   void Visit(Where &) override;
   void PostVisit(Where &) override;
+  void Visit(Merge &) override;
+  void PostVisit(Merge &) override;
 
   // Expressions
   void Visit(Identifier &) override;
@@ -50,11 +52,14 @@ class SymbolGenerator : public TreeVisitorBase {
   // names to symbols.
   struct Scope {
     bool in_pattern{false};
+    bool in_merge{false};
     bool in_create{false};
-    // in_create_node is true if we are creating *only* a node. Therefore, it
-    // is *not* equivalent to in_create && in_node_atom.
+    // in_create_node is true if we are creating or merging *only* a node.
+    // Therefore, it is *not* equivalent to (in_create || in_merge) &&
+    // in_node_atom.
     bool in_create_node{false};
-    // True if creating an edge; shortcut for in_create && in_edge_atom.
+    // True if creating an edge;
+    // shortcut for (in_create || in_merge) && in_edge_atom.
     bool in_create_edge{false};
     bool in_node_atom{false};
     bool in_edge_atom{false};

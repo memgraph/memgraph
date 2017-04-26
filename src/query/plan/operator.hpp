@@ -185,7 +185,7 @@ class CreateExpand : public LogicalOperator {
    * @param node_atom @c NodeAtom at the end of the edge. Used to create a node,
    *     unless it refers to an existing one.
    * @param edge_atom @c EdgeAtom with information for the edge to be created.
-   * @param input Required. Previous @c LogicalOperator which will be pulled.
+   * @param input Optional. Previous @c LogicalOperator which will be pulled.
    *     For each successful @c Cursor::Pull, this operator will create an
    *     expansion.
    * @param input_symbol @c Symbol for the node at the start of the edge.
@@ -321,7 +321,7 @@ class Expand : public LogicalOperator {
    *    identifier is used, labels and properties are ignored.
    * @param edge_atom Describes the edge to be expanded. Identifier
    *    and direction are used, edge type and properties are ignored.
-   * @param input LogicalOperation that preceeds this one.
+   * @param input Optional LogicalOperator that preceeds this one.
    * @param input_symbol Symbol that points to a VertexAccessor
    *    in the Frame that expansion should emanate from.
    * @param existing_node If or not the node to be expanded is already
@@ -1164,6 +1164,10 @@ class Merge : public LogicalOperator {
         const std::shared_ptr<LogicalOperator> merge_create);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto input() const { return input_; }
+  auto merge_match() const { return merge_match_; }
+  auto merge_create() const { return merge_create_; }
 
  private:
   const std::shared_ptr<LogicalOperator> input_;

@@ -7,8 +7,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "utils/exceptions.hpp"
 
-namespace query {
-namespace plan {
+namespace query::plan {
 
 namespace {
 
@@ -105,13 +104,15 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
 auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
                         const SymbolTable &symbol_table,
                         std::unordered_set<int> &bound_symbols,
-                        std::vector<Symbol> &edge_symbols) {
+                        std::vector<Symbol> &edge_symbols,
+                        GraphView graph_view = GraphView::OLD) {
   auto base = [&](NodeAtom *node) {
     LogicalOperator *last_op = input_op;
     // If the first atom binds a symbol, we generate a ScanAll which writes it.
     // Otherwise, someone else generates it (e.g. a previous ScanAll).
     if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
-      last_op = new ScanAll(node, std::shared_ptr<LogicalOperator>(last_op));
+      last_op = new ScanAll(node, std::shared_ptr<LogicalOperator>(last_op),
+                            graph_view);
     }
     // Even though we may skip generating ScanAll, we still want to add a filter
     // in case this atom adds more labels/properties for filtering.
@@ -126,20 +127,21 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
     // Store the symbol from the first node as the input to Expand.
     const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
     // If the expand symbols were already bound, then we need to indicate
-    // this as a cycle. The Expand will then check whether the pattern holds
+    // that they exist. The Expand will then check whether the pattern holds
     // instead of writing the expansion to symbols.
-    auto node_cycle = false;
-    auto edge_cycle = false;
+    auto existing_node = false;
+    auto existing_edge = false;
     if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
-      node_cycle = true;
+      existing_node = true;
     }
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
     if (!BindSymbol(bound_symbols, edge_symbol)) {
-      edge_cycle = true;
+      existing_edge = true;
     }
-    last_op = new Expand(node, edge, std::shared_ptr<LogicalOperator>(last_op),
-                         input_symbol, node_cycle, edge_cycle);
-    if (!edge_cycle) {
+    last_op =
+        new Expand(node, edge, std::shared_ptr<LogicalOperator>(last_op),
+                   input_symbol, existing_node, existing_edge, graph_view);
+    if (!existing_edge) {
       // Ensure Cyphermorphism (different edge symbols always map to different
       // edges).
       if (!edge_symbols.empty()) {
@@ -455,6 +457,32 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
   return nullptr;
 }
 
+auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
+              const SymbolTable &symbol_table,
+              std::unordered_set<int> &bound_symbols) {
+  // Copy the bound symbol set, because we don't want to use the updated version
+  // when generating the create part.
+  std::unordered_set<int> bound_symbols_copy(bound_symbols);
+  std::vector<Symbol> edge_symbols;
+  auto on_match =
+      GenMatchForPattern(*merge.pattern_, nullptr, symbol_table,
+                         bound_symbols_copy, edge_symbols, GraphView::NEW);
+  // Use the original bound_symbols, so we fill it with new symbols.
+  auto on_create = GenCreateForPattern(*merge.pattern_, nullptr, symbol_table,
+                                       bound_symbols);
+  for (auto &set : merge.on_create_) {
+    on_create = HandleWriteClause(set, on_create, symbol_table, bound_symbols);
+    debug_assert(on_create, "Expected SET in MERGE ... ON CREATE");
+  }
+  for (auto &set : merge.on_match_) {
+    on_match = HandleWriteClause(set, on_match, symbol_table, bound_symbols);
+    debug_assert(on_match, "Expected SET in MERGE ... ON MATCH");
+  }
+  return new plan::Merge(std::shared_ptr<LogicalOperator>(input_op),
+                         std::shared_ptr<LogicalOperator>(on_match),
+                         std::shared_ptr<LogicalOperator>(on_create));
+}
+
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
@@ -464,7 +492,7 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
   // or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and write) the first
   // `n`, but the latter `n` would only read the already written information.
   std::unordered_set<int> bound_symbols;
-  // Set to true if a query command performs a writes to the database.
+  // Set to true if a query command writes to the database.
   bool is_write = false;
   LogicalOperator *input_op = nullptr;
   for (auto &clause : query.clauses_) {
@@ -473,6 +501,11 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
       input_op = GenMatch(*match, input_op, symbol_table, bound_symbols);
     } else if (auto *ret = dynamic_cast<Return *>(clause)) {
       input_op = GenReturn(*ret, input_op, symbol_table, is_write);
+    } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
+      input_op = GenMerge(*merge, input_op, symbol_table, bound_symbols);
+      // Treat MERGE clause as write, because we do not know if it will create
+      // anything.
+      is_write = true;
     } else if (auto *with = dynamic_cast<query::With *>(clause)) {
       input_op =
           GenWith(*with, input_op, symbol_table, is_write, bound_symbols);
@@ -489,5 +522,4 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
   return std::unique_ptr<LogicalOperator>(input_op);
 }
 
-}  // namespace plan
-}  // namespace query
+}  // namespace query::plan

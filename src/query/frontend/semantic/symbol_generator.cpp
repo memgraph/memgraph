@@ -111,6 +111,9 @@ bool SymbolGenerator::PreVisit(With &with) {
 void SymbolGenerator::Visit(Where &) { scope_.in_where = true; }
 void SymbolGenerator::PostVisit(Where &) { scope_.in_where = false; }
 
+void SymbolGenerator::Visit(Merge &) { scope_.in_merge = true; }
+void SymbolGenerator::PostVisit(Merge &) { scope_.in_merge = false; }
+
 // Expressions
 
 void SymbolGenerator::Visit(Identifier &ident) {
@@ -178,7 +181,7 @@ void SymbolGenerator::PostVisit(Aggregation &aggr) {
 
 void SymbolGenerator::Visit(Pattern &pattern) {
   scope_.in_pattern = true;
-  if (scope_.in_create && pattern.atoms_.size() == 1U) {
+  if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
     debug_assert(dynamic_cast<NodeAtom *>(pattern.atoms_[0]),
                  "Expected a single NodeAtom in Pattern");
     scope_.in_create_node = true;
@@ -213,14 +216,15 @@ void SymbolGenerator::PostVisit(NodeAtom &node_atom) {
 
 void SymbolGenerator::Visit(EdgeAtom &edge_atom) {
   scope_.in_edge_atom = true;
-  if (scope_.in_create) {
+  if (scope_.in_create || scope_.in_merge) {
     scope_.in_create_edge = true;
     if (edge_atom.edge_types_.size() != 1U) {
       throw SemanticException(
           "A single relationship type must be specified "
           "when creating an edge.");
     }
-    if (edge_atom.direction_ == EdgeAtom::Direction::BOTH) {
+    if (scope_.in_create &&  // Merge allows bidirectionality
+        edge_atom.direction_ == EdgeAtom::Direction::BOTH) {
       throw SemanticException(
           "Bidirectional relationship are not supported "
           "when creating an edge");

@@ -649,4 +649,75 @@ TEST(TestSymbolGenerator, OrderBy) {
   }
 }
 
+TEST(TestSymbolGenerator, Merge) {
+  // Test MATCH (n) MERGE (n)
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
+  }
+  // Test MATCH (n) -[r]- (m) MERGE (a) -[r :rel]- (b)
+  {
+    Dbms dbms;
+    auto dba = dbms.active();
+    auto rel = dba->edge_type("rel");
+    AstTreeStorage storage;
+    auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                       MERGE(PATTERN(NODE("a"), EDGE("r", rel), NODE("b"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
+  }
+  // Test MERGE (a) -[r]- (b)
+  {
+    AstTreeStorage storage;
+    auto query = QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b"))));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    // Edge must have a type, since it doesn't we raise.
+    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+  }
+  // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
+  //      ON CREATE SET m.prop = 42 RETURN r AS r
+  {
+    Dbms dbms;
+    auto dba = dbms.active();
+    auto rel = dba->edge_type("rel");
+    auto prop = dba->property("prop");
+    AstTreeStorage storage;
+    auto match_n = NODE("n");
+    auto merge_n = NODE("n");
+    auto edge_r = EDGE("r", rel);
+    auto node_m = NODE("m");
+    auto n_prop = PROPERTY_LOOKUP("n", prop);
+    auto m_prop = PROPERTY_LOOKUP("m", prop);
+    auto ident_r = IDENT("r");
+    auto as_r = AS("r");
+    auto query = QUERY(MATCH(PATTERN(match_n)),
+                       MERGE(PATTERN(merge_n, edge_r, node_m),
+                             ON_MATCH(SET(n_prop, LITERAL(42))),
+                             ON_CREATE(SET(m_prop, LITERAL(42)))),
+                       RETURN(ident_r, as_r));
+    SymbolTable symbol_table;
+    SymbolGenerator symbol_generator(symbol_table);
+    query->Accept(symbol_generator);
+    // Symbols for: `n`, `r`, `m` and `AS r`.
+    EXPECT_EQ(symbol_table.max_position(), 4);
+    auto n = symbol_table.at(*match_n->identifier_);
+    EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
+    EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+    auto r = symbol_table.at(*edge_r->identifier_);
+    EXPECT_NE(r, n);
+    EXPECT_EQ(r, symbol_table.at(*ident_r));
+    EXPECT_NE(r, symbol_table.at(*as_r));
+    auto m = symbol_table.at(*node_m->identifier_);
+    EXPECT_NE(m, n);
+    EXPECT_NE(m, r);
+    EXPECT_NE(m, symbol_table.at(*as_r));
+    EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
+  }
+}
+
 }

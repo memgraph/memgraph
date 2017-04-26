@@ -85,7 +85,7 @@ CreateExpand::CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                            Symbol input_symbol, bool existing_node)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
-      input_(input),
+      input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node) {}
 
@@ -223,7 +223,7 @@ Expand::Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                GraphView graph_view)
     : node_atom_(node_atom),
       edge_atom_(edge_atom),
-      input_(input),
+      input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
       existing_edge_(existing_edge),

@@ -29,6 +29,57 @@ class BaseOpChecker {
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
 
+class PlanChecker : public LogicalOperatorVisitor {
+ public:
+  using LogicalOperatorVisitor::PreVisit;
+  using LogicalOperatorVisitor::Visit;
+  using LogicalOperatorVisitor::PostVisit;
+
+  PlanChecker(const std::list<BaseOpChecker *> &checkers,
+              const SymbolTable &symbol_table)
+      : checkers_(checkers), symbol_table_(symbol_table) {}
+
+  void Visit(CreateNode &op) override { CheckOp(op); }
+  void Visit(CreateExpand &op) override { CheckOp(op); }
+  void Visit(Delete &op) override { CheckOp(op); }
+  void Visit(ScanAll &op) override { CheckOp(op); }
+  void Visit(Expand &op) override { CheckOp(op); }
+  void Visit(NodeFilter &op) override { CheckOp(op); }
+  void Visit(EdgeFilter &op) override { CheckOp(op); }
+  void Visit(Filter &op) override { CheckOp(op); }
+  void Visit(Produce &op) override { CheckOp(op); }
+  void Visit(SetProperty &op) override { CheckOp(op); }
+  void Visit(SetProperties &op) override { CheckOp(op); }
+  void Visit(SetLabels &op) override { CheckOp(op); }
+  void Visit(RemoveProperty &op) override { CheckOp(op); }
+  void Visit(RemoveLabels &op) override { CheckOp(op); }
+  void Visit(ExpandUniquenessFilter<VertexAccessor> &op) override {
+    CheckOp(op);
+  }
+  void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override { CheckOp(op); }
+  void Visit(Accumulate &op) override { CheckOp(op); }
+  void Visit(Aggregate &op) override { CheckOp(op); }
+  void Visit(Skip &op) override { CheckOp(op); }
+  void Visit(Limit &op) override { CheckOp(op); }
+  void Visit(OrderBy &op) override { CheckOp(op); }
+  bool PreVisit(Merge &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  std::list<BaseOpChecker *> checkers_;
+
+ private:
+  void CheckOp(LogicalOperator &op) {
+    ASSERT_FALSE(checkers_.empty());
+    checkers_.back()->CheckOp(op, symbol_table_);
+    checkers_.pop_back();
+  }
+
+  const SymbolTable &symbol_table_;
+};
+
 template <class TOp>
 class OpChecker : public BaseOpChecker {
  public:
@@ -103,49 +154,22 @@ class ExpectAggregate : public OpChecker<Aggregate> {
   const std::unordered_set<query::Expression *> group_by_;
 };
 
-class PlanChecker : public LogicalOperatorVisitor {
+class ExpectMerge : public OpChecker<Merge> {
  public:
-  using LogicalOperatorVisitor::Visit;
-  using LogicalOperatorVisitor::PostVisit;
+  ExpectMerge(const std::list<BaseOpChecker *> &on_match,
+              const std::list<BaseOpChecker *> &on_create)
+      : on_match_(on_match), on_create_(on_create) {}
 
-  PlanChecker(const std::list<BaseOpChecker *> &checkers,
-              const SymbolTable &symbol_table)
-      : checkers_(checkers), symbol_table_(symbol_table) {}
-
-  void Visit(CreateNode &op) override { CheckOp(op); }
-  void Visit(CreateExpand &op) override { CheckOp(op); }
-  void Visit(Delete &op) override { CheckOp(op); }
-  void Visit(ScanAll &op) override { CheckOp(op); }
-  void Visit(Expand &op) override { CheckOp(op); }
-  void Visit(NodeFilter &op) override { CheckOp(op); }
-  void Visit(EdgeFilter &op) override { CheckOp(op); }
-  void Visit(Filter &op) override { CheckOp(op); }
-  void Visit(Produce &op) override { CheckOp(op); }
-  void Visit(SetProperty &op) override { CheckOp(op); }
-  void Visit(SetProperties &op) override { CheckOp(op); }
-  void Visit(SetLabels &op) override { CheckOp(op); }
-  void Visit(RemoveProperty &op) override { CheckOp(op); }
-  void Visit(RemoveLabels &op) override { CheckOp(op); }
-  void Visit(ExpandUniquenessFilter<VertexAccessor> &op) override {
-    CheckOp(op);
+  void ExpectOp(Merge &merge, const SymbolTable &symbol_table) override {
+    PlanChecker check_match(on_match_, symbol_table);
+    merge.merge_match()->Accept(check_match);
+    PlanChecker check_create(on_create_, symbol_table);
+    merge.merge_create()->Accept(check_create);
   }
-  void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override { CheckOp(op); }
-  void Visit(Accumulate &op) override { CheckOp(op); }
-  void Visit(Aggregate &op) override { CheckOp(op); }
-  void Visit(Skip &op) override { CheckOp(op); }
-  void Visit(Limit &op) override { CheckOp(op); }
-  void Visit(OrderBy &op) override { CheckOp(op); }
-
-  std::list<BaseOpChecker *> checkers_;
 
  private:
-  void CheckOp(LogicalOperator &op) {
-    ASSERT_FALSE(checkers_.empty());
-    checkers_.back()->CheckOp(op, symbol_table_);
-    checkers_.pop_back();
-  }
-
-  const SymbolTable &symbol_table_;
+  const std::list<BaseOpChecker *> &on_match_;
+  const std::list<BaseOpChecker *> &on_create_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -569,6 +593,38 @@ TEST(TestLogicalPlanner, ReturnAddSumCountOrderBy) {
       QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result"))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan(*query, aggr, ExpectProduce(), ExpectOrderBy());
+}
+
+TEST(TestLogicalPlanner, MatchMerge) {
+  // Test MATCH (n) MERGE (n) -[r :r]- (m)
+  //      ON MATCH SET n.prop = 42 ON CREATE SET m = n
+  //      RETURN n AS n
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto ident_n = IDENT("n");
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"))),
+            MERGE(PATTERN(NODE("n"), EDGE("r", r_type), NODE("m")),
+                  ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
+                  ON_CREATE(SET("m", IDENT("n")))),
+            RETURN(ident_n, AS("n")));
+  std::list<BaseOpChecker *> on_match{
+      new ExpectExpand(), new ExpectEdgeFilter(), new ExpectSetProperty()};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(),
+                                       new ExpectSetProperties()};
+  auto symbol_table = MakeSymbolTable(*query);
+  // We expect Accumulate after Merge, because it is considered as a write.
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  CheckPlan(*plan, symbol_table, ExpectScanAll(),
+            ExpectMerge(on_match, on_create), acc, ExpectProduce());
+  for (auto &op : on_match) delete op;
+  on_match.clear();
+  for (auto &op : on_create) delete op;
+  on_create.clear();
 }
 
 }  // namespace

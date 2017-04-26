@@ -28,8 +28,8 @@ namespace query {
 
 namespace test_common {
 
-// Custom types for ORDER BY, SKIP and LIMIT and expressions, so that they can
-// be used to resolve function calls.
+// Custom types for ORDER BY, SKIP, LIMIT, ON MATCH and ON CREATE expressions,
+// so that they can be used to resolve function calls.
 struct OrderBy {
   std::vector<std::pair<Ordering, Expression *>> expressions;
 };
@@ -38,6 +38,12 @@ struct Skip {
 };
 struct Limit {
   Expression *expression = nullptr;
+};
+struct OnMatch {
+  std::vector<Clause *> set;
+};
+struct OnCreate {
+  std::vector<Clause *> set;
 };
 
 // Helper functions for filling the OrderBy with expressions.
@@ -301,6 +307,26 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
 
+///
+/// Create a Merge clause for given Pattern with optional OnMatch and OnCreate
+/// parts.
+///
+auto GetMerge(AstTreeStorage &storage, Pattern *pattern,
+              OnCreate on_create = OnCreate{}) {
+  auto *merge = storage.Create<query::Merge>();
+  merge->pattern_ = pattern;
+  merge->on_create_ = on_create.set;
+  return merge;
+}
+auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
+              OnCreate on_create = OnCreate{}) {
+  auto *merge = storage.Create<query::Merge>();
+  merge->pattern_ = pattern;
+  merge->on_match_ = on_match.set;
+  merge->on_create_ = on_create.set;
+  return merge;
+}
+
 }  // namespace test_common
 
 }  // namespace query
@@ -346,6 +372,15 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
   query::test_common::GetDelete(storage, {__VA_ARGS__}, true)
 #define SET(...) query::test_common::GetSet(storage, __VA_ARGS__)
 #define REMOVE(...) query::test_common::GetRemove(storage, __VA_ARGS__)
+#define MERGE(...) query::test_common::GetMerge(storage, __VA_ARGS__)
+#define ON_MATCH(...)                            \
+  query::test_common::OnMatch {                  \
+    std::vector<query::Clause *> { __VA_ARGS__ } \
+  }
+#define ON_CREATE(...)                           \
+  query::test_common::OnCreate {                 \
+    std::vector<query::Clause *> { __VA_ARGS__ } \
+  }
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 // Various operators
 #define ADD(expr1, expr2) \
