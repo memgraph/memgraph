@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iterator>
 #include <memory>
 #include <vector>
@@ -523,26 +524,23 @@ TEST(ExpressionEvaluator, FunctionAbs) {
   ASSERT_THROW(EvaluateFunction("ABS", {true}), QueryRuntimeException);
 }
 
-TEST(ExpressionEvaluator, FunctionCeil) {
-  ASSERT_THROW(EvaluateFunction("CEIL", {}), QueryRuntimeException);
-  ASSERT_EQ(EvaluateFunction("CEIL", {TypedValue::Null}).type(),
+// Test if log works. If it does then all functions wrapped with
+// WRAP_CMATH_FLOAT_FUNCTION macro should work and are not gonna be tested for
+// correctnes..
+TEST(ExpressionEvaluator, FunctionLog) {
+  ASSERT_THROW(EvaluateFunction("LOG", {}), QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("LOG", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  ASSERT_EQ(EvaluateFunction("CEIL", {-2}).Value<double>(), -2);
-  ASSERT_EQ(EvaluateFunction("CEIL", {-2.5}).Value<double>(), -2);
-  ASSERT_EQ(EvaluateFunction("CEIL", {2.5}).Value<double>(), 3);
-  ASSERT_THROW(EvaluateFunction("CEIL", {true}), QueryRuntimeException);
+  ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", {2}).Value<double>(), log(2));
+  ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", {1.5}).Value<double>(), log(1.5));
+  // Not portable, but should work on most platforms.
+  ASSERT_TRUE(std::isnan(EvaluateFunction("LOG", {-1.5}).Value<double>()));
+  ASSERT_THROW(EvaluateFunction("LOG", {true}), QueryRuntimeException);
 }
 
-TEST(ExpressionEvaluator, FunctionFloor) {
-  ASSERT_THROW(EvaluateFunction("FLOOR", {}), QueryRuntimeException);
-  ASSERT_EQ(EvaluateFunction("FLOOR", {TypedValue::Null}).type(),
-            TypedValue::Type::Null);
-  ASSERT_EQ(EvaluateFunction("FLOOR", {-2}).Value<double>(), -2);
-  ASSERT_EQ(EvaluateFunction("FLOOR", {-2.5}).Value<double>(), -3);
-  ASSERT_EQ(EvaluateFunction("FLOOR", {2.5}).Value<double>(), 2);
-  ASSERT_THROW(EvaluateFunction("FLOOR", {true}), QueryRuntimeException);
-}
-
+// Function Round wraps round from cmath and will work if FunctionLog test
+// passes. This test is used to show behavior of round since it differs from
+// neo4j's round.
 TEST(ExpressionEvaluator, FunctionRound) {
   ASSERT_THROW(EvaluateFunction("ROUND", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("ROUND", {TypedValue::Null}).type(),
@@ -557,6 +555,27 @@ TEST(ExpressionEvaluator, FunctionRound) {
   ASSERT_THROW(EvaluateFunction("ROUND", {true}), QueryRuntimeException);
 }
 
+// Check if wrapped functions are callable (check if everything was spelled
+// correctly...). Wrapper correctnes is checked in FunctionLog test.
+TEST(ExpressionEvaluator, FunctionWrappedMathFunctions) {
+  for (auto function_name :
+       {"FLOOR", "CEIL", "ROUND", "EXP", "LOG", "LOG10", "SQRT", "ACOS", "ASIN",
+        "ATAN", "COS", "SIN", "TAN"}) {
+    EvaluateFunction(function_name, {0.5});
+  }
+}
+
+TEST(ExpressionEvaluator, FunctionAtan2) {
+  ASSERT_THROW(EvaluateFunction("ATAN2", {}), QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("ATAN2", {TypedValue::Null, 1}).type(),
+            TypedValue::Type::Null);
+  ASSERT_EQ(EvaluateFunction("ATAN2", {1, TypedValue::Null}).type(),
+            TypedValue::Type::Null);
+  ASSERT_DOUBLE_EQ(EvaluateFunction("ATAN2", {2, -1.0}).Value<double>(),
+                   atan2(2, -1));
+  ASSERT_THROW(EvaluateFunction("ATAN2", {3.0, true}), QueryRuntimeException);
+}
+
 TEST(ExpressionEvaluator, FunctionSign) {
   ASSERT_THROW(EvaluateFunction("SIGN", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("SIGN", {TypedValue::Null}).type(),
@@ -566,5 +585,15 @@ TEST(ExpressionEvaluator, FunctionSign) {
   ASSERT_EQ(EvaluateFunction("SIGN", {0.0}).Value<int64_t>(), 0);
   ASSERT_EQ(EvaluateFunction("SIGN", {2.5}).Value<int64_t>(), 1);
   ASSERT_THROW(EvaluateFunction("SIGN", {true}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionE) {
+  ASSERT_THROW(EvaluateFunction("E", {1}), QueryRuntimeException);
+  ASSERT_DOUBLE_EQ(EvaluateFunction("E", {}).Value<double>(), M_E);
+}
+
+TEST(ExpressionEvaluator, FunctionPi) {
+  ASSERT_THROW(EvaluateFunction("PI", {1}), QueryRuntimeException);
+  ASSERT_DOUBLE_EQ(EvaluateFunction("PI", {}).Value<double>(), M_PI);
 }
 }

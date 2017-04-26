@@ -30,7 +30,8 @@ namespace {
 // return same time. We need to store query start time somwhere.
 // TODO: Implement rest of the list functions.
 // TODO: Implement rand
-// TODO: Implement logarithmic, trigonometric, string and spatial functions
+// TODO: Implement degrees, haversin, radians
+// TODO: Implement string and spatial functions
 
 TypedValue Coalesce(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   if (args.size() == 0U) {
@@ -316,54 +317,61 @@ TypedValue Abs(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   }
 }
 
-TypedValue Ceil(const std::vector<TypedValue> &args, GraphDbAccessor &) {
-  if (args.size() != 1U) {
-    throw QueryRuntimeException("ceil requires one argument");
+#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                      \
+  TypedValue name(const std::vector<TypedValue> &args, GraphDbAccessor &) {   \
+    if (args.size() != 1U) {                                                  \
+      throw QueryRuntimeException(#lowercased_name " requires one argument"); \
+    }                                                                         \
+    switch (args[0].type()) {                                                 \
+      case TypedValue::Type::Null:                                            \
+        return TypedValue::Null;                                              \
+      case TypedValue::Type::Int:                                             \
+        return lowercased_name(args[0].Value<int64_t>());                     \
+      case TypedValue::Type::Double:                                          \
+        return lowercased_name(args[0].Value<double>());                      \
+      default:                                                                \
+        throw QueryRuntimeException(#lowercased_name                          \
+                                    " called with incompatible type");        \
+    }                                                                         \
   }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue::Null;
-    case TypedValue::Type::Int:
-      return ceil(args[0].Value<int64_t>());
-    case TypedValue::Type::Double:
-      return ceil(args[0].Value<double>());
-    default:
-      throw QueryRuntimeException("ceil called with incompatible type");
-  }
-}
 
-TypedValue Floor(const std::vector<TypedValue> &args, GraphDbAccessor &) {
-  if (args.size() != 1U) {
-    throw QueryRuntimeException("floor requires one argument");
-  }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue::Null;
-    case TypedValue::Type::Int:
-      return floor(args[0].Value<int64_t>());
-    case TypedValue::Type::Double:
-      return floor(args[0].Value<double>());
-    default:
-      throw QueryRuntimeException("floor called with incompatible type");
-  }
-}
-
+WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
+WRAP_CMATH_FLOAT_FUNCTION(Floor, floor)
 // We are not completely compatible with neoj4 in this function because,
 // neo4j rounds -0.5, -1.5, -2.5... to 0, -1, -2...
-TypedValue Round(const std::vector<TypedValue> &args, GraphDbAccessor &) {
-  if (args.size() != 1U) {
-    throw QueryRuntimeException("round requires one argument");
+WRAP_CMATH_FLOAT_FUNCTION(Round, round)
+WRAP_CMATH_FLOAT_FUNCTION(Exp, exp)
+WRAP_CMATH_FLOAT_FUNCTION(Log, log)
+WRAP_CMATH_FLOAT_FUNCTION(Log10, log10)
+WRAP_CMATH_FLOAT_FUNCTION(Sqrt, sqrt)
+WRAP_CMATH_FLOAT_FUNCTION(Acos, acos)
+WRAP_CMATH_FLOAT_FUNCTION(Asin, asin)
+WRAP_CMATH_FLOAT_FUNCTION(Atan, atan)
+WRAP_CMATH_FLOAT_FUNCTION(Cos, cos)
+WRAP_CMATH_FLOAT_FUNCTION(Sin, sin)
+WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
+
+#undef WRAP_CMATH_FLOAT_FUNCTION
+
+TypedValue Atan2(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 2U) {
+    throw QueryRuntimeException("atan2 requires two arguments");
   }
-  switch (args[0].type()) {
-    case TypedValue::Type::Null:
-      return TypedValue::Null;
-    case TypedValue::Type::Int:
-      return round(args[0].Value<int64_t>());
-    case TypedValue::Type::Double:
-      return round(args[0].Value<double>());
-    default:
-      throw QueryRuntimeException("round called with incompatible type");
-  }
+  if (args[0].type() == TypedValue::Type::Null) return TypedValue::Null;
+  if (args[1].type() == TypedValue::Type::Null) return TypedValue::Null;
+  auto to_double = [](const TypedValue &t) -> double {
+    switch (t.type()) {
+      case TypedValue::Type::Int:
+        return t.Value<int64_t>();
+      case TypedValue::Type::Double:
+        return t.Value<double>();
+      default:
+        throw QueryRuntimeException("atan2 called with incompatible types");
+    }
+  };
+  double y = to_double(args[0]);
+  double x = to_double(args[1]);
+  return atan2(y, x);
 }
 
 TypedValue Sign(const std::vector<TypedValue> &args, GraphDbAccessor &) {
@@ -381,6 +389,20 @@ TypedValue Sign(const std::vector<TypedValue> &args, GraphDbAccessor &) {
     default:
       throw QueryRuntimeException("sign called with incompatible type");
   }
+}
+
+TypedValue E(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 0U) {
+    throw QueryRuntimeException("e shouldn't be called with arguments");
+  }
+  return M_E;
+}
+
+TypedValue Pi(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 0U) {
+    throw QueryRuntimeException("pi shouldn't be called with arguments");
+  }
+  return M_PI;
 }
 }
 
@@ -404,7 +426,20 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "CEIL") return Ceil;
   if (function_name == "FLOOR") return Floor;
   if (function_name == "ROUND") return Round;
+  if (function_name == "EXP") return Exp;
+  if (function_name == "LOG") return Log;
+  if (function_name == "LOG10") return Log10;
+  if (function_name == "SQRT") return Sqrt;
+  if (function_name == "ACOS") return Acos;
+  if (function_name == "ASIN") return Asin;
+  if (function_name == "ATAN") return Atan;
+  if (function_name == "ATAN2") return Atan2;
+  if (function_name == "COS") return Cos;
+  if (function_name == "SIN") return Sin;
+  if (function_name == "TAN") return Tan;
   if (function_name == "SIGN") return Sign;
+  if (function_name == "E") return E;
+  if (function_name == "PI") return Pi;
   return nullptr;
 }
 }
