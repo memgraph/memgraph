@@ -14,7 +14,7 @@ function print_usage_and_exit {
 # read arguments
 arcanist_diff_id=""
 clone_dependencies=true
-use_sudo=0
+use_sudo=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-clone-dependencies)
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -s)
-            use_sudo=1
+            use_sudo=true
             shift
             ;;
         *)
@@ -43,6 +43,7 @@ done
 set -e
 
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd ${script_dir}
 
 required_pkgs=(git arcanist # used to clone sources
                python-virtualenv python3-pip # required by 'run' script
@@ -52,23 +53,31 @@ required_pkgs=(git arcanist # used to clone sources
 for pkg in ${required_pkgs[@]}; do
     if dpkg -s $pkg 2>/dev/null >/dev/null; then
         echo "Found $pkg"
-    elif (( $use_sudo )); then
+    elif [[ $use_sudo = true ]]; then
         echo "Installing $pkg"
         if [[ ! `sudo apt-get -y install $pkg` ]]; then
             echo "Didn't install $pkg [required]"
-            required_missing=1
+            required_missing=true
         fi
     else
         echo "Missing $pkg [required]"
-        required_missing=1
+        required_missing=true
     fi
 done
 
-if (( $required_missing )); then
+if [[ $required_missing = true ]]; then
     echo "Missing required packages. EXITING!"
     echo "Please, install required packages and rerun $0 again."
     exit 2
 fi
+
+# setup ve
+if [ ! -d "ve3" ]; then
+    virtualenv -p python3 ve3
+fi
+source ve3/bin/activate
+pip3 install --upgrade pip
+pip3 install -r requirements.txt
 
 # TODO: use pullbot and read a password from program arg or env var
 #       (in order to use this script inside CI infrastructure)
@@ -79,7 +88,7 @@ mkdir -p ${tests_folder}
 
 # clone dressipi's tests
 cd ${tests_folder}
-if ${clone_dependencies}; then
+if [[ $clone_dependencies = true ]]; then
     rm -rf ${tests_folder}/*
     git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
 fi
@@ -90,7 +99,7 @@ mkdir -p ${dbms_folder}
 
 # clone memgraph & checkout right commit
 cd ${dbms_folder}
-if ${clone_dependencies} ; then
+if [[ $clone_dependencies = true ]] ; then
     rm -rf ${dbms_folder}/*
     git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
 fi
