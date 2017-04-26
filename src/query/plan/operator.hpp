@@ -97,6 +97,21 @@ class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
    *  @param GraphDbAccessor Used to perform operations on the database.
    */
   virtual std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) = 0;
+
+  /** @brief Return @c Symbol vector where the results will be stored.
+   *
+   *  Currently, outputs symbols are only generated in @c Produce operator.
+   *  @c Skip, @c Limit and @c OrderBy propagate the symbols from @c Produce (if
+   *  it exists as input operator). In the future, we may want this method to
+   *  return the symbols that will be set in this operator.
+   *
+   *  @param SymbolTable used to find symbols for expressions.
+   *  @return std::vector<Symbol> used for results.
+   */
+  virtual std::vector<Symbol> OutputSymbols(const SymbolTable &) {
+    return std::vector<Symbol>();
+  }
+
   virtual ~LogicalOperator() {}
 };
 
@@ -538,6 +553,7 @@ class Produce : public LogicalOperator {
           const std::vector<NamedExpression *> named_expressions);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
   const std::vector<NamedExpression *> &named_expressions();
 
  private:
@@ -1009,6 +1025,7 @@ class Skip : public LogicalOperator {
   Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
  private:
   const std::shared_ptr<LogicalOperator> input_;
@@ -1051,6 +1068,7 @@ class Limit : public LogicalOperator {
   Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
  private:
   const std::shared_ptr<LogicalOperator> input_;
@@ -1091,6 +1109,7 @@ class OrderBy : public LogicalOperator {
           const std::vector<Symbol> &output_symbols);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
   const auto &output_symbols() const { return output_symbols_; }
 

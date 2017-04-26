@@ -17,8 +17,7 @@
     }                                                        \
   }
 
-namespace query {
-namespace plan {
+namespace query::plan {
 
 void Once::Accept(LogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -193,9 +192,8 @@ ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
       // once this GraphDbAccessor API is available
       vertices_(db.vertices()),
       vertices_it_(vertices_.end()) {
-        if (self.graph_view_ == GraphView::NEW)
-          throw utils::NotYetImplemented();
-      }
+  if (self.graph_view_ == GraphView::NEW) throw utils::NotYetImplemented();
+}
 
 bool ScanAll::ScanAllCursor::Pull(Frame &frame,
                                   const SymbolTable &symbol_table) {
@@ -497,6 +495,14 @@ ACCEPT_WITH_INPUT(Produce)
 
 std::unique_ptr<Cursor> Produce::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<ProduceCursor>(*this, db);
+}
+
+std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) {
+  std::vector<Symbol> symbols;
+  for (const auto &named_expr : named_expressions_) {
+    symbols.emplace_back(symbol_table.at(*named_expr));
+  }
+  return symbols;
 }
 
 const std::vector<NamedExpression *> &Produce::named_expressions() {
@@ -1161,6 +1167,11 @@ std::unique_ptr<Cursor> Skip::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<SkipCursor>(*this, db);
 }
 
+std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
 Skip::SkipCursor::SkipCursor(Skip &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
@@ -1201,6 +1212,11 @@ ACCEPT_WITH_INPUT(Limit)
 
 std::unique_ptr<Cursor> Limit::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<LimitCursor>(*this, db);
+}
+
+std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
 }
 
 Limit::LimitCursor::LimitCursor(Limit &self, GraphDbAccessor &db)
@@ -1255,6 +1271,11 @@ ACCEPT_WITH_INPUT(OrderBy)
 
 std::unique_ptr<Cursor> OrderBy::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<OrderByCursor>(*this, db);
+}
+
+std::vector<Symbol> OrderBy::OutputSymbols(const SymbolTable &symbol_table) {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
 }
 
 OrderBy::OrderByCursor::OrderByCursor(OrderBy &self, GraphDbAccessor &db)
@@ -1446,5 +1467,4 @@ void Merge::MergeCursor::Reset() {
   merge_create_cursor_->Reset();
 }
 
-}  // namespace plan
-}  // namespace query
+}  // namespace query::plan

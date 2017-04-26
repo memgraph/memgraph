@@ -42,21 +42,10 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   Frame frame(symbol_table.max_position());
 
   std::vector<std::string> header;
-  bool is_return = false;
-  std::vector<Symbol> output_symbols;
-  if (auto produce = dynamic_cast<plan::Produce *>(logical_plan.get())) {
-    is_return = true;
-    // collect the symbols from the return clause
-    for (auto named_expression : produce->named_expressions())
-      output_symbols.emplace_back(symbol_table[*named_expression]);
-  } else if (auto order_by =
-                 dynamic_cast<plan::OrderBy *>(logical_plan.get())) {
-    is_return = true;
-    output_symbols = order_by->output_symbols();
-  }
-  if (is_return) {
-    // top level node in the operator tree is a produce/order_by (return)
-    // so stream out results
+  std::vector<Symbol> output_symbols(logical_plan->OutputSymbols(symbol_table));
+  if (!output_symbols.empty()) {
+    // Since we have output symbols, this means that the query contains RETURN
+    // clause, so stream out the results.
 
     // generate header
     for (const auto &symbol : output_symbols) header.push_back(symbol.name_);
@@ -97,4 +86,5 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   summary["type"] = "rw";
   stream.Summary(summary);
 }
-}
+
+}  // namespace query

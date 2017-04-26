@@ -328,19 +328,6 @@ class ReturnBodyContext : public TreeVisitorBase {
   std::list<bool> has_aggregation_;
 };
 
-auto GenSkipLimit(LogicalOperator *input_op, const ReturnBodyContext &body) {
-  auto last_op = input_op;
-  // SKIP is always before LIMIT clause.
-  if (body.skip()) {
-    last_op = new Skip(std::shared_ptr<LogicalOperator>(last_op), body.skip());
-  }
-  if (body.limit()) {
-    last_op =
-        new Limit(std::shared_ptr<LogicalOperator>(last_op), body.limit());
-  }
-  return last_op;
-}
-
 auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
                    const ReturnBodyContext &body, bool accumulate = false) {
   if (body.distinct()) {
@@ -350,14 +337,6 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   std::vector<Symbol> used_symbols(body.used_symbols().begin(),
                                    body.used_symbols().end());
   auto last_op = input_op;
-  if (body.aggregations().empty()) {
-    // In case when we have SKIP/LIMIT and we don't perform aggregations, we
-    // want to put them before (optional) accumulation. This way we ensure that
-    // write part of the query will be limited.
-    // For example, `MATCH (n) SET n.x = n.x + 1 RETURN n LIMIT 1` should
-    // increment `n.x` only once.
-    last_op = GenSkipLimit(last_op, body);
-  }
   if (accumulate) {
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
@@ -367,10 +346,8 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   }
   if (!body.aggregations().empty()) {
     // When we have aggregation, SKIP/LIMIT should always come after it.
-    last_op = GenSkipLimit(
-        new Aggregate(std::shared_ptr<LogicalOperator>(last_op),
-                      body.aggregations(), body.group_by(), used_symbols),
-        body);
+    last_op = new Aggregate(std::shared_ptr<LogicalOperator>(last_op),
+                            body.aggregations(), body.group_by(), used_symbols);
   }
   last_op = new Produce(std::shared_ptr<LogicalOperator>(last_op),
                         body.named_expressions());
@@ -384,6 +361,15 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   if (!body.order_by().empty()) {
     last_op = new OrderBy(std::shared_ptr<LogicalOperator>(last_op),
                           body.order_by(), body.output_symbols());
+  }
+  // Finally, Skip and Limit must come after OrderBy.
+  if (body.skip()) {
+    last_op = new Skip(std::shared_ptr<LogicalOperator>(last_op), body.skip());
+  }
+  // Limit is always after Skip.
+  if (body.limit()) {
+    last_op =
+        new Limit(std::shared_ptr<LogicalOperator>(last_op), body.limit());
   }
   return last_op;
 }

@@ -500,9 +500,8 @@ TEST(TestLogicalPlanner, MatchReturnSkipLimit) {
   auto query =
       QUERY(MATCH(PATTERN(NODE("n"))),
             RETURN(IDENT("n"), AS("n"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
-  // A simple Skip and Limit combo which should come before Produce.
-  CheckPlan(*query, ExpectScanAll(), ExpectSkip(), ExpectLimit(),
-            ExpectProduce());
+  CheckPlan(*query, ExpectScanAll(), ExpectProduce(), ExpectSkip(),
+            ExpectLimit());
 }
 
 TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
@@ -515,13 +514,13 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto plan = MakeLogicalPlan(*query, symbol_table);
-  // Since we have a write query, we need to have Accumulate, so Skip and Limit
-  // need to come before it. This is a bit different than Neo4j, which optimizes
-  // WITH followed by RETURN as a single RETURN clause. This would cause the
-  // Limit operator to also appear before Accumulate, thus changing the
-  // behaviour. We've decided to diverge from Neo4j here, for consistency sake.
-  CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectSkip(), acc,
-            ExpectProduce(), ExpectLimit(), ExpectProduce());
+  // Since we have a write query, we need to have Accumulate. This is a bit
+  // different than Neo4j 3.0, which optimizes WITH followed by RETURN as a
+  // single RETURN clause and then moves Skip and Limit before Accumulate. This
+  // causes different behaviour. A newer version of Neo4j does the same thing as
+  // us here (but who knows if they change it again).
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, ExpectProduce(),
+            ExpectSkip(), ExpectProduce(), ExpectLimit());
 }
 
 TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
@@ -538,10 +537,8 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
   auto plan = MakeLogicalPlan(*query, symbol_table);
-  // We have a write query and aggregation, therefore Skip and Limit should come
-  // after Accumulate and Aggregate.
-  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectSkip(),
-            ExpectLimit(), ExpectProduce());
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
+            ExpectSkip(), ExpectLimit());
 }
 
 TEST(TestLogicalPlanner, MatchReturnOrderBy) {
