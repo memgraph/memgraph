@@ -35,7 +35,7 @@ Feature: test03
       | (:A) | (:F) | [:R] |
       | (:C) | (:D) | [:R] |
       | (:C) | (:F) | [:R] |
-    
+
   Scenario: Match multiple patterns 03
     Given an empty graph
     And having executed
@@ -44,7 +44,7 @@ Feature: test03
       """
     When executing query:
       """
-      MATCH (a:B)--(b), (c:B)--(d) RETURN b, d 
+      MATCH (a:B)--(b), (c:B)--(d) RETURN b, d
       """
     Then the result should be:
       | b    | d    |
@@ -64,8 +64,6 @@ Feature: test03
     Then the result should be empty
 
 
-
-
   Scenario: Multiple match 01
     Given an empty graph
     And having executed
@@ -74,7 +72,7 @@ Feature: test03
       """
     When executing query:
       """
-      MATCH (a:B)--(b) MATCH (c:B)--(d) RETURN b, d 
+      MATCH (a:B)--(b) MATCH (c:B)--(d) RETURN b, d
       """
     Then the result should be:
       | b    | d    |
@@ -132,7 +130,7 @@ Feature: test03
       | (:A) | (:F) | [:R] |
       | (:C) | (:D) | [:R] |
       | (:C) | (:F) | [:R] |
-  
+
   Scenario: Multiple match 05
     Given an empty graph
     And having executed
@@ -141,7 +139,7 @@ Feature: test03
       """
     When executing query:
       """
-      MATCH(a) MATCH(a) RETURN a 
+      MATCH(a) MATCH(a) RETURN a
       """
     Then the result should be:
       | a    |
@@ -174,8 +172,6 @@ Feature: test03
       MATCH (a)-[]->() MATCH (a:B) MATCH (a:C) RETURN a
       """
     Then the result should be empty
-
-
 
 
   Scenario: Remove 01
@@ -236,14 +232,12 @@ Feature: test03
       | (:A{b: 's', c: 1.0}) |
 
 
-
-
   Scenario: Multiple create 01:
     Given an empty graph
     And having executed
       """
       CREATE (a:A), (b:B) CREATE (c:C), (a)-[:R]->(b) CREATE (b)-[:R]->(c)
-      """ 
+      """
     When executing query:
       """
       MATCH (a)-[]->() MATCH (a:B) MATCH (b:C) RETURN a, b
@@ -269,14 +263,12 @@ Feature: test03
     Then an error should be raised
 
 
-
-  
   Scenario: Count test 01:
     Given an empty graph
     And having executed
       """
       CREATE (a:A), (b:B), (c:C)
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN COUNT(a) AS n
@@ -286,15 +278,15 @@ Feature: test03
       | 3 |
 
   Scenario: Count test 02:
-    Given an empty graph 
+    Given an empty graph
     When executing query:
       """
       RETURN COUNT(123) AS n
       """
     Then the result should be:
       | n |
-      | 1 | 
-  
+      | 1 |
+
   Scenario: Count test 03:
     Given an empty graph
     When executing query:
@@ -306,7 +298,7 @@ Feature: test03
       | 1 |
 
   Scenario: Count test 04:
-    Given an empty graph 
+    Given an empty graph
     When executing query:
       """
       RETURN COUNT('abcd') AS n
@@ -320,7 +312,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0}), (b{x: 0}), (c{x: 0}), (d{x: 1}), (e{x: 1})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN COUNT(a) AS n, a.x
@@ -335,7 +327,7 @@ Feature: test03
     And having executed
       """
       CREATE (), (), (), (), ()
-      """ 
+      """
     When executing query:
       """
       MATCH (n) RETURN COUNT(*) AS n
@@ -345,14 +337,12 @@ Feature: test03
       | 5 |
 
 
-
-
   Scenario: Sum test 01:
     Given an empty graph
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 7}), (c{x: 5}), (d{x: 'x'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SUM(a.x) AS n
@@ -364,7 +354,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b), (c{x: 5}), (d{x: null})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SUM(a.x) AS n
@@ -378,7 +368,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0, y:3}), (b{x: 0, y:1}), (c{x: 0}), (d{x: 1, y:4}), (e{x: 1})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SUM(a.y) AS n, a.x
@@ -386,9 +376,7 @@ Feature: test03
     Then the result should be:
       | n | a.x |
       | 4 | 0   |
-      | 4 | 1   | 
-
-
+      | 4 | 1   |
 
 
   Scenario: Avg test 01:
@@ -396,7 +384,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 7}), (c{x: 5}), (d{x: 'x'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN AVG(a.x) AS n
@@ -408,7 +396,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1.25}), (b), (c{x: 4.75}), (d{x: null})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN AVG(a.x) AS n
@@ -422,7 +410,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0, y:3}), (b{x: 0, y:1}), (c{x: 0}), (d{x: 1, y:4}), (e{x: 1})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN AVG(a.y) AS n, a.x
@@ -430,9 +418,7 @@ Feature: test03
     Then the result should be:
       | n   | a.x |
       | 2.0 | 0   |
-      | 4.0 | 1   |  
-
-
+      | 4.0 | 1   |
 
 
   Scenario: Sqrt test 01:
@@ -440,7 +426,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 7}), (c{x: 5}), (d{x: 'x'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SQRT(a.x) AS n
@@ -452,7 +438,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b), (c{x: 9}), (d{x: null})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SQRT(a.x) AS n
@@ -465,14 +451,12 @@ Feature: test03
       | null |
 
 
-
-
   Scenario: Min test 01:
     Given an empty graph
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 7}), (c{x: 5}), (d{x: 'x'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN MIN(a.x) AS n
@@ -484,7 +468,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b), (c{x: 9}), (d{x: null})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN MIN(a.x) AS n
@@ -498,7 +482,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0, y:3}), (b{x: 0, y:1}), (c{x: 0}), (d{x: 1, y:4}), (e{x: 1})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN MIN(a.y) AS n, a.x
@@ -509,14 +493,12 @@ Feature: test03
       | 4 | 1   |
 
 
-
-
   Scenario: Max test 01:
     Given an empty graph
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 7}), (c{x: 5}), (d{x: 'x'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN MAX(a.x) AS n
@@ -528,7 +510,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b), (c{x: 9}), (d{x: null})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN MAX(a.x) AS n
@@ -542,7 +524,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0, y:3}), (b{x: 0, y:1}), (c{x: 0}), (d{x: 1, y:4}), (e{x: 1})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN Max(a.y) AS n, a.x
@@ -553,14 +535,12 @@ Feature: test03
       | 4 | 1   |
 
 
-
-
   Scenario: ToBoolean test 01:
     Given an empty graph
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 0}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOBOOLEAN(a.x) AS n
@@ -572,7 +552,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 'TrUe'}), (b{x: 'not bool'}), (c{x: faLsE}), (d{x: null}), (e{x: 'fALse'}), (f{x: tRuE})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOBOOLEAN(a.x) AS n
@@ -587,14 +567,12 @@ Feature: test03
       | true  |
 
 
-
-
   Scenario: ToInteger test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOINTEGER(a.x) AS n
@@ -606,7 +584,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 'not int'}), (c{x: '-12'}), (d{x: null}), (e{x: '1.2'}), (f{x: '1.9'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOINTEGER(a.x) AS n
@@ -621,14 +599,12 @@ Feature: test03
       | 1    |
 
 
-
-
   Scenario: ToFloat test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOFLOAT(a.x) AS n
@@ -640,7 +616,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (b{x: 'not float'}), (c{x: '-12'}), (d{x: null}), (e{x: '1.2'}), (f{x: 1.9})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN TOFLOAT(a.x) AS n
@@ -655,14 +631,12 @@ Feature: test03
       | 1.9   |
 
 
-
-
   Scenario: Abs test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN ABS(a.x) AS n
@@ -674,7 +648,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN ABS(a.x) AS n
@@ -686,7 +660,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (c{x: -12}), (d{x: null}), (e{x: -2.3}), (f{x: 1.9})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN ABS(a.x) AS n
@@ -700,14 +674,12 @@ Feature: test03
       | 1.9  |
 
 
-
-
   Scenario: Exp test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN EXP(a.x) AS n
@@ -719,7 +691,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})),
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN EXP(a.x) AS n
@@ -731,7 +703,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 1}), (c{x: -12}), (d{x: null}), (e{x: -2.3}), (f{x: 1.9})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN EXP(a.x) AS n
@@ -745,14 +717,12 @@ Feature: test03
       | 6.6858944422792685    |
 
 
-
-
   Scenario: Log test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG(a.x) AS n
@@ -764,7 +734,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})),
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG(a.x) AS n
@@ -776,7 +746,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0.123}), (c{x: -12}), (d{x: null}), (e{x: 27})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG(a.x) AS n
@@ -789,14 +759,12 @@ Feature: test03
       | 3.295836866004329   |
 
 
-
-
   Scenario: Log10 test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG10(a.x) AS n
@@ -808,7 +776,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})),
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG10(a.x) AS n
@@ -820,7 +788,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0.123}), (c{x: -12}), (d{x: null}), (e{x: 27})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN LOG10(a.x) AS n
@@ -833,14 +801,12 @@ Feature: test03
       | 1.4313637641589874  |
 
 
-
-
   Scenario: Sin test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SIN(a.x) AS n
@@ -852,7 +818,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})),
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SIN(a.x) AS n
@@ -864,7 +830,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0.123}), (c{x: -12}), (d{x: null}), (e{x: 27})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN SIN(a.x) AS n
@@ -877,14 +843,12 @@ Feature: test03
       | 0.956375928404503   |
 
 
-
-
   Scenario: Cos test 01:
     Given an empty graph
     And having executed
       """
       CREATE (b{x: true}))
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN COS(a.x) AS n
@@ -896,7 +860,7 @@ Feature: test03
     And having executed
       """
       CREATE (b{x: '1.0'})),
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN COS(a.x) AS n
@@ -908,7 +872,7 @@ Feature: test03
     And having executed
       """
       CREATE (a{x: 0.123}), (c{x: -12}), (d{x: null}), (e{x: 27})
-      """ 
+      """
     When executing query:
       """
       MATCH (a) RETURN COS(a.x) AS n
@@ -919,8 +883,6 @@ Feature: test03
       | 0.8438539587324921  |
       | null                |
       | -0.2921388087338362 |
-
-
 
 
   Scenario: With test 01:
@@ -952,7 +914,7 @@ Feature: test03
       """
     Then the result should be:
       | a          |  s  |
-      | (:A{x: 1}) |  4  |  
+      | (:A{x: 1}) |  4  |
       | (:B{x: 2}) |  3  |
       | (:C{x: 3}) |  4  |
       | (:D{x: 4}) |  3  |
@@ -971,7 +933,7 @@ Feature: test03
       """
     Then the result should be:
       | a          | s  |
-      | (:A{x: 1}) | 48 |  
+      | (:A{x: 1}) | 48 |
       | (:B{x: 2}) | 24 |
 
   Scenario: With test 04:
@@ -987,7 +949,7 @@ Feature: test03
       WITH a, b, SUM(c.x)+SUM(d.x) AS n RETURN a, b, n
       """
     Then the result should be:
-      | a          | b          | n   | 
+      | a          | b          | n   |
       | (:B{x: 2}) | (:A{x: 1}) | 13  |
       | (:B{x: 2}) | (:C{x: 3}) | 22  |
       | (:B{x: 2}) | (:D{x: 4}) | 14  |
@@ -1005,7 +967,7 @@ Feature: test03
       WITH a, b, AVG(c.x + d.x) AS n RETURN a, b, n
       """
     Then the result should be:
-      | a          | b          | n   | 
+      | a          | b          | n   |
       | (:B{x: 2}) | (:A{x: 1}) | 6.5 |
       | (:B{x: 2}) | (:C{x: 3}) | 5.5 |
       | (:B{x: 2}) | (:D{x: 4}) | 7.0 |
@@ -1023,7 +985,7 @@ Feature: test03
       WITH a, b, AVG(c.x + d.x) AS n RETURN MAX(n) AS n
       """
     Then the result should be:
-      | n   | 
+      | n   |
       | 7.0 |
 
   Scenario: With test 07:
@@ -1040,7 +1002,7 @@ Feature: test03
       WITH a, MAX(n) AS n RETURN a, n
       """
     Then the result should be:
-      | a          | n   | 
+      | a          | n   |
       | (:B{x: 2}) | 7.0 |
 
   Scenario: With test 07:
@@ -1083,7 +1045,7 @@ Feature: test03
       """
     When executing query:
       """
-      MATCH (c)--(a:B)--(b)--(d) WITH a, b, AVG(c.x + d.x) AS av WITH AVG(av) AS avg 
+      MATCH (c)--(a:B)--(b)--(d) WITH a, b, AVG(c.x + d.x) AS av WITH AVG(av) AS avg
       MATCH (c)--(a:B)--(b)--(d) WITH a, b, avg, AVG(c.x + d.x) AS av WHERE av>avg RETURN av
       """
     Then the result should be:
@@ -1097,7 +1059,7 @@ Feature: test03
       """
       CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH()-[r:T]->() RETURN r
       """
-    Then the result should be empty
+    Then an error should be raised
 
   Scenario: Exception test scenario:
     Given an empty graph
@@ -1106,4 +1068,3 @@ Feature: test03
       CREATE(a:A) CREATE(a:B)
       """
     Then an error should be raised
-
