@@ -128,7 +128,7 @@ State StateExecutorRun(Session &session) {
            {"message",
             "An unknown exception occured, please contact your database "
             "administrator."}});
-      logger.debug("Unknown exception!!!");
+      logger.debug("std::exception {}", e.what());
       if (!fail_sent) {
         logger.debug("Couldn't send failure message!");
         return State::Close;

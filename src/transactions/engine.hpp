@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 #include <vector>
 
 #include "threading/sync/lockable.hpp"
@@ -9,13 +10,18 @@
 #include "transactions/transaction.hpp"
 #include "transactions/transaction_store.hpp"
 #include "utils/counters/simple_counter.hpp"
+#include "utils/exceptions/basic_exception.hpp"
 
 namespace tx {
 
-class TransactionError : std::runtime_error {
+class TransactionError : public BasicException {
  public:
-  using std::runtime_error::runtime_error;
+  using BasicException::BasicException;
 };
+
+// max value that could be stored as a command id
+static constexpr auto kMaxCommandId =
+    std::numeric_limits<decltype(std::declval<Transaction>().cid)>::max();
 
 class Engine : Lockable<SpinLock> {
  public:
@@ -45,12 +51,12 @@ class Engine : Lockable<SpinLock> {
 
     auto *t = store.get(id);
 
-    if (t == nullptr) throw TransactionError("transaction does not exist");
-
-    // this is a new command
-    if (t->cid == 255)
+    if (t == nullptr) throw TransactionError("Transaction does not exist.");
+    if (t->cid == kMaxCommandId)
       throw TransactionError(
           "Reached maximum number of commands in this transaction.");
+
+    // this is a new command
     t->cid++;
 
     return *t;

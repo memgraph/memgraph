@@ -3,9 +3,9 @@
 //
 #pragma once
 
-#include <stdexcept>
+#include "utils/exceptions/basic_exception.hpp"
 
-class LockTimeoutError : public std::runtime_error {
+class LockTimeoutError : public BasicException {
  public:
-  using runtime_error::runtime_error;
+  using BasicException::BasicException;
 };

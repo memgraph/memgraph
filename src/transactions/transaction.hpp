@@ -46,7 +46,7 @@ class Transaction {
   const Id id;
 
   // index of the current command in the current transaction;
-  uint8_t cid;
+  uint64_t cid;
 
   Engine &engine;
 

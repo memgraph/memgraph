@@ -1,14 +1,14 @@
 #pragma once
 
-#include <stdexcept>
+#include "utils/exceptions/basic_exception.hpp"
 
-class SerializationError : public std::runtime_error {
+class SerializationError : public BasicException {
   static constexpr const char* default_message =
       "Can't serialize due to\
         concurrent operation(s)";
 
  public:
-  SerializationError() : runtime_error(default_message) {}
+  SerializationError() : BasicException(default_message) {}
 
-  SerializationError(const std::string& message) : runtime_error(message) {}
+  SerializationError(const std::string& message) : BasicException(message) {}
 };
