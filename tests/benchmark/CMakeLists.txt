@@ -26,23 +26,14 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    # threads (cross-platform)
-    target_link_libraries(${target_name} Threads::Threads)
+    target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
     # google-benchmark
     target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
-    # memgraph lib
-    target_link_libraries(${target_name} memgraph_lib)
-    # fmt format lib
-    target_link_libraries(${target_name} fmt)
-    # yaml parser lib
-    target_link_libraries(${target_name} yaml-cpp)
-	# antlr
-	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
 
     # register test
     set(output_path
         ${CMAKE_BINARY_DIR}/test_results/benchmark/${target_name}.json)
-    add_test(${target_name} ${exec_name} 
+    add_test(${target_name} ${exec_name}
              --benchmark_out_format=json --benchmark_out=${output_path})
 
 endforeach()

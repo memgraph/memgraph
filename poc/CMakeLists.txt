@@ -25,13 +25,6 @@ foreach(poc_cpp ${poc_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    # threads (cross-platform)
-    target_link_libraries(${target_name} Threads::Threads)
-    # memgraph lib
-    target_link_libraries(${target_name} memgraph_lib)
-    # fmt format lib
-    target_link_libraries(${target_name} fmt)
-    # yaml parser lib
-    target_link_libraries(${target_name} yaml-cpp)
+    target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
 
 endforeach()

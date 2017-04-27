@@ -1,5 +1,3 @@
-find_package(Threads REQUIRED)
-
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
@@ -26,19 +24,7 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} dl)
-    # filesystem
-    target_link_libraries(${target_name} stdc++fs)
-    # threads (cross-platform)
-    target_link_libraries(${target_name} Threads::Threads)
-    # memgraph lib
-    target_link_libraries(${target_name} memgraph_lib)
-    # fmt format lib
-    target_link_libraries(${target_name} fmt)
-    # yaml parser lib
-    target_link_libraries(${target_name} yaml-cpp)
-	# antlr
-	target_link_libraries(${target_name} antlr_opencypher_parser_lib)
+    target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
 
     # register test
     add_test(${target_name} ${exec_name})
