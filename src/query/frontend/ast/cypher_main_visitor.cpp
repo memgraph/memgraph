@@ -129,10 +129,7 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
 antlrcpp::Any CypherMainVisitor::visitCypherMatch(
     CypherParser::CypherMatchContext *ctx) {
   auto *match = storage_.Create<Match>();
-  if (ctx->OPTIONAL()) {
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented();
-  }
+  match->optional_ = !!ctx->OPTIONAL();
   if (ctx->where()) {
     match->where_ = ctx->where()->accept(this);
   }

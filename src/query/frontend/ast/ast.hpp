@@ -645,6 +645,7 @@ class Match : public Clause {
   }
   std::vector<Pattern *> patterns_;
   Where *where_ = nullptr;
+  bool optional_ = false;
 
  protected:
   Match(int uid) : Clause(uid) {}

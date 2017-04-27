@@ -505,16 +505,17 @@ TEST(CypherMainVisitorTest, NodePattern) {
   ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_TRUE(match);
-  ASSERT_FALSE(match->where_);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 1U);
   auto node = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
   ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
-  ASSERT_EQ(node->identifier_->name_,
+  EXPECT_EQ(node->identifier_->name_,
             CypherMainVisitor::kAnonPrefix + std::to_string(1));
-  ASSERT_THAT(node->labels_, UnorderedElementsAre(
+  EXPECT_THAT(node->labels_, UnorderedElementsAre(
                                  ast_generator.db_accessor_->label("label1"),
                                  ast_generator.db_accessor_->label("label2"),
                                  ast_generator.db_accessor_->label("label3")));
@@ -525,7 +526,7 @@ TEST(CypherMainVisitorTest, NodePattern) {
     ASSERT_TRUE(literal->value_.type() == TypedValue::Type::Int);
     properties[x.first] = literal->value_.Value<int64_t>();
   }
-  ASSERT_THAT(properties,
+  EXPECT_THAT(properties,
               UnorderedElementsAre(
                   Pair(ast_generator.db_accessor_->property("a"), 5),
                   Pair(ast_generator.db_accessor_->property("b"), 10)));
@@ -535,19 +536,24 @@ TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   AstGenerator ast_generator("MATCH (var) RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
-  ASSERT_FALSE(match->where_);
+  ASSERT_TRUE(match);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_FALSE(match->where_);
   auto node = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
+  ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
-  ASSERT_EQ(node->identifier_->name_, "var");
-  ASSERT_THAT(node->labels_, UnorderedElementsAre());
-  ASSERT_THAT(node->properties_, UnorderedElementsAre());
+  EXPECT_EQ(node->identifier_->name_, "var");
+  EXPECT_THAT(node->labels_, UnorderedElementsAre());
+  EXPECT_THAT(node->properties_, UnorderedElementsAre());
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   AstGenerator ast_generator("MATCH ()--() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
-  ASSERT_FALSE(match->where_);
+  ASSERT_TRUE(match);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
@@ -557,9 +563,9 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   ASSERT_TRUE(edge);
   auto *node2 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[2]);
   ASSERT_TRUE(node2);
-  ASSERT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
   ASSERT_TRUE(edge->identifier_);
-  ASSERT_THAT(edge->identifier_->name_,
+  EXPECT_THAT(edge->identifier_->name_,
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
 }
 
@@ -568,7 +574,8 @@ TEST(CypherMainVisitorTest, PatternPartBraces) {
   AstGenerator ast_generator("MATCH ((()--())) RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
-  ASSERT_FALSE(match->where_);
+  ASSERT_TRUE(match);
+  EXPECT_FALSE(match->where_);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_TRUE(match->patterns_[0]);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
@@ -578,9 +585,9 @@ TEST(CypherMainVisitorTest, PatternPartBraces) {
   ASSERT_TRUE(edge);
   auto *node2 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[2]);
   ASSERT_TRUE(node2);
-  ASSERT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
   ASSERT_TRUE(edge->identifier_);
-  ASSERT_THAT(edge->identifier_->name_,
+  EXPECT_THAT(edge->identifier_->name_,
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
 }
 
@@ -589,10 +596,13 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
       "MATCH ()<-[:type1|type2 {a : 5, b : 10}]-() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
-  ASSERT_FALSE(match->where_);
+  ASSERT_TRUE(match);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
-  ASSERT_EQ(edge->direction_, EdgeAtom::Direction::LEFT);
-  ASSERT_THAT(
+  ASSERT_TRUE(edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::LEFT);
+  EXPECT_THAT(
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
                            ast_generator.db_accessor_->edge_type("type2")));
@@ -603,7 +613,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
     ASSERT_TRUE(literal->value_.type() == TypedValue::Type::Int);
     properties[x.first] = literal->value_.Value<int64_t>();
   }
-  ASSERT_THAT(properties,
+  EXPECT_THAT(properties,
               UnorderedElementsAre(
                   Pair(ast_generator.db_accessor_->property("a"), 5),
                   Pair(ast_generator.db_accessor_->property("b"), 10)));
@@ -613,11 +623,14 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   AstGenerator ast_generator("MATCH ()-[var]->() RETURN 1");
   auto *query = ast_generator.query_;
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
-  ASSERT_FALSE(match->where_);
+  ASSERT_TRUE(match);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
-  ASSERT_EQ(edge->direction_, EdgeAtom::Direction::RIGHT);
+  ASSERT_TRUE(edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::RIGHT);
   ASSERT_TRUE(edge->identifier_);
-  ASSERT_THAT(edge->identifier_->name_, "var");
+  EXPECT_THAT(edge->identifier_->name_, "var");
 }
 
 // // Relationship with unbounded variable range.
@@ -743,12 +756,13 @@ TEST(CypherMainVisitorTest, DeleteDetach) {
   ASSERT_EQ(identifier1->name_, "n");
 }
 
-TEST(CypherMainVisitorTest, MatchWhere) {
-  AstGenerator ast_generator("MATCH (n) WHERE m RETURN 1");
+TEST(CypherMainVisitorTest, OptionalMatchWhere) {
+  AstGenerator ast_generator("OPTIONAL MATCH (n) WHERE m RETURN 1");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
   ASSERT_TRUE(match);
+  EXPECT_TRUE(match->optional_);
   ASSERT_TRUE(match->where_);
   auto *identifier = dynamic_cast<Identifier *>(match->where_->expression_);
   ASSERT_TRUE(identifier);
