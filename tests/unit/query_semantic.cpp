@@ -281,8 +281,8 @@ TEST(TestSymbolGenerator, MatchWithReturn) {
   auto with_as_n = AS("n");
   auto n_ident = IDENT("n");
   auto ret_as_n = AS("n");
-  auto query =
-      QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), RETURN(n_ident, ret_as_n));
+  auto query = QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
+                     RETURN(n_ident, ret_as_n));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -556,7 +556,7 @@ TEST(TestSymbolGenerator, SameResults) {
   }
 }
 
-TEST(TestSymbolGenerator, SkipLimitIdentifier) {
+TEST(TestSymbolGenerator, SkipUsingIdentifier) {
   // Test MATCH (old) WITH old AS new SKIP old
   {
     AstTreeStorage storage;
@@ -575,81 +575,83 @@ TEST(TestSymbolGenerator, SkipLimitIdentifier) {
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
   }
+}
+
+TEST(TestSymbolGenerator, LimitUsingIdentifier) {
   // Test MATCH (n) RETURN n AS n LIMIT n
-  {
-    AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("n"))),
-                       RETURN(IDENT("n"), AS("n"), SKIP(IDENT("n"))));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
-  }
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     RETURN(IDENT("n"), AS("n"), LIMIT(IDENT("n"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
-TEST(TestSymbolGenerator, OrderBy) {
+TEST(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
-  {
-    AstTreeStorage storage;
-    auto query =
-        QUERY(MATCH(PATTERN(NODE("old"))),
-              RETURN(IDENT("old"), AS("new"), ORDER_BY(COUNT(LITERAL(1)))));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
-  }
-  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
-  {
-    AstTreeStorage storage;
-    auto query =
-        QUERY(MATCH(PATTERN(NODE("old"))),
-              RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old"))));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
-  }
-  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY new
-  {
-    AstTreeStorage storage;
-    auto node = NODE("old");
-    auto ident_old = IDENT("old");
-    auto as_new = AS("new");
-    auto ident_new = IDENT("new");
-    auto query = QUERY(MATCH(PATTERN(node)),
-                       RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new)));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
-    // Symbols for `old`, `count(old)` and `new`
-    EXPECT_EQ(symbol_table.max_position(), 3);
-    auto old = symbol_table.at(*node->identifier_);
-    EXPECT_EQ(old, symbol_table.at(*ident_old));
-    auto new_sym = symbol_table.at(*as_new);
-    EXPECT_NE(old, new_sym);
-    EXPECT_EQ(new_sym, symbol_table.at(*ident_new));
-  }
-  // Test MATCH (old) RETURN old AS new ORDER BY old
-  {
-    AstTreeStorage storage;
-    auto node = NODE("old");
-    auto ident_old = IDENT("old");
-    auto as_new = AS("new");
-    auto by_old = IDENT("old");
-    auto query = QUERY(MATCH(PATTERN(node)),
-                       RETURN(ident_old, as_new, ORDER_BY(by_old)));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
-    // Symbols for `old` and `new`
-    EXPECT_EQ(symbol_table.max_position(), 2);
-    auto old = symbol_table.at(*node->identifier_);
-    EXPECT_EQ(old, symbol_table.at(*ident_old));
-    EXPECT_EQ(old, symbol_table.at(*by_old));
-    auto new_sym = symbol_table.at(*as_new);
-    EXPECT_NE(old, new_sym);
-  }
+  AstTreeStorage storage;
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("old"))),
+            RETURN(IDENT("old"), AS("new"), ORDER_BY(COUNT(LITERAL(1)))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
-TEST(TestSymbolGenerator, Merge) {
+TEST(TestSymbolGenerator, OrderByUnboundVariable) {
+  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
+  AstTreeStorage storage;
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("old"))),
+            RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, AggregationOrderBy) {
+  // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY new
+  AstTreeStorage storage;
+  auto node = NODE("old");
+  auto ident_old = IDENT("old");
+  auto as_new = AS("new");
+  auto ident_new = IDENT("new");
+  auto query = QUERY(MATCH(PATTERN(node)),
+                     RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `old`, `count(old)` and `new`
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto old = symbol_table.at(*node->identifier_);
+  EXPECT_EQ(old, symbol_table.at(*ident_old));
+  auto new_sym = symbol_table.at(*as_new);
+  EXPECT_NE(old, new_sym);
+  EXPECT_EQ(new_sym, symbol_table.at(*ident_new));
+}
+
+TEST(TestSymbolGenerator, OrderByOldVariable) {
+  // Test MATCH (old) RETURN old AS new ORDER BY old
+  AstTreeStorage storage;
+  auto node = NODE("old");
+  auto ident_old = IDENT("old");
+  auto as_new = AS("new");
+  auto by_old = IDENT("old");
+  auto query =
+      QUERY(MATCH(PATTERN(node)), RETURN(ident_old, as_new, ORDER_BY(by_old)));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `old` and `new`
+  EXPECT_EQ(symbol_table.max_position(), 2);
+  auto old = symbol_table.at(*node->identifier_);
+  EXPECT_EQ(old, symbol_table.at(*ident_old));
+  EXPECT_EQ(old, symbol_table.at(*by_old));
+  auto new_sym = symbol_table.at(*as_new);
+  EXPECT_NE(old, new_sym);
+}
+
+TEST(TestSymbolGenerator, MergeVariableError) {
   // Test MATCH (n) MERGE (n)
   {
     AstTreeStorage storage;
@@ -670,54 +672,56 @@ TEST(TestSymbolGenerator, Merge) {
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
   }
-  // Test MERGE (a) -[r]- (b)
-  {
-    AstTreeStorage storage;
-    auto query = QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b"))));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    // Edge must have a type, since it doesn't we raise.
-    EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
-  }
-  // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
-  //      ON CREATE SET m.prop = 42 RETURN r AS r
-  {
-    Dbms dbms;
-    auto dba = dbms.active();
-    auto rel = dba->edge_type("rel");
-    auto prop = dba->property("prop");
-    AstTreeStorage storage;
-    auto match_n = NODE("n");
-    auto merge_n = NODE("n");
-    auto edge_r = EDGE("r", rel);
-    auto node_m = NODE("m");
-    auto n_prop = PROPERTY_LOOKUP("n", prop);
-    auto m_prop = PROPERTY_LOOKUP("m", prop);
-    auto ident_r = IDENT("r");
-    auto as_r = AS("r");
-    auto query = QUERY(MATCH(PATTERN(match_n)),
-                       MERGE(PATTERN(merge_n, edge_r, node_m),
-                             ON_MATCH(SET(n_prop, LITERAL(42))),
-                             ON_CREATE(SET(m_prop, LITERAL(42)))),
-                       RETURN(ident_r, as_r));
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
-    // Symbols for: `n`, `r`, `m` and `AS r`.
-    EXPECT_EQ(symbol_table.max_position(), 4);
-    auto n = symbol_table.at(*match_n->identifier_);
-    EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
-    EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
-    auto r = symbol_table.at(*edge_r->identifier_);
-    EXPECT_NE(r, n);
-    EXPECT_EQ(r, symbol_table.at(*ident_r));
-    EXPECT_NE(r, symbol_table.at(*as_r));
-    auto m = symbol_table.at(*node_m->identifier_);
-    EXPECT_NE(m, n);
-    EXPECT_NE(m, r);
-    EXPECT_NE(m, symbol_table.at(*as_r));
-    EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
-  }
 }
 
+TEST(TestSymbolGenerator, MergeEdgeWithoutType) {
+  // Test MERGE (a) -[r]- (b)
+  AstTreeStorage storage;
+  auto query = QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  // Edge must have a type, since it doesn't we raise.
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
+
+TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
+  // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
+  //      ON CREATE SET m.prop = 42 RETURN r AS r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto rel = dba->edge_type("rel");
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto match_n = NODE("n");
+  auto merge_n = NODE("n");
+  auto edge_r = EDGE("r", rel);
+  auto node_m = NODE("m");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto ident_r = IDENT("r");
+  auto as_r = AS("r");
+  auto query =
+      QUERY(MATCH(PATTERN(match_n)), MERGE(PATTERN(merge_n, edge_r, node_m),
+                                           ON_MATCH(SET(n_prop, LITERAL(42))),
+                                           ON_CREATE(SET(m_prop, LITERAL(42)))),
+            RETURN(ident_r, as_r));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for: `n`, `r`, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  auto n = symbol_table.at(*match_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  auto r = symbol_table.at(*edge_r->identifier_);
+  EXPECT_NE(r, n);
+  EXPECT_EQ(r, symbol_table.at(*ident_r));
+  EXPECT_NE(r, symbol_table.at(*as_r));
+  auto m = symbol_table.at(*node_m->identifier_);
+  EXPECT_NE(m, n);
+  EXPECT_NE(m, r);
+  EXPECT_NE(m, symbol_table.at(*as_r));
+  EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
+}
+
+}  // namespace
