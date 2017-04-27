@@ -263,6 +263,87 @@ TEST(QueryPlan, Expand) {
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 }
 
+TEST(QueryPlan, ExpandOptional) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // graph (v2 {p: 2})<-[:T]-(v1 {p: 1})-[:T]->(v3 {p: 2})
+  auto prop = dba->property("p");
+  auto edge_type = dba->edge_type("T");
+  auto v1 = dba->insert_vertex();
+  v1.PropsSet(prop, 1);
+  auto v2 = dba->insert_vertex();
+  v2.PropsSet(prop, 2);
+  dba->insert_edge(v1, v2, edge_type);
+  auto v3 = dba->insert_vertex();
+  v3.PropsSet(prop, 2);
+  dba->insert_edge(v1, v3, edge_type);
+  dba->advance_command();
+
+  // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_,
+      "r", EdgeAtom::Direction::RIGHT, false, "m", false);
+  auto optional = std::make_shared<plan::Optional>(n.op_, r_m.op_,
+      std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
+
+  // RETURN n, r, m
+  auto n_ne = NEXPR("n", IDENT("n"));
+  symbol_table[*n_ne->expression_] = n.sym_;
+  symbol_table[*n_ne] = symbol_table.CreateSymbol("n");
+  auto r_ne = NEXPR("r", IDENT("r"));
+  symbol_table[*r_ne->expression_] = r_m.edge_sym_;
+  symbol_table[*r_ne] = symbol_table.CreateSymbol("r");
+  auto m_ne = NEXPR("m", IDENT("m"));
+  symbol_table[*m_ne->expression_] = r_m.node_sym_;
+  symbol_table[*m_ne] = symbol_table.CreateSymbol("m");
+  auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
+
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  ASSERT_EQ(4, results.size());
+  int v1_is_n_count = 0;
+  for (auto &row : results) {
+    ASSERT_EQ(row[0].type(), TypedValue::Type::Vertex);
+    VertexAccessor &va = row[0].Value<VertexAccessor>();
+    auto va_p = va.PropsAt(prop);
+    ASSERT_EQ(va_p.type(), PropertyValue::Type::Int);
+    if (va_p.Value<int64_t>() == 1) {
+      v1_is_n_count++;
+      EXPECT_EQ(row[1].type(), TypedValue::Type::Edge);
+      EXPECT_EQ(row[2].type(), TypedValue::Type::Vertex);
+    } else {
+      EXPECT_EQ(row[1].type(), TypedValue::Type::Null);
+      EXPECT_EQ(row[2].type(), TypedValue::Type::Null);
+    }
+  }
+  EXPECT_EQ(2, v1_is_n_count);
+}
+
+TEST(QueryPlan, OptionalMatchEmptyDB) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // OPTIONAL MATCH (n)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  // RETURN n
+  auto n_ne = NEXPR("n", IDENT("n"));
+  symbol_table[*n_ne->expression_] = n.sym_;
+  symbol_table[*n_ne] = symbol_table.CreateSymbol("n");
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
+      std::vector<Symbol>{n.sym_});
+  auto produce = MakeProduce(optional, n_ne);
+
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  ASSERT_EQ(1, results.size());
+  EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+}
+
 TEST(QueryPlan, ExpandExistingNode) {
   Dbms dbms;
   auto dba = dbms.active();

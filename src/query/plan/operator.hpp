@@ -74,6 +74,7 @@ class Skip;
 class Limit;
 class OrderBy;
 class Merge;
+class Optional;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor =
@@ -82,7 +83,8 @@ using LogicalOperatorVisitor =
                      SetProperty, SetProperties, SetLabels, RemoveProperty,
                      RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
                      ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
-                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy, Merge>;
+                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy, Merge,
+                     Optional>;
 
 /** @brief Base class for logical operators.
  *
@@ -1209,6 +1211,46 @@ class Merge : public LogicalOperator {
     // this is true when:
     //  - first Pulling from this cursor
     //  - previous Pull from this cursor exhausted the merge_match_cursor
+    bool pull_input_{true};
+  };
+};
+
+/**
+ * Optional operator. Used for optional match. For every
+ * successful Pull from the input branch a Pull from the optional
+ * branch is attempted (and Pulled from till exhausted). If zero
+ * Pulls succeed from the optional branch, the Optional operator
+ * sets the optional symbols to TypedValue::Null on the Frame
+ * and returns true, once.
+ */
+class Optional : public LogicalOperator {
+ public:
+  Optional(const std::shared_ptr<LogicalOperator> &input,
+           const std::shared_ptr<LogicalOperator> &optional,
+           const std::vector<Symbol> &optional_symbols);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::shared_ptr<LogicalOperator> optional_;
+  const std::vector<Symbol> optional_symbols_;
+
+  class OptionalCursor : public Cursor {
+   public:
+    OptionalCursor(Optional &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
+   private:
+    const Optional &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
+    const std::unique_ptr<Cursor> optional_cursor_;
+    // indicates if the next Pull from this cursor should
+    // perform a Pull from the input_cursor_
+    // this is true when:
+    //  - first pulling from this Cursor
+    //  - previous Pull from this cursor exhausted the optional_cursor_
     bool pull_input_{true};
   };
 };

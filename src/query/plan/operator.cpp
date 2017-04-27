@@ -1424,40 +1424,37 @@ Merge::MergeCursor::MergeCursor(Merge &self, GraphDbAccessor &db)
       merge_create_cursor_(self.merge_create_->MakeCursor(db)) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
-  // the loop is here to go back to input pull
-  // when the merge_match gets exhausted
-  while (true) {
-    if (pull_input_) {
-      if (input_cursor_->Pull(frame, symbol_table)) {
-        // after a successful input from the input
-        // reset merge_match (it's expand iterators maintain state)
-        // and merge_create (could have a Once at the beginning)
-        merge_match_cursor_->Reset();
-        merge_create_cursor_->Reset();
-      } else
-        // input is exhausted, we're done
-        return false;
-    }
+  if (pull_input_) {
+    if (input_cursor_->Pull(frame, symbol_table)) {
+      // after a successful input from the input
+      // reset merge_match (it's expand iterators maintain state)
+      // and merge_create (could have a Once at the beginning)
+      merge_match_cursor_->Reset();
+      merge_create_cursor_->Reset();
+    } else
+      // input is exhausted, we're done
+      return false;
+  }
 
-    // pull from the merge_match cursor
-    if (merge_match_cursor_->Pull(frame, symbol_table)) {
-      // if successful, next Pull from this should not pull_input_
-      pull_input_ = false;
+  // pull from the merge_match cursor
+  if (merge_match_cursor_->Pull(frame, symbol_table)) {
+    // if successful, next Pull from this should not pull_input_
+    pull_input_ = false;
+    return true;
+  } else {
+    // failed to Pull from the merge_match cursor
+    if (pull_input_) {
+      // if we have just now pulled from the input
+      // and failed to pull from merge_match, we should create
+      bool merge_create_pull_result =
+          merge_create_cursor_->Pull(frame, symbol_table);
+      debug_assert(merge_create_pull_result, "MergeCreate must never fail");
       return true;
-    } else {
-      // failed to Pull from the merge_match cursor
-      if (pull_input_) {
-        // if we have just now pulled from the input
-        // and failed to pull from merge_match, we should create
-        bool merge_create_pull_result =
-            merge_create_cursor_->Pull(frame, symbol_table);
-        debug_assert(merge_create_pull_result, "MergeCreate must never fail");
-        return true;
-      }
-      // we have exhausted merge_match
-      // so we should pull from input on next pull
-      pull_input_ = true;
     }
+    // we have exhausted merge_match_cursor_ after 1 or more successful Pulls
+    // attempt next input_cursor_ pull
+    pull_input_ = true;
+    return Pull(frame, symbol_table);
   }
 }
 
@@ -1465,6 +1462,74 @@ void Merge::MergeCursor::Reset() {
   input_cursor_->Reset();
   merge_match_cursor_->Reset();
   merge_create_cursor_->Reset();
+  pull_input_ = true;
+}
+
+Optional::Optional(const std::shared_ptr<LogicalOperator> &input,
+                   const std::shared_ptr<LogicalOperator> &optional,
+                   const std::vector<Symbol> &optional_symbols)
+    : input_(input ? input : std::make_shared<Once>()),
+      optional_(optional),
+      optional_symbols_(optional_symbols) {}
+
+void Optional::Accept(LogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    visitor.Visit(*this);
+    input_->Accept(visitor);
+    optional_->Accept(visitor);
+    visitor.PostVisit(*this);
+  }
+}
+
+std::unique_ptr<Cursor> Optional::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<OptionalCursor>(*this, db);
+}
+
+Optional::OptionalCursor::OptionalCursor(Optional &self, GraphDbAccessor &db)
+    : self_(self),
+      input_cursor_(self.input_->MakeCursor(db)),
+      optional_cursor_(self.optional_->MakeCursor(db)) {}
+
+bool Optional::OptionalCursor::Pull(Frame &frame,
+                                    const SymbolTable &symbol_table) {
+  if (pull_input_) {
+    if (input_cursor_->Pull(frame, symbol_table)) {
+      // after a successful input from the input
+      // reset optional_ (it's expand iterators maintain state)
+      optional_cursor_->Reset();
+    } else
+      // input is exhausted, we're done
+      return false;
+  }
+
+  // pull from the optional_ cursor
+  if (optional_cursor_->Pull(frame, symbol_table)) {
+    // if successful, next Pull from this should not pull_input_
+    pull_input_ = false;
+    return true;
+  } else {
+    // failed to Pull from the merge_match cursor
+    if (pull_input_) {
+      // if we have just now pulled from the input
+      // and failed to pull from optional_ so set the
+      // optional symbols to Null, ensure next time the
+      // input gets pulled and return true
+      for (const Symbol &sym : self_.optional_symbols_)
+        frame[sym] = TypedValue::Null;
+      pull_input_ = true;
+      return true;
+    }
+    // we have exhausted optional_cursor_ after 1 or more successful Pulls
+    // attempt next input_cursor_ pull
+    pull_input_ = true;
+    return Pull(frame, symbol_table);
+  }
+}
+
+void Optional::OptionalCursor::Reset() {
+  input_cursor_->Reset();
+  optional_cursor_->Reset();
+  pull_input_ = true;
 }
 
 }  // namespace query::plan
