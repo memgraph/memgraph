@@ -273,6 +273,14 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(
   return map;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListLiteral(
+    CypherParser::ListLiteralContext *ctx) {
+  std::vector<Expression *> expressions;
+  for (auto expr_ctx_ptr : ctx->expression())
+    expressions.push_back(expr_ctx_ptr->accept(this));
+  return expressions;
+}
+
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
     CypherParser::PropertyKeyNameContext *ctx) {
   return ctx_.db_accessor_.property(visitChildren(ctx));
@@ -606,7 +614,8 @@ antlrcpp::Any CypherMainVisitor::visitExpression2(
 
 antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   if (ctx->literal()) {
-    return static_cast<Expression *>(visitChildren(ctx).as<Literal *>());
+    return static_cast<Expression *>(
+        ctx->literal()->accept(this).as<BaseLiteral *>());
   } else if (ctx->parameter()) {
     // TODO: implement other clauses.
     throw utils::NotYetImplemented();
@@ -628,18 +637,22 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
 antlrcpp::Any CypherMainVisitor::visitLiteral(
     CypherParser::LiteralContext *ctx) {
   if (ctx->CYPHERNULL()) {
-    return storage_.Create<Literal>(TypedValue::Null);
+    return static_cast<BaseLiteral *>(
+        storage_.Create<PrimitiveLiteral>(TypedValue::Null));
   } else if (ctx->StringLiteral()) {
-    return storage_.Create<Literal>(
-        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>());
+    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
+        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>()));
   } else if (ctx->booleanLiteral()) {
-    return storage_.Create<Literal>(
-        ctx->booleanLiteral()->accept(this).as<bool>());
+    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
+        ctx->booleanLiteral()->accept(this).as<bool>()));
   } else if (ctx->numberLiteral()) {
-    return storage_.Create<Literal>(
-        ctx->numberLiteral()->accept(this).as<TypedValue>());
+    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
+        ctx->numberLiteral()->accept(this).as<TypedValue>()));
+  } else if (ctx->listLiteral()) {
+    return static_cast<BaseLiteral *>(storage_.Create<ListLiteral>(
+        ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
   } else {
-    // TODO: Implement map and list literals.
+    // TODO: Implement map literal.
     throw utils::NotYetImplemented();
   }
   return visitChildren(ctx);

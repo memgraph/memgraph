@@ -356,7 +356,7 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
   query::test_common::GetWithPatterns(storage.Create<query::Create>(), \
                                       {__VA_ARGS__})
 #define IDENT(name) storage.Create<query::Identifier>((name))
-#define LITERAL(val) storage.Create<query::Literal>((val))
+#define LITERAL(val) storage.Create<query::PrimitiveLiteral>((val))
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))

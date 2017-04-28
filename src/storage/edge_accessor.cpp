@@ -22,11 +22,8 @@ bool EdgeAccessor::is_cycle() const {
 std::ostream &operator<<(std::ostream &os, const EdgeAccessor &ea) {
   os << "E[" << ea.db_accessor().edge_type_name(ea.edge_type());
   os << " {";
-  auto prop_to_string = [&](const auto kv) {
-    std::stringstream ss;
-    ss << ea.db_accessor().property_name(kv.first) << ": " << kv.second;
-    return ss.str();
-  };
-  PrintIterable(os, ea.Properties(), ", ", prop_to_string);
+  PrintIterable(os, ea.Properties(), ", ", [&](auto &stream, const auto &pair) {
+    stream << ea.db_accessor().property_name(pair.first) << ": " << pair.second;
+  });
   return os << "}]";
 }

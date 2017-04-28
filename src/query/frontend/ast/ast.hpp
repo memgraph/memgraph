@@ -361,7 +361,14 @@ class IsNullOperator : public UnaryOperator {
   using UnaryOperator::UnaryOperator;
 };
 
-class Literal : public Expression {
+class BaseLiteral : public Expression {
+  friend class AstTreeStorage;
+
+ protected:
+  BaseLiteral(int uid) : Expression(uid) {}
+};
+
+class PrimitiveLiteral : public BaseLiteral {
   friend class AstTreeStorage;
 
  public:
@@ -369,9 +376,29 @@ class Literal : public Expression {
   DEFVISITABLE(TreeVisitorBase);
 
  protected:
-  Literal(int uid) : Expression(uid) {}
+  PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
   template <typename T>
-  Literal(int uid, T value) : Expression(uid), value_(value) {}
+  PrimitiveLiteral(int uid, T value) : BaseLiteral(uid), value_(value) {}
+};
+
+class ListLiteral : public BaseLiteral {
+  friend class AstTreeStorage;
+
+ public:
+  const std::vector<Expression *> elements_;
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      for (auto expr_ptr : elements_)
+        expr_ptr->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+ protected:
+  ListLiteral(int uid) : BaseLiteral(uid) {}
+  ListLiteral(int uid, const std::vector<Expression *> &elements)
+      : BaseLiteral(uid), elements_(elements) {}
 };
 
 class Identifier : public Expression {

@@ -256,7 +256,9 @@ class ReturnBodyContext : public TreeVisitorBase {
   using TreeVisitorBase::Visit;
   using TreeVisitorBase::PostVisit;
 
-  void Visit(Literal &) override { has_aggregation_.emplace_back(false); }
+  void Visit(PrimitiveLiteral &) override { has_aggregation_.emplace_back(false); }
+
+  void Visit(ListLiteral &) override { has_aggregation_.emplace_back(false); }
 
   void Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);

@@ -31,19 +31,33 @@ ForwardIt action_remove_if(ForwardIt first, ForwardIt last, UnaryPredicate p,
  * @param stream Destination stream.
  * @param iterable An iterable collection of items.
  * @param delim Delimiter that is put between items.
- * @param converter Function which converts an item to a type which supports
- *        @c operator<<.
+ * @param streamer Function which accepts a TStream and an item and
+ *  streams the item to the stream.
  */
-template <typename TStream, typename TIterable, typename TConverter>
+template <typename TStream, typename TIterable, typename TStreamer>
 void PrintIterable(TStream &stream, const TIterable &iterable,
-                   const std::string &delim = ", ", TConverter converter = {}) {
+                   const std::string &delim = ", ", TStreamer streamer = {}) {
   bool first = true;
   for (const auto &item : iterable) {
     if (first)
       first = false;
     else
       stream << delim;
-    stream << converter(item);
+    streamer(stream, item);
   }
 }
 
+/**
+ * Outputs a collection of items to the given stream, separating them with the
+ * given delimiter.
+ *
+ * @param stream Destination stream.
+ * @param iterable An iterable collection of items.
+ * @param delim Delimiter that is put between items.
+ */
+template <typename TStream, typename TIterable>
+void PrintIterable(TStream &stream, const TIterable &iterable,
+                   const std::string &delim = ", ") {
+  PrintIterable(stream, iterable, delim,
+                [](auto &stream, const auto &item) { stream << item; });
+}

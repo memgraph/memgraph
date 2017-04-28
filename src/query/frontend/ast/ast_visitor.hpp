@@ -18,7 +18,8 @@ class With;
 class Pattern;
 class NodeAtom;
 class EdgeAtom;
-class Literal;
+class PrimitiveLiteral;
+class ListLiteral;
 class OrOperator;
 class XorOperator;
 class AndOperator;
@@ -51,8 +52,8 @@ using TreeVisitorBase = ::utils::Visitor<
     AdditionOperator, SubtractionOperator, MultiplicationOperator,
     DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier, Literal,
-    PropertyLookup, Aggregation, Function, Create, Match, Return, With, Pattern,
-    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge>;
+    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier,
+    PrimitiveLiteral, ListLiteral, PropertyLookup, Aggregation, Function,
+    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge>;
 }

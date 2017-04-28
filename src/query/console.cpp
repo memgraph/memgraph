@@ -8,6 +8,7 @@
 #include <iostream>
 #include <iterator>
 #include <sstream>
+#include <vector>
 
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -55,16 +56,7 @@ std::string ReadLine(const char *prompt) {
  */
 std::string TypedValueToString(const query::TypedValue &value) {
   std::stringstream ss;
-  switch (value.type()) {
-    case query::TypedValue::Type::List:
-      break;
-    case query::TypedValue::Type::Map:
-      break;
-    case query::TypedValue::Type::Path:
-      break;
-    default:
-      ss << value;
-  }
+  ss << value;
   return ss.str();
 }
 
@@ -121,9 +113,10 @@ void PrintResults(ResultStreamFaker results) {
 
   // output the summary
   std::cout << "Query summary: {";
-  PrintIterable(std::cout, results.GetSummary(), ", ", [&](const auto kv) {
-    return kv.first + ": " + TypedValueToString(kv.second);
-  });
+  PrintIterable(std::cout, results.GetSummary(), ", ",
+                [&](auto &stream, const auto &kv) {
+                  stream << kv.first << ": " << kv.second;
+                });
   std::cout << "}" << std::endl;
 }
 

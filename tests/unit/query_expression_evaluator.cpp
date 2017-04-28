@@ -37,7 +37,7 @@ TypedValue EvaluateFunction(const std::string &function_name,
 
   std::vector<Expression *> expressions;
   for (const auto &arg : args) {
-    expressions.push_back(storage.Create<Literal>(arg));
+    expressions.push_back(storage.Create<PrimitiveLiteral>(arg));
   }
   auto *op =
       storage.Create<Function>(NameToFunction(function_name), expressions);
@@ -48,12 +48,13 @@ TypedValue EvaluateFunction(const std::string &function_name,
 TEST(ExpressionEvaluator, OrOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<OrOperator>(storage.Create<Literal>(true),
-                                        storage.Create<Literal>(false));
+  auto *op =
+      storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true),
+                                 storage.Create<PrimitiveLiteral>(false));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<OrOperator>(storage.Create<Literal>(true),
-                                  storage.Create<Literal>(true));
+  op = storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true),
+                                  storage.Create<PrimitiveLiteral>(true));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
@@ -61,12 +62,13 @@ TEST(ExpressionEvaluator, OrOperator) {
 TEST(ExpressionEvaluator, XorOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<XorOperator>(storage.Create<Literal>(true),
-                                         storage.Create<Literal>(false));
+  auto *op =
+      storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true),
+                                  storage.Create<PrimitiveLiteral>(false));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<XorOperator>(storage.Create<Literal>(true),
-                                   storage.Create<Literal>(true));
+  op = storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true),
+                                   storage.Create<PrimitiveLiteral>(true));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
@@ -74,12 +76,13 @@ TEST(ExpressionEvaluator, XorOperator) {
 TEST(ExpressionEvaluator, AndOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<AndOperator>(storage.Create<Literal>(true),
-                                         storage.Create<Literal>(true));
+  auto *op =
+      storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(true),
+                                  storage.Create<PrimitiveLiteral>(true));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<AndOperator>(storage.Create<Literal>(false),
-                                   storage.Create<Literal>(true));
+  op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false),
+                                   storage.Create<PrimitiveLiteral>(true));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
@@ -87,8 +90,8 @@ TEST(ExpressionEvaluator, AndOperator) {
 TEST(ExpressionEvaluator, AdditionOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<AdditionOperator>(storage.Create<Literal>(2),
-                                              storage.Create<Literal>(3));
+  auto *op = storage.Create<AdditionOperator>(
+      storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
 }
@@ -96,8 +99,8 @@ TEST(ExpressionEvaluator, AdditionOperator) {
 TEST(ExpressionEvaluator, SubtractionOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<SubtractionOperator>(storage.Create<Literal>(2),
-                                                 storage.Create<Literal>(3));
+  auto *op = storage.Create<SubtractionOperator>(
+      storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -1);
 }
@@ -105,8 +108,8 @@ TEST(ExpressionEvaluator, SubtractionOperator) {
 TEST(ExpressionEvaluator, MultiplicationOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<MultiplicationOperator>(storage.Create<Literal>(2),
-                                                    storage.Create<Literal>(3));
+  auto *op = storage.Create<MultiplicationOperator>(
+      storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 6);
 }
@@ -114,8 +117,9 @@ TEST(ExpressionEvaluator, MultiplicationOperator) {
 TEST(ExpressionEvaluator, DivisionOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<DivisionOperator>(storage.Create<Literal>(50),
-                                              storage.Create<Literal>(10));
+  auto *op =
+      storage.Create<DivisionOperator>(storage.Create<PrimitiveLiteral>(50),
+                                       storage.Create<PrimitiveLiteral>(10));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
 }
@@ -123,8 +127,8 @@ TEST(ExpressionEvaluator, DivisionOperator) {
 TEST(ExpressionEvaluator, ModOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<ModOperator>(storage.Create<Literal>(65),
-                                         storage.Create<Literal>(10));
+  auto *op = storage.Create<ModOperator>(storage.Create<PrimitiveLiteral>(65),
+                                         storage.Create<PrimitiveLiteral>(10));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
 }
@@ -132,16 +136,17 @@ TEST(ExpressionEvaluator, ModOperator) {
 TEST(ExpressionEvaluator, EqualOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<EqualOperator>(storage.Create<Literal>(10),
-                                           storage.Create<Literal>(15));
+  auto *op =
+      storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(10),
+                                    storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<EqualOperator>(storage.Create<Literal>(15),
-                                     storage.Create<Literal>(15));
+  op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(15),
+                                     storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<EqualOperator>(storage.Create<Literal>(20),
-                                     storage.Create<Literal>(15));
+  op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(20),
+                                     storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
@@ -149,16 +154,17 @@ TEST(ExpressionEvaluator, EqualOperator) {
 TEST(ExpressionEvaluator, NotEqualOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<NotEqualOperator>(storage.Create<Literal>(10),
-                                              storage.Create<Literal>(15));
+  auto *op =
+      storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(10),
+                                       storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<NotEqualOperator>(storage.Create<Literal>(15),
-                                        storage.Create<Literal>(15));
+  op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(15),
+                                        storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<NotEqualOperator>(storage.Create<Literal>(20),
-                                        storage.Create<Literal>(15));
+  op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(20),
+                                        storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
@@ -166,16 +172,16 @@ TEST(ExpressionEvaluator, NotEqualOperator) {
 TEST(ExpressionEvaluator, LessOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<LessOperator>(storage.Create<Literal>(10),
-                                          storage.Create<Literal>(15));
+  auto *op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(10),
+                                          storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessOperator>(storage.Create<Literal>(15),
-                                    storage.Create<Literal>(15));
+  op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(15),
+                                    storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<LessOperator>(storage.Create<Literal>(20),
-                                    storage.Create<Literal>(15));
+  op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(20),
+                                    storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
@@ -183,16 +189,17 @@ TEST(ExpressionEvaluator, LessOperator) {
 TEST(ExpressionEvaluator, GreaterOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<GreaterOperator>(storage.Create<Literal>(10),
-                                             storage.Create<Literal>(15));
+  auto *op =
+      storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(10),
+                                      storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterOperator>(storage.Create<Literal>(15),
-                                       storage.Create<Literal>(15));
+  op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(15),
+                                       storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterOperator>(storage.Create<Literal>(20),
-                                       storage.Create<Literal>(15));
+  op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(20),
+                                       storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
@@ -200,16 +207,17 @@ TEST(ExpressionEvaluator, GreaterOperator) {
 TEST(ExpressionEvaluator, LessEqualOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<LessEqualOperator>(storage.Create<Literal>(10),
-                                               storage.Create<Literal>(15));
+  auto *op =
+      storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(10),
+                                        storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessEqualOperator>(storage.Create<Literal>(15),
-                                         storage.Create<Literal>(15));
+  op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(15),
+                                         storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<LessEqualOperator>(storage.Create<Literal>(20),
-                                         storage.Create<Literal>(15));
+  op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(20),
+                                         storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
@@ -217,16 +225,19 @@ TEST(ExpressionEvaluator, LessEqualOperator) {
 TEST(ExpressionEvaluator, GreaterEqualOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(10),
-                                                  storage.Create<Literal>(15));
+  auto *op = storage.Create<GreaterEqualOperator>(
+      storage.Create<PrimitiveLiteral>(10),
+      storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(15),
-                                            storage.Create<Literal>(15));
+  op = storage.Create<GreaterEqualOperator>(
+      storage.Create<PrimitiveLiteral>(15),
+      storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
-  op = storage.Create<GreaterEqualOperator>(storage.Create<Literal>(20),
-                                            storage.Create<Literal>(15));
+  op = storage.Create<GreaterEqualOperator>(
+      storage.Create<PrimitiveLiteral>(20),
+      storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
@@ -234,7 +245,8 @@ TEST(ExpressionEvaluator, GreaterEqualOperator) {
 TEST(ExpressionEvaluator, NotOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<NotOperator>(storage.Create<Literal>(false));
+  auto *op =
+      storage.Create<NotOperator>(storage.Create<PrimitiveLiteral>(false));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
@@ -242,7 +254,8 @@ TEST(ExpressionEvaluator, NotOperator) {
 TEST(ExpressionEvaluator, UnaryPlusOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<UnaryPlusOperator>(storage.Create<Literal>(5));
+  auto *op =
+      storage.Create<UnaryPlusOperator>(storage.Create<PrimitiveLiteral>(5));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), 5);
 }
@@ -250,7 +263,8 @@ TEST(ExpressionEvaluator, UnaryPlusOperator) {
 TEST(ExpressionEvaluator, UnaryMinusOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<UnaryMinusOperator>(storage.Create<Literal>(5));
+  auto *op =
+      storage.Create<UnaryMinusOperator>(storage.Create<PrimitiveLiteral>(5));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<int64_t>(), -5);
 }
@@ -258,18 +272,19 @@ TEST(ExpressionEvaluator, UnaryMinusOperator) {
 TEST(ExpressionEvaluator, IsNullOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  auto *op = storage.Create<IsNullOperator>(storage.Create<Literal>(1));
+  auto *op =
+      storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(1));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
-  op =
-      storage.Create<IsNullOperator>(storage.Create<Literal>(TypedValue::Null));
+  op = storage.Create<IsNullOperator>(
+      storage.Create<PrimitiveLiteral>(TypedValue::Null));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
 
 TEST(ExpressionEvaluator, Aggregation) {
   AstTreeStorage storage;
-  auto aggr = storage.Create<Aggregation>(storage.Create<Literal>(42),
+  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           Aggregation::Op::COUNT);
   SymbolTable symbol_table;
   auto aggr_sym = symbol_table.CreateSymbol("aggr");
@@ -281,6 +296,23 @@ TEST(ExpressionEvaluator, Aggregation) {
   ExpressionEvaluator eval{frame, symbol_table, *dba};
   aggr->Accept(eval);
   EXPECT_EQ(eval.PopBack().Value<int64_t>(), 1);
+}
+
+TEST(ExpressionEvaluator, ListLiteral) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *list_literal = storage.Create<ListLiteral>(
+      std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1),
+                                storage.Create<PrimitiveLiteral>("bla"),
+                                storage.Create<PrimitiveLiteral>(true)});
+  list_literal->Accept(eval.eval);
+  TypedValue result = eval.eval.PopBack();
+  ASSERT_EQ(result.type(), TypedValue::Type::List);
+  auto &result_elems = result.Value<std::vector<TypedValue>>();
+  ASSERT_EQ(3, result_elems.size());
+  EXPECT_EQ(result_elems[0].type(), TypedValue::Type::Int);
+  EXPECT_EQ(result_elems[1].type(), TypedValue::Type::String);
+  EXPECT_EQ(result_elems[2].type(), TypedValue::Type::Bool);
 }
 
 TEST(ExpressionEvaluator, FunctionCoalesce) {

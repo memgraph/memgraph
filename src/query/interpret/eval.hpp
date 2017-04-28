@@ -2,6 +2,7 @@
 
 #include <map>
 #include <vector>
+#include <algorithm>
 
 #include "database/graph_db_accessor.hpp"
 #include "query/common.hpp"
@@ -117,10 +118,19 @@ class ExpressionEvaluator : public TreeVisitorBase {
     }
   }
 
-  void Visit(Literal &literal) override {
+  void Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
     result_stack_.push_back(literal.value_);
+  }
+
+  void PostVisit(ListLiteral &literal) override {
+    std::vector<TypedValue> result;
+    result.reserve(literal.elements_.size());
+    for (size_t i = 0 ; i < literal.elements_.size() ; i++)
+      result.emplace_back(PopBack());
+    std::reverse(result.begin(), result.end());
+    result_stack_.emplace_back(std::move(result));
   }
 
   bool PreVisit(Aggregation &aggregation) override {

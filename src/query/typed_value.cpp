@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 
+#include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -295,15 +296,14 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
       return os << value.Value<std::string>();
     case TypedValue::Type::List:
       os << "[";
-      for (const auto &x : value.Value<std::vector<TypedValue>>()) {
-        os << x << ",";
-      }
+      PrintIterable(os, value.Value<std::vector<TypedValue>>());
       return os << "]";
     case TypedValue::Type::Map:
       os << "{";
-      for (const auto &x : value.Value<std::map<std::string, TypedValue>>()) {
-        os << x.first << ": " << x.second << ",";
-      }
+      PrintIterable(os, value.Value<std::map<std::string, TypedValue>>(), ", ",
+                    [](auto &stream, const auto &pair) {
+                      stream << pair.first << ": " << pair.second;
+                    });
       return os << "}";
     case TypedValue::Type::Vertex:
       return os << value.Value<VertexAccessor>();
@@ -707,8 +707,7 @@ TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
   // if either operand is false, the result is false
   if (a.type() == TypedValue::Type::Bool && !a.Value<bool>()) return false;
   if (b.type() == TypedValue::Type::Bool && !b.Value<bool>()) return false;
-  if (a.IsNull() || b.IsNull())
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
   // neither is false, neither is null, thus both are true
   return true;
 }
@@ -719,21 +718,18 @@ TypedValue operator||(const TypedValue &a, const TypedValue &b) {
   // if either operand is true, the result is true
   if (a.type() == TypedValue::Type::Bool && a.Value<bool>()) return true;
   if (b.type() == TypedValue::Type::Bool && b.Value<bool>()) return true;
-  if (a.IsNull() || b.IsNull())
-    return TypedValue::Null;
+  if (a.IsNull() || b.IsNull()) return TypedValue::Null;
   // neither is true, neither is null, thus both are false
   return false;
 }
 
 TypedValue operator^(const TypedValue &a, const TypedValue &b) {
-  EnsureLogicallyOk(a,b, "logical XOR");
+  EnsureLogicallyOk(a, b, "logical XOR");
   // at this point we only have null and bool
-    if (a.IsNull() ||
-        b.IsNull())
-      return TypedValue::Null;
-     else
-      return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
-
+  if (a.IsNull() || b.IsNull())
+    return TypedValue::Null;
+  else
+    return static_cast<bool>(a.Value<bool>() ^ b.Value<bool>());
 }
 
 bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,

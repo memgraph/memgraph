@@ -206,6 +206,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitMapLiteral(CypherParser::MapLiteralContext *ctx) override;
 
   /**
+   * @return vector<Expression*>
+   */
+  antlrcpp::Any visitListLiteral(CypherParser::ListLiteralContext *ctx) override;
+
+  /**
    * @return GraphDbTypes::Property
    */
   antlrcpp::Any visitPropertyKeyName(
@@ -393,7 +398,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::FunctionNameContext *ctx) override;
 
   /**
-   * @return Literal*
+   * @return BaseLiteral*
    */
   antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override;
 
