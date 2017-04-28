@@ -96,6 +96,9 @@ class ExpressionEvaluator : public TreeVisitorBase {
   void PostVisit(PropertyLookup &property_lookup) override {
     auto expression_result = PopBack();
     switch (expression_result.type()) {
+      case TypedValue::Type::Null:
+        result_stack_.emplace_back(TypedValue::Null);
+        break;
       case TypedValue::Type::Vertex:
         result_stack_.emplace_back(
             expression_result.Value<VertexAccessor>().PropsAt(
