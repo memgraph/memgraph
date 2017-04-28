@@ -23,7 +23,7 @@ TEST(MVCC, Case1Test3) {
   auto t4 = engine.begin();
   version_list.update(*t4);
   t4->commit();
-  EXPECT_THROW(version_list.remove(*t3), SerializationError);
+  EXPECT_THROW(version_list.remove(*t3), mvcc::SerializationError);
 }
 
 TEST(MVCC, InSnapshotSerializationError) {
@@ -37,7 +37,7 @@ TEST(MVCC, InSnapshotSerializationError) {
   auto t3 = engine.begin();  // t2 is in snapshot of t3
   t2->commit();
 
-  EXPECT_THROW(version_list.update(*t3), SerializationError);
+  EXPECT_THROW(version_list.update(*t3), mvcc::SerializationError);
 }
 
 // Check that we don't delete records when we re-link.

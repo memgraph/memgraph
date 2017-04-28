@@ -5,7 +5,7 @@
 #include <chrono>
 #include <stdexcept>
 
-#include "lock_timeout_exception.hpp"
+#include "threading/sync/lock_timeout_exception.hpp"
 
 template <size_t microseconds = 250>
 class TimedSpinLock {

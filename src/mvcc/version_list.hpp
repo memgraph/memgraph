@@ -2,15 +2,24 @@
 
 #include <shared_mutex>
 
+#include "memory/lazy_gc.hpp"
+#include "storage/locking/record_lock.hpp"
 #include "threading/sync/lockable.hpp"
 #include "transactions/transaction.hpp"
-
-#include "memory/lazy_gc.hpp"
-#include "mvcc/serialization_error.hpp"
-#include "storage/locking/record_lock.hpp"
 #include "utils/assert.hpp"
+#include "utils/exceptions.hpp"
 
 namespace mvcc {
+
+class SerializationError : public utils::BasicException {
+  static constexpr const char* default_message =
+      "Can't serialize due to\
+        concurrent operation(s)";
+
+ public:
+  using utils::BasicException::BasicException;
+  SerializationError() : BasicException(default_message) {}
+};
 
 template <class T>
 class VersionList {

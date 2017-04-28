@@ -10,13 +10,13 @@
 #include "transactions/transaction.hpp"
 #include "transactions/transaction_store.hpp"
 #include "utils/counters/simple_counter.hpp"
-#include "utils/exceptions/basic_exception.hpp"
+#include "utils/exceptions.hpp"
 
 namespace tx {
 
-class TransactionError : public BasicException {
+class TransactionError : public utils::BasicException {
  public:
-  using BasicException::BasicException;
+  using utils::BasicException::BasicException;
 };
 
 // max value that could be stored as a command id

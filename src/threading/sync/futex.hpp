@@ -8,7 +8,8 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "lock_timeout_error.hpp"
+
+#include "threading/sync/lock_timeout_exception.hpp"
 #include "utils/cpu_relax.hpp"
 
 namespace sys {
@@ -90,7 +91,7 @@ class Futex {
 
       // check if we woke up because of a timeout
       if (status == -1 && errno == ETIMEDOUT)
-        throw LockTimeoutError("Lock timeout");
+        throw LockTimeoutException("Lock timeout");
     }
   }
 
