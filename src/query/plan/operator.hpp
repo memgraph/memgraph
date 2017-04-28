@@ -75,16 +75,15 @@ class Limit;
 class OrderBy;
 class Merge;
 class Optional;
+class Unwind;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
-using LogicalOperatorVisitor =
-    ::utils::Visitor<Once, CreateNode, CreateExpand, ScanAll, Expand,
-                     NodeFilter, EdgeFilter, Filter, Produce, Delete,
-                     SetProperty, SetProperties, SetLabels, RemoveProperty,
-                     RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
-                     ExpandUniquenessFilter<EdgeAccessor>, Accumulate,
-                     AdvanceCommand, Aggregate, Skip, Limit, OrderBy, Merge,
-                     Optional>;
+using LogicalOperatorVisitor = ::utils::Visitor<
+    Once, CreateNode, CreateExpand, ScanAll, Expand, NodeFilter, EdgeFilter,
+    Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
+    ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
+    Skip, Limit, OrderBy, Merge, Optional, Unwind>;
 
 /** @brief Base class for logical operators.
  *
@@ -1256,6 +1255,41 @@ class Optional : public LogicalOperator {
     //  - first pulling from this Cursor
     //  - previous Pull from this cursor exhausted the optional_cursor_
     bool pull_input_{true};
+  };
+};
+
+/**
+ * Takes a list TypedValue as it's input and yields each
+ * element as it's output.
+ *
+ * Input is optional (unwind can be the first clause in a query).
+ */
+class Unwind : public LogicalOperator {
+ public:
+  Unwind(const std::shared_ptr<LogicalOperator> &input,
+         Expression *input_expression_, Symbol output_symbol);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  Expression *input_expression_;
+  const Symbol output_symbol_;
+
+  class UnwindCursor : public Cursor {
+   public:
+    UnwindCursor(Unwind &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
+   private:
+    const Unwind &self_;
+    GraphDbAccessor &db_;
+    const std::unique_ptr<Cursor> input_cursor_;
+    // typed values we are unwinding and yielding
+    std::vector<TypedValue> input_value_;
+    // current position in input_value_
+    std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
   };
 };
 

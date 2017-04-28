@@ -305,8 +305,7 @@ TEST(QueryPlan, AggregateNoInput) {
   symbol_table[*output->expression_] = symbol_table.CreateSymbol("two");
 
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
-                                        {Aggregation::Op::COUNT},
-                                        {}, {});
+                                        {Aggregation::Op::COUNT}, {}, {});
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
@@ -412,8 +411,10 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   aggregate(n_prop_string, Aggregation::Op::COUNT);
   aggregate(n_prop_string, Aggregation::Op::MIN);
   aggregate(n_prop_string, Aggregation::Op::MAX);
-  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::AVG), TypedValueException);
-  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::SUM), TypedValueException);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::AVG),
+               TypedValueException);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::SUM),
+               TypedValueException);
 
   // on ints nothing fails
   aggregate(n_prop_int, Aggregation::Op::COUNT);
@@ -475,4 +476,46 @@ TEST(QueryPlan, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), TypedValueException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), TypedValueException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), TypedValueException);
+}
+
+TEST(QueryPlan, Unwind) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
+  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<TypedValue>{
+      std::vector<TypedValue>{1, true, "x"}, std::vector<TypedValue>{},
+      std::vector<TypedValue>{"bla"}});
+
+  auto x = symbol_table.CreateSymbol("x");
+  auto unwind_0 = std::make_shared<Unwind>(nullptr, input_expr, x);
+  auto x_expr = IDENT("x");
+  symbol_table[*x_expr] = x;
+  auto y = symbol_table.CreateSymbol("y");
+  auto unwind_1 = std::make_shared<Unwind>(unwind_0, x_expr, y);
+
+  auto x_ne = NEXPR("x", x_expr);
+  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne");
+  auto y_ne = NEXPR("y", IDENT("y"));
+  symbol_table[*y_ne->expression_] = y;
+  symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne");
+  auto produce = MakeProduce(unwind_1, x_ne, y_ne);
+
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  ASSERT_EQ(4, results.size());
+  const std::vector<int> expected_x_card{3, 3, 3, 1};
+  auto expected_x_card_it = expected_x_card.begin();
+  const std::vector<TypedValue> expected_y{1, true, "x", "bla"};
+  auto expected_y_it = expected_y.begin();
+  for (const auto &row : results) {
+    ASSERT_EQ(2, row.size());
+    ASSERT_EQ(row[0].type(), TypedValue::Type::List);
+    EXPECT_EQ(row[0].Value<std::vector<TypedValue>>().size(),
+              *expected_x_card_it);
+    EXPECT_EQ(row[1].type(), expected_y_it->type());
+    expected_x_card_it++;
+    expected_y_it++;
+  }
 }

@@ -1537,4 +1537,48 @@ void Optional::OptionalCursor::Reset() {
   pull_input_ = true;
 }
 
+Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input,
+               Expression *input_expression, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_expression_(input_expression),
+      output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Unwind)
+
+std::unique_ptr<Cursor> Unwind::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<UnwindCursor>(*this, db);
+}
+
+Unwind::UnwindCursor::UnwindCursor(Unwind &self, GraphDbAccessor &db)
+    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+
+bool Unwind::UnwindCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+  // if we reached the end of our list of values
+  // pull from the input
+  if (input_value_it_ == input_value_.end()) {
+    if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+    // successful pull from input, initialize value and iterator
+    ExpressionEvaluator evaluator(frame, symbol_table, db_);
+    self_.input_expression_->Accept(evaluator);
+    TypedValue input_value = evaluator.PopBack();
+    if (input_value.type() != TypedValue::Type::List)
+      throw QueryRuntimeException("UNWIND only accepts list values");
+    input_value_ = input_value.Value<std::vector<TypedValue>>();
+    input_value_it_ = input_value_.begin();
+  }
+
+  // if we reached the end of our list of values goto back to top
+  if (input_value_it_ == input_value_.end()) return Pull(frame, symbol_table);
+
+  frame[self_.output_symbol_] = *input_value_it_++;
+  return true;
+}
+
+void Unwind::UnwindCursor::Reset() {
+  input_cursor_->Reset();
+  input_value_.clear();
+  input_value_it_ = input_value_.end();
+}
+
 }  // namespace query::plan
