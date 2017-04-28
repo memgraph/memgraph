@@ -363,7 +363,9 @@ bool Expand::ExpandCursor::HandleExistingNode(const VertexAccessor new_node,
 
 NodeFilter::NodeFilter(const std::shared_ptr<LogicalOperator> &input,
                        Symbol input_symbol, const NodeAtom *node_atom)
-    : input_(input), input_symbol_(input_symbol), node_atom_(node_atom) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      node_atom_(node_atom) {}
 
 ACCEPT_WITH_INPUT(NodeFilter)
 
@@ -410,7 +412,9 @@ bool NodeFilter::NodeFilterCursor::VertexPasses(
 
 EdgeFilter::EdgeFilter(const std::shared_ptr<LogicalOperator> &input,
                        Symbol input_symbol, const EdgeAtom *edge_atom)
-    : input_(input), input_symbol_(input_symbol), edge_atom_(edge_atom) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      edge_atom_(edge_atom) {}
 
 ACCEPT_WITH_INPUT(EdgeFilter)
 
@@ -458,9 +462,10 @@ bool EdgeFilter::EdgeFilterCursor::EdgePasses(const EdgeAccessor &edge,
   return true;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input_,
-               Expression *expression_)
-    : input_(input_), expression_(expression_) {}
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()),
+      expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Filter)
 

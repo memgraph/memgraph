@@ -67,6 +67,11 @@ class PlanChecker : public LogicalOperatorVisitor {
     op.input()->Accept(*this);
     return false;
   }
+  bool PreVisit(Optional &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -170,6 +175,20 @@ class ExpectMerge : public OpChecker<Merge> {
  private:
   const std::list<BaseOpChecker *> &on_match_;
   const std::list<BaseOpChecker *> &on_create_;
+};
+
+class ExpectOptional : public OpChecker<Optional> {
+ public:
+  ExpectOptional(const std::list<BaseOpChecker *> &optional)
+      : optional_(optional) {}
+
+  void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
+    PlanChecker check_optional(optional_, symbol_table);
+    optional.optional()->Accept(check_optional);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &optional_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -383,13 +402,24 @@ TEST(TestLogicalPlanner, MultiMatchSameStart) {
   CheckPlan(*query, ExpectScanAll(), ExpectExpand());
 }
 
-TEST(TestLogicalPlanner, MatchEdgeCycle) {
+TEST(TestLogicalPlanner, MatchExistingEdge) {
   // Test MATCH (n) -[r]- (m) -[r]- (j)
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("r"), NODE("j"))));
   // There is no ExpandUniquenessFilter for referencing the same edge.
   CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectExpand());
+}
+
+TEST(TestLogicalPlanner, MultiMatchExistingEdgeOtherEdge) {
+  // Test MATCH (n) -[r]- (m) MATCH (m) -[r]- (j) -[e]- (l)
+  AstTreeStorage storage;
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+      MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("j"), EDGE("e"), NODE("l"))));
+  // We need ExpandUniquenessFilter for edge `e` against `r` in second MATCH.
+  CheckPlan(*query, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
+            ExpectExpand(), ExpectExpandUniquenessFilter<EdgeAccessor>());
 }
 
 TEST(TestLogicalPlanner, MatchWithReturn) {
@@ -622,6 +652,21 @@ TEST(TestLogicalPlanner, MatchMerge) {
   on_match.clear();
   for (auto &op : on_create) delete op;
   on_create.clear();
+}
+
+TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
+  // Test MATCH (n) OPTIONAL MATCH (n) -[r]- (m) WHERE m.prop < 42 RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))),
+                     RETURN(IDENT("r"), AS("r")));
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
+                                      new ExpectFilter()};
+  CheckPlan(*query, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
 }
 
 }  // namespace

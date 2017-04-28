@@ -434,7 +434,7 @@ class NodeFilter : public LogicalOperator {
  public:
   /** @brief Construct @c NodeFilter.
    *
-   * @param input Required, preceding @c LogicalOperator.
+   * @param input Optional, preceding @c LogicalOperator.
    * @param input_symbol @c Symbol where the node to be filtered is stored.
    * @param node_atom @c NodeAtom with labels and properties to filter by.
    */
@@ -475,7 +475,7 @@ class EdgeFilter : public LogicalOperator {
  public:
   /** @brief Construct @c EdgeFilter.
    *
-   * @param input Required, preceding @c LogicalOperator.
+   * @param input Optional, preceding @c LogicalOperator.
    * @param input_symbol @c Symbol where the edge to be filtered is stored.
    * @param edge_atom @c EdgeAtom with edge types and properties to filter by.
    */
@@ -1230,6 +1230,10 @@ class Optional : public LogicalOperator {
            const std::vector<Symbol> &optional_symbols);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto input() const { return input_; }
+  auto optional() const { return optional_; }
+  const auto &optional_symbols() const { return optional_symbols_; }
 
  private:
   const std::shared_ptr<LogicalOperator> input_;

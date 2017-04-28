@@ -101,18 +101,36 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
   return last_op;
 }
 
+// Contextual information used for generating match operators.
+struct MatchContext {
+  const SymbolTable &symbol_table;
+  // Already bound symbols, which are used to determine whether the operator
+  // should reference them or establish new. This is both read from and written
+  // to during generation.
+  std::unordered_set<int> &bound_symbols;
+  // Determines whether the match should see the new graph state or not.
+  GraphView graph_view = GraphView::OLD;
+  // Symbols for edges established in match, used to ensure Cyphermorphism.
+  std::unordered_set<Symbol, Symbol::Hash> edge_symbols;
+  // All the newly established symbols in match.
+  std::vector<Symbol> new_symbols;
+};
+
+// Generates operators for matching the given pattern and appends them to
+// input_op. Fills the context with all the new symbols and edge symbols.
 auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
-                        const SymbolTable &symbol_table,
-                        std::unordered_set<int> &bound_symbols,
-                        std::vector<Symbol> &edge_symbols,
-                        GraphView graph_view = GraphView::OLD) {
+                        MatchContext &context) {
+  auto &bound_symbols = context.bound_symbols;
+  const auto &symbol_table = context.symbol_table;
   auto base = [&](NodeAtom *node) {
     LogicalOperator *last_op = input_op;
     // If the first atom binds a symbol, we generate a ScanAll which writes it.
     // Otherwise, someone else generates it (e.g. a previous ScanAll).
-    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
+    const auto &node_symbol = symbol_table.at(*node->identifier_);
+    if (BindSymbol(bound_symbols, node_symbol)) {
       last_op = new ScanAll(node, std::shared_ptr<LogicalOperator>(last_op),
-                            graph_view);
+                            context.graph_view);
+      context.new_symbols.emplace_back(node_symbol);
     }
     // Even though we may skip generating ScanAll, we still want to add a filter
     // in case this atom adds more labels/properties for filtering.
@@ -129,28 +147,36 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
     // If the expand symbols were already bound, then we need to indicate
     // that they exist. The Expand will then check whether the pattern holds
     // instead of writing the expansion to symbols.
+    const auto &node_symbol = symbol_table.at(*node->identifier_);
     auto existing_node = false;
-    auto existing_edge = false;
-    if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
+    if (!BindSymbol(bound_symbols, node_symbol)) {
       existing_node = true;
+    } else {
+      context.new_symbols.emplace_back(node_symbol);
     }
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    auto existing_edge = false;
     if (!BindSymbol(bound_symbols, edge_symbol)) {
       existing_edge = true;
+    } else {
+      context.new_symbols.emplace_back(edge_symbol);
     }
-    last_op =
-        new Expand(node, edge, std::shared_ptr<LogicalOperator>(last_op),
-                   input_symbol, existing_node, existing_edge, graph_view);
+    last_op = new Expand(node, edge, std::shared_ptr<LogicalOperator>(last_op),
+                         input_symbol, existing_node, existing_edge,
+                         context.graph_view);
     if (!existing_edge) {
       // Ensure Cyphermorphism (different edge symbols always map to different
       // edges).
-      if (!edge_symbols.empty()) {
+      if (!context.edge_symbols.empty()) {
         last_op = new ExpandUniquenessFilter<EdgeAccessor>(
             std::shared_ptr<LogicalOperator>(last_op), edge_symbol,
-            edge_symbols);
+            std::vector<Symbol>(context.edge_symbols.begin(),
+                                context.edge_symbols.end()));
       }
-      edge_symbols.emplace_back(edge_symbol);
     }
+    // Insert edge_symbol after creating ExpandUniquenessFilter, so that we
+    // avoid filtering by the same edge we just expanded.
+    context.edge_symbols.insert(edge_symbol);
     if (!edge->edge_types_.empty() || !edge->properties_.empty()) {
       last_op = new EdgeFilter(std::shared_ptr<LogicalOperator>(last_op),
                                symbol_table.at(*edge->identifier_), edge);
@@ -167,15 +193,21 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
 auto GenMatch(Match &match, LogicalOperator *input_op,
               const SymbolTable &symbol_table,
               std::unordered_set<int> &bound_symbols) {
-  auto last_op = input_op;
-  std::vector<Symbol> edge_symbols;
+  auto last_op = match.optional_ ? nullptr : input_op;
+  MatchContext context{symbol_table, bound_symbols};
   for (auto pattern : match.patterns_) {
-    last_op = GenMatchForPattern(*pattern, last_op, symbol_table, bound_symbols,
-                                 edge_symbols);
+    last_op = GenMatchForPattern(*pattern, last_op, context);
   }
   if (match.where_) {
     last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
                          match.where_->expression_);
+  }
+  // Plan Optional after Filter. because with `OPTIONAL MATCH ... WHERE`,
+  // filtering is done while looking for the pattern.
+  if (match.optional_) {
+    last_op = new Optional(std::shared_ptr<LogicalOperator>(input_op),
+                           std::shared_ptr<LogicalOperator>(last_op),
+                           context.new_symbols);
   }
   return last_op;
 }
@@ -449,10 +481,8 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
   // Copy the bound symbol set, because we don't want to use the updated version
   // when generating the create part.
   std::unordered_set<int> bound_symbols_copy(bound_symbols);
-  std::vector<Symbol> edge_symbols;
-  auto on_match =
-      GenMatchForPattern(*merge.pattern_, nullptr, symbol_table,
-                         bound_symbols_copy, edge_symbols, GraphView::NEW);
+  MatchContext context{symbol_table, bound_symbols_copy, GraphView::NEW};
+  auto on_match = GenMatchForPattern(*merge.pattern_, nullptr, context);
   // Use the original bound_symbols, so we fill it with new symbols.
   auto on_create = GenCreateForPattern(*merge.pattern_, nullptr, symbol_table,
                                        bound_symbols);

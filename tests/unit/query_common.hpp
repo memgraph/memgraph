@@ -130,14 +130,13 @@ auto GetPattern(AstTreeStorage &storage, std::vector<PatternAtom *> atoms) {
 }
 
 ///
-/// This function creates an AST node which can store patterns and fills them
-/// with given patterns.
+/// This function fills an AST node which with given patterns.
 ///
 /// The function is most commonly used to create Match and Create clauses.
 ///
 template <class TWithPatterns>
-auto GetWithPatterns(AstTreeStorage &storage, std::vector<Pattern *> patterns) {
-  auto with_patterns = storage.Create<TWithPatterns>();
+auto GetWithPatterns(TWithPatterns *with_patterns,
+                     std::vector<Pattern *> patterns) {
   with_patterns->patterns_.insert(with_patterns->patterns_.begin(),
                                   patterns.begin(), patterns.end());
   return with_patterns;
@@ -346,11 +345,16 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define NODE(...) query::test_common::GetNode(storage, __VA_ARGS__)
 #define EDGE(...) query::test_common::GetEdge(storage, __VA_ARGS__)
 #define PATTERN(...) query::test_common::GetPattern(storage, {__VA_ARGS__})
-#define MATCH(...) \
-  query::test_common::GetWithPatterns<query::Match>(storage, {__VA_ARGS__})
+#define OPTIONAL_MATCH(...)                                               \
+  query::test_common::GetWithPatterns(storage.Create<query::Match>(true), \
+                                      {__VA_ARGS__})
+#define MATCH(...)                                                    \
+  query::test_common::GetWithPatterns(storage.Create<query::Match>(), \
+                                      {__VA_ARGS__})
 #define WHERE(expr) storage.Create<query::Where>((expr))
-#define CREATE(...) \
-  query::test_common::GetWithPatterns<query::Create>(storage, {__VA_ARGS__})
+#define CREATE(...)                                                    \
+  query::test_common::GetWithPatterns(storage.Create<query::Create>(), \
+                                      {__VA_ARGS__})
 #define IDENT(name) storage.Create<query::Identifier>((name))
 #define LITERAL(val) storage.Create<query::Literal>((val))
 #define PROPERTY_LOOKUP(...) \

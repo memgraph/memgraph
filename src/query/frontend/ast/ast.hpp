@@ -649,6 +649,7 @@ class Match : public Clause {
 
  protected:
   Match(int uid) : Clause(uid) {}
+  Match(int uid, bool optional) : Clause(uid), optional_(optional) {}
 };
 
 /** @brief Defines the order for sorting values (ascending or descending). */
