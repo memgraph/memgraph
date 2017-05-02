@@ -1,4 +1,4 @@
-Feature: Test02
+Feature: Update clauses
 
     Scenario: Match create return test
         Given an empty graph
@@ -133,15 +133,13 @@ Feature: Test02
             |  a           |
             | (:sinisa:vu) |
 
-
-
     Scenario: Create node and delete it
         Given an empty graph
         And having executed:
-           """
-           CREATE (n)
-           DELETE (n)
-           """
+            """
+            CREATE (n)
+            DELETE (n)
+            """
         When executing query:
             """
             MATCH (n)
@@ -200,144 +198,79 @@ Feature: Test02
             |( )|
             |( )|
 
-
-
-    Scenario: Test equal operator
-        When executing query:
-        """
-        CREATE (a)
-        RETURN 1=1 and 1.0=1.0 and 'abc'='abc' and false=false and a.age is null as n
-        """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test not equal operator
-        When executing query:
-        """
-        CREATE (a{age: 1})
-        RETURN not 1<>1 and 1.0<>1.1 and 'abcd'<>'abc' and false<>true and a.age is not null as n
-        """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test greater operator
+    Scenario: Set test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A{x: 1}), (b:B{x: 2}), (c:C{x: 3}), (a)-[:T]->(b), (b)-[:T]->(c), (c)-[:T]->(a)
+            """
+        And having executed:
+            """
+            MATCH (d)--(e) WHERE abs(d.x - e.x)<=1 SET d.x=d.x+2, e.x=e.x+2
+            """
         When executing query:
             """
-            RETURN 2>1 and not 1.0>1.1 and 'abcd'>'abc' as n
+            MATCH(x) RETURN x
             """
         Then the result should be:
-            |   n  |
-            | true |
+            |  x          |
+            | (:A{x: 5})  |
+            | (:B{x: 10}) |
+            | (:C{x: 7})  |
 
-    Scenario: Test less operator
+    Scenario: Remove 01
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:A:B:C)
+            """
         When executing query:
             """
-            RETURN not 2<1 and 1.0<1.1 and not 'abcd'<'abc' as n
+            MATCH (n) REMOVE n:A:B:C RETURN n
             """
         Then the result should be:
-            |   n  |
-            | true |
+            | n     |
+            | ()    |
 
-    Scenario: Test greater equal operator
+    Scenario: Remove 02
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:A:B:C)
+            """
         When executing query:
             """
-            RETURN 2>=2 and not 1.0>=1.1 and 'abcd'>='abc' as n
+            MATCH (n) REMOVE n:B:C RETURN n
             """
         Then the result should be:
-            |   n  |
-            | true |
+            | n       |
+            | (:A)    |
 
-     Scenario: Test less equal operator
+    Scenario: Remove 03
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{a: 1, b: 1.0, c: 's', d: false})
+            """
         When executing query:
             """
-            RETURN 2<=2 and 1.0<=1.1 and not 'abcd'<='abc' as n
+            MATCH (n) REMOVE n:A:B, n.a REMOVE n.b, n.c, n.d RETURN n
             """
         Then the result should be:
-            |   n  |
-            | true |
+            | n     |
+            | ()    |
 
-
-
-
-    Scenario: Test plus operator
+    Scenario: Remove 04
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:A:B{a: 1, b: 's', c: 1.0, d: true})
+            """
         When executing query:
             """
-            RETURN 3+2=1.09+3.91 as n
+            MATCH (n) REMOVE n:B, n.a, n.d RETURN n
+
             """
         Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test minus operator
-        When executing query:
-            """
-            RETURN 3-2=1.09-0.09 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test multiply operator
-        When executing query:
-            """
-            RETURN 3*2=1.5*4 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test divide operator1
-        When executing query:
-            """
-            RETURN 3/2<>7.5/5 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test divide operator2
-        When executing query:
-            """
-            RETURN 3.0/2=7.5/5 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-    Scenario: Test mod operator
-        When executing query:
-            """
-            RETURN 3%2=1 as n
-            """
-        Then the result should be:
-            |   n  |
-            | true |
-
-	    #    Scenario: Test exponential operator
-	    #        When executing query:
-	    #            """
-	    #            RETURN 3^2=81^0.5 as n
-	    #            """
-	    #        Then the result should be:
-	    #            |   n  |
-	    #            | true |
-	    #
-	    #    Scenario: Test one big mathematical equation
-	    #        When executing query:
-	    #            """
-	    #            RETURN (3+2*4-3/2%2*10)/5.0^2.0=0.04 as n
-	    #            """
-	    #        Then the result should be:
-	    #            |   n  |
-	    #            | true |
-
-	 Scenario: Test one big logical equation
-	    When executing query:
-		"""
-		RETURN not true or true and false or not ((true xor false or true) and true or false xor true ) as n
-		"""
-	    Then the result should be:
-		|   n   |
-		| false |
+            | n                    |
+            | (:A{b: 's', c: 1.0}) |
