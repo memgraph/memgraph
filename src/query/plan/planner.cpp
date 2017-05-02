@@ -533,6 +533,10 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
                                             bound_symbols)) {
       is_write = true;
       input_op = op;
+    } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
+      input_op = new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
+                                  unwind->named_expression_->expression_,
+                                  symbol_table.at(*unwind->named_expression_));
     } else {
       throw utils::NotYetImplemented();
     }

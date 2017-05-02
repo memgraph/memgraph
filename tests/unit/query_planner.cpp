@@ -72,6 +72,7 @@ class PlanChecker : public LogicalOperatorVisitor {
     op.input()->Accept(*this);
     return false;
   }
+  void Visit(Unwind &op) override { CheckOp(op); }
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -117,6 +118,7 @@ using ExpectExpandUniquenessFilter =
 using ExpectSkip = OpChecker<Skip>;
 using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
+using ExpectUnwind = OpChecker<Unwind>;
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
@@ -667,6 +669,15 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
                                       new ExpectFilter()};
   CheckPlan(*query, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchUnwindReturn) {
+  // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n AS n, x AS x
+  AstTreeStorage storage;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
+                     UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+                     RETURN(IDENT("n"), AS("n"), IDENT("x"), AS("x")));
+  CheckPlan(*query, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
 }
 
 }  // namespace

@@ -253,6 +253,17 @@ auto GetWith(AstTreeStorage &storage, T... exprs) {
 }
 
 ///
+/// Create the UNWIND clause with given named expression.
+///
+auto GetUnwind(AstTreeStorage &storage, NamedExpression *named_expr) {
+  return storage.Create<query::Unwind>(named_expr);
+}
+auto GetUnwind(AstTreeStorage &storage, Expression *expr, NamedExpression *as) {
+  as->expression_ = expr;
+  return GetUnwind(storage, as);
+}
+
+///
 /// Create the delete clause with given named expressions.
 ///
 auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
@@ -357,6 +368,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
                                       {__VA_ARGS__})
 #define IDENT(name) storage.Create<query::Identifier>((name))
 #define LITERAL(val) storage.Create<query::PrimitiveLiteral>((val))
+#define LIST(...)                     \
+  storage.Create<query::ListLiteral>( \
+      std::vector<query::Expression *>{__VA_ARGS__})
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
@@ -366,6 +380,7 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define AS(name) storage.Create<query::NamedExpression>((name))
 #define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
 #define WITH(...) query::test_common::GetWith(storage, __VA_ARGS__)
+#define UNWIND(...) query::test_common::GetUnwind(storage, __VA_ARGS__)
 #define ORDER_BY(...) query::test_common::GetOrderBy(__VA_ARGS__)
 #define SKIP(expr) \
   query::test_common::Skip { (expr) }

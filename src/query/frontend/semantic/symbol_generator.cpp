@@ -114,6 +114,14 @@ void SymbolGenerator::PostVisit(Where &) { scope_.in_where = false; }
 void SymbolGenerator::Visit(Merge &) { scope_.in_merge = true; }
 void SymbolGenerator::PostVisit(Merge &) { scope_.in_merge = false; }
 
+void SymbolGenerator::PostVisit(Unwind &unwind) {
+  const auto &name = unwind.named_expression_->name_;
+  if (HasSymbol(name)) {
+    throw RedeclareVariableError(name);
+  }
+  symbol_table_[*unwind.named_expression_] = CreateSymbol(name);
+}
+
 // Expressions
 
 void SymbolGenerator::Visit(Identifier &ident) {

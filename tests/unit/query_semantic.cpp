@@ -724,4 +724,41 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
 }
 
+TEST(TestSymbolGenerator, WithUnwindRedeclareReturn) {
+  // Test WITH [1, 2] AS list UNWIND list AS list RETURN list
+  AstTreeStorage storage;
+  auto query = QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")),
+                     UNWIND(IDENT("list"), AS("list")),
+                     RETURN(IDENT("list"), AS("list")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
+}
+
+TEST(TestSymbolGenerator, WithUnwindReturn) {
+  // WITH [1, 2] AS list UNWIND list AS elem RETURN list AS list, elem AS elem
+  AstTreeStorage storage;
+  auto with_as_list = AS("list");
+  auto unwind = UNWIND(IDENT("list"), AS("elem"));
+  auto ret_list = IDENT("list");
+  auto ret_as_list = AS("list");
+  auto ret_elem = IDENT("elem");
+  auto ret_as_elem = AS("elem");
+  auto query = QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
+                     RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for: `list`, `elem`, `AS list`, `AS elem`
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  const auto &list = symbol_table.at(*with_as_list);
+  EXPECT_EQ(list, symbol_table.at(*unwind->named_expression_->expression_));
+  const auto &elem = symbol_table.at(*unwind->named_expression_);
+  EXPECT_NE(list, elem);
+  EXPECT_EQ(list, symbol_table.at(*ret_list));
+  EXPECT_NE(list, symbol_table.at(*ret_as_list));
+  EXPECT_EQ(elem, symbol_table.at(*ret_elem));
+  EXPECT_NE(elem, symbol_table.at(*ret_as_elem));
+}
+
 }  // namespace

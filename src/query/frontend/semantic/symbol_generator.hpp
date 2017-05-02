@@ -33,6 +33,7 @@ class SymbolGenerator : public TreeVisitorBase {
   void PostVisit(Where &) override;
   void Visit(Merge &) override;
   void PostVisit(Merge &) override;
+  void PostVisit(Unwind &) override;
 
   // Expressions
   void Visit(Identifier &) override;
