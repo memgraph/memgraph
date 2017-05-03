@@ -76,6 +76,7 @@ class OrderBy;
 class Merge;
 class Optional;
 class Unwind;
+class Distinct;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor = ::utils::Visitor<
@@ -83,7 +84,7 @@ using LogicalOperatorVisitor = ::utils::Visitor<
     Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
     RemoveProperty, RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
-    Skip, Limit, OrderBy, Merge, Optional, Unwind>;
+    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
 
 /** @brief Base class for logical operators.
  *
@@ -886,6 +887,15 @@ class Accumulate : public LogicalOperator {
   };
 };
 
+/**
+ * Custom equality function for a list of typed values.
+ * Used in unordered_maps in Aggregate and Distinct operators.
+ */
+struct TypedValueListEqual {
+  bool operator()(const std::list<TypedValue> &left,
+                  const std::list<TypedValue> &right) const;
+};
+
 /** @brief Performs an arbitrary number of aggregations of data
  * from the given input grouped by the given criteria.
  *
@@ -930,12 +940,6 @@ class Aggregate : public LogicalOperator {
     void Reset() override;
 
    private:
-    // custom equality function for the unordered map
-    struct TypedValueListEqual {
-      bool operator()(const std::list<TypedValue> &left,
-                      const std::list<TypedValue> &right) const;
-    };
-
     // Data structure for a single aggregation cache.
     // does NOT include the group-by values since those
     // are a key in the aggregation map.
@@ -1290,6 +1294,45 @@ class Unwind : public LogicalOperator {
     std::vector<TypedValue> input_value_;
     // current position in input_value_
     std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
+  };
+};
+
+/**
+ * Ensures that only distinct rows are yielded.
+ * This implementation accepts a vector of Symbols
+ * which define a row. Only those Symbols are valid
+ * for use in operators following Distinct.
+ *
+ * This implementation maintains input ordering.
+ */
+class Distinct : public LogicalOperator {
+ public:
+  Distinct(const std::shared_ptr<LogicalOperator> &input,
+           const std::vector<Symbol> &value_symbols);
+  void Accept(LogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  const std::vector<Symbol> value_symbols_;
+
+  class DistinctCursor : public Cursor {
+   public:
+    DistinctCursor(Distinct &self, GraphDbAccessor &db);
+
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
+   private:
+    const Distinct &self_;
+    const std::unique_ptr<Cursor> input_cursor_;
+    // a set of already seen rows
+    std::unordered_set<
+        std::list<TypedValue>,
+        // use FNV collection hashing specialized for a list of TypedValues
+        FnvCollection<std::list<TypedValue>, TypedValue, TypedValue::Hash>,
+        TypedValueListEqual>
+        seen_rows_;
   };
 };
 

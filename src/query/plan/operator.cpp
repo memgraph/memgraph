@@ -1155,9 +1155,8 @@ void Aggregate::AggregateCursor::EnsureOkForAvgSum(
   }
 }
 
-bool Aggregate::AggregateCursor::TypedValueListEqual::operator()(
-    const std::list<TypedValue> &left,
-    const std::list<TypedValue> &right) const {
+bool TypedValueListEqual::operator()(const std::list<TypedValue> &left,
+                                     const std::list<TypedValue> &right) const {
   return std::equal(left.begin(), left.end(), right.begin(),
                     TypedValue::BoolEqual{});
 }
@@ -1579,6 +1578,37 @@ void Unwind::UnwindCursor::Reset() {
   input_cursor_->Reset();
   input_value_.clear();
   input_value_it_ = input_value_.end();
+}
+
+Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input,
+                   const std::vector<Symbol> &value_symbols)
+    : input_(input ? input : std::make_shared<Once>()),
+      value_symbols_(value_symbols) {}
+
+ACCEPT_WITH_INPUT(Distinct)
+
+std::unique_ptr<Cursor> Distinct::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<DistinctCursor>(*this, db);
+}
+
+Distinct::DistinctCursor::DistinctCursor(Distinct &self, GraphDbAccessor &db)
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+
+bool Distinct::DistinctCursor::Pull(Frame &frame,
+                                    const SymbolTable &symbol_table) {
+  while (true) {
+    if (!input_cursor_->Pull(frame, symbol_table)) return false;
+
+    std::list<TypedValue> row;
+    for (const auto &symbol : self_.value_symbols_)
+      row.emplace_back(frame[symbol]);
+    if (seen_rows_.insert(std::move(row)).second) return true;
+  }
+}
+
+void Distinct::DistinctCursor::Reset() {
+  input_cursor_->Reset();
+  seen_rows_.clear();
 }
 
 }  // namespace query::plan

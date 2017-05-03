@@ -285,10 +285,10 @@ TEST(QueryPlan, ExpandOptional) {
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_,
-      "r", EdgeAtom::Direction::RIGHT, false, "m", false);
-  auto optional = std::make_shared<plan::Optional>(n.op_, r_m.op_,
-      std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
+  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
+  auto optional = std::make_shared<plan::Optional>(
+      n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
   // RETURN n, r, m
   auto n_ne = NEXPR("n", IDENT("n"));
@@ -336,7 +336,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   symbol_table[*n_ne->expression_] = n.sym_;
   symbol_table[*n_ne] = symbol_table.CreateSymbol("n");
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
-      std::vector<Symbol>{n.sym_});
+                                                   std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
 
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
@@ -641,4 +641,50 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
   EXPECT_EQ(2, check_expand_results(false, false));
   EXPECT_EQ(0, check_expand_results(true, false));
   EXPECT_EQ(1, check_expand_results(false, true));
+}
+
+TEST(QueryPlan, Distinct) {
+  // test queries like
+  // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
+
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto check_distinct = [&](const std::vector<TypedValue> input,
+                            const std::vector<TypedValue> output,
+                            bool assume_int_value) {
+
+    auto input_expr = LITERAL(TypedValue(input));
+
+    auto x = symbol_table.CreateSymbol("x");
+    auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+    auto x_expr = IDENT("x");
+    symbol_table[*x_expr] = x;
+
+    auto distinct =
+        std::make_shared<plan::Distinct>(unwind, std::vector<Symbol>{x});
+
+    auto x_ne = NEXPR("x", x_expr);
+    symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne");
+    auto produce = MakeProduce(distinct, x_ne);
+
+    auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+    ASSERT_EQ(output.size(), results.size());
+    auto output_it = output.begin();
+    for (const auto &row : results) {
+      ASSERT_EQ(1, row.size());
+      ASSERT_EQ(row[0].type(), output_it->type());
+      if (assume_int_value)
+        EXPECT_EQ(output_it->Value<int64_t>(), row[0].Value<int64_t>());
+      output_it++;
+    }
+  };
+
+  check_distinct({1, 1, 2, 3, 3, 3}, {1, 2, 3}, true);
+  check_distinct({3, 2, 3, 5, 3, 5, 2, 1, 2}, {3, 2, 5, 1}, true);
+  check_distinct(
+      {3, "two", TypedValue::Null, 3, true, false, "TWO", TypedValue::Null},
+      {3, "two", TypedValue::Null, true, false, "TWO"}, false);
 }
