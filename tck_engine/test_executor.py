@@ -67,6 +67,9 @@ def main():
         behave_options.append("--stop")
     if args.no_side_effects:
         behave_options.append("--no-side-effects")
+    if args.db != "memgraph":
+        behave_options.append("-e")
+        behave_options.append("memgraph*")
     if not args.unstable:
         behave_options.append("-e")
         behave_options.append("unstable*")

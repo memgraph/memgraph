@@ -1,0 +1,36 @@
+Feature: Memgraph only tests (queries in which we choose to be incompatible with neo4j)
+
+    Scenario: Multiple sets (undefined behaviour)
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n{x: 3})-[:X]->(m{x: 5})
+            """
+        When executing query:
+            """
+            MATCH (n)--(m) SET n.x = n.x + 1 SET m.x = m.x + 2 SET m.x = n.x RETURN n.x
+            """
+	    # TODO: Figure out if we can define a test with multiple possible outputs in cucumber,
+	    # until then this test just documents behaviour instead of testing it.
+            #        Then the result should be:
+            #            | n.x |    | n.x |
+            #            |  5  | or |  7  |
+            #            |  5  |    |  7  |
+
+    Scenario: Multiple comparisons
+        Given an empty graph
+        When executing query:
+            """
+            RETURN 1 < 10 > 5 < 7 > 6 < 8 AS x
+            """
+        Then the result should be:
+            | x    |
+            | true |
+
+    Scenario: Use deleted node
+        Given an empty graph
+        When executing query:
+            """
+            CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH()-[r:T]->() RETURN r
+            """
+        Then an error should be raised

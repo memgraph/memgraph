@@ -147,11 +147,3 @@ Feature: With
             | av  |
             | 6.5 |
             | 7.0 |
-
-    Scenario: With test 11:
-        Given an empty graph
-        When executing query:
-            """
-            CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH()-[r:T]->() RETURN r
-            """
-        Then an error should be raised
