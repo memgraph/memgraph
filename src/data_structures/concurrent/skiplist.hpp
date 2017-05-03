@@ -794,8 +794,11 @@ class SkipList : private Lockable<lock_t> {
     int h = static_cast<int>(pred->height) - 1;
 
     while (true) {
-      // try to descend down first the next key on this layer overshoots
-      for (; h >= 0 && less(item, node = pred->forward(h)); --h) {
+      // try to descend down first while the next key on this layer overshoots
+      // or the next key is marked for deletion
+      for (; h >= 0 && (less(item, node = pred->forward(h)) ||
+                        (node && node->flags.is_marked()));
+           --h) {
       }
 
       // if we overshoot at every layer, item doesn't exist
