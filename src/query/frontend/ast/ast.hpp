@@ -894,6 +894,7 @@ class Merge : public Clause {
       for (auto &set : on_create_) {
         set->Accept(visitor);
       }
+      visitor.PostVisit(*this);
     }
   }
 
@@ -903,6 +904,28 @@ class Merge : public Clause {
 
  protected:
   Merge(int uid) : Clause(uid) {}
+};
+
+class Unwind : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      named_expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+  NamedExpression *const named_expression_ = nullptr;
+
+ protected:
+  Unwind(int uid, NamedExpression *named_expression)
+      : Clause(uid), named_expression_(named_expression) {
+    debug_assert(named_expression,
+                 "Unwind cannot take nullptr for named_expression")
+  }
 };
 
 // It would be better to call this AstTree, but we already have a class Tree,

@@ -490,11 +490,11 @@ TEST(QueryPlan, Unwind) {
       std::vector<TypedValue>{"bla"}});
 
   auto x = symbol_table.CreateSymbol("x");
-  auto unwind_0 = std::make_shared<Unwind>(nullptr, input_expr, x);
+  auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
   auto x_expr = IDENT("x");
   symbol_table[*x_expr] = x;
   auto y = symbol_table.CreateSymbol("y");
-  auto unwind_1 = std::make_shared<Unwind>(unwind_0, x_expr, y);
+  auto unwind_1 = std::make_shared<plan::Unwind>(unwind_0, x_expr, y);
 
   auto x_ne = NEXPR("x", x_expr);
   symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne");

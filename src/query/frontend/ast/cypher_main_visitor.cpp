@@ -42,7 +42,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_update = false;
   bool has_return = false;
   for (Clause *clause : query_->clauses_) {
-    if (dynamic_cast<Match *>(clause)) {
+    if (dynamic_cast<Match *>(clause) || dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("Match can't be after return or update clause");
       }
@@ -120,6 +120,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   }
   if (ctx->merge()) {
     return static_cast<Clause *>(ctx->merge()->accept(this).as<Merge *>());
+  }
+  if (ctx->unwind()) {
+    return static_cast<Clause *>(ctx->unwind()->accept(this).as<Unwind *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented();
@@ -963,6 +966,14 @@ antlrcpp::Any CypherMainVisitor::visitMerge(CypherParser::MergeContext *ctx) {
     }
   }
   return merge;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUnwind(CypherParser::UnwindContext *ctx) {
+  auto *named_expr = storage_.Create<NamedExpression>();
+  named_expr->expression_ = ctx->expression()->accept(this);
+  named_expr->name_ =
+      std::string(ctx->variable()->accept(this).as<std::string>());
+  return storage_.Create<Unwind>(named_expr);
 }
 
 }  // namespace query::frontend

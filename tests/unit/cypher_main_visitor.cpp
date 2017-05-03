@@ -970,6 +970,8 @@ TEST(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(AstGenerator("RETURN 1 MERGE (n)"), SemanticException);
   ASSERT_THROW(AstGenerator("RETURN 1 WITH n AS m RETURN 1"),
                SemanticException);
+  ASSERT_THROW(AstGenerator("RETURN 1 AS n UNWIND n AS x RETURN x"),
+               SemanticException);
 
   AstGenerator("CREATE (n)");
   ASSERT_THROW(AstGenerator("SET n:x MATCH (n) RETURN n"), SemanticException);
@@ -988,6 +990,12 @@ TEST(CypherMainVisitorTest, ClausesOrdering) {
   AstGenerator("WITH 1 AS n RETURN n");
   AstGenerator("WITH 1 AS n SET n += m");
   AstGenerator("WITH 1 AS n MATCH (n) RETURN n");
+
+  ASSERT_THROW(AstGenerator("UNWIND [1,2,3] AS x"), SemanticException);
+  ASSERT_THROW(AstGenerator("CREATE (n) UNWIND [1,2,3] AS x RETURN x"),
+               SemanticException);
+  AstGenerator("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
+  AstGenerator("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
 }
 
 TEST(CypherMainVisitorTest, Merge) {
@@ -1005,4 +1013,24 @@ TEST(CypherMainVisitorTest, Merge) {
   ASSERT_EQ(merge->on_create_.size(), 1U);
   EXPECT_TRUE(dynamic_cast<SetLabels *>(merge->on_create_[0]));
 }
+
+TEST(CypherMainVisitorTest, Unwind) {
+  AstGenerator ast_generator("UNWIND [1,2,3] AS elem RETURN elem");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *unwind = dynamic_cast<Unwind *>(query->clauses_[0]);
+  ASSERT_TRUE(unwind);
+  auto *ret = dynamic_cast<Return *>(query->clauses_[1]);
+  EXPECT_TRUE(ret);
+  ASSERT_TRUE(unwind->named_expression_);
+  EXPECT_EQ(unwind->named_expression_->name_, "elem");
+  auto *expr = unwind->named_expression_->expression_;
+  ASSERT_TRUE(expr);
+  ASSERT_TRUE(dynamic_cast<ListLiteral *>(expr));
+}
+
+TEST(CypherMainVisitorTest, UnwindWithoutAsError) {
+  EXPECT_THROW(AstGenerator("UNWIND [1,2,3] RETURN 42"), SyntaxException);
+}
+
 }
