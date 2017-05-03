@@ -576,7 +576,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
               "connections. Consider using DETACH DELETE.");
         break;
       }
+
+      // skip Edges (already deleted) and Nulls (can occur in optional match)
       case TypedValue::Type::Edge:
+      case TypedValue::Type::Null:
         break;
       // check we're not trying to delete anything except vertices and edges
       default:

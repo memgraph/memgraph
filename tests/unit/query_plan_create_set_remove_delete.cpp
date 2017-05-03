@@ -412,6 +412,19 @@ TEST(QueryPlan, DeleteReturn) {
   EXPECT_EQ(0, CountIterable(dba->vertices()));
 }
 
+TEST(QueryPlan, DeleteNull) {
+  // test (simplified) WITH Null as x delete x
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto once = std::make_shared<Once>();
+  auto delete_op = std::make_shared<plan::Delete>(
+      once, std::vector<Expression *>{LITERAL(TypedValue::Null)}, false);
+  EXPECT_EQ(1, PullAll(delete_op, *dba, symbol_table));
+}
+
 TEST(QueryPlan, DeleteAdvance) {
   // test queries on empty DB:
   // CREATE (n)
