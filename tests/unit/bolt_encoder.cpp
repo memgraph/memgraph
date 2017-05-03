@@ -15,27 +15,32 @@ using query::TypedValue;
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
-void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
-  if (size <= 15) {
-    uint8_t len = size;
-    len &= 0x0F;
-    len += type_tiny_magic[typ];
-    CheckOutput(v, &len, 1, false);
-  } else if (size <= 255) {
-    uint8_t len = size;
-    CheckOutput(v, &type_8_magic[typ], 1, false);
-    CheckOutput(v, &len, 1, false);
-  } else if (size <= 65536) {
-    uint16_t len = size;
-    len = bswap(len);
-    CheckOutput(v, &type_16_magic[typ], 1, false);
-    CheckOutput(v, reinterpret_cast<const uint8_t *>(&len), 2, false);
-  } else {
-    uint32_t len = size;
-    len = bswap(len);
-    CheckOutput(v, &type_32_magic[typ], 1, false);
-    CheckOutput(v, reinterpret_cast<const uint8_t *>(&len), 4, false);
+uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
+  uint64_t ret = 0;
+  v.erase(v.begin(), v.begin() + offset);
+  for (int i = 0; i < len; ++i) {
+    ret <<= 8;
+    ret += v[i];
   }
+  v.erase(v.begin(), v.begin() + len);
+  return ret;
+}
+
+void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
+  uint64_t len;
+  if ((v[0] & 0xF0) == type_tiny_magic[typ]) {
+    len = v[0] & 0x0F;
+    v.erase(v.begin(), v.begin() + 1);
+  } else if (v[0] == type_8_magic[typ]) {
+    len = GetBigEndianInt(v, 1);
+  } else if (v[0] == type_16_magic[typ]) {
+    len = GetBigEndianInt(v, 2);
+  } else if (v[0] == type_32_magic[typ]) {
+    len = GetBigEndianInt(v, 4);
+  } else {
+    FAIL() << "Got wrong marker!";
+  }
+  ASSERT_EQ(len, size);
 }
 
 void CheckRecordHeader(std::vector<uint8_t> &v, uint64_t size) {

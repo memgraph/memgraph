@@ -97,7 +97,7 @@ class BaseEncoder : public Loggable {
       uint8_t len = size;
       WriteRAW(underlying_cast(Marker8[typ]));
       WriteRAW(len);
-    } else if (size <= 65536) {
+    } else if (size <= 65535) {
       uint16_t len = size;
       WriteRAW(underlying_cast(Marker16[typ]));
       WriteValue(len);
