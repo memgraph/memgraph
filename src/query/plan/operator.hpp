@@ -1311,6 +1311,7 @@ class Distinct : public LogicalOperator {
            const std::vector<Symbol> &value_symbols);
   void Accept(LogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
  private:
   const std::shared_ptr<LogicalOperator> input_;

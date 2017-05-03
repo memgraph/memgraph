@@ -1587,6 +1587,11 @@ std::unique_ptr<Cursor> Distinct::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<DistinctCursor>(*this, db);
 }
 
+std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
 Distinct::DistinctCursor::DistinctCursor(Distinct &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 

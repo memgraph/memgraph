@@ -233,8 +233,9 @@ void FillReturnBody(ReturnBody &body, NamedExpression *named_expr, T... rest) {
 ///
 /// @sa GetWith
 template <class... T>
-auto GetReturn(AstTreeStorage &storage, T... exprs) {
+auto GetReturn(AstTreeStorage &storage, bool distinct, T... exprs) {
   auto ret = storage.Create<Return>();
+  ret->body_.distinct = distinct;
   FillReturnBody(ret->body_, exprs...);
   return ret;
 }
@@ -246,8 +247,9 @@ auto GetReturn(AstTreeStorage &storage, T... exprs) {
 ///
 /// @sa GetReturn
 template <class... T>
-auto GetWith(AstTreeStorage &storage, T... exprs) {
+auto GetWith(AstTreeStorage &storage, bool distinct, T... exprs) {
   auto with = storage.Create<With>();
+  with->body_.distinct = distinct;
   FillReturnBody(with->body_, exprs...);
   return with;
 }
@@ -378,8 +380,12 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 // Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
 #define AS(name) storage.Create<query::NamedExpression>((name))
-#define RETURN(...) query::test_common::GetReturn(storage, __VA_ARGS__)
-#define WITH(...) query::test_common::GetWith(storage, __VA_ARGS__)
+#define RETURN(...) query::test_common::GetReturn(storage, false, __VA_ARGS__)
+#define WITH(...) query::test_common::GetWith(storage, false, __VA_ARGS__)
+#define RETURN_DISTINCT(...) \
+  query::test_common::GetReturn(storage, true, __VA_ARGS__)
+#define WITH_DISTINCT(...) \
+  query::test_common::GetWith(storage, true, __VA_ARGS__)
 #define UNWIND(...) query::test_common::GetUnwind(storage, __VA_ARGS__)
 #define ORDER_BY(...) query::test_common::GetOrderBy(__VA_ARGS__)
 #define SKIP(expr) \

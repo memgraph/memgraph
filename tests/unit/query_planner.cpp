@@ -73,6 +73,7 @@ class PlanChecker : public LogicalOperatorVisitor {
     return false;
   }
   void Visit(Unwind &op) override { CheckOp(op); }
+  void Visit(Distinct &op) override { CheckOp(op); }
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -119,6 +120,7 @@ using ExpectSkip = OpChecker<Skip>;
 using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
+using ExpectDistinct = OpChecker<Distinct>;
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
@@ -678,6 +680,34 @@ TEST(TestLogicalPlanner, MatchUnwindReturn) {
                      UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
                      RETURN(IDENT("n"), AS("n"), IDENT("x"), AS("x")));
   CheckPlan(*query, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, ReturnDistinctOrderBySkipLimit) {
+  // Test RETURN DISTINCT 1 ORDER BY 1 SKIP 1 LIMIT 1
+  AstTreeStorage storage;
+  auto query = QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)),
+                                     SKIP(LITERAL(1)), LIMIT(LITERAL(1))));
+  CheckPlan(*query, ExpectProduce(), ExpectDistinct(), ExpectOrderBy(),
+            ExpectSkip(), ExpectLimit());
+}
+
+TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
+  // Test CREATE (n) WITH DISTINCT SUM(n.prop) AS s WHERE s < 42 RETURN s
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto query =
+      QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
+            WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN(IDENT("s"), AS("s")));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
+  auto aggr = ExpectAggregate({sum}, {});
+  auto plan = MakeLogicalPlan(*query, symbol_table);
+  CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
+            ExpectFilter(), ExpectDistinct(), ExpectProduce());
 }
 
 }  // namespace

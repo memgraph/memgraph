@@ -364,10 +364,6 @@ class ReturnBodyContext : public TreeVisitorBase {
 
 auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
                    const ReturnBodyContext &body, bool accumulate = false) {
-  if (body.distinct()) {
-    // TODO: Plan with distinct, when operator available.
-    throw utils::NotYetImplemented();
-  }
   std::vector<Symbol> used_symbols(body.used_symbols().begin(),
                                    body.used_symbols().end());
   auto last_op = input_op;
@@ -389,6 +385,12 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   if (body.where()) {
     last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
                          body.where()->expression_);
+  }
+  // Distinct in ReturnBody only makes Produce values unique, so plan after it.
+  // Hopefully, it is more efficient to have Filter before Distinct.
+  if (body.distinct()) {
+    last_op = new Distinct(std::shared_ptr<LogicalOperator>(last_op),
+                           body.output_symbols());
   }
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
@@ -538,7 +540,8 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
                                   unwind->named_expression_->expression_,
                                   symbol_table.at(*unwind->named_expression_));
     } else {
-      throw utils::NotYetImplemented();
+      throw utils::NotYetImplemented(
+          "Encountered a clause which cannot be converted to operator(s)");
     }
   }
   return std::unique_ptr<LogicalOperator>(input_op);
