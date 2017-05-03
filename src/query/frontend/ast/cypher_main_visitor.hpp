@@ -88,7 +88,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
     return operators;
   }
 
-  /* Convert opencypher's n-ary production to ast binary operators.
+  /**
+   * Convert opencypher's n-ary production to ast binary operators.
    *
    * @param _expressions Subexpressions of child for which we construct ast
    * operators, for example expression6 if we want to create ast nodes for
@@ -208,7 +209,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   /**
    * @return vector<Expression*>
    */
-  antlrcpp::Any visitListLiteral(CypherParser::ListLiteralContext *ctx) override;
+  antlrcpp::Any visitListLiteral(
+      CypherParser::ListLiteralContext *ctx) override;
 
   /**
    * @return GraphDbTypes::Property
@@ -357,12 +359,26 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::Expression4Context *ctx) override;
 
   /**
-   * Element of a list, range of a list...
+   * IS NULL, IS NOT NULL, ...
    *
    * @return Expression*
    */
-  antlrcpp::Any visitExpression3(
-      CypherParser::Expression3Context *ctx) override;
+  antlrcpp::Any visitExpression3a(
+      CypherParser::Expression3aContext *ctx) override;
+
+  /**
+   * List indexing and slicing.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression3b(
+      CypherParser::Expression3bContext *ctx) override;
+
+  /**
+   * Does nothing, everything is done in visitExpression3b.
+   */
+  antlrcpp::Any visitListIndexingOrSlicing(
+      CypherParser::ListIndexingOrSlicingContext *ctx) override;
 
   /**
    * Property lookup, test for node labels existence...

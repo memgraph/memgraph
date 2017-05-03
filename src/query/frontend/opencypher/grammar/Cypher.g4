@@ -151,9 +151,15 @@ expression6 : expression5 ( ( SP? '*' SP? expression5 ) | ( SP? '/' SP? expressi
 
 expression5 : expression4 ( SP? '^' SP? expression4 )* ;
 
-expression4 : ( ( '+' | '-' ) SP? )* expression3 ;
+expression4 : ( ( '+' | '-' ) SP? )* expression3a ;
 
-expression3 : expression2 ( ( SP? '[' expression ']' ) | ( SP? '[' expression? '..' expression? ']' ) | ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2 ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
+expression3a : expression3b ( ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2 ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
+
+expression3b : expression2 ( SP? listIndexingOrSlicing )* ;
+
+listIndexingOrSlicing : ( '[' SP? expression SP? ']' )
+                      | ( '[' SP? lower_bound=expression? SP? '..' SP? upper_bound=expression? SP? ']' )
+                      ;
 
 expression2 : atom ( SP? ( propertyLookup | nodeLabels ) )* ;
 

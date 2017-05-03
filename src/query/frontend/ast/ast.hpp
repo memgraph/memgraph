@@ -299,6 +299,54 @@ class GreaterEqualOperator : public BinaryOperator {
   using BinaryOperator::BinaryOperator;
 };
 
+class ListIndexingOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+class ListSlicingOperator : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      list_->Accept(visitor);
+      if (lower_bound_) {
+        lower_bound_->Accept(visitor);
+      }
+      if (upper_bound_) {
+        upper_bound_->Accept(visitor);
+      }
+      visitor.PostVisit(*this);
+    }
+  }
+
+  Expression *list_;
+  Expression *lower_bound_;
+  Expression *upper_bound_;
+
+ protected:
+  ListSlicingOperator(int uid, Expression *list, Expression *lower_bound,
+                      Expression *upper_bound)
+      : Expression(uid),
+        list_(list),
+        lower_bound_(lower_bound),
+        upper_bound_(upper_bound) {}
+};
+
 class NotOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
@@ -389,8 +437,7 @@ class ListLiteral : public BaseLiteral {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      for (auto expr_ptr : elements_)
-        expr_ptr->Accept(visitor);
+      for (auto expr_ptr : elements_) expr_ptr->Accept(visitor);
       visitor.PostVisit(*this);
     }
   }

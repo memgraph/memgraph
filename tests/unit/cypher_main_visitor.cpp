@@ -68,7 +68,7 @@ TEST(CypherMainVisitorTest, PropertyLookup) {
             ast_generator.db_accessor_->property("x"));
 }
 
-TEST(CypherMainVisitor, ReturnNoDistinctNoBagSemantics) {
+TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
   AstGenerator ast_generator("RETURN x");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -80,7 +80,7 @@ TEST(CypherMainVisitor, ReturnNoDistinctNoBagSemantics) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
-TEST(CypherMainVisitor, ReturnDistinct) {
+TEST(CypherMainVisitorTest, ReturnDistinct) {
   AstGenerator ast_generator("RETURN DISTINCT x");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -88,7 +88,7 @@ TEST(CypherMainVisitor, ReturnDistinct) {
   ASSERT_TRUE(return_clause->body_.distinct);
 }
 
-TEST(CypherMainVisitor, ReturnLimit) {
+TEST(CypherMainVisitorTest, ReturnLimit) {
   AstGenerator ast_generator("RETURN x LIMIT 5");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -99,7 +99,7 @@ TEST(CypherMainVisitor, ReturnLimit) {
   ASSERT_EQ(literal->value_.Value<int64_t>(), 5);
 }
 
-TEST(CypherMainVisitor, ReturnSkip) {
+TEST(CypherMainVisitorTest, ReturnSkip) {
   AstGenerator ast_generator("RETURN x SKIP 5");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -110,7 +110,7 @@ TEST(CypherMainVisitor, ReturnSkip) {
   ASSERT_EQ(literal->value_.Value<int64_t>(), 5);
 }
 
-TEST(CypherMainVisitor, ReturnOrderBy) {
+TEST(CypherMainVisitorTest, ReturnOrderBy) {
   AstGenerator ast_generator("RETURN x, y, z ORDER BY z ASC, x, y DESC");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
@@ -344,6 +344,38 @@ TEST(CypherMainVisitorTest, ComparisonOperators) {
 }
 
 #undef CHECK_COMPARISON
+
+TEST(CypherMainVisitorTest, ListIndexingOperator) {
+  AstGenerator ast_generator("RETURN [1,2,3] [ 2 ]");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *list_index_op = dynamic_cast<ListIndexingOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(list_index_op);
+  auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
+  EXPECT_TRUE(list);
+  auto *index = dynamic_cast<PrimitiveLiteral *>(list_index_op->expression2_);
+  ASSERT_EQ(index->value_.Value<int64_t>(), 2);
+}
+
+TEST(CypherMainVisitorTest, ListSlicingOperatorNoBounds) {
+  ASSERT_THROW(AstGenerator("RETURN [1,2,3] [ .. ]"), SemanticException);
+}
+
+TEST(CypherMainVisitorTest, ListSlicingOperator) {
+  AstGenerator ast_generator("RETURN [1,2,3] [ .. 2 ]");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *list_slicing_op = dynamic_cast<ListSlicingOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(list_slicing_op);
+  auto *list = dynamic_cast<ListLiteral *>(list_slicing_op->list_);
+  EXPECT_TRUE(list);
+  EXPECT_FALSE(list_slicing_op->lower_bound_);
+  auto *upper_bound =
+      dynamic_cast<PrimitiveLiteral *>(list_slicing_op->upper_bound_);
+  EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 2);
+}
 
 TEST(CypherMainVisitorTest, IsNull) {
   AstGenerator ast_generator("RETURN 2 iS NulL");
@@ -1032,5 +1064,4 @@ TEST(CypherMainVisitorTest, Unwind) {
 TEST(CypherMainVisitorTest, UnwindWithoutAsError) {
   EXPECT_THROW(AstGenerator("UNWIND [1,2,3] RETURN 42"), SyntaxException);
 }
-
 }

@@ -568,21 +568,18 @@ antlrcpp::Any CypherMainVisitor::visitExpression5(
 // Unary minus and plus.
 antlrcpp::Any CypherMainVisitor::visitExpression4(
     CypherParser::Expression4Context *ctx) {
-  return PrefixUnaryOperator(ctx->expression3(), ctx->children,
+  return PrefixUnaryOperator(ctx->expression3a(), ctx->children,
                              {kUnaryPlusTokenId, kUnaryMinusTokenId});
 }
 
-// List indexing, list range...
-antlrcpp::Any CypherMainVisitor::visitExpression3(
-    CypherParser::Expression3Context *ctx) {
-  // If there is only one child we don't need to generate any code in this since
-  // that child is expression2. Other operations are not implemented at the
-  // moment.
+// IS NULL, IS NOT NULL, ...
+antlrcpp::Any CypherMainVisitor::visitExpression3a(
+    CypherParser::Expression3aContext *ctx) {
   // TODO: implement this.
   // This is a hack. Unfortunately, grammar for expression3 contains a lot of
   // different expressions. We should break that production in parts so that
   // we can easily implement its visitor.
-  Expression *expression = ctx->expression2()[0]->accept(this);
+  Expression *expression = ctx->expression3b()[0].accept(this);
   if (ctx->children.size() - ctx->SP().size() == 3U && ctx->IS().size() == 1U &&
       ctx->CYPHERNULL().size() == 1U) {
     return static_cast<Expression *>(
@@ -596,7 +593,42 @@ antlrcpp::Any CypherMainVisitor::visitExpression3(
   if (ctx->children.size() > 1U) {
     throw utils::NotYetImplemented();
   }
+  // If there is only one child we don't need to generate any code in this since
+  // that child is expression2.
   return static_cast<Expression *>(visitChildren(ctx));
+}
+
+antlrcpp::Any CypherMainVisitor::visitExpression3b(
+    CypherParser::Expression3bContext *ctx) {
+  Expression *expression = ctx->expression2()->accept(this);
+  for (auto *list_op : ctx->listIndexingOrSlicing()) {
+    if (list_op->getTokens(kDotsTokenId).size() == 0U) {
+      // If there is no '..' then we need to create list indexing operator.
+      expression = storage_.Create<ListIndexingOperator>(
+          expression, list_op->expression()[0]->accept(this));
+    } else if (!list_op->lower_bound && !list_op->upper_bound) {
+      throw SemanticException(
+          "List slicing operator requires at least one bound.");
+    } else {
+      Expression *lower_bound_ast =
+          list_op->lower_bound
+              ? static_cast<Expression *>(list_op->lower_bound->accept(this))
+              : nullptr;
+      Expression *upper_bound_ast =
+          list_op->upper_bound
+              ? static_cast<Expression *>(list_op->upper_bound->accept(this))
+              : nullptr;
+      expression = storage_.Create<ListSlicingOperator>(
+          expression, lower_bound_ast, upper_bound_ast);
+    }
+  }
+  return expression;
+}
+
+antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(
+    CypherParser::ListIndexingOrSlicingContext *) {
+  debug_assert(false, "Should never be called. See documentation in hpp.");
+  return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2(

@@ -38,6 +38,8 @@ class LessOperator;
 class GreaterOperator;
 class LessEqualOperator;
 class GreaterEqualOperator;
+class ListIndexingOperator;
+class ListSlicingOperator;
 class Delete;
 class Where;
 class SetProperty;
@@ -53,10 +55,10 @@ using TreeVisitorBase = ::utils::Visitor<
     AdditionOperator, SubtractionOperator, MultiplicationOperator,
     DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier,
-    PrimitiveLiteral, ListLiteral, PropertyLookup, Aggregation, Function,
-    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind>;
+    ListIndexingOperator, ListSlicingOperator, UnaryPlusOperator,
+    UnaryMinusOperator, IsNullOperator, Identifier, PrimitiveLiteral,
+    ListLiteral, PropertyLookup, Aggregation, Function, Create, Match, Return,
+    With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 }  // namespace query
