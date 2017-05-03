@@ -38,8 +38,8 @@ const uint8_t vertexedge_encoded[] =
     "\x04\xD2";
 
 const uint64_t sizes[] = {0,   1,   5,     15,    16,    120,
-                          255, 256, 12345, 65535, 65536, 100000};
-const uint64_t sizes_num = 12;
+                          255, 256, 12345, 65535, 65536};
+const uint64_t sizes_num = 11;
 
 constexpr const int STRING = 0, LIST = 1, MAP = 2;
 const uint8_t type_tiny_magic[] = {0x80, 0x90, 0xA0};
