@@ -381,12 +381,20 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::ListIndexingOrSlicingContext *ctx) override;
 
   /**
-   * Property lookup, test for node labels existence...
+   * Node labels test.
    *
    * @return Expression*
    */
-  antlrcpp::Any visitExpression2(
-      CypherParser::Expression2Context *ctx) override;
+  antlrcpp::Any visitExpression2a(
+      CypherParser::Expression2aContext *ctx) override;
+
+  /**
+   * Property lookup.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitExpression2b(
+      CypherParser::Expression2bContext *ctx) override;
 
   /**
    * Literals, params, list comprehension...

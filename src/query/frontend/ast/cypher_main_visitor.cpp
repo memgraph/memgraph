@@ -600,7 +600,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
 
 antlrcpp::Any CypherMainVisitor::visitExpression3b(
     CypherParser::Expression3bContext *ctx) {
-  Expression *expression = ctx->expression2()->accept(this);
+  Expression *expression = ctx->expression2a()->accept(this);
   for (auto *list_op : ctx->listIndexingOrSlicing()) {
     if (list_op->getTokens(kDotsTokenId).size() == 0U) {
       // If there is no '..' then we need to create list indexing operator.
@@ -631,13 +631,19 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(
   return 0;
 }
 
-antlrcpp::Any CypherMainVisitor::visitExpression2(
-    CypherParser::Expression2Context *ctx) {
-  if (ctx->nodeLabels().size()) {
-    // TODO: Implement this. We don't currently support label checking in
-    // expresssion.
-    throw utils::NotYetImplemented();
+antlrcpp::Any CypherMainVisitor::visitExpression2a(
+    CypherParser::Expression2aContext *ctx) {
+  Expression *expression = ctx->expression2b()->accept(this);
+  if (ctx->nodeLabels()) {
+    auto labels =
+        ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+    expression = storage_.Create<LabelsTest>(expression, labels);
   }
+  return expression;
+}
+
+antlrcpp::Any CypherMainVisitor::visitExpression2b(
+    CypherParser::Expression2bContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
     auto property_lookup =

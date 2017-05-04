@@ -153,15 +153,17 @@ expression5 : expression4 ( SP? '^' SP? expression4 )* ;
 
 expression4 : ( ( '+' | '-' ) SP? )* expression3a ;
 
-expression3a : expression3b ( ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2 ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
+expression3a : expression3b ( ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2a ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
 
-expression3b : expression2 ( SP? listIndexingOrSlicing )* ;
+expression3b : expression2a ( SP? listIndexingOrSlicing )* ;
 
 listIndexingOrSlicing : ( '[' SP? expression SP? ']' )
                       | ( '[' SP? lower_bound=expression? SP? '..' SP? upper_bound=expression? SP? ']' )
                       ;
 
-expression2 : atom ( SP? ( propertyLookup | nodeLabels ) )* ;
+expression2a : expression2b ( SP? nodeLabels )? ;
+
+expression2b : atom ( SP? propertyLookup )* ;
 
 atom : literal
      | parameter

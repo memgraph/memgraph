@@ -19,8 +19,9 @@ namespace {
 using namespace query;
 using namespace query::frontend;
 using query::TypedValue;
-using testing::UnorderedElementsAre;
 using testing::Pair;
+using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 
 class AstGenerator {
  public:
@@ -66,6 +67,22 @@ TEST(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_EQ(property_lookup->property_,
             ast_generator.db_accessor_->property("x"));
+}
+
+TEST(CypherMainVisitorTest, LabelsTest) {
+  AstGenerator ast_generator("RETURN n:x:y");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *labels_test = dynamic_cast<LabelsTest *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(labels_test->expression_);
+  auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "n");
+  ASSERT_THAT(labels_test->labels_,
+              ElementsAre(ast_generator.db_accessor_->label("x"),
+                          ast_generator.db_accessor_->label("y")));
 }
 
 TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
