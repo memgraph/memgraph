@@ -9,6 +9,8 @@ class Query;
 class NamedExpression;
 class Identifier;
 class PropertyLookup;
+class LabelsTest;
+class EdgeTypeTest;
 class Aggregation;
 class Function;
 class Create;
@@ -57,8 +59,9 @@ using TreeVisitorBase = ::utils::Visitor<
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     ListIndexingOperator, ListSlicingOperator, UnaryPlusOperator,
     UnaryMinusOperator, IsNullOperator, Identifier, PrimitiveLiteral,
-    ListLiteral, PropertyLookup, Aggregation, Function, Create, Match, Return,
-    With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
+    ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
+    Function, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete,
+    Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    Merge, Unwind>;
 
 }  // namespace query

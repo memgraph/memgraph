@@ -487,6 +487,48 @@ class PropertyLookup : public Expression {
       : Expression(uid), expression_(expression), property_(property) {}
 };
 
+class LabelsTest : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+  Expression *expression_ = nullptr;
+  std::vector<GraphDbTypes::Label> labels_;
+
+ protected:
+  LabelsTest(int uid, Expression *expression,
+             std::vector<GraphDbTypes::Label> labels)
+      : Expression(uid), expression_(expression), labels_(labels) {}
+};
+
+class EdgeTypeTest : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+  Expression *expression_ = nullptr;
+  std::vector<GraphDbTypes::EdgeType> edge_types_;
+
+ protected:
+  EdgeTypeTest(int uid, Expression *expression,
+               std::vector<GraphDbTypes::EdgeType> edge_types)
+      : Expression(uid), expression_(expression), edge_types_(edge_types) {}
+};
+
 class Function : public Expression {
   friend class AstTreeStorage;
 
