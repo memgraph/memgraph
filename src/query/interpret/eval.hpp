@@ -1,8 +1,9 @@
 #pragma once
 
+#include <algorithm>
+#include <limits>
 #include <map>
 #include <vector>
-#include <algorithm>
 
 #include "database/graph_db_accessor.hpp"
 #include "query/common.hpp"
@@ -85,13 +86,91 @@ class ExpressionEvaluator : public TreeVisitorBase {
   UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +);
   UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -);
 
+#undef BINARY_OPERATOR_VISITOR
+#undef UNARY_OPERATOR_VISITOR
+
+  void PostVisit(ListIndexingOperator &) override {
+    // TODO: implement this for maps
+    auto _index = PopBack();
+    if (_index.type() != TypedValue::Type::Int &&
+        _index.type() != TypedValue::Type::Null) {
+      throw TypedValueException("Incompatible type in list lookup");
+    }
+    auto _list = PopBack();
+    if (_list.type() != TypedValue::Type::List &&
+        _list.type() != TypedValue::Type::Null) {
+      throw TypedValueException("Incompatible type in list lookup");
+    }
+    if (_index.type() == TypedValue::Type::Null ||
+        _list.type() == TypedValue::Type::Null) {
+      result_stack_.emplace_back(TypedValue::Null);
+      return;
+    }
+    auto index = _index.Value<int64_t>();
+    const auto &list = _list.Value<std::vector<TypedValue>>();
+    if (index < 0) {
+      index = static_cast<int64_t>(list.size()) + index;
+    }
+    if (index >= static_cast<int64_t>(list.size()) || index < 0) {
+      result_stack_.emplace_back(TypedValue::Null);
+      return;
+    }
+    result_stack_.emplace_back(list[index]);
+  }
+
+  void PostVisit(ListSlicingOperator &op) override {
+    // If some type is null we can't return null, because throwing exception on
+    // illegal type has higher priority.
+    auto is_null = false;
+    auto get_bound = [&](bool is_defined, int64_t default_value) {
+      if (is_defined) {
+        auto bound = PopBack();
+        if (bound.type() == TypedValue::Type::Null) {
+          is_null = true;
+        } else if (bound.type() != TypedValue::Type::Int) {
+          throw TypedValueException("Incompatible type in list slicing");
+        }
+        return bound;
+      }
+      return TypedValue(default_value);
+    };
+    auto _upper_bound =
+        get_bound(op.upper_bound_, std::numeric_limits<int64_t>::max());
+    auto _lower_bound = get_bound(op.lower_bound_, 0);
+
+    auto _list = PopBack();
+    if (_list.type() == TypedValue::Type::Null) {
+      is_null = true;
+    } else if (_list.type() != TypedValue::Type::List) {
+      throw TypedValueException("Incompatible type in list slicing");
+    }
+
+    if (is_null) {
+      result_stack_.emplace_back(TypedValue::Null);
+      return;
+    }
+    const auto &list = _list.Value<std::vector<TypedValue>>();
+    auto normalise_bound = [&](int64_t bound) {
+      if (bound < 0) {
+        bound = static_cast<int64_t>(list.size()) + bound;
+      }
+      return std::max(static_cast<int64_t>(0),
+                      std::min(bound, static_cast<int64_t>(list.size())));
+    };
+    auto lower_bound = normalise_bound(_lower_bound.Value<int64_t>());
+    auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
+    if (upper_bound <= lower_bound) {
+      result_stack_.emplace_back(std::vector<TypedValue>());
+      return;
+    }
+    result_stack_.emplace_back(std::vector<TypedValue>(
+        list.begin() + lower_bound, list.begin() + upper_bound));
+  }
+
   void PostVisit(IsNullOperator &) override {
     auto expression = PopBack();
     result_stack_.push_back(TypedValue(expression.IsNull()));
   }
-
-#undef BINARY_OPERATOR_VISITOR
-#undef UNARY_OPERATOR_VISITOR
 
   void PostVisit(PropertyLookup &property_lookup) override {
     auto expression_result = PopBack();
@@ -130,7 +209,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
   void PostVisit(ListLiteral &literal) override {
     std::vector<TypedValue> result;
     result.reserve(literal.elements_.size());
-    for (size_t i = 0 ; i < literal.elements_.size() ; i++)
+    for (size_t i = 0; i < literal.elements_.size(); i++)
       result.emplace_back(PopBack());
     std::reverse(result.begin(), result.end());
     result_stack_.emplace_back(std::move(result));

@@ -16,6 +16,7 @@
 using namespace query;
 using testing::Pair;
 using testing::UnorderedElementsAre;
+using testing::ElementsAre;
 
 namespace {
 
@@ -240,6 +241,151 @@ TEST(ExpressionEvaluator, GreaterEqualOperator) {
       storage.Create<PrimitiveLiteral>(15));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+}
+
+TEST(ExpressionEvaluator, ListIndexingOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
+      storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
+      storage.Create<PrimitiveLiteral>(3),
+      storage.Create<PrimitiveLiteral>(4)});
+  {
+    // Legal indexing.
+    auto *op = storage.Create<ListIndexingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(2));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<int64_t>(), 3);
+  }
+  {
+    // Out of bounds indexing.
+    auto *op = storage.Create<ListIndexingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(4));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
+  {
+    // Out of bounds indexing with negative bound.
+    auto *op = storage.Create<ListIndexingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(-100));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
+  {
+    // Legal indexing with negative index.
+    auto *op = storage.Create<ListIndexingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(-2));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<int64_t>(), 3);
+  }
+  {
+    // Indexing with one operator being null.
+    auto *op = storage.Create<ListIndexingOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(-2));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
+  {
+    // Indexing with incompatible type.
+    auto *op = storage.Create<ListIndexingOperator>(
+        storage.Create<PrimitiveLiteral>(2),
+        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+  }
+}
+
+TEST(ExpressionEvaluator, ListSlicingOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
+      storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
+      storage.Create<PrimitiveLiteral>(3),
+      storage.Create<PrimitiveLiteral>(4)});
+
+  auto extract_ints = [](TypedValue list) {
+    std::vector<int64_t> int_list;
+    for (auto x : list.Value<std::vector<TypedValue>>()) {
+      int_list.push_back(x.Value<int64_t>());
+    }
+    return int_list;
+  };
+  {
+    // Legal slicing with both bounds defined.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(2),
+        storage.Create<PrimitiveLiteral>(4));
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre(3, 4));
+  }
+  {
+    // Legal slicing with negative bound.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(2),
+        storage.Create<PrimitiveLiteral>(-1));
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre(3));
+  }
+  {
+    // Lower bound larger than upper bound.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(2),
+        storage.Create<PrimitiveLiteral>(-4));
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre());
+  }
+  {
+    // Bounds ouf or range.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(-100),
+        storage.Create<PrimitiveLiteral>(10));
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre(1, 2, 3, 4));
+  }
+  {
+    // Lower bound undefined.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, nullptr, storage.Create<PrimitiveLiteral>(3));
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre(1, 2, 3));
+  }
+  {
+    // Upper bound undefined.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(-2), nullptr);
+    op->Accept(eval.eval);
+    EXPECT_THAT(extract_ints(eval.eval.PopBack()), ElementsAre(3, 4));
+  }
+  {
+    // Bound of illegal type and null value bound.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>("mirko"));
+    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+  }
+  {
+    // List of illegal type.
+    auto *op = storage.Create<ListSlicingOperator>(
+        storage.Create<PrimitiveLiteral>("a"),
+        storage.Create<PrimitiveLiteral>(-2), nullptr);
+    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+  }
+  {
+    // Null value list with undefined upper bound.
+    auto *op = storage.Create<ListSlicingOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(-2), nullptr);
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
+  {
+    // Null value index.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(-2),
+        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().type(), TypedValue::Type::Null);
+  }
 }
 
 TEST(ExpressionEvaluator, NotOperator) {
