@@ -90,6 +90,7 @@ TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_FALSE(return_clause->body_.all_identifiers);
   ASSERT_EQ(return_clause->body_.order_by.size(), 0U);
   ASSERT_EQ(return_clause->body_.named_expressions.size(), 1U);
   ASSERT_FALSE(return_clause->body_.limit);
@@ -147,10 +148,19 @@ TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
   AstGenerator ast_generator("RETURN var AS var5");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_FALSE(return_clause->body_.all_identifiers);
   auto *named_expr = return_clause->body_.named_expressions[0];
   ASSERT_EQ(named_expr->name_, "var5");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "var");
+}
+
+TEST(CypherMainVisitorTest, ReturnAsterisk) {
+  AstGenerator ast_generator("RETURN *");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(return_clause->body_.all_identifiers);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 0U);
 }
 
 TEST(CypherMainVisitorTest, IntegerLiteral) {
@@ -448,10 +458,11 @@ TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
 }
 
 TEST(CypherMainVisitorTest, Aggregation) {
-  AstGenerator ast_generator("RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e)");
+  AstGenerator ast_generator(
+      "RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e), COUNT(*)");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  ASSERT_EQ(return_clause->body_.named_expressions.size(), 5);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 6U);
   Aggregation::Op ops[] = {Aggregation::Op::COUNT, Aggregation::Op::MIN,
                            Aggregation::Op::MAX, Aggregation::Op::SUM,
                            Aggregation::Op::AVG};
@@ -465,6 +476,11 @@ TEST(CypherMainVisitorTest, Aggregation) {
     ASSERT_TRUE(identifier);
     ASSERT_EQ(identifier->name_, ids[i]);
   }
+  auto *aggregation = dynamic_cast<Aggregation *>(
+      return_clause->body_.named_expressions[5]->expression_);
+  ASSERT_TRUE(aggregation);
+  ASSERT_EQ(aggregation->op_, Aggregation::Op::COUNT);
+  ASSERT_FALSE(aggregation->expression_);
 }
 
 TEST(CypherMainVisitorTest, UndefinedFunction) {
@@ -593,6 +609,7 @@ TEST(CypherMainVisitorTest, NodePattern) {
   ASSERT_TRUE(node->identifier_);
   EXPECT_EQ(node->identifier_->name_,
             CypherMainVisitor::kAnonPrefix + std::to_string(1));
+  EXPECT_FALSE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre(
                                  ast_generator.db_accessor_->label("label1"),
                                  ast_generator.db_accessor_->label("label2"),
@@ -621,6 +638,7 @@ TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
   EXPECT_EQ(node->identifier_->name_, "var");
+  EXPECT_TRUE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre());
   EXPECT_THAT(node->properties_, UnorderedElementsAre());
 }
@@ -645,6 +663,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   ASSERT_TRUE(edge->identifier_);
   EXPECT_THAT(edge->identifier_->name_,
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
+  EXPECT_FALSE(edge->identifier_->user_declared_);
 }
 
 // PatternPart in braces.
@@ -667,6 +686,7 @@ TEST(CypherMainVisitorTest, PatternPartBraces) {
   ASSERT_TRUE(edge->identifier_);
   EXPECT_THAT(edge->identifier_->name_,
               CypherMainVisitor::kAnonPrefix + std::to_string(2));
+  EXPECT_FALSE(edge->identifier_->user_declared_);
 }
 
 TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
@@ -709,6 +729,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::RIGHT);
   ASSERT_TRUE(edge->identifier_);
   EXPECT_THAT(edge->identifier_->name_, "var");
+  EXPECT_TRUE(edge->identifier_->user_declared_);
 }
 
 // // Relationship with unbounded variable range.
@@ -788,6 +809,7 @@ TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "var");
+  ASSERT_TRUE(identifier->user_declared_);
 }
 
 TEST(CypherMainVisitorTest, Create) {

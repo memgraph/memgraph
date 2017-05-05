@@ -83,7 +83,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
     while (true) {
       std::string id_name = kAnonPrefix + std::to_string(id++);
       if (users_identifiers.find(id_name) == users_identifiers.end()) {
-        *identifier = storage_.Create<Identifier>(id_name);
+        *identifier = storage_.Create<Identifier>(id_name, false);
         break;
       }
     }
@@ -171,22 +171,21 @@ antlrcpp::Any CypherMainVisitor::visitReturnBody(
   if (ctx->limit()) {
     body.limit = static_cast<Expression *>(ctx->limit()->accept(this));
   }
-  body.named_expressions =
-      ctx->returnItems()->accept(this).as<std::vector<NamedExpression *>>();
+  std::tie(body.all_identifiers, body.named_expressions) =
+      ctx->returnItems()
+          ->accept(this)
+          .as<std::pair<bool, std::vector<NamedExpression *>>>();
   return body;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(
     CypherParser::ReturnItemsContext *ctx) {
-  if (ctx->getTokens(kReturnAllTokenId).size()) {
-    // TODO: implement *
-    throw utils::NotYetImplemented();
-  }
   std::vector<NamedExpression *> named_expressions;
   for (auto *item : ctx->returnItem()) {
     named_expressions.push_back(item->accept(this));
   }
-  return named_expressions;
+  return std::pair<bool, std::vector<NamedExpression *>>(
+      ctx->getTokens(kReturnAllTokenId).size(), named_expressions);
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItem(
@@ -669,9 +668,15 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return static_cast<Expression *>(storage_.Create<Identifier>(variable));
   } else if (ctx->functionInvocation()) {
     return static_cast<Expression *>(ctx->functionInvocation()->accept(this));
+  } else if (ctx->COUNT()) {
+    // Here we handle COUNT(*). COUNT(expression) is handled in
+    // visitFunctionInvocation with other aggregations. This is visible in
+    // functionInvocation and atom producions in opencypher grammar.
+    return static_cast<Expression *>(
+        storage_.Create<Aggregation>(nullptr, Aggregation::Op::COUNT));
   }
-  // TODO: Implement this. We don't support comprehensions, functions,
-  // filtering... at the moment.
+  // TODO: Implement this. We don't support comprehensions, filtering... at the
+  // moment.
   throw utils::NotYetImplemented();
 }
 

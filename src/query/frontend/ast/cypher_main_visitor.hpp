@@ -165,7 +165,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitReturnBody(CypherParser::ReturnBodyContext *ctx) override;
 
   /**
-   * @return vector<NamedExpression*>
+   * @return pair<bool, vector<NamedExpression*>> first member is true if
+   * asterisk was found in return
+   * expressions.
    */
   antlrcpp::Any visitReturnItems(
       CypherParser::ReturnItemsContext *ctx) override;

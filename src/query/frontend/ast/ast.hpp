@@ -8,6 +8,7 @@
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/typed_value.hpp"
+#include "utils/assert.hpp"
 #include "utils/visitor/visitable.hpp"
 
 namespace query {
@@ -38,8 +39,8 @@ class BinaryOperator : public Expression {
   friend class AstTreeStorage;
 
  public:
-  Expression *expression1_;
-  Expression *expression2_;
+  Expression *expression1_ = nullptr;
+  Expression *expression2_ = nullptr;
 
  protected:
   BinaryOperator(int uid) : Expression(uid) {}
@@ -51,7 +52,7 @@ class UnaryOperator : public Expression {
   friend class AstTreeStorage;
 
  public:
-  Expression *expression_;
+  Expression *expression_ = nullptr;
 
  protected:
   UnaryOperator(int uid) : Expression(uid) {}
@@ -454,9 +455,12 @@ class Identifier : public Expression {
  public:
   DEFVISITABLE(TreeVisitorBase);
   std::string name_;
+  bool user_declared_ = true;
 
  protected:
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
+  Identifier(int uid, const std::string &name, bool user_declared)
+      : Expression(uid), name_(name), user_declared_(user_declared) {}
 };
 
 class PropertyLookup : public Expression {
@@ -572,7 +576,9 @@ class Aggregation : public UnaryOperator {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      expression_->Accept(visitor);
+      if (expression_) {
+        expression_->Accept(visitor);
+      }
       visitor.PostVisit(*this);
     }
   }
@@ -580,7 +586,11 @@ class Aggregation : public UnaryOperator {
 
  protected:
   Aggregation(int uid, Expression *expression, Op op)
-      : UnaryOperator(uid, expression), op_(op) {}
+      : UnaryOperator(uid, expression), op_(op) {
+    // Count without expression denotes count(*) in cypher.
+    debug_assert(expression || op == Aggregation::Op::Count,
+                 "All aggregations, except COUNT require expression");
+  }
 };
 
 class NamedExpression : public Tree {
@@ -780,6 +790,8 @@ enum class Ordering { ASC, DESC };
 struct ReturnBody {
   /** @brief True if distinct results should be produced. */
   bool distinct = false;
+  /** @brief True if asterisk was found in return body */
+  bool all_identifiers = false;
   /** @brief Expressions which are used to produce results. */
   std::vector<NamedExpression *> named_expressions;
   /** @brief Expressions used for ordering the results. */
