@@ -5,7 +5,7 @@
 #include "threading/sync/futex.hpp"
 
 class RecordLock {
-  static constexpr struct timespec timeout { 20, 0 };
+  static constexpr struct timespec timeout { 2, 0 };
   static constexpr Id INVALID = Id();
 
  public:

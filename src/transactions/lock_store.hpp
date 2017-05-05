@@ -14,7 +14,7 @@ class LockStore {
     LockHolder() noexcept = default;
 
     template <class... Args>
-    LockHolder(T *lock, Args &&... args) noexcept : lock(lock) {
+    LockHolder(T *lock, Args &&... args) : lock(lock) {
       debug_assert(lock != nullptr, "Lock is nullptr.");
       auto status = lock->lock(std::forward<Args>(args)...);
 
