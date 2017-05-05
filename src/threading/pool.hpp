@@ -26,14 +26,22 @@ class Pool : Lockable<std::mutex> {
       threads.emplace_back([this]() -> void { loop(); });
   }
 
-  Pool(Pool&) = delete;
-  Pool(Pool&&) = delete;
+  Pool(Pool &) = delete;
+  Pool(Pool &&) = delete;
 
   ~Pool() {
-    alive.store(false, std::memory_order_seq_cst);
-    cond.notify_all();
+    {
+      // We need to hold the lock before we notify threads because condition
+      // variable wait for could read the value of alive as true, then receive a
+      // notification and then continue waiting since it read the value as true,
+      // that's why we have to force notification to occur while the condition
+      // variable doesn't have a lock.
+      auto lock = acquire_unique();
+      alive.store(false, std::memory_order_seq_cst);
+      cond.notify_all();
+    }
 
-    for (auto& thread : threads) thread.join();
+    for (auto &thread : threads) thread.join();
   }
 
   /**
