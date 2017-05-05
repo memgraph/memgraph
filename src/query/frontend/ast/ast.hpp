@@ -526,7 +526,10 @@ class EdgeTypeTest : public Expression {
  protected:
   EdgeTypeTest(int uid, Expression *expression,
                std::vector<GraphDbTypes::EdgeType> edge_types)
-      : Expression(uid), expression_(expression), edge_types_(edge_types) {}
+      : Expression(uid), expression_(expression), edge_types_(edge_types) {
+    debug_assert(edge_types.size(),
+                 "EdgeTypeTest must have at least one edge_type");
+  }
 };
 
 class Function : public Expression {

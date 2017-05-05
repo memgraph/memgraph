@@ -7,11 +7,13 @@
 #include "gtest/gtest.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "dbms/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/interpret/frame.hpp"
 
 using namespace query;
 using testing::Pair;
@@ -22,7 +24,7 @@ namespace {
 
 struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
-  Frame frame{0};
+  Frame frame{128};
   SymbolTable symbol_table;
   Dbms dbms;
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
@@ -426,6 +428,112 @@ TEST(ExpressionEvaluator, IsNullOperator) {
       storage.Create<PrimitiveLiteral>(TypedValue::Null));
   op->Accept(eval.eval);
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
+}
+
+TEST(ExpressionEvaluator, PropertyLookup) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  v1.PropsSet(dba->property("age"), 10);
+  auto *identifier = storage.Create<Identifier>("n");
+  auto node_symbol = eval.symbol_table.CreateSymbol("n");
+  eval.symbol_table[*identifier] = node_symbol;
+  eval.frame[node_symbol] = v1;
+  {
+    auto *op = storage.Create<PropertyLookup>(identifier, dba->property("age"));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<int64_t>(), 10);
+  }
+  {
+    auto *op =
+        storage.Create<PropertyLookup>(identifier, dba->property("height"));
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+  {
+    eval.frame[node_symbol] = TypedValue::Null;
+    auto *op = storage.Create<PropertyLookup>(identifier, dba->property("age"));
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+}
+
+TEST(ExpressionEvaluator, LabelsTest) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  v1.add_label(dba->label("ANIMAL"));
+  v1.add_label(dba->label("DOG"));
+  v1.add_label(dba->label("NICE_DOG"));
+  auto *identifier = storage.Create<Identifier>("n");
+  auto node_symbol = eval.symbol_table.CreateSymbol("n");
+  eval.symbol_table[*identifier] = node_symbol;
+  eval.frame[node_symbol] = v1;
+  {
+    auto *op = storage.Create<LabelsTest>(
+        identifier, std::vector<GraphDbTypes::Label>{dba->label("DOG"),
+                                                     dba->label("ANIMAL")});
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  }
+  {
+    auto *op = storage.Create<LabelsTest>(
+        identifier,
+        std::vector<GraphDbTypes::Label>{
+            dba->label("DOG"), dba->label("BAD_DOG"), dba->label("ANIMAL")});
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), false);
+  }
+  {
+    eval.frame[node_symbol] = TypedValue::Null;
+    auto *op = storage.Create<LabelsTest>(
+        identifier,
+        std::vector<GraphDbTypes::Label>{
+            dba->label("DOG"), dba->label("BAD_DOG"), dba->label("ANIMAL")});
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+}
+
+TEST(ExpressionEvaluator, EdgeTypeTest) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto e = dba->insert_edge(v1, v2, dba->edge_type("TYPE1"));
+  auto *identifier = storage.Create<Identifier>("e");
+  auto edge_symbol = eval.symbol_table.CreateSymbol("e");
+  eval.symbol_table[*identifier] = edge_symbol;
+  eval.frame[edge_symbol] = e;
+  {
+    auto *op = storage.Create<EdgeTypeTest>(
+        identifier, std::vector<GraphDbTypes::EdgeType>{
+                        dba->edge_type("TYPE0"), dba->edge_type("TYPE1"),
+                        dba->edge_type("TYPE2")});
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  }
+  {
+    auto *op = storage.Create<EdgeTypeTest>(
+        identifier, std::vector<GraphDbTypes::EdgeType>{
+                        dba->edge_type("TYPE0"), dba->edge_type("TYPE2")});
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), false);
+  }
+  {
+    eval.frame[edge_symbol] = TypedValue::Null;
+    auto *op = storage.Create<EdgeTypeTest>(
+        identifier, std::vector<GraphDbTypes::EdgeType>{
+                        dba->edge_type("TYPE0"), dba->edge_type("TYPE2")});
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
 }
 
 TEST(ExpressionEvaluator, Aggregation) {

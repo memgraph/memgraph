@@ -200,6 +200,51 @@ class ExpressionEvaluator : public TreeVisitorBase {
     }
   }
 
+  void PostVisit(LabelsTest &labels_test) override {
+    auto expression_result = PopBack();
+    switch (expression_result.type()) {
+      case TypedValue::Type::Null:
+        result_stack_.emplace_back(TypedValue::Null);
+        break;
+      case TypedValue::Type::Vertex: {
+        auto vertex = expression_result.Value<VertexAccessor>();
+        for (const auto label : labels_test.labels_) {
+          if (!vertex.has_label(label)) {
+            result_stack_.emplace_back(false);
+            return;
+          }
+        }
+        result_stack_.emplace_back(true);
+        break;
+      }
+      default:
+        throw TypedValueException("Expected Node in labels test");
+    }
+  }
+
+  void PostVisit(EdgeTypeTest &edge_type_test) override {
+    auto expression_result = PopBack();
+    switch (expression_result.type()) {
+      case TypedValue::Type::Null:
+        result_stack_.emplace_back(TypedValue::Null);
+        break;
+      case TypedValue::Type::Edge: {
+        auto real_edge_type =
+            expression_result.Value<EdgeAccessor>().edge_type();
+        for (const auto edge_type : edge_type_test.edge_types_) {
+          if (edge_type == real_edge_type) {
+            result_stack_.emplace_back(true);
+            return;
+          }
+        }
+        result_stack_.emplace_back(false);
+        break;
+      }
+      default:
+        throw TypedValueException("Expected Edge in edge type test");
+    }
+  }
+
   void Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
