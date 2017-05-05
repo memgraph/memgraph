@@ -796,9 +796,7 @@ class SkipList : private Lockable<lock_t> {
     while (true) {
       // try to descend down first while the next key on this layer overshoots
       // or the next key is marked for deletion
-      for (; h >= 0 && (less(item, node = pred->forward(h)) ||
-                        (node && node->flags.is_marked()));
-           --h) {
+      for (; h >= 0 && less(item, node = pred->forward(h)); --h) {
       }
 
       // if we overshoot at every layer, item doesn't exist
@@ -809,7 +807,10 @@ class SkipList : private Lockable<lock_t> {
       while (greater(item, node)) pred = node, node = node->forward(h);
 
       // check if we have a hit. if not, we need to descend down again
-      if (!less(item, node) && !node->flags.is_marked()) return It(node);
+      if (!less(item, node)) {
+        if (!node->flags.is_marked()) return It(node);
+        return It(nullptr);
+      }
     }
   }
 
