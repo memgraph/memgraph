@@ -142,7 +142,10 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   n.node_->properties_[property] = LITERAL(42);
 
   // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
+  auto *filter_expr =
+      AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+          EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
+  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n"));
@@ -194,7 +197,9 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   n.node_->labels_.emplace_back(label2);
 
   // node filtering
-  auto node_filter = std::make_shared<NodeFilter>(n.op_, n.sym_, n.node_);
+  auto *filter_expr =
+      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("n", IDENT("n"));
@@ -491,8 +496,11 @@ TEST(QueryPlan, EdgeFilter) {
                           EdgeAtom::Direction::RIGHT, false, "m", false);
     r_m.edge_->edge_types_.push_back(edge_types[0]);
     r_m.edge_->properties_[prop] = LITERAL(42);
-    auto edge_filter =
-        std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
+    auto *filter_expr =
+        AND(storage.Create<EdgeTypeTest>(r_m.edge_->identifier_,
+                                         r_m.edge_->edge_types_),
+            EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42)));
+    auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
@@ -509,26 +517,6 @@ TEST(QueryPlan, EdgeFilter) {
   EXPECT_EQ(1, test_filter());
   dba->advance_command();
   EXPECT_EQ(3, test_filter());
-}
-
-TEST(QueryPlan, EdgeFilterEmpty) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  dba->insert_edge(v1, v2, dba->edge_type("type"));
-  dba->advance_command();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
-  auto edge_filter =
-      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
-  EXPECT_EQ(1, PullAll(edge_filter, *dba, symbol_table));
 }
 
 TEST(QueryPlan, EdgeFilterMultipleTypes) {
@@ -552,11 +540,12 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                         EdgeAtom::Direction::RIGHT, false, "m", false);
-  // add a property filter
-  auto edge_filter =
-      std::make_shared<EdgeFilter>(r_m.op_, r_m.edge_sym_, r_m.edge_);
+  // add an edge type filter
   r_m.edge_->edge_types_.push_back(type_1);
   r_m.edge_->edge_types_.push_back(type_2);
+  auto *filter_expr = storage.Create<EdgeTypeTest>(r_m.edge_->identifier_,
+                                                   r_m.edge_->edge_types_);
+  auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));

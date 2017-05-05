@@ -6,15 +6,19 @@
 
 namespace query {
 
-class Query;
+class AstTreeStorage;
 class SymbolTable;
 
 namespace plan {
 
-// Returns the root of LogicalOperator tree. The tree is constructed by
-// traversing the given AST Query node. SymbolTable is used to determine inputs
-// and outputs of certain operators.
+/// @brief Generates the LogicalOperator tree and returns the root operation.
+///
+/// The tree is constructed by traversing the @c Query node from given
+/// @c AstTreeStorage. The storage may also be used to create new AST nodes for
+/// use in operators. @c SymbolTable is used to determine inputs and outputs of
+/// certain operators.
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
-    query::Query &query, const query::SymbolTable &symbol_table);
+    AstTreeStorage &storage, const query::SymbolTable &symbol_table);
 }
-}
+
+}  // namespace plan

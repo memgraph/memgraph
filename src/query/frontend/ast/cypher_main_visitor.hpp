@@ -521,6 +521,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
 
  public:
   Query *query() { return query_; }
+  AstTreeStorage &storage() { return storage_; }
   const static std::string kAnonPrefix;
 
  private:

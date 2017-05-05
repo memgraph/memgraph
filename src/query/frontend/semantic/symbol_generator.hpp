@@ -34,6 +34,8 @@ class SymbolGenerator : public TreeVisitorBase {
   void Visit(Merge &) override;
   void PostVisit(Merge &) override;
   void PostVisit(Unwind &) override;
+  void Visit(Match &) override;
+  void PostVisit(Match &) override;
 
   // Expressions
   void Visit(Identifier &) override;
@@ -72,10 +74,14 @@ class SymbolGenerator : public TreeVisitorBase {
     bool in_limit{false};
     bool in_order_by{false};
     bool in_where{false};
+    bool in_match{false};
     // True if the return/with contains an aggregation in any named expression.
     bool has_aggregation{false};
     // Map from variable names to symbols.
     std::map<std::string, Symbol> symbols;
+    // Identifiers found in property maps of patterns in a single Match clause.
+    // They need to be checked after visiting Match.
+    std::vector<Identifier *> identifiers_in_property_maps;
   };
 
   bool HasSymbol(const std::string &name);

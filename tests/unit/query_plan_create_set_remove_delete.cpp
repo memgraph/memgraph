@@ -707,8 +707,10 @@ TEST(QueryPlan, NodeFilterSet) {
   scan_all.node_->properties_[prop] = LITERAL(42);
   auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_,
                            "r", EdgeAtom::Direction::BOTH, false, "m", false);
-  auto node_filter =
-      std::make_shared<NodeFilter>(expand.op_, scan_all.sym_, scan_all.node_);
+  auto *filter_expr =
+      EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, prop),
+         LITERAL(42));
+  auto node_filter = std::make_shared<Filter>(expand.op_, filter_expr);
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*set_prop->expression_] = scan_all.sym_;

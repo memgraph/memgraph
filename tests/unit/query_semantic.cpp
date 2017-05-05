@@ -761,4 +761,35 @@ TEST(TestSymbolGenerator, WithUnwindReturn) {
   EXPECT_NE(elem, symbol_table.at(*ret_as_elem));
 }
 
+TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
+  // MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  node_n->properties_[prop] = m_prop;
+  auto node_m = NODE("m");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  node_m->properties_[prop] = n_prop;
+  auto ident_n = IDENT("n");
+  auto as_n = AS("n");
+  auto query =
+      QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(ident_n, as_n));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `n`, `m` and `AS n`
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto n = symbol_table.at(*node_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n, symbol_table.at(*ident_n));
+  EXPECT_NE(n, symbol_table.at(*as_n));
+  auto m = symbol_table.at(*node_m->identifier_);
+  EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
+  EXPECT_NE(n, m);
+  EXPECT_NE(m, symbol_table.at(*as_n));
+}
+
 }  // namespace

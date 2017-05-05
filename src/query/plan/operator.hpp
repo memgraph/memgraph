@@ -55,8 +55,6 @@ class CreateNode;
 class CreateExpand;
 class ScanAll;
 class Expand;
-class NodeFilter;
-class EdgeFilter;
 class Filter;
 class Produce;
 class Delete;
@@ -80,9 +78,9 @@ class Distinct;
 
 /** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
 using LogicalOperatorVisitor = ::utils::Visitor<
-    Once, CreateNode, CreateExpand, ScanAll, Expand, NodeFilter, EdgeFilter,
-    Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
+    Once, CreateNode, CreateExpand, ScanAll, Expand, Filter, Produce, Delete,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
 
@@ -422,88 +420,6 @@ class Expand : public LogicalOperator {
      */
     bool HandleExistingNode(const VertexAccessor new_node, Frame &frame,
                             const SymbolTable &symbol_table);
-  };
-};
-
-/** @brief Operator which filters nodes by labels and properties.
- *
- *  This operator is used to implement `MATCH (n :label {prop: value})`, so that
- *  it filters nodes with specified labels and properties by value.
- */
-class NodeFilter : public LogicalOperator {
- public:
-  /** @brief Construct @c NodeFilter.
-   *
-   * @param input Optional, preceding @c LogicalOperator.
-   * @param input_symbol @c Symbol where the node to be filtered is stored.
-   * @param node_atom @c NodeAtom with labels and properties to filter by.
-   */
-  NodeFilter(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-             const NodeAtom *node_atom);
-  void Accept(LogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
-
- private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-  const NodeAtom *node_atom_;
-
-  class NodeFilterCursor : public Cursor {
-   public:
-    NodeFilterCursor(const NodeFilter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
-    void Reset() override;
-
-   private:
-    const NodeFilter &self_;
-    GraphDbAccessor &db_;
-    const std::unique_ptr<Cursor> input_cursor_;
-
-    /** Helper function for checking if the given vertex
-     * passes this filter. */
-    bool VertexPasses(const VertexAccessor &vertex, Frame &frame,
-                      const SymbolTable &symbol_table);
-  };
-};
-
-/** @brief Operator which filters edges by relationship type and properties.
- *
- *  This operator is used to implement `MATCH () -[r :label {prop: value}]- ()`,
- *  so that it filters edges with specified types and properties by value.
- */
-class EdgeFilter : public LogicalOperator {
- public:
-  /** @brief Construct @c EdgeFilter.
-   *
-   * @param input Optional, preceding @c LogicalOperator.
-   * @param input_symbol @c Symbol where the edge to be filtered is stored.
-   * @param edge_atom @c EdgeAtom with edge types and properties to filter by.
-   */
-  EdgeFilter(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-             const EdgeAtom *edge_atom);
-  void Accept(LogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
-
- private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-  const EdgeAtom *edge_atom_;
-
-  class EdgeFilterCursor : public Cursor {
-   public:
-    EdgeFilterCursor(const EdgeFilter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
-    void Reset() override;
-
-   private:
-    const EdgeFilter &self_;
-    GraphDbAccessor &db_;
-    const std::unique_ptr<Cursor> input_cursor_;
-
-    /** Helper function for checking if the given edge satisfied
-     *  the criteria of this edge filter. */
-    bool EdgePasses(const EdgeAccessor &edge, Frame &frame,
-                    const SymbolTable &symbol_table);
   };
 };
 

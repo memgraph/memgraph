@@ -86,6 +86,10 @@ auto GetPropertyLookup(AstTreeStorage &storage, const std::string &name,
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         property);
 }
+auto GetPropertyLookup(AstTreeStorage &storage, Expression *expr,
+                       GraphDbTypes::Property property) {
+  return storage.Create<PropertyLookup>(expr, property);
+}
 
 ///
 /// Create an EdgeAtom with given name, edge_type and direction.
@@ -415,3 +419,6 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::Aggregation>((expr), query::Aggregation::Op::SUM)
 #define COUNT(expr) \
   storage.Create<query::Aggregation>((expr), query::Aggregation::Op::COUNT)
+#define EQ(expr1, expr2) storage.Create<query::EqualOperator>((expr1), (expr2))
+#define AND(expr1, expr2) storage.Create<query::AndOperator>((expr1), (expr2))
+#define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))

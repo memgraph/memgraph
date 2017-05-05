@@ -101,6 +101,113 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
   return last_op;
 }
 
+// Collects symbols from identifiers found in visited AST nodes.
+class UsedSymbolsCollector : public TreeVisitorBase {
+ public:
+  UsedSymbolsCollector(const SymbolTable &symbol_table)
+      : symbol_table_(symbol_table) {}
+
+  using TreeVisitorBase::Visit;
+  void Visit(Identifier &ident) override {
+    const auto &symbol = symbol_table_.at(ident);
+    symbols_.insert(symbol.position_);
+  }
+
+  std::unordered_set<int> symbols_;
+  const SymbolTable &symbol_table_;
+};
+
+bool HasBoundFilterSymbols(
+    const std::unordered_set<int> &bound_symbols,
+    const std::pair<Expression *, std::unordered_set<int>> &filter) {
+  for (const auto &symbol : filter.second) {
+    if (bound_symbols.find(symbol) == bound_symbols.end()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <class TBoolOperator>
+Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
+                     Expression *expr2) {
+  if (expr1 && expr2) {
+    return storage.Create<TBoolOperator>(expr1, expr2);
+  }
+  return expr1 ? expr1 : expr2;
+}
+
+template <class TAtom>
+Expression *PropertiesEqual(AstTreeStorage &storage,
+                            UsedSymbolsCollector &collector, TAtom *atom) {
+  Expression *filter_expr = nullptr;
+  for (auto &prop_pair : atom->properties_) {
+    prop_pair.second->Accept(collector);
+    auto *property_lookup =
+        storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+    auto *prop_equal =
+        storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+    filter_expr = BoolJoin<AndOperator>(storage, filter_expr, prop_equal);
+  }
+  return filter_expr;
+}
+
+auto &CollectPatternFilters(
+    Pattern &pattern, const SymbolTable &symbol_table,
+    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    AstTreeStorage &storage) {
+  UsedSymbolsCollector collector(symbol_table);
+  auto node_filter = [&](NodeAtom *node) {
+    Expression *labels_filter =
+        node->labels_.empty() ? nullptr
+                              : labels_filter = storage.Create<LabelsTest>(
+                                    node->identifier_, node->labels_);
+    auto *props_filter = PropertiesEqual(storage, collector, node);
+    if (labels_filter || props_filter) {
+      collector.symbols_.insert(symbol_table.at(*node->identifier_).position_);
+      filters.emplace_back(
+          BoolJoin<AndOperator>(storage, labels_filter, props_filter),
+          collector.symbols_);
+      collector.symbols_.clear();
+    }
+    return &filters;
+  };
+  auto expand_filter = [&](auto *filters, NodeAtom *prev_node, EdgeAtom *edge,
+                           NodeAtom *node) {
+    Expression *types_filter = edge->edge_types_.empty()
+                                   ? nullptr
+                                   : storage.Create<EdgeTypeTest>(
+                                         edge->identifier_, edge->edge_types_);
+    auto *props_filter = PropertiesEqual(storage, collector, edge);
+    if (types_filter || props_filter) {
+      const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+      collector.symbols_.insert(edge_symbol.position_);
+      filters->emplace_back(
+          BoolJoin<AndOperator>(storage, types_filter, props_filter),
+          collector.symbols_);
+      collector.symbols_.clear();
+    }
+    return node_filter(node);
+  };
+  return *ReducePattern<
+      std::list<std::pair<Expression *, std::unordered_set<int>>> *>(
+      pattern, node_filter, expand_filter);
+}
+
+void CollectMatchFilters(
+    const Match &match, const SymbolTable &symbol_table,
+    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    AstTreeStorage &storage) {
+  for (auto *pattern : match.patterns_) {
+    CollectPatternFilters(*pattern, symbol_table, filters, storage);
+  }
+  if (match.where_) {
+    UsedSymbolsCollector collector(symbol_table);
+    match.where_->expression_->Accept(collector);
+    filters.emplace_back(match.where_->expression_, collector.symbols_);
+  }
+}
+
 // Contextual information used for generating match operators.
 struct MatchContext {
   const SymbolTable &symbol_table;
@@ -110,20 +217,47 @@ struct MatchContext {
   std::unordered_set<int> &bound_symbols;
   // Determines whether the match should see the new graph state or not.
   GraphView graph_view = GraphView::OLD;
+  // Pairs of filter expression and symbols used in them. The list should be
+  // filled using CollectPatternFilters function, and later modified during
+  // GenMatchForPattern.
+  std::list<std::pair<Expression *, std::unordered_set<int>>> filters;
   // Symbols for edges established in match, used to ensure Cyphermorphism.
   std::unordered_set<Symbol, Symbol::Hash> edge_symbols;
   // All the newly established symbols in match.
   std::vector<Symbol> new_symbols;
 };
 
+auto GenFilters(
+    LogicalOperator *last_op, const std::unordered_set<int> &bound_symbols,
+    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    AstTreeStorage &storage) {
+  Expression *filter_expr = nullptr;
+  for (auto filters_it = filters.begin(); filters_it != filters.end();) {
+    if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
+      filter_expr =
+          BoolJoin<AndOperator>(storage, filter_expr, filters_it->first);
+      filters_it = filters.erase(filters_it);
+    } else {
+      filters_it++;
+    }
+  }
+  if (filter_expr) {
+    last_op =
+        new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
+  }
+  return last_op;
+}
+
 // Generates operators for matching the given pattern and appends them to
 // input_op. Fills the context with all the new symbols and edge symbols.
 auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
-                        MatchContext &context) {
+                        MatchContext &context, AstTreeStorage &storage) {
   auto &bound_symbols = context.bound_symbols;
   const auto &symbol_table = context.symbol_table;
   auto base = [&](NodeAtom *node) {
-    LogicalOperator *last_op = input_op;
+    // Try to generate any filters even before the 1st match operator.
+    auto *last_op =
+        GenFilters(input_op, bound_symbols, context.filters, storage);
     // If the first atom binds a symbol, we generate a ScanAll which writes it.
     // Otherwise, someone else generates it (e.g. a previous ScanAll).
     const auto &node_symbol = symbol_table.at(*node->identifier_);
@@ -132,13 +266,7 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
                             context.graph_view);
       context.new_symbols.emplace_back(node_symbol);
     }
-    // Even though we may skip generating ScanAll, we still want to add a filter
-    // in case this atom adds more labels/properties for filtering.
-    if (!node->labels_.empty() || !node->properties_.empty()) {
-      last_op = new NodeFilter(std::shared_ptr<LogicalOperator>(last_op),
-                               symbol_table.at(*node->identifier_), node);
-    }
-    return last_op;
+    return GenFilters(last_op, bound_symbols, context.filters, storage);
   };
   auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
                      EdgeAtom *edge, NodeAtom *node) {
@@ -177,38 +305,54 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
     // Insert edge_symbol after creating ExpandUniquenessFilter, so that we
     // avoid filtering by the same edge we just expanded.
     context.edge_symbols.insert(edge_symbol);
-    if (!edge->edge_types_.empty() || !edge->properties_.empty()) {
-      last_op = new EdgeFilter(std::shared_ptr<LogicalOperator>(last_op),
-                               symbol_table.at(*edge->identifier_), edge);
-    }
-    if (!node->labels_.empty() || !node->properties_.empty()) {
-      last_op = new NodeFilter(std::shared_ptr<LogicalOperator>(last_op),
-                               symbol_table.at(*node->identifier_), node);
-    }
-    return last_op;
+    return GenFilters(last_op, bound_symbols, context.filters, storage);
   };
   return ReducePattern<LogicalOperator *>(pattern, base, collect);
 }
 
-auto GenMatch(Match &match, LogicalOperator *input_op,
-              const SymbolTable &symbol_table,
-              std::unordered_set<int> &bound_symbols) {
-  auto last_op = match.optional_ ? nullptr : input_op;
-  MatchContext context{symbol_table, bound_symbols};
-  for (auto pattern : match.patterns_) {
-    last_op = GenMatchForPattern(*pattern, last_op, context);
+auto GenMatches(std::vector<Match *> &matches, LogicalOperator *input_op,
+                const SymbolTable &symbol_table,
+                std::unordered_set<int> &bound_symbols,
+                AstTreeStorage &storage) {
+  auto *last_op = input_op;
+  MatchContext req_ctx{symbol_table, bound_symbols};
+  // Collect all non-optional match filters, so that we can put them as soon as
+  // possible in the operator tree. Optional match need to be treated
+  // specially, because they need to remain inside the optional match.
+  for (auto *match : matches) {
+    if (match->optional_) {
+      continue;
+    }
+    CollectMatchFilters(*match, symbol_table, req_ctx.filters, storage);
   }
-  if (match.where_) {
-    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
-                         match.where_->expression_);
+  auto gen_match = [&storage](const Match &match, LogicalOperator *input_op,
+                              MatchContext &context) {
+    auto *match_op = input_op;
+    for (auto *pattern : match.patterns_) {
+      match_op = GenMatchForPattern(*pattern, match_op, context, storage);
+    }
+    return match_op;
+  };
+  for (auto *match : matches) {
+    if (match->optional_) {
+      // Optional match needs to be standalone, so filter only by its filters
+      // and don't plug the previous match_op as input.
+      MatchContext opt_ctx{symbol_table, bound_symbols};
+      CollectMatchFilters(*match, symbol_table, opt_ctx.filters, storage);
+      auto *match_op = gen_match(*match, nullptr, opt_ctx);
+      last_op = new Optional(std::shared_ptr<LogicalOperator>(last_op),
+                             std::shared_ptr<LogicalOperator>(match_op),
+                             opt_ctx.new_symbols);
+      debug_assert(opt_ctx.filters.empty(),
+                   "Expected to generate all optional filters");
+    } else {
+      // Since we reuse req_ctx, we need to clear the symbols for the new match.
+      req_ctx.edge_symbols.clear();
+      req_ctx.new_symbols.clear();
+      last_op = gen_match(*match, last_op, req_ctx);
+    }
   }
-  // Plan Optional after Filter. because with `OPTIONAL MATCH ... WHERE`,
-  // filtering is done while looking for the pattern.
-  if (match.optional_) {
-    last_op = new Optional(std::shared_ptr<LogicalOperator>(input_op),
-                           std::shared_ptr<LogicalOperator>(last_op),
-                           context.new_symbols);
-  }
+  debug_assert(req_ctx.filters.empty(), "Expected to generate all filters");
   return last_op;
 }
 
@@ -256,7 +400,9 @@ class ReturnBodyContext : public TreeVisitorBase {
   using TreeVisitorBase::Visit;
   using TreeVisitorBase::PostVisit;
 
-  void Visit(PrimitiveLiteral &) override { has_aggregation_.emplace_back(false); }
+  void Visit(PrimitiveLiteral &) override {
+    has_aggregation_.emplace_back(false);
+  }
 
   void Visit(ListLiteral &) override { has_aggregation_.emplace_back(false); }
 
@@ -485,12 +631,15 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
 
 auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
               const SymbolTable &symbol_table,
-              std::unordered_set<int> &bound_symbols) {
+              std::unordered_set<int> &bound_symbols, AstTreeStorage &storage) {
   // Copy the bound symbol set, because we don't want to use the updated version
   // when generating the create part.
   std::unordered_set<int> bound_symbols_copy(bound_symbols);
   MatchContext context{symbol_table, bound_symbols_copy, GraphView::NEW};
-  auto on_match = GenMatchForPattern(*merge.pattern_, nullptr, context);
+  CollectPatternFilters(*merge.pattern_, symbol_table, context.filters,
+                        storage);
+  auto on_match =
+      GenMatchForPattern(*merge.pattern_, nullptr, context, storage);
   // Use the original bound_symbols, so we fill it with new symbols.
   auto on_create = GenCreateForPattern(*merge.pattern_, nullptr, symbol_table,
                                        bound_symbols);
@@ -510,7 +659,8 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
 }  // namespace
 
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
-    query::Query &query, const query::SymbolTable &symbol_table) {
+    AstTreeStorage &storage, const SymbolTable &symbol_table) {
+  auto query = storage.query();
   // bound_symbols set is used to differentiate cycles in pattern matching, so
   // that the operator can be correctly initialized whether to read the symbol
   // or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and write) the first
@@ -519,35 +669,47 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
   // Set to true if a query command writes to the database.
   bool is_write = false;
   LogicalOperator *input_op = nullptr;
-  for (auto &clause : query.clauses_) {
+  // All sequential Match clauses. Reset after encountering non-Match.
+  std::vector<Match *> matches;
+  for (auto &clause : query->clauses_) {
     // Clauses which read from the database.
     if (auto *match = dynamic_cast<Match *>(clause)) {
-      input_op = GenMatch(*match, input_op, symbol_table, bound_symbols);
-    } else if (auto *ret = dynamic_cast<Return *>(clause)) {
-      input_op = GenReturn(*ret, input_op, symbol_table, is_write);
-    } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
-      input_op = GenMerge(*merge, input_op, symbol_table, bound_symbols);
-      // Treat MERGE clause as write, because we do not know if it will create
-      // anything.
-      is_write = true;
-    } else if (auto *with = dynamic_cast<query::With *>(clause)) {
-      input_op =
-          GenWith(*with, input_op, symbol_table, is_write, bound_symbols);
-      // WITH clause advances the command, so reset the flag.
-      is_write = false;
-    } else if (auto *op = HandleWriteClause(clause, input_op, symbol_table,
-                                            bound_symbols)) {
-      is_write = true;
-      input_op = op;
-    } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
-      input_op = new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
-                                  unwind->named_expression_->expression_,
-                                  symbol_table.at(*unwind->named_expression_));
+      matches.emplace_back(match);
     } else {
-      throw utils::NotYetImplemented(
-          "Encountered a clause which cannot be converted to operator(s)");
+      input_op =
+          GenMatches(matches, input_op, symbol_table, bound_symbols, storage);
+      matches.clear();
+      if (auto *ret = dynamic_cast<Return *>(clause)) {
+        input_op = GenReturn(*ret, input_op, symbol_table, is_write);
+      } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
+        input_op =
+            GenMerge(*merge, input_op, symbol_table, bound_symbols, storage);
+        // Treat MERGE clause as write, because we do not know if it will create
+        // anything.
+        is_write = true;
+      } else if (auto *with = dynamic_cast<query::With *>(clause)) {
+        input_op =
+            GenWith(*with, input_op, symbol_table, is_write, bound_symbols);
+        // WITH clause advances the command, so reset the flag.
+        is_write = false;
+      } else if (auto *op = HandleWriteClause(clause, input_op, symbol_table,
+                                              bound_symbols)) {
+        is_write = true;
+        input_op = op;
+      } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
+        input_op =
+            new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
+                             unwind->named_expression_->expression_,
+                             symbol_table.at(*unwind->named_expression_));
+      } else {
+        throw utils::NotYetImplemented(
+            "Encountered a clause which cannot be converted to operator(s)");
+      }
     }
   }
+  debug_assert(
+      matches.empty(),
+      "Expected Match clause(s) to be followed by an update or return clause");
   return std::unique_ptr<LogicalOperator>(input_op);
 }
 

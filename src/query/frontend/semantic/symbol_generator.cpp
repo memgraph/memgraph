@@ -122,6 +122,18 @@ void SymbolGenerator::PostVisit(Unwind &unwind) {
   symbol_table_[*unwind.named_expression_] = CreateSymbol(name);
 }
 
+void SymbolGenerator::Visit(Match &) { scope_.in_match = true; }
+void SymbolGenerator::PostVisit(Match &) {
+  scope_.in_match = false;
+  // Check variables in property maps after visiting Match, so that they can
+  // reference symbols out of bind order.
+  for (auto &ident : scope_.identifiers_in_property_maps) {
+    if (!HasSymbol(ident->name_)) throw UnboundVariableError(ident->name_);
+    symbol_table_[*ident] = scope_.symbols[ident->name_];
+  }
+  scope_.identifiers_in_property_maps.clear();
+}
+
 // Expressions
 
 void SymbolGenerator::Visit(Identifier &ident) {
@@ -152,6 +164,11 @@ void SymbolGenerator::Visit(Identifier &ident) {
       type = Symbol::Type::Edge;
     }
     symbol = GetOrCreateSymbol(ident.name_, type);
+  } else if (scope_.in_pattern && scope_.in_property_map && scope_.in_match) {
+    // Variables in property maps during MATCH can reference symbols bound later
+    // in the same MATCH. We collect them here, so that they can be checked
+    // after visiting Match.
+    scope_.identifiers_in_property_maps.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
     if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);

@@ -36,7 +36,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   high_level_tree->Accept(symbol_generator);
 
   // high level tree -> logical plan
-  auto logical_plan = plan::MakeLogicalPlan(*high_level_tree, symbol_table);
+  auto logical_plan = plan::MakeLogicalPlan(visitor.storage(), symbol_table);
 
   // generate frame based on symbol table max_position
   Frame frame(symbol_table.max_position());
