@@ -587,8 +587,8 @@ class Aggregation : public UnaryOperator {
  protected:
   Aggregation(int uid, Expression *expression, Op op)
       : UnaryOperator(uid, expression), op_(op) {
-    // Count without expression denotes count(*) in cypher.
-    debug_assert(expression || op == Aggregation::Op::Count,
+    // COUNT without expression denotes COUNT(*) in cypher.
+    debug_assert(expression || op == Aggregation::Op::COUNT,
                  "All aggregations, except COUNT require expression");
   }
 };
