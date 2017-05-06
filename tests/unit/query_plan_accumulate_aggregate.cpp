@@ -152,10 +152,10 @@ TEST(QueryPlan, AggregateOps) {
   // we will take the sum, avg, min, max and count
   // we won't group by anything
   auto prop = dba->property("prop");
-  dba->insert_vertex().PropsSet(prop, 4);
+  dba->insert_vertex().PropsSet(prop, 5);
   dba->insert_vertex().PropsSet(prop, 7);
   dba->insert_vertex().PropsSet(prop, 12);
-  // a missing property (null) gets ignored by all aggregations
+  // a missing property (null) gets ignored by all aggregations except COUNT(*)
   dba->insert_vertex();
   dba->advance_command();
 
@@ -167,31 +167,36 @@ TEST(QueryPlan, AggregateOps) {
   auto n_p = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_p->expression_] = n.sym_;
 
+  std::vector<Expression *> aggregation_expressions(6, n_p);
+  aggregation_expressions[0] = nullptr;
   auto produce = MakeAggregationProduce(
-      n.op_, symbol_table, storage, std::vector<Expression *>(5, n_p),
-      {Aggregation::Op::COUNT, Aggregation::Op::MIN, Aggregation::Op::MAX,
-       Aggregation::Op::SUM, Aggregation::Op::AVG},
+      n.op_, symbol_table, storage, aggregation_expressions,
+      {Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
+       Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG},
       {}, {});
 
   // checks
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
   ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 5);
-  // count
+  ASSERT_EQ(results[0].size(), 6);
+  // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][0].Value<int64_t>(), 3);
-  // min
+  EXPECT_EQ(results[0][0].Value<int64_t>(), 4);
+  // count
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][1].Value<int64_t>(), 4);
-  // max
+  EXPECT_EQ(results[0][1].Value<int64_t>(), 3);
+  // min
   ASSERT_EQ(results[0][2].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][2].Value<int64_t>(), 12);
-  // sum
+  EXPECT_EQ(results[0][2].Value<int64_t>(), 5);
+  // max
   ASSERT_EQ(results[0][3].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][3].Value<int64_t>(), 23);
+  EXPECT_EQ(results[0][3].Value<int64_t>(), 12);
+  // sum
+  ASSERT_EQ(results[0][4].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][4].Value<int64_t>(), 24);
   // avg
-  ASSERT_EQ(results[0][4].type(), TypedValue::Type::Double);
-  EXPECT_FLOAT_EQ(results[0][4].Value<double>(), 23 / 3.0);
+  ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
+  EXPECT_FLOAT_EQ(results[0][5].Value<double>(), 24 / 3.0);
 }
 
 TEST(QueryPlan, AggregateGroupByValues) {

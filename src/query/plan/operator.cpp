@@ -1059,7 +1059,17 @@ void Aggregate::AggregateCursor::Update(
   auto agg_elem_it = self_.aggregations_.begin();
   for (; count_it < agg_value.counts_.end();
        count_it++, value_it++, agg_elem_it++) {
-    std::get<0>(*agg_elem_it)->Accept(evaluator);
+
+    // COUNT(*) is the only case where input expression is optional
+    // handle it here
+    auto input_expr_ptr = std::get<0>(*agg_elem_it);
+    if (!input_expr_ptr) {
+      *count_it += 1;
+      *value_it = *count_it;
+      continue;
+    }
+
+    input_expr_ptr->Accept(evaluator);
     TypedValue input_value = evaluator.PopBack();
 
     // Aggregations skip Null input values.

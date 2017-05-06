@@ -310,7 +310,11 @@ class ReturnBodyContext : public TreeVisitorBase {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
-    has_aggregation_.back() = true;
+    // aggregation expression_ is opional in COUNT(*) so it's possible the has_aggregation_ stack is empty
+    if (aggr.expression_)
+      has_aggregation_.back() = true;
+    else
+      has_aggregation_.emplace_back(true);
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.
