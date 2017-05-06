@@ -291,13 +291,32 @@ antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     CypherParser::SymbolicNameContext *ctx) {
   if (ctx->EscapedSymbolicName()) {
-    // We don't allow at this point for variable to be EscapedSymbolicName
-    // because we would have t ofigure out how escaping works since same
-    // variable can be referenced in two ways: escaped and unescaped.
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented();
+    auto quoted_name = ctx->getText();
+    debug_assert(quoted_name.size() >= 2U && quoted_name[0] == '`' &&
+                     quoted_name.back() == '`',
+                 "Can't happen. Grammar ensures this");
+    // Remove enclosing backticks.
+    std::string escaped_name =
+        quoted_name.substr(1, static_cast<int>(quoted_name.size()) - 2);
+    // Unescape remaining backticks.
+    std::string name;
+    bool escaped = false;
+    for (auto c : escaped_name) {
+      if (escaped) {
+        if (c == '`') {
+          name.push_back('`');
+          escaped = false;
+        } else {
+          debug_assert(false, "Can't happen. Grammar ensures that.");
+        }
+      } else if (c == '`') {
+        escaped = true;
+      } else {
+        name.push_back(c);
+      }
+    }
+    return name;
   }
-  // TODO: We should probably escape string.
   return std::string(ctx->getText());
 }
 
