@@ -153,7 +153,9 @@ expression5 : expression4 ( SP? '^' SP? expression4 )* ;
 
 expression4 : ( ( '+' | '-' ) SP? )* expression3a ;
 
-expression3a : expression3b ( ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2a ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) )* ;
+expression3a : expression3b ( stringAndNullOperators )* ;
+
+stringAndNullOperators : ( ( ( ( SP? '=~' ) | ( SP IN ) | ( SP STARTS SP WITH ) | ( SP ENDS SP WITH ) | ( SP CONTAINS ) ) SP? expression2a ) | ( SP IS SP CYPHERNULL ) | ( SP IS SP NOT SP CYPHERNULL ) ) ;
 
 expression3b : expression2a ( SP? listIndexingOrSlicing )* ;
 

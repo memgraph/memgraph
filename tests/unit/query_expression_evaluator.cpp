@@ -245,6 +245,47 @@ TEST(ExpressionEvaluator, GreaterEqualOperator) {
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), true);
 }
 
+TEST(ExpressionEvaluator, InListOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
+      storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
+      storage.Create<PrimitiveLiteral>("a")});
+  {
+    // Element exists in list.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>(2), list_literal);
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  }
+  {
+    // Element doesn't exist in list.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>("x"), list_literal);
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), false);
+  }
+  {
+    auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(2),
+        storage.Create<PrimitiveLiteral>("a")});
+    // Element doesn't exist in list with null element.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>("x"), list_literal);
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+  {
+    // Null list.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>("x"),
+        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+}
+
 TEST(ExpressionEvaluator, ListIndexingOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;

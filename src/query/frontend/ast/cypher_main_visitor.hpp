@@ -361,12 +361,20 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::Expression4Context *ctx) override;
 
   /**
-   * IS NULL, IS NOT NULL, ...
+   * IS NULL, IS NOT NULL, STARTS WITH, END WITH, =~, ...
    *
    * @return Expression*
    */
   antlrcpp::Any visitExpression3a(
       CypherParser::Expression3aContext *ctx) override;
+
+  /**
+   * Does nothing, everything is done in visitExpression3a.
+   *
+   * @return Expression*
+   */
+  antlrcpp::Any visitStringAndNullOperators(
+      CypherParser::StringAndNullOperatorsContext *ctx) override;
 
   /**
    * List indexing and slicing.

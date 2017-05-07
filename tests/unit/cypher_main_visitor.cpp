@@ -417,6 +417,21 @@ TEST(CypherMainVisitorTest, ListSlicingOperator) {
   EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 2);
 }
 
+TEST(CypherMainVisitorTest, InListOperator) {
+  AstGenerator ast_generator("RETURN 5 IN [1,2]");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *in_list_operator = dynamic_cast<InListOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(in_list_operator);
+  auto *literal =
+      dynamic_cast<PrimitiveLiteral *>(in_list_operator->expression1_);
+  ASSERT_TRUE(literal);
+  ASSERT_EQ(literal->value_.Value<int64_t>(), 5);
+  auto *list = dynamic_cast<ListLiteral *>(in_list_operator->expression2_);
+  ASSERT_TRUE(list);
+}
+
 TEST(CypherMainVisitorTest, IsNull) {
   AstGenerator ast_generator("RETURN 2 iS NulL");
   auto *query = ast_generator.query_;

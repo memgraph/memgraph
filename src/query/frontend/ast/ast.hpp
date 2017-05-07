@@ -300,6 +300,23 @@ class GreaterEqualOperator : public BinaryOperator {
   using BinaryOperator::BinaryOperator;
 };
 
+class InListOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
 class ListIndexingOperator : public BinaryOperator {
   friend class AstTreeStorage;
 

@@ -89,6 +89,38 @@ class ExpressionEvaluator : public TreeVisitorBase {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
+  void PostVisit(InListOperator &) override {
+    auto _list = PopBack();
+    auto literal = PopBack();
+    if (_list.IsNull()) {
+      result_stack_.emplace_back(TypedValue::Null);
+      return;
+    }
+    // Exceptions have higher priority than returning null.
+    // We need to convert list to its type before checking if literal is null,
+    // because conversion will throw exception if list conversion fails.
+    auto list = _list.Value<std::vector<TypedValue>>();
+    if (literal.IsNull()) {
+      result_stack_.emplace_back(TypedValue::Null);
+      return;
+    }
+    auto has_null = false;
+    for (const auto &element : list) {
+      auto result = literal == element;
+      if (result.IsNull()) {
+        has_null = true;
+      } else if (result.Value<bool>()) {
+        result_stack_.emplace_back(true);
+        return;
+      }
+    }
+    if (has_null) {
+      result_stack_.emplace_back(TypedValue::Null);
+    } else {
+      result_stack_.emplace_back(false);
+    }
+  }
+
   void PostVisit(ListIndexingOperator &) override {
     // TODO: implement this for maps
     auto _index = PopBack();

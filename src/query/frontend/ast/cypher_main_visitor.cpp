@@ -590,30 +590,32 @@ antlrcpp::Any CypherMainVisitor::visitExpression4(
                              {kUnaryPlusTokenId, kUnaryMinusTokenId});
 }
 
-// IS NULL, IS NOT NULL, ...
+// IS NULL, IS NOT NULL, STARTS WITH, ..
 antlrcpp::Any CypherMainVisitor::visitExpression3a(
     CypherParser::Expression3aContext *ctx) {
-  // TODO: implement this.
-  // This is a hack. Unfortunately, grammar for expression3 contains a lot of
-  // different expressions. We should break that production in parts so that
-  // we can easily implement its visitor.
-  Expression *expression = ctx->expression3b()[0].accept(this);
-  if (ctx->children.size() - ctx->SP().size() == 3U && ctx->IS().size() == 1U &&
-      ctx->CYPHERNULL().size() == 1U) {
-    return static_cast<Expression *>(
-        storage_.Create<IsNullOperator>(expression));
+  Expression *expression = ctx->expression3b()->accept(this);
+
+  for (auto *op : ctx->stringAndNullOperators()) {
+    if (op->IS() && op->NOT() && op->CYPHERNULL()) {
+      expression = static_cast<Expression *>(storage_.Create<NotOperator>(
+          storage_.Create<IsNullOperator>(expression)));
+    } else if (op->IS() && op->CYPHERNULL()) {
+      expression = static_cast<Expression *>(
+          storage_.Create<IsNullOperator>(expression));
+    } else if (op->IN()) {
+      expression = static_cast<Expression *>(storage_.Create<InListOperator>(
+          expression, op->expression2a()->accept(this)));
+    } else {
+      throw utils::NotYetImplemented();
+    }
   }
-  if (ctx->children.size() - ctx->SP().size() == 4U && ctx->IS().size() == 1U &&
-      ctx->NOT().size() == 1U && ctx->CYPHERNULL().size() == 1U) {
-    return static_cast<Expression *>(storage_.Create<NotOperator>(
-        storage_.Create<IsNullOperator>(expression)));
-  }
-  if (ctx->children.size() > 1U) {
-    throw utils::NotYetImplemented();
-  }
-  // If there is only one child we don't need to generate any code in this since
-  // that child is expression2.
-  return static_cast<Expression *>(visitChildren(ctx));
+  return expression;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(
+    CypherParser::StringAndNullOperatorsContext *) {
+  debug_assert(false, "Should never be called. See documentation in hpp.");
+  return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression3b(
