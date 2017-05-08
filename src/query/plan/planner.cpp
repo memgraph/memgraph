@@ -147,7 +147,7 @@ Expression *PropertiesEqual(AstTreeStorage &storage,
         storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
     auto *prop_equal =
         storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-    filter_expr = BoolJoin<AndOperator>(storage, filter_expr, prop_equal);
+    filter_expr = BoolJoin<FilterAndOperator>(storage, filter_expr, prop_equal);
   }
   return filter_expr;
 }
@@ -166,7 +166,7 @@ auto &CollectPatternFilters(
     if (labels_filter || props_filter) {
       collector.symbols_.insert(symbol_table.at(*node->identifier_).position_);
       filters.emplace_back(
-          BoolJoin<AndOperator>(storage, labels_filter, props_filter),
+          BoolJoin<FilterAndOperator>(storage, labels_filter, props_filter),
           collector.symbols_);
       collector.symbols_.clear();
     }
@@ -183,7 +183,7 @@ auto &CollectPatternFilters(
       const auto &edge_symbol = symbol_table.at(*edge->identifier_);
       collector.symbols_.insert(edge_symbol.position_);
       filters->emplace_back(
-          BoolJoin<AndOperator>(storage, types_filter, props_filter),
+          BoolJoin<FilterAndOperator>(storage, types_filter, props_filter),
           collector.symbols_);
       collector.symbols_.clear();
     }
@@ -235,7 +235,7 @@ auto GenFilters(
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
       filter_expr =
-          BoolJoin<AndOperator>(storage, filter_expr, filters_it->first);
+          BoolJoin<FilterAndOperator>(storage, filter_expr, filters_it->first);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
@@ -456,7 +456,8 @@ class ReturnBodyContext : public TreeVisitorBase {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
-    // aggregation expression_ is opional in COUNT(*) so it's possible the has_aggregation_ stack is empty
+    // aggregation expression_ is opional in COUNT(*) so it's possible the
+    // has_aggregation_ stack is empty
     if (aggr.expression_)
       has_aggregation_.back() = true;
     else

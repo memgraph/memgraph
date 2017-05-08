@@ -89,6 +89,20 @@ class ExpressionEvaluator : public TreeVisitorBase {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
+  bool PreVisit(FilterAndOperator &op) override {
+    op.expression1_->Accept(*this);
+    auto expression1 = PopBack();
+    if (expression1.IsNull() || !expression1.Value<bool>()) {
+      // If first expression is null or false, don't execute the second one.
+      result_stack_.emplace_back(expression1);
+      return false;
+    }
+    op.expression2_->Accept(*this);
+    auto expression2 = PopBack();
+    result_stack_.emplace_back(expression2);
+    return false;
+  }
+
   void PostVisit(InListOperator &) override {
     auto _list = PopBack();
     auto literal = PopBack();

@@ -90,6 +90,32 @@ TEST(ExpressionEvaluator, AndOperator) {
   ASSERT_EQ(eval.eval.PopBack().Value<bool>(), false);
 }
 
+TEST(ExpressionEvaluator, FilterAndOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  {
+    auto *op = storage.Create<FilterAndOperator>(
+        storage.Create<PrimitiveLiteral>(true),
+        storage.Create<PrimitiveLiteral>(true));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), true);
+  }
+  {
+    auto *op = storage.Create<FilterAndOperator>(
+        storage.Create<PrimitiveLiteral>(false),
+        storage.Create<PrimitiveLiteral>(5));
+    op->Accept(eval.eval);
+    EXPECT_EQ(eval.eval.PopBack().Value<bool>(), false);
+  }
+  {
+    auto *op = storage.Create<FilterAndOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(5));
+    op->Accept(eval.eval);
+    EXPECT_TRUE(eval.eval.PopBack().IsNull());
+  }
+}
+
 TEST(ExpressionEvaluator, AdditionOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;

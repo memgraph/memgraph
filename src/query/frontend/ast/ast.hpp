@@ -67,7 +67,6 @@ class OrOperator : public BinaryOperator {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      // TODO: Should we short-circuit?
       expression1_->Accept(visitor);
       expression2_->Accept(visitor);
       visitor.PostVisit(*this);
@@ -102,7 +101,27 @@ class AndOperator : public BinaryOperator {
   void Accept(TreeVisitorBase &visitor) override {
     if (visitor.PreVisit(*this)) {
       visitor.Visit(*this);
-      // TODO: Should we short-circuit?
+      expression1_->Accept(visitor);
+      expression2_->Accept(visitor);
+      visitor.PostVisit(*this);
+    }
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+};
+
+// This is separate operator so that we can implement different short-circuiting
+// semantics than regular AndOperator. At this point CypherMainVisitor shouldn't
+// concern itself with this, and should constructor only AndOperator-s. This is
+// used in query planner at the moment.
+class FilterAndOperator : public BinaryOperator {
+  friend class AstTreeStorage;
+
+ public:
+  void Accept(TreeVisitorBase &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      visitor.Visit(*this);
       expression1_->Accept(visitor);
       expression2_->Accept(visitor);
       visitor.PostVisit(*this);

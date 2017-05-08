@@ -25,6 +25,7 @@ class ListLiteral;
 class OrOperator;
 class XorOperator;
 class AndOperator;
+class FilterAndOperator;
 class NotOperator;
 class AdditionOperator;
 class SubtractionOperator;
@@ -54,15 +55,15 @@ class Merge;
 class Unwind;
 
 using TreeVisitorBase = ::utils::Visitor<
-    Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
-    AdditionOperator, SubtractionOperator, MultiplicationOperator,
-    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    InListOperator, ListIndexingOperator, ListSlicingOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, Identifier,
-    PrimitiveLiteral, ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest,
-    Aggregation, Function, Create, Match, Return, With, Pattern, NodeAtom,
-    EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    Query, NamedExpression, OrOperator, XorOperator, AndOperator,
+    FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
+    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
+    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
+    GreaterEqualOperator, InListOperator, ListIndexingOperator,
+    ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
+    Identifier, PrimitiveLiteral, ListLiteral, PropertyLookup, LabelsTest,
+    EdgeTypeTest, Aggregation, Function, Create, Match, Return, With, Pattern,
+    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
     RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 }  // namespace query
