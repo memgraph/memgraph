@@ -82,16 +82,6 @@ pip3 install -r requirements.txt
 # TODO: use pullbot and read a password from program arg or env var
 #       (in order to use this script inside CI infrastructure)
 
-# create tests folder
-tests_folder=${script_dir}/tests
-mkdir -p ${tests_folder}
-
-# clone dressipi's tests
-cd ${tests_folder}
-if [[ $clone_dependencies = true ]]; then
-    rm -rf ${tests_folder}/*
-    git clone https://phabricator.memgraph.io/source/pilot_dressipi.git
-fi
 
 # clean dbms folder
 dbms_folder=${script_dir}/dbms
@@ -121,4 +111,3 @@ memgraph_build_dir=${script_dir}/dbms/memgraph/build
 cd ${memgraph_build_dir}
 cmake ..
 make -j8
-make copy_hardcoded_queries
