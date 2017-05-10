@@ -137,6 +137,16 @@ bool Socket::SetKeepAlive() {
   return true;
 }
 
+bool Socket::SetNoDelay() {
+  int optval = 1;
+  socklen_t optlen = sizeof(optval);
+
+  if (setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void*)&optval, optlen) < 0)
+    return false;
+
+  return true;
+}
+
 bool Socket::SetTimeout(long sec, long usec) {
   struct timeval tv;
   tv.tv_sec = sec;

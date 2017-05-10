@@ -98,6 +98,17 @@ class Socket {
   bool SetKeepAlive();
 
   /**
+   * Enables TCP no_delay on the socket.
+   * When enabled, the socket doesn't wait for an ACK of every data packet
+   * before sending the next packet.
+   *
+   * @return enable no_delay success status:
+   *             true if no_delay was successfully enabled on the socket
+   *             false if no_delay was not enabled
+   */
+  bool SetNoDelay();
+
+  /**
    * Sets the socket timeout.
    *
    * @param sec timeout seconds value

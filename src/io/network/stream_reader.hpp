@@ -30,6 +30,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
         s.endpoint().port());
 
     if (!s.SetKeepAlive()) return false;
+    if (!s.SetNoDelay()) return false;
 
     auto& stream = this->derived().OnConnect(std::move(s));
 
