@@ -820,6 +820,38 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {2}), QueryRuntimeException);
 }
 
+TEST(ExpressionEvaluator, FunctionRange) {
+  EXPECT_THROW(EvaluateFunction("RANGE", {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction("RANGE", {1, 2, TypedValue::Null}).IsNull());
+  EXPECT_THROW(EvaluateFunction("RANGE", {1, TypedValue::Null, 1.3}),
+               QueryRuntimeException);
+  auto to_int_list = [](const TypedValue &t) {
+    std::vector<int64_t> list;
+    for (auto x : t.Value<std::vector<TypedValue>>()) {
+      list.push_back(x.Value<int64_t>());
+    }
+    return list;
+  };
+  EXPECT_THROW(EvaluateFunction("RANGE", {1, 2, 0}), QueryRuntimeException);
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {1, 3})),
+              ElementsAre(1, 2, 3));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {-1, 5, 2})),
+              ElementsAre(-1, 1, 3, 5));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 10, 3})),
+              ElementsAre(2, 5, 8));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 2, 2})),
+              ElementsAre(2));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {3, 0, 5})), ElementsAre());
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {5, 1, -2})),
+              ElementsAre(5, 3, 1));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {6, 1, -2})),
+              ElementsAre(6, 4, 2));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 2, -3})),
+              ElementsAre(2));
+  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {-2, 4, -1})),
+              ElementsAre());
+}
+
 TEST(ExpressionEvaluator, FunctionKeys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("KEYS", {TypedValue::Null}).type(),

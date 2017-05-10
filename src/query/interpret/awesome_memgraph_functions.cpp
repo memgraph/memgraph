@@ -282,6 +282,39 @@ TypedValue Labels(const std::vector<TypedValue> &args,
   }
 }
 
+TypedValue Range(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 2U && args.size() != 3U) {
+    throw QueryRuntimeException("range requires two or three arguments");
+  }
+  bool has_null = false;
+  auto check_type = [&](const TypedValue &t) {
+    if (t.IsNull()) {
+      has_null = true;
+    } else if (t.type() != TypedValue::Type::Int) {
+      throw QueryRuntimeException("range called with incompatible type");
+    }
+  };
+  std::for_each(args.begin(), args.end(), check_type);
+  if (has_null) return TypedValue::Null;
+  auto lbound = args[0].Value<int64_t>();
+  auto rbound = args[1].Value<int64_t>();
+  int64_t step = args.size() == 3U ? args[2].Value<int64_t>() : 1;
+  if (step == 0) {
+    throw QueryRuntimeException("step argument in range can't be zero");
+  }
+  std::vector<TypedValue> list;
+  if (lbound <= rbound && step > 0) {
+    for (auto i = lbound; i <= rbound; i += step) {
+      list.push_back(i);
+    }
+  } else if (lbound >= rbound && step < 0) {
+    for (auto i = lbound; i >= rbound; i += step) {
+      list.push_back(i);
+    }
+  }
+  return list;
+}
+
 TypedValue Tail(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("tail requires one argument");
@@ -421,6 +454,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "TYPE") return Type;
   if (function_name == "KEYS") return Keys;
   if (function_name == "LABELS") return Labels;
+  if (function_name == "RANGE") return Range;
   if (function_name == "TAIL") return Tail;
   if (function_name == "ABS") return Abs;
   if (function_name == "CEIL") return Ceil;
