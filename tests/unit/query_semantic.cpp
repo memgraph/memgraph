@@ -26,12 +26,12 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   auto pattern = match->patterns_[0];
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
-  EXPECT_EQ(node_sym.name_, "node_atom_1");
-  EXPECT_EQ(node_sym.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(node_sym.name(), "node_atom_1");
+  EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
   auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
-  EXPECT_EQ(node_sym.name_, column_sym.name_);
+  EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
   auto ret_sym = symbol_table[*named_expr->expression_];
   EXPECT_EQ(node_sym, ret_sym);
@@ -87,12 +87,12 @@ TEST(TestSymbolGenerator, MatchSameEdge) {
     is_node = !is_node;
   }
   auto &node_symbol = node_symbols.front();
-  EXPECT_EQ(node_symbol.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(node_symbol.type(), Symbol::Type::Vertex);
   for (auto &symbol : node_symbols) {
     EXPECT_EQ(node_symbol, symbol);
   }
   auto &edge_symbol = edge_symbols.front();
-  EXPECT_EQ(edge_symbol.type_, Symbol::Type::Edge);
+  EXPECT_EQ(edge_symbol.type(), Symbol::Type::Edge);
   for (auto &symbol : edge_symbols) {
     EXPECT_EQ(edge_symbol, symbol);
   }
@@ -129,12 +129,12 @@ TEST(TestSymbolGenerator, CreateNodeReturn) {
   auto pattern = create->patterns_[0];
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
-  EXPECT_EQ(node_sym.name_, "n");
-  EXPECT_EQ(node_sym.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(node_sym.name(), "n");
+  EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
   auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
-  EXPECT_EQ(node_sym.name_, column_sym.name_);
+  EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
   auto ret_sym = symbol_table[*named_expr->expression_];
   EXPECT_EQ(node_sym, ret_sym);
@@ -260,7 +260,7 @@ TEST(TestSymbolGenerator, CreateDelete) {
   EXPECT_EQ(symbol_table.max_position(), 1);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto ident_symbol = symbol_table.at(*ident);
-  EXPECT_EQ(node_symbol.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(node_symbol.type(), Symbol::Type::Vertex);
   EXPECT_EQ(node_symbol, ident_symbol);
 }
 
@@ -369,18 +369,18 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   auto n1 = symbol_table.at(*node_n1->identifier_);
   auto n2 = symbol_table.at(*node_n2->identifier_);
   EXPECT_EQ(n1, n2);
-  EXPECT_EQ(n1.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(n1.type(), Symbol::Type::Vertex);
   auto m = symbol_table.at(*node_m->identifier_);
-  EXPECT_EQ(m.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(m.type(), Symbol::Type::Vertex);
   EXPECT_NE(m, n1);
   auto l = symbol_table.at(*node_l->identifier_);
-  EXPECT_EQ(l.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(l.type(), Symbol::Type::Vertex);
   EXPECT_NE(l, n1);
   EXPECT_NE(l, m);
   auto r = symbol_table.at(*edge_r->identifier_);
   auto p = symbol_table.at(*edge_p->identifier_);
-  EXPECT_EQ(r.type_, Symbol::Type::Edge);
-  EXPECT_EQ(p.type_, Symbol::Type::Edge);
+  EXPECT_EQ(r.type(), Symbol::Type::Edge);
+  EXPECT_EQ(p.type(), Symbol::Type::Edge);
   EXPECT_NE(r, p);
 }
 
@@ -527,11 +527,11 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   query->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto n = symbol_table.at(*node_1->identifier_);
-  EXPECT_EQ(n.type_, Symbol::Type::Vertex);
+  EXPECT_EQ(n.type(), Symbol::Type::Vertex);
   auto m = symbol_table.at(*node_2->identifier_);
   EXPECT_NE(n, m);
   // Currently we don't infer expression types, so we lost true type of 'm'.
-  EXPECT_EQ(m.type_, Symbol::Type::Any);
+  EXPECT_EQ(m.type(), Symbol::Type::Any);
   EXPECT_EQ(m, symbol_table.at(*node_3->identifier_));
 }
 
@@ -790,6 +790,54 @@ TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
   EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
   EXPECT_NE(n, m);
   EXPECT_NE(m, symbol_table.at(*as_n));
+}
+
+TEST(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
+  // MATCH (n) -[e]- (m) WITH * RETURN *, n.prop
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto ret = RETURN(n_prop, AS("n.prop"));
+  ret->body_.all_identifiers = true;
+  auto node_n = NODE("n");
+  auto edge = EDGE("e");
+  auto node_m = NODE("m");
+  auto with = storage.Create<With>();
+  with->body_.all_identifiers = true;
+  auto query = QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `n`, `e`, `m`, `AS n.prop`.
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  auto n = symbol_table.at(*node_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+}
+
+TEST(TestSymbolGenerator, MatchReturnAsteriskSameResult) {
+  // MATCH (n) RETURN *, n AS n
+  AstTreeStorage storage;
+  auto ret = RETURN(IDENT("n"), AS("n"));
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
+  // MATCH () RETURN *
+  AstTreeStorage storage;
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto ident_n = storage.Create<Identifier>("anon", false);
+  auto node = storage.Create<NodeAtom>(ident_n);
+  auto query = QUERY(MATCH(PATTERN(node)), ret);
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
 }  // namespace

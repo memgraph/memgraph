@@ -120,17 +120,17 @@ using ExpectDistinct = OpChecker<Distinct>;
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
-  ExpectAccumulate(const std::unordered_set<Symbol, Symbol::Hash> &symbols)
+  ExpectAccumulate(const std::unordered_set<Symbol> &symbols)
       : symbols_(symbols) {}
 
   void ExpectOp(Accumulate &op, const SymbolTable &symbol_table) override {
-    std::unordered_set<Symbol, Symbol::Hash> got_symbols(op.symbols().begin(),
-                                                         op.symbols().end());
+    std::unordered_set<Symbol> got_symbols(op.symbols().begin(),
+                                           op.symbols().end());
     EXPECT_EQ(symbols_, got_symbols);
   }
 
  private:
-  const std::unordered_set<Symbol, Symbol::Hash> symbols_;
+  const std::unordered_set<Symbol> symbols_;
 };
 
 class ExpectAggregate : public OpChecker<Aggregate> {
@@ -770,5 +770,56 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectOptional(optional),
             ExpectProduce());
 }
+
+TEST(TestLogicalPlanner, MatchReturnAsterisk) {
+  // Test MATCH (n) -[e]- (m) RETURN *, m.prop
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret);
+  auto symbol_table = MakeSymbolTable(*query);
+  auto plan = MakeLogicalPlan(storage, symbol_table);
+  CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),
+            ExpectProduce());
+  std::vector<std::string> output_names;
+  for (const auto &output_symbol : plan->OutputSymbols(symbol_table)) {
+    output_names.emplace_back(output_symbol.name());
+  }
+  std::vector<std::string> expected_names{"e", "m", "n", "m.prop"};
+  EXPECT_EQ(output_names, expected_names);
+}
+
+TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
+  // Test MATCH (n) RETURN *, SUM(n.prop) AS s
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto ret = RETURN(sum, AS("s"));
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  auto symbol_table = MakeSymbolTable(*query);
+  auto plan = MakeLogicalPlan(storage, symbol_table);
+  auto *produce = dynamic_cast<Produce *>(plan.get());
+  ASSERT_TRUE(produce);
+  const auto &named_expressions = produce->named_expressions();
+  ASSERT_EQ(named_expressions.size(), 2);
+  auto *expanded_ident =
+      dynamic_cast<query::Identifier *>(named_expressions[0]->expression_);
+  ASSERT_TRUE(expanded_ident);
+  auto aggr = ExpectAggregate({sum}, {expanded_ident});
+  CheckPlan(*plan, symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+  std::vector<std::string> output_names;
+  for (const auto &output_symbol : plan->OutputSymbols(symbol_table)) {
+    output_names.emplace_back(output_symbol.name());
+  }
+  std::vector<std::string> expected_names{"n", "s"};
+  EXPECT_EQ(output_names, expected_names);
+}
+
 
 }  // namespace

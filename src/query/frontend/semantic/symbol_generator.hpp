@@ -88,12 +88,12 @@ class SymbolGenerator : public TreeVisitorBase {
 
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
-  auto CreateSymbol(const std::string &name,
+  auto CreateSymbol(const std::string &name, bool user_declared,
                     Symbol::Type type = Symbol::Type::Any);
 
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbol(const std::string &name,
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared,
                          Symbol::Type type = Symbol::Type::Any);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);

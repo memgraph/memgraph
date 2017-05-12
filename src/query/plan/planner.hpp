@@ -18,7 +18,7 @@ namespace plan {
 /// use in operators. @c SymbolTable is used to determine inputs and outputs of
 /// certain operators.
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
-    AstTreeStorage &storage, const query::SymbolTable &symbol_table);
+    AstTreeStorage &storage, query::SymbolTable &symbol_table);
 }
 
 }  // namespace plan

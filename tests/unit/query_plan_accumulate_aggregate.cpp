@@ -65,9 +65,9 @@ TEST(QueryPlan, Accumulate) {
     }
 
     auto n_p_ne = NEXPR("n.p", n_p);
-    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n_p_ne");
+    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n_p_ne", true);
     auto m_p_ne = NEXPR("m.p", m_p);
-    symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne");
+    symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne", true);
     auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
     ResultStreamFaker results = CollectProduce(produce, symbol_table, *dba);
     std::vector<int> results_data;
@@ -95,7 +95,7 @@ TEST(QueryPlan, AccumulateAdvance) {
     SymbolTable symbol_table;
 
     auto node = NODE("n");
-    auto sym_n = symbol_table.CreateSymbol("n");
+    auto sym_n = symbol_table.CreateSymbol("n", true);
     symbol_table[*node->identifier_] = sym_n;
     auto create = std::make_shared<CreateNode>(node, nullptr);
     auto accumulate = std::make_shared<Accumulate>(
@@ -126,8 +126,9 @@ std::shared_ptr<Produce> MakeAggregationProduce(
     auto named_expr = NEXPR("", IDENT("aggregation"));
     named_expressions.push_back(named_expr);
     symbol_table[*named_expr->expression_] =
-        symbol_table.CreateSymbol("aggregation");
-    symbol_table[*named_expr] = symbol_table.CreateSymbol("named_expression");
+        symbol_table.CreateSymbol("aggregation", true);
+    symbol_table[*named_expr] =
+        symbol_table.CreateSymbol("named_expression", true);
     aggregates.emplace_back(*aggr_inputs_it++, aggr_op,
                             symbol_table[*named_expr->expression_]);
   }
@@ -137,7 +138,8 @@ std::shared_ptr<Produce> MakeAggregationProduce(
   for (auto group_by_expr : group_by_exprs) {
     auto named_expr = NEXPR("", group_by_expr);
     named_expressions.push_back(named_expr);
-    symbol_table[*named_expr] = symbol_table.CreateSymbol("named_expression");
+    symbol_table[*named_expr] =
+        symbol_table.CreateSymbol("named_expression", true);
   }
   auto aggregation =
       std::make_shared<Aggregate>(input, aggregates, group_by_exprs, remember);
@@ -307,7 +309,7 @@ TEST(QueryPlan, AggregateNoInput) {
 
   auto two = LITERAL(2);
   auto output = NEXPR("two", IDENT("two"));
-  symbol_table[*output->expression_] = symbol_table.CreateSymbol("two");
+  symbol_table[*output->expression_] = symbol_table.CreateSymbol("two", true);
 
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
@@ -494,18 +496,18 @@ TEST(QueryPlan, Unwind) {
       std::vector<TypedValue>{1, true, "x"}, std::vector<TypedValue>{},
       std::vector<TypedValue>{"bla"}});
 
-  auto x = symbol_table.CreateSymbol("x");
+  auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
   auto x_expr = IDENT("x");
   symbol_table[*x_expr] = x;
-  auto y = symbol_table.CreateSymbol("y");
+  auto y = symbol_table.CreateSymbol("y", true);
   auto unwind_1 = std::make_shared<plan::Unwind>(unwind_0, x_expr, y);
 
   auto x_ne = NEXPR("x", x_expr);
-  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne");
+  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
   auto y_ne = NEXPR("y", IDENT("y"));
   symbol_table[*y_ne->expression_] = y;
-  symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne");
+  symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne", true);
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();

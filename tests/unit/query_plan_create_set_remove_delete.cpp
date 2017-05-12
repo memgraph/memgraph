@@ -33,7 +33,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   SymbolTable symbol_table;
 
   auto node = NODE("n");
-  symbol_table[*node->identifier_] = symbol_table.CreateSymbol("n");
+  symbol_table[*node->identifier_] = symbol_table.CreateSymbol("n", true);
   node->labels_.emplace_back(label);
   node->properties_[property] = LITERAL(42);
 
@@ -67,19 +67,20 @@ TEST(QueryPlan, CreateReturn) {
   SymbolTable symbol_table;
 
   auto node = NODE("n");
-  auto sym_n = symbol_table.CreateSymbol("n");
+  auto sym_n = symbol_table.CreateSymbol("n", true);
   symbol_table[*node->identifier_] = sym_n;
   node->labels_.emplace_back(label);
   node->properties_[property] = LITERAL(42);
 
   auto create = std::make_shared<CreateNode>(node, nullptr);
   auto named_expr_n = NEXPR("n", IDENT("n"));
-  symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n");
+  symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n", true);
   symbol_table[*named_expr_n->expression_] = sym_n;
   auto prop_lookup = PROPERTY_LOOKUP("n", property);
   symbol_table[*prop_lookup->expression_] = sym_n;
   auto named_expr_n_p = NEXPR("n", prop_lookup);
-  symbol_table[*named_expr_n_p] = symbol_table.CreateSymbol("named_expr_n_p");
+  symbol_table[*named_expr_n_p] =
+      symbol_table.CreateSymbol("named_expr_n_p", true);
   symbol_table[*named_expr_n->expression_] = sym_n;
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
@@ -119,7 +120,7 @@ TEST(QueryPlan, CreateExpand) {
     auto n = NODE("n");
     n->labels_.emplace_back(label_node_1);
     n->properties_[property] = LITERAL(1);
-    auto n_sym = symbol_table.CreateSymbol("n");
+    auto n_sym = symbol_table.CreateSymbol("n", true);
     symbol_table[*n->identifier_] = n_sym;
 
     // data for the second node
@@ -129,10 +130,10 @@ TEST(QueryPlan, CreateExpand) {
     if (cycle)
       symbol_table[*m->identifier_] = n_sym;
     else
-      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
 
     auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
-    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r");
+    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r", true);
     r->edge_types_.emplace_back(edge_type);
     r->properties_[property] = LITERAL(3);
 
@@ -188,7 +189,7 @@ TEST(QueryPlan, MatchCreateNode) {
   auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
   // second node
   auto m = NODE("m");
-  symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+  symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
   // creation op
   auto create_node = std::make_shared<CreateNode>(m, n_scan_all.op_);
 
@@ -229,10 +230,10 @@ TEST(QueryPlan, MatchCreateExpand) {
     if (cycle)
       symbol_table[*m->identifier_] = n_scan_all.sym_;
     else
-      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+      symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
 
     auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
-    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r");
+    symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r", true);
     r->edge_types_.emplace_back(edge_type);
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_,
@@ -403,7 +404,7 @@ TEST(QueryPlan, DeleteReturn) {
       storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
   symbol_table[*prop_lookup->expression_] = n.sym_;
   auto n_p = storage.Create<NamedExpression>("n", prop_lookup);
-  symbol_table[*n_p] = symbol_table.CreateSymbol("bla");
+  symbol_table[*n_p] = symbol_table.CreateSymbol("bla", true);
   auto produce = MakeProduce(delete_op, n_p);
 
   auto result = CollectProduce(produce, symbol_table, *dba);
@@ -843,7 +844,7 @@ TEST(QueryPlan, MergeNoInput) {
   SymbolTable symbol_table;
 
   auto node = NODE("n");
-  auto sym_n = symbol_table.CreateSymbol("n");
+  auto sym_n = symbol_table.CreateSymbol("n", true);
   symbol_table[*node->identifier_] = sym_n;
   auto create = std::make_shared<CreateNode>(node, nullptr);
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);

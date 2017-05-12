@@ -13,8 +13,9 @@ namespace {
 
 // Returns false if the symbol was already bound, otherwise binds it and
 // returns true.
-bool BindSymbol(std::unordered_set<int> &bound_symbols, const Symbol &symbol) {
-  auto insertion = bound_symbols.insert(symbol.position_);
+bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
+                const Symbol &symbol) {
+  auto insertion = bound_symbols.insert(symbol);
   return insertion.second;
 }
 
@@ -61,7 +62,7 @@ auto ReducePattern(
 
 auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
                          const SymbolTable &symbol_table,
-                         std::unordered_set<int> &bound_symbols) {
+                         std::unordered_set<Symbol> &bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
     if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
       return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
@@ -92,7 +93,7 @@ auto GenCreateForPattern(Pattern &pattern, LogicalOperator *input_op,
 
 auto GenCreate(Create &create, LogicalOperator *input_op,
                const SymbolTable &symbol_table,
-               std::unordered_set<int> &bound_symbols) {
+               std::unordered_set<Symbol> &bound_symbols) {
   auto last_op = input_op;
   for (auto pattern : create.patterns_) {
     last_op =
@@ -109,17 +110,16 @@ class UsedSymbolsCollector : public TreeVisitorBase {
 
   using TreeVisitorBase::Visit;
   void Visit(Identifier &ident) override {
-    const auto &symbol = symbol_table_.at(ident);
-    symbols_.insert(symbol.position_);
+    symbols_.insert(symbol_table_.at(ident));
   }
 
-  std::unordered_set<int> symbols_;
+  std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
 };
 
 bool HasBoundFilterSymbols(
-    const std::unordered_set<int> &bound_symbols,
-    const std::pair<Expression *, std::unordered_set<int>> &filter) {
+    const std::unordered_set<Symbol> &bound_symbols,
+    const std::pair<Expression *, std::unordered_set<Symbol>> &filter) {
   for (const auto &symbol : filter.second) {
     if (bound_symbols.find(symbol) == bound_symbols.end()) {
       return false;
@@ -154,7 +154,7 @@ Expression *PropertiesEqual(AstTreeStorage &storage,
 
 auto &CollectPatternFilters(
     Pattern &pattern, const SymbolTable &symbol_table,
-    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    std::list<std::pair<Expression *, std::unordered_set<Symbol>>> &filters,
     AstTreeStorage &storage) {
   UsedSymbolsCollector collector(symbol_table);
   auto node_filter = [&](NodeAtom *node) {
@@ -164,7 +164,7 @@ auto &CollectPatternFilters(
                                     node->identifier_, node->labels_);
     auto *props_filter = PropertiesEqual(storage, collector, node);
     if (labels_filter || props_filter) {
-      collector.symbols_.insert(symbol_table.at(*node->identifier_).position_);
+      collector.symbols_.insert(symbol_table.at(*node->identifier_));
       filters.emplace_back(
           BoolJoin<FilterAndOperator>(storage, labels_filter, props_filter),
           collector.symbols_);
@@ -181,7 +181,7 @@ auto &CollectPatternFilters(
     auto *props_filter = PropertiesEqual(storage, collector, edge);
     if (types_filter || props_filter) {
       const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-      collector.symbols_.insert(edge_symbol.position_);
+      collector.symbols_.insert(edge_symbol);
       filters->emplace_back(
           BoolJoin<FilterAndOperator>(storage, types_filter, props_filter),
           collector.symbols_);
@@ -190,13 +190,13 @@ auto &CollectPatternFilters(
     return node_filter(node);
   };
   return *ReducePattern<
-      std::list<std::pair<Expression *, std::unordered_set<int>>> *>(
+      std::list<std::pair<Expression *, std::unordered_set<Symbol>>> *>(
       pattern, node_filter, expand_filter);
 }
 
 void CollectMatchFilters(
     const Match &match, const SymbolTable &symbol_table,
-    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    std::list<std::pair<Expression *, std::unordered_set<Symbol>>> &filters,
     AstTreeStorage &storage) {
   for (auto *pattern : match.patterns_) {
     CollectPatternFilters(*pattern, symbol_table, filters, storage);
@@ -214,22 +214,22 @@ struct MatchContext {
   // Already bound symbols, which are used to determine whether the operator
   // should reference them or establish new. This is both read from and written
   // to during generation.
-  std::unordered_set<int> &bound_symbols;
+  std::unordered_set<Symbol> &bound_symbols;
   // Determines whether the match should see the new graph state or not.
   GraphView graph_view = GraphView::OLD;
   // Pairs of filter expression and symbols used in them. The list should be
   // filled using CollectPatternFilters function, and later modified during
   // GenMatchForPattern.
-  std::list<std::pair<Expression *, std::unordered_set<int>>> filters;
+  std::list<std::pair<Expression *, std::unordered_set<Symbol>>> filters;
   // Symbols for edges established in match, used to ensure Cyphermorphism.
-  std::unordered_set<Symbol, Symbol::Hash> edge_symbols;
+  std::unordered_set<Symbol> edge_symbols;
   // All the newly established symbols in match.
   std::vector<Symbol> new_symbols;
 };
 
 auto GenFilters(
-    LogicalOperator *last_op, const std::unordered_set<int> &bound_symbols,
-    std::list<std::pair<Expression *, std::unordered_set<int>>> &filters,
+    LogicalOperator *last_op, const std::unordered_set<Symbol> &bound_symbols,
+    std::list<std::pair<Expression *, std::unordered_set<Symbol>>> &filters,
     AstTreeStorage &storage) {
   Expression *filter_expr = nullptr;
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
@@ -312,7 +312,7 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
 
 auto GenMatches(std::vector<Match *> &matches, LogicalOperator *input_op,
                 const SymbolTable &symbol_table,
-                std::unordered_set<int> &bound_symbols,
+                std::unordered_set<Symbol> &bound_symbols,
                 AstTreeStorage &storage) {
   auto *last_op = input_op;
   MatchContext req_ctx{symbol_table, bound_symbols};
@@ -369,15 +369,27 @@ auto GenMatches(std::vector<Match *> &matches, LogicalOperator *input_op,
 // aggregations and expressions used for group by.
 class ReturnBodyContext : public TreeVisitorBase {
  public:
-  ReturnBodyContext(const ReturnBody &body, const SymbolTable &symbol_table,
-                    Where *where = nullptr)
-      : body_(body), symbol_table_(symbol_table), where_(where) {
+  ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table,
+                    const std::unordered_set<Symbol> &bound_symbols,
+                    AstTreeStorage &storage, Where *where = nullptr)
+      : body_(body),
+        symbol_table_(symbol_table),
+        bound_symbols_(bound_symbols),
+        storage_(storage),
+        where_(where) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
+    if (body.all_identifiers) {
+      // Expand '*' to expressions and symbols first, so that their results come
+      // before regular named expressions.
+      ExpandUserSymbols();
+    }
     for (auto &named_expr : body_.named_expressions) {
       output_symbols_.emplace_back(symbol_table_.at(*named_expr));
       named_expr->Accept(*this);
+      named_expressions_.emplace_back(named_expr);
     }
+    // Collect aggregations.
     if (aggregations_.empty()) {
       // Visit order_by and where if we do not have aggregations. This way we
       // prevent collecting group_by expressions from order_by and where, which
@@ -456,7 +468,7 @@ class ReturnBodyContext : public TreeVisitorBase {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
-    // aggregation expression_ is opional in COUNT(*) so it's possible the
+    // aggregation expression_ is optional in COUNT(*), so it's possible the
     // has_aggregation_ stack is empty
     if (aggr.expression_)
       has_aggregation_.back() = true;
@@ -474,10 +486,41 @@ class ReturnBodyContext : public TreeVisitorBase {
     has_aggregation_.pop_back();
   }
 
+  // Creates NamedExpression with an Identifier for each user declared symbol.
+  // This should be used when body.all_identifiers is true, to generate
+  // expressions for Produce operator.
+  void ExpandUserSymbols() {
+    debug_assert(
+        named_expressions_.empty(),
+        "ExpandUserSymbols should be first to fill named_expressions_");
+    debug_assert(output_symbols_.empty(),
+                 "ExpandUserSymbols should be first to fill output_symbols_");
+    for (const auto &symbol : bound_symbols_) {
+      if (!symbol.user_declared()) {
+        continue;
+      }
+      auto *ident = storage_.Create<Identifier>(symbol.name());
+      symbol_table_[*ident] = symbol;
+      auto *named_expr = storage_.Create<NamedExpression>(symbol.name(), ident);
+      symbol_table_[*named_expr] = symbol;
+      // Fill output expressions and symbols with expanded identifiers.
+      named_expressions_.emplace_back(named_expr);
+      output_symbols_.emplace_back(symbol);
+      used_symbols_.insert(symbol);
+      // Don't forget to group by expanded identifiers.
+      group_by_.emplace_back(ident);
+    }
+    // Cypher RETURN/WITH * expects to expand '*' sorted by name.
+    std::sort(output_symbols_.begin(), output_symbols_.end(),
+              [](const auto &a, const auto &b) { return a.name() < b.name(); });
+    std::sort(named_expressions_.begin(), named_expressions_.end(),
+              [](const auto &a, const auto &b) { return a->name_ < b->name_; });
+  }
+
   // If true, results need to be distinct.
   bool distinct() const { return body_.distinct; }
   // Named expressions which are used to produce results.
-  const auto &named_expressions() const { return body_.named_expressions; }
+  const auto &named_expressions() const { return named_expressions_; }
   // Pairs of (Ordering, Expression *) for sorting results.
   const auto &order_by() const { return body_.order_by; }
   // Optional expression which determines how many results to skip.
@@ -496,21 +539,23 @@ class ReturnBodyContext : public TreeVisitorBase {
   // expressions are used for grouping. For example, in `WITH sum(n.a) + 2 * n.b
   // AS sum, n.c AS nc`, we will group by `2 * n.b` and `n.c`.
   const auto &group_by() const { return group_by_; }
-
   // All symbols generated by named expressions. They are collected in order of
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
  private:
   const ReturnBody &body_;
-  const SymbolTable &symbol_table_;
+  SymbolTable &symbol_table_;
+  const std::unordered_set<Symbol> &bound_symbols_;
+  AstTreeStorage &storage_;
   const Where *const where_ = nullptr;
-  std::unordered_set<Symbol, Symbol::Hash> used_symbols_;
+  std::unordered_set<Symbol> used_symbols_;
   std::vector<Symbol> output_symbols_;
   std::vector<Aggregate::Element> aggregations_;
   std::vector<Expression *> group_by_;
   // Flag indicating whether an expression contains an aggregation.
   std::list<bool> has_aggregation_;
+  std::vector<NamedExpression *> named_expressions_;
 };
 
 auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
@@ -561,9 +606,9 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   return last_op;
 }
 
-auto GenWith(With &with, LogicalOperator *input_op,
-             const SymbolTable &symbol_table, bool is_write,
-             std::unordered_set<int> &bound_symbols) {
+auto GenWith(With &with, LogicalOperator *input_op, SymbolTable &symbol_table,
+             bool is_write, std::unordered_set<Symbol> &bound_symbols,
+             AstTreeStorage &storage) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -571,7 +616,8 @@ auto GenWith(With &with, LogicalOperator *input_op,
   bool accumulate = is_write;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
-  ReturnBodyContext body(with.body_, symbol_table, with.where_);
+  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage,
+                         with.where_);
   LogicalOperator *last_op =
       GenReturnBody(input_op, advance_command, body, accumulate);
   // Reset bound symbols, so that only those in WITH are exposed.
@@ -583,7 +629,9 @@ auto GenWith(With &with, LogicalOperator *input_op,
 }
 
 auto GenReturn(Return &ret, LogicalOperator *input_op,
-               const SymbolTable &symbol_table, bool is_write) {
+               SymbolTable &symbol_table, bool is_write,
+               const std::unordered_set<Symbol> &bound_symbols,
+               AstTreeStorage &storage) {
   // Similar to WITH clause, but we want to accumulate and advance command when
   // the query writes to the database. This way we handle the case when we want
   // to return expressions with the latest updated results. For example,
@@ -592,7 +640,7 @@ auto GenReturn(Return &ret, LogicalOperator *input_op,
   // value is the same, final result of 'k' increments.
   bool accumulate = is_write;
   bool advance_command = false;
-  ReturnBodyContext body(ret.body_, symbol_table);
+  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage);
   return GenReturnBody(input_op, advance_command, body, accumulate);
 }
 
@@ -600,7 +648,7 @@ auto GenReturn(Return &ret, LogicalOperator *input_op,
 // isn't handled, returns nullptr.
 LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
                                    const SymbolTable &symbol_table,
-                                   std::unordered_set<int> &bound_symbols) {
+                                   std::unordered_set<Symbol> &bound_symbols) {
   if (auto *create = dynamic_cast<Create *>(clause)) {
     return GenCreate(*create, input_op, symbol_table, bound_symbols);
   } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
@@ -632,10 +680,11 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
 
 auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
               const SymbolTable &symbol_table,
-              std::unordered_set<int> &bound_symbols, AstTreeStorage &storage) {
+              std::unordered_set<Symbol> &bound_symbols,
+              AstTreeStorage &storage) {
   // Copy the bound symbol set, because we don't want to use the updated version
   // when generating the create part.
-  std::unordered_set<int> bound_symbols_copy(bound_symbols);
+  std::unordered_set<Symbol> bound_symbols_copy(bound_symbols);
   MatchContext context{symbol_table, bound_symbols_copy, GraphView::NEW};
   CollectPatternFilters(*merge.pattern_, symbol_table, context.filters,
                         storage);
@@ -659,14 +708,14 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
 
 }  // namespace
 
-std::unique_ptr<LogicalOperator> MakeLogicalPlan(
-    AstTreeStorage &storage, const SymbolTable &symbol_table) {
+std::unique_ptr<LogicalOperator> MakeLogicalPlan(AstTreeStorage &storage,
+                                                 SymbolTable &symbol_table) {
   auto query = storage.query();
   // bound_symbols set is used to differentiate cycles in pattern matching, so
   // that the operator can be correctly initialized whether to read the symbol
   // or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and write) the first
   // `n`, but the latter `n` would only read the already written information.
-  std::unordered_set<int> bound_symbols;
+  std::unordered_set<Symbol> bound_symbols;
   // Set to true if a query command writes to the database.
   bool is_write = false;
   LogicalOperator *input_op = nullptr;
@@ -681,7 +730,8 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
           GenMatches(matches, input_op, symbol_table, bound_symbols, storage);
       matches.clear();
       if (auto *ret = dynamic_cast<Return *>(clause)) {
-        input_op = GenReturn(*ret, input_op, symbol_table, is_write);
+        input_op = GenReturn(*ret, input_op, symbol_table, is_write,
+                             bound_symbols, storage);
       } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
         input_op =
             GenMerge(*merge, input_op, symbol_table, bound_symbols, storage);
@@ -689,8 +739,8 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(
         // anything.
         is_write = true;
       } else if (auto *with = dynamic_cast<query::With *>(clause)) {
-        input_op =
-            GenWith(*with, input_op, symbol_table, is_write, bound_symbols);
+        input_op = GenWith(*with, input_op, symbol_table, is_write,
+                           bound_symbols, storage);
         // WITH clause advances the command, so reset the flag.
         is_write = false;
       } else if (auto *op = HandleWriteClause(clause, input_op, symbol_table,

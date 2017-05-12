@@ -95,7 +95,7 @@ TEST(QueryPlan, CreateLimit) {
 
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto m = NODE("m");
-  symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m");
+  symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
   auto c = std::make_shared<CreateNode>(m, n.op_);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
@@ -157,7 +157,7 @@ TEST(QueryPlan, OrderBy) {
             {order_value_pair.first, n_p}},
         std::vector<Symbol>{n.sym_});
     auto n_p_ne = NEXPR("n.p", n_p);
-    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p");
+    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
     auto produce = MakeProduce(order_by, n_p_ne);
     auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
     ASSERT_EQ(values.size(), results.size());
@@ -208,9 +208,9 @@ TEST(QueryPlan, OrderByMultiple) {
       },
       std::vector<Symbol>{n.sym_});
   auto n_p1_ne = NEXPR("n.p1", n_p1);
-  symbol_table[*n_p1_ne] = symbol_table.CreateSymbol("n.p1");
+  symbol_table[*n_p1_ne] = symbol_table.CreateSymbol("n.p1", true);
   auto n_p2_ne = NEXPR("n.p2", n_p2);
-  symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2");
+  symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2", true);
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
   ASSERT_EQ(N * N, results.size());

@@ -48,7 +48,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     // clause, so stream out the results.
 
     // generate header
-    for (const auto &symbol : output_symbols) header.push_back(symbol.name_);
+    for (const auto &symbol : output_symbols) header.push_back(symbol.name());
     stream.Header(header);
 
     // stream out results

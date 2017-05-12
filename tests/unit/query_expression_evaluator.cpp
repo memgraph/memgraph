@@ -505,7 +505,7 @@ TEST(ExpressionEvaluator, PropertyLookup) {
   auto v1 = dba->insert_vertex();
   v1.PropsSet(dba->property("age"), 10);
   auto *identifier = storage.Create<Identifier>("n");
-  auto node_symbol = eval.symbol_table.CreateSymbol("n");
+  auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
   eval.symbol_table[*identifier] = node_symbol;
   eval.frame[node_symbol] = v1;
   {
@@ -537,7 +537,7 @@ TEST(ExpressionEvaluator, LabelsTest) {
   v1.add_label(dba->label("DOG"));
   v1.add_label(dba->label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
-  auto node_symbol = eval.symbol_table.CreateSymbol("n");
+  auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
   eval.symbol_table[*identifier] = node_symbol;
   eval.frame[node_symbol] = v1;
   {
@@ -575,7 +575,7 @@ TEST(ExpressionEvaluator, EdgeTypeTest) {
   auto v2 = dba->insert_vertex();
   auto e = dba->insert_edge(v1, v2, dba->edge_type("TYPE1"));
   auto *identifier = storage.Create<Identifier>("e");
-  auto edge_symbol = eval.symbol_table.CreateSymbol("e");
+  auto edge_symbol = eval.symbol_table.CreateSymbol("e", true);
   eval.symbol_table[*identifier] = edge_symbol;
   eval.frame[edge_symbol] = e;
   {
@@ -608,7 +608,7 @@ TEST(ExpressionEvaluator, Aggregation) {
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           Aggregation::Op::COUNT);
   SymbolTable symbol_table;
-  auto aggr_sym = symbol_table.CreateSymbol("aggr");
+  auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   symbol_table[*aggr] = aggr_sym;
   Frame frame{symbol_table.max_position()};
   frame[aggr_sym] = TypedValue(1);

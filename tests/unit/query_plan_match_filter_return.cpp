@@ -39,7 +39,8 @@ TEST(QueryPlan, MatchReturn) {
     auto output = NEXPR("n", IDENT("n"));
     auto produce = MakeProduce(scan_all.op_, output);
     symbol_table[*output->expression_] = scan_all.sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
     return PullAll(produce, *dba, symbol_table);
   };
 
@@ -68,10 +69,12 @@ TEST(QueryPlan, MatchReturnCartesian) {
   auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
   auto return_n = NEXPR("n", IDENT("n"));
   symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*return_n] =
+      symbol_table.CreateSymbol("named_expression_1", true);
   auto return_m = NEXPR("m", IDENT("m"));
   symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] = symbol_table.CreateSymbol("named_expression_2");
+  symbol_table[*return_m] =
+      symbol_table.CreateSymbol("named_expression_2", true);
   auto produce = MakeProduce(m.op_, return_n, return_m);
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -99,7 +102,7 @@ TEST(QueryPlan, StandaloneReturn) {
 
   auto output = NEXPR("n", LITERAL(42));
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
   EXPECT_EQ(result.GetResults().size(), 1);
@@ -150,7 +153,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n"));
   symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   auto produce = MakeProduce(node_filter, output);
 
   EXPECT_EQ(1, PullAll(produce, *dba, symbol_table));
@@ -206,7 +209,7 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   auto produce = MakeProduce(node_filter, output);
 
   // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = n.sym_;
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -240,7 +243,8 @@ TEST(QueryPlan, Expand) {
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
     symbol_table[*output->expression_] = r_m.node_sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_m.op_, output);
 
     return PullAll(produce, *dba, symbol_table);
@@ -298,13 +302,13 @@ TEST(QueryPlan, ExpandOptional) {
   // RETURN n, r, m
   auto n_ne = NEXPR("n", IDENT("n"));
   symbol_table[*n_ne->expression_] = n.sym_;
-  symbol_table[*n_ne] = symbol_table.CreateSymbol("n");
+  symbol_table[*n_ne] = symbol_table.CreateSymbol("n", true);
   auto r_ne = NEXPR("r", IDENT("r"));
   symbol_table[*r_ne->expression_] = r_m.edge_sym_;
-  symbol_table[*r_ne] = symbol_table.CreateSymbol("r");
+  symbol_table[*r_ne] = symbol_table.CreateSymbol("r", true);
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
-  symbol_table[*m_ne] = symbol_table.CreateSymbol("m");
+  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
 
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
@@ -339,7 +343,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   // RETURN n
   auto n_ne = NEXPR("n", IDENT("n"));
   symbol_table[*n_ne->expression_] = n.sym_;
-  symbol_table[*n_ne] = symbol_table.CreateSymbol("n");
+  symbol_table[*n_ne] = symbol_table.CreateSymbol("n", true);
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
@@ -377,7 +381,8 @@ TEST(QueryPlan, ExpandExistingNode) {
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
     symbol_table[*output->expression_] = n.sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_n.op_, output);
 
     ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -420,7 +425,8 @@ TEST(QueryPlan, ExpandExistingEdge) {
     // make a named expression and a produce
     auto output = NEXPR("r", IDENT("r"));
     symbol_table[*output->expression_] = r_j.edge_sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_k.op_, output);
 
     ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -505,7 +511,8 @@ TEST(QueryPlan, EdgeFilter) {
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
     symbol_table[*output->expression_] = r_m.node_sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(edge_filter, output);
 
     return PullAll(produce, *dba, symbol_table);
@@ -552,7 +559,7 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   auto produce = MakeProduce(edge_filter, output);
 
   // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = r_m.node_sym_;
 
   ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
@@ -582,7 +589,7 @@ TEST(QueryPlan, Filter) {
   auto output =
       storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
   symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1");
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   auto produce = MakeProduce(f, output);
 
   EXPECT_EQ(CollectProduce(produce, symbol_table, *dba).GetResults().size(), 2);
@@ -647,7 +654,7 @@ TEST(QueryPlan, Distinct) {
 
     auto input_expr = LITERAL(TypedValue(input));
 
-    auto x = symbol_table.CreateSymbol("x");
+    auto x = symbol_table.CreateSymbol("x", true);
     auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
     auto x_expr = IDENT("x");
     symbol_table[*x_expr] = x;
@@ -656,7 +663,7 @@ TEST(QueryPlan, Distinct) {
         std::make_shared<plan::Distinct>(unwind, std::vector<Symbol>{x});
 
     auto x_ne = NEXPR("x", x_expr);
-    symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne");
+    symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
     auto produce = MakeProduce(distinct, x_ne);
 
     auto results = CollectProduce(produce, symbol_table, *dba).GetResults();

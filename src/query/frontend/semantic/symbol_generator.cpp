@@ -8,31 +8,45 @@
 
 namespace query {
 
-auto SymbolGenerator::CreateSymbol(const std::string &name, Symbol::Type type) {
-  auto symbol = symbol_table_.CreateSymbol(name, type);
+auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared,
+                                   Symbol::Type type) {
+  auto symbol = symbol_table_.CreateSymbol(name, user_declared, type);
   scope_.symbols[name] = symbol;
   return symbol;
 }
 
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
-                                        Symbol::Type type) {
+                                        bool user_declared, Symbol::Type type) {
   auto search = scope_.symbols.find(name);
   if (search != scope_.symbols.end()) {
     auto symbol = search->second;
     // Unless we have `Any` type, check that types match.
-    if (type != Symbol::Type::Any && symbol.type_ != Symbol::Type::Any &&
-        type != symbol.type_) {
-      throw TypeMismatchError(name, Symbol::TypeToString(symbol.type_),
+    if (type != Symbol::Type::Any && symbol.type() != Symbol::Type::Any &&
+        type != symbol.type()) {
+      throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()),
                               Symbol::TypeToString(type));
     }
     return search->second;
   }
-  return CreateSymbol(name, type);
+  return CreateSymbol(name, user_declared, type);
 }
 
 void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
+  }
+  std::vector<Symbol> user_symbols;
+  if (body.all_identifiers) {
+    // Carry over user symbols because '*' appeared.
+    for (auto sym_pair : scope_.symbols) {
+      if (!sym_pair.second.user_declared()) {
+        continue;
+      }
+      user_symbols.emplace_back(sym_pair.second);
+    }
+    if (user_symbols.empty()) {
+      throw SemanticException("There are no variables in scope to use for '*'");
+    }
   }
   // WITH/RETURN clause removes declarations of all the previous variables and
   // declares only those established through named expressions. New declarations
@@ -47,6 +61,10 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   }
   // Create symbols for named expressions.
   std::unordered_set<std::string> new_names;
+  for (const auto &user_sym : user_symbols) {
+    new_names.insert(user_sym.name());
+    scope_.symbols[user_sym.name()] = user_sym;
+  }
   for (auto &named_expr : body.named_expressions) {
     const auto &name = named_expr->name_;
     if (!new_names.insert(name).second) {
@@ -55,7 +73,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     }
     // An improvement would be to infer the type of the expression, so that the
     // new symbol would have a more specific type.
-    symbol_table_[*named_expr] = CreateSymbol(name);
+    symbol_table_[*named_expr] = CreateSymbol(name, true);
   }
   scope_.in_order_by = true;
   for (const auto &order_pair : body.order_by) {
@@ -119,7 +137,7 @@ void SymbolGenerator::PostVisit(Unwind &unwind) {
   if (HasSymbol(name)) {
     throw RedeclareVariableError(name);
   }
-  symbol_table_[*unwind.named_expression_] = CreateSymbol(name);
+  symbol_table_[*unwind.named_expression_] = CreateSymbol(name, true);
 }
 
 void SymbolGenerator::Visit(Match &) { scope_.in_match = true; }
@@ -163,7 +181,7 @@ void SymbolGenerator::Visit(Identifier &ident) {
     if (scope_.in_edge_atom) {
       type = Symbol::Type::Edge;
     }
-    symbol = GetOrCreateSymbol(ident.name_, type);
+    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope_.in_pattern && scope_.in_property_map && scope_.in_match) {
     // Variables in property maps during MATCH can reference symbols bound later
     // in the same MATCH. We collect them here, so that they can be checked
@@ -193,7 +211,8 @@ void SymbolGenerator::Visit(Aggregation &aggr) {
   }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
-  symbol_table_[aggr] = symbol_table_.CreateSymbol("", Symbol::Type::Number);
+  symbol_table_[aggr] =
+      symbol_table_.CreateSymbol("", false, Symbol::Type::Number);
   scope_.in_aggregation = true;
   scope_.has_aggregation = true;
 }
