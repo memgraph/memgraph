@@ -5,7 +5,7 @@ function print_usage_and_exit {
     echo "Required arguments:"
     echo -e "  --test-suite test_suite\trun test_suite scenarios, test_suite must be test folder in tck_engine/tests."
     echo "Optional arguments:"
-    echo -e "  --unstable\trun unstable scenarios" 
+    echo -e "  --unstable\trun unstable scenarios"
     exit 1
 }
 
@@ -56,14 +56,15 @@ function cleanup_and_exit {
 
 cd ${memgraph_build_dir}
 # binary is available after the build
-binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable -name "memgraph*")
+binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable \
+    -name "memgraph*" | sort | tail -n 1)
 
 # get full path to memgraph config for interpreted queries
 config_path="${memgraph_src_dir}/config/memgraph.yaml"
 
 # run scenarios
 cd ${script_dir}
-tck_flags="--root tck_engine/tests/$test_suite 
+tck_flags="--root tck_engine/tests/$test_suite
            --graphs-root tck_engine/tests/$test_suite
            --no-side-effects --db memgraph"
 
