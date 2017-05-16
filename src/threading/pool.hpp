@@ -14,9 +14,8 @@
  * pool.
  */
 class Pool : Lockable<std::mutex> {
-  using task_t = std::function<void()>;
-
  public:
+  using task_t = std::function<void()>;
   using sptr = std::shared_ptr<Pool>;
 
   explicit Pool(size_t n = std::thread::hardware_concurrency()) : alive(true) {

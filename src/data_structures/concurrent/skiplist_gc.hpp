@@ -8,7 +8,7 @@
 #include "logging/loggable.hpp"
 #include "memory/freelist.hpp"
 #include "memory/lazy_gc.hpp"
-#include "threading/pool.hpp"
+#include "threading/global_pool.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/assert.hpp"
 
@@ -41,10 +41,17 @@ class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>,
     }
 
     if (local_freelist->size() > 0) {
-      thread_pool_.run(std::bind(
-          [this](std::shared_ptr<std::vector<T *>> local_freelist) {
-            logger.trace("GC started");
-            logger.trace("Local list size: {}", local_freelist->size());
+      // We need to use a Global thread pool, otherwise we run into problems
+      // because each skiplist would use it's own thread pool and that would
+      // invoke too many threads.
+      GlobalPool::getSingletonInstance()->run(std::bind(
+          [](std::shared_ptr<std::vector<T *>> local_freelist) {
+            // Comment logger out for now because we can't send an instance of
+            // this to global pool because this SkipListGc instance could be
+            // destroyed before the GC starts and as such will SEGFAULT.
+
+            // logger.trace("GC started");
+            // logger.trace("Local list size: {}", local_freelist->size());
             long long destroyed = 0;
             // destroy all elements from local_freelist
             for (auto element : *local_freelist) {
@@ -52,12 +59,12 @@ class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>,
                 T::destroy(element);
                 destroyed++;
               } else {
-                logger.warn(
-                    "Unmarked node appeared in the collection ready for "
-                    "destruction.");
+                //    logger.warn(
+                //       "Unmarked node appeared in the collection ready for "
+                //      "destruction.");
               }
             }
-            logger.trace("Number of destroyed elements: {}", destroyed);
+            //  logger.trace("Number of destroyed elements: {}", destroyed);
           },
           local_freelist));
     }
@@ -68,5 +75,4 @@ class SkiplistGC : public LazyGC<SkiplistGC<T, lock_t>, lock_t>,
  private:
   // We use FreeList since it's thread-safe.
   FreeList<T *> freelist_;
-  Pool thread_pool_;
 };
