@@ -35,7 +35,7 @@ def create_graph(name, context):
     and sets graph properties to beginning values.
     """
     clear_graph(context)
-    path = find_graph_path(name, context.config.graphs_root)
+    path = find_graph_path(name, context.config.root)
 
     q_marks = ["'", '"', '`']
 

@@ -8,10 +8,7 @@ import sys
 def parse_args():
     argp = ArgumentParser(description=__doc__)
     argp.add_argument("--root", default="tck_engine/tests/openCypher_M05",
-                      help="Path to folder where tests are located, default is openCypher_M05/tck/features.")
-    argp.add_argument(
-        "--graphs-root", default="tck_engine/tests/openCypher_M05/tck/graphs",
-            help="Path to folder where files with graphs queries are located, default is openCypher_M05/tck/graphs.")
+                      help="Path to folder where tests are located, default is tck_engine/tests/openCypher_M05")
     argp.add_argument(
         "--stop", action="store_true", help="Stop testing after first fail.")
     argp.add_argument("--no-side-effects", action="store_true",
@@ -54,8 +51,6 @@ def main():
     add_config("--database-password", dict(help="Database password."))
     add_config("--database-username", dict(help="Database username."))
     add_config("--database-uri", dict(help="Database uri."))
-    add_config("--graphs-root",
-               dict(help="Path to folder where graphs are given."))
     add_config("--output-folder", dict(
         help="Folder where results of tests are written."))
     add_config("--root", dict(help="Folder with test features."))
@@ -81,12 +76,10 @@ def main():
     behave_options.append(args.db_user)
     behave_options.append("--database-uri")
     behave_options.append(args.db_uri)
-    behave_options.append("--graphs-root")
-    behave_options.append(args.graphs_root)
-    behave_options.append("--output-folder")
-    behave_options.append(args.output_folder)
     behave_options.append("--root")
     behave_options.append(args.root)
+    behave_options.append("--output-folder")
+    behave_options.append(args.output_folder)
 
     # runs tests with options
     return behave_main(behave_options)
