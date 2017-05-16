@@ -33,9 +33,9 @@ State StateHandshakeRun(Session &session) {
   }
   session.connected_ = true;
 
-  // Delete data from buffer. It is guaranteed that there will be exactly
-  // 20 bytes in the buffer so we can use buffer_.size() here.
-  session.buffer_.Shift(session.buffer_.size());
+  // Delete data from buffer. It is guaranteed that there will more than, or
+  // equal to 20 bytes (HANDSHAKE_SIZE) in the buffer.
+  session.buffer_.Shift(HANDSHAKE_SIZE);
 
   return State::Init;
 }

@@ -162,20 +162,6 @@ TEST(BoltSession, HandshakeInTwoPackets) {
   CheckOutput(output, handshake_resp, 4);
 }
 
-TEST(BoltSession, HandshakeTooLarge) {
-  INIT_VARS;
-
-  auto buff = session.Allocate();
-  memcpy(buff.data, handshake_req, 20);
-  memcpy(buff.data + 20, handshake_req, 20);
-  session.Written(40);
-  session.Execute();
-
-  ASSERT_EQ(session.state_, StateT::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
-  PrintOutput(output);
-  CheckFailureMessage(output);
-}
 
 TEST(BoltSession, HandshakeWriteFail) {
   INIT_VARS;

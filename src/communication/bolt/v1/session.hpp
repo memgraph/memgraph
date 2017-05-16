@@ -85,10 +85,6 @@ class Session : public Loggable {
       } else if (buffer_.size() < HANDSHAKE_SIZE) {
         logger.debug("Received partial handshake of size {}", buffer_.size());
         return;
-      } else if (buffer_.size() > HANDSHAKE_SIZE) {
-        logger.debug("Received too large handshake of size {}", buffer_.size());
-        ClientFailureInvalidData();
-        return;
       } else {
         logger.debug("Decoding handshake of size {}", buffer_.size());
       }
