@@ -77,4 +77,17 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor,
   using TreeLeafVisitor::Visit;
 };
 
+template <typename TResult>
+using TreeVisitor = ::utils::Visitor<
+    TResult, Query, NamedExpression, OrOperator, XorOperator, AndOperator,
+    FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
+    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
+    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
+    GreaterEqualOperator, InListOperator, ListIndexingOperator,
+    ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
+    ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
+    Function, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete,
+    Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    Merge, Unwind, Identifier, PrimitiveLiteral>;
+
 }  // namespace query

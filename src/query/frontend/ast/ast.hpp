@@ -14,10 +14,14 @@ namespace query {
 
 class AstTreeStorage;
 
-class Tree : public ::utils::Visitable<HierarchicalTreeVisitor> {
+class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
+             ::utils::Visitable<TreeVisitor<TypedValue>> {
   friend class AstTreeStorage;
 
  public:
+  using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+  using ::utils::Visitable<TreeVisitor<TypedValue>>::Accept;
+
   int uid() const { return uid_; }
 
  protected:
@@ -63,6 +67,7 @@ class OrOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -78,6 +83,7 @@ class XorOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -93,6 +99,7 @@ class AndOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -112,6 +119,7 @@ class FilterAndOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -127,6 +135,7 @@ class AdditionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -142,6 +151,7 @@ class SubtractionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -157,6 +167,7 @@ class MultiplicationOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -172,6 +183,7 @@ class DivisionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -187,6 +199,7 @@ class ModOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -202,6 +215,7 @@ class NotEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -217,6 +231,7 @@ class EqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -232,6 +247,7 @@ class LessOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -247,6 +263,7 @@ class GreaterOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -262,6 +279,7 @@ class LessEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -277,6 +295,7 @@ class GreaterEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -292,6 +311,7 @@ class InListOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -307,6 +327,7 @@ class ListIndexingOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -322,6 +343,7 @@ class ListSlicingOperator : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = list_->Accept(visitor);
@@ -352,6 +374,7 @@ class NotOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -367,6 +390,7 @@ class UnaryPlusOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -382,6 +406,7 @@ class UnaryMinusOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -397,6 +422,7 @@ class IsNullOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -419,6 +445,7 @@ class PrimitiveLiteral : public BaseLiteral {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
   TypedValue value_;
 
@@ -433,6 +460,7 @@ class ListLiteral : public BaseLiteral {
 
  public:
   const std::vector<Expression *> elements_;
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto expr_ptr : elements_)
@@ -451,6 +479,7 @@ class Identifier : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
   std::string name_;
   bool user_declared_ = true;
@@ -465,6 +494,7 @@ class PropertyLookup : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -492,6 +522,7 @@ class LabelsTest : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -512,6 +543,7 @@ class EdgeTypeTest : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -535,6 +567,7 @@ class Function : public Expression {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto *argument : arguments_) {
@@ -567,6 +600,7 @@ class Aggregation : public UnaryOperator {
   static const constexpr char *const kSum = "SUM";
   static const constexpr char *const kAvg = "AVG";
 
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (expression_) {
@@ -590,6 +624,7 @@ class NamedExpression : public Tree {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -623,6 +658,7 @@ class NodeAtom : public PatternAtom {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor);
@@ -647,6 +683,7 @@ class EdgeAtom : public PatternAtom {
   // necessarily go from left to right
   enum class Direction { LEFT, RIGHT, BOTH };
 
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor);
@@ -676,6 +713,7 @@ class Pattern : public Tree {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto &part : atoms_) {
@@ -695,6 +733,7 @@ class Query : public Tree {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto &clause : clauses_) {
@@ -715,6 +754,7 @@ class Create : public Clause {
  public:
   Create(int uid) : Clause(uid) {}
   std::vector<Pattern *> patterns_;
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto &pattern : patterns_) {
@@ -729,6 +769,7 @@ class Where : public Tree {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       expression_->Accept(visitor);
@@ -746,6 +787,7 @@ class Match : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = true;
@@ -795,6 +837,7 @@ class Return : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = true;
@@ -828,6 +871,7 @@ class With : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = true;
@@ -863,6 +907,7 @@ class Delete : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       for (auto &expr : expressions_) {
@@ -882,6 +927,7 @@ class SetProperty : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       property_lookup_->Accept(visitor) && expression_->Accept(visitor);
@@ -903,6 +949,7 @@ class SetProperties : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor) && expression_->Accept(visitor);
@@ -927,6 +974,7 @@ class SetLabels : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor);
@@ -947,6 +995,7 @@ class RemoveProperty : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       property_lookup_->Accept(visitor);
@@ -965,6 +1014,7 @@ class RemoveLabels : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       identifier_->Accept(visitor);
@@ -985,6 +1035,7 @@ class Merge : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       bool cont = pattern_->Accept(visitor);
@@ -1020,6 +1071,7 @@ class Unwind : public Clause {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       named_expression_->Accept(visitor);

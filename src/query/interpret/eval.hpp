@@ -16,7 +16,7 @@
 
 namespace query {
 
-class ExpressionEvaluator : public HierarchicalTreeVisitor {
+class ExpressionEvaluator : public TreeVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table,
                       GraphDbAccessor &db_accessor,
@@ -26,50 +26,56 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
         db_accessor_(db_accessor),
         graph_view_(graph_view) {}
 
-  /**
-   * Removes and returns the last value from the result stack.
-   * Consumers of this function are PostVisit functions for
-   * expressions that consume subexpressions, as well as top
-   * level expression consumers.
-   */
-  auto PopBack() {
-    debug_assert(result_stack_.size() > 0, "Result stack empty");
-    auto last = result_stack_.back();
-    result_stack_.pop_back();
-    return last;
+  using TreeVisitor<TypedValue>::Visit;
+
+#define BLOCK_VISIT(TREE_TYPE)                                          \
+  TypedValue Visit(TREE_TYPE &) override {                              \
+    permanent_fail("ExpressionEvaluator should not visit " #TREE_TYPE); \
   }
 
-  using HierarchicalTreeVisitor::PreVisit;
-  using typename HierarchicalTreeVisitor::ReturnType;
-  using HierarchicalTreeVisitor::Visit;
-  using HierarchicalTreeVisitor::PostVisit;
+  BLOCK_VISIT(Query);
+  BLOCK_VISIT(Create);
+  BLOCK_VISIT(Match);
+  BLOCK_VISIT(Return);
+  BLOCK_VISIT(With);
+  BLOCK_VISIT(Pattern);
+  BLOCK_VISIT(NodeAtom);
+  BLOCK_VISIT(EdgeAtom);
+  BLOCK_VISIT(Delete);
+  BLOCK_VISIT(Where);
+  BLOCK_VISIT(SetProperty);
+  BLOCK_VISIT(SetProperties);
+  BLOCK_VISIT(SetLabels);
+  BLOCK_VISIT(RemoveProperty);
+  BLOCK_VISIT(RemoveLabels);
+  BLOCK_VISIT(Merge);
+  BLOCK_VISIT(Unwind);
 
-  bool PostVisit(NamedExpression &named_expression) override {
-    auto symbol = symbol_table_.at(named_expression);
-    frame_[symbol] = PopBack();
-    return true;
+#undef BLOCK_VISIT
+
+  TypedValue Visit(NamedExpression &named_expression) override {
+    const auto &symbol = symbol_table_.at(named_expression);
+    auto value = named_expression.expression_->Accept(*this);
+    frame_[symbol] = value;
+    return value;
   }
 
-  ReturnType Visit(Identifier &ident) override {
+  TypedValue Visit(Identifier &ident) override {
     auto value = frame_[symbol_table_.at(ident)];
     SwitchAccessors(value);
-    result_stack_.emplace_back(std::move(value));
-    return true;
+    return value;
   }
 
-#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)             \
-  bool PostVisit(OP_NODE &) override {                       \
-    auto expression2 = PopBack();                            \
-    auto expression1 = PopBack();                            \
-    result_stack_.push_back(expression1 CPP_OP expression2); \
-    return true;                                             \
+#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP) \
+  TypedValue Visit(OP_NODE &op) override {       \
+    auto val1 = op.expression1_->Accept(*this);  \
+    auto val2 = op.expression2_->Accept(*this);  \
+    return val1 CPP_OP val2;                     \
   }
 
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP) \
-  bool PostVisit(OP_NODE &) override {          \
-    auto expression = PopBack();                \
-    result_stack_.push_back(CPP_OP expression); \
-    return true;                                \
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)  \
+  TypedValue Visit(OP_NODE &op) override {       \
+    return CPP_OP op.expression_->Accept(*this); \
   }
 
   BINARY_OPERATOR_VISITOR(OrOperator, ||);
@@ -94,34 +100,27 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
-  bool PreVisit(FilterAndOperator &op) override {
-    op.expression1_->Accept(*this);
-    auto expression1 = PopBack();
-    if (expression1.IsNull() || !expression1.Value<bool>()) {
+  TypedValue Visit(FilterAndOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    if (value1.IsNull() || !value1.Value<bool>()) {
       // If first expression is null or false, don't execute the second one.
-      result_stack_.emplace_back(expression1);
-      return false;
+      return value1;
     }
-    op.expression2_->Accept(*this);
-    auto expression2 = PopBack();
-    result_stack_.emplace_back(expression2);
-    return false;
+    return op.expression2_->Accept(*this);
   }
 
-  bool PostVisit(InListOperator &) override {
-    auto _list = PopBack();
-    auto literal = PopBack();
+  TypedValue Visit(InListOperator &in_list) override {
+    auto literal = in_list.expression1_->Accept(*this);
+    auto _list = in_list.expression2_->Accept(*this);
     if (_list.IsNull()) {
-      result_stack_.emplace_back(TypedValue::Null);
-      return true;
+      return TypedValue::Null;
     }
     // Exceptions have higher priority than returning null.
     // We need to convert list to its type before checking if literal is null,
     // because conversion will throw exception if list conversion fails.
     auto list = _list.Value<std::vector<TypedValue>>();
     if (literal.IsNull()) {
-      result_stack_.emplace_back(TypedValue::Null);
-      return true;
+      return TypedValue::Null;
     }
     auto has_null = false;
     for (const auto &element : list) {
@@ -129,34 +128,30 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
       if (result.IsNull()) {
         has_null = true;
       } else if (result.Value<bool>()) {
-        result_stack_.emplace_back(true);
         return true;
       }
     }
     if (has_null) {
-      result_stack_.emplace_back(TypedValue::Null);
-    } else {
-      result_stack_.emplace_back(false);
+      return TypedValue::Null;
     }
-    return true;
+    return false;
   }
 
-  bool PostVisit(ListIndexingOperator &) override {
+  TypedValue Visit(ListIndexingOperator &list_indexing) override {
     // TODO: implement this for maps
-    auto _index = PopBack();
-    if (_index.type() != TypedValue::Type::Int &&
-        _index.type() != TypedValue::Type::Null) {
-      throw TypedValueException("Incompatible type in list lookup");
-    }
-    auto _list = PopBack();
+    auto _list = list_indexing.expression1_->Accept(*this);
     if (_list.type() != TypedValue::Type::List &&
         _list.type() != TypedValue::Type::Null) {
       throw TypedValueException("Incompatible type in list lookup");
     }
+    auto _index = list_indexing.expression2_->Accept(*this);
+    if (_index.type() != TypedValue::Type::Int &&
+        _index.type() != TypedValue::Type::Null) {
+      throw TypedValueException("Incompatible type in list lookup");
+    }
     if (_index.type() == TypedValue::Type::Null ||
         _list.type() == TypedValue::Type::Null) {
-      result_stack_.emplace_back(TypedValue::Null);
-      return true;
+      return TypedValue::Null;
     }
     auto index = _index.Value<int64_t>();
     const auto &list = _list.Value<std::vector<TypedValue>>();
@@ -164,20 +159,18 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
       index = static_cast<int64_t>(list.size()) + index;
     }
     if (index >= static_cast<int64_t>(list.size()) || index < 0) {
-      result_stack_.emplace_back(TypedValue::Null);
-      return true;
+      return TypedValue::Null;
     }
-    result_stack_.emplace_back(list[index]);
-    return true;
+    return list[index];
   }
 
-  bool PostVisit(ListSlicingOperator &op) override {
+  TypedValue Visit(ListSlicingOperator &op) override {
     // If some type is null we can't return null, because throwing exception on
     // illegal type has higher priority.
     auto is_null = false;
-    auto get_bound = [&](bool is_defined, int64_t default_value) {
-      if (is_defined) {
-        auto bound = PopBack();
+    auto get_bound = [&](Expression *bound_expr, int64_t default_value) {
+      if (bound_expr) {
+        auto bound = bound_expr->Accept(*this);
         if (bound.type() == TypedValue::Type::Null) {
           is_null = true;
         } else if (bound.type() != TypedValue::Type::Int) {
@@ -191,7 +184,7 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
         get_bound(op.upper_bound_, std::numeric_limits<int64_t>::max());
     auto _lower_bound = get_bound(op.lower_bound_, 0);
 
-    auto _list = PopBack();
+    auto _list = op.list_->Accept(*this);
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
     } else if (_list.type() != TypedValue::Type::List) {
@@ -199,8 +192,7 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
     }
 
     if (is_null) {
-      result_stack_.emplace_back(TypedValue::Null);
-      return true;
+      return TypedValue::Null;
     }
     const auto &list = _list.Value<std::vector<TypedValue>>();
     auto normalise_bound = [&](int64_t bound) {
@@ -213,131 +205,105 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
     auto lower_bound = normalise_bound(_lower_bound.Value<int64_t>());
     auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
     if (upper_bound <= lower_bound) {
-      result_stack_.emplace_back(std::vector<TypedValue>());
-      return true;
+      return std::vector<TypedValue>();
     }
-    result_stack_.emplace_back(std::vector<TypedValue>(
-        list.begin() + lower_bound, list.begin() + upper_bound));
-    return true;
+    return std::vector<TypedValue>(list.begin() + lower_bound,
+                                   list.begin() + upper_bound);
   }
 
-  bool PostVisit(IsNullOperator &) override {
-    auto expression = PopBack();
-    result_stack_.push_back(TypedValue(expression.IsNull()));
-    return true;
+  TypedValue Visit(IsNullOperator &is_null) override {
+    auto value = is_null.expression_->Accept(*this);
+    return value.IsNull();
   }
 
-  bool PostVisit(PropertyLookup &property_lookup) override {
-    auto expression_result = PopBack();
+  TypedValue Visit(PropertyLookup &property_lookup) override {
+    auto expression_result = property_lookup.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        result_stack_.emplace_back(TypedValue::Null);
-        break;
+        return TypedValue::Null;
       case TypedValue::Type::Vertex:
-        result_stack_.emplace_back(
-            expression_result.Value<VertexAccessor>().PropsAt(
-                property_lookup.property_));
-        break;
-      case TypedValue::Type::Edge: {
-        result_stack_.emplace_back(
-            expression_result.Value<EdgeAccessor>().PropsAt(
-                property_lookup.property_));
-        break;
-      }
+        return expression_result.Value<VertexAccessor>().PropsAt(
+            property_lookup.property_);
+      case TypedValue::Type::Edge:
+        return expression_result.Value<EdgeAccessor>().PropsAt(
+            property_lookup.property_);
       case TypedValue::Type::Map:
         // TODO implement me
-        throw utils::NotYetImplemented();
-        break;
-
+        throw utils::NotYetImplemented(
+            "Not yet implemented property lookup on map");
       default:
         throw TypedValueException(
             "Expected Node, Edge or Map for property lookup");
     }
-    return true;
   }
 
-  bool PostVisit(LabelsTest &labels_test) override {
-    auto expression_result = PopBack();
+  TypedValue Visit(LabelsTest &labels_test) override {
+    auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        result_stack_.emplace_back(TypedValue::Null);
-        break;
+        return TypedValue::Null;
       case TypedValue::Type::Vertex: {
         auto vertex = expression_result.Value<VertexAccessor>();
         for (const auto label : labels_test.labels_) {
           if (!vertex.has_label(label)) {
-            result_stack_.emplace_back(false);
-            return true;
+            return false;
           }
         }
-        result_stack_.emplace_back(true);
-        break;
+        return true;
       }
       default:
         throw TypedValueException("Expected Node in labels test");
     }
-    return true;
   }
 
-  bool PostVisit(EdgeTypeTest &edge_type_test) override {
-    auto expression_result = PopBack();
+  TypedValue Visit(EdgeTypeTest &edge_type_test) override {
+    auto expression_result = edge_type_test.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
-        result_stack_.emplace_back(TypedValue::Null);
-        break;
+        return TypedValue::Null;
       case TypedValue::Type::Edge: {
         auto real_edge_type =
             expression_result.Value<EdgeAccessor>().edge_type();
         for (const auto edge_type : edge_type_test.edge_types_) {
           if (edge_type == real_edge_type) {
-            result_stack_.emplace_back(true);
             return true;
           }
         }
-        result_stack_.emplace_back(false);
-        break;
+        return false;
       }
       default:
         throw TypedValueException("Expected Edge in edge type test");
     }
-    return true;
   }
 
-  ReturnType Visit(PrimitiveLiteral &literal) override {
+  TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    result_stack_.push_back(literal.value_);
-    return true;
+    return literal.value_;
   }
 
-  bool PostVisit(ListLiteral &literal) override {
+  TypedValue Visit(ListLiteral &literal) override {
     std::vector<TypedValue> result;
     result.reserve(literal.elements_.size());
-    for (size_t i = 0; i < literal.elements_.size(); i++)
-      result.emplace_back(PopBack());
-    std::reverse(result.begin(), result.end());
-    result_stack_.emplace_back(std::move(result));
-    return true;
+    for (const auto &expression : literal.elements_)
+      result.emplace_back(expression->Accept(*this));
+    return result;
   }
 
-  bool PreVisit(Aggregation &aggregation) override {
+  TypedValue Visit(Aggregation &aggregation) override {
     auto value = frame_[symbol_table_.at(aggregation)];
     // Aggregation is probably always simple type, but let's switch accessor
     // just to be sure.
     SwitchAccessors(value);
-    result_stack_.emplace_back(std::move(value));
-    // Prevent evaluation of expressions inside the aggregation.
-    return false;
+    return value;
   }
 
-  bool PostVisit(Function &function) override {
+  TypedValue Visit(Function &function) override {
     std::vector<TypedValue> arguments;
-    for (int i = 0; i < static_cast<int>(function.arguments_.size()); ++i) {
-      arguments.push_back(PopBack());
+    for (const auto &argument : function.arguments_) {
+      arguments.emplace_back(argument->Accept(*this));
     }
-    reverse(arguments.begin(), arguments.end());
-    result_stack_.emplace_back(function.function_(arguments, db_accessor_));
-    return true;
+    return function.function_(arguments, db_accessor_);
   }
 
  private:
@@ -394,6 +360,6 @@ class ExpressionEvaluator : public HierarchicalTreeVisitor {
   GraphDbAccessor &db_accessor_;
   // which switching approach should be used when evaluating
   const GraphView graph_view_;
-  std::list<TypedValue> result_stack_;
 };
-}
+
+}  // namespace query

@@ -66,8 +66,7 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   for (auto &kv : self_.node_atom_->properties_) {
-    kv.second->Accept(evaluator);
-    new_node.PropsSet(kv.first, evaluator.PopBack());
+    new_node.PropsSet(kv.first, kv.second->Accept(evaluator));
   }
   frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
 }
@@ -142,8 +141,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     auto node = db_.insert_vertex();
     for (auto label : self_.node_atom_->labels_) node.add_label(label);
     for (auto kv : self_.node_atom_->properties_) {
-      kv.second->Accept(evaluator);
-      node.PropsSet(kv.first, evaluator.PopBack());
+      node.PropsSet(kv.first, kv.second->Accept(evaluator));
     }
     auto symbol = symbol_table.at(*self_.node_atom_->identifier_);
     frame[symbol] = node;
@@ -157,8 +155,7 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   EdgeAccessor edge =
       db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
   for (auto kv : self_.edge_atom_->properties_) {
-    kv.second->Accept(evaluator);
-    edge.PropsSet(kv.first, evaluator.PopBack());
+    edge.PropsSet(kv.first, kv.second->Accept(evaluator));
   }
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
@@ -369,8 +366,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // and edges.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::OLD);
   while (input_cursor_->Pull(frame, symbol_table)) {
-    self_.expression_->Accept(evaluator);
-    TypedValue result = evaluator.PopBack();
+    TypedValue result = self_.expression_->Accept(evaluator);
     if (result.IsNull() || !result.Value<bool>()) continue;
     return true;
   }
@@ -444,8 +440,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   std::vector<TypedValue> expression_results;
   expression_results.reserve(self_.expressions_.size());
   for (Expression *expression : self_.expressions_) {
-    expression->Accept(evaluator);
-    expression_results.emplace_back(evaluator.PopBack());
+    expression_results.emplace_back(expression->Accept(evaluator));
   }
 
   // delete edges first
@@ -503,10 +498,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
-  self_.lhs_->expression_->Accept(evaluator);
-  TypedValue lhs = evaluator.PopBack();
-  self_.rhs_->Accept(evaluator);
-  TypedValue rhs = evaluator.PopBack();
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+  TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   // TODO the following code uses implicit TypedValue to PropertyValue
   // conversion which throws a TypedValueException if impossible
@@ -551,8 +544,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
-  self_.rhs_->Accept(evaluator);
-  TypedValue rhs = evaluator.PopBack();
+  TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
@@ -657,8 +649,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(
 
   // Remove, just like Delete needs to see the latest changes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
-  self_.lhs_->expression_->Accept(evaluator);
-  TypedValue lhs = evaluator.PopBack();
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
@@ -910,8 +901,7 @@ void Aggregate::AggregateCursor::ProcessOne(Frame &frame,
   // create the group-by list of values
   std::list<TypedValue> group_by;
   for (Expression *expression : self_.group_by_) {
-    expression->Accept(evaluator);
-    group_by.emplace_back(evaluator.PopBack());
+    group_by.emplace_back(expression->Accept(evaluator));
   }
 
   AggregationValue &agg_value = aggregation_[group_by];
@@ -961,8 +951,7 @@ void Aggregate::AggregateCursor::Update(
       continue;
     }
 
-    input_expr_ptr->Accept(evaluator);
-    TypedValue input_value = evaluator.PopBack();
+    TypedValue input_value = input_expr_ptr->Accept(evaluator);
 
     // Aggregations skip Null input values.
     if (input_value.IsNull()) continue;
@@ -1086,8 +1075,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
       // first successful pull from the input
       // evaluate the skip expression
       ExpressionEvaluator evaluator(frame, symbol_table, db_);
-      self_.expression_->Accept(evaluator);
-      TypedValue to_skip = evaluator.PopBack();
+      TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Result of SKIP expression must be an int");
 
@@ -1134,8 +1122,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // is not allowed to contain any identifiers
   if (limit_ == -1) {
     ExpressionEvaluator evaluator(frame, symbol_table, db_);
-    self_.expression_->Accept(evaluator);
-    TypedValue limit = evaluator.PopBack();
+    TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Result of LIMIT expression must be an int");
 
@@ -1194,8 +1181,7 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame,
       // collect the order_by elements
       std::list<TypedValue> order_by;
       for (auto expression_ptr : self_.order_by_) {
-        expression_ptr->Accept(evaluator);
-        order_by.emplace_back(evaluator.PopBack());
+        order_by.emplace_back(expression_ptr->Accept(evaluator));
       }
 
       // collect the output elements
@@ -1456,8 +1442,7 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
 
     // successful pull from input, initialize value and iterator
     ExpressionEvaluator evaluator(frame, symbol_table, db_);
-    self_.input_expression_->Accept(evaluator);
-    TypedValue input_value = evaluator.PopBack();
+    TypedValue input_value = self_.input_expression_->Accept(evaluator);
     if (input_value.type() != TypedValue::Type::List)
       throw QueryRuntimeException("UNWIND only accepts list values");
     input_value_ = input_value.Value<std::vector<TypedValue>>();
