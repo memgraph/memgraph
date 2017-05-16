@@ -2,6 +2,7 @@ import logging
 import datetime
 import time
 import json
+import sys
 from steps.test_parameters import TestParameters
 from neo4j.v1 import GraphDatabase, basic_auth
 from steps.graph_properties import GraphProperties
@@ -18,6 +19,17 @@ def before_scenario(context, step):
 
 def after_scenario(context, scenario):
     test_results.add_test(scenario.status)
+    if context.config.single_scenario or \
+            (context.config.single_fail and scenario.status == "failed"):
+        print("Press enter to continue")
+        sys.stdin.readline()
+
+
+def after_feature(context, feature):
+    if context.config.single_feature:
+        print("Press enter to continue")
+        sys.stdin.readline()
+
 
 def before_all(context):
     context.driver = create_db_driver(context)

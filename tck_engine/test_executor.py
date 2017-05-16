@@ -26,6 +26,12 @@ def parse_args():
                       "INFO", "DEBUG"], help="Logging level, default is DEBUG.")
     argp.add_argument("--unstable", action="store_true",
                       help="Include unstable feature from features.")
+    argp.add_argument("--single-fail", action="store_true",
+                      help="Pause after failed scenario.")
+    argp.add_argument("--single-scenario", action="store_true",
+                      help="Pause after every scenario.")
+    argp.add_argument("--single-feature", action="store_true",
+                      help="Pause after every feature.")
     return argp.parse_args()
 
 
@@ -54,6 +60,13 @@ def main():
     add_config("--output-folder", dict(
         help="Folder where results of tests are written."))
     add_config("--root", dict(help="Folder with test features."))
+    add_config("--single-fail",
+               dict(action="store_true", help="Pause after failed scenario."))
+    add_config("--single-scenario",
+               dict(action="store_true", help="Pause after every scenario."))
+    add_config("--single-feature",
+               dict(action="store_true", help="Pause after every feature."))
+
 
     # list with all options
     # options will be passed to the cucumber engine
@@ -78,6 +91,12 @@ def main():
     behave_options.append(args.db_uri)
     behave_options.append("--root")
     behave_options.append(args.root)
+    if (args.single_fail):
+        behave_options.append("--single-fail")
+    if (args.single_scenario):
+        behave_options.append("--single-scenario")
+    if (args.single_feature):
+        behave_options.append("--single-feature")
     behave_options.append("--output-folder")
     behave_options.append(args.output_folder)
 
