@@ -12,7 +12,7 @@
 namespace mvcc {
 
 class SerializationError : public utils::BasicException {
-  static constexpr const char* default_message =
+  static constexpr const char *default_message =
       "Can't serialize due to\
         concurrent operation(s)";
 
@@ -194,20 +194,20 @@ class VersionList {
     auto record = find(t);
 
     // check if we found any visible records
-    if (!record) return nullptr;
+    permanent_assert(record != nullptr, "Updating nullptr record");
 
     return update(record, t);
   }
 
-  bool remove(tx::Transaction &t) {
+  void remove(tx::Transaction &t) {
     debug_assert(head != nullptr, "Head is nullptr on removal.");
     auto record = find(t);
 
-    if (!record) return false;
+    permanent_assert(record != nullptr, "Removing nullptr record");
 
     // TODO: Is this lock and validate necessary
     lock_and_validate(record, t);
-    return remove(record, t), true;
+    remove(record, t);
   }
 
   // TODO(flor): This should also be private but can't be right now because of

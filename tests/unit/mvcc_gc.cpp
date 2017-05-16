@@ -91,7 +91,7 @@ TEST(GarbageCollector, GcClean) {
   t1->commit();
 
   auto t2 = engine.begin();
-  EXPECT_EQ(vl->remove(*t2), true);
+  vl->remove(*t2);
   t2->commit();
   gc.Run(Id(3), engine);
 

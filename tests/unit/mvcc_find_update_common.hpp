@@ -15,10 +15,22 @@ bool operator==(const Id &left, const int right) {
 }
 
 class TestClass : public mvcc::Record<TestClass> {
+ public:
+  // constructs first version, size should be 0
+  TestClass(int &version_list_size) : version_list_size_(version_list_size) {
+    ++version_list_size_;
+  }
+  // version constructed in version list update
+  TestClass(TestClass &other) : version_list_size_(other.version_list_size_) {
+    version_list_size_++;
+  }
   friend std::ostream &operator<<(std::ostream &stream, TestClass &test_class) {
     stream << test_class.tx.cre() << " " << test_class.tx.exp();
     return stream;
   }
+  // reference to variable version_list_size in test SetUp, increases when new
+  // TestClass is created
+  int &version_list_size_;
 };
 
 /**
@@ -41,17 +53,22 @@ class TestClass : public mvcc::Record<TestClass> {
 class Mvcc : public ::testing::Test {
  protected:
   virtual void SetUp() {
+    id0 = Id{0};
     t1 = &engine.advance(t1->id);
+    id1 = t1->id;
     v1 = version_list.find(*t1);
     t1->commit();
     t2 = engine.begin();
+    id2 = t2->id;
   }
-
+  // variable where number of versions is stored
+  int version_list_size = 0;
   tx::Engine engine;
   tx::Transaction *t1 = engine.begin();
-  mvcc::VersionList<TestClass> version_list{*t1};
+  mvcc::VersionList<TestClass> version_list{*t1, version_list_size};
   TestClass *v1 = nullptr;
   tx::Transaction *t2 = nullptr;
+  int id0, id1, id2;
 };
 
 // helper macros. important:
@@ -65,11 +82,13 @@ class Mvcc : public ::testing::Test {
 #define T3_COMMIT t3->commit();
 #define T2_ABORT t2->abort();
 #define T3_ABORT t3->abort();
-#define T3_BEGIN auto t3 = engine.begin();
+#define T3_BEGIN auto t3 = engine.begin(); __attribute__((unused)) int id3 = t3->id 
 #define T2_REMOVE version_list.remove(*t2)
 #define T3_REMOVE version_list.remove(*t3)
-#define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx.cre(), expected)
-#define EXPECT_EXP(record, expected) EXPECT_EQ(record->tx.exp(), expected)
+#define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx.cre(), id##expected)
+#define EXPECT_EXP(record, expected) EXPECT_EQ(record->tx.exp(), id##expected)
+#define EXPECT_NXT(v1, v2) EXPECT_EQ(v1->next(), v2)
+#define EXPECT_SIZE(n) EXPECT_EQ(version_list_size, n)
 
 // test the fixture
 TEST_F(Mvcc, Fixture) {
