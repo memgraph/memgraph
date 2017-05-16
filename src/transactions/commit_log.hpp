@@ -14,7 +14,7 @@ class CommitLog {
       ABORTED = 2,    // 10
     };
 
-    bool is_active() const { return flags & ACTIVE; }
+    bool is_active() const { return flags == ACTIVE; }
 
     bool is_committed() const { return flags & COMMITTED; }
 

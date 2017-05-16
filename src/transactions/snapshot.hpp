@@ -22,7 +22,7 @@ class Snapshot {
   Snapshot(Snapshot &&other) { active = std::move(other.active); }
 
   // True if all transaction from snapshot have finished.
-  bool all_finished(Engine &engine);
+  bool all_finished(Engine &engine) const;
 
   bool is_active(id_t xid) const {
     return std::binary_search(active.begin(), active.end(), xid);
@@ -30,7 +30,7 @@ class Snapshot {
 
   // Return id of oldest transaction. None if there is no transactions in
   // snapshot.
-  Option<Id> oldest_active() {
+  Option<Id> oldest_active() const {
     auto n = active.size();
     if (n > 0) {
       Id min = active[0];
@@ -54,9 +54,9 @@ class Snapshot {
     active.erase(last, active.end());
   }
 
-  const id_t &front() { return active.front(); }
+  const id_t &front() const { return active.front(); }
 
-  const id_t &back() { return active.back(); }
+  const id_t &back() const { return active.back(); }
 
   size_t size() { return active.size(); }
 

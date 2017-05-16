@@ -24,9 +24,10 @@ class Transaction {
   Transaction(const Transaction &) = delete;
   Transaction(Transaction &&) = default;
 
-  // Blocks until all transactions from snapshot finish. After this method,
-  // snapshot will be empty.
-  void wait_for_active();
+  // Blocks until all transactions from snapshot finish, except the 'id' one.
+  // After this method, snapshot will be either empty or contain transaction
+  // with Id 'id'.
+  void wait_for_active_except(const Id &id) const;
 
   void take_lock(RecordLock &lock);
   void commit();
@@ -52,7 +53,7 @@ class Transaction {
 
  private:
   // a snapshot of currently active transactions
-  Snapshot<Id> snapshot;
+  const Snapshot<Id> snapshot;
   LockStore<RecordLock> locks;
 };
 }

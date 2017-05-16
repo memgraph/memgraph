@@ -35,21 +35,21 @@ class PropertyValue {
   PropertyValue(double value) : type_(Type::Double) { double_v = value; }
 
   /// constructors for non-primitive types (shared pointers)
-  PropertyValue(const std::string& value) : type_(Type::String) {
+  PropertyValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::shared_ptr<std::string>(new std::string(value));
   }
-  PropertyValue(const char* value) : type_(Type::String) {
+  PropertyValue(const char *value) : type_(Type::String) {
     new (&string_v) std::shared_ptr<std::string>(new std::string(value));
   }
-  PropertyValue(const std::vector<PropertyValue>& value) : type_(Type::List) {
+  PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
     new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(
         new std::vector<PropertyValue>(value));
   }
 
   // assignment op
-  PropertyValue& operator=(const PropertyValue& other);
+  PropertyValue &operator=(const PropertyValue &other);
 
-  PropertyValue(const PropertyValue& other);
+  PropertyValue(const PropertyValue &other);
   ~PropertyValue();
 
   Type type() const { return type_; }
@@ -64,8 +64,8 @@ class PropertyValue {
   template <typename T>
   T Value() const;
 
-  friend std::ostream& operator<<(std::ostream& stream,
-                                  const PropertyValue& prop);
+  friend std::ostream &operator<<(std::ostream &stream,
+                                  const PropertyValue &prop);
 
  private:
   // storage for the value of the property
@@ -96,4 +96,4 @@ class PropertyValueException : public utils::StacktraceException {
 };
 
 // stream output
-std::ostream& operator<<(std::ostream& os, const PropertyValue::Type type);
+std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type);

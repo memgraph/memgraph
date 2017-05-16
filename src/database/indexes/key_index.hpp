@@ -1,11 +1,9 @@
 #pragma once
 
-#include "cppitertools/filter.hpp"
-#include "cppitertools/imap.hpp"
-
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
+#include "database/indexes/index_utils.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
@@ -20,13 +18,19 @@
 template <typename TKey, typename TRecord>
 class KeyIndex {
  public:
+  KeyIndex(){};
+  KeyIndex(const KeyIndex &other) = delete;
+  KeyIndex(KeyIndex &&other) = delete;
+  KeyIndex &operator=(const KeyIndex &other) = delete;
+  KeyIndex &operator=(KeyIndex &&other) = delete;
   /**
    * @brief - Clear all indexes so that we don't leak memory.
    */
   ~KeyIndex() {
-    for (auto key_indices_pair : indices_.access())
+    for (auto key_indices_pair : indices_.access()) {
       // Delete skiplist because we created it with a new operator.
       delete key_indices_pair.second;
+    }
   }
   /**
    * @brief - Add record, vlist, if new, to TKey specific storage.
@@ -35,7 +39,7 @@ class KeyIndex {
    * @param record - pointer to record entry to add (contained in vlist)
    */
   void Update(const TKey &key, mvcc::VersionList<TRecord> *vlist,
-              const TRecord *record) {
+              const TRecord *const record) {
     GetKeyStorage(key)->access().insert(IndexEntry(vlist, record));
   }
 
@@ -53,35 +57,12 @@ class KeyIndex {
    */
   auto GetVlists(const TKey &key, tx::Transaction &t,
                  bool current_state = false) {
-    auto index = GetKeyStorage(key);
-    mvcc::VersionList<TRecord> *prev = nullptr;
-    auto filtered = iter::filter(
-        [this, &key, &t, prev, current_state](auto entry) mutable {
-          // we check for previous match first as an optimization
-          // it's legal because if the first v-list pair does not
-          // pass, neither will any other identical one
-          if (entry.vlist_ == prev) return false;
-          prev = entry.vlist_;
-          // TODO when refactoring MVCC reconsider the return-value-arg idiom here
-          TRecord *old_record, *new_record;
-          entry.vlist_->find_set_old_new(t, old_record, new_record);
-          // filtering out records not visible to the current
-          // transaction+command
-          // taking into account the current_state flag
-          bool visible =
-              (old_record &&
-               !(current_state && old_record->is_deleted_by(t))) ||
-              (current_state && new_record && !new_record->is_deleted_by(t));
-          if (!visible) return false;
-          // if we current_state and we have the new record, then that's the
-          // reference value, and that needs to be compared with the index
-          // predicate
-          return (current_state && new_record) ? Exists(key, new_record)
-                                               : Exists(key, old_record);
+    return IndexUtils::GetVlists<IndexEntry, TRecord>(
+        *GetKeyStorage(key), t,
+        [this, key](const IndexEntry &, const TRecord *record) {
+          return Exists(key, record);
         },
-        index->access());
-    return iter::imap([this](auto entry) { return entry.vlist_; },
-                      std::move(filtered));
+        current_state);
   }
 
   /**
@@ -105,38 +86,10 @@ class KeyIndex {
    * @param engine - transaction engine to see which records are commited
    */
   void Refresh(const Id &id, tx::Engine &engine) {
-    for (auto &key_indices_pair : indices_.access()) {
-      auto indices_entries_accessor = key_indices_pair.second->access();
-      for (auto indices_entry : indices_entries_accessor) {
-        // Remove it from index if it's deleted before the current id, or it
-        // doesn't have that label/edge_type anymore. We need to be careful when
-        // we are deleting the record which is not visible anymore because even
-        // though that record is not visible, some other, newer record could be
-        // visible, and might contain the label, and might not be in the index -
-        // that's why we can't remove it completely, but just update it's record
-        // value.
-        // We also need to be extra careful when checking for existance of
-        // label/edge_type because that record could still be under the update
-        // operation and as such could be modified while we are reading the
-        // label/edge_type - that's why we have to wait for it's creation id to
-        // be lower than ours `id` as that means it's surely either commited or
-        // aborted as we always refresh with the oldest active id.
-        if (indices_entry.record_->is_not_visible_from(id, engine)) {
-          // We first have to insert and then remove, because otherwise we might
-          // have a situation where there exists a vlist with the record
-          // containg the label/edge_type but it's not in our index.
-          auto new_record = indices_entry.vlist_->Oldest();
-          if (new_record != nullptr)
-            indices_entries_accessor.insert(
-                IndexEntry(indices_entry.vlist_, new_record));
-          auto success = indices_entries_accessor.remove(indices_entry);
-          debug_assert(success == true, "Not able to delete entry.");
-        } else if (indices_entry.record_->tx.cre() < id &&
-                   !Exists(key_indices_pair.first, indices_entry.record_)) {
-          indices_entries_accessor.remove(indices_entry);
-        }
-      }
-    }
+    return IndexUtils::Refresh<TKey, IndexEntry, TRecord>(
+        indices_, id, engine, [this](const TKey &key, const IndexEntry &entry) {
+          return Exists(key, entry.record_);
+        });
   }
 
  private:
@@ -145,7 +98,10 @@ class KeyIndex {
    */
   class IndexEntry : public TotalOrdering<IndexEntry> {
    public:
-    IndexEntry(mvcc::VersionList<TRecord> *vlist, const TRecord *record)
+    IndexEntry(const IndexEntry &entry, const TRecord *const new_record)
+        : IndexEntry(entry.vlist_, new_record) {}
+    IndexEntry(mvcc::VersionList<TRecord> *const vlist,
+               const TRecord *const record)
         : vlist_(vlist), record_(record) {}
 
     // Comparision operators - we need them to keep this sorted inside
@@ -162,8 +118,17 @@ class KeyIndex {
       return this->vlist_ == other.vlist_ && this->record_ == other.record_;
     }
 
-    mvcc::VersionList<TRecord> *vlist_;
-    const TRecord *record_;
+    /**
+     * @brief - Checks if previous IndexEntry has the same vlist as this
+     * IndexEntry.
+     * @return - true if the vlists match.
+     */
+    bool IsAlreadyChecked(const IndexEntry &previous) const {
+      return previous.vlist_ == this->vlist_;
+    }
+
+    mvcc::VersionList<TRecord> *const vlist_;
+    const TRecord *const record_;
   };
 
   /**
@@ -192,12 +157,12 @@ class KeyIndex {
    * @param label - label to check for.
    * @return true if it contains, false otherwise.
    */
-  bool Exists(const GraphDbTypes::Label &label, const Vertex *v) const {
+  bool Exists(const GraphDbTypes::Label &label, const Vertex *const v) const {
     debug_assert(v != nullptr, "Vertex is nullptr.");
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
     // removed from the index.
-    auto labels = v->labels_;
+    const auto &labels = v->labels_;
     return std::find(labels.begin(), labels.end(), label) != labels.end();
   }
 
@@ -206,7 +171,8 @@ class KeyIndex {
    * @param edge_type - edge_type to check for.
    * @return true if it has that edge_type, false otherwise.
    */
-  bool Exists(const GraphDbTypes::EdgeType &edge_type, const Edge *e) const {
+  bool Exists(const GraphDbTypes::EdgeType &edge_type,
+              const Edge *const e) const {
     debug_assert(e != nullptr, "Edge is nullptr.");
     // We have to check for equality of edge types because the transaction
     // might not see the edge type, or the edge type was deleted and not yet

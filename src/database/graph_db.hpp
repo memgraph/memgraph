@@ -2,10 +2,14 @@
 
 #include <thread>
 
+#include "cppitertools/filter.hpp"
+#include "cppitertools/imap.hpp"
+
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
+#include "database/indexes/label_property_index.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
@@ -85,6 +89,7 @@ class GraphDb {
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
+  LabelPropertyIndex label_property_index_;
 
   // Schedulers
   Scheduler<std::mutex> gc_scheduler_;

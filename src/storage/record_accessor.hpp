@@ -52,16 +52,12 @@ class RecordAccessor {
   const PropertyValue &PropsAt(GraphDbTypes::Property key) const;
 
   /**
-   * Sets a value on the record for the given property.
+   * Sets a value on the record for the given property, operates on edge.
    *
-   * @tparam TValue Type of the value being set.
    * @param key Property key.
    * @param value The value to set.
    */
-  template <typename TValue>
-  void PropsSet(GraphDbTypes::Property key, TValue value) {
-    update().properties_.set(key, value);
-  }
+  void PropsSet(GraphDbTypes::Property key, PropertyValue value);
 
   /**
    * Erases the property for the given key.

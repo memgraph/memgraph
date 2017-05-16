@@ -24,6 +24,13 @@
  */
 
 class GraphDbAccessor {
+  // We need to make friends with this guys since they need to access private
+  // methods for updating indices.
+  friend class RecordAccessor<Vertex>;
+  friend class RecordAccessor<Edge>;
+  friend class VertexAccessor;
+  friend class EdgeAccessor;
+
  public:
   /**
    * Creates an accessor for the given database.
@@ -121,6 +128,30 @@ class GraphDbAccessor {
   }
 
   /**
+   * Return VertexAccessors which contain the current label and property for the
+   * given transaction visibility.
+   * @param label - label for which to return VertexAccessors
+   * @param property - property for which to return VertexAccessors
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   * @return iterable collection
+   */
+  auto vertices(const GraphDbTypes::Label &label,
+                const GraphDbTypes::Property &property,
+                bool current_state = false) {
+    debug_assert(db_.label_property_index_.IndexExists(
+                     LabelPropertyIndex::Key(label, property)),
+                 "Label+property index doesn't exist.");
+    return iter::imap([this, current_state](
+                          auto vlist) { return VertexAccessor(*vlist, *this); },
+                      db_.label_property_index_.GetVlists(
+                          LabelPropertyIndex::Key(label, property),
+                          *transaction_, current_state));
+  }
+
+  /**
    * Creates a new Edge and returns an accessor to it.
    *
    * @param from The 'from' vertex.
@@ -184,24 +215,58 @@ class GraphDbAccessor {
   }
 
   /**
-   * Insert this vertex into corresponding label index.
-   * @param label - label index into which to insert vertex label record
-   * @param vertex_accessor - vertex_accessor to insert
-   * @param vertex - vertex record to insert
+   * @brief - Build the given label/property Index. BuildIndex shouldn't be
+   * called in the same transaction where you are creating/or modifying
+   * vertices/edges. It should be a part of a separate transaction. Blocks the
+   * caller until the index is ready for use. Throws exception if index already
+   * exists or is being created by another transaction.
+   * @param label - label to build for
+   * @param property - property to build for
    */
-  void update_label_index(const GraphDbTypes::Label &label,
-                          const VertexAccessor &vertex_accessor,
-                          const Vertex *vertex);
+  void BuildIndex(const GraphDbTypes::Label &label,
+                  const GraphDbTypes::Property &property) {
+    const LabelPropertyIndex::Key key(label, property);
+    if (db_.label_property_index_.CreateIndex(key) == false) {
+      throw utils::BasicException(
+          "Index is either being created by another transaction or already "
+          "exists.");
+    }
+    // Everything that happens after the line above ended will be added to the
+    // index automatically, but we still have to add to index everything that
+    // happened earlier. We have to first wait for every transaction that
+    // happend before, or a bit later than CreateIndex to end.
+    auto wait_transaction = db_.tx_engine.begin();
+    wait_transaction->wait_for_active_except(transaction_->id);
+    wait_transaction->commit();
+
+    // This transaction surely sees everything that happened before CreateIndex.
+    auto transaction = db_.tx_engine.begin();
+
+    for (auto vertex_vlist : db_.vertices_.access()) {
+      auto vertex_record = vertex_vlist->find(*transaction);
+      // Check if visible record exists, if it exists apply function on it.
+      if (vertex_record == nullptr) continue;
+      db_.label_property_index_.UpdateOnLabelProperty(vertex_vlist,
+                                                      vertex_record);
+    }
+    // Commit transaction as we finished applying method on newest visible
+    // records.
+    transaction->commit();
+    // After these two operations we are certain that everything is contained in
+    // the index under the assumption that this transaction contained no
+    // vertex/edge insert/update before this method was invoked.
+    db_.label_property_index_.IndexFinishedBuilding(key);
+  }
 
   /**
-   * Insert this edge into corresponding edge_type index.
-   * @param edge_type  - edge_type index into which to insert record
-   * @param edge_accessor - edge_accessor to insert
-   * @param edge - edge record to insert
+   * @brief - Returns true if the given label+property index already exists and
+   * is ready for use.
    */
-  void update_edge_type_index(const GraphDbTypes::EdgeType &edge_type,
-                              const EdgeAccessor &edge_accessor,
-                              const Edge *edge);
+  bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
+                                const GraphDbTypes::Property &property) {
+    return db_.label_property_index_.IndexExists(
+        LabelPropertyIndex::Key(label, property));
+  }
 
   /**
    * Return approximate number of all vertices in the database.
@@ -209,10 +274,10 @@ class GraphDbAccessor {
    */
   size_t vertices_count() const;
 
- /*
-  * Return approximate number of all edges in the database.
-  * Note that this is always an over-estimate and never an under-estimate.
-  */
+  /*
+   * Return approximate number of all edges in the database.
+   * Note that this is always an over-estimate and never an under-estimate.
+   */
   size_t edges_count() const;
 
   /**
@@ -222,6 +287,18 @@ class GraphDbAccessor {
    * @return number of vertices with the given label
    */
   size_t vertices_count(const GraphDbTypes::Label &label) const;
+
+  /**
+   * Return approximate number of vertices under indexes with the given label
+   * and property.
+   * Note that this is always an over-estimate and never an under-estimate.
+   * @param label - label to check for
+   * @param property - property to check for
+   * @return number of vertices with the given label, fails if no such
+   * label+property index exists.
+   */
+  size_t vertices_count(const GraphDbTypes::Label &label,
+                        const GraphDbTypes::Property &property) const;
 
   /**
    * Return approximate number of edges under indexes with the given edge_type.
@@ -339,6 +416,37 @@ class GraphDbAccessor {
   }
 
  private:
+  /**
+   * Insert this vertex into corresponding label and label+property (if it
+   * exists) index.
+   * @param label - label with which to insert vertex label record
+   * @param vertex_accessor - vertex_accessor to insert
+   * @param vertex - vertex record to insert
+   */
+  void update_label_indices(const GraphDbTypes::Label &label,
+                            const VertexAccessor &vertex_accessor,
+                            const Vertex *const vertex);
+
+  /**
+   * Insert this edge into corresponding edge_type index.
+   * @param edge_type  - edge_type index into which to insert record
+   * @param edge_accessor - edge_accessor to insert
+   * @param edge - edge record to insert
+   */
+  void update_edge_type_index(const GraphDbTypes::EdgeType &edge_type,
+                              const EdgeAccessor &edge_accessor,
+                              const Edge *const edge);
+
+  /**
+   * Insert this vertex into corresponding any label + 'property' index.
+   * @param property - vertex will be inserted into indexes which contain this
+   * property
+   * @param record_accessor - record_accessor to insert
+   * @param vertex - vertex to insert
+   */
+  void update_property_index(const GraphDbTypes::Property &property,
+                             const RecordAccessor<Vertex> &record_accessor,
+                             const Vertex *const vertex);
   GraphDb &db_;
 
   /** The current transaction */

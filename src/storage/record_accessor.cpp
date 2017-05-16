@@ -92,5 +92,18 @@ const TRecord &RecordAccessor<TRecord>::current() const {
   return *current_;
 }
 
+template <>
+void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
+                                      PropertyValue value) {
+  Vertex &vertex = update();
+  vertex.properties_.set(key, value);
+  this->db_accessor().update_property_index(key, *this, &vertex);
+}
+template <>
+void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
+                                    PropertyValue value) {
+  update().properties_.set(key, value);
+}
+
 template class RecordAccessor<Vertex>;
 template class RecordAccessor<Edge>;

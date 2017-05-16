@@ -45,10 +45,19 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
   throw CreationException("Unable to create a Vertex.");
 }
 
-void GraphDbAccessor::update_label_index(const GraphDbTypes::Label &label,
-                                         const VertexAccessor &vertex_accessor,
-                                         const Vertex *vertex) {
+void GraphDbAccessor::update_label_indices(
+    const GraphDbTypes::Label &label, const VertexAccessor &vertex_accessor,
+    const Vertex *const vertex) {
   this->db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
+  this->db_.label_property_index_.UpdateOnLabel(label, vertex_accessor.vlist_,
+                                                vertex);
+}
+
+void GraphDbAccessor::update_property_index(
+    const GraphDbTypes::Property &property,
+    const RecordAccessor<Vertex> &record_accessor, const Vertex *const vertex) {
+  this->db_.label_property_index_.UpdateOnProperty(
+      property, record_accessor.vlist_, vertex);
 }
 
 size_t GraphDbAccessor::vertices_count() const {
@@ -57,6 +66,15 @@ size_t GraphDbAccessor::vertices_count() const {
 
 size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) const {
   return db_.labels_index_.Count(label);
+}
+
+size_t GraphDbAccessor::vertices_count(
+    const GraphDbTypes::Label &label,
+    const GraphDbTypes::Property &property) const {
+  const LabelPropertyIndex::Key key(label, property);
+  debug_assert(db_.label_property_index_.IndexExists(key),
+               "Index doesn't exist.");
+  return db_.label_property_index_.Count(key);
 }
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
@@ -111,7 +129,7 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
 
 void GraphDbAccessor::update_edge_type_index(
     const GraphDbTypes::EdgeType &edge_type, const EdgeAccessor &edge_accessor,
-    const Edge *edge) {
+    const Edge *const edge) {
   this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 

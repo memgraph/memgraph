@@ -18,13 +18,15 @@ Transaction::Transaction(const Id &id, const Snapshot<Id> &snapshot,
                          Engine &engine)
     : id(id), cid(1), engine(engine), snapshot(snapshot) {}
 
-void Transaction::wait_for_active() {
-  while (snapshot.size() > 0) {
-    auto sid = snapshot.back();
+void Transaction::wait_for_active_except(const Id &id) const {
+  Snapshot<Id> local_snapshot = snapshot;
+  local_snapshot.remove(id);
+  while (local_snapshot.size() > 0) {
+    auto sid = local_snapshot.front();
     while (engine.clog.fetch_info(sid).is_active()) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
-    snapshot.remove(sid);
+    local_snapshot.remove(sid);
   }
 }
 
