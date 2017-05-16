@@ -8,26 +8,15 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
-#define ACCEPT_WITH_INPUT(class_name)                        \
-  void class_name::Accept(LogicalOperatorVisitor &visitor) { \
-    if (visitor.PreVisit(*this)) {                           \
-      visitor.Visit(*this);                                  \
-      input_->Accept(visitor);                               \
-      visitor.PostVisit(*this);                              \
-    }                                                        \
+#define ACCEPT_WITH_INPUT(class_name)                                    \
+  bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
+    if (visitor.PreVisit(*this)) {                                       \
+      input_->Accept(visitor);                                           \
+    }                                                                    \
+    return visitor.PostVisit(*this);                                     \
   }
 
 namespace query::plan {
-
-void Once::Accept(LogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
-    visitor.Visit(*this);
-    visitor.PostVisit(*this);
-  }
-}
-std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &) {
-  return std::make_unique<OnceCursor>();
-}
 
 bool Once::OnceCursor::Pull(Frame &, const SymbolTable &) {
   if (!did_pull_) {
@@ -35,6 +24,10 @@ bool Once::OnceCursor::Pull(Frame &, const SymbolTable &) {
     return true;
   }
   return false;
+}
+
+std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &) {
+  return std::make_unique<OnceCursor>();
 }
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
@@ -1316,14 +1309,12 @@ Merge::Merge(const std::shared_ptr<LogicalOperator> input,
       merge_match_(merge_match),
       merge_create_(merge_create) {}
 
-void Merge::Accept(LogicalOperatorVisitor &visitor) {
+bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    visitor.Visit(*this);
-    input_->Accept(visitor);
-    merge_match_->Accept(visitor);
-    merge_create_->Accept(visitor);
-    visitor.PostVisit(*this);
+    input_->Accept(visitor) && merge_match_->Accept(visitor) &&
+        merge_create_->Accept(visitor);
   }
+  return visitor.PostVisit(*this);
 }
 
 std::unique_ptr<Cursor> Merge::MakeCursor(GraphDbAccessor &db) {
@@ -1384,13 +1375,11 @@ Optional::Optional(const std::shared_ptr<LogicalOperator> &input,
       optional_(optional),
       optional_symbols_(optional_symbols) {}
 
-void Optional::Accept(LogicalOperatorVisitor &visitor) {
+bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    visitor.Visit(*this);
-    input_->Accept(visitor);
-    optional_->Accept(visitor);
-    visitor.PostVisit(*this);
+    input_->Accept(visitor) && optional_->Accept(visitor);
   }
+  return visitor.PostVisit(*this);
 }
 
 std::unique_ptr<Cursor> Optional::MakeCursor(GraphDbAccessor &db) {

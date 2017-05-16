@@ -103,15 +103,22 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
 }
 
 // Collects symbols from identifiers found in visited AST nodes.
-class UsedSymbolsCollector : public TreeVisitorBase {
+class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  public:
   UsedSymbolsCollector(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
-  using TreeVisitorBase::Visit;
-  void Visit(Identifier &ident) override {
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::PostVisit;
+  using typename HierarchicalTreeVisitor::ReturnType;
+  using HierarchicalTreeVisitor::Visit;
+
+  ReturnType Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
+    return true;
   }
+
+  ReturnType Visit(PrimitiveLiteral &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -367,7 +374,7 @@ auto GenMatches(std::vector<Match *> &matches, LogicalOperator *input_op,
 //
 // In addition to the above, we collect information on used symbols,
 // aggregations and expressions used for group by.
-class ReturnBodyContext : public TreeVisitorBase {
+class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table,
                     const std::unordered_set<Symbol> &bound_symbols,
@@ -408,17 +415,21 @@ class ReturnBodyContext : public TreeVisitorBase {
     }
   }
 
-  using TreeVisitorBase::PreVisit;
-  using TreeVisitorBase::Visit;
-  using TreeVisitorBase::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+  using HierarchicalTreeVisitor::PostVisit;
 
-  void Visit(PrimitiveLiteral &) override {
+  bool Visit(PrimitiveLiteral &) override {
     has_aggregation_.emplace_back(false);
+    return true;
   }
 
-  void Visit(ListLiteral &) override { has_aggregation_.emplace_back(false); }
+  bool PreVisit(ListLiteral &) override {
+    has_aggregation_.emplace_back(false);
+    return true;
+  }
 
-  void Visit(Identifier &ident) override {
+  bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);
     if (std::find(output_symbols_.begin(), output_symbols_.end(), symbol) ==
         output_symbols_.end()) {
@@ -427,10 +438,11 @@ class ReturnBodyContext : public TreeVisitorBase {
       used_symbols_.insert(symbol);
     }
     has_aggregation_.emplace_back(false);
+    return true;
   }
 
 #define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
-  void PostVisit(BinaryOperator &op) override {                            \
+  bool PostVisit(BinaryOperator &op) override {                            \
     /* has_aggregation_ stack is reversed, last result is from the 2nd     \
      * expression. */                                                      \
     bool aggr2 = has_aggregation_.back();                                  \
@@ -445,6 +457,7 @@ class ReturnBodyContext : public TreeVisitorBase {
     }                                                                      \
     /* Propagate that this whole expression may contain an aggregation. */ \
     has_aggregation_.emplace_back(has_aggr);                               \
+    return true;                                                           \
   }
 
   VISIT_BINARY_OPERATOR(OrOperator)
@@ -464,7 +477,7 @@ class ReturnBodyContext : public TreeVisitorBase {
 
 #undef VISIT_BINARY_OPERATOR
 
-  void PostVisit(Aggregation &aggr) override {
+  bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
@@ -477,13 +490,15 @@ class ReturnBodyContext : public TreeVisitorBase {
     // Possible optimization is to skip remembering symbols inside aggregation.
     // If and when implementing this, don't forget that Accumulate needs *all*
     // the symbols, including those inside aggregation.
+    return true;
   }
 
-  void PostVisit(NamedExpression &named_expr) override {
+  bool PostVisit(NamedExpression &named_expr) override {
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
     }
     has_aggregation_.pop_back();
+    return true;
   }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.

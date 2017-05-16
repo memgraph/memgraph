@@ -14,8 +14,7 @@
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/hashing/fnv.hpp"
-#include "utils/visitor/visitable.hpp"
-#include "utils/visitor/visitor.hpp"
+#include "utils/visitor.hpp"
 
 namespace query {
 
@@ -76,13 +75,28 @@ class Optional;
 class Unwind;
 class Distinct;
 
-/** @brief Base class for visitors of @c LogicalOperator class hierarchy. */
-using LogicalOperatorVisitor = ::utils::Visitor<
+using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, Expand, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
+
+using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once>;
+
+/**
+ * @brief Base class for hierarhical visitors of @c LogicalOperator class
+ * hierarchy.
+ */
+class HierarchicalLogicalOperatorVisitor
+    : public LogicalOperatorCompositeVisitor,
+      public LogicalOperatorLeafVisitor {
+ public:
+  using LogicalOperatorCompositeVisitor::PreVisit;
+  using LogicalOperatorCompositeVisitor::PostVisit;
+  using typename LogicalOperatorLeafVisitor::ReturnType;
+  using LogicalOperatorLeafVisitor::Visit;
+};
 
 /** @brief Base class for logical operators.
  *
@@ -90,7 +104,8 @@ using LogicalOperatorVisitor = ::utils::Visitor<
  *  database. Operators are iterated over using a @c Cursor. Various operators
  *  can serve as inputs to others and thus a sequence of operations is formed.
  */
-class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
+class LogicalOperator
+    : public ::utils::Visitable<HierarchicalLogicalOperatorVisitor> {
  public:
   /** @brief Constructs a @c Cursor which is used to run this operator.
    *
@@ -121,7 +136,7 @@ class LogicalOperator : public ::utils::Visitable<LogicalOperatorVisitor> {
  */
 class Once : public LogicalOperator {
  public:
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -155,7 +170,7 @@ class CreateNode : public LogicalOperator {
    */
   CreateNode(const NodeAtom *node_atom,
              const std::shared_ptr<LogicalOperator> &input);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -210,7 +225,7 @@ class CreateExpand : public LogicalOperator {
   CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, bool existing_node);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -276,7 +291,7 @@ class ScanAll : public LogicalOperator {
   ScanAll(const NodeAtom *node_atom,
           const std::shared_ptr<LogicalOperator> &input,
           GraphView graph_view = GraphView::OLD);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -347,7 +362,7 @@ class Expand : public LogicalOperator {
          const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
          bool existing_node, bool existing_edge,
          GraphView graph_view = GraphView::AS_IS);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -434,7 +449,7 @@ class Filter : public LogicalOperator {
  public:
   Filter(const std::shared_ptr<LogicalOperator> &input_,
          Expression *expression_);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -469,7 +484,7 @@ class Produce : public LogicalOperator {
  public:
   Produce(const std::shared_ptr<LogicalOperator> &input,
           const std::vector<NamedExpression *> named_expressions);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
   const std::vector<NamedExpression *> &named_expressions();
@@ -501,7 +516,7 @@ class Delete : public LogicalOperator {
  public:
   Delete(const std::shared_ptr<LogicalOperator> &input_,
          const std::vector<Expression *> &expressions, bool detach_);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -535,7 +550,7 @@ class SetProperty : public LogicalOperator {
  public:
   SetProperty(const std::shared_ptr<LogicalOperator> &input,
               PropertyLookup *lhs, Expression *rhs);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -579,7 +594,7 @@ class SetProperties : public LogicalOperator {
 
   SetProperties(const std::shared_ptr<LogicalOperator> &input,
                 Symbol input_symbol, Expression *rhs, Op op);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -619,7 +634,7 @@ class SetLabels : public LogicalOperator {
  public:
   SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
             const std::vector<GraphDbTypes::Label> &labels);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -647,7 +662,7 @@ class RemoveProperty : public LogicalOperator {
  public:
   RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
                  PropertyLookup *lhs);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -678,7 +693,7 @@ class RemoveLabels : public LogicalOperator {
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol,
                const std::vector<GraphDbTypes::Label> &labels);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -725,7 +740,7 @@ class ExpandUniquenessFilter : public LogicalOperator {
   ExpandUniquenessFilter(const std::shared_ptr<LogicalOperator> &input,
                          Symbol expand_symbol,
                          const std::vector<Symbol> &previous_symbols);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -777,7 +792,7 @@ class Accumulate : public LogicalOperator {
  public:
   Accumulate(const std::shared_ptr<LogicalOperator> &input,
              const std::vector<Symbol> &symbols, bool advance_command = false);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
   const auto &symbols() const { return symbols_; };
@@ -837,7 +852,7 @@ class Aggregate : public LogicalOperator {
             const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by,
             const std::vector<Symbol> &remember);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
   const auto &aggregations() const { return aggregations_; }
@@ -944,7 +959,7 @@ class Aggregate : public LogicalOperator {
 class Skip : public LogicalOperator {
  public:
   Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
@@ -987,7 +1002,7 @@ class Skip : public LogicalOperator {
 class Limit : public LogicalOperator {
  public:
   Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
@@ -1028,7 +1043,7 @@ class OrderBy : public LogicalOperator {
   OrderBy(const std::shared_ptr<LogicalOperator> &input,
           const std::vector<std::pair<Ordering, Expression *>> &order_by,
           const std::vector<Symbol> &output_symbols);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 
@@ -1102,7 +1117,7 @@ class Merge : public LogicalOperator {
   Merge(const std::shared_ptr<LogicalOperator> input,
         const std::shared_ptr<LogicalOperator> merge_match,
         const std::shared_ptr<LogicalOperator> merge_create);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
   auto input() const { return input_; }
@@ -1147,7 +1162,7 @@ class Optional : public LogicalOperator {
   Optional(const std::shared_ptr<LogicalOperator> &input,
            const std::shared_ptr<LogicalOperator> &optional,
            const std::vector<Symbol> &optional_symbols);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
   auto input() const { return input_; }
@@ -1188,7 +1203,7 @@ class Unwind : public LogicalOperator {
  public:
   Unwind(const std::shared_ptr<LogicalOperator> &input,
          Expression *input_expression_, Symbol output_symbol);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
@@ -1225,7 +1240,7 @@ class Distinct : public LogicalOperator {
  public:
   Distinct(const std::shared_ptr<LogicalOperator> &input,
            const std::vector<Symbol> &value_symbols);
-  void Accept(LogicalOperatorVisitor &visitor) override;
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) override;
 

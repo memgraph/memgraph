@@ -1,10 +1,10 @@
 #pragma once
 
-#include "utils/visitor/visitor.hpp"
+#include "utils/visitor.hpp"
 
 namespace query {
 
-// Forward declares for TreeVisitorBase
+// Forward declares for Tree visitors.
 class Query;
 class NamedExpression;
 class Identifier;
@@ -54,16 +54,27 @@ class RemoveLabels;
 class Merge;
 class Unwind;
 
-using TreeVisitorBase = ::utils::Visitor<
+using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Query, NamedExpression, OrOperator, XorOperator, AndOperator,
     FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
     GreaterEqualOperator, InListOperator, ListIndexingOperator,
     ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    Identifier, PrimitiveLiteral, ListLiteral, PropertyLookup, LabelsTest,
-    EdgeTypeTest, Aggregation, Function, Create, Match, Return, With, Pattern,
-    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind>;
+    ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
+    Function, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete,
+    Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    Merge, Unwind>;
+
+using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral>;
+
+class HierarchicalTreeVisitor : public TreeCompositeVisitor,
+                                public TreeLeafVisitor {
+ public:
+  using TreeCompositeVisitor::PreVisit;
+  using TreeCompositeVisitor::PostVisit;
+  using typename TreeLeafVisitor::ReturnType;
+  using TreeLeafVisitor::Visit;
+};
 
 }  // namespace query

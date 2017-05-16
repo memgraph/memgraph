@@ -16,39 +16,41 @@ namespace query {
 /// During the process of symbol generation, simple semantic checks are
 /// performed. Such as, redeclaring a variable or conflicting expectations of
 /// variable types.
-class SymbolGenerator : public TreeVisitorBase {
+class SymbolGenerator : public HierarchicalTreeVisitor {
  public:
   SymbolGenerator(SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  using TreeVisitorBase::PreVisit;
-  using TreeVisitorBase::Visit;
-  using TreeVisitorBase::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using typename HierarchicalTreeVisitor::ReturnType;
+  using HierarchicalTreeVisitor::Visit;
+  using HierarchicalTreeVisitor::PostVisit;
 
   // Clauses
-  void Visit(Create &) override;
-  void PostVisit(Create &) override;
+  bool PreVisit(Create &) override;
+  bool PostVisit(Create &) override;
   bool PreVisit(Return &) override;
   bool PreVisit(With &) override;
-  void Visit(Where &) override;
-  void PostVisit(Where &) override;
-  void Visit(Merge &) override;
-  void PostVisit(Merge &) override;
-  void PostVisit(Unwind &) override;
-  void Visit(Match &) override;
-  void PostVisit(Match &) override;
+  bool PreVisit(Where &) override;
+  bool PostVisit(Where &) override;
+  bool PreVisit(Merge &) override;
+  bool PostVisit(Merge &) override;
+  bool PostVisit(Unwind &) override;
+  bool PreVisit(Match &) override;
+  bool PostVisit(Match &) override;
 
   // Expressions
-  void Visit(Identifier &) override;
-  void Visit(Aggregation &) override;
-  void PostVisit(Aggregation &) override;
+  ReturnType Visit(Identifier &) override;
+  ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  bool PreVisit(Aggregation &) override;
+  bool PostVisit(Aggregation &) override;
 
   // Pattern and its subparts.
-  void Visit(Pattern &) override;
-  void PostVisit(Pattern &) override;
-  void Visit(NodeAtom &) override;
-  void PostVisit(NodeAtom &) override;
-  void Visit(EdgeAtom &) override;
-  void PostVisit(EdgeAtom &) override;
+  bool PreVisit(Pattern &) override;
+  bool PostVisit(Pattern &) override;
+  bool PreVisit(NodeAtom &) override;
+  bool PostVisit(NodeAtom &) override;
+  bool PreVisit(EdgeAtom &) override;
+  bool PostVisit(EdgeAtom &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of

@@ -109,8 +109,14 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 
 // Clauses
 
-void SymbolGenerator::Visit(Create &create) { scope_.in_create = true; }
-void SymbolGenerator::PostVisit(Create &create) { scope_.in_create = false; }
+bool SymbolGenerator::PreVisit(Create &create) {
+  scope_.in_create = true;
+  return true;
+}
+bool SymbolGenerator::PostVisit(Create &create) {
+  scope_.in_create = false;
+  return true;
+}
 
 bool SymbolGenerator::PreVisit(Return &ret) {
   scope_.in_return = true;
@@ -126,22 +132,38 @@ bool SymbolGenerator::PreVisit(With &with) {
   return false;  // We handled the traversal ourselves.
 }
 
-void SymbolGenerator::Visit(Where &) { scope_.in_where = true; }
-void SymbolGenerator::PostVisit(Where &) { scope_.in_where = false; }
+bool SymbolGenerator::PreVisit(Where &) {
+  scope_.in_where = true;
+  return true;
+}
+bool SymbolGenerator::PostVisit(Where &) {
+  scope_.in_where = false;
+  return true;
+}
 
-void SymbolGenerator::Visit(Merge &) { scope_.in_merge = true; }
-void SymbolGenerator::PostVisit(Merge &) { scope_.in_merge = false; }
+bool SymbolGenerator::PreVisit(Merge &) {
+  scope_.in_merge = true;
+  return true;
+}
+bool SymbolGenerator::PostVisit(Merge &) {
+  scope_.in_merge = false;
+  return true;
+}
 
-void SymbolGenerator::PostVisit(Unwind &unwind) {
+bool SymbolGenerator::PostVisit(Unwind &unwind) {
   const auto &name = unwind.named_expression_->name_;
   if (HasSymbol(name)) {
     throw RedeclareVariableError(name);
   }
   symbol_table_[*unwind.named_expression_] = CreateSymbol(name, true);
+  return true;
 }
 
-void SymbolGenerator::Visit(Match &) { scope_.in_match = true; }
-void SymbolGenerator::PostVisit(Match &) {
+bool SymbolGenerator::PreVisit(Match &) {
+  scope_.in_match = true;
+  return true;
+}
+bool SymbolGenerator::PostVisit(Match &) {
   scope_.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
@@ -150,11 +172,12 @@ void SymbolGenerator::PostVisit(Match &) {
     symbol_table_[*ident] = scope_.symbols[ident->name_];
   }
   scope_.identifiers_in_property_maps.clear();
+  return true;
 }
 
 // Expressions
 
-void SymbolGenerator::Visit(Identifier &ident) {
+SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope_.in_skip || scope_.in_limit) {
     throw SemanticException("Variables are not allowed in {}",
                             scope_.in_skip ? "SKIP" : "LIMIT");
@@ -193,9 +216,10 @@ void SymbolGenerator::Visit(Identifier &ident) {
     symbol = scope_.symbols[ident.name_];
   }
   symbol_table_[ident] = symbol;
+  return true;
 }
 
-void SymbolGenerator::Visit(Aggregation &aggr) {
+bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   // Check if the aggregation can be used in this context. This check should
   // probably move to a separate phase, which checks if the query is well
   // formed.
@@ -215,29 +239,33 @@ void SymbolGenerator::Visit(Aggregation &aggr) {
       symbol_table_.CreateSymbol("", false, Symbol::Type::Number);
   scope_.in_aggregation = true;
   scope_.has_aggregation = true;
+  return true;
 }
 
-void SymbolGenerator::PostVisit(Aggregation &aggr) {
+bool SymbolGenerator::PostVisit(Aggregation &aggr) {
   scope_.in_aggregation = false;
+  return true;
 }
 
 // Pattern and its subparts.
 
-void SymbolGenerator::Visit(Pattern &pattern) {
+bool SymbolGenerator::PreVisit(Pattern &pattern) {
   scope_.in_pattern = true;
   if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
     debug_assert(dynamic_cast<NodeAtom *>(pattern.atoms_[0]),
                  "Expected a single NodeAtom in Pattern");
     scope_.in_create_node = true;
   }
+  return true;
 }
 
-void SymbolGenerator::PostVisit(Pattern &pattern) {
+bool SymbolGenerator::PostVisit(Pattern &pattern) {
   scope_.in_pattern = false;
   scope_.in_create_node = false;
+  return true;
 }
 
-void SymbolGenerator::Visit(NodeAtom &node_atom) {
+bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   scope_.in_node_atom = true;
   bool props_or_labels =
       !node_atom.properties_.empty() || !node_atom.labels_.empty();
@@ -252,13 +280,15 @@ void SymbolGenerator::Visit(NodeAtom &node_atom) {
     kv.second->Accept(*this);
   }
   scope_.in_property_map = false;
+  return true;
 }
 
-void SymbolGenerator::PostVisit(NodeAtom &node_atom) {
+bool SymbolGenerator::PostVisit(NodeAtom &node_atom) {
   scope_.in_node_atom = false;
+  return true;
 }
 
-void SymbolGenerator::Visit(EdgeAtom &edge_atom) {
+bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
   scope_.in_edge_atom = true;
   if (scope_.in_create || scope_.in_merge) {
     scope_.in_create_edge = true;
@@ -274,11 +304,13 @@ void SymbolGenerator::Visit(EdgeAtom &edge_atom) {
           "when creating an edge");
     }
   }
+  return true;
 }
 
-void SymbolGenerator::PostVisit(EdgeAtom &edge_atom) {
+bool SymbolGenerator::PostVisit(EdgeAtom &edge_atom) {
   scope_.in_edge_atom = false;
   scope_.in_create_edge = false;
+  return true;
 }
 
 bool SymbolGenerator::HasSymbol(const std::string &name) {

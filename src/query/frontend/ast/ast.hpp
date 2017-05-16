@@ -9,13 +9,12 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
-#include "utils/visitor/visitable.hpp"
 
 namespace query {
 
 class AstTreeStorage;
 
-class Tree : public ::utils::Visitable<TreeVisitorBase> {
+class Tree : public ::utils::Visitable<HierarchicalTreeVisitor> {
   friend class AstTreeStorage;
 
  public:
@@ -64,13 +63,11 @@ class OrOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -81,13 +78,11 @@ class XorOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -98,13 +93,11 @@ class AndOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -119,13 +112,11 @@ class FilterAndOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -136,13 +127,11 @@ class AdditionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -153,13 +142,11 @@ class SubtractionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -170,13 +157,11 @@ class MultiplicationOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -187,13 +172,11 @@ class DivisionOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -204,13 +187,11 @@ class ModOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -221,13 +202,11 @@ class NotEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -238,13 +217,11 @@ class EqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -255,13 +232,11 @@ class LessOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -272,13 +247,11 @@ class GreaterOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -289,13 +262,11 @@ class LessEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -306,13 +277,11 @@ class GreaterEqualOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -323,13 +292,11 @@ class InListOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -340,13 +307,11 @@ class ListIndexingOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      expression1_->Accept(visitor);
-      expression2_->Accept(visitor);
-      visitor.PostVisit(*this);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -357,18 +322,17 @@ class ListSlicingOperator : public Expression {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      list_->Accept(visitor);
-      if (lower_bound_) {
-        lower_bound_->Accept(visitor);
+      bool cont = list_->Accept(visitor);
+      if (cont && lower_bound_) {
+        cont = lower_bound_->Accept(visitor);
       }
-      if (upper_bound_) {
+      if (cont && upper_bound_) {
         upper_bound_->Accept(visitor);
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Expression *list_;
@@ -388,12 +352,11 @@ class NotOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -404,12 +367,11 @@ class UnaryPlusOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -420,12 +382,11 @@ class UnaryMinusOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -436,10 +397,11 @@ class IsNullOperator : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
-    visitor.Visit(*this);
-    expression_->Accept(visitor);
-    visitor.PostVisit(*this);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -457,8 +419,8 @@ class PrimitiveLiteral : public BaseLiteral {
   friend class AstTreeStorage;
 
  public:
+  DEFVISITABLE(HierarchicalTreeVisitor);
   TypedValue value_;
-  DEFVISITABLE(TreeVisitorBase);
 
  protected:
   PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
@@ -471,12 +433,12 @@ class ListLiteral : public BaseLiteral {
 
  public:
   const std::vector<Expression *> elements_;
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      for (auto expr_ptr : elements_) expr_ptr->Accept(visitor);
-      visitor.PostVisit(*this);
+      for (auto expr_ptr : elements_)
+        if (!expr_ptr->Accept(visitor)) break;
     }
+    return visitor.PostVisit(*this);
   }
 
  protected:
@@ -489,7 +451,7 @@ class Identifier : public Expression {
   friend class AstTreeStorage;
 
  public:
-  DEFVISITABLE(TreeVisitorBase);
+  DEFVISITABLE(HierarchicalTreeVisitor);
   std::string name_;
   bool user_declared_ = true;
 
@@ -503,12 +465,11 @@ class PropertyLookup : public Expression {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Expression *expression_ = nullptr;
@@ -531,12 +492,11 @@ class LabelsTest : public Expression {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Expression *expression_ = nullptr;
@@ -552,12 +512,11 @@ class EdgeTypeTest : public Expression {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Expression *expression_ = nullptr;
@@ -576,14 +535,13 @@ class Function : public Expression {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       for (auto *argument : arguments_) {
-        argument->Accept(visitor);
+        if (!argument->Accept(visitor)) break;
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
@@ -609,14 +567,13 @@ class Aggregation : public UnaryOperator {
   static const constexpr char *const kSum = "SUM";
   static const constexpr char *const kAvg = "AVG";
 
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       if (expression_) {
         expression_->Accept(visitor);
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   Op op_;
 
@@ -633,12 +590,11 @@ class NamedExpression : public Tree {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   std::string name_;
@@ -667,12 +623,11 @@ class NodeAtom : public PatternAtom {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       identifier_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   std::vector<GraphDbTypes::Label> labels_;
@@ -692,12 +647,11 @@ class EdgeAtom : public PatternAtom {
   // necessarily go from left to right
   enum class Direction { LEFT, RIGHT, BOTH };
 
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       identifier_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Direction direction_ = Direction::BOTH;
@@ -722,14 +676,13 @@ class Pattern : public Tree {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       for (auto &part : atoms_) {
-        part->Accept(visitor);
+        if (!part->Accept(visitor)) break;
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
   std::vector<PatternAtom *> atoms_;
@@ -742,14 +695,13 @@ class Query : public Tree {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       for (auto &clause : clauses_) {
-        clause->Accept(visitor);
+        if (!clause->Accept(visitor)) break;
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   std::vector<Clause *> clauses_;
 
@@ -763,14 +715,13 @@ class Create : public Clause {
  public:
   Create(int uid) : Clause(uid) {}
   std::vector<Pattern *> patterns_;
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       for (auto &pattern : patterns_) {
-        pattern->Accept(visitor);
+        if (!pattern->Accept(visitor)) break;
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 };
 
@@ -778,12 +729,11 @@ class Where : public Tree {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   Expression *expression_ = nullptr;
 
@@ -796,17 +746,20 @@ class Match : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
+      bool cont = true;
       for (auto &pattern : patterns_) {
-        pattern->Accept(visitor);
+        if (!pattern->Accept(visitor)) {
+          cont = false;
+          break;
+        }
       }
-      if (where_) {
+      if (cont && where_) {
         where_->Accept(visitor);
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   std::vector<Pattern *> patterns_;
   Where *where_ = nullptr;
@@ -842,19 +795,27 @@ class Return : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
+      bool cont = true;
       for (auto &expr : body_.named_expressions) {
-        expr->Accept(visitor);
+        if (!expr->Accept(visitor)) {
+          cont = false;
+          break;
+        }
       }
-      for (auto &order_by : body_.order_by) {
-        order_by.second->Accept(visitor);
+      if (cont) {
+        for (auto &order_by : body_.order_by) {
+          if (!order_by.second->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
       }
-      if (body_.skip) body_.skip->Accept(visitor);
-      if (body_.limit) body_.limit->Accept(visitor);
-      visitor.PostVisit(*this);
+      if (cont && body_.skip) cont = body_.skip->Accept(visitor);
+      if (cont && body_.limit) cont = body_.limit->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
   ReturnBody body_;
@@ -867,20 +828,28 @@ class With : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
+      bool cont = true;
       for (auto &expr : body_.named_expressions) {
-        expr->Accept(visitor);
+        if (!expr->Accept(visitor)) {
+          cont = false;
+          break;
+        }
       }
-      for (auto &order_by : body_.order_by) {
-        order_by.second->Accept(visitor);
+      if (cont) {
+        for (auto &order_by : body_.order_by) {
+          if (!order_by.second->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
       }
-      if (where_) where_->Accept(visitor);
-      if (body_.skip) body_.skip->Accept(visitor);
-      if (body_.limit) body_.limit->Accept(visitor);
-      visitor.PostVisit(*this);
+      if (cont && where_) cont = where_->Accept(visitor);
+      if (cont && body_.skip) cont = body_.skip->Accept(visitor);
+      if (cont && body_.limit) cont = body_.limit->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
 
   ReturnBody body_;
@@ -894,14 +863,13 @@ class Delete : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       for (auto &expr : expressions_) {
-        expr->Accept(visitor);
+        if (!expr->Accept(visitor)) break;
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   std::vector<Expression *> expressions_;
   bool detach_ = false;
@@ -914,13 +882,11 @@ class SetProperty : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      property_lookup_->Accept(visitor);
-      expression_->Accept(visitor);
-      visitor.PostVisit(*this);
+      property_lookup_->Accept(visitor) && expression_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
   PropertyLookup *property_lookup_ = nullptr;
   Expression *expression_ = nullptr;
@@ -937,13 +903,11 @@ class SetProperties : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      identifier_->Accept(visitor);
-      expression_->Accept(visitor);
-      visitor.PostVisit(*this);
+      identifier_->Accept(visitor) && expression_->Accept(visitor);
     }
+    return visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
   Expression *expression_ = nullptr;
@@ -963,12 +927,11 @@ class SetLabels : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       identifier_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
   std::vector<GraphDbTypes::Label> labels_;
@@ -984,12 +947,11 @@ class RemoveProperty : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       property_lookup_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   PropertyLookup *property_lookup_ = nullptr;
 
@@ -1003,12 +965,11 @@ class RemoveLabels : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       identifier_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
   Identifier *identifier_ = nullptr;
   std::vector<GraphDbTypes::Label> labels_;
@@ -1024,18 +985,27 @@ class Merge : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
-      pattern_->Accept(visitor);
-      for (auto &set : on_match_) {
-        set->Accept(visitor);
+      bool cont = pattern_->Accept(visitor);
+      if (cont) {
+        for (auto &set : on_match_) {
+          if (!set->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
       }
-      for (auto &set : on_create_) {
-        set->Accept(visitor);
+      if (cont) {
+        for (auto &set : on_create_) {
+          if (!set->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
       }
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   Pattern *pattern_ = nullptr;
@@ -1050,12 +1020,11 @@ class Unwind : public Clause {
   friend class AstTreeStorage;
 
  public:
-  void Accept(TreeVisitorBase &visitor) override {
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      visitor.Visit(*this);
       named_expression_->Accept(visitor);
-      visitor.PostVisit(*this);
     }
+    return visitor.PostVisit(*this);
   }
 
   NamedExpression *const named_expression_ = nullptr;

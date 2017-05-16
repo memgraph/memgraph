@@ -16,7 +16,7 @@
 
 namespace query {
 
-class ExpressionEvaluator : public TreeVisitorBase {
+class ExpressionEvaluator : public HierarchicalTreeVisitor {
  public:
   ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table,
                       GraphDbAccessor &db_accessor,
@@ -39,32 +39,37 @@ class ExpressionEvaluator : public TreeVisitorBase {
     return last;
   }
 
-  using TreeVisitorBase::PreVisit;
-  using TreeVisitorBase::Visit;
-  using TreeVisitorBase::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using typename HierarchicalTreeVisitor::ReturnType;
+  using HierarchicalTreeVisitor::Visit;
+  using HierarchicalTreeVisitor::PostVisit;
 
-  void PostVisit(NamedExpression &named_expression) override {
+  bool PostVisit(NamedExpression &named_expression) override {
     auto symbol = symbol_table_.at(named_expression);
     frame_[symbol] = PopBack();
+    return true;
   }
 
-  void Visit(Identifier &ident) override {
+  ReturnType Visit(Identifier &ident) override {
     auto value = frame_[symbol_table_.at(ident)];
     SwitchAccessors(value);
     result_stack_.emplace_back(std::move(value));
+    return true;
   }
 
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)             \
-  void PostVisit(OP_NODE &) override {                       \
+  bool PostVisit(OP_NODE &) override {                       \
     auto expression2 = PopBack();                            \
     auto expression1 = PopBack();                            \
     result_stack_.push_back(expression1 CPP_OP expression2); \
+    return true;                                             \
   }
 
 #define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP) \
-  void PostVisit(OP_NODE &) override {          \
+  bool PostVisit(OP_NODE &) override {          \
     auto expression = PopBack();                \
     result_stack_.push_back(CPP_OP expression); \
+    return true;                                \
   }
 
   BINARY_OPERATOR_VISITOR(OrOperator, ||);
@@ -103,12 +108,12 @@ class ExpressionEvaluator : public TreeVisitorBase {
     return false;
   }
 
-  void PostVisit(InListOperator &) override {
+  bool PostVisit(InListOperator &) override {
     auto _list = PopBack();
     auto literal = PopBack();
     if (_list.IsNull()) {
       result_stack_.emplace_back(TypedValue::Null);
-      return;
+      return true;
     }
     // Exceptions have higher priority than returning null.
     // We need to convert list to its type before checking if literal is null,
@@ -116,7 +121,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
     auto list = _list.Value<std::vector<TypedValue>>();
     if (literal.IsNull()) {
       result_stack_.emplace_back(TypedValue::Null);
-      return;
+      return true;
     }
     auto has_null = false;
     for (const auto &element : list) {
@@ -125,7 +130,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
         has_null = true;
       } else if (result.Value<bool>()) {
         result_stack_.emplace_back(true);
-        return;
+        return true;
       }
     }
     if (has_null) {
@@ -133,9 +138,10 @@ class ExpressionEvaluator : public TreeVisitorBase {
     } else {
       result_stack_.emplace_back(false);
     }
+    return true;
   }
 
-  void PostVisit(ListIndexingOperator &) override {
+  bool PostVisit(ListIndexingOperator &) override {
     // TODO: implement this for maps
     auto _index = PopBack();
     if (_index.type() != TypedValue::Type::Int &&
@@ -150,7 +156,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
     if (_index.type() == TypedValue::Type::Null ||
         _list.type() == TypedValue::Type::Null) {
       result_stack_.emplace_back(TypedValue::Null);
-      return;
+      return true;
     }
     auto index = _index.Value<int64_t>();
     const auto &list = _list.Value<std::vector<TypedValue>>();
@@ -159,12 +165,13 @@ class ExpressionEvaluator : public TreeVisitorBase {
     }
     if (index >= static_cast<int64_t>(list.size()) || index < 0) {
       result_stack_.emplace_back(TypedValue::Null);
-      return;
+      return true;
     }
     result_stack_.emplace_back(list[index]);
+    return true;
   }
 
-  void PostVisit(ListSlicingOperator &op) override {
+  bool PostVisit(ListSlicingOperator &op) override {
     // If some type is null we can't return null, because throwing exception on
     // illegal type has higher priority.
     auto is_null = false;
@@ -193,7 +200,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
 
     if (is_null) {
       result_stack_.emplace_back(TypedValue::Null);
-      return;
+      return true;
     }
     const auto &list = _list.Value<std::vector<TypedValue>>();
     auto normalise_bound = [&](int64_t bound) {
@@ -207,18 +214,20 @@ class ExpressionEvaluator : public TreeVisitorBase {
     auto upper_bound = normalise_bound(_upper_bound.Value<int64_t>());
     if (upper_bound <= lower_bound) {
       result_stack_.emplace_back(std::vector<TypedValue>());
-      return;
+      return true;
     }
     result_stack_.emplace_back(std::vector<TypedValue>(
         list.begin() + lower_bound, list.begin() + upper_bound));
+    return true;
   }
 
-  void PostVisit(IsNullOperator &) override {
+  bool PostVisit(IsNullOperator &) override {
     auto expression = PopBack();
     result_stack_.push_back(TypedValue(expression.IsNull()));
+    return true;
   }
 
-  void PostVisit(PropertyLookup &property_lookup) override {
+  bool PostVisit(PropertyLookup &property_lookup) override {
     auto expression_result = PopBack();
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
@@ -244,9 +253,10 @@ class ExpressionEvaluator : public TreeVisitorBase {
         throw TypedValueException(
             "Expected Node, Edge or Map for property lookup");
     }
+    return true;
   }
 
-  void PostVisit(LabelsTest &labels_test) override {
+  bool PostVisit(LabelsTest &labels_test) override {
     auto expression_result = PopBack();
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
@@ -257,7 +267,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
         for (const auto label : labels_test.labels_) {
           if (!vertex.has_label(label)) {
             result_stack_.emplace_back(false);
-            return;
+            return true;
           }
         }
         result_stack_.emplace_back(true);
@@ -266,9 +276,10 @@ class ExpressionEvaluator : public TreeVisitorBase {
       default:
         throw TypedValueException("Expected Node in labels test");
     }
+    return true;
   }
 
-  void PostVisit(EdgeTypeTest &edge_type_test) override {
+  bool PostVisit(EdgeTypeTest &edge_type_test) override {
     auto expression_result = PopBack();
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
@@ -280,7 +291,7 @@ class ExpressionEvaluator : public TreeVisitorBase {
         for (const auto edge_type : edge_type_test.edge_types_) {
           if (edge_type == real_edge_type) {
             result_stack_.emplace_back(true);
-            return;
+            return true;
           }
         }
         result_stack_.emplace_back(false);
@@ -289,21 +300,24 @@ class ExpressionEvaluator : public TreeVisitorBase {
       default:
         throw TypedValueException("Expected Edge in edge type test");
     }
+    return true;
   }
 
-  void Visit(PrimitiveLiteral &literal) override {
+  ReturnType Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
     result_stack_.push_back(literal.value_);
+    return true;
   }
 
-  void PostVisit(ListLiteral &literal) override {
+  bool PostVisit(ListLiteral &literal) override {
     std::vector<TypedValue> result;
     result.reserve(literal.elements_.size());
     for (size_t i = 0; i < literal.elements_.size(); i++)
       result.emplace_back(PopBack());
     std::reverse(result.begin(), result.end());
     result_stack_.emplace_back(std::move(result));
+    return true;
   }
 
   bool PreVisit(Aggregation &aggregation) override {
@@ -316,13 +330,14 @@ class ExpressionEvaluator : public TreeVisitorBase {
     return false;
   }
 
-  void PostVisit(Function &function) override {
+  bool PostVisit(Function &function) override {
     std::vector<TypedValue> arguments;
     for (int i = 0; i < static_cast<int>(function.arguments_.size()); ++i) {
       arguments.push_back(PopBack());
     }
     reverse(arguments.begin(), arguments.end());
     result_stack_.emplace_back(function.function_(arguments, db_accessor_));
+    return true;
   }
 
  private:

@@ -29,37 +29,41 @@ class BaseOpChecker {
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
 
-class PlanChecker : public LogicalOperatorVisitor {
+class PlanChecker : public HierarchicalLogicalOperatorVisitor {
  public:
-  using LogicalOperatorVisitor::PreVisit;
-  using LogicalOperatorVisitor::Visit;
-  using LogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
 
   PlanChecker(const std::list<BaseOpChecker *> &checkers,
               const SymbolTable &symbol_table)
       : checkers_(checkers), symbol_table_(symbol_table) {}
 
-  void Visit(CreateNode &op) override { CheckOp(op); }
-  void Visit(CreateExpand &op) override { CheckOp(op); }
-  void Visit(Delete &op) override { CheckOp(op); }
-  void Visit(ScanAll &op) override { CheckOp(op); }
-  void Visit(Expand &op) override { CheckOp(op); }
-  void Visit(Filter &op) override { CheckOp(op); }
-  void Visit(Produce &op) override { CheckOp(op); }
-  void Visit(SetProperty &op) override { CheckOp(op); }
-  void Visit(SetProperties &op) override { CheckOp(op); }
-  void Visit(SetLabels &op) override { CheckOp(op); }
-  void Visit(RemoveProperty &op) override { CheckOp(op); }
-  void Visit(RemoveLabels &op) override { CheckOp(op); }
-  void Visit(ExpandUniquenessFilter<VertexAccessor> &op) override {
-    CheckOp(op);
+#define PRE_VISIT(TOp)              \
+  bool PreVisit(TOp &op) override { \
+    CheckOp(op);                    \
+    return true;                    \
   }
-  void Visit(ExpandUniquenessFilter<EdgeAccessor> &op) override { CheckOp(op); }
-  void Visit(Accumulate &op) override { CheckOp(op); }
-  void Visit(Aggregate &op) override { CheckOp(op); }
-  void Visit(Skip &op) override { CheckOp(op); }
-  void Visit(Limit &op) override { CheckOp(op); }
-  void Visit(OrderBy &op) override { CheckOp(op); }
+
+  PRE_VISIT(CreateNode);
+  PRE_VISIT(CreateExpand);
+  PRE_VISIT(Delete);
+  PRE_VISIT(ScanAll);
+  PRE_VISIT(Expand);
+  PRE_VISIT(Filter);
+  PRE_VISIT(Produce);
+  PRE_VISIT(SetProperty);
+  PRE_VISIT(SetProperties);
+  PRE_VISIT(SetLabels);
+  PRE_VISIT(RemoveProperty);
+  PRE_VISIT(RemoveLabels);
+  PRE_VISIT(ExpandUniquenessFilter<VertexAccessor>);
+  PRE_VISIT(ExpandUniquenessFilter<EdgeAccessor>);
+  PRE_VISIT(Accumulate);
+  PRE_VISIT(Aggregate);
+  PRE_VISIT(Skip);
+  PRE_VISIT(Limit);
+  PRE_VISIT(OrderBy);
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -70,8 +74,14 @@ class PlanChecker : public LogicalOperatorVisitor {
     op.input()->Accept(*this);
     return false;
   }
-  void Visit(Unwind &op) override { CheckOp(op); }
-  void Visit(Distinct &op) override { CheckOp(op); }
+  PRE_VISIT(Unwind);
+  PRE_VISIT(Distinct);
+
+  bool Visit(Once &op) override {
+    // Ignore checking Once, it is implicitly at the end.
+    return true;
+  }
+#undef PRE_VISIT
 
   std::list<BaseOpChecker *> checkers_;
 
