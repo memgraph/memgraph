@@ -831,5 +831,20 @@ TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
   EXPECT_EQ(output_names, expected_names);
 }
 
+TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
+  // Test UNWIND [1] AS i MERGE (n {prop: i})
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  node_n->properties_[prop] = IDENT("i");
+  QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n)));
+  std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  CheckPlan(storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
+  for (auto &op : on_match) delete op;
+  for (auto &op : on_create) delete op;
+}
 
 }  // namespace

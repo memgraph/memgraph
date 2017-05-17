@@ -763,10 +763,11 @@ std::unique_ptr<LogicalOperator> MakeLogicalPlan(AstTreeStorage &storage,
         is_write = true;
         input_op = op;
       } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
+        const auto &symbol = symbol_table.at(*unwind->named_expression_);
+        BindSymbol(bound_symbols, symbol);
         input_op =
             new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
-                             unwind->named_expression_->expression_,
-                             symbol_table.at(*unwind->named_expression_));
+                             unwind->named_expression_->expression_, symbol);
       } else {
         throw utils::NotYetImplemented(
             "Encountered a clause which cannot be converted to operator(s)");
