@@ -272,8 +272,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
+  // Vertex could be null if it is created by a failed optional match, in such a
+  // case we should stop expanding.
+  if (vertex_value.IsNull()) return false;
+
   auto &vertex = vertex_value.Value<VertexAccessor>();
-  // switch the expansion origin vertex to the desired state
+  // Switch the expansion origin vertex to the desired state.
   switch (self_.graph_view_) {
     case GraphView::NEW:
       vertex.SwitchNew();
@@ -312,7 +316,9 @@ bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
   if (self_.existing_edge_) {
     TypedValue &old_edge_value =
         frame[symbol_table.at(*self_.edge_atom_->identifier_)];
-    return old_edge_value.Value<EdgeAccessor>() == new_edge;
+    // old_edge_value may be Null when using optional matching
+    return !old_edge_value.IsNull() &&
+           old_edge_value.Value<EdgeAccessor>() == new_edge;
   } else {
     // not matching existing, so put the new_edge into the frame and return true
     frame[symbol_table.at(*self_.edge_atom_->identifier_)] = new_edge;
@@ -339,7 +345,9 @@ bool Expand::ExpandCursor::HandleExistingNode(const VertexAccessor new_node,
   if (self_.existing_node_) {
     TypedValue &old_node_value =
         frame[symbol_table.at(*self_.node_atom_->identifier_)];
-    return old_node_value.Value<VertexAccessor>() == new_node;
+    // old_node_value may be Null when using optional matching
+    return !old_node_value.IsNull() &&
+           old_node_value.Value<VertexAccessor>() == new_node;
   } else {
     // not matching existing, so put the new_edge into the frame and return true
     frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;

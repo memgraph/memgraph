@@ -353,6 +353,126 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
 }
 
+TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // OPTIONAL MATCH (n)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
+                                                   std::vector<Symbol>{n.sym_});
+  // WITH n
+  auto n_ne = NEXPR("n", IDENT("n"));
+  symbol_table[*n_ne->expression_] = n.sym_;
+  auto with_n_sym = symbol_table.CreateSymbol("n", true);
+  symbol_table[*n_ne] = with_n_sym;
+  auto with = MakeProduce(optional, n_ne);
+  // MATCH (n) -[r]-> (m)
+  auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r",
+                        EdgeAtom::Direction::RIGHT, false, "m", false);
+  // RETURN m
+  auto m_ne = NEXPR("m", IDENT("m"));
+  symbol_table[*m_ne->expression_] = r_m.node_sym_;
+  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
+  auto produce = MakeProduce(r_m.op_, m_ne);
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  EXPECT_EQ(0, results.size());
+}
+
+TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Make a graph with 2 connected, unlabeled nodes.
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("edge_type");
+  dba->insert_edge(v1, v2, edge_type);
+  dba->advance_command();
+  EXPECT_EQ(2, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, CountIterable(dba->edges()));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // OPTIONAL MATCH (n :missing)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto label_missing = dba->label("missing");
+  n.node_->labels_.emplace_back(label_missing);
+  auto *filter_expr =
+      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto optional = std::make_shared<plan::Optional>(nullptr, node_filter,
+                                                   std::vector<Symbol>{n.sym_});
+  // WITH n
+  auto n_ne = NEXPR("n", IDENT("n"));
+  symbol_table[*n_ne->expression_] = n.sym_;
+  auto with_n_sym = symbol_table.CreateSymbol("n", true);
+  symbol_table[*n_ne] = with_n_sym;
+  auto with = MakeProduce(optional, n_ne);
+  // MATCH (m) -[r]-> (n)
+  auto m = MakeScanAll(storage, symbol_table, "m", with);
+  auto edge = EDGE("r", EdgeAtom::Direction::RIGHT);
+  symbol_table[*edge->identifier_] = symbol_table.CreateSymbol("r", true);
+  auto node = NODE("n");
+  symbol_table[*node->identifier_] = with_n_sym;
+  auto expand =
+      std::make_shared<plan::Expand>(node, edge, m.op_, m.sym_, true, false);
+  // RETURN m
+  auto m_ne = NEXPR("m", IDENT("m"));
+  symbol_table[*m_ne->expression_] = m.sym_;
+  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
+  auto produce = MakeProduce(expand, m_ne);
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  EXPECT_EQ(0, results.size());
+}
+
+TEST(QueryPlan, OptionalMatchThenExpandToMissingEdge) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Make a graph with 2 connected, unlabeled nodes.
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto edge_type = dba->edge_type("edge_type");
+  dba->insert_edge(v1, v2, edge_type);
+  dba->advance_command();
+  EXPECT_EQ(2, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, CountIterable(dba->edges()));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // OPTIONAL MATCH (n :missing) -[r]- (m)
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto label_missing = dba->label("missing");
+  n.node_->labels_.emplace_back(label_missing);
+  auto *filter_expr =
+      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto r_m = MakeExpand(storage, symbol_table, node_filter, n.sym_, "r",
+                        EdgeAtom::Direction::BOTH, false, "m", false);
+  auto optional = std::make_shared<plan::Optional>(
+      nullptr, r_m.op_,
+      std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
+  // WITH r
+  auto r_ne = NEXPR("r", IDENT("r"));
+  symbol_table[*r_ne->expression_] = r_m.edge_sym_;
+  auto with_n_sym = symbol_table.CreateSymbol("r", true);
+  symbol_table[*r_ne] = with_n_sym;
+  auto with = MakeProduce(optional, r_ne);
+  // MATCH (a) -[r]- (b)
+  auto a = MakeScanAll(storage, symbol_table, "a", with);
+  auto edge = EDGE("r", EdgeAtom::Direction::BOTH);
+  symbol_table[*edge->identifier_] = r_m.edge_sym_;
+  auto node = NODE("n");
+  symbol_table[*node->identifier_] = symbol_table.CreateSymbol("b", true);
+  auto expand =
+      std::make_shared<plan::Expand>(node, edge, a.op_, a.sym_, false, true);
+  // RETURN a
+  auto a_ne = NEXPR("a", IDENT("a"));
+  symbol_table[*a_ne->expression_] = a.sym_;
+  symbol_table[*a_ne] = symbol_table.CreateSymbol("a", true);
+  auto produce = MakeProduce(expand, a_ne);
+  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  EXPECT_EQ(0, results.size());
+}
+
 TEST(QueryPlan, ExpandExistingNode) {
   Dbms dbms;
   auto dba = dbms.active();
