@@ -101,11 +101,11 @@ inline std::vector<std::string> Split(const std::string& src,
  */
 inline double ParseDouble(const std::string& s) {
   // stod would be nicer but it uses current locale so we shouldn't use it.
-  double t = 0LL;
+  double t = 0.0;
   std::istringstream iss(s);
   iss.imbue(std::locale::classic());
   iss >> t;
-  if (!iss.eof()) {
+  if (iss.fail() || !iss.eof()) {
     throw BasicException("Couldn't parse string");
   }
   return t;
