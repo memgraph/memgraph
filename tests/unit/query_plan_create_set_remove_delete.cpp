@@ -854,3 +854,85 @@ TEST(QueryPlan, MergeNoInput) {
   dba->advance_command();
   EXPECT_EQ(1, CountIterable(dba->vertices()));
 }
+
+TEST(QueryPlan, SetPropertyOnNull) {
+  // SET (Null).prop = 42
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto prop = dba->property("prop");
+  auto null = LITERAL(TypedValue::Null);
+  auto literal = LITERAL(42);
+  auto n_prop = storage.Create<PropertyLookup>(null, prop);
+  auto once = std::make_shared<Once>();
+  auto set_op = std::make_shared<plan::SetProperty>(once, n_prop, literal);
+  EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
+}
+
+TEST(QueryPlan, SetPropertiesOnNull) {
+  // OPTIONAL MATCH (n) SET n = n
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_ident = IDENT("n");
+  symbol_table[*n_ident] = n.sym_;
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
+                                                   std::vector<Symbol>{n.sym_});
+  auto set_op = std::make_shared<plan::SetProperties>(
+      optional, n.sym_, n_ident, plan::SetProperties::Op::REPLACE);
+  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
+}
+
+TEST(QueryPlan, SetLabelsOnNull) {
+  // OPTIONAL MATCH (n) SET n :label
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_ident = IDENT("n");
+  symbol_table[*n_ident] = n.sym_;
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
+                                                   std::vector<Symbol>{n.sym_});
+  auto set_op = std::make_shared<plan::SetLabels>(
+      optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
+  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
+}
+
+TEST(QueryPlan, RemovePropertyOnNull) {
+  // REMOVE (Null).prop
+  Dbms dbms;
+  auto dba = dbms.active();
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto prop = dba->property("prop");
+  auto null = LITERAL(TypedValue::Null);
+  auto n_prop = storage.Create<PropertyLookup>(null, prop);
+  auto once = std::make_shared<Once>();
+  auto remove_op = std::make_shared<plan::RemoveProperty>(once, n_prop);
+  EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
+}
+
+TEST(QueryPlan, RemoveLabelsOnNull) {
+  // OPTIONAL MATCH (n) REMOVE n :label
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_ident = IDENT("n");
+  symbol_table[*n_ident] = n.sym_;
+  auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
+                                                   std::vector<Symbol>{n.sym_});
+  auto remove_op = std::make_shared<plan::RemoveLabels>(
+      optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
+  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
+}

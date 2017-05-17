@@ -513,6 +513,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
     case TypedValue::Type::Edge:
       lhs.Value<EdgeAccessor>().PropsSet(self_.lhs_->property_, rhs);
       break;
+    case TypedValue::Type::Null:
+      // Skip setting properties on Null (can occur in optional match).
+      break;
     default:
       throw QueryRuntimeException(
           "Properties can only be set on Vertices and Edges");
@@ -552,6 +555,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame,
       break;
     case TypedValue::Type::Edge:
       Set(lhs.Value<EdgeAccessor>(), rhs);
+      break;
+    case TypedValue::Type::Null:
+      // Skip setting properties on Null (can occur in optional match).
       break;
     default:
       throw QueryRuntimeException(
@@ -620,6 +626,9 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
+  // Skip setting labels on Null (can occur in optional match).
+  if (vertex_value.IsNull()) return true;
+
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.add_label(label);
@@ -658,6 +667,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(
     case TypedValue::Type::Edge:
       lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
       break;
+    case TypedValue::Type::Null:
+      // Skip removing properties on Null (can occur in optional match).
+      break;
     default:
       // TODO consider throwing a TypedValueException here
       // deal with this when we'll be overhauling error-feedback
@@ -689,6 +701,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
+  // Skip removing labels on Null (can occur in optional match).
+  if (vertex_value.IsNull()) return true;
+
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.remove_label(label);
