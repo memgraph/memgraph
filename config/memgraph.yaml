@@ -22,7 +22,8 @@ cleaning_cycle_sec: "30"
 snapshot_cycle_sec: "60"
 
 # max number of snapshots which will be kept on the disk at some point
-max_retained_snapshots: "3"
+# if set to -1 the max number of snapshots is unlimited
+max_retained_snapshots: "-1"
 
 # by default query engine runs in interpret mode
 interpret: true

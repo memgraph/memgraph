@@ -330,6 +330,7 @@ set(memgraph_src_files
     ${src_dir}/io/network/socket.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
+    ${src_dir}/durability/snapshooter.cpp
 #    ${src_dir}/snapshot/snapshot_engine.cpp
 #    ${src_dir}/snapshot/snapshoter.cpp
 #    ${src_dir}/snapshot/snapshot_encoder.cpp
@@ -340,7 +341,7 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/storage/edge_accessor.cpp
-#    ${src_dir}/storage/record_accessor.cpp
+#    ${src_dir}/storage/record_accessor.cpp 
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
@@ -366,6 +367,7 @@ set(memgraph_src_files
 
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
+target_link_libraries(memgraph_lib stdc++fs)
 add_dependencies(memgraph_lib generate_opencypher_parser
                               generate_plan_compiler_flags)
 # executables that require memgraph_lib should link MEMGRAPH_ALL_LIBS to link all dependant libraries
@@ -377,6 +379,7 @@ endif()
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
+target_link_libraries(memgraph_pic stdc++fs)
 add_dependencies(memgraph_pic generate_opencypher_parser
                               generate_plan_compiler_flags)
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
