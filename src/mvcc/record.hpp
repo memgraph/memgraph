@@ -80,11 +80,13 @@ class Record : public Version<T> {
   }
 
   void mark_created(const tx::Transaction &t) {
+    debug_assert(tx.cre() == Id(0), "Marking node as created twice.");
     tx.cre(t.id);
     cmd.cre(t.cid);
   }
 
   void mark_deleted(const tx::Transaction &t) {
+    if (tx.exp() != Id(0)) hints.exp.clear();
     tx.exp(t.id);
     cmd.exp(t.cid);
   }

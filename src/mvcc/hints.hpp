@@ -54,6 +54,19 @@ class Hints {
       bits.fetch_or(ABORTED, order);
     }
 
+    void clear_commited(std::memory_order order = std::memory_order_seq_cst) {
+      bits.fetch_and(~COMMITTED, order);
+    }
+
+    void clear_aborted(std::memory_order order = std::memory_order_seq_cst) {
+      bits.fetch_and(~ABORTED, order);
+    }
+
+    void clear(std::memory_order order = std::memory_order_seq_cst) {
+      clear_aborted(order);
+      clear_commited(order);
+    }
+
    private:
     std::atomic<uint8_t> &bits;
   };

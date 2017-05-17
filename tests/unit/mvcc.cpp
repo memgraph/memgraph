@@ -12,6 +12,26 @@
 
 class TestClass : public mvcc::Record<TestClass> {};
 
+TEST(MVCC, RecordExpiryUpdatedTwice) {
+  tx::Engine engine;
+
+  auto t0 = engine.begin();
+  mvcc::VersionList<TestClass> version_list(*t0);
+  t0->commit();
+
+  auto t1 = engine.begin();
+  version_list.update(*t1);
+  t1->abort();
+
+  auto t2 = engine.begin();
+  version_list.remove(*t2);
+  t2->commit();
+
+  auto t3 = engine.begin();
+  EXPECT_EQ(version_list.find(*t3), nullptr);
+  t3->commit();
+}
+
 TEST(MVCC, Deadlock) {
   tx::Engine engine;
 
