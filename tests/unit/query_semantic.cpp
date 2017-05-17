@@ -840,4 +840,20 @@ TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
+TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
+  // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto r_type = dba->edge_type("r");
+  auto label = dba->label("label");
+  AstTreeStorage storage;
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      MERGE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT),
+                    NODE("n", label))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
 }  // namespace

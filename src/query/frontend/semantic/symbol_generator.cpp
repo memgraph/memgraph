@@ -270,7 +270,8 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   bool props_or_labels =
       !node_atom.properties_.empty() || !node_atom.labels_.empty();
   const auto &node_name = node_atom.identifier_->name_;
-  if (scope_.in_create && props_or_labels && HasSymbol(node_name)) {
+  if ((scope_.in_create || scope_.in_merge) && props_or_labels &&
+      HasSymbol(node_name)) {
     throw SemanticException(
         "Cannot create node '" + node_name +
         "' with labels or properties, because it is already declared.");
