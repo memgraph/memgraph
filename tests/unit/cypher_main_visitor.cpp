@@ -432,6 +432,25 @@ TEST(CypherMainVisitorTest, InListOperator) {
   ASSERT_TRUE(list);
 }
 
+TEST(CypherMainVisitorTest, InWithListIndexing) {
+  AstGenerator ast_generator("RETURN 1 IN [[1,2]][0]");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *in_list_operator = dynamic_cast<InListOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(in_list_operator);
+  auto *literal =
+      dynamic_cast<PrimitiveLiteral *>(in_list_operator->expression1_);
+  ASSERT_TRUE(literal);
+  EXPECT_EQ(literal->value_.Value<int64_t>(), 1);
+  auto *list_indexing = dynamic_cast<ListIndexingOperator *>(in_list_operator->expression2_);
+  ASSERT_TRUE(list_indexing);
+  auto *list = dynamic_cast<ListLiteral *>(list_indexing->expression1_);
+  EXPECT_TRUE(list);
+  auto *list_index = dynamic_cast<PrimitiveLiteral *>(list_indexing->expression2_);
+  EXPECT_TRUE(list_index);
+}
+
 TEST(CypherMainVisitorTest, IsNull) {
   AstGenerator ast_generator("RETURN 2 iS NulL");
   auto *query = ast_generator.query_;

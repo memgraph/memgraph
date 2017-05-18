@@ -604,7 +604,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
           storage_.Create<IsNullOperator>(expression));
     } else if (op->IN()) {
       expression = static_cast<Expression *>(storage_.Create<InListOperator>(
-          expression, op->expression2a()->accept(this)));
+          expression, op->expression3b()->accept(this)));
     } else {
       throw utils::NotYetImplemented();
     }

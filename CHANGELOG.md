@@ -8,7 +8,7 @@ TODO
 
 ### Bug Fixes and Other Changes
 
-TODO
+* List indexing supported with preceeding IN (for example in query `RETURN 1 IN [[1,2]][0]`)
 
 ## Build 825
 
