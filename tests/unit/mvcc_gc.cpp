@@ -22,8 +22,9 @@
  * are not longer visible.
  */
 TEST(VersionList, GcDeleted) {
-  const int UPDATES = 10;
   tx::Engine engine;
+
+  // create a version_list with one record
   std::vector<uint64_t> ids;
   auto t1 = engine.begin();
   std::atomic<int> count{0};
@@ -31,6 +32,8 @@ TEST(VersionList, GcDeleted) {
   ids.push_back(t1->id);
   t1->commit();
 
+  // create some updates
+  const int UPDATES = 10;
   for (int i = 0; i < UPDATES; ++i) {
     auto t2 = engine.begin();
     ids.push_back(t2->id);
@@ -38,36 +41,57 @@ TEST(VersionList, GcDeleted) {
     t2->commit();
   }
 
-  EXPECT_EQ(version_list.GcDeleted(ids[0], engine),
-            std::make_pair(false, (PropCount *)nullptr));
-  EXPECT_EQ(count, 0);
-  auto ret = version_list.GcDeleted(ids.back() + 1, engine);
-  EXPECT_EQ(ret.first, false);
-  EXPECT_NE(ret.second, nullptr);
-  delete ret.second;
-  EXPECT_EQ(count, UPDATES);
+  // deleting with the first transaction does nothing
+  {
+    auto ret = version_list.GcDeleted(ids[0], engine);
+    EXPECT_EQ(ret.first, false);
+    EXPECT_EQ(ret.second, nullptr);
+  }
 
-  auto tl = engine.begin();
-  version_list.remove(*tl);
-  auto id = tl->id + 1;
-  tl->abort();
+  // deleting with the last transaction + 1 deletes
+  // everything except the last update
+  {
+    auto ret = version_list.GcDeleted(ids.back() + 1, engine);
+    EXPECT_EQ(ret.first, false);
+    EXPECT_NE(ret.second, nullptr);
+    delete ret.second;
+    EXPECT_EQ(count, UPDATES);
+  }
 
-  auto ret2 = version_list.GcDeleted(id, engine);
-  EXPECT_EQ(ret2.first, false);
-  EXPECT_EQ(ret2.second, nullptr);
+  // remove and abort, nothing gets deleted
+  {
+    auto t = engine.begin();
+    version_list.remove(*t);
+    auto id = t->id + 1;
+    t->abort();
+    auto ret = version_list.GcDeleted(id, engine);
+    EXPECT_EQ(ret.first, false);
+    EXPECT_EQ(ret.second, nullptr);
+  }
 
-  auto tk = engine.begin();
-  version_list.remove(*tk);
-  auto id2 = tk->id + 1;
-  tk->commit();
+  // update and abort, nothing gets deleted
+  {
+    auto t = engine.begin();
+    version_list.update(*t);
+    auto id = t->id + 1;
+    t->abort();
+    auto ret = version_list.GcDeleted(id, engine);
+    EXPECT_EQ(ret.first, false);
+    EXPECT_EQ(ret.second, nullptr);
+  }
 
-  auto ret3 = version_list.GcDeleted(id2, engine);
-  EXPECT_EQ(ret3.first, true);
-  EXPECT_NE(ret3.second, nullptr);
-
-  delete ret3.second;
-
-  EXPECT_EQ(count, UPDATES + 1);
+  // remove and commit, everything gets deleted
+  {
+    auto t = engine.begin();
+    version_list.remove(*t);
+    auto id = t->id + 1;
+    t->commit();
+    auto ret = version_list.GcDeleted(id, engine);
+    EXPECT_EQ(ret.first, true);
+    EXPECT_NE(ret.second, nullptr);
+    delete ret.second;
+    EXPECT_EQ(count, UPDATES + 2);
+  }
 }
 
 /**

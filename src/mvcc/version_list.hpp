@@ -85,52 +85,55 @@ class VersionList {
    * visible anymore. If none exists to_delete will point to nullptr.
   */
   std::pair<bool, T *> GcDeleted(const Id &id, tx::Engine &engine) {
-    auto newest_deleted_record = head.load(std::memory_order_seq_cst);
-    T *oldest_not_deleted_record = nullptr;
 
     //    nullptr
     //       |
-    //     [v1]      ...
+    //     [v1]      ...  all of this gets deleted!
     //       |
-    //     [v2] <------+  newest_deleted_record
+    //     [v2] <------+  head_of_deletable_records
     //       |         |
-    //     [v3] <------+  oldest_not_deleted_record
-    //       |         |  Jump backwards until you find a first old deleted
+    //     [v3] <------+  oldest_visible_record
+    //       |         |  Jump backwards until you find the oldest visible
     //   [VerList] ----+  record, or you reach the end of the list
     //
-    while (newest_deleted_record != nullptr &&
-           !newest_deleted_record->is_not_visible_from(id, engine)) {
-      oldest_not_deleted_record = newest_deleted_record;
-      newest_deleted_record =
-          newest_deleted_record->next(std::memory_order_seq_cst);
+    
+    auto current = head.load();
+    T *head_of_deletable_records = current;
+    T *oldest_visible_record = nullptr;
+    while (current) {
+      if (!current->is_not_visible_from(id, engine))
+          oldest_visible_record = current;
+        current = current->next();
     }
+    if (oldest_visible_record)
+      head_of_deletable_records = oldest_visible_record->next();
 
     // This can happen only if the head already points to a deleted record or
     // the version list is empty. This means that the version_list is ready
     // for complete destruction.
-    if (oldest_not_deleted_record == nullptr) {
+    if (oldest_visible_record == nullptr) {
       // Head points to a deleted record.
-      if (newest_deleted_record != nullptr) {
+      if (head_of_deletable_records != nullptr) {
         head.store(nullptr, std::memory_order_seq_cst);
         // This is safe to return as ready for deletion since we unlinked head
         // above and this will only be deleted after the last active transaction
         // ends.
-        return std::make_pair(true, newest_deleted_record);
+        return std::make_pair(true, head_of_deletable_records);
       }
       return std::make_pair(true, nullptr);
     }
-    // oldest_not_deleted_record might be visible to some transaction but
-    // newest_deleted_record is not and will never be visted by the find
+    // oldest_visible_record might be visible to some transaction but
+    // head_of_deletable_records is not and will never be visted by the find
     // function and as such doesn't represent pointer invalidation
     // race-condition risk.
-    oldest_not_deleted_record->next(
+    oldest_visible_record->next(
         nullptr, std::memory_order_seq_cst);  // No transaction will look
                                               // further than this record and
                                               // that's why it's safe to set
                                               // next to nullptr.
-    // Calling destructor  of newest_deleted_record will clean everything older
+    // Calling destructor  of head_of_deletable_records will clean everything older
     // than this record since they are called recursively.
-    return std::make_pair(false, newest_deleted_record);
+    return std::make_pair(false, head_of_deletable_records);
   }
 
   /**
