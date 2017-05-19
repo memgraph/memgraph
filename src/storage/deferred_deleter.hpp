@@ -1,5 +1,7 @@
 #pragma once
 
+#include <malloc.h>
+
 #include <list>
 
 #include "mvcc/id.hpp"
@@ -48,6 +50,12 @@ class DeferredDeleter {
       ++it;
     }
     objects_.erase(objects_.begin(), it);
+    // After deleting objects - to force release of now deleted (free) memory
+    // back to OS we need to call malloc_trim. This will force memgraph to
+    // return memory from top of the heap to OS. If we don't use this, it seems
+    // to the outside observer we are leaking memory while in fact we are not,
+    // we were just keeping it close by in case we need it in near future.
+    malloc_trim(0);
   }
 
   /**
