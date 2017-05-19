@@ -674,6 +674,10 @@ TEST(CypherMainVisitorTest, NodePattern) {
                   Pair(ast_generator.db_accessor_->property("b"), 10)));
 }
 
+TEST(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
+  EXPECT_THROW(AstGenerator("MATCH ({a : 1, a : 2})"), SemanticException);
+}
+
 TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   AstGenerator ast_generator("MATCH (var) RETURN 1");
   auto *query = ast_generator.query_;

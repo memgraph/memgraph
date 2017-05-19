@@ -268,9 +268,12 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     CypherParser::MapLiteralContext *ctx) {
   std::map<GraphDbTypes::Property, Expression *> map;
-  for (int i = 0; i < (int)ctx->propertyKeyName().size(); ++i) {
-    map[ctx->propertyKeyName()[i]->accept(this)] =
-        ctx->expression()[i]->accept(this);
+  for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
+    GraphDbTypes::Property key = ctx->propertyKeyName()[i]->accept(this);
+    Expression *value = ctx->expression()[i]->accept(this);
+    if (!map.insert({key, value}).second) {
+      throw SemanticException("Same key can't appear twice in map literal");
+    }
   }
   return map;
 }
