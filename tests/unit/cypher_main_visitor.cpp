@@ -1095,6 +1095,12 @@ TEST(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(AstGenerator("RETURN 1 AS n UNWIND n AS x RETURN x"),
                SemanticException);
 
+  ASSERT_THROW(AstGenerator("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"),
+               SemanticException);
+  AstGenerator("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m");
+  AstGenerator("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
+  AstGenerator("MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
+
   AstGenerator("CREATE (n)");
   ASSERT_THROW(AstGenerator("SET n:x MATCH (n) RETURN n"), SemanticException);
   AstGenerator("REMOVE n.x SET n.x = 1");

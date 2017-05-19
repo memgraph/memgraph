@@ -41,10 +41,20 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   // consecutive SET clauses are undefined behaviour in neo4j.
   bool has_update = false;
   bool has_return = false;
+  bool has_optional_match = false;
   for (Clause *clause : query_->clauses_) {
-    if (dynamic_cast<Match *>(clause) || dynamic_cast<Unwind *>(clause)) {
+    if (dynamic_cast<Unwind *>(clause)) {
+      if (has_update || has_return) {
+        throw SemanticException("Unwind can't be after return or update clause");
+      }
+    } else if (auto *match = dynamic_cast<Match *>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("Match can't be after return or update clause");
+      }
+      if (match->optional_) {
+        has_optional_match = true;
+      } else if (has_optional_match) {
+        throw SemanticException("Match can't be after optional match");
       }
     } else if (dynamic_cast<Create *>(clause) ||
                dynamic_cast<Delete *>(clause) ||
@@ -67,7 +77,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       if (has_return) {
         throw SemanticException("Return can't be before with");
       }
-      has_update = has_return = false;
+      has_update = has_return = has_optional_match = false;
     } else {
       debug_assert(false, "Can't happen");
     }
