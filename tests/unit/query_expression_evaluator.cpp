@@ -23,6 +23,7 @@ using testing::ElementsAre;
 using query::test_common::ToInt64List;
 
 namespace {
+
 struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
@@ -972,5 +973,38 @@ TEST(ExpressionEvaluator, FunctionE) {
 TEST(ExpressionEvaluator, FunctionPi) {
   ASSERT_THROW(EvaluateFunction("PI", {1}), QueryRuntimeException);
   ASSERT_DOUBLE_EQ(EvaluateFunction("PI", {}).Value<double>(), M_PI);
+}
+
+TEST(ExpressionEvaluator, FunctionStartsWith) {
+  EXPECT_THROW(EvaluateFunction(kStartsWith, {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kStartsWith, {"a", TypedValue::Null}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kStartsWith, {TypedValue::Null, 1.3}),
+               QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kStartsWith, {"abc", "abc"}).Value<bool>());
+  EXPECT_TRUE(EvaluateFunction(kStartsWith, {"abcdef", "abc"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kStartsWith, {"abcdef", "aBc"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kStartsWith, {"abc", "abcd"}).Value<bool>());
+}
+
+TEST(ExpressionEvaluator, FunctionEndsWith) {
+  EXPECT_THROW(EvaluateFunction(kEndsWith, {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kEndsWith, {"a", TypedValue::Null}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kEndsWith, {TypedValue::Null, 1.3}),
+               QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kEndsWith, {"abc", "abc"}).Value<bool>());
+  EXPECT_TRUE(EvaluateFunction(kEndsWith, {"abcdef", "def"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kEndsWith, {"abcdef", "dEf"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kEndsWith, {"bcd", "abcd"}).Value<bool>());
+}
+
+TEST(ExpressionEvaluator, FunctionContains) {
+  EXPECT_THROW(EvaluateFunction(kContains, {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kContains, {"a", TypedValue::Null}).IsNull());
+  EXPECT_THROW(EvaluateFunction(kContains, {TypedValue::Null, 1.3}),
+               QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction(kContains, {"abc", "abc"}).Value<bool>());
+  EXPECT_TRUE(EvaluateFunction(kContains, {"abcde", "bcd"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kContains, {"cde", "abcdef"}).Value<bool>());
+  EXPECT_FALSE(EvaluateFunction(kContains, {"abcdef", "dEf"}).Value<bool>());
 }
 }

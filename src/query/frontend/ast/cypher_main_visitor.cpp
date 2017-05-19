@@ -45,7 +45,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   for (Clause *clause : query_->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
-        throw SemanticException("Unwind can't be after return or update clause");
+        throw SemanticException(
+            "Unwind can't be after return or update clause");
       }
     } else if (auto *match = dynamic_cast<Match *>(clause)) {
       if (has_update || has_return) {
@@ -619,7 +620,22 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
       expression = static_cast<Expression *>(storage_.Create<InListOperator>(
           expression, op->expression3b()->accept(this)));
     } else {
-      throw utils::NotYetImplemented();
+      std::function<TypedValue(const std::vector<TypedValue> &,
+                               GraphDbAccessor &)>
+          f;
+      if (op->STARTS() && op->WITH()) {
+        f = NameToFunction(kStartsWith);
+      } else if (op->ENDS() && op->WITH()) {
+        f = NameToFunction(kEndsWith);
+      } else if (op->CONTAINS()) {
+        f = NameToFunction(kContains);
+      } else {
+        throw utils::NotYetImplemented();
+      }
+      auto expression2 = op->expression3b()->accept(this);
+      std::vector<Expression *> args = {expression, expression2};
+      expression =
+          static_cast<Expression *>(storage_.Create<Function>(f, args));
     }
   }
   return expression;
@@ -709,8 +725,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return static_cast<Expression *>(
         storage_.Create<Aggregation>(nullptr, Aggregation::Op::COUNT));
   }
-  // TODO: Implement this. We don't support comprehensions, filtering... at the
-  // moment.
+  // TODO: Implement this. We don't support comprehensions, filtering... at
+  // the moment.
   throw utils::NotYetImplemented();
 }
 
@@ -794,7 +810,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
     }
   }
   auto function = NameToFunction(function_name);
-  if (!function) throw SemanticException();
+  if (!function) throw SemanticException("Function doesn't exist.");
   return static_cast<Expression *>(
       storage_.Create<Function>(function, expressions));
 }

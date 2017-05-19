@@ -437,6 +437,50 @@ TypedValue Pi(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   }
   return M_PI;
 }
+
+template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
+TypedValue StringMatchOperator(const std::vector<TypedValue> &args,
+                               GraphDbAccessor &) {
+  if (args.size() != 2U) {
+    throw QueryRuntimeException(
+        "startsWith shouldn't be called with 2 arguments");
+  }
+  bool has_null = false;
+  auto check_arg = [&](const TypedValue &t) {
+    if (t.IsNull()) {
+      has_null = true;
+    } else if (t.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("startsWith called with incompatible type");
+    }
+  };
+  check_arg(args[0]);
+  check_arg(args[1]);
+  if (has_null) return TypedValue::Null;
+  const auto &s1 = args[0].Value<std::string>();
+  const auto &s2 = args[1].Value<std::string>();
+  return Predicate(s1, s2);
+}
+
+// Check if s1 starts with s2.
+bool StartsWithPredicate(const std::string &s1, const std::string &s2) {
+  if (s1.size() < s2.size()) return false;
+  return std::equal(s2.begin(), s2.end(), s1.begin());
+}
+auto StartsWith = StringMatchOperator<StartsWithPredicate>;
+
+// Check if s1 ends with s2.
+bool EndsWithPredicate(const std::string &s1, const std::string &s2) {
+  if (s1.size() < s2.size()) return false;
+  return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
+}
+auto EndsWith = StringMatchOperator<EndsWithPredicate>;
+
+// Check if s1 contains s2.
+bool ContainsPredicate(const std::string &s1, const std::string &s2) {
+  if (s1.size() < s2.size()) return false;
+  return s1.find(s2) != std::string::npos;
+}
+auto Contains = StringMatchOperator<ContainsPredicate>;
 }
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
@@ -474,6 +518,9 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "SIGN") return Sign;
   if (function_name == "E") return E;
   if (function_name == "PI") return Pi;
+  if (function_name == kStartsWith) return StartsWith;
+  if (function_name == kEndsWith) return EndsWith;
+  if (function_name == kContains) return Contains;
   return nullptr;
 }
 }
