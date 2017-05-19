@@ -28,6 +28,14 @@ namespace query {
 
 namespace test_common {
 
+auto ToInt64List(const TypedValue &t) {
+  std::vector<int64_t> list;
+  for (auto x : t.Value<std::vector<TypedValue>>()) {
+    list.push_back(x.Value<int64_t>());
+  }
+  return list;
+};
+
 // Custom types for ORDER BY, SKIP, LIMIT, ON MATCH and ON CREATE expressions,
 // so that they can be used to resolve function calls.
 struct OrderBy {

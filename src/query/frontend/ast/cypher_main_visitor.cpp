@@ -788,6 +788,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
       return static_cast<Expression *>(
           storage_.Create<Aggregation>(expressions[0], Aggregation::Op::AVG));
     }
+    if (function_name == Aggregation::kCollect) {
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], Aggregation::Op::COLLECT));
+    }
   }
   auto function = NameToFunction(function_name);
   if (!function) throw SemanticException();

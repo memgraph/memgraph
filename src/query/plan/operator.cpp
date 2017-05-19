@@ -938,10 +938,13 @@ void Aggregate::AggregateCursor::EnsureInitialized(
   if (agg_value.values_.size() > 0) return;
 
   for (const auto &agg_elem : self_.aggregations_) {
-    if (std::get<1>(agg_elem) == Aggregation::Op::COUNT)
+    if (std::get<1>(agg_elem) == Aggregation::Op::COUNT) {
       agg_value.values_.emplace_back(TypedValue(0));
-    else
+    } else if (std::get<1>(agg_elem) == Aggregation::Op::COLLECT) {
+      agg_value.values_.emplace_back(std::vector<TypedValue>());
+    } else {
       agg_value.values_.emplace_back(TypedValue::Null);
+    }
   }
   agg_value.counts_.resize(self_.aggregations_.size(), 0);
 
@@ -964,7 +967,6 @@ void Aggregate::AggregateCursor::Update(
   auto agg_elem_it = self_.aggregations_.begin();
   for (; count_it < agg_value.counts_.end();
        count_it++, value_it++, agg_elem_it++) {
-
     // COUNT(*) is the only case where input expression is optional
     // handle it here
     auto input_expr_ptr = std::get<0>(*agg_elem_it);
@@ -986,16 +988,21 @@ void Aggregate::AggregateCursor::Update(
       switch (agg_op) {
         case Aggregation::Op::MIN:
         case Aggregation::Op::MAX:
+          *value_it = input_value;
           EnsureOkForMinMax(input_value);
           break;
         case Aggregation::Op::SUM:
         case Aggregation::Op::AVG:
+          *value_it = input_value;
           EnsureOkForAvgSum(input_value);
           break;
         case Aggregation::Op::COUNT:
+          *value_it = 1;
+          break;
+        case Aggregation::Op::COLLECT:
+          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
           break;
       }
-      *value_it = agg_op == Aggregation::Op::COUNT ? 1 : input_value;
       continue;
     }
 
@@ -1028,6 +1035,9 @@ void Aggregate::AggregateCursor::Update(
       case Aggregation::Op::SUM:
         EnsureOkForAvgSum(input_value);
         *value_it = *value_it + input_value;
+        break;
+      case Aggregation::Op::COLLECT:
+        value_it->Value<std::vector<TypedValue>>().push_back(input_value);
         break;
     }  // end switch over Aggregation::Op enum
   }    // end loop over all aggregations

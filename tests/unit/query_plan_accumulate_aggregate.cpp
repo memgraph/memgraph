@@ -21,6 +21,8 @@
 
 using namespace query;
 using namespace query::plan;
+using testing::UnorderedElementsAre;
+using query::test_common::ToInt64List;
 
 TEST(QueryPlan, Accumulate) {
   // simulate the following two query execution on an empty db
@@ -169,18 +171,19 @@ TEST(QueryPlan, AggregateOps) {
   auto n_p = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_p->expression_] = n.sym_;
 
-  std::vector<Expression *> aggregation_expressions(6, n_p);
+  std::vector<Expression *> aggregation_expressions(7, n_p);
   aggregation_expressions[0] = nullptr;
   auto produce = MakeAggregationProduce(
       n.op_, symbol_table, storage, aggregation_expressions,
       {Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
-       Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG},
+       Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG,
+       Aggregation::Op::COLLECT},
       {}, {});
 
   // checks
   auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
   ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 6);
+  ASSERT_EQ(results[0].size(), 7);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][0].Value<int64_t>(), 4);
@@ -199,6 +202,9 @@ TEST(QueryPlan, AggregateOps) {
   // avg
   ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
   EXPECT_FLOAT_EQ(results[0][5].Value<double>(), 24 / 3.0);
+  // collect
+  ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
+  EXPECT_THAT(ToInt64List(results[0][6]), UnorderedElementsAre(5, 7, 12));
 }
 
 TEST(QueryPlan, AggregateGroupByValues) {
@@ -319,6 +325,34 @@ TEST(QueryPlan, AggregateNoInput) {
   EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
   EXPECT_EQ(1, results[0][0].Value<int64_t>());
 }
+
+// TODO: This test is valid but it fails. We don't handle aggregations correctly
+// in the case when there is no input. Also add similar tests for other
+// aggregation ops.
+// TEST(QueryPlan, AggregateCollectNoResults) {
+//  Dbms dbms;
+//  auto dba = dbms.active();
+//  auto prop = dba->property("prop");
+//
+//  AstTreeStorage storage;
+//  SymbolTable symbol_table;
+//
+//  // match all nodes and perform aggregations
+//  auto n = MakeScanAll(storage, symbol_table, "n");
+//  auto n_p = PROPERTY_LOOKUP("n", prop);
+//  symbol_table[*n_p->expression_] = n.sym_;
+//
+//  auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
+//                                        {Aggregation::Op::COLLECT}, {}, {});
+//
+//  // checks
+//  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+//  ASSERT_EQ(results.size(), 1);
+//  ASSERT_EQ(results[0].size(), 1);
+//  ASSERT_EQ(results[0][0].type(), TypedValue::Type::List);
+//  // Collect should return empty list if there are no results.
+//  EXPECT_THAT(ToInt64List(results[0][0]), UnorderedElementsAre());
+//}
 
 TEST(QueryPlan, AggregateCountEdgeCases) {
   // tests for detected bugs in the COUNT aggregation behavior

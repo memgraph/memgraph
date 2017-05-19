@@ -14,14 +14,15 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
+#include "query_common.hpp"
 
 using namespace query;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 using testing::ElementsAre;
+using query::test_common::ToInt64List;
 
 namespace {
-
 struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
@@ -823,30 +824,23 @@ TEST(ExpressionEvaluator, FunctionRange) {
   EXPECT_TRUE(EvaluateFunction("RANGE", {1, 2, TypedValue::Null}).IsNull());
   EXPECT_THROW(EvaluateFunction("RANGE", {1, TypedValue::Null, 1.3}),
                QueryRuntimeException);
-  auto to_int_list = [](const TypedValue &t) {
-    std::vector<int64_t> list;
-    for (auto x : t.Value<std::vector<TypedValue>>()) {
-      list.push_back(x.Value<int64_t>());
-    }
-    return list;
-  };
   EXPECT_THROW(EvaluateFunction("RANGE", {1, 2, 0}), QueryRuntimeException);
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {1, 3})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {1, 3})),
               ElementsAre(1, 2, 3));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {-1, 5, 2})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {-1, 5, 2})),
               ElementsAre(-1, 1, 3, 5));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 10, 3})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 10, 3})),
               ElementsAre(2, 5, 8));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 2, 2})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 2, 2})),
               ElementsAre(2));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {3, 0, 5})), ElementsAre());
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {5, 1, -2})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {3, 0, 5})), ElementsAre());
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {5, 1, -2})),
               ElementsAre(5, 3, 1));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {6, 1, -2})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {6, 1, -2})),
               ElementsAre(6, 4, 2));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {2, 2, -3})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 2, -3})),
               ElementsAre(2));
-  EXPECT_THAT(to_int_list(EvaluateFunction("RANGE", {-2, 4, -1})),
+  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {-2, 4, -1})),
               ElementsAre());
 }
 

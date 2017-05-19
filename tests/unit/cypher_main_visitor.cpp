@@ -506,15 +506,15 @@ TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
 
 TEST(CypherMainVisitorTest, Aggregation) {
   AstGenerator ast_generator(
-      "RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e), COUNT(*)");
+      "RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e), COLLECT(f), COUNT(*)");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  ASSERT_EQ(return_clause->body_.named_expressions.size(), 6U);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 7U);
   Aggregation::Op ops[] = {Aggregation::Op::COUNT, Aggregation::Op::MIN,
-                           Aggregation::Op::MAX, Aggregation::Op::SUM,
-                           Aggregation::Op::AVG};
-  std::string ids[] = {"a", "b", "c", "d", "e"};
-  for (int i = 0; i < 5; ++i) {
+                           Aggregation::Op::MAX,   Aggregation::Op::SUM,
+                           Aggregation::Op::AVG,   Aggregation::Op::COLLECT};
+  std::string ids[] = {"a", "b", "c", "d", "e", "f"};
+  for (int i = 0; i < 6; ++i) {
     auto *aggregation = dynamic_cast<Aggregation *>(
         return_clause->body_.named_expressions[i]->expression_);
     ASSERT_TRUE(aggregation);
@@ -524,7 +524,7 @@ TEST(CypherMainVisitorTest, Aggregation) {
     ASSERT_EQ(identifier->name_, ids[i]);
   }
   auto *aggregation = dynamic_cast<Aggregation *>(
-      return_clause->body_.named_expressions[5]->expression_);
+      return_clause->body_.named_expressions[6]->expression_);
   ASSERT_TRUE(aggregation);
   ASSERT_EQ(aggregation->op_, Aggregation::Op::COUNT);
   ASSERT_FALSE(aggregation->expression_);

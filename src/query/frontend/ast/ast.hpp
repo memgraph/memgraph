@@ -593,12 +593,13 @@ class Aggregation : public UnaryOperator {
   friend class AstTreeStorage;
 
  public:
-  enum class Op { COUNT, MIN, MAX, SUM, AVG };
+  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT };
   static const constexpr char *const kCount = "COUNT";
   static const constexpr char *const kMin = "MIN";
   static const constexpr char *const kMax = "MAX";
   static const constexpr char *const kSum = "SUM";
   static const constexpr char *const kAvg = "AVG";
+  static const constexpr char *const kCollect = "COLLECT";
 
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
