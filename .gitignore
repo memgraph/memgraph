@@ -4,3 +4,4 @@
 *~
 *.pyc
 ve3/
+.quality_assurance_status
