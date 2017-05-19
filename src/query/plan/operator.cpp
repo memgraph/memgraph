@@ -160,45 +160,70 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 
-ScanAll::ScanAll(const NodeAtom *node_atom,
-                 const std::shared_ptr<LogicalOperator> &input,
-                 GraphView graph_view)
-    : node_atom_(node_atom),
-      input_(input ? input : std::make_shared<Once>()),
+template <class TVertices>
+class ScanAllCursor : public Cursor {
+ public:
+  ScanAllCursor(Symbol output_symbol, std::unique_ptr<Cursor> input_cursor,
+                TVertices vertices)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        vertices_(std::move(vertices)),
+        vertices_it_(vertices_.end()) {}
+
+  bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
+    if (vertices_it_ == vertices_.end()) {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      vertices_it_ = vertices_.begin();
+    }
+
+    // if vertices_ is empty then we are done even though we have just
+    // reinitialized vertices_it_
+    if (vertices_it_ == vertices_.end()) return false;
+
+    frame[output_symbol_] = *vertices_it_++;
+    return true;
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_it_ = vertices_.end();
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const std::unique_ptr<Cursor> input_cursor_;
+  TVertices vertices_;
+  decltype(vertices_.begin()) vertices_it_;
+};
+
+ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
+                 Symbol output_symbol, GraphView graph_view)
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(output_symbol),
       graph_view_(graph_view) {
   permanent_assert(graph_view != GraphView::AS_IS,
                    "ScanAll must have explicitly defined GraphView")
 }
+
 ACCEPT_WITH_INPUT(ScanAll)
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
-  return std::make_unique<ScanAllCursor>(*this, db);
+  auto vertices = db.vertices(graph_view_ == GraphView::NEW);
+  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
+      output_symbol_, input_->MakeCursor(db), std::move(vertices));
 }
 
-ScanAll::ScanAllCursor::ScanAllCursor(const ScanAll &self, GraphDbAccessor &db)
-    : self_(self),
-      input_cursor_(self.input_->MakeCursor(db)),
-      vertices_(db.vertices(self.graph_view_ == GraphView::NEW)),
-      vertices_it_(vertices_.end()) {}
+ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
+                               Symbol output_symbol, GraphDbTypes::Label label,
+                               GraphView graph_view)
+    : ScanAll(input, output_symbol, graph_view), label_(label) {}
 
-bool ScanAll::ScanAllCursor::Pull(Frame &frame,
-                                  const SymbolTable &symbol_table) {
-  if (vertices_it_ == vertices_.end()) {
-    if (!input_cursor_->Pull(frame, symbol_table)) return false;
-    vertices_it_ = vertices_.begin();
-  }
+ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-  // if vertices_ is empty then we are done even though we have just
-  // reinitialized vertices_it_
-  if (vertices_it_ == vertices_.end()) return false;
-
-  frame[symbol_table.at(*self_.node_atom_->identifier_)] = *vertices_it_++;
-  return true;
-}
-
-void ScanAll::ScanAllCursor::Reset() {
-  input_cursor_->Reset();
-  vertices_it_ = vertices_.end();
+std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
+  auto vertices = db.vertices(label_, graph_view_ == GraphView::NEW);
+  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
+      output_symbol_, input_->MakeCursor(db), std::move(vertices));
 }
 
 Expand::Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,

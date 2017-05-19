@@ -269,8 +269,8 @@ auto GenMatchForPattern(Pattern &pattern, LogicalOperator *input_op,
     // Otherwise, someone else generates it (e.g. a previous ScanAll).
     const auto &node_symbol = symbol_table.at(*node->identifier_);
     if (BindSymbol(bound_symbols, node_symbol)) {
-      last_op = new ScanAll(node, std::shared_ptr<LogicalOperator>(last_op),
-                            context.graph_view);
+      last_op = new ScanAll(std::shared_ptr<LogicalOperator>(last_op),
+                            node_symbol, context.graph_view);
       context.new_symbols.emplace_back(node_symbol);
     }
     return GenFilters(last_op, bound_symbols, context.filters, storage);

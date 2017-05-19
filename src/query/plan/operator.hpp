@@ -53,6 +53,7 @@ class Once;
 class CreateNode;
 class CreateExpand;
 class ScanAll;
+class ScanAllByLabel;
 class Expand;
 class Filter;
 class Produce;
@@ -76,9 +77,9 @@ class Unwind;
 class Distinct;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, Expand, Filter, Produce, Delete,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-    ExpandUniquenessFilter<VertexAccessor>,
+    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, Expand, Filter,
+    Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
+    RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
 
@@ -288,29 +289,39 @@ class CreateExpand : public LogicalOperator {
  */
 class ScanAll : public LogicalOperator {
  public:
-  ScanAll(const NodeAtom *node_atom,
-          const std::shared_ptr<LogicalOperator> &input,
+  ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
           GraphView graph_view = GraphView::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
- private:
-  const NodeAtom *node_atom_ = nullptr;
+ protected:
   const std::shared_ptr<LogicalOperator> input_;
+  const Symbol output_symbol_;
+  /**
+   * @brief Controls which graph state is used to produce vertices.
+   *
+   * If @c GraphView::OLD, @c ScanAll will produce vertices visible in the
+   * previous graph state, before modifications done by current transaction &
+   * command. With @c GraphView::NEW, all vertices will be produced the current
+   * transaction sees along with their modifications.
+   */
   const GraphView graph_view_;
+};
 
-  class ScanAllCursor : public Cursor {
-   public:
-    ScanAllCursor(const ScanAll &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
-    void Reset() override;
+/**
+ * @brief Behaves like @c ScanAll, but this operator produces only vertices with
+ * given label.
+ */
+class ScanAllByLabel : public ScanAll {
+ public:
+  ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
+                 Symbol output_symbol, GraphDbTypes::Label label,
+                 GraphView graph_view = GraphView::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
-   private:
-    const ScanAll &self_;
-    const std::unique_ptr<Cursor> input_cursor_;
-    decltype(std::declval<GraphDbAccessor>().vertices()) vertices_;
-    decltype(vertices_.begin()) vertices_it_;
-  };
+ private:
+  const GraphDbTypes::Label label_;
 };
 
 /**

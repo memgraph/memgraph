@@ -85,17 +85,35 @@ struct ScanAllTuple {
  * Creates and returns a tuple of stuff for a scan-all starting
  * from the node with the given name.
  *
- * Returns (node_atom, scan_all_logical_op, symbol).
+ * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
                          const std::string &identifier,
                          std::shared_ptr<LogicalOperator> input = {nullptr},
                          GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
-  auto logical_op = std::make_shared<ScanAll>(node, input, graph_view);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   symbol_table[*node->identifier_] = symbol;
-  //  return std::make_tuple(node, logical_op, symbol);
+  auto logical_op = std::make_shared<ScanAll>(input, symbol, graph_view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
+/**
+ * Creates and returns a tuple of stuff for a scan-all starting
+ * from the node with the given name and label.
+ *
+ * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
+ */
+ScanAllTuple MakeScanAllByLabel(
+    AstTreeStorage &storage, SymbolTable &symbol_table,
+    const std::string &identifier, const GraphDbTypes::Label &label,
+    std::shared_ptr<LogicalOperator> input = {nullptr},
+    GraphView graph_view = GraphView::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  symbol_table[*node->identifier_] = symbol;
+  auto logical_op =
+      std::make_shared<ScanAllByLabel>(input, symbol, label, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 

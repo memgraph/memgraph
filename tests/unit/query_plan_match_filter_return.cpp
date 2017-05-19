@@ -44,11 +44,10 @@ TEST(QueryPlan, MatchReturn) {
     return PullAll(produce, *dba, symbol_table);
   };
 
-  // TODO uncomment once the functionality is implemented
-  // EXPECT_EQ(2, test_pull_count(GraphView::NEW));
+  EXPECT_EQ(2, test_pull_count(GraphView::NEW));
   EXPECT_EQ(2, test_pull_count(GraphView::OLD));
   dba->insert_vertex();
-  // EXPECT_EQ(3, test_pull_count(GraphView::NEW));
+  EXPECT_EQ(3, test_pull_count(GraphView::NEW));
   EXPECT_EQ(2, test_pull_count(GraphView::OLD));
   dba->advance_command();
   EXPECT_EQ(3, test_pull_count(GraphView::OLD));
@@ -803,4 +802,32 @@ TEST(QueryPlan, Distinct) {
   check_distinct(
       {3, "two", TypedValue::Null, 3, true, false, "TWO", TypedValue::Null},
       {3, "two", TypedValue::Null, true, false, "TWO"}, false);
+}
+
+TEST(QueryPlan, ScanAllByLabel) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add a vertex with a label and one without.
+  auto label = dba->label("label");
+  auto labeled_vertex = dba->insert_vertex();
+  labeled_vertex.add_label(label);
+  dba->insert_vertex();
+  dba->advance_command();
+  EXPECT_EQ(2, CountIterable(dba->vertices()));
+  // MATCH (n :label)
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all_by_label =
+      MakeScanAllByLabel(storage, symbol_table, "n", label);
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all_by_label.op_, output);
+  symbol_table[*output->expression_] = scan_all_by_label.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto result_stream = CollectProduce(produce, symbol_table, *dba);
+  auto results = result_stream.GetResults();
+  ASSERT_EQ(results.size(), 1);
+  auto result_row = results[0];
+  ASSERT_EQ(result_row.size(), 1);
+  EXPECT_EQ(result_row[0].Value<VertexAccessor>(), labeled_vertex);
 }
