@@ -371,7 +371,7 @@ target_link_libraries(memgraph_lib stdc++fs)
 add_dependencies(memgraph_lib generate_opencypher_parser
                               generate_plan_compiler_flags)
 # executables that require memgraph_lib should link MEMGRAPH_ALL_LIBS to link all dependant libraries
-set(MEMGRAPH_ALL_LIBS memgraph_lib stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
+set(MEMGRAPH_ALL_LIBS gflags memgraph_lib stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()

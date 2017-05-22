@@ -53,3 +53,10 @@ lcov_to_xml_tag="59584761cb5da4687693faec05bf3e2b74e9dde9" # Dec 6, 2016
 cd lcov-to-cobertura-xml
 git checkout ${lcov_to_xml_tag}
 cd ..
+
+# google flags
+git clone https://github.com/gflags/gflags.git
+gflags_tag="652651b421ca5ac7b722a34a301fb656deca5198" # May 6, 2017
+cd gflags
+git checkout ${gflags_tag}
+cd ..

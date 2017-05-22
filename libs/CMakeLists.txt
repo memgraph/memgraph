@@ -16,6 +16,10 @@ add_subdirectory(fmt)
 # setup google test
 add_subdirectory(googletest)
 
+# setup google flags
+set(BUILD_gflags_LIB ON)
+add_subdirectory(gflags)
+
 # setup yaml cpp
 # disable tests because yaml doesn't have MASTER_PROJECT flag like fmt has
 # to override an option use option :)
