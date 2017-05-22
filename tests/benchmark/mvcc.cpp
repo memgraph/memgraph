@@ -18,8 +18,8 @@ void MvccMix(benchmark::State &state) {
     auto t1 = engine.begin();
     mvcc::VersionList<Prop> version_list(*t1);
 
-    auto t2 = engine.begin();
     t1->commit();
+    auto t2 = engine.begin();
 
     state.ResumeTiming();
     version_list.update(*t2);
