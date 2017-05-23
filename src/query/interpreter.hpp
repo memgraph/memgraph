@@ -41,6 +41,8 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   // generate frame based on symbol table max_position
   Frame frame(symbol_table.max_position());
 
+  clock_t planning_end_time = clock();
+
   std::vector<std::string> header;
   std::vector<Symbol> output_symbols(logical_plan->OutputSymbols(symbol_table));
   if (!output_symbols.empty()) {
@@ -75,9 +77,17 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     throw QueryRuntimeException("Unknown top level LogicalOp");
   }
 
-  clock_t end_time = clock();
-  double time_second = double(end_time - start_time) / CLOCKS_PER_SEC;
-  summary["query_time_sec"] = TypedValue(time_second);
+  clock_t execution_end_time = clock();
+
+  // helper function for calculating time in seconds
+  auto time_second = [](clock_t start, clock_t end) {
+    return TypedValue(double(end - start) / CLOCKS_PER_SEC);
+  };
+
+  summary["query_planning_time"] = time_second(start_time, planning_end_time);
+  summary["query_plan_execution_time"] =
+      time_second(planning_end_time, execution_end_time);
+  //
   // TODO set summary['type'] based on transaction metadata
   // the type can't be determined based only on top level LogicalOp
   // (for example MATCH DELETE RETURN will have Produce as it's top)
