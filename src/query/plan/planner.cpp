@@ -593,15 +593,19 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
 std::vector<Expansion> NormalizePatterns(
     const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
-  auto collect_node = [&](auto *node) {
-    expansions.emplace_back(Expansion{node});
-  };
+  auto ignore_node = [&](auto *node) {};
   auto collect_expansion = [&](auto *prev_node, auto *edge,
                                auto *current_node) {
     expansions.emplace_back(Expansion{prev_node, edge, current_node});
   };
   for (const auto &pattern : patterns) {
-    ForeachPattern(*pattern, collect_node, collect_expansion);
+    if (pattern->atoms_.size() == 1U) {
+      auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+      debug_assert(node, "First pattern atom is not a node");
+      expansions.emplace_back(Expansion{node});
+    } else {
+      ForeachPattern(*pattern, ignore_node, collect_expansion);
+    }
   }
   return expansions;
 }
