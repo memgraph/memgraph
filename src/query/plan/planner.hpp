@@ -19,6 +19,7 @@ namespace plan {
 /// certain operators.
 std::unique_ptr<LogicalOperator> MakeLogicalPlan(
     AstTreeStorage &storage, query::SymbolTable &symbol_table);
-}
 
 }  // namespace plan
+
+}  // namespace query

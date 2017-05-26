@@ -810,7 +810,8 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
     }
   }
   auto function = NameToFunction(function_name);
-  if (!function) throw SemanticException("Function doesn't exist.");
+  if (!function)
+    throw SemanticException("Function '{}' doesn't exist.", function_name);
   return static_cast<Expression *>(
       storage_.Create<Function>(function, expressions));
 }

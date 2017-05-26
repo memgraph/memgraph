@@ -49,6 +49,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(CreateExpand);
   PRE_VISIT(Delete);
   PRE_VISIT(ScanAll);
+  PRE_VISIT(ScanAllByLabel);
   PRE_VISIT(Expand);
   PRE_VISIT(Filter);
   PRE_VISIT(Produce);
@@ -111,6 +112,7 @@ using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
+using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectProduce = OpChecker<Produce>;
@@ -292,7 +294,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   auto dba = dbms.active();
   auto label = dba->label("label");
   QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(IDENT("n"), AS("n")));
-  CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(storage, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchPathReturn) {
@@ -845,6 +847,16 @@ TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
   CheckPlan(storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
   for (auto &op : on_match) delete op;
   for (auto &op : on_create) delete op;
+}
+
+TEST(TestLogicalPlanner, MultipleOptionalMatchReturn) {
+  // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
+  AstTreeStorage storage;
+  QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("m"))),
+        RETURN(IDENT("n"), AS("n")));
+  std::list<BaseOpChecker *> optional{new ExpectScanAll()};
+  CheckPlan(storage, ExpectOptional(optional), ExpectOptional(optional),
+            ExpectProduce());
 }
 
 }  // namespace
