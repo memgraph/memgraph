@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <type_traits>
 
 #include "query/plan/operator.hpp"
 
@@ -160,19 +161,25 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 
-template <class TVertices>
+template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   ScanAllCursor(Symbol output_symbol, std::unique_ptr<Cursor> input_cursor,
-                TVertices vertices)
+                TVerticesFun get_vertices)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
-        vertices_(std::move(vertices)),
+        get_vertices_(std::move(get_vertices)),
+        vertices_(get_vertices_()),
         vertices_it_(vertices_.end()) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
     if (vertices_it_ == vertices_.end()) {
       if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      // Unfortunately, cppitertools doesn't have move assignment, so we
+      // reconstruct the iterable in-place.
+      ReconstructInPlace(vertices_, get_vertices_());
       vertices_it_ = vertices_.begin();
     }
 
@@ -190,9 +197,18 @@ class ScanAllCursor : public Cursor {
   }
 
  private:
+  template <class T, typename... Args>
+  void ReconstructInPlace(T &var, Args &&... args) {
+    static_assert(!std::has_virtual_destructor<T>::value,
+                  "It is unsafe to in-place reconstruct a derived type.");
+    var.~T();
+    new (&var) T(std::forward<Args>(args)...);
+  }
+
   const Symbol output_symbol_;
   const std::unique_ptr<Cursor> input_cursor_;
-  TVertices vertices_;
+  TVerticesFun get_vertices_;
+  decltype(get_vertices_()) vertices_;
   decltype(vertices_.begin()) vertices_it_;
 };
 
@@ -208,7 +224,9 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
 ACCEPT_WITH_INPUT(ScanAll)
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
-  auto vertices = db.vertices(graph_view_ == GraphView::NEW);
+  auto vertices = [this, &db]() {
+    return db.vertices(graph_view_ == GraphView::NEW);
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices));
 }
@@ -221,7 +239,9 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
-  auto vertices = db.vertices(label_, graph_view_ == GraphView::NEW);
+  auto vertices = [this, &db] {
+    return db.vertices(label_, graph_view_ == GraphView::NEW);
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices));
 }
