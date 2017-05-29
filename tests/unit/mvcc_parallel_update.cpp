@@ -8,6 +8,7 @@
 // *
 // * T3:                      START---OP---END
 // *
+// * T4:                                        START---FIND---END
 // ****************************************************************
 
 TEST_F(Mvcc, UpdCmtUpdCmt1) {
@@ -24,6 +25,8 @@ TEST_F(Mvcc, UpdCmtUpdCmt1) {
   EXPECT_NXT(v3, v2);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v3);
 }
 
 TEST_F(Mvcc, UpdCmtRemCmt1) {
@@ -37,6 +40,8 @@ TEST_F(Mvcc, UpdCmtRemCmt1) {
   EXPECT_EXP(v2, 3);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, RemCmtUpdCmt1) {
@@ -67,6 +72,8 @@ TEST_F(Mvcc, UpdCmtUpdAbt1) {
   EXPECT_NXT(v2, v1);
   EXPECT_NXT(v3, v2);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v2);
 }
 
 TEST_F(Mvcc, UpdCmtRemAbt1) {
@@ -80,6 +87,8 @@ TEST_F(Mvcc, UpdCmtRemAbt1) {
   EXPECT_EXP(v2, 3);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v2);
 }
 
 TEST_F(Mvcc, RemCmtUpdAbt1) {
@@ -110,6 +119,8 @@ TEST_F(Mvcc, UpdAbtUpdCmt1) {
   EXPECT_NXT(v3, v2);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v3);
 }
 
 TEST_F(Mvcc, UpdAbtRemCmt1) {
@@ -123,6 +134,8 @@ TEST_F(Mvcc, UpdAbtRemCmt1) {
   EXPECT_CRE(v2, 2);
   EXPECT_EXP(v2, 0);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, RemAbtUpdCmt1) {
@@ -136,6 +149,8 @@ TEST_F(Mvcc, RemAbtUpdCmt1) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v3);
 }
 
 TEST_F(Mvcc, RemAbtRemCmt1) {
@@ -146,6 +161,8 @@ TEST_F(Mvcc, RemAbtRemCmt1) {
   T3_COMMIT;
   EXPECT_EXP(v1, 3);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, UpdAbtUpdAbt1) {
@@ -162,6 +179,8 @@ TEST_F(Mvcc, UpdAbtUpdAbt1) {
   EXPECT_NXT(v2, v1);
   EXPECT_NXT(v3, v2);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, UpdAbtRemAbt1) {
@@ -175,6 +194,8 @@ TEST_F(Mvcc, UpdAbtRemAbt1) {
   EXPECT_CRE(v2, 2);
   EXPECT_EXP(v2, 0);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtUpdAbt1) {
@@ -188,6 +209,8 @@ TEST_F(Mvcc, RemAbtUpdAbt1) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtRemAbt1) {
@@ -198,6 +221,8 @@ TEST_F(Mvcc, RemAbtRemAbt1) {
   T3_ABORT;
   EXPECT_EXP(v1, 3);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 // ****************************************************************
@@ -206,6 +231,8 @@ TEST_F(Mvcc, RemAbtRemAbt1) {
 // * T2:   START---OP---END
 // *
 // * T3:         START---------OP---END
+// *
+// * T4:                                  START---FIND---END
 // *
 // ****************************************************************
 
@@ -254,6 +281,8 @@ TEST_F(Mvcc, UpdAbtUpdCmt2) {
   EXPECT_NXT(v3, v2);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v3);
 }
 
 TEST_F(Mvcc, UpdAbtRemCmt2) {
@@ -267,6 +296,8 @@ TEST_F(Mvcc, UpdAbtRemCmt2) {
   EXPECT_CRE(v2, 2);
   EXPECT_EXP(v2, 0);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, RemAbtUpdCmt2) {
@@ -280,6 +311,8 @@ TEST_F(Mvcc, RemAbtUpdCmt2) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v3);
 }
 
 TEST_F(Mvcc, RemAbtRemCmt2) {
@@ -290,6 +323,8 @@ TEST_F(Mvcc, RemAbtRemCmt2) {
   T3_COMMIT;
   EXPECT_EXP(v1, 3);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, UpdAbtUpdAbt2) {
@@ -306,6 +341,8 @@ TEST_F(Mvcc, UpdAbtUpdAbt2) {
   EXPECT_NXT(v2, v1);
   EXPECT_NXT(v3, v2);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, UpdAbtRemAbt2) {
@@ -319,6 +356,8 @@ TEST_F(Mvcc, UpdAbtRemAbt2) {
   EXPECT_CRE(v2, 2);
   EXPECT_EXP(v2, 0);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtUpdAbt2) {
@@ -332,6 +371,8 @@ TEST_F(Mvcc, RemAbtUpdAbt2) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtRemAbt2) {
@@ -342,6 +383,8 @@ TEST_F(Mvcc, RemAbtRemAbt2) {
   T3_ABORT;
   EXPECT_EXP(v1, 3);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 // ****************************************************************
@@ -350,6 +393,8 @@ TEST_F(Mvcc, RemAbtRemAbt2) {
 // * T2:   START--------------------OP---END
 // *
 // * T3:         START---OP---END
+// *
+// * T4:                                        START---FIND---END
 // *
 // ****************************************************************
 
@@ -398,6 +443,8 @@ TEST_F(Mvcc, UpdCmtUpdAbt3) {
   EXPECT_NXT(v3, v1);
   EXPECT_NXT(v2, v3);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v2);
 }
 
 TEST_F(Mvcc, UpdCmtRemAbt3) {
@@ -411,6 +458,8 @@ TEST_F(Mvcc, UpdCmtRemAbt3) {
   EXPECT_EXP(v2, 0);
   EXPECT_NXT(v2, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v2);
 }
 
 TEST_F(Mvcc, RemCmtUpdAbt3) {
@@ -424,6 +473,8 @@ TEST_F(Mvcc, RemCmtUpdAbt3) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, RemCmtRemAbt3) {
@@ -434,6 +485,8 @@ TEST_F(Mvcc, RemCmtRemAbt3) {
   T2_COMMIT;
   EXPECT_EXP(v1, 2);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, nullptr);
 }
 
 TEST_F(Mvcc, UpdAbtUpdAbt3) {
@@ -450,6 +503,8 @@ TEST_F(Mvcc, UpdAbtUpdAbt3) {
   EXPECT_NXT(v3, v1);
   EXPECT_NXT(v2, v3);
   EXPECT_SIZE(3);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, UpdAbtRemAbt3) {
@@ -463,6 +518,8 @@ TEST_F(Mvcc, UpdAbtRemAbt3) {
   EXPECT_CRE(v2, 2);
   EXPECT_EXP(v2, 0);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtUpdAbt3) {
@@ -476,6 +533,8 @@ TEST_F(Mvcc, RemAbtUpdAbt3) {
   EXPECT_EXP(v3, 0);
   EXPECT_NXT(v3, v1);
   EXPECT_SIZE(2);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }
 
 TEST_F(Mvcc, RemAbtRemAbt3) {
@@ -486,4 +545,6 @@ TEST_F(Mvcc, RemAbtRemAbt3) {
   T2_ABORT;
   EXPECT_EXP(v1, 2);
   EXPECT_SIZE(1);
+  T4_BEGIN;
+  EXPECT_EQ(T4_FIND, v1);
 }

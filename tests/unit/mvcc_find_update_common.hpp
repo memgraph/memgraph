@@ -76,13 +76,15 @@ class Mvcc : public ::testing::Test {
 //  - TX_BEGIN sets the transaction variable tX
 #define T2_FIND __attribute__((unused)) auto v2 = version_list.find(*t2)
 #define T3_FIND __attribute__((unused)) auto v3 = version_list.find(*t3)
+#define T4_FIND version_list.find(*t4)
 #define T2_UPDATE __attribute__((unused)) auto v2 = version_list.update(*t2)
 #define T3_UPDATE __attribute__((unused)) auto v3 = version_list.update(*t3)
 #define T2_COMMIT t2->commit();
 #define T3_COMMIT t3->commit();
 #define T2_ABORT t2->abort();
 #define T3_ABORT t3->abort();
-#define T3_BEGIN auto t3 = engine.begin(); __attribute__((unused)) int id3 = t3->id 
+#define T3_BEGIN auto t3 = engine.begin(); __attribute__((unused)) int id3 = t3->id
+#define T4_BEGIN auto t4 = engine.begin();
 #define T2_REMOVE version_list.remove(*t2)
 #define T3_REMOVE version_list.remove(*t3)
 #define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx.cre(), id##expected)
