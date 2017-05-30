@@ -16,12 +16,16 @@ class Scheduler {
  public:
   Scheduler() {}
   /**
-   * @param pause - Time between executing function. If function is still
-   * running when it should be ran again, it will not be ran and next start time
-   * will be increased to current time plus pause.
-   * @param f - Function which will be executed.
+   * @param pause - Duration between two function executions. If function is
+   * still running when it should be ran again, it will not be ran and next
+   * start time will be increased to current time plus pause.
+   * @param f - Function
+   * @Tparam TRep underlying arithmetic type in duration
+   * @Tparam TPeriod duration in seconds between two ticks
    */
-  void Run(const std::chrono::seconds &pause, const std::function<void()> &f) {
+  template <typename TRep, typename TPeriod>
+  void Run(const std::chrono::duration<TRep, TPeriod> &pause,
+           const std::function<void()> &f) {
     debug_assert(is_working_ == false, "Thread already running.");
     is_working_ = true;
     thread_ = std::thread([this, pause, f]() {

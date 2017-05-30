@@ -10,8 +10,8 @@
 
 const int DEFAULT_CLEANING_CYCLE_SEC = 30;  // 30 seconds
 const std::string DEFAULT_SNAPSHOT_FOLDER = "snapshots";
-const int DEFAULT_MAX_RETAINED_SNAPSHOTS = -1; // unlimited number of snapshots
-const int DEFAULT_SNAPSHOT_CYCLE_SEC = -1;  // off
+const int DEFAULT_MAX_RETAINED_SNAPSHOTS = -1;  // unlimited number of snapshots
+const int DEFAULT_SNAPSHOT_CYCLE_SEC = -1;      // off
 
 GraphDb::GraphDb(const std::string &name, bool import_snapshot)
     : name_(name),
@@ -71,7 +71,7 @@ GraphDb::GraphDb(const std::string &name, bool import_snapshot)
                             max_retained_snapshots_]() -> void {
       GraphDbAccessor db_accessor(*this);
       snapshooter_.MakeSnapshot(db_accessor, fs::path(snapshot_folder_) / name_,
-                               max_retained_snapshots_);
+                                max_retained_snapshots_);
     };
     snapshot_creator_.Run(std::chrono::seconds(snapshot_cycle_sec_),
                           create_snapshot);

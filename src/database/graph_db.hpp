@@ -10,6 +10,7 @@
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
+#include "durability/snapshooter.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
@@ -18,7 +19,6 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
-#include "durability/snapshooter.hpp"
 
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new
 // layer would hold SnapshotEngine and his kind of concept objects. Some
@@ -86,7 +86,7 @@ class GraphDb {
   ConcurrentSet<std::string> labels_;
   ConcurrentSet<std::string> edge_types_;
   ConcurrentSet<std::string> properties_;
- 
+
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
