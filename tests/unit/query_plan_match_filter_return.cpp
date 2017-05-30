@@ -409,12 +409,14 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto with = MakeProduce(optional, n_ne);
   // MATCH (m) -[r]-> (n)
   auto m = MakeScanAll(storage, symbol_table, "m", with);
-  auto edge = EDGE("r", EdgeAtom::Direction::RIGHT);
-  symbol_table[*edge->identifier_] = symbol_table.CreateSymbol("r", true);
+  auto edge_direction = EdgeAtom::Direction::RIGHT;
+  auto edge = EDGE("r", edge_direction);
+  auto edge_sym = symbol_table.CreateSymbol("r", true);
+  symbol_table[*edge->identifier_] = edge_sym;
   auto node = NODE("n");
   symbol_table[*node->identifier_] = with_n_sym;
-  auto expand =
-      std::make_shared<plan::Expand>(node, edge, m.op_, m.sym_, true, false);
+  auto expand = std::make_shared<plan::Expand>(
+      with_n_sym, edge_sym, edge_direction, m.op_, m.sym_, true, false);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = m.sym_;
@@ -452,17 +454,19 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingEdge) {
   // WITH r
   auto r_ne = NEXPR("r", IDENT("r"));
   symbol_table[*r_ne->expression_] = r_m.edge_sym_;
-  auto with_n_sym = symbol_table.CreateSymbol("r", true);
-  symbol_table[*r_ne] = with_n_sym;
+  auto with_r_sym = symbol_table.CreateSymbol("r", true);
+  symbol_table[*r_ne] = with_r_sym;
   auto with = MakeProduce(optional, r_ne);
   // MATCH (a) -[r]- (b)
   auto a = MakeScanAll(storage, symbol_table, "a", with);
-  auto edge = EDGE("r", EdgeAtom::Direction::BOTH);
-  symbol_table[*edge->identifier_] = r_m.edge_sym_;
+  auto edge_direction = EdgeAtom::Direction::BOTH;
+  auto edge = EDGE("r", edge_direction);
+  symbol_table[*edge->identifier_] = with_r_sym;
   auto node = NODE("n");
-  symbol_table[*node->identifier_] = symbol_table.CreateSymbol("b", true);
-  auto expand =
-      std::make_shared<plan::Expand>(node, edge, a.op_, a.sym_, false, true);
+  auto node_sym = symbol_table.CreateSymbol("b", true);
+  symbol_table[*node->identifier_] = node_sym;
+  auto expand = std::make_shared<plan::Expand>(
+      node_sym, with_r_sym, edge_direction, a.op_, a.sym_, false, true);
   // RETURN a
   auto a_ne = NEXPR("a", IDENT("a"));
   symbol_table[*a_ne->expression_] = a.sym_;
@@ -494,8 +498,9 @@ TEST(QueryPlan, ExpandExistingNode) {
         MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                    EdgeAtom::Direction::RIGHT, false, "n", with_existing);
     if (with_existing)
-      symbol_table[*r_n.node_->identifier_] =
-          symbol_table[*n.node_->identifier_];
+      r_n.op_ =
+          std::make_shared<Expand>(n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
+                                   n.op_, n.sym_, with_existing, false);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
@@ -538,8 +543,9 @@ TEST(QueryPlan, ExpandExistingEdge) {
     auto r_k = MakeExpand(storage, symbol_table, r_j.op_, r_j.node_sym_, "r",
                           EdgeAtom::Direction::BOTH, with_existing, "k", false);
     if (with_existing)
-      symbol_table[*r_k.edge_->identifier_] =
-          symbol_table[*r_j.edge_->identifier_];
+      r_k.op_ = std::make_shared<Expand>(r_k.node_sym_, r_j.edge_sym_,
+                                         r_k.edge_->direction_, r_j.op_,
+                                         r_j.node_sym_, false, with_existing);
 
     // make a named expression and a produce
     auto output = NEXPR("r", IDENT("r"));

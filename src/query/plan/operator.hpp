@@ -358,18 +358,21 @@ class Expand : public LogicalOperator {
    * the expansion originates from. This is controlled with a
    * constructor argument.
    *
-   * @param node_atom Describes the node to be expanded. Only the
-   *    identifier is used, labels and properties are ignored.
-   * @param edge_atom Describes the edge to be expanded. Identifier
-   *    and direction are used, edge type and properties are ignored.
+   * @param node_symbol Symbol pointing to the node to be expanded. This is
+   *    where the new node will be stored.
+   * @param edge_symbol Symbol for the edge to be expanded. This is where the
+   *    edge value will be stored.
+   * @param direction EdgeAtom::Direction determining the direction of edge
+   *    expansion. The direction is relative to the starting vertex (pointed by
+   *    `input_symbol`).
    * @param input Optional LogicalOperator that preceeds this one.
-   * @param input_symbol Symbol that points to a VertexAccessor
-   *    in the Frame that expansion should emanate from.
-   * @param existing_node If or not the node to be expanded is already
-   *    present in the Frame and should just be checked for equality.
-   * @param existing_edge Same like 'existing_node', but for edges.
+   * @param input_symbol Symbol that points to a VertexAccessor in the Frame
+   *    that expansion should emanate from.
+   * @param existing_node If or not the node to be expanded is already present
+   *    in the Frame and should just be checked for equality.
+   * @param existing_edge Same like `existing_node`, but for edges.
    */
-  Expand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
+  Expand(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
          const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
          bool existing_node, bool existing_edge,
          GraphView graph_view = GraphView::AS_IS);
@@ -378,8 +381,9 @@ class Expand : public LogicalOperator {
 
  private:
   // info on what's getting expanded
-  const NodeAtom *node_atom_;
-  const EdgeAtom *edge_atom_;
+  const Symbol node_symbol_;
+  const Symbol edge_symbol_;
+  const EdgeAtom::Direction direction_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
