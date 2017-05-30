@@ -76,15 +76,14 @@ TEST(QueryPlan, MatchReturnCartesian) {
       symbol_table.CreateSymbol("named_expression_2", true);
   auto produce = MakeProduce(m.op_, return_n, return_m);
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  auto result_data = result.GetResults();
-  EXPECT_EQ(result_data.size(), 4);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
   // "n" from the results is the same for the first two rows, while "m" isn't
-  EXPECT_EQ(result_data[0][0].Value<VertexAccessor>(),
-            result_data[1][0].Value<VertexAccessor>());
-  EXPECT_NE(result_data[0][1].Value<VertexAccessor>(),
-            result_data[1][1].Value<VertexAccessor>());
+  EXPECT_EQ(results[0][0].Value<VertexAccessor>(),
+            results[1][0].Value<VertexAccessor>());
+  EXPECT_NE(results[0][1].Value<VertexAccessor>(),
+            results[1][1].Value<VertexAccessor>());
 }
 
 TEST(QueryPlan, StandaloneReturn) {
@@ -103,10 +102,10 @@ TEST(QueryPlan, StandaloneReturn) {
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 1);
-  EXPECT_EQ(result.GetResults()[0].size(), 1);
-  EXPECT_EQ(result.GetResults()[0][0].Value<int64_t>(), 42);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0].size(), 1);
+  EXPECT_EQ(results[0][0].Value<int64_t>(), 42);
 }
 
 TEST(QueryPlan, NodeFilterLabelsAndProperties) {
@@ -211,8 +210,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = n.sym_;
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 2);
 }
 
 TEST(QueryPlan, Expand) {
@@ -310,7 +309,7 @@ TEST(QueryPlan, ExpandOptional) {
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
 
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(4, results.size());
   int v1_is_n_count = 0;
   for (auto &row : results) {
@@ -347,7 +346,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
 
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(1, results.size());
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
 }
@@ -375,7 +374,7 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(r_m.op_, m_ne);
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
 
@@ -422,7 +421,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   symbol_table[*m_ne->expression_] = m.sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(expand, m_ne);
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
 
@@ -472,7 +471,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingEdge) {
   symbol_table[*a_ne->expression_] = a.sym_;
   symbol_table[*a_ne] = symbol_table.CreateSymbol("a", true);
   auto produce = MakeProduce(expand, a_ne);
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
 
@@ -508,8 +507,8 @@ TEST(QueryPlan, ExpandExistingNode) {
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_n.op_, output);
 
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    EXPECT_EQ(results.size(), expected_result_count);
   };
 
   test_existing(true, 1);
@@ -553,8 +552,8 @@ TEST(QueryPlan, ExpandExistingEdge) {
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_k.op_, output);
 
-    ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-    EXPECT_EQ(result.GetResults().size(), expected_result_count);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    EXPECT_EQ(results.size(), expected_result_count);
 
   };
 
@@ -686,8 +685,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = r_m.node_sym_;
 
-  ResultStreamFaker result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(result.GetResults().size(), 2);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 2);
 }
 
 TEST(QueryPlan, Filter) {
@@ -716,7 +715,7 @@ TEST(QueryPlan, Filter) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   auto produce = MakeProduce(f, output);
 
-  EXPECT_EQ(CollectProduce(produce, symbol_table, *dba).GetResults().size(), 2);
+  EXPECT_EQ(CollectProduce(produce.get(), symbol_table, *dba).size(), 2);
 }
 
 TEST(QueryPlan, ExpandUniquenessFilter) {
@@ -789,7 +788,7 @@ TEST(QueryPlan, Distinct) {
     symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
     auto produce = MakeProduce(distinct, x_ne);
 
-    auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     ASSERT_EQ(output.size(), results.size());
     auto output_it = output.begin();
     for (const auto &row : results) {
@@ -828,8 +827,7 @@ TEST(QueryPlan, ScanAllByLabel) {
   auto produce = MakeProduce(scan_all_by_label.op_, output);
   symbol_table[*output->expression_] = scan_all_by_label.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto result_stream = CollectProduce(produce, symbol_table, *dba);
-  auto results = result_stream.GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);

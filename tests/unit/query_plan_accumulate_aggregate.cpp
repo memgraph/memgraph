@@ -71,9 +71,9 @@ TEST(QueryPlan, Accumulate) {
     auto m_p_ne = NEXPR("m.p", m_p);
     symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne", true);
     auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
-    ResultStreamFaker results = CollectProduce(produce, symbol_table, *dba);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     std::vector<int> results_data;
-    for (const auto &row : results.GetResults())
+    for (const auto &row : results)
       for (const auto &column : row)
         results_data.emplace_back(column.Value<int64_t>());
     if (accumulate)
@@ -187,7 +187,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
     auto produce =
         MakeAggregationProduce(n.op_, symbol_table, storage,
                                aggregation_expressions, ops, group_bys, {});
-    return CollectProduce(produce, symbol_table, *dba).GetResults();
+    return CollectProduce(produce.get(), symbol_table, *dba);
   }
 };
 
@@ -319,7 +319,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
       MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
                              {Aggregation::Op::COUNT}, {n_p}, {n.sym_});
 
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
   TypedValue::unordered_set result_group_bys;
   for (const auto &row : results) {
@@ -366,7 +366,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
                                         {Aggregation::Op::COUNT},
                                         {n_p1, n_p2, n_p3}, {n.sym_});
 
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 2 * 3 * 5);
 }
 
@@ -382,7 +382,7 @@ TEST(QueryPlan, AggregateNoInput) {
 
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
   EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
@@ -414,7 +414,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   auto count = [&]() {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
                                           {Aggregation::Op::COUNT}, {}, {});
-    auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     if (results.size() == 0) return -1L;
     EXPECT_EQ(1, results.size());
     EXPECT_EQ(1, results[0].size());
@@ -473,7 +473,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
                                           {expression}, {aggr_op}, {}, {});
-    CollectProduce(produce, symbol_table, *dba).GetResults();
+    CollectProduce(produce.get(), symbol_table, *dba);
   };
 
   // everything except for COUNT fails on a Vertex
@@ -528,7 +528,7 @@ TEST(QueryPlan, AggregateTypes) {
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
                                           {expression}, {aggr_op}, {}, {});
-    CollectProduce(produce, symbol_table, *dba).GetResults();
+    CollectProduce(produce.get(), symbol_table, *dba);
   };
 
   // everything except for COUNT fails on a Vertex
@@ -579,7 +579,7 @@ TEST(QueryPlan, Unwind) {
   symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne", true);
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(4, results.size());
   const std::vector<int> expected_x_card{3, 3, 3, 1};
   auto expected_x_card_it = expected_x_card.begin();

@@ -159,7 +159,7 @@ TEST(QueryPlan, OrderBy) {
     auto n_p_ne = NEXPR("n.p", n_p);
     symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
     auto produce = MakeProduce(order_by, n_p_ne);
-    auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j)
       EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
@@ -212,7 +212,7 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p2_ne = NEXPR("n.p2", n_p2);
   symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2", true);
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  auto results = CollectProduce(produce, symbol_table, *dba).GetResults();
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
     ASSERT_EQ(results[j][0].type(), TypedValue::Type::Int);

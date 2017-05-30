@@ -3,6 +3,8 @@
 // Created by Florijan Stamenkovic on 14.03.17.
 //
 
+#pragma once
+
 #include <iterator>
 #include <memory>
 #include <vector>
@@ -20,15 +22,15 @@ using namespace query::plan;
 
 /**
  * Helper function that collects all the results from the given
- * Produce into a ResultStreamFaker and returns that object.
+ * Produce into a ResultStreamFaker and returns the results from it.
  *
  * @param produce
  * @param symbol_table
  * @param db_accessor
  * @return
  */
-auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
-                    GraphDbAccessor &db_accessor) {
+std::vector<std::vector<TypedValue>> CollectProduce(
+    Produce *produce, SymbolTable &symbol_table, GraphDbAccessor &db_accessor) {
   ResultStreamFaker stream;
   Frame frame(symbol_table.max_position());
 
@@ -56,7 +58,7 @@ auto CollectProduce(std::shared_ptr<Produce> produce, SymbolTable &symbol_table,
 
   stream.Summary({{std::string("type"), TypedValue("r")}});
 
-  return stream;
+  return stream.GetResults();
 }
 
 int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,

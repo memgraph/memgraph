@@ -84,16 +84,14 @@ TEST(QueryPlan, CreateReturn) {
   symbol_table[*named_expr_n->expression_] = sym_n;
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
-  auto result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(1, result.GetResults().size());
-  EXPECT_EQ(2, result.GetResults()[0].size());
-  EXPECT_EQ(TypedValue::Type::Vertex, result.GetResults()[0][0].type());
-  EXPECT_EQ(1,
-            result.GetResults()[0][0].Value<VertexAccessor>().labels().size());
-  EXPECT_EQ(label,
-            result.GetResults()[0][0].Value<VertexAccessor>().labels()[0]);
-  EXPECT_EQ(TypedValue::Type::Int, result.GetResults()[0][1].type());
-  EXPECT_EQ(42, result.GetResults()[0][1].Value<int64_t>());
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(1, results.size());
+  EXPECT_EQ(2, results[0].size());
+  EXPECT_EQ(TypedValue::Type::Vertex, results[0][0].type());
+  EXPECT_EQ(1, results[0][0].Value<VertexAccessor>().labels().size());
+  EXPECT_EQ(label, results[0][0].Value<VertexAccessor>().labels()[0]);
+  EXPECT_EQ(TypedValue::Type::Int, results[0][1].type());
+  EXPECT_EQ(42, results[0][1].Value<int64_t>());
 
   dba->advance_command();
   EXPECT_EQ(1, CountIterable(dba->vertices()));
@@ -407,8 +405,8 @@ TEST(QueryPlan, DeleteReturn) {
   symbol_table[*n_p] = symbol_table.CreateSymbol("bla", true);
   auto produce = MakeProduce(delete_op, n_p);
 
-  auto result = CollectProduce(produce, symbol_table, *dba);
-  EXPECT_EQ(4, result.GetResults().size());
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(4, results.size());
   dba->advance_command();
   EXPECT_EQ(0, CountIterable(dba->vertices()));
 }

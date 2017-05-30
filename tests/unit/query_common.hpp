@@ -18,6 +18,8 @@
 /// convenient to use the macros.
 ///
 
+#pragma once
+
 #include <utility>
 #include <vector>
 
