@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <experimental/filesystem>
 #include <iostream>
 
 #include "gflags/gflags.h"
@@ -21,6 +22,7 @@
 #include "utils/stacktrace/log.hpp"
 #include "utils/terminate_handler.hpp"
 
+namespace fs = std::experimental::filesystem;
 using endpoint_t = io::network::NetworkEndpoint;
 using socket_t = io::network::Socket;
 using session_t = communication::bolt::Session<socket_t>;
@@ -43,6 +45,7 @@ void throw_and_stacktace(std::string message) {
 }
 
 int main(int argc, char **argv) {
+  fs::current_path(fs::path(argv[0]).parent_path());
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 // logging init
 #ifdef SYNC_LOGGER
