@@ -23,7 +23,10 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
 
   // query -> AST
   frontend::opencypher::Parser parser(query);
+
   auto low_level_tree = parser.tree();
+
+  clock_t antlr_end_time = clock();
 
   // AST -> high level tree
   frontend::CypherMainVisitor visitor(ctx);
@@ -84,7 +87,9 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     return TypedValue(double(end - start) / CLOCKS_PER_SEC);
   };
 
-  summary["query_planning_time"] = time_second(start_time, planning_end_time);
+  summary["query_parsing_time"] = time_second(start_time, antlr_end_time);
+  summary["query_planning_time"] =
+      time_second(antlr_end_time, planning_end_time);
   summary["query_plan_execution_time"] =
       time_second(planning_end_time, execution_end_time);
   //
