@@ -645,10 +645,28 @@ void AddMatching(const Match &match, const SymbolTable &symbol_table,
                      matching);
 }
 
+const GraphDbTypes::Label &FindBestLabelIndex(
+    const std::vector<GraphDbTypes::Label> &labels, const GraphDbAccessor *db) {
+  debug_assert(!labels.empty(),
+               "Trying to find the best label without any labels.");
+  if (!db) {
+    // We don't have a database to get index information, so just take the first
+    // label.
+    return labels.front();
+  }
+  return *std::min_element(labels.begin(), labels.end(),
+                           [db](const auto &label1, const auto &label2) {
+                             return db->vertices_count(label1) <
+                                    db->vertices_count(label2);
+                           });
+}
+
 LogicalOperator *PlanMatching(const Matching &matching,
                               LogicalOperator *input_op,
-                              AstTreeStorage &storage, MatchContext &context) {
+                              PlanningContext &planning_ctx,
+                              MatchContext &context) {
   auto &bound_symbols = context.bound_symbols;
+  auto &storage = planning_ctx.ast_storage;
   const auto &symbol_table = context.symbol_table;
   // Copy filters, because we will modify the list as we generate Filters.
   auto filters = matching.filters;
@@ -665,10 +683,9 @@ LogicalOperator *PlanMatching(const Matching &matching,
         last_op = new ScanAll(std::shared_ptr<LogicalOperator>(last_op),
                               node1_symbol, context.graph_view);
       } else {
-        // Don't act smart by selecting the best label index, so take the first.
+        auto label = FindBestLabelIndex(labels, planning_ctx.db);
         last_op = new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
-                                     node1_symbol, labels.front(),
-                                     context.graph_view);
+                                     node1_symbol, label, context.graph_view);
       }
       context.new_symbols.emplace_back(node1_symbol);
       last_op = GenFilters(last_op, bound_symbols, filters, storage);
@@ -732,8 +749,7 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
   std::unordered_set<Symbol> bound_symbols_copy(context.bound_symbols);
   MatchContext match_ctx{context.symbol_table, bound_symbols_copy,
                          GraphView::NEW};
-  auto on_match =
-      PlanMatching(matching, nullptr, context.ast_storage, match_ctx);
+  auto on_match = PlanMatching(matching, nullptr, context, match_ctx);
   // Use the original bound_symbols, so we fill it with new symbols.
   auto on_create = GenCreateForPattern(
       *merge.pattern_, nullptr, context.symbol_table, context.bound_symbols);
@@ -798,12 +814,10 @@ std::unique_ptr<LogicalOperator> RuleBasedPlanner::Plan(
   bool is_write = false;
   for (const auto &query_part : query_parts) {
     MatchContext match_ctx{context.symbol_table, context.bound_symbols};
-    input_op = PlanMatching(query_part.matching, input_op, context.ast_storage,
-                            match_ctx);
+    input_op = PlanMatching(query_part.matching, input_op, context, match_ctx);
     for (const auto &matching : query_part.optional_matching) {
       MatchContext opt_ctx{context.symbol_table, context.bound_symbols};
-      auto *match_op =
-          PlanMatching(matching, nullptr, context.ast_storage, opt_ctx);
+      auto *match_op = PlanMatching(matching, nullptr, context, opt_ctx);
       if (match_op) {
         input_op = new Optional(std::shared_ptr<LogicalOperator>(input_op),
                                 std::shared_ptr<LogicalOperator>(match_op),

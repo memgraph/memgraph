@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <memory>
@@ -68,14 +69,27 @@ struct QueryPart {
   std::vector<Clause *> remaining_clauses;
 };
 
-// Context which contains variables commonly used during planning.
+/// @brief Context which contains variables commonly used during planning.
 struct PlanningContext {
+  /// @brief SymbolTable is used to determine inputs and outputs of planned
+  /// operators.
+  ///
+  /// Newly created AST nodes may be added to reference existing symbols.
   SymbolTable &symbol_table;
+  /// @brief The storage is used to traverse the AST as well as create new nodes
+  /// for use in operators.
   AstTreeStorage &ast_storage;
-  // bound_symbols set is used to differentiate cycles in pattern matching, so
-  // that the operator can be correctly initialized whether to read the symbol
-  // or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and write) the first
-  // `n`, but the latter `n` would only read the already written information.
+  /// @brief Optional GraphDbAccessor, which may be used to get some information
+  /// from the database to generate better plans. The accessor is required only
+  /// to live long enough for the plan generation to finish.
+  const GraphDbAccessor *db = nullptr;
+  /// @brief Symbol set is used to differentiate cycles in pattern matching.
+  ///
+  /// During planning, symbols will be added as each operator produces values
+  /// for them. This way, the operator can be correctly initialized whether to
+  /// read a symbol or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and
+  /// write) the first `n`, but the latter `n` would only read the already
+  /// written information.
   std::unordered_set<Symbol> bound_symbols;
 };
 
@@ -92,17 +106,23 @@ class RuleBasedPlanner {
 
 std::vector<QueryPart> CollectQueryParts(const SymbolTable &, AstTreeStorage &);
 
-/// @brief Generates the LogicalOperator tree and returns the root operation.
+/// @brief Generates the LogicalOperator tree and returns the resulting plan.
 ///
-/// The tree is constructed by traversing the @c Query node from given
-/// @c AstTreeStorage. The storage may also be used to create new AST nodes for
-/// use in operators. @c SymbolTable is used to determine inputs and outputs of
-/// certain operators.
+/// @tparam TPlanner Type of the planner used for generation.
+/// @param storage AstTreeStorage used to construct the operator tree by
+///     traversing the @c Query node. The storage may also be used to create new
+///     AST nodes for use in operators.
+/// @param symbol_table SymbolTable used to determine inputs and outputs of
+///     certain operators. Newly created AST nodes may be added to this symbol
+///     table.
+/// @param db Optional @c GraphDbAccessor, which is used to query database
+///     information in order to improve generated plans.
 template <class TPlanner>
-typename TPlanner::PlanResult MakeLogicalPlan(AstTreeStorage &storage,
-                                              SymbolTable &symbol_table) {
+typename TPlanner::PlanResult MakeLogicalPlan(
+    AstTreeStorage &storage, SymbolTable &symbol_table,
+    const GraphDbAccessor *db = nullptr) {
   auto query_parts = CollectQueryParts(symbol_table, storage);
-  PlanningContext context{symbol_table, storage};
+  PlanningContext context{symbol_table, storage, db};
   return TPlanner(context).Plan(query_parts);
 }
 
