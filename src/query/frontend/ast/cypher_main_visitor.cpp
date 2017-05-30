@@ -419,9 +419,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
   }
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
-    edge->direction_ = EdgeAtom::Direction::LEFT;
+    edge->direction_ = EdgeAtom::Direction::IN;
   } else if (!ctx->leftArrowHead() && ctx->rightArrowHead()) {
-    edge->direction_ = EdgeAtom::Direction::RIGHT;
+    edge->direction_ = EdgeAtom::Direction::OUT;
   } else {
     // <-[]-> and -[]- is the same thing as far as we understand openCypher
     // grammar.

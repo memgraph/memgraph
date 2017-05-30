@@ -132,7 +132,7 @@ TEST(QueryPlan, CreateExpand) {
     else
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
 
-    auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
+    auto r = EDGE("r", EdgeAtom::Direction::OUT);
     symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r", true);
     r->edge_types_.emplace_back(edge_type);
     r->properties_[property] = LITERAL(3);
@@ -232,7 +232,7 @@ TEST(QueryPlan, MatchCreateExpand) {
     else
       symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
 
-    auto r = EDGE("r", EdgeAtom::Direction::RIGHT);
+    auto r = EDGE("r", EdgeAtom::Direction::OUT);
     symbol_table[*r->identifier_] = symbol_table.CreateSymbol("r", true);
     r->edge_types_.emplace_back(edge_type);
 
@@ -300,7 +300,7 @@ TEST(QueryPlan, Delete) {
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::RIGHT, false, "m", false);
+                          EdgeAtom::Direction::OUT, false, "m", false);
     auto r_get = storage.Create<Identifier>("r");
     symbol_table[*r_get] = r_m.edge_sym_;
     auto delete_op = std::make_shared<plan::Delete>(
@@ -476,7 +476,7 @@ TEST(QueryPlan, SetProperty) {
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
+                        EdgeAtom::Direction::OUT, false, "m", false);
 
   // set prop1 to 42 on n and r
   auto prop1 = dba->property("prop1");
@@ -527,7 +527,7 @@ TEST(QueryPlan, SetProperties) {
     // scan (n)-[r]->(m)
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::RIGHT, false, "m", false);
+                          EdgeAtom::Direction::OUT, false, "m", false);
 
     auto op = update ? plan::SetProperties::Op::UPDATE
                      : plan::SetProperties::Op::REPLACE;
@@ -630,7 +630,7 @@ TEST(QueryPlan, RemoveProperty) {
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
+                        EdgeAtom::Direction::OUT, false, "m", false);
 
   auto n_p = PROPERTY_LOOKUP("n", prop1);
   symbol_table[*n_p->expression_] = n.sym_;

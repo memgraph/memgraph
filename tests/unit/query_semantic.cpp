@@ -179,7 +179,7 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   auto relationship = dba->edge_type("relationship");
   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      CREATE(PATTERN(NODE("n"), EDGE("r", relationship,
-                                                    EdgeAtom::Direction::RIGHT),
+                                                    EdgeAtom::Direction::OUT),
                                     NODE("l"))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -201,7 +201,7 @@ TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
   // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]-> (n2)
   auto query =
       QUERY(MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
-            CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::RIGHT),
+            CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT),
                            NODE("n2"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -216,7 +216,7 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   auto dba = dbms.active();
   auto rel1 = dba->edge_type("rel1");
   auto rel2 = dba->edge_type("rel2");
-  auto edge = EDGE("r", rel1, EdgeAtom::Direction::RIGHT);
+  auto edge = EDGE("r", rel1, EdgeAtom::Direction::OUT);
   edge->edge_types_.emplace_back(rel2);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
   SymbolTable symbol_table;
@@ -355,10 +355,10 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   auto p_type = dba->edge_type("p");
   AstTreeStorage storage;
   auto node_n1 = NODE("n");
-  auto edge_r = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto edge_r = EDGE("r", r_type, EdgeAtom::Direction::OUT);
   auto node_m = NODE("m");
   auto node_n2 = NODE("n");
-  auto edge_p = EDGE("p", p_type, EdgeAtom::Direction::RIGHT);
+  auto edge_p = EDGE("p", p_type, EdgeAtom::Direction::OUT);
   auto node_l = NODE("l");
   auto query = QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
                             PATTERN(node_n2, edge_p, node_l)));
@@ -393,7 +393,7 @@ TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
-      CREATE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT),
+      CREATE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::OUT),
                      NODE("n", label))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -409,8 +409,8 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   AstTreeStorage storage;
   auto n_prop = NODE("n");
   n_prop->properties_[prop] = LITERAL(42);
-  auto query = QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT), n_prop)));
+  auto query = QUERY(CREATE(
+      PATTERN(NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::OUT), n_prop)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -497,7 +497,7 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
-  auto edge = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto edge = EDGE("r", r_type, EdgeAtom::Direction::OUT);
   auto node_3 = NODE("n");
   auto query = QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3)));
   SymbolTable symbol_table;
@@ -518,7 +518,7 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
-  auto edge = EDGE("r", r_type, EdgeAtom::Direction::RIGHT);
+  auto edge = EDGE("r", r_type, EdgeAtom::Direction::OUT);
   auto node_3 = NODE("m");
   auto query = QUERY(MATCH(PATTERN(node_1)), WITH(IDENT("n"), AS("m")),
                      CREATE(PATTERN(node_2, edge, node_3)));
@@ -849,7 +849,7 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
-      MERGE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::RIGHT),
+      MERGE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::OUT),
                     NODE("n", label))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);

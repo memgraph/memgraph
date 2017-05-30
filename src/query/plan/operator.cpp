@@ -111,10 +111,10 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
 
   // create an edge between the two nodes
   switch (self_.edge_atom_->direction_) {
-    case EdgeAtom::Direction::LEFT:
+    case EdgeAtom::Direction::IN:
       CreateEdge(v2, v1, frame, symbol_table, evaluator);
       break;
-    case EdgeAtom::Direction::RIGHT:
+    case EdgeAtom::Direction::OUT:
       CreateEdge(v1, v2, frame, symbol_table, evaluator);
       break;
     case EdgeAtom::Direction::BOTH:
@@ -275,7 +275,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       EdgeAccessor edge = *(*in_edges_it_)++;
       if (HandleExistingEdge(edge, frame, symbol_table) &&
-          PullNode(edge, EdgeAtom::Direction::LEFT, frame, symbol_table))
+          PullNode(edge, EdgeAtom::Direction::IN, frame, symbol_table))
         return true;
       else
         continue;
@@ -290,7 +290,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
       if (self_.direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
         continue;
       if (HandleExistingEdge(edge, frame, symbol_table) &&
-          PullNode(edge, EdgeAtom::Direction::RIGHT, frame, symbol_table))
+          PullNode(edge, EdgeAtom::Direction::OUT, frame, symbol_table))
         return true;
       else
         continue;
@@ -336,13 +336,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   }
 
   auto direction = self_.direction_;
-  if (direction == EdgeAtom::Direction::LEFT ||
+  if (direction == EdgeAtom::Direction::IN ||
       direction == EdgeAtom::Direction::BOTH) {
     in_edges_ = std::make_unique<InEdgeT>(vertex.in());
     in_edges_it_ = std::make_unique<InEdgeIteratorT>(in_edges_->begin());
   }
 
-  if (direction == EdgeAtom::Direction::RIGHT ||
+  if (direction == EdgeAtom::Direction::OUT ||
       direction == EdgeAtom::Direction::BOTH) {
     out_edges_ = std::make_unique<InEdgeT>(vertex.out());
     out_edges_it_ = std::make_unique<InEdgeIteratorT>(out_edges_->begin());
@@ -375,9 +375,9 @@ bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction, Frame &frame,
                                     const SymbolTable &symbol_table) {
   switch (direction) {
-    case EdgeAtom::Direction::LEFT:
+    case EdgeAtom::Direction::IN:
       return HandleExistingNode(new_edge.from(), frame, symbol_table);
-    case EdgeAtom::Direction::RIGHT:
+    case EdgeAtom::Direction::OUT:
       return HandleExistingNode(new_edge.to(), frame, symbol_table);
     case EdgeAtom::Direction::BOTH:
       permanent_fail("Must indicate exact expansion direction here");

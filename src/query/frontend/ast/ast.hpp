@@ -679,10 +679,7 @@ class EdgeAtom : public PatternAtom {
   friend class AstTreeStorage;
 
  public:
-  // TODO change to IN, OUT, BOTH
-  // LEFT/RIGHT is not clear especially when expansion will not
-  // necessarily go from left to right
-  enum class Direction { LEFT, RIGHT, BOTH };
+  enum class Direction { IN, OUT, BOTH };
 
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {

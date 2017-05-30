@@ -250,8 +250,8 @@ TEST(TestLogicalPlanner, CreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->edge_type("relationship");
-  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::RIGHT),
-                       NODE("m"))));
+  QUERY(CREATE(
+      PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand());
 }
 
@@ -269,7 +269,7 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   auto dba = dbms.active();
   auto relationship = dba->edge_type("rel");
   QUERY(CREATE(
-      PATTERN(NODE("n"), EDGE("r", relationship, Direction::RIGHT), NODE("m")),
+      PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m")),
       PATTERN(NODE("l"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateNode());
@@ -282,7 +282,7 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
   auto dba = dbms.active();
   auto relationship = dba->edge_type("relationship");
   QUERY(MATCH(PATTERN(NODE("n"))),
-        CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::RIGHT),
+        CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT),
                        NODE("m"))));
   CheckPlan(storage, ExpectScanAll(), ExpectCreateExpand());
 }
@@ -466,8 +466,8 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
   auto r = dba->edge_type("r");
   auto p = dba->edge_type("p");
   AstTreeStorage storage;
-  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::RIGHT), NODE("m")),
-               PATTERN(NODE("n"), EDGE("p", p, Direction::RIGHT), NODE("l"))));
+  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::OUT), NODE("m")),
+               PATTERN(NODE("n"), EDGE("p", p, Direction::OUT), NODE("l"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateExpand());
 }
@@ -529,9 +529,9 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
   auto dba = dbms.active();
   auto r_type = dba->edge_type("r");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))), WITH(IDENT("n"), AS("a")),
-        CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::RIGHT),
-                       NODE("b"))));
+  QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH(IDENT("n"), AS("a")),
+      CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::OUT), NODE("b"))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
 }
 
@@ -604,11 +604,10 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   auto new_prop = PROPERTY_LOOKUP("new", prop);
   auto r_prop = PROPERTY_LOOKUP("r", prop);
   auto m_prop = PROPERTY_LOOKUP("m", prop);
-  auto query =
-      QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r_type, Direction::RIGHT),
-                           NODE("m"))),
-            WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
-            WHERE(LESS(m_prop, LITERAL(42))));
+  auto query = QUERY(
+      CREATE(PATTERN(NODE("n"), EDGE("r", r_type, Direction::OUT), NODE("m"))),
+      WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
+      WHERE(LESS(m_prop, LITERAL(42))));
   auto symbol_table = MakeSymbolTable(*query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({

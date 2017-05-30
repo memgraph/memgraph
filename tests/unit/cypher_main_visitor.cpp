@@ -750,7 +750,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   EXPECT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(edge);
-  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::LEFT);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::IN);
   EXPECT_THAT(
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
@@ -777,7 +777,7 @@ TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   EXPECT_FALSE(match->where_);
   auto *edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(edge);
-  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::RIGHT);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
   ASSERT_TRUE(edge->identifier_);
   EXPECT_THAT(edge->identifier_->name_, "var");
   EXPECT_TRUE(edge->identifier_->user_declared_);

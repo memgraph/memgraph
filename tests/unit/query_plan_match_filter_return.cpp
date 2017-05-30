@@ -249,8 +249,8 @@ TEST(QueryPlan, Expand) {
     return PullAll(produce, *dba, symbol_table);
   };
 
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::RIGHT, GraphView::AS_IS));
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::LEFT, GraphView::AS_IS));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::AS_IS));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::AS_IS));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::AS_IS));
   //
   // test that expand works well for both old and new graph state
@@ -259,15 +259,15 @@ TEST(QueryPlan, Expand) {
   v3.Reconstruct();
   dba->insert_edge(v1, v2, edge_type);
   dba->insert_edge(v1, v3, edge_type);
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::RIGHT, GraphView::OLD));
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::LEFT, GraphView::OLD));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::RIGHT, GraphView::NEW));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::LEFT, GraphView::NEW));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, GraphView::NEW));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, GraphView::NEW));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::NEW));
   dba->advance_command();
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::RIGHT, GraphView::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::LEFT, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 }
 
@@ -294,7 +294,7 @@ TEST(QueryPlan, ExpandOptional) {
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
+                        EdgeAtom::Direction::OUT, false, "m", false);
   auto optional = std::make_shared<plan::Optional>(
       n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
@@ -369,7 +369,7 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
   auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
+                        EdgeAtom::Direction::OUT, false, "m", false);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
@@ -409,7 +409,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto with = MakeProduce(optional, n_ne);
   // MATCH (m) -[r]-> (n)
   auto m = MakeScanAll(storage, symbol_table, "m", with);
-  auto edge_direction = EdgeAtom::Direction::RIGHT;
+  auto edge_direction = EdgeAtom::Direction::OUT;
   auto edge = EDGE("r", edge_direction);
   auto edge_sym = symbol_table.CreateSymbol("r", true);
   symbol_table[*edge->identifier_] = edge_sym;
@@ -494,9 +494,8 @@ TEST(QueryPlan, ExpandExistingNode) {
 
   auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::RIGHT, false, "n", with_existing);
+    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::OUT, false, "n", with_existing);
     if (with_existing)
       r_n.op_ =
           std::make_shared<Expand>(n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
@@ -624,7 +623,7 @@ TEST(QueryPlan, EdgeFilter) {
 
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::RIGHT, false, "m", false);
+                          EdgeAtom::Direction::OUT, false, "m", false);
     r_m.edge_->edge_types_.push_back(edge_types[0]);
     r_m.edge_->properties_[prop] = LITERAL(42);
     auto *filter_expr =
@@ -671,7 +670,7 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::RIGHT, false, "m", false);
+                        EdgeAtom::Direction::OUT, false, "m", false);
   // add an edge type filter
   r_m.edge_->edge_types_.push_back(type_1);
   r_m.edge_->edge_types_.push_back(type_2);
@@ -739,14 +738,13 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
     auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
-                            EdgeAtom::Direction::RIGHT, false, "n2", false);
+                            EdgeAtom::Direction::OUT, false, "n2", false);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
     if (vertex_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
           last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
-    auto r2_n3 =
-        MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
-                   EdgeAtom::Direction::RIGHT, false, "n3", false);
+    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_,
+                            "r2", EdgeAtom::Direction::OUT, false, "n3", false);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
