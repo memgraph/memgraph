@@ -920,12 +920,44 @@ Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
                                             GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
+namespace {
+/** Returns the default TypedValue for an Aggregation operation.
+ * This value is valid both for returning when where are no inputs
+ * to the aggregation op, and for initializing an aggregation result
+ * when there are */
+TypedValue DefaultAggregationOpValue(Aggregation::Op op) {
+  switch (op) {
+    case Aggregation::Op::COUNT:
+      return TypedValue(0);
+    case Aggregation::Op::SUM:
+    case Aggregation::Op::MIN:
+    case Aggregation::Op::MAX:
+    case Aggregation::Op::AVG:
+      return TypedValue::Null;
+    case Aggregation::Op::COLLECT:
+      return TypedValue(std::vector<TypedValue>());
+  }
+}
+}
+
 bool Aggregate::AggregateCursor::Pull(Frame &frame,
                                       const SymbolTable &symbol_table) {
   if (!pulled_all_input_) {
     ProcessAll(frame, symbol_table);
     pulled_all_input_ = true;
     aggregation_it_ = aggregation_.begin();
+
+    // in case there is no input and no group_bys we need to return true just
+    // this once
+    if (aggregation_.empty() && self_.group_by_.empty()) {
+      // place default aggregation values on the frame
+      for (const auto &elem : self_.aggregations_)
+        frame[std::get<2>(elem)] = DefaultAggregationOpValue(std::get<1>(elem));
+      // place null as remember values on the frame
+      for (const Symbol &remember_sym : self_.remember_)
+        frame[remember_sym] = TypedValue::Null;
+      return true;
+    }
   }
 
   if (aggregation_it_ == aggregation_.end()) return false;
@@ -981,15 +1013,9 @@ void Aggregate::AggregateCursor::EnsureInitialized(
     Aggregate::AggregateCursor::AggregationValue &agg_value) const {
   if (agg_value.values_.size() > 0) return;
 
-  for (const auto &agg_elem : self_.aggregations_) {
-    if (std::get<1>(agg_elem) == Aggregation::Op::COUNT) {
-      agg_value.values_.emplace_back(TypedValue(0));
-    } else if (std::get<1>(agg_elem) == Aggregation::Op::COLLECT) {
-      agg_value.values_.emplace_back(std::vector<TypedValue>());
-    } else {
-      agg_value.values_.emplace_back(TypedValue::Null);
-    }
-  }
+  for (const auto &agg_elem : self_.aggregations_)
+    agg_value.values_.emplace_back(
+        DefaultAggregationOpValue(std::get<1>(agg_elem)));
   agg_value.counts_.resize(self_.aggregations_.size(), 0);
 
   for (const Symbol &remember_sym : self_.remember_)
