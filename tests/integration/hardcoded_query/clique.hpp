@@ -186,8 +186,10 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     for (auto x : V) {
       auto edge = get_edge(vertices[profile_index], *vertices_indexed[x]);
       if (edge == nullptr) continue;
-      auto prop = query::TypedValue(edge->PropsAt(db_accessor.property("score")));
-      if (prop.type() == query::TypedValue::Type::Int) res += prop.Value<int64_t>();
+      auto prop =
+          query::TypedValue(edge->PropsAt(db_accessor.property("score")));
+      if (prop.type() == query::TypedValue::Type::Int)
+        res += prop.Value<int64_t>();
     }
     return res;
   };
@@ -213,8 +215,5 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       result.push_back(calc_score(results[i]));
     stream.Result(result);
   }
-  std::map<std::string, query::TypedValue> meta{
-      std::make_pair(std::string("type"), query::TypedValue(std::string("r")))};
-  stream.Summary(meta);
   return true;
 }

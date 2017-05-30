@@ -31,9 +31,6 @@ class CPUPlan : public PlanInterface<Stream> {
         stream.Result(result);
       }
     }
-    std::map<std::string, TypedValue> meta{
-        std::make_pair(std::string("type"), TypedValue(std::string("r")))};
-    stream.Summary(meta);
     return true;
   }
   ~CPUPlan() {}

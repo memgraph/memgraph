@@ -31,8 +31,5 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       stream.Result(result);
     }
   }
-  std::map<std::string, query::TypedValue> meta{std::make_pair(
-      std::string("type"), query::TypedValue(std::string("rw")))};
-  stream.Summary(meta);
   return true;
 }

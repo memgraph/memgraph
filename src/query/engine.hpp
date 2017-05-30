@@ -69,14 +69,36 @@ class QueryEngine : public Loggable {
       return true;
     }
 
+    clock_t start_time = clock();
     auto preprocessed = preprocessor.preprocess(query);
+    clock_t end_parsing_time = clock();
     auto plan = LoadCypher(preprocessed);
+    clock_t end_planning_time = clock();
     auto result = plan->run(db_accessor, preprocessed.arguments, stream);
+    clock_t end_execution_time = clock();
     if (UNLIKELY(!result)) {
       // info because it might be something like deadlock in which
       // case one thread is stopped and user has try again
       logger.info("Unable to execute query (execution returned false)");
+      return result;
     }
+
+    // helper function for calculating time in seconds
+    auto time_second = [](clock_t start, clock_t end) {
+      return query::TypedValue(double(end - start) / CLOCKS_PER_SEC);
+    };
+
+    std::map<std::string, query::TypedValue> summary;
+    summary["query_parsing_time"] = time_second(start_time, end_parsing_time);
+    // This doesn't do any actual planning, but benchmarking harness knows how
+    // to work with this field.
+    summary["query_planning_time"] =
+        time_second(end_parsing_time, end_planning_time);
+    summary["query_plan_execution_time"] =
+        time_second(end_planning_time, end_execution_time);
+    summary["type"] = "rw";
+    stream.Summary(summary);
+
     return result;
   }
 
