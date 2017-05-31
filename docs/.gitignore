@@ -1,2 +1,4 @@
-html/
-latex/
+doxygen/html/
+doxygen/latex/
+user_technical/.couscous/
+user_technical/couscous.phar
