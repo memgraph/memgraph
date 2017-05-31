@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# Initial version of script that is going to be used for release builds.
+# Build & package (collect all required files in a folder).
+
+function print_help () {
+    echo "Usage: $0 [--skip-compile]"
+}
+
+echo "Memgraph Release Building..."
+
+if [[ $EUID -eq 0 ]]; then
+    echo "This script must NOT be run as root!" 1>&2
+    exit 1
+fi
+
+release_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+project_dir="${release_dir}/.."
+
+skip_compile=false
+while [[ $# -gt 0 ]]
+do
+    case $1 in
+        -h|--help)
+        print_help
+        exit -1
+        ;;
+        --skip-compile)
+        skip_compile=true
+        ;;
+        *)
+        # unknown option
+        ;;
+    esac
+    shift # past argument or value
+done
+
+echo "Skip compile: ${skip_compile}"
+
+if [[ "${skip_compile}" == false ]]; then
+    # init (download libraries)
+    cd ${project_dir}
+    ./init
+ 
+    # compile memgraph
+    cd ${project_dir}/build
+    rm -rf ./*
+    cmake -DCMAKE_BUILD_TYPE:String=debug ..
+    make -j8
+fi
+
+# get the most recent version of memgraph exe
+cd ${project_dir}/build
+exe_name=`ls -t memgraph_* | head -1`
+release_folder=${release_dir}/${exe_name}
+
+# extract only required files
+# create dst directory
+cd ${release_dir}
+mkdir -p ${release_folder}
+echo "Full build name: ${exe_name}" > ${release_folder}/build.info
+# copy binary & config
+cp ${project_dir}/build/${exe_name} ${release_folder}/memgraph
+cp -r ${project_dir}/config ${release_folder}/config
+
+echo "Memgraph Build ${exe_name} DONE"

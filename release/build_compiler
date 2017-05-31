@@ -2,9 +2,12 @@
 
 # Initial version of script that is going to be used for release builds.
 
-# NOTE: do not run this script as a super user
-
 echo "Memgraph Release Building..."
+
+if [[ $EUID -eq 0 ]]; then
+    echo "This script must NOT be run as root!" 1>&2
+    exit 1
+fi
 
 # compile memgraph
 cd ../build
