@@ -227,9 +227,9 @@ auto CheckPlan(AstTreeStorage &storage, TChecker... checker) {
 }
 
 TEST(TestLogicalPlanner, MatchNodeReturn) {
-  // Test MATCH (n) RETURN n AS n
+  // Test MATCH (n) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))), RETURN(IDENT("n"), AS("n")));
+  QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce());
 }
 
@@ -288,36 +288,35 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
 }
 
 TEST(TestLogicalPlanner, MatchLabeledNodes) {
-  // Test MATCH (n :label) RETURN n AS n
+  // Test MATCH (n :label) RETURN n
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
   auto label = dba->label("label");
-  QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(IDENT("n"), AS("n")));
+  QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n"));
   CheckPlan(storage, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchPathReturn) {
-  // Test MATCH (n) -[r :relationship]- (m) RETURN n AS n
+  // Test MATCH (n) -[r :relationship]- (m) RETURN n
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->edge_type("relationship");
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", relationship), NODE("m"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
             ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWhereReturn) {
-  // Test MATCH (n) WHERE n.property < 42 RETURN n AS n
+  // Test MATCH (n) WHERE n.property < 42 RETURN n
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
   auto property = dba->property("property");
   QUERY(MATCH(PATTERN(NODE("n"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))),
-        RETURN(IDENT("n"), AS("n")));
+        WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
@@ -359,7 +358,7 @@ TEST(TestLogicalPlanner, MatchMultiPattern) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
               PATTERN(NODE("j"), EDGE("e"), NODE("i"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // We expect the expansions after the first to have a uniqueness filter in a
   // single MATCH clause.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
@@ -371,7 +370,7 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameStart) {
   // Test MATCH (n), (n) -[e]- (m) RETURN n
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // We expect the second pattern to generate only an Expand, since another
   // ScanAll would be redundant.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
@@ -382,7 +381,7 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameExpandStart) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
               PATTERN(NODE("m"), EDGE("e"), NODE("l"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
   // expansion. Additionally, a uniqueness filter is expected.
@@ -395,7 +394,7 @@ TEST(TestLogicalPlanner, MultiMatch) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         MATCH(PATTERN(NODE("j"), EDGE("e"), NODE("i"), EDGE("f"), NODE("h"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
@@ -407,8 +406,7 @@ TEST(TestLogicalPlanner, MultiMatchSameStart) {
   // Test MATCH (n) MATCH (n) -[r]- (m) RETURN n
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"))),
-        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        RETURN(IDENT("n"), AS("n")));
+        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN("n"));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
@@ -418,7 +416,7 @@ TEST(TestLogicalPlanner, MatchExistingEdge) {
   // Test MATCH (n) -[r]- (m) -[r]- (j) RETURN n
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("r"), NODE("j"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // There is no ExpandUniquenessFilter for referencing the same edge.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
             ExpectProduce());
@@ -429,7 +427,7 @@ TEST(TestLogicalPlanner, MultiMatchExistingEdgeOtherEdge) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("j"), EDGE("e"), NODE("l"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   // We need ExpandUniquenessFilter for edge `e` against `r` in second MATCH.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
             ExpectExpand(), ExpectExpandUniquenessFilter<EdgeAccessor>(),
@@ -437,23 +435,21 @@ TEST(TestLogicalPlanner, MultiMatchExistingEdgeOtherEdge) {
 }
 
 TEST(TestLogicalPlanner, MatchWithReturn) {
-  // Test MATCH (old) WITH old AS new RETURN new AS new
+  // Test MATCH (old) WITH old AS new RETURN new
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
-        RETURN(IDENT("new"), AS("new")));
+  QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")), RETURN("new"));
   // No accumulation since we only do reads.
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWithWhereReturn) {
-  // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new AS new
+  // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new
   Dbms dbms;
   auto dba = dbms.active();
   auto prop = dba->property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("old"))), WITH(IDENT("old"), AS("new")),
-        WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))),
-        RETURN(IDENT("new"), AS("new")));
+  QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
+        WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN("new"));
   // No accumulation since we only do reads.
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectFilter(),
             ExpectProduce());
@@ -482,8 +478,7 @@ TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto literal = LITERAL(42);
   QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
-        WHERE(LESS(IDENT("sum"), LITERAL(42))),
-        RETURN(IDENT("sum"), AS("result")));
+        WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result")));
   auto aggr = ExpectAggregate({sum}, {literal});
   CheckPlan(storage, ExpectScanAll(), aggr, ExpectProduce(), ExpectFilter(),
             ExpectProduce());
@@ -530,7 +525,7 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
   auto r_type = dba->edge_type("r");
   AstTreeStorage storage;
   QUERY(
-      MATCH(PATTERN(NODE("n"))), WITH(IDENT("n"), AS("a")),
+      MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
       CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::OUT), NODE("b"))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
 }
@@ -539,7 +534,7 @@ TEST(TestLogicalPlanner, MatchReturnSkipLimit) {
   // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"))),
-        RETURN(IDENT("n"), AS("n"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+        RETURN("n", SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectSkip(),
             ExpectLimit());
 }
@@ -550,7 +545,7 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
   auto ident_n = IDENT("n");
   auto query = QUERY(CREATE(PATTERN(NODE("n"))),
                      WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
-                     RETURN(IDENT("m"), AS("m"), LIMIT(LITERAL(1))));
+                     RETURN("m", LIMIT(LITERAL(1))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table);
@@ -587,7 +582,7 @@ TEST(TestLogicalPlanner, MatchReturnOrderBy) {
   auto dba = dbms.active();
   auto prop = dba->property("prop");
   AstTreeStorage storage;
-  auto ret = RETURN(IDENT("n"), AS("n"), ORDER_BY(PROPERTY_LOOKUP("n", prop)));
+  auto ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP("n", prop)));
   QUERY(MATCH(PATTERN(NODE("n"))), ret);
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
 }
@@ -670,8 +665,7 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"))),
         OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))),
-        RETURN(IDENT("r"), AS("r")));
+        WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r"));
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
                                       new ExpectFilter()};
   CheckPlan(storage, ExpectScanAll(), ExpectOptional(optional),
@@ -679,11 +673,11 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
 }
 
 TEST(TestLogicalPlanner, MatchUnwindReturn) {
-  // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n AS n, x AS x
+  // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n, x
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"))),
         UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
-        RETURN(IDENT("n"), AS("n"), IDENT("x"), AS("x")));
+        RETURN("n", "x"));
   CheckPlan(storage, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
 }
 
@@ -704,9 +698,8 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   AstTreeStorage storage;
   auto node_n = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
-  auto query =
-      QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
-            WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN(IDENT("s"), AS("s")));
+  auto query = QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
+                     WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s"));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
   auto aggr = ExpectAggregate({sum}, {});
@@ -727,7 +720,7 @@ TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   node_m->properties_[prop] = n_prop;
-  QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(IDENT("n"), AS("n")));
+  QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n"));
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
   CheckPlan(storage, ExpectScanAll(), ExpectScanAll(), ExpectFilter(),
@@ -741,8 +734,7 @@ TEST(TestLogicalPlanner, MatchWhereBeforeExpand) {
   auto prop = dba->property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
-        RETURN(IDENT("n"), AS("n")));
+        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
   // We expect Fitler to come immediately after ScanAll, since it only uses `n`.
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
             ExpectProduce());
@@ -756,8 +748,7 @@ TEST(TestLogicalPlanner, MultiMatchWhere) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         MATCH(PATTERN(NODE("l"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
-        RETURN(IDENT("n"), AS("n")));
+        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
   // Even though WHERE is in the second MATCH clause, we expect Filter to come
   // before second ScanAll, since it only uses the value from first ScanAll.
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
@@ -772,8 +763,7 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         OPTIONAL_MATCH(PATTERN(NODE("l"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
-        RETURN(IDENT("n"), AS("n")));
+        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
   // Even though WHERE is in the second MATCH clause, and it uses the value from
   // first ScanAll, it must remain part of the Optional. It should come before
   // optional ScanAll.
@@ -852,7 +842,7 @@ TEST(TestLogicalPlanner, MultipleOptionalMatchReturn) {
   // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
   AstTreeStorage storage;
   QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("m"))),
-        RETURN(IDENT("n"), AS("n")));
+        RETURN("n"));
   std::list<BaseOpChecker *> optional{new ExpectScanAll()};
   CheckPlan(storage, ExpectOptional(optional), ExpectOptional(optional),
             ExpectProduce());

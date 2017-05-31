@@ -194,44 +194,75 @@ auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
-void FillReturnBody(ReturnBody &body, NamedExpression *named_expr) {
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
 }
-void FillReturnBody(ReturnBody &body, Limit limit) {
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    const std::string &name) {
+  auto *ident = storage.Create<query::Identifier>(name);
+  auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
+  body.named_expressions.emplace_back(named_expr);
+}
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Limit limit) {
   body.limit = limit.expression;
 }
-void FillReturnBody(ReturnBody &body, Skip skip, Limit limit = Limit{}) {
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Skip skip,
+                    Limit limit = Limit{}) {
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(ReturnBody &body, OrderBy order_by, Limit limit = Limit{}) {
-  body.order_by = order_by.expressions;
-  body.limit = limit.expression;
-}
-void FillReturnBody(ReturnBody &body, OrderBy order_by, Skip skip,
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, OrderBy order_by,
                     Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
+  body.limit = limit.expression;
+}
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, OrderBy order_by,
+                    Skip skip, Limit limit = Limit{}) {
+  body.order_by = order_by.expressions;
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(ReturnBody &body, Expression *expr,
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Expression *expr,
                     NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
   body.named_expressions.emplace_back(named_expr);
 }
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    const std::string &name, NamedExpression *named_expr) {
+  named_expr->expression_ = storage.Create<query::Identifier>(name);
+  body.named_expressions.emplace_back(named_expr);
+}
 template <class... T>
-void FillReturnBody(ReturnBody &body, Expression *expr,
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Expression *expr,
                     NamedExpression *named_expr, T... rest) {
   named_expr->expression_ = expr;
   body.named_expressions.emplace_back(named_expr);
-  FillReturnBody(body, rest...);
+  FillReturnBody(storage, body, rest...);
 }
 template <class... T>
-void FillReturnBody(ReturnBody &body, NamedExpression *named_expr, T... rest) {
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    NamedExpression *named_expr, T... rest) {
   body.named_expressions.emplace_back(named_expr);
-  FillReturnBody(body, rest...);
+  FillReturnBody(storage, body, rest...);
+}
+template <class... T>
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    const std::string &name, NamedExpression *named_expr,
+                    T... rest) {
+  named_expr->expression_ = storage.Create<query::Identifier>(name);
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
+}
+template <class... T>
+void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+                    const std::string &name, T... rest) {
+  auto *ident = storage.Create<query::Identifier>(name);
+  auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
 }
 
 ///
@@ -239,18 +270,20 @@ void FillReturnBody(ReturnBody &body, NamedExpression *named_expr, T... rest) {
 ///
 /// The supported expression combination of arguments is:
 ///
-/// (NamedExpression | (Expression NamedExpression))+ [OrderBy] [Skip] [Limit]
+/// (String | NamedExpression | (Expression NamedExpression))+
+/// [OrderBy] [Skip] [Limit]
 ///
 /// When the pair (Expression NamedExpression) is given, the Expression will be
 /// moved inside the NamedExpression. This is done, so that the constructs like
-/// RETURN(expr, AS("name"), ...) are supported.
+/// RETURN(expr, AS("name"), ...) are supported. Taking a String is a shorthand
+/// for RETURN(IDENT(string), AS(string), ....).
 ///
 /// @sa GetWith
 template <class... T>
 auto GetReturn(AstTreeStorage &storage, bool distinct, T... exprs) {
   auto ret = storage.Create<Return>();
   ret->body_.distinct = distinct;
-  FillReturnBody(ret->body_, exprs...);
+  FillReturnBody(storage, ret->body_, exprs...);
   return ret;
 }
 
@@ -264,7 +297,7 @@ template <class... T>
 auto GetWith(AstTreeStorage &storage, bool distinct, T... exprs) {
   auto with = storage.Create<With>();
   with->body_.distinct = distinct;
-  FillReturnBody(with->body_, exprs...);
+  FillReturnBody(storage, with->body_, exprs...);
   return with;
 }
 
