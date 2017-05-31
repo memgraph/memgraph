@@ -8,13 +8,13 @@ if [ "$( which curl )" == "" ] || [ "$( which php )" == "" ]; then
     exit 1
 fi
 
+cd ${working_dir}
 generator="couscous.phar"
 
 # download the generator if it's not already downloaded
-if [ ! -f ${working_dir}/${generator} ]; then
-    cd ${working_dir}
+if [ ! -f ${generator} ]; then
     curl -OS http://couscous.io/${generator}
 fi
 
 # run the preview
-php ${working_dir}/${generator} preview
+php ${generator} preview
