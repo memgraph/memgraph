@@ -9,6 +9,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/cost_estimator.hpp"
 
 namespace query {
 
@@ -41,6 +42,11 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   // high level tree -> logical plan
   auto logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
       visitor.storage(), symbol_table, &db_accessor);
+
+  // cost estimation
+  plan::CostEstimator cost_estimator(db_accessor);
+  logical_plan->Accept(cost_estimator);
+  double query_plan_cost_estimation = cost_estimator.cost();
 
   // generate frame based on symbol table max_position
   Frame frame(symbol_table.max_position());
@@ -93,6 +99,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
       time_second(antlr_end_time, planning_end_time);
   summary["query_plan_execution_time"] =
       time_second(planning_end_time, execution_end_time);
+  summary["query_cost_estimate"] = query_plan_cost_estimation;
   //
   // TODO set summary['type'] based on transaction metadata
   // the type can't be determined based only on top level LogicalOp

@@ -320,6 +320,8 @@ class ScanAllByLabel : public ScanAll {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
+  GraphDbTypes::Label label() const { return label_; }
+
  private:
   const GraphDbTypes::Label label_;
 };
@@ -1220,6 +1222,8 @@ class Unwind : public LogicalOperator {
          Expression *input_expression_, Symbol output_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  Expression *input_expression() const { return input_expression_; }
 
  private:
   const std::shared_ptr<LogicalOperator> input_;

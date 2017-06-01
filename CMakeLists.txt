@@ -362,6 +362,7 @@ set(memgraph_src_files
     ${src_dir}/query/plan/operator.cpp
     ${src_dir}/query/plan/rule_based_planner.cpp
     ${src_dir}/query/plan/variable_start_planner.cpp
+    ${src_dir}/query/plan/cost_estimator.cpp
     ${src_dir}/query/frontend/semantic/symbol_generator.cpp
 )
 # -----------------------------------------------------------------------------
