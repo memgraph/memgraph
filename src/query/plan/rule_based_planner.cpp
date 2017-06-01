@@ -596,7 +596,8 @@ std::vector<Expansion> NormalizePatterns(
   auto ignore_node = [&](auto *node) {};
   auto collect_expansion = [&](auto *prev_node, auto *edge,
                                auto *current_node) {
-    expansions.emplace_back(Expansion{prev_node, edge, current_node});
+    expansions.emplace_back(
+        Expansion{prev_node, edge, edge->direction_, current_node});
   };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
@@ -710,7 +711,7 @@ LogicalOperator *PlanMatching(const Matching &matching,
         context.new_symbols.emplace_back(edge_symbol);
       }
       last_op =
-          new Expand(node_symbol, edge_symbol, expansion.edge->direction_,
+          new Expand(node_symbol, edge_symbol, expansion.direction,
                      std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
                      existing_node, existing_edge, context.graph_view);
       if (!existing_edge) {

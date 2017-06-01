@@ -12,60 +12,76 @@ class SymbolTable;
 
 namespace plan {
 
-// Normalized representation of a pattern that needs to be matched.
+/// @brief Normalized representation of a pattern that needs to be matched.
 struct Expansion {
-  // The first node in the expansion, it can be a single node.
+  /// @brief The first node in the expansion, it can be a single node.
   NodeAtom *node1 = nullptr;
-  // Optional edge which connects the 2 nodes.
+  /// @brief Optional edge which connects the 2 nodes.
   EdgeAtom *edge = nullptr;
-  // Optional node at the other end of an edge. If the expansion contains an
-  // edge, then this node is required.
+  /// @brief Direction of the edge, it may be flipped compared to original
+  /// @c EdgeAtom during plan generation.
+  EdgeAtom::Direction direction = EdgeAtom::Direction::BOTH;
+  /// @brief Optional node at the other end of an edge. If the expansion
+  /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
 };
 
-// Normalized representation of a single or multiple Match clauses.
-//
-// For example, `MATCH (a :Label) -[e1]- (b) -[e2]- (c) MATCH (n) -[e3]- (m)
-// WHERE c.prop < 42` will produce the following.
-// Expansions will store `(a) -[e1]-(b)`, `(b) -[e2]- (c)` and `(n) -[e3]- (m)`.
-// Edge symbols for Cyphermorphism will only contain the set `{e1, e2}` for the
-// first `MATCH` and the set `{e3}` for the second.
-// Filters will contain 2 pairs. One for testing `:Label` on symbol `a` and the
-// other obtained from `WHERE` on symbol `c`.
+/// @brief Normalized representation of a single or multiple Match clauses.
+///
+/// For example, `MATCH (a :Label) -[e1]- (b) -[e2]- (c) MATCH (n) -[e3]- (m)
+/// WHERE c.prop < 42` will produce the following.
+/// Expansions will store `(a) -[e1]-(b)`, `(b) -[e2]- (c)` and
+/// `(n) -[e3]- (m)`.
+/// Edge symbols for Cyphermorphism will only contain the set `{e1, e2}` for the
+/// first `MATCH` and the set `{e3}` for the second.
+/// Filters will contain 2 pairs. One for testing `:Label` on symbol `a` and the
+/// other obtained from `WHERE` on symbol `c`.
 struct Matching {
-  // All expansions that need to be performed across Match clauses.
+  /// @brief All expansions that need to be performed across @c Match clauses.
   std::vector<Expansion> expansions;
-  // Symbols for edges established in match, used to ensure Cyphermorphism.
-  // There are multiple sets, because each Match clause determines a single set.
+  /// @brief Symbols for edges established in match, used to ensure
+  /// Cyphermorphism.
+  ///
+  /// There are multiple sets, because each Match clause determines a single
+  /// set.
   std::vector<std::unordered_set<Symbol>> edge_symbols;
-  // Pairs of filter expression and symbols used in them. The list should be
-  // filled using CollectPatternFilters function.
+  /// @brief Pairs of filter expression and symbols used in them.
   std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> filters;
 };
 
-// Represents a read (+ write) part of a query. Each part ends with either:
-//  * RETURN clause;
-//  * WITH clause or
-//  * any of the write clauses.
-//
-// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
-// generated QueryPart will have `matching` generated for the `MATCH`.
-// `remaining_clauses` will contain `Merge`, `SetProperty` and `Merge` clauses
-// in that exact order. The pattern inside the first `MERGE` will be used to
-// generate the first `merge_matching` element, and the second `MERGE` pattern
-// will produce the second `merge_matching` element. This way, if someone
-// traverses `remaining_clauses`, the order of appearance of `Merge` clauses is
-// in the same order as their respective `merge_matching` elements.
+/// @brief Represents a read (+ write) part of a query. Parts are split on
+/// `WITH` clauses.
+///
+/// Each part ends with either:
+///
+///  * `RETURN` clause;
+///  * `WITH` clause or
+///  * any of the write clauses.
+///
+/// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
+/// generated QueryPart will have `matching` generated for the `MATCH`.
+/// `remaining_clauses` will contain `Merge`, `SetProperty` and `Merge` clauses
+/// in that exact order. The pattern inside the first `MERGE` will be used to
+/// generate the first `merge_matching` element, and the second `MERGE` pattern
+/// will produce the second `merge_matching` element. This way, if someone
+/// traverses `remaining_clauses`, the order of appearance of `Merge` clauses is
+/// in the same order as their respective `merge_matching` elements.
 struct QueryPart {
-  // All MATCH clauses merged into one Matching.
+  /// @brief All `MATCH` clauses merged into one @c Matching.
   Matching matching;
-  // Each OPTIONAL MATCH converted to Matching.
+  /// @brief Each `OPTIONAL MATCH` converted to @c Matching.
   std::vector<Matching> optional_matching;
-  // Matching for each MERGE clause. Since Merge is contained in
-  // remaining_clauses, this vector contains matching in the same order as Merge
-  // appears.
+  /// @brief @c Matching for each `MERGE` clause.
+  ///
+  /// Storing the normalized pattern of a @c Merge does not preclude storing the
+  /// @c Merge clause itself inside `remaining_clauses`. The reason is that we
+  /// need to have access to other parts of the clause, such as `SET` clauses
+  /// which need to be run.
+  ///
+  /// Since @c Merge is contained in `remaining_clauses`, this vector contains
+  /// matching in the same order as @c Merge appears.
   std::vector<Matching> merge_matching;
-  // All the remaining clauses (without Match).
+  /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses;
 };
 
@@ -93,17 +109,49 @@ struct PlanningContext {
   std::unordered_set<Symbol> bound_symbols;
 };
 
+/// @brief Planner which uses hardcoded rules to produce operators.
+///
+/// @sa MakeLogicalPlan
 class RuleBasedPlanner {
  public:
   RuleBasedPlanner(PlanningContext &context) : context_(context) {}
 
+  /// @brief The result of plan generation is the root of the generated operator
+  /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
+  /// @brief Generates the operator tree based on explicitly set rules.
   PlanResult Plan(std::vector<QueryPart> &);
 
  private:
   PlanningContext &context_;
 };
 
+/// @brief Planner which generates multiple plans by changing the order of graph
+/// traversal.
+///
+/// This planner picks different starting nodes from which to start graph
+/// traversal. Generating a single plan is backed by @c RuleBasedPlanner.
+///
+/// @sa MakeLogicalPlan
+class VariableStartPlanner {
+ public:
+  VariableStartPlanner(PlanningContext &context) : context_(context) {}
+
+  /// @brief The result of plan generation is a vector of roots to multiple
+  /// generated operator trees.
+  using PlanResult = std::vector<std::unique_ptr<LogicalOperator>>;
+  /// @brief Generate multiple plans by varying the order of graph traversal.
+  PlanResult Plan(std::vector<QueryPart> &);
+
+ private:
+  PlanningContext &context_;
+};
+
+/// @brief Convert the AST to multiple @c QueryParts.
+///
+/// This function will normalize patterns inside @c Match and @c Merge clauses
+/// and do some other preprocessing in order to generate multiple @c QueryPart
+/// structures.
 std::vector<QueryPart> CollectQueryParts(const SymbolTable &, AstTreeStorage &);
 
 /// @brief Generates the LogicalOperator tree and returns the resulting plan.
@@ -117,6 +165,10 @@ std::vector<QueryPart> CollectQueryParts(const SymbolTable &, AstTreeStorage &);
 ///     table.
 /// @param db Optional @c GraphDbAccessor, which is used to query database
 ///     information in order to improve generated plans.
+/// @return @c PlanResult which depends on the @c TPlanner used.
+///
+/// @sa RuleBasedPlanner
+/// @sa VariableStartPlanner
 template <class TPlanner>
 typename TPlanner::PlanResult MakeLogicalPlan(
     AstTreeStorage &storage, SymbolTable &symbol_table,
