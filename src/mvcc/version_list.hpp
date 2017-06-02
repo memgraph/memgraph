@@ -85,7 +85,6 @@ class VersionList {
    * visible anymore. If none exists to_delete will point to nullptr.
   */
   std::pair<bool, T *> GcDeleted(const Id &id, tx::Engine &engine) {
-
     //    nullptr
     //       |
     //     [v1]      ...  all of this gets deleted!
@@ -96,14 +95,14 @@ class VersionList {
     //       |         |  Jump backwards until you find the oldest visible
     //   [VerList] ----+  record, or you reach the end of the list
     //
-    
+
     auto current = head.load();
     T *head_of_deletable_records = current;
     T *oldest_visible_record = nullptr;
     while (current) {
       if (!current->is_not_visible_from(id, engine))
-          oldest_visible_record = current;
-        current = current->next();
+        oldest_visible_record = current;
+      current = current->next();
     }
     if (oldest_visible_record)
       head_of_deletable_records = oldest_visible_record->next();
@@ -131,7 +130,8 @@ class VersionList {
                                               // further than this record and
                                               // that's why it's safe to set
                                               // next to nullptr.
-    // Calling destructor  of head_of_deletable_records will clean everything older
+    // Calling destructor  of head_of_deletable_records will clean everything
+    // older
     // than this record since they are called recursively.
     return std::make_pair(false, head_of_deletable_records);
   }
@@ -192,14 +192,29 @@ class VersionList {
     }
   }
 
+  /**
+   * Looks for the first visible record seen by this transaction. If the current
+   * transaction has already created new record in the current command then that
+   * record is returned, else first older visible record is updated. New record
+   * becomes head of the version list and it is returned. There should always be
+   * older visible record when this update is called.
+   *
+   * @param t The transaction
+   */
   T *update(tx::Transaction &t) {
     debug_assert(head != nullptr, "Head is nullptr on update.");
-    auto record = find(t);
+    T *old_record = nullptr;
+    T *new_record = nullptr;
+    find_set_old_new(t, old_record, new_record);
+
+    // check if current transaction in current cmd has
+    // already updated version list
+    if (new_record) return new_record;
 
     // check if we found any visible records
-    permanent_assert(record != nullptr, "Updating nullptr record");
+    permanent_assert(old_record != nullptr, "Updating nullptr record");
 
-    return update(record, t);
+    return update(old_record, t);
   }
 
   void remove(tx::Transaction &t) {

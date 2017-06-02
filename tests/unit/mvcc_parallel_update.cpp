@@ -1,5 +1,12 @@
 #include "mvcc_find_update_common.hpp"
 
+#undef T4_FIND
+#define T4_FIND version_list.find(*t4)
+
+
+// IMPORTANT: look definiton of EXPECT_CRE and EXPECT_EXP macros in
+// tests/mvcc_find_update_common.hpp. Numbers in those macros represent
+// transaction ids when transactions where created.
 
 // ****************************************************************
 // *   CASE 1: T3 starts after T2 ends.

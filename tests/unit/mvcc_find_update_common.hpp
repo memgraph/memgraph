@@ -76,7 +76,7 @@ class Mvcc : public ::testing::Test {
 //  - TX_BEGIN sets the transaction variable tX
 #define T2_FIND __attribute__((unused)) auto v2 = version_list.find(*t2)
 #define T3_FIND __attribute__((unused)) auto v3 = version_list.find(*t3)
-#define T4_FIND version_list.find(*t4)
+#define T4_FIND __attribute__((unused)) auto v4 = version_list.find(*t4)
 #define T2_UPDATE __attribute__((unused)) auto v2 = version_list.update(*t2)
 #define T3_UPDATE __attribute__((unused)) auto v3 = version_list.update(*t3)
 #define T2_COMMIT t2->commit();
