@@ -25,6 +25,8 @@
 
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "utils/string.hpp"
 
 namespace query {
 
@@ -465,3 +467,11 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define EQ(expr1, expr2) storage.Create<query::EqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) storage.Create<query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))
+// Function call
+#define FN(function_name, ...)                                  \
+  storage.Create<query::Function>(                              \
+      query::NameToFunction(utils::ToUpperCase(function_name)), \
+      std::vector<query::Expression *>{__VA_ARGS__})
+// List slicing
+#define SLICE(list, lower_bound, upper_bound) \
+  storage.Create<query::ListSlicingOperator>(list, lower_bound, upper_bound)

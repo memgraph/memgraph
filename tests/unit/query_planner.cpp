@@ -848,4 +848,61 @@ TEST(TestLogicalPlanner, MultipleOptionalMatchReturn) {
             ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, FunctionAggregationReturn) {
+  // Test RETURN sqrt(SUM(2)) AS result, 42 AS group_by
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(
+      RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by")));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, FunctionWithoutArguments) {
+  // Test RETURN pi() AS pi
+  AstTreeStorage storage;
+  QUERY(RETURN(FN("pi"), AS("pi")));
+  CheckPlan(storage, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, ListLiteralAggregationReturn) {
+  // Test RETURN [SUM(2)] AS result, 42 AS group_by
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by")));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, EmptyListIndexAggregation) {
+  // Test RETURN [][SUM(2)] AS result, 42 AS group_by
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto empty_list = LIST();
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(storage.Create<query::ListIndexingOperator>(empty_list, sum),
+               AS("result"), group_by_literal, AS("group_by")));
+  // We expect to group by '42' and the empty list, because it is a
+  // sub-expression of a binary operator which contains an aggregation. This is
+  // similar to grouping by '1' in `RETURN 1 + SUM(2)`.
+  auto aggr = ExpectAggregate({sum}, {empty_list, group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, ListSliceAggregationReturn) {
+  // Test RETURN [1, 2][0..SUM(2)] AS result, 42 AS group_by
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto list = LIST(LITERAL(1), LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by_literal,
+               AS("group_by")));
+  // Similarly to EmptyListIndexAggregation test, we expect grouping by list and
+  // '42', because slicing is an operator.
+  auto aggr = ExpectAggregate({sum}, {list, group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
 }  // namespace

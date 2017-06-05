@@ -313,8 +313,18 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(ListLiteral &) override {
-    has_aggregation_.emplace_back(false);
+  bool PostVisit(ListLiteral &list_literal) override {
+    debug_assert(
+        list_literal.elements_.size() <= has_aggregation_.size(),
+        "Expected has_aggregation_ flags as much as there are list elements.");
+    bool has_aggr = false;
+    auto it = has_aggregation_.end();
+    std::advance(it, -list_literal.elements_.size());
+    while (it != has_aggregation_.end()) {
+      has_aggr = has_aggr || *it;
+      it = has_aggregation_.erase(it);
+    }
+    has_aggregation_.emplace_back(has_aggr);
     return true;
   }
 
@@ -330,10 +340,51 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PreVisit(ListSlicingOperator &list_slicing) override {
+    list_slicing.list_->Accept(*this);
+    bool list_has_aggr = has_aggregation_.back();
+    has_aggregation_.pop_back();
+    bool has_aggr = list_has_aggr;
+    if (list_slicing.lower_bound_) {
+      list_slicing.lower_bound_->Accept(*this);
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    if (list_slicing.upper_bound_) {
+      list_slicing.upper_bound_->Accept(*this);
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    if (has_aggr && !list_has_aggr) {
+      // We need to group by the list expression, because it didn't have an
+      // aggregation inside.
+      group_by_.emplace_back(list_slicing.list_);
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return false;
+  }
+
+  bool PostVisit(Function &function) override {
+    debug_assert(function.arguments_.size() <= has_aggregation_.size(),
+                 "Expected has_aggregation_ flags as much as there are "
+                 "function arguments.");
+    bool has_aggr = false;
+    auto it = has_aggregation_.end();
+    std::advance(it, -function.arguments_.size());
+    while (it != has_aggregation_.end()) {
+      has_aggr = has_aggr || *it;
+      it = has_aggregation_.erase(it);
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
 #define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
   bool PostVisit(BinaryOperator &op) override {                            \
-    /* has_aggregation_ stack is reversed, last result is from the 2nd     \
-     * expression. */                                                      \
+    debug_assert(has_aggregation_.size() >= 2U,                            \
+                 "Expected at least 2 has_aggregation_ flags.");           \
+    /* has_aggregation_ stack is reversed, last result is from the 2nd */  \
+    /* expression. */                                                      \
     bool aggr2 = has_aggregation_.back();                                  \
     has_aggregation_.pop_back();                                           \
     bool aggr1 = has_aggregation_.back();                                  \
@@ -352,6 +403,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(OrOperator)
   VISIT_BINARY_OPERATOR(XorOperator)
   VISIT_BINARY_OPERATOR(AndOperator)
+  VISIT_BINARY_OPERATOR(FilterAndOperator)
   VISIT_BINARY_OPERATOR(AdditionOperator)
   VISIT_BINARY_OPERATOR(SubtractionOperator)
   VISIT_BINARY_OPERATOR(MultiplicationOperator)
@@ -363,6 +415,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(GreaterOperator)
   VISIT_BINARY_OPERATOR(LessEqualOperator)
   VISIT_BINARY_OPERATOR(GreaterEqualOperator)
+  VISIT_BINARY_OPERATOR(InListOperator)
+  VISIT_BINARY_OPERATOR(ListIndexingOperator)
 
 #undef VISIT_BINARY_OPERATOR
 
@@ -383,6 +437,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
+    debug_assert(has_aggregation_.size() == 1U,
+                 "Expected to reduce has_aggregation_ to single boolean.");
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
     }
