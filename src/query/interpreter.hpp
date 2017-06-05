@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ctime>
+#include <limits>
 
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
@@ -40,13 +41,33 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   high_level_tree->Accept(symbol_generator);
 
   // high level tree -> logical plan
-  auto logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-      visitor.storage(), symbol_table, &db_accessor);
-
-  // cost estimation
-  plan::CostEstimator cost_estimator(db_accessor);
-  logical_plan->Accept(cost_estimator);
-  double query_plan_cost_estimation = cost_estimator.cost();
+  std::unique_ptr<plan::LogicalOperator> logical_plan;
+  double query_plan_cost_estimation = 0.0;
+  // TODO: Use gflags
+  bool FLAGS_query_cost_planner = true;
+  if (FLAGS_query_cost_planner) {
+    auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
+        visitor.storage(), symbol_table, &db_accessor);
+    double min_cost = std::numeric_limits<double>::max();
+    for (auto &plan : plans) {
+      plan::CostEstimator estimator(db_accessor);
+      plan->Accept(estimator);
+      auto cost = estimator.cost();
+      if (!logical_plan || cost < min_cost) {
+        // We won't be iterating over plans anymore, so it's ok to invalidate
+        // unique_ptrs inside.
+        logical_plan = std::move(plan);
+        min_cost = cost;
+      }
+    }
+    query_plan_cost_estimation = min_cost;
+  } else {
+    logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
+        visitor.storage(), symbol_table, &db_accessor);
+    plan::CostEstimator cost_estimator(db_accessor);
+    logical_plan->Accept(cost_estimator);
+    query_plan_cost_estimation = cost_estimator.cost();
+  }
 
   // generate frame based on symbol table max_position
   Frame frame(symbol_table.max_position());
@@ -84,7 +105,7 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
     auto cursor = logical_plan->MakeCursor(db_accessor);
     while (cursor->Pull(frame, symbol_table)) continue;
   } else {
-    throw QueryRuntimeException("Unknown top level LogicalOp");
+    throw QueryRuntimeException("Unknown top level LogicalOperator");
   }
 
   clock_t execution_end_time = clock();
@@ -100,11 +121,10 @@ void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
   summary["query_plan_execution_time"] =
       time_second(planning_end_time, execution_end_time);
   summary["query_cost_estimate"] = query_plan_cost_estimation;
-  //
   // TODO set summary['type'] based on transaction metadata
-  // the type can't be determined based only on top level LogicalOp
+  // the type can't be determined based only on top level LogicalOperator
   // (for example MATCH DELETE RETURN will have Produce as it's top)
-  // for now always se "rw" because something must be set, but it doesn't
+  // for now always use "rw" because something must be set, but it doesn't
   // have to be correct (for Bolt clients)
   summary["type"] = "rw";
   stream.Summary(summary);
