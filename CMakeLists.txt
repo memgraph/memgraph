@@ -69,7 +69,7 @@ endif()
 # c++14
 # TODO: set here 17 once it will be available in the cmake version (3.8)
 set(cxx_standard 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
 # -----------------------------------------------------------------------------
 
 # dir variables
@@ -84,9 +84,21 @@ set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
 
 # build flags -----------------------------------------------------------------
 # release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -Wno-c++1z-extensions")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 #debug flags
-set(CMAKE_CXX_FLAGS_DEBUG "-g -Wno-c++1z-extensions")
+set(PREFERRED_DEBUGGER "gdb" CACHE STRING
+    "Tunes the debug output for your preferred debugger (gdb or lldb).")
+if ("${PREFERRED_DEBUGGER}" STREQUAL "gdb" AND
+    "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang|GNU")
+    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
+elseif ("${PREFERRED_DEBUGGER}" STREQUAL "lldb" AND
+        "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS_DEBUG "-glldb")
+else()
+    message(WARNING "Unable to tune for PREFERRED_DEBUGGER: "
+            "'${PREFERRED_DEBUGGER}' with compiler: '${CMAKE_CXX_COMPILER_ID}'")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+endif()
 
 # compiler specific flags
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
@@ -341,7 +353,7 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/storage/edge_accessor.cpp
-#    ${src_dir}/storage/record_accessor.cpp 
+#    ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
