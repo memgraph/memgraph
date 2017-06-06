@@ -1,11 +1,17 @@
-# Memgraph End User Techical Documentation
+# Technical Documentation
+
+## About Memgraph
 
 Memgraph is an ACID compliant high performance transactional distributed
 in-memory graph database featuring runtime native query compiling, lock free
 data structures, multi-version concurrency control and asynchronous IO.
 
-Run command:
-```
-docker run -p 7687:7687 memgraph
-```
+## Contents
+
+  * [About Memgraph](#about-memgraph)
+  * [Installation](installation.md)
+  * [Quick Start](quick-start.md)
+  * [openCypher Query Language](open-cypher.md)
+  * [Interfacing with Memgraph](interfaces.md)
+  * [Upcoming Features](upcoming-features.md)
 
