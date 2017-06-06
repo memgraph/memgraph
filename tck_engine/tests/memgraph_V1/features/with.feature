@@ -147,3 +147,77 @@ Feature: With
             | av  |
             | 6.5 |
             | 7.0 |
+
+    Scenario: With test 11:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(:A{a: 1}), (:B{a: 1}), (:C{a: 1}), (:D{a: 4}), (:E{a: 5})
+            """
+        When executing query:
+            """
+            MATCH(n) WITH n.a AS a
+            ORDER BY a LIMIT 4
+            RETURN a
+            """
+        Then the result should be, in order:
+            | a |
+            | 1 |
+            | 1 |
+            | 1 |
+            | 4 |
+
+    Scenario: With test 12:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(:A{a: 1}), (:B{a: 5}), (:C{a: 2}), (:D{a: 3}), (:E{a: 5})
+            """
+        When executing query:
+            """
+            MATCH(n) WITH n.a AS a
+            ORDER BY a SKIP 2
+            RETURN a
+            """
+        Then the result should be, in order:
+            | a |
+            | 3 |
+            | 5 |
+            | 5 |
+
+    Scenario: With test 13:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(:A{a: 1}), (:B{a: 5}), (:C{a: 2}), (:D{a: 3}), (:E{a: 5})
+            """
+        When executing query:
+            """
+            MATCH(n) WITH n.a AS a
+            ORDER BY a
+            RETURN a
+            """
+        Then the result should be, in order:
+            | a |
+            | 1 |
+            | 2 |
+            | 3 |
+            | 5 |
+            | 5 |
+
+    Scenario: With test 14:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(:A{a: 1}), (:B{a: 5}), (:C{a: 1}), (:D{a: 3}), (:E{a: 5})
+            """
+        When executing query:
+            """
+            MATCH(n) WITH DISTINCT n.a AS a
+            RETURN a
+            """
+        Then the result should be:
+            | a |
+            | 1 |
+            | 3 |
+            | 5 |

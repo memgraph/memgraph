@@ -34,3 +34,24 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             CREATE(a:A), (b:B), (c:C), (a)-[:T]->(b) WITH a DETACH DELETE a WITH a MATCH()-[r:T]->() RETURN r
             """
         Then an error should be raised
+
+    Scenario: In test3
+        When executing query:
+            """
+            WITH [[1], 2, 3, 4] AS l
+            RETURN 1 IN l as in
+            """
+        Then the result should be:
+            | in    |
+            | false |
+
+    Scenario: In test8
+        When executing query:
+            """
+            WITH [[[[1]]], 2, 3, 4] AS l
+            RETURN 1 IN l as in
+            """
+        Then the result should be:
+            | in    |
+            | false |
+

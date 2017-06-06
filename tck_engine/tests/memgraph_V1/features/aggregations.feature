@@ -222,3 +222,31 @@ Feature: Aggregations
             | n | a.x |
             | 3 | 0   |
             | 4 | 1   |
+
+    Scenario: Collect test 01:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 0}), (b{x: True}), (c{x: 'asdf'})
+            """
+        When executing query:
+            """
+            MATCH (a) RETURN collect(a.x) AS n
+            """
+        Then the result should be (ignoring element order for lists)
+            | n                 |
+            | [0, true, 'asdf'] |
+
+    Scenario: Collect test 02:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 0}), (b{x: True}), (c{x: 'asdf'}), (d{x: null})
+            """
+        When executing query:
+            """
+            MATCH (a) RETURN collect(a.x) AS n
+            """
+        Then the result should be (ignoring element order for lists)
+            | n                 |
+            | [0, true, 'asdf'] |

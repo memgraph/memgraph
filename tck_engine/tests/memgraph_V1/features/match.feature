@@ -303,3 +303,106 @@ Feature: Match
             |              n                |
             |     (:Person {age: 20})       |
             |  (:Person :Student {age: 20}) |
+
+    Scenario: Test match with order by
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a |
+            | 1   |
+            | 2   |
+            | 3   |
+            | 4   |
+            | 5   |
+
+    Scenario: Test match with order by and skip
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a SKIP 3
+            """
+        Then the result should be, in order:
+            | n.a |
+            | 4   |
+            | 5   |
+
+    Scenario: Test match with order by and limit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a LIMIT 2
+            """
+        Then the result should be, in order:
+            | n.a |
+            | 1   |
+            | 2   |
+
+    Scenario: Test match with order by, skip and limit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a SKIP 2 LIMIT 2
+            """
+        Then the result should be, in order:
+            | n.a |
+            | 3   |
+            | 4   |
+
+    Scenario: Test match with order by and skip
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a SKIP 6
+            """
+        Then the result should be empty
+
+    Scenario: Test match with order by and limit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 2}), ({a: 3}), ({a: 4}), ({a: 5})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a LIMIT 0
+            """
+        Then the result should be empty
+
+    Scenario: Test distinct
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 1}), ({a: 4}), ({a: 3}), ({a: 1}), ({a: 4})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN DISTINCT n.a
+            """
+        Then the result should be:
+            | n.a |
+            | 1   |
+            | 3   |
+            | 4   |

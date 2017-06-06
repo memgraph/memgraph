@@ -373,3 +373,244 @@ Feature: Functions
             | 0.8438539587324921  |
             | null                |
             | -0.2921388087338362 |
+
+    Scenario: Sign test:
+        When executing query:
+            """
+            RETURN SIGN(null) AS n, SIGN(123) AS a, SIGN(0) AS b, SIGN(1.23) AS c,
+            SIGN(-123) AS d, SIGN(-1.23) AS e, SIGN(-0.00) AS f
+            """
+        Then the result should be:
+            | n      | a | b | c | d  |  e | f |
+            | null   | 1 | 0 | 1 | -1 | -1 | 0 |
+
+    Scenario: Tan test:
+        When executing query:
+            """
+            RETURN TAN(null) AS n, TAN(123) AS a, TAN(-2.5) AS b, TAN(1.23) AS c
+            """
+        Then the result should be:
+            | n      | a                  | b                  | c                 |
+            | null   | 0.5179274715856552 | 0.7470222972386603 | 2.819815734268152 |
+
+    Scenario: Atan test:
+        When executing query:
+            """
+            RETURN ATAN(null) AS n, ATAN(1.23) AS a, ATAN(123) AS b, ATAN(0) AS c
+            """
+        Then the result should be:
+            | n      | a                  | b                  | c   |
+            | null   | 0.8881737743776796 | 1.5626664246149526 | 0.0 |
+
+    Scenario: Atan2 test:
+        When executing query:
+            """
+            RETURN ATAN2(1, null) AS n, ATAN2(0, 0) AS a, ATAN2(2, 3) AS b, ATAN2(1.5, 2.5) AS c
+            """
+        Then the result should be:
+            | n      | a   | b                  | c                  |
+            | null   | 0.0 | 0.5880026035475675 | 0.5404195002705842 |
+
+    Scenario: Asin test:
+        When executing query:
+            """
+            RETURN ASIN(null) AS n, ASIN(1.23) AS a, ASIN(0.48) AS b, ASIN(-0.25) AS c
+            """
+        Then the result should be:
+            | n      | a   | b                  | c                    |
+            | null   | nan | 0.5006547124045881 | -0.25268025514207865 |
+
+    Scenario: Acos test:
+        When executing query:
+            """
+            RETURN ACOS(null) AS n, ACOS(1.23) AS a, ACOS(0.48) AS b, ACOS(-0.25) AS c
+            """
+        Then the result should be:
+            | n      | a   | b                  | c                  |
+            | null   | nan | 1.0701416143903084 | 1.8234765819369754 |
+
+    Scenario: Round test:
+        When executing query:
+            """
+            RETURN ROUND(null) AS n, ROUND(1.49999) AS a, ROUND(-1.5) AS b, ROUND(-1.51) AS c,
+            ROUND(1.5) as d
+            """
+        Then the result should be:
+            | n      | a   | b    | c    | d   |
+            | null   | 1.0 | -2.0 | -2.0 | 2.0 |
+
+    Scenario: Floor test:
+        When executing query:
+            """
+            RETURN FLOOR(null) AS n, FLOOR(1.49999) AS a, FLOOR(-1.5) AS b, FLOOR(-1.51) AS c,
+            FLOOR(1.00) as d
+            """
+        Then the result should be:
+            | n      | a   | b    | c    | d   |
+            | null   | 1.0 | -2.0 | -2.0 | 1.0 |
+
+    Scenario: Ceil test:
+        When executing query:
+            """
+            RETURN CEIL(null) AS n, CEIL(1.49999) AS a, CEIL(-1.5) AS b, CEIL(-1.51) AS c,
+            CEIL(1.00) as d
+            """
+        Then the result should be:
+            | n      | a   | b    | c    | d   |
+            | null   | 2.0 | -1.0 | -1.0 | 1.0 |
+
+    Scenario: Tail test:
+        When executing query:
+            """
+            RETURN TAIL(null) AS n, TAIL([[1, 2], 3, 4]) AS a, TAIL([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n      | a      | b           |
+            | null   | [3, 4] | [[2, 3, 4]] |
+
+    Scenario: Range test:
+        When executing query:
+            """
+            RETURN RANGE(1, 3) AS a, RANGE(1, 5, 2) AS b, RANGE(1, -1) AS c,
+            RANGE(1, -1, -3) as d
+            """
+        Then the result should be:
+            | a         | b         | c  | d   |
+            | [1, 2, 3] | [1, 3, 5] | [] | [1] |
+
+    Scenario: Size test:
+        When executing query:
+            """
+            RETURN SIZE(null) AS n, SIZE([[1, 2], 3, 4]) AS a, SIZE([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n    | a | b |
+            | null | 3 | 2 |
+
+    Scenario: Last test:
+        When executing query:
+            """
+            RETURN LAST(null) AS n, LAST([[1, 2], 3, 4]) AS a, LAST([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n    | a | b         |
+            | null | 4 | [2, 3, 4] |
+
+    Scenario: Head test:
+        When executing query:
+            """
+            RETURN HEAD(null) AS n, HEAD([[1, 2], 3, 4]) AS a, HEAD([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n    | a      | b |
+            | null | [1, 2] | 1 |
+
+    Scenario: Labels test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(:x:y:z), (), (:a:b)
+            """
+        When executing query:
+            """
+            MATCH(n) RETURN LABELS(n) AS l
+            """
+        Then the result should be:
+            | l               |
+            | []              |
+            | ['x', 'y', 'z'] |
+            | ['a', 'b']      |
+
+    Scenario: Type test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(a), (b), (c), (a)-[:A]->(b), (a)-[:B]->(c), (b)-[:C]->(c)
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN TYPE(r) AS t
+            """
+        Then the result should be:
+            | t   |
+            | 'A' |
+            | 'B' |
+            | 'C' |
+
+    Scenario: Properties test1:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(a), (b), (c), (a)-[:A{a: null}]->(b), (a)-[:B{b: true}]->(c),
+            (b)-[:C{c: 123}]->(c)
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN PROPERTIES(r) AS p
+            """
+        Then the result should be:
+            | p         |
+            | {b: true} |
+            | {}        |
+            | {c: 123}  |
+
+    Scenario: Properties test2:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: 'x'}), ({n: 1.1}), ()
+            """
+        When executing query:
+            """
+            MATCH(n) RETURN PROPERTIES(n) AS p
+            """
+        Then the result should be:
+            | p        |
+            | {}       |
+            | {a: 'x'} |
+            | {n: 1.1} |
+
+    Scenario: Coalesce test:
+        When executing query:
+            """
+            RETURN COALESCE(null) AS n, COALESCE([null, null]) AS a,
+            COALESCE(null, null, 1, 2, 3) AS b
+            """
+        Then the result should be:
+            | n    | a            | b |
+            | null | [null, null] | 1 |
+
+    Scenario: Endnode test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE(a:x), (b:y), (c:z), (a)-[:A]->(b), (b)-[:B]->(c), (c)-[:C]->(b)
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN ENDNODE(r) AS n, ENDNODE(r):z AS a, ENDNODE(r):y AS b
+            """
+        Then the result should be:
+            | n    | a     | b     |
+            | (:z) | true  | false |
+            | (:y) | false | true  |
+            | (:y) | false | true  |
+
+    Scenario: Keys test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n{true: 123, a: null, b: 'x', null: 1}) RETURN KEYS(n) AS a
+            """
+        Then the result should be (ignoring element order for lists)
+            | a                     |
+            | ['true', 'null', 'b'] |
+ 
+    Scenario: Pi test:
+        When executing query:
+            """
+            RETURN PI() as n
+            """
+        Then the result should be:
+            | n                   |
+            | 3.141592653589793   |
