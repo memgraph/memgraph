@@ -38,6 +38,8 @@ Logger logger;
 
 DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
 DEFINE_string(port, "7687", "Default port on which to listen.");
+DEFINE_int32(num_workers, std::thread::hardware_concurrency(),
+             "Number of workers");
 
 void throw_and_stacktace(std::string message) {
   Stacktrace stacktrace;
@@ -47,7 +49,7 @@ void throw_and_stacktace(std::string message) {
 int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-// logging init
+// Logging init.
 #ifdef SYNC_LOGGER
   logging::init_sync();
 #else
@@ -55,14 +57,14 @@ int main(int argc, char **argv) {
 #endif
   logging::log->pipe(std::make_unique<Stdout>());
 
-  // get logger
+  // Get logger.
   logger = logging::log->logger("Main");
   logger.info("{}", logging::log->type());
 
-  // unhandled exception handler init
+  // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
 
-  // signal handling init
+  // Signal handling init.
   SignalHandler::register_handler(Signal::SegmentationFault, []() {
     log_stacktrace("SegmentationFault signal raised");
     std::exit(EXIT_FAILURE);
@@ -76,10 +78,10 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   });
 
-  // register args
+  // Register args.
   CONFIG_REGISTER_ARGS(argc, argv);
 
-  // initialize endpoint
+  // Initialize endpoint.
   endpoint_t endpoint;
   try {
     endpoint = endpoint_t(FLAGS_interface, FLAGS_port);
@@ -88,7 +90,7 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  // initialize socket
+  // Initialize socket.
   socket_t socket;
   if (!socket.Bind(endpoint)) {
     logger.error("Cannot bind to socket on {} at {}", FLAGS_interface,
@@ -109,15 +111,13 @@ int main(int argc, char **argv) {
   Dbms dbms;
   QueryEngine<result_stream_t> query_engine;
 
-  // initialize server
+  // Initialize server.
   bolt_server_t server(std::move(socket), dbms, query_engine);
   serverptr = &server;
 
-  // server start with N threads
-  // TODO: N should be configurable
-  auto N = std::thread::hardware_concurrency();
-  logger.info("Starting {} workers", N);
-  server.Start(N);
+  // Start worker threads.
+  logger.info("Starting {} workers", FLAGS_num_workers);
+  server.Start(FLAGS_num_workers);
 
   logger.info("Shutting down...");
   return EXIT_SUCCESS;
