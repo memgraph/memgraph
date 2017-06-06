@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include "utils/bswap.hpp"
+#include "hasher.hpp"
 
 /**
  * Buffer that writes data to file and calculates hash of written data.
@@ -40,7 +41,7 @@ class FileWriterBuffer {
    *    data length.
    */
   void Write(const uint8_t *data, size_t n) {
-    UpdateHash(data, n);
+    hasher_.Update(data, n);
     output_stream_.write(reinterpret_cast<const char *>(data), n);
   }
   /**
@@ -62,18 +63,10 @@ class FileWriterBuffer {
     debug_assert(vertex_num >= 0, "Number of edges should't be negative");
     WriteLong(vertex_num);
     WriteLong(edge_num);
-    WriteLong(hash_);
+    WriteLong(hasher_.hash());
   }
 
  private:
-  /**
-   * Hash function is H(n) = H(n-1) * prime + data where data is unsigned char.
-   * TODO implement different hash function
-   */
-  void UpdateHash(const uint8_t *data, size_t n) {
-    for (int i = 0; i < n; ++i) hash_ = hash_ * kPrime + data[i] + 1;
-  }
-
   /**
    * Method writes uint64_t to ofstream.
    */
@@ -88,11 +81,7 @@ class FileWriterBuffer {
    */
   std::ofstream output_stream_;
   /**
-   * Represents hash of current data.
+   * Used to calculate hash of written data.
    */
-  uint64_t hash_ = 0;
-  /**
-   * Prime number used for hashing.
-   */
-  const uint64_t kPrime = 3137;
+  Hasher hasher_;
 };

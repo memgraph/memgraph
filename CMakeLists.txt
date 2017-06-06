@@ -343,6 +343,7 @@ set(memgraph_src_files
     ${src_dir}/threading/thread.cpp
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/durability/snapshooter.cpp
+    ${src_dir}/durability/recovery.cpp
 #    ${src_dir}/snapshot/snapshot_engine.cpp
 #    ${src_dir}/snapshot/snapshoter.cpp
 #    ${src_dir}/snapshot/snapshot_encoder.cpp

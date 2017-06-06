@@ -4,6 +4,7 @@
 #include "database/creation_exception.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "durability/recovery.hpp"
 #include "logging/logger.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
@@ -13,7 +14,7 @@ const std::string DEFAULT_SNAPSHOT_FOLDER = "snapshots";
 const int DEFAULT_MAX_RETAINED_SNAPSHOTS = -1;  // unlimited number of snapshots
 const int DEFAULT_SNAPSHOT_CYCLE_SEC = -1;      // off
 
-GraphDb::GraphDb(const std::string &name, bool import_snapshot)
+GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
     : name_(name),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
@@ -48,33 +49,55 @@ GraphDb::GraphDb(const std::string &name, bool import_snapshot)
     });
   }
 
-  // Creating snapshoter
+  RecoverDatabase(snapshot_db_dir);
+  StartSnapshooting();
+
+}
+
+void GraphDb::StartSnapshooting() {
   const std::string max_retained_snapshots_str =
       CONFIG(config::MAX_RETAINED_SNAPSHOTS);
   const std::string snapshot_cycle_sec_str =
-      CONFIG(config::MAX_RETAINED_SNAPSHOTS);
+      CONFIG(config::SNAPSHOT_CYCLE_SEC);
   const std::string snapshot_folder_str = CONFIG(config::SNAPSHOTS_PATH);
 
-  int max_retained_snapshots_ = DEFAULT_MAX_RETAINED_SNAPSHOTS;
+  max_retained_snapshots_ = DEFAULT_MAX_RETAINED_SNAPSHOTS;
   if (!max_retained_snapshots_str.empty())
     max_retained_snapshots_ = CONFIG_INTEGER(config::MAX_RETAINED_SNAPSHOTS);
 
-  int snapshot_cycle_sec_ = DEFAULT_SNAPSHOT_CYCLE_SEC;
+  snapshot_cycle_sec_ = DEFAULT_SNAPSHOT_CYCLE_SEC;
   if (!snapshot_cycle_sec_str.empty())
     snapshot_cycle_sec_ = CONFIG_INTEGER(config::SNAPSHOT_CYCLE_SEC);
 
-  std::string snapshot_folder_ = DEFAULT_SNAPSHOT_FOLDER;
+  snapshot_folder_ = DEFAULT_SNAPSHOT_FOLDER;
   if (!snapshot_folder_str.empty()) snapshot_folder_ = snapshot_folder_str;
 
+  snapshot_db_destruction_ = CONFIG_BOOL(config::SNAPSHOT_DB_DESTRUCTION);
+
   if (snapshot_cycle_sec_ != -1) {
-    auto create_snapshot = [this, snapshot_folder_,
-                            max_retained_snapshots_]() -> void {
+    auto create_snapshot = [this]() -> void {
       GraphDbAccessor db_accessor(*this);
       snapshooter_.MakeSnapshot(db_accessor, fs::path(snapshot_folder_) / name_,
                                 max_retained_snapshots_);
     };
     snapshot_creator_.Run(std::chrono::seconds(snapshot_cycle_sec_),
                           create_snapshot);
+  }
+}
+
+void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
+  if (snapshot_db_dir.empty()) return;
+  std::vector<fs::path> snapshots;
+  for (auto &snapshot_file : fs::directory_iterator(snapshot_db_dir))
+    snapshots.push_back(snapshot_file);
+
+  std::sort(snapshots.rbegin(), snapshots.rend());
+  Recovery recovery;
+  for (auto &snapshot_file : snapshots) {
+    GraphDbAccessor db_accessor(*this);
+    if (recovery.Recover(snapshot_file.string(), db_accessor)) {
+      return;
+    }
   }
 }
 
@@ -85,6 +108,13 @@ GraphDb::~GraphDb() {
   // Stop the snapshot creator to avoid snapshooting while database is beeing
   // deleted.
   snapshot_creator_.Stop();
+
+  // Create last database snapshot
+  if (snapshot_db_destruction_) {
+    GraphDbAccessor db_accessor(*this);
+    snapshooter_.MakeSnapshot(db_accessor, fs::path(snapshot_folder_) / name_,
+                              max_retained_snapshots_);
+  }
 
   // Delete vertices and edges which weren't collected before, also deletes
   // records inside version list

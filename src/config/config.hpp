@@ -25,8 +25,10 @@ constexpr const char *TEMPLATE_CPP_PATH = "template_cpp_path";
 constexpr const char *SNAPSHOTS_PATH = "snapshots_path";
 constexpr const char *CLEANING_CYCLE_SEC = "cleaning_cycle_sec";
 constexpr const char *SNAPSHOT_CYCLE_SEC = "snapshot_cycle_sec";
+constexpr const char *SNAPSHOT_DB_DESTRUCTION = "snapshot_db_destruction";
 constexpr const char *MAX_RETAINED_SNAPSHOTS = "max_retained_snapshots";
 constexpr const char *INTERPRET = "interpret";
+constexpr const char *RECOVERY = "recovery";
 // -- all possible Memgraph's keys --
 
 inline long long to_int(const std::string &s) { return stoll(s); }

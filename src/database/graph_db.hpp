@@ -20,6 +20,8 @@
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
 
+namespace fs = std::experimental::filesystem;
+
 // TODO: Maybe split this in another layer between Db and Dbms. Where the new
 // layer would hold SnapshotEngine and his kind of concept objects. Some
 // guidelines would be: retain objects which are necessary to implement querys
@@ -39,7 +41,7 @@ class GraphDb {
    * @param import_snapshot will in constructor import latest snapshot
    *                        into the db.
    */
-  GraphDb(const std::string &name, bool import_snapshot = true);
+  GraphDb(const std::string &name, const fs::path &snapshot_db_dir);
   /**
    * @brief - Destruct database object. Delete all vertices and edges and free
    * all deferred deleters.
@@ -51,15 +53,23 @@ class GraphDb {
    */
   GraphDb(const GraphDb &db) = delete;
 
+  /**
+   * Starts database snapshooting.
+   */
+  void StartSnapshooting();
+
+  /**
+   * Recovers database from a snapshot file and starts snapshooting.
+   * @param snapshot_db path to snapshot folder
+   */
+  void RecoverDatabase(const fs::path &snapshot_db_path);
+
   /** transaction engine related to this database */
   tx::Engine tx_engine;
 
   /** garbage collector related to this database*/
   // TODO bring back garbage collection
   //  Garbage garbage = {tx_engine};
-
-  // TODO bring back shapshot engine
-  //  SnapshotEngine snap_engine = {*this};
 
   // database name
   // TODO consider if this is even necessary
@@ -94,6 +104,10 @@ class GraphDb {
 
   // snapshooter
   Snapshooter snapshooter_;
+  std::string snapshot_folder_;
+  int max_retained_snapshots_;
+  int snapshot_cycle_sec_;
+  bool snapshot_db_destruction_;
 
   // Schedulers
   Scheduler<std::mutex> gc_scheduler_;

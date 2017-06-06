@@ -95,6 +95,18 @@ TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
   EXPECT_EQ(files.size(), 10);
 }
 
+TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
+  {
+    CONFIG(config::SNAPSHOTS_PATH) = SNAPSHOTS_FOLDER_ALL_DB;
+    CONFIG(config::SNAPSHOT_DB_DESTRUCTION) = "true";
+    Dbms dbms;
+    auto dba = dbms.active();
+  }
+  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+  // snapshot is created on dbms destruction
+  EXPECT_EQ(files.size(), 1);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

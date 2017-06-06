@@ -5,13 +5,14 @@ std::unique_ptr<GraphDbAccessor> Dbms::active() {
       *active_db.load(std::memory_order_acquire));
 }
 
-std::unique_ptr<GraphDbAccessor> Dbms::active(const std::string &name) {
+std::unique_ptr<GraphDbAccessor> Dbms::active(const std::string &name,
+                                              const fs::path &snapshot_db_dir) {
   auto acc = dbs.access();
   // create db if it doesn't exist
   auto it = acc.find(name);
   if (it == acc.end()) {
     it = acc.emplace(name, std::forward_as_tuple(name),
-                     std::forward_as_tuple(name))
+                     std::forward_as_tuple(name, snapshot_db_dir))
              .first;
   }
 
