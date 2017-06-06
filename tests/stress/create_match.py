@@ -7,15 +7,13 @@ Large scale stress test. Tests only node creation.
 The idea is to run this test on machines with huge amount of memory e.g. 2TB.
 '''
 
-import contextlib
 import logging
 import multiprocessing
 import random
 import time
 
-from argparse import ArgumentParser
 from collections import defaultdict
-from neo4j.v1 import GraphDatabase, basic_auth
+from common import parse_connection_arguments, argument_session
 
 
 def parse_args():
@@ -24,16 +22,9 @@ def parse_args():
 
     :return: parsed arguments
     '''
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument('--endpoint', type=str, default='localhost:7687',
-                        help='DBMS instance endpoint. '
-                             'Bolt protocol is the only option.')
-    parser.add_argument('--username', type=str, default='neo4j',
-                        help='DBMS instance username.')
-    parser.add_argument('--password', type=int, default='1234',
-                        help='DBMS instance password.')
-    parser.add_argument('--ssl-enabled', action='store_false',
-                        help="Is SSL enabled?")
+    parser = parse_connection_arguments()
+
+    # specific
     parser.add_argument('--no-workers', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of concurrent workers.')
@@ -52,32 +43,6 @@ log = logging.getLogger(__name__)
 args = parse_args()
 
 
-@contextlib.contextmanager
-def bolt_session(url, auth, ssl=False):
-    '''
-    with wrapper around Bolt session.
-
-    :param url: str, e.g. "bolt://localhost:7687"
-    :param auth: auth method, goes directly to the Bolt driver constructor
-    :param ssl: bool, is ssl enabled
-    '''
-    driver = GraphDatabase.driver(url, auth=auth, encrypted=ssl)
-    session = driver.session()
-    try:
-        yield session
-    finally:
-        session.close()
-        driver.close()
-
-
-def argument_session():
-    '''
-    :return: Bolt session based on program arguments
-    '''
-    return bolt_session('bolt://' + args.endpoint,
-                        basic_auth(args.username, args.password))
-
-
 def create_worker(worker_id):
     '''
     Creates nodes and checks that all nodes were created.
@@ -90,7 +55,7 @@ def create_worker(worker_id):
 
     generated_xs = defaultdict(int)
     create_query = ''
-    with argument_session() as session:
+    with argument_session(args) as session:
         # create vertices
         start_time = time.time()
         for i in range(0, args.no_vertices):
@@ -125,18 +90,17 @@ def create_handler():
     Initializes processes and starts the execution.
     '''
     # instance cleanup
-    with argument_session() as session:
+    with argument_session(args) as session:
         session.run("MATCH (n) DETACH DELETE n").consume()
 
-    # concurrent create execution & tests
-    with multiprocessing.Pool(args.no_workers) as p:
-        for worker_id, create_time, time_unit in \
-                p.map(create_worker, [i for i in range(args.no_workers)]):
-            log.info('Worker ID: %s; Create time: %s%s' %
-                     (worker_id, create_time, time_unit))
+        # concurrent create execution & tests
+        with multiprocessing.Pool(args.no_workers) as p:
+            for worker_id, create_time, time_unit in \
+                    p.map(create_worker, [i for i in range(args.no_workers)]):
+                log.info('Worker ID: %s; Create time: %s%s' %
+                         (worker_id, create_time, time_unit))
 
-    # check total count
-    with argument_session() as session:
+        # check total count
         expected_total_count = args.no_workers * args.no_vertices
         total_count = session.run(
             'MATCH (n) RETURN count(n) AS cnt').data()[0]['cnt']
