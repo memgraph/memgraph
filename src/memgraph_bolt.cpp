@@ -1,4 +1,3 @@
-#include <signal.h>
 #include <experimental/filesystem>
 #include <iostream>
 
@@ -30,8 +29,6 @@ using result_stream_t =
         communication::bolt::ChunkedEncoderBuffer<socket_t>>>;
 using bolt_server_t =
     communication::Server<session_t, result_stream_t, socket_t>;
-
-static bolt_server_t *serverptr;
 
 Logger logger;
 
@@ -109,10 +106,6 @@ int main(int argc, char **argv) {
     log_stacktrace("SegmentationFault signal raised");
     std::exit(EXIT_FAILURE);
   });
-  SignalHandler::register_handler(Signal::Terminate, []() {
-    log_stacktrace("Terminate signal raised");
-    std::exit(EXIT_FAILURE);
-  });
   SignalHandler::register_handler(Signal::Abort, []() {
     log_stacktrace("Abort signal raised");
     std::exit(EXIT_FAILURE);
@@ -150,7 +143,12 @@ int main(int argc, char **argv) {
 
   // Initialize server.
   bolt_server_t server(std::move(socket), dbms, query_engine);
-  serverptr = &server;
+
+  // register SIGTERM handler
+  SignalHandler::register_handler(Signal::Terminate, [&server]() {
+    server.Shutdown();
+    std::exit(EXIT_SUCCESS);
+  });
 
   // Start worker threads.
   logger.info("Starting {} workers", FLAGS_num_workers);
