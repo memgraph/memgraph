@@ -101,7 +101,7 @@ TEST(QueryPlan, CreateLimit) {
 
   EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
   dba->advance_command();
-  EXPECT_EQ(3, CountIterable(dba->vertices()));
+  EXPECT_EQ(3, CountIterable(dba->vertices(false)));
 }
 
 TEST(QueryPlan, OrderBy) {
@@ -125,9 +125,9 @@ TEST(QueryPlan, OrderBy) {
   for (const auto &order_value_pair : orderable) {
     const auto &values = order_value_pair.second;
     // empty database
-    for (auto &vertex : dba->vertices()) dba->detach_remove_vertex(vertex);
+    for (auto &vertex : dba->vertices(false)) dba->detach_remove_vertex(vertex);
     dba->advance_command();
-    ASSERT_EQ(0, CountIterable(dba->vertices()));
+    ASSERT_EQ(0, CountIterable(dba->vertices(false)));
 
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
@@ -243,16 +243,16 @@ TEST(QueryPlan, OrderByExceptions) {
 
   for (const auto &pair : exception_pairs) {
     // empty database
-    for (auto &vertex : dba->vertices()) dba->detach_remove_vertex(vertex);
+    for (auto &vertex : dba->vertices(false)) dba->detach_remove_vertex(vertex);
     dba->advance_command();
-    ASSERT_EQ(0, CountIterable(dba->vertices()));
+    ASSERT_EQ(0, CountIterable(dba->vertices(false)));
 
     // make two vertices, and set values
     dba->insert_vertex().PropsSet(prop, pair.first);
     dba->insert_vertex().PropsSet(prop, pair.second);
     dba->advance_command();
-    ASSERT_EQ(2, CountIterable(dba->vertices()));
-    for (const auto &va : dba->vertices())
+    ASSERT_EQ(2, CountIterable(dba->vertices(false)));
+    for (const auto &va : dba->vertices(false))
       ASSERT_NE(va.PropsAt(prop).type(), PropertyValue::Type::Null);
 
     // order by and expect an exception

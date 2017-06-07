@@ -142,6 +142,31 @@ TEST(GraphDbAccessor, BuildIndexDouble) {
   EXPECT_THROW(dba->BuildIndex(label, property), utils::BasicException);
 }
 
+// Inserts vertices with properties with integers and filters to get exact
+// vertices with an exact integer.
+TEST(GraphDbAccessor, FilterLabelPropertySpecificValue) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("lab1");
+  auto property = dba->property("prop1");
+  dba->BuildIndex(label, property);
+  dba->commit();
+
+  auto dba2 = dbms.active();
+  for (int i = 1; i <= 5; ++i) {
+    for (int j = 1; j <= i; ++j) {
+      auto vertex = dba2->insert_vertex();
+      vertex.add_label(label);
+      vertex.PropsSet(property, i);
+    }
+  }
+  dba2->commit();
+  auto dba3 = dbms.active();
+  for (int i = 1; i <= 5; ++i)
+    EXPECT_EQ(Count(dba3->vertices(label, property, PropertyValue(i), false)),
+              i);
+}
+
 // Inserts integers, double, lists, booleans into index and check if they are
 // sorted as they should be sorted.
 TEST(GraphDbAccessor, SortedLabelPropertyEntries) {
@@ -252,24 +277,24 @@ TEST(GraphDbAccessor, VisibilityAfterInsertion) {
   auto type2 = dba->edge_type("type2");
   dba->insert_edge(v1, v2, type1);
 
-  EXPECT_EQ(Count(dba->vertices(lab1)), 0);
+  EXPECT_EQ(Count(dba->vertices(lab1, false)), 0);
   EXPECT_EQ(Count(dba->vertices(lab1, true)), 1);
-  EXPECT_EQ(Count(dba->vertices(lab2)), 0);
+  EXPECT_EQ(Count(dba->vertices(lab2, false)), 0);
   EXPECT_EQ(Count(dba->vertices(lab2, true)), 0);
-  EXPECT_EQ(Count(dba->edges(type1)), 0);
+  EXPECT_EQ(Count(dba->edges(type1, false)), 0);
   EXPECT_EQ(Count(dba->edges(type1, true)), 1);
-  EXPECT_EQ(Count(dba->edges(type2)), 0);
+  EXPECT_EQ(Count(dba->edges(type2, false)), 0);
   EXPECT_EQ(Count(dba->edges(type2, true)), 0);
 
   dba->advance_command();
 
-  EXPECT_EQ(Count(dba->vertices(lab1)), 1);
+  EXPECT_EQ(Count(dba->vertices(lab1, false)), 1);
   EXPECT_EQ(Count(dba->vertices(lab1, true)), 1);
-  EXPECT_EQ(Count(dba->vertices(lab2)), 0);
+  EXPECT_EQ(Count(dba->vertices(lab2, false)), 0);
   EXPECT_EQ(Count(dba->vertices(lab2, true)), 0);
-  EXPECT_EQ(Count(dba->edges(type1)), 1);
+  EXPECT_EQ(Count(dba->edges(type1, false)), 1);
   EXPECT_EQ(Count(dba->edges(type1, true)), 1);
-  EXPECT_EQ(Count(dba->edges(type2)), 0);
+  EXPECT_EQ(Count(dba->edges(type2, false)), 0);
   EXPECT_EQ(Count(dba->edges(type2, true)), 0);
 }
 
@@ -281,32 +306,32 @@ TEST(GraphDbAccessor, VisibilityAfterDeletion) {
   dba->advance_command();
   auto type = dba->edge_type("type");
   for (int j = 0; j < 3; ++j) {
-    auto vertices_it = dba->vertices().begin();
+    auto vertices_it = dba->vertices(false).begin();
     dba->insert_edge(*vertices_it++, *vertices_it, type);
   }
   dba->advance_command();
 
-  EXPECT_EQ(Count(dba->vertices(lab)), 5);
+  EXPECT_EQ(Count(dba->vertices(lab, false)), 5);
   EXPECT_EQ(Count(dba->vertices(lab, true)), 5);
-  EXPECT_EQ(Count(dba->edges(type)), 3);
+  EXPECT_EQ(Count(dba->edges(type, false)), 3);
   EXPECT_EQ(Count(dba->edges(type, true)), 3);
 
   // delete two edges
-  auto edges_it = dba->edges().begin();
+  auto edges_it = dba->edges(false).begin();
   for (int k = 0; k < 2; ++k) dba->remove_edge(*edges_it++);
-  EXPECT_EQ(Count(dba->edges(type)), 3);
+  EXPECT_EQ(Count(dba->edges(type, false)), 3);
   EXPECT_EQ(Count(dba->edges(type, true)), 1);
   dba->advance_command();
-  EXPECT_EQ(Count(dba->edges(type)), 1);
+  EXPECT_EQ(Count(dba->edges(type, false)), 1);
   EXPECT_EQ(Count(dba->edges(type, true)), 1);
 
   // detach-delete 2 vertices
-  auto vertices_it = dba->vertices().begin();
+  auto vertices_it = dba->vertices(false).begin();
   for (int k = 0; k < 2; ++k) dba->detach_remove_vertex(*vertices_it++);
-  EXPECT_EQ(Count(dba->vertices(lab)), 5);
+  EXPECT_EQ(Count(dba->vertices(lab, false)), 5);
   EXPECT_EQ(Count(dba->vertices(lab, true)), 3);
   dba->advance_command();
-  EXPECT_EQ(Count(dba->vertices(lab)), 3);
+  EXPECT_EQ(Count(dba->vertices(lab, false)), 3);
   EXPECT_EQ(Count(dba->vertices(lab, true)), 3);
 }
 

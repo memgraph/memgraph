@@ -43,7 +43,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 
   // count the number of vertices
   int vertex_count = 0;
-  for (VertexAccessor vertex : dba->vertices()) {
+  for (VertexAccessor vertex : dba->vertices(false)) {
     vertex_count++;
     EXPECT_EQ(vertex.labels().size(), 1);
     EXPECT_EQ(*vertex.labels().begin(), label);
@@ -94,7 +94,7 @@ TEST(QueryPlan, CreateReturn) {
   EXPECT_EQ(42, results[0][1].Value<int64_t>());
 
   dba->advance_command();
-  EXPECT_EQ(1, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, CountIterable(dba->vertices(false)));
 }
 
 TEST(QueryPlan, CreateExpand) {
@@ -111,8 +111,8 @@ TEST(QueryPlan, CreateExpand) {
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
-    int before_v = CountIterable(dba->vertices());
-    int before_e = CountIterable(dba->edges());
+    int before_v = CountIterable(dba->vertices(false));
+    int before_e = CountIterable(dba->edges(false));
 
     // data for the first node
     auto n = NODE("n");
@@ -141,15 +141,15 @@ TEST(QueryPlan, CreateExpand) {
     PullAll(create_expand, *dba, symbol_table);
     dba->advance_command();
 
-    EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
+    EXPECT_EQ(CountIterable(dba->vertices(false)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba->edges()) - before_e, expected_edges_created);
+    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e, expected_edges_created);
   };
 
   test_create_path(false, 2, 1);
   test_create_path(true, 1, 1);
 
-  for (VertexAccessor vertex : dba->vertices()) {
+  for (VertexAccessor vertex : dba->vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
     GraphDbTypes::Label label = vertex.labels()[0];
     if (label == label_node_1) {
@@ -163,7 +163,7 @@ TEST(QueryPlan, CreateExpand) {
       FAIL();
     }
 
-    for (EdgeAccessor edge : dba->edges()) {
+    for (EdgeAccessor edge : dba->edges(false)) {
       EXPECT_EQ(edge.edge_type(), edge_type);
       EXPECT_EQ(edge.PropsAt(property).Value<int64_t>(), 3);
     }
@@ -191,10 +191,10 @@ TEST(QueryPlan, MatchCreateNode) {
   // creation op
   auto create_node = std::make_shared<CreateNode>(m, n_scan_all.op_);
 
-  EXPECT_EQ(CountIterable(dba->vertices()), 3);
+  EXPECT_EQ(CountIterable(dba->vertices(false)), 3);
   PullAll(create_node, *dba, symbol_table);
   dba->advance_command();
-  EXPECT_EQ(CountIterable(dba->vertices()), 6);
+  EXPECT_EQ(CountIterable(dba->vertices(false)), 6);
 }
 
 TEST(QueryPlan, MatchCreateExpand) {
@@ -217,8 +217,8 @@ TEST(QueryPlan, MatchCreateExpand) {
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
-    int before_v = CountIterable(dba->vertices());
-    int before_e = CountIterable(dba->edges());
+    int before_v = CountIterable(dba->vertices(false));
+    int before_e = CountIterable(dba->edges(false));
 
     // data for the first node
     auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -239,9 +239,9 @@ TEST(QueryPlan, MatchCreateExpand) {
     PullAll(create_expand, *dba, symbol_table);
     dba->advance_command();
 
-    EXPECT_EQ(CountIterable(dba->vertices()) - before_v,
+    EXPECT_EQ(CountIterable(dba->vertices(false)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba->edges()) - before_e, expected_edges_created);
+    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e, expected_edges_created);
   };
 
   test_create_path(false, 3, 3);
@@ -261,8 +261,8 @@ TEST(QueryPlan, Delete) {
       dba->insert_edge(vertices[j], vertices[k], type);
 
   dba->advance_command();
-  EXPECT_EQ(4, CountIterable(dba->vertices()));
-  EXPECT_EQ(6, CountIterable(dba->edges()));
+  EXPECT_EQ(4, CountIterable(dba->vertices(false)));
+  EXPECT_EQ(6, CountIterable(dba->edges(false)));
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -276,8 +276,8 @@ TEST(QueryPlan, Delete) {
         n.op_, std::vector<Expression *>{n_get}, false);
     EXPECT_THROW(PullAll(delete_op, *dba, symbol_table), QueryRuntimeException);
     dba->advance_command();
-    EXPECT_EQ(4, CountIterable(dba->vertices()));
-    EXPECT_EQ(6, CountIterable(dba->edges()));
+    EXPECT_EQ(4, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(6, CountIterable(dba->edges(false)));
   }
 
   // detach delete a single vertex
@@ -290,8 +290,8 @@ TEST(QueryPlan, Delete) {
     Frame frame(symbol_table.max_position());
     delete_op->MakeCursor(*dba)->Pull(frame, symbol_table);
     dba->advance_command();
-    EXPECT_EQ(3, CountIterable(dba->vertices()));
-    EXPECT_EQ(3, CountIterable(dba->edges()));
+    EXPECT_EQ(3, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(3, CountIterable(dba->edges(false)));
   }
 
   // delete all remaining edges
@@ -305,8 +305,8 @@ TEST(QueryPlan, Delete) {
         r_m.op_, std::vector<Expression *>{r_get}, false);
     PullAll(delete_op, *dba, symbol_table);
     dba->advance_command();
-    EXPECT_EQ(3, CountIterable(dba->vertices()));
-    EXPECT_EQ(0, CountIterable(dba->edges()));
+    EXPECT_EQ(3, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(0, CountIterable(dba->edges(false)));
   }
 
   // delete all remaining vertices
@@ -318,8 +318,8 @@ TEST(QueryPlan, Delete) {
         n.op_, std::vector<Expression *>{n_get}, false);
     PullAll(delete_op, *dba, symbol_table);
     dba->advance_command();
-    EXPECT_EQ(0, CountIterable(dba->vertices()));
-    EXPECT_EQ(0, CountIterable(dba->edges()));
+    EXPECT_EQ(0, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(0, CountIterable(dba->edges(false)));
   }
 }
 
@@ -343,8 +343,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
     auto v2 = dba->insert_vertex();
     dba->insert_edge(v1, v2, dba->edge_type("T"));
     dba->advance_command();
-    EXPECT_EQ(2, CountIterable(dba->vertices()));
-    EXPECT_EQ(1, CountIterable(dba->edges()));
+    EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(1, CountIterable(dba->edges(false)));
 
     AstTreeStorage storage;
     SymbolTable symbol_table;
@@ -365,8 +365,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
         r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
     EXPECT_EQ(2, PullAll(delete_op, *dba, symbol_table));
     dba->advance_command();
-    EXPECT_EQ(0, CountIterable(dba->vertices()));
-    EXPECT_EQ(0, CountIterable(dba->edges()));
+    EXPECT_EQ(0, CountIterable(dba->vertices(false)));
+    EXPECT_EQ(0, CountIterable(dba->edges(false)));
   };
 
   test_delete(true);
@@ -385,8 +385,8 @@ TEST(QueryPlan, DeleteReturn) {
   }
 
   dba->advance_command();
-  EXPECT_EQ(4, CountIterable(dba->vertices()));
-  EXPECT_EQ(0, CountIterable(dba->edges()));
+  EXPECT_EQ(4, CountIterable(dba->vertices(false)));
+  EXPECT_EQ(0, CountIterable(dba->edges(false)));
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -408,7 +408,7 @@ TEST(QueryPlan, DeleteReturn) {
   auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(4, results.size());
   dba->advance_command();
-  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->vertices(false)));
 }
 
 TEST(QueryPlan, DeleteNull) {
@@ -490,8 +490,8 @@ TEST(QueryPlan, SetProperty) {
   EXPECT_EQ(2, PullAll(set_r_p, *dba, symbol_table));
   dba->advance_command();
 
-  EXPECT_EQ(CountIterable(dba->edges()), 2);
-  for (EdgeAccessor edge : dba->edges()) {
+  EXPECT_EQ(CountIterable(dba->edges(false)), 2);
+  for (EdgeAccessor edge : dba->edges(false)) {
     ASSERT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Int);
     EXPECT_EQ(edge.PropsAt(prop1).Value<int64_t>(), 42);
     VertexAccessor from = edge.from();
@@ -542,8 +542,8 @@ TEST(QueryPlan, SetProperties) {
     EXPECT_EQ(1, PullAll(set_m_to_r, *dba, symbol_table));
     dba->advance_command();
 
-    EXPECT_EQ(CountIterable(dba->edges()), 1);
-    for (EdgeAccessor edge : dba->edges()) {
+    EXPECT_EQ(CountIterable(dba->edges(false)), 1);
+    for (EdgeAccessor edge : dba->edges(false)) {
       VertexAccessor from = edge.from();
       EXPECT_EQ(from.Properties().size(), update ? 2 : 1);
       if (update) {
@@ -591,7 +591,7 @@ TEST(QueryPlan, SetLabels) {
       n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label2, label3});
   EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
 
-  for (VertexAccessor vertex : dba->vertices()) {
+  for (VertexAccessor vertex : dba->vertices(false)) {
     vertex.SwitchNew();
     EXPECT_EQ(3, vertex.labels().size());
     EXPECT_TRUE(vertex.has_label(label2));
@@ -640,8 +640,8 @@ TEST(QueryPlan, RemoveProperty) {
   EXPECT_EQ(2, PullAll(set_r_p, *dba, symbol_table));
   dba->advance_command();
 
-  EXPECT_EQ(CountIterable(dba->edges()), 2);
-  for (EdgeAccessor edge : dba->edges()) {
+  EXPECT_EQ(CountIterable(dba->edges(false)), 2);
+  for (EdgeAccessor edge : dba->edges(false)) {
     EXPECT_EQ(edge.PropsAt(prop1).type(), PropertyValue::Type::Null);
     VertexAccessor from = edge.from();
     VertexAccessor to = edge.to();
@@ -675,7 +675,7 @@ TEST(QueryPlan, RemoveLabels) {
       n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label1, label2});
   EXPECT_EQ(2, PullAll(label_remove, *dba, symbol_table));
 
-  for (VertexAccessor vertex : dba->vertices()) {
+  for (VertexAccessor vertex : dba->vertices(false)) {
     vertex.SwitchNew();
     EXPECT_EQ(1, vertex.labels().size());
     EXPECT_FALSE(vertex.has_label(label1));
@@ -847,10 +847,10 @@ TEST(QueryPlan, MergeNoInput) {
   auto create = std::make_shared<CreateNode>(node, nullptr);
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
-  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->vertices(false)));
   EXPECT_EQ(1, PullAll(merge, *dba, symbol_table));
   dba->advance_command();
-  EXPECT_EQ(1, CountIterable(dba->vertices()));
+  EXPECT_EQ(1, CountIterable(dba->vertices(false)));
 }
 
 TEST(QueryPlan, SetPropertyOnNull) {
@@ -881,7 +881,7 @@ TEST(QueryPlan, SetPropertiesOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetProperties>(
       optional, n.sym_, n_ident, plan::SetProperties::Op::REPLACE);
-  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->vertices(false)));
   EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
 }
 
@@ -899,7 +899,7 @@ TEST(QueryPlan, SetLabelsOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
       optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
-  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->vertices(false)));
   EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
 }
 
@@ -931,6 +931,6 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
       optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
-  EXPECT_EQ(0, CountIterable(dba->vertices()));
+  EXPECT_EQ(0, CountIterable(dba->vertices(false)));
   EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
 }

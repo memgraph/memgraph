@@ -241,6 +241,16 @@ class SkipList : private Lockable<lock_t> {
     IteratorBase() = default;
     IteratorBase(const IteratorBase &) = default;
 
+    const T &operator*() const {
+      debug_assert(node != nullptr, "Node is nullptr.");
+      return node->value();
+    }
+
+    const T *operator->() const {
+      debug_assert(node != nullptr, "Node is nullptr.");
+      return &node->value();
+    }
+
     T &operator*() {
       debug_assert(node != nullptr, "Node is nullptr.");
       return node->value();
@@ -284,9 +294,13 @@ class SkipList : private Lockable<lock_t> {
     ConstIterator() = default;
     ConstIterator(const ConstIterator &) = default;
 
-    const T &operator*() { return IteratorBase<ConstIterator>::operator*(); }
+    const T &operator*() const {
+      return IteratorBase<ConstIterator>::operator*();
+    }
 
-    const T *operator->() { return IteratorBase<ConstIterator>::operator->(); }
+    const T *operator->() const {
+      return IteratorBase<ConstIterator>::operator->();
+    }
 
     operator const T &() { return IteratorBase<ConstIterator>::operator T &(); }
   };

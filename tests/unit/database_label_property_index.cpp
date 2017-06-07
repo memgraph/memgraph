@@ -150,7 +150,7 @@ TEST_F(LabelPropertyIndexComplexTest, UniqueFilter) {
   EXPECT_EQ(index.Count(*key), 2);
 
   auto t3 = engine.begin();
-  auto iter = index.GetVlists(*key, *t3);
+  auto iter = index.GetVlists(*key, *t3, false);
   EXPECT_EQ(std::distance(iter.begin(), iter.end()), 1);
   t3->commit();
 }
@@ -159,11 +159,11 @@ TEST_F(LabelPropertyIndexComplexTest, UniqueFilter) {
 TEST_F(LabelPropertyIndexComplexTest, RemoveLabel) {
   index.UpdateOnLabelProperty(vlist, vertex);
 
-  auto iter1 = index.GetVlists(*key, *t);
+  auto iter1 = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter1.begin(), iter1.end()), 1);
 
   vertex->labels_.clear();
-  auto iter2 = index.GetVlists(*key, *t);
+  auto iter2 = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter2.begin(), iter2.end()), 0);
 }
 
@@ -171,11 +171,11 @@ TEST_F(LabelPropertyIndexComplexTest, RemoveLabel) {
 TEST_F(LabelPropertyIndexComplexTest, RemoveProperty) {
   index.UpdateOnLabelProperty(vlist, vertex);
 
-  auto iter1 = index.GetVlists(*key, *t);
+  auto iter1 = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter1.begin(), iter1.end()), 1);
 
   vertex->properties_.clear();
-  auto iter2 = index.GetVlists(*key, *t);
+  auto iter2 = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter2.begin(), iter2.end()), 0);
 }
 
@@ -187,7 +187,7 @@ TEST_F(LabelPropertyIndexComplexTest, Refresh) {
   vertex->labels_.clear();
   vertex->properties_.clear();
   index.Refresh(engine.count() + 1, engine);
-  auto iter = index.GetVlists(*key, *t);
+  auto iter = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter.begin(), iter.end()), 0);
 }
 

@@ -3,7 +3,7 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "database/indexes/index_utils.hpp"
+#include "database/indexes/index_common.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
@@ -12,6 +12,11 @@
 
 /**
  * @brief Implements LabelPropertyIndex.
+ * Currently this provides implementation for:
+ *    acquiring all entries which contain the given label, and a given property
+ * sorted by the property value
+ *    acquiring all non-unique entries with the given label, and property, with
+ * exactly one property value
  */
 class LabelPropertyIndex {
  public:
@@ -159,13 +164,50 @@ class LabelPropertyIndex {
    * @return iterable collection of vlists of vertex records with the requested
    * key sorted ascendingly by the property value.
    */
-  auto GetVlists(const Key &key, const tx::Transaction &t,
-                 bool current_state = false) {
+  auto GetVlists(const Key &key, const tx::Transaction &t, bool current_state) {
     debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
-    return IndexUtils::GetVlists<IndexEntry, Vertex>(
-        *GetKeyStorage(key), t,
-        [this, key](const IndexEntry &entry, const Vertex *const vertex) {
-          return Exists(key, entry.value_, vertex);
+    auto access = GetKeyStorage(key)->access();
+    auto begin = access.begin();
+    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
+                                 IndexEntry, Vertex>(
+        std::move(access), begin, [](const IndexEntry &) { return true; }, t,
+        [key](const IndexEntry &entry, const Vertex *const vertex) {
+          return LabelPropertyIndex::Exists(key, entry.value_, vertex);
+        },
+        current_state);
+  }
+
+  /**
+   * @brief - Get all the inserted vlists in key specific storage which still
+   * have that label and property visible in this transaction with property
+   * value equal to 'value'.
+   * @param key - Label+Property to query.
+   * @param value - vlists with this value will be returned
+   * @param t - current transaction, which determines visibility.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   * @return iterable collection of vlists of vertex records with the requested
+   * key and value
+   */
+  auto GetVlists(const Key &key, const PropertyValue &value,
+                 const tx::Transaction &t, bool current_state) {
+    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+    auto access = GetKeyStorage(key)->access();
+    auto start_iter =
+        access.find_or_larger<typename SkipList<IndexEntry>::Iterator,
+                              IndexEntry>(IndexEntry(value, nullptr, nullptr));
+    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
+                                 IndexEntry, Vertex>(
+        std::move(access), start_iter,
+        [value](const IndexEntry &entry) {
+          return !IndexEntry::Cmp(value, entry.value_) &&
+                 !IndexEntry::Cmp(entry.value_, value);
+        },
+        t,
+        [key](const IndexEntry &entry, const Vertex *const vertex) {
+          return LabelPropertyIndex::Exists(key, entry.value_, vertex);
         },
         current_state);
   }
@@ -206,8 +248,8 @@ class LabelPropertyIndex {
    */
   void Refresh(const Id &id, tx::Engine &engine) {
     return IndexUtils::Refresh<Key, IndexEntry, Vertex>(
-        indices_, id, engine, [this](const Key &key, const IndexEntry &entry) {
-          return Exists(key, entry.value_, entry.record_);
+        indices_, id, engine, [](const Key &key, const IndexEntry &entry) {
+          return LabelPropertyIndex::Exists(key, entry.value_, entry.record_);
         });
   }
 
@@ -346,12 +388,12 @@ class LabelPropertyIndex {
   /**
    * @brief - Check if Vertex contains label and property with the given
    * value.
-   * @param key - label and parameter to check for.
-   * @param value - value of parameter to compare
+   * @param key - label and property to check for.
+   * @param value - value of property to compare
    * @return true if it contains, false otherwise.
    */
-  bool Exists(const Key &key, const PropertyValue &value,
-              const Vertex *const v) const {
+  static bool Exists(const Key &key, const PropertyValue &value,
+                     const Vertex *const v) {
     debug_assert(v != nullptr, "Vertex is nullptr.");
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet

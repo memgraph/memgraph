@@ -22,7 +22,7 @@ class CPUPlan : public PlanInterface<Stream> {
     std::vector<std::string> headers{std::string("r")};
     stream.Header(headers);
     std::vector<VertexAccessor> g1_set, g2_set;
-    for (auto g1 : db_accessor.vertices()) {
+    for (auto g1 : db_accessor.vertices(false)) {
       if (g1.has_label(db_accessor.label("garment"))) {
         TypedValue prop = g1.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
@@ -32,7 +32,7 @@ class CPUPlan : public PlanInterface<Stream> {
         g1_set.push_back(g1);
       }
     }
-    for (auto g2 : db_accessor.vertices()) {
+    for (auto g2 : db_accessor.vertices(false)) {
       if (g2.has_label(db_accessor.label("garment"))) {
         auto prop = g2.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == PropertyValue::Type::Null) continue;

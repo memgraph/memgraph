@@ -91,7 +91,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  auto vertices(bool current_state = false) {
+  auto vertices(bool current_state) {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
@@ -119,7 +119,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto vertices(const GraphDbTypes::Label &label, bool current_state = false) {
+  auto vertices(const GraphDbTypes::Label &label, bool current_state) {
     return iter::imap(
         [this, current_state](auto vlist) {
           return VertexAccessor(*vlist, *this);
@@ -139,8 +139,7 @@ class GraphDbAccessor {
    * @return iterable collection
    */
   auto vertices(const GraphDbTypes::Label &label,
-                const GraphDbTypes::Property &property,
-                bool current_state = false) {
+                const GraphDbTypes::Property &property, bool current_state) {
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
@@ -148,6 +147,34 @@ class GraphDbAccessor {
                           auto vlist) { return VertexAccessor(*vlist, *this); },
                       db_.label_property_index_.GetVlists(
                           LabelPropertyIndex::Key(label, property),
+                          *transaction_, current_state));
+  }
+
+  /**
+   * Return VertexAccessors which contain the current label + property, and
+   * those properties are equal to this 'value' for the given transaction
+   * visibility.
+   * @param label - label for which to return VertexAccessors
+   * @param property - property for which to return VertexAccessors
+   * @param value - property value for which to return VertexAccessors
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   * @return iterable collection
+   */
+  auto vertices(const GraphDbTypes::Label &label,
+                const GraphDbTypes::Property &property,
+                const PropertyValue &value, bool current_state) {
+    debug_assert(db_.label_property_index_.IndexExists(
+                     LabelPropertyIndex::Key(label, property)),
+                 "Label+property index doesn't exist.");
+    debug_assert(value.type() != PropertyValue::Type::Null,
+                 "Can't query index for propery value type null.");
+    return iter::imap([this, current_state](
+                          auto vlist) { return VertexAccessor(*vlist, *this); },
+                      db_.label_property_index_.GetVlists(
+                          LabelPropertyIndex::Key(label, property), value,
                           *transaction_, current_state));
   }
 
@@ -178,7 +205,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  auto edges(bool current_state = false) {
+  auto edges(bool current_state) {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return EdgeAccessor(*vlist, *this); },
@@ -206,8 +233,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto edges(const GraphDbTypes::EdgeType &edge_type,
-             bool current_state = false) {
+  auto edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
     return iter::imap([this, current_state](
                           auto vlist) { return EdgeAccessor(*vlist, *this); },
                       db_.edge_types_index_.GetVlists(edge_type, *transaction_,

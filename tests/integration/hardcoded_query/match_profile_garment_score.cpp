@@ -43,7 +43,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (cmp.type() != TypedValue::Type::Bool) return false;
       return cmp.Value<bool>();
     };
-    for (auto edge : db_accessor.edges()) {
+    for (auto edge : db_accessor.edges(false)) {
       auto from = edge.from();
       auto to = edge.to();
       if (edge.edge_type() != db_accessor.edge_type("score")) continue;

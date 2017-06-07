@@ -2,16 +2,61 @@
 
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
+#include "cppitertools/takewhile.hpp"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "data_structures/concurrent/skiplist.hpp"
 #include "mvcc/version_list.hpp"
 #include "transactions/transaction.hpp"
 
 namespace IndexUtils {
 /**
+ * @brief - Wrap beginning iterator to iterable object. This provides us with
+ * begin and end iterator, and allows us to iterate from the iterator given in
+ * constructor till the end of the collection over which we are really
+ * iterating, i.e. it allows us to iterate over the suffix of some skiplist
+ * hence the name SkipListSuffix.
+ */
+template <class TIterator, class TValue>
+class SkipListSuffix {
+ public:
+  class Iterator {
+   public:
+    Iterator(TIterator current) : current_(current) {}
+
+    TValue &operator*() { return *current_; }
+
+    bool operator!=(Iterator other) const {
+      return this->current_ != other.current_;
+    }
+
+    Iterator &operator++() {
+      ++current_;
+      return *this;
+    }
+
+   private:
+    TIterator current_;
+  };
+
+  SkipListSuffix(const TIterator begin,
+                 typename SkipList<TValue>::Accessor &&accessor)
+      : begin_(begin), accessor_(std::move(accessor)) {}
+
+  Iterator begin() const { return Iterator(begin_); }
+  Iterator end() { return Iterator(accessor_.end()); }
+
+  TIterator begin_;
+  typename SkipList<TValue>::Accessor accessor_;
+};
+/**
  * @brief - Get all inserted vlists in TKey specific storage which
  * still return true for the 'exists' function.
- * @param index - index from which to get vlists
+ * @param skiplist_accessor - accessor used to get begin iterator, and that
+ * should be used to get end iterator as well.
+ * @param begin - starting iterator for vlist iteration.
+ * @param predicate - function which checks if TIndexEntry has a value that we
+ * are looking for
  * @param t - current transaction, which determines visibility.
  * @param exists - method which determines visibility of entry and version
  * (record) of the underlying objects (vertex/edge)
@@ -24,12 +69,18 @@ namespace IndexUtils {
  * @return iterable collection of distinct vlist records<TRecord> for which
  * exists function evaluates as true
  */
-template <class TIndexEntry, class TRecord>
+template <class TIterator, class TIndexEntry, class TRecord>
 static auto GetVlists(
-    SkipList<TIndexEntry> &index, const tx::Transaction &t,
+    typename SkipList<TIndexEntry>::Accessor &&skiplist_accessor,
+    TIterator begin,
+    const std::function<bool(const TIndexEntry &entry)> predicate,
+    const tx::Transaction &t,
     const std::function<bool(const TIndexEntry &, const TRecord *)> exists,
     bool current_state = false) {
   TIndexEntry *prev = nullptr;
+  auto range =
+      iter::takewhile(predicate, SkipListSuffix<TIterator, TIndexEntry>(
+                                     begin, std::move(skiplist_accessor)));
   auto filtered = iter::filter(
       [&t, exists, prev, current_state](TIndexEntry &entry) mutable {
         // Check if the current entry could offer new possible return value
@@ -57,7 +108,7 @@ static auto GetVlists(
         return (current_state && new_record) ? exists(entry, new_record)
                                              : exists(entry, old_record);
       },
-      index.access());
+      std::move(range));
   return iter::imap([](auto entry) { return entry.vlist_; },
                     std::move(filtered));
 }

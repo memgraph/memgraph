@@ -32,11 +32,11 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     int64_t vertex_num = 0, edge_num = 0;
 
     buffer.Open(snapshot_file);
-    for (const auto &vertex : db_accessor_.vertices()) {
+    for (const auto &vertex : db_accessor_.vertices(false)) {
       encoder.WriteVertex(vertex);
       vertex_num++;
     }
-    for (const auto &edge : db_accessor_.edges()) {
+    for (const auto &edge : db_accessor_.edges(false)) {
       encoder.WriteEdge(edge);
       edge_num++;
     }

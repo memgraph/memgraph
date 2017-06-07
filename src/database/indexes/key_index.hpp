@@ -3,7 +3,7 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "database/indexes/index_utils.hpp"
+#include "database/indexes/index_common.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
@@ -55,12 +55,14 @@ class KeyIndex {
    * @return iterable collection of vlists records<TRecord> with the requested
    * TKey.
    */
-  auto GetVlists(const TKey &key, tx::Transaction &t,
-                 bool current_state = false) {
-    return IndexUtils::GetVlists<IndexEntry, TRecord>(
-        *GetKeyStorage(key), t,
-        [this, key](const IndexEntry &, const TRecord *record) {
-          return Exists(key, record);
+  auto GetVlists(const TKey &key, tx::Transaction &t, bool current_state) {
+    auto access = GetKeyStorage(key)->access();
+    auto begin = access.begin();
+    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
+                                 IndexEntry, TRecord>(
+        std::move(access), begin, [](const IndexEntry &) { return true; }, t,
+        [key](const IndexEntry &, const TRecord *record) {
+          return KeyIndex::Exists(key, record);
         },
         current_state);
   }
@@ -87,8 +89,8 @@ class KeyIndex {
    */
   void Refresh(const Id &id, tx::Engine &engine) {
     return IndexUtils::Refresh<TKey, IndexEntry, TRecord>(
-        indices_, id, engine, [this](const TKey &key, const IndexEntry &entry) {
-          return Exists(key, entry.record_);
+        indices_, id, engine, [](const TKey &key, const IndexEntry &entry) {
+          return KeyIndex::Exists(key, entry.record_);
         });
   }
 
@@ -157,7 +159,7 @@ class KeyIndex {
    * @param label - label to check for.
    * @return true if it contains, false otherwise.
    */
-  bool Exists(const GraphDbTypes::Label &label, const Vertex *const v) const {
+  static bool Exists(const GraphDbTypes::Label &label, const Vertex *const v) {
     debug_assert(v != nullptr, "Vertex is nullptr.");
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
@@ -171,8 +173,8 @@ class KeyIndex {
    * @param edge_type - edge_type to check for.
    * @return true if it has that edge_type, false otherwise.
    */
-  bool Exists(const GraphDbTypes::EdgeType &edge_type,
-              const Edge *const e) const {
+  static bool Exists(const GraphDbTypes::EdgeType &edge_type,
+                     const Edge *const e) {
     debug_assert(e != nullptr, "Edge is nullptr.");
     // We have to check for equality of edge types because the transaction
     // might not see the edge type, or the edge type was deleted and not yet

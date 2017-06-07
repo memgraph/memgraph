@@ -20,7 +20,7 @@ class CPUPlan : public PlanInterface<Stream> {
            Stream &stream) {
     std::vector<std::string> headers{std::string("p")};
     stream.Header(headers);
-    for (auto vertex : db_accessor.vertices()) {
+    for (auto vertex : db_accessor.vertices(false)) {
       if (vertex.has_label(db_accessor.label("profile"))) {
         TypedValue prop = vertex.PropsAt(db_accessor.property("profile_id"));
         if (prop.type() == TypedValue::Type::Null) continue;

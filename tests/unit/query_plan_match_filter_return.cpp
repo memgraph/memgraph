@@ -387,8 +387,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto edge_type = dba->edge_type("edge_type");
   dba->insert_edge(v1, v2, edge_type);
   dba->advance_command();
-  EXPECT_EQ(2, CountIterable(dba->vertices()));
-  EXPECT_EQ(1, CountIterable(dba->edges()));
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba->edges(false)));
   AstTreeStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
@@ -434,8 +434,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingEdge) {
   auto edge_type = dba->edge_type("edge_type");
   dba->insert_edge(v1, v2, edge_type);
   dba->advance_command();
-  EXPECT_EQ(2, CountIterable(dba->vertices()));
-  EXPECT_EQ(1, CountIterable(dba->edges()));
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba->edges(false)));
   AstTreeStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing) -[r]- (m)
@@ -816,7 +816,7 @@ TEST(QueryPlan, ScanAllByLabel) {
   labeled_vertex.add_label(label);
   dba->insert_vertex();
   dba->advance_command();
-  EXPECT_EQ(2, CountIterable(dba->vertices()));
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
   // MATCH (n :label)
   AstTreeStorage storage;
   SymbolTable symbol_table;

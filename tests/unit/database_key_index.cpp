@@ -39,8 +39,8 @@ TEST(LabelsIndex, UniqueInsert) {
 
 // Check if index filters duplicates.
 TEST(LabelsIndex, UniqueFilter) {
-  KeyIndex<GraphDbTypes::Label, Vertex> index;
   Dbms dbms;
+  KeyIndex<GraphDbTypes::Label, Vertex> index;
   auto dba = dbms.active();
   tx::Engine engine;
 
@@ -72,7 +72,7 @@ TEST(LabelsIndex, UniqueFilter) {
   sort(expected.begin(),
        expected.end());  // Entries will be sorted by vlist pointers.
   int cnt = 0;
-  for (auto vlist : index.GetVlists(label1, *t3)) {
+  for (auto vlist : index.GetVlists(label1, *t3, false)) {
     EXPECT_LT(cnt, expected.size());
     EXPECT_EQ(vlist, expected[cnt++]);
   }
@@ -123,7 +123,7 @@ TEST(LabelsIndexDb, AddGetZeroLabels) {
   auto dba = dbms.active();
   auto vertex = dba->insert_vertex();
   vertex.add_label(dba->label("test"));
-  auto collection = dba->vertices(dba->label("test"));
+  auto collection = dba->vertices(dba->label("test"), false);
   std::vector<VertexAccessor> collection_vector(collection.begin(),
                                                 collection.end());
   EXPECT_EQ(collection_vector.size(), (size_t)0);
@@ -150,9 +150,9 @@ TEST(LabelsIndexDb, AddGetRemoveLabel) {
   {
     auto dba = dbms.active();
 
-    auto filtered = dba->vertices(dba->label("test"));
+    auto filtered = dba->vertices(dba->label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
-    auto vertices = dba->vertices();
+    auto vertices = dba->vertices(false);
 
     std::vector<VertexAccessor> expected_collection;
     for (auto vertex : vertices) {
@@ -179,9 +179,9 @@ TEST(LabelsIndexDb, AddGetRemoveLabel) {
   {
     auto dba = dbms.active();
 
-    auto filtered = dba->vertices(dba->label("test"));
+    auto filtered = dba->vertices(dba->label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
-    auto vertices = dba->vertices();
+    auto vertices = dba->vertices(false);
 
     std::vector<VertexAccessor> expected_collection;
     for (auto vertex : vertices) {

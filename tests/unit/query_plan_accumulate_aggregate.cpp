@@ -431,7 +431,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(0, count());
 
   // one vertex, property set
-  for (VertexAccessor va : dba->vertices()) va.PropsSet(prop, 42);
+  for (VertexAccessor va : dba->vertices(false)) va.PropsSet(prop, 42);
   dba->advance_command();
   EXPECT_EQ(1, count());
 
@@ -441,7 +441,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(1, count());
 
   // two vertices, both with property set
-  for (VertexAccessor va : dba->vertices()) va.PropsSet(prop, 42);
+  for (VertexAccessor va : dba->vertices(false)) va.PropsSet(prop, 42);
   dba->advance_command();
   EXPECT_EQ(2, count());
 }

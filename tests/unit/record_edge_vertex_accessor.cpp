@@ -92,7 +92,7 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
   // test both Switches work on existing record
   {
     auto dba = dbms.active();
-    auto v1 = *dba->vertices().begin();
+    auto v1 = *dba->vertices(false).begin();
     v1.SwitchOld();
     v1.SwitchNew();
   }
@@ -101,11 +101,11 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
   {
     auto dba = dbms.active();
     auto label = dba->label("label");
-    auto v1 = *dba->vertices().begin();
+    auto v1 = *dba->vertices(false).begin();
 
-    EXPECT_FALSE(v1.has_label(label)); // old record
-    v1.add_label(label); // modifying data does not switch to new
-    EXPECT_FALSE(v1.has_label(label)); // old record
+    EXPECT_FALSE(v1.has_label(label));  // old record
+    v1.add_label(label);                // modifying data does not switch to new
+    EXPECT_FALSE(v1.has_label(label));  // old record
     v1.SwitchNew();
     EXPECT_TRUE(v1.has_label(label));
     v1.SwitchOld();
@@ -128,13 +128,13 @@ TEST(RecordAccessor, Reconstruct) {
 
   // ensure we don't have label set
   auto dba = dbms.active();
-  auto v1 = *dba->vertices().begin();
+  auto v1 = *dba->vertices(false).begin();
   v1.SwitchNew();
   EXPECT_FALSE(v1.has_label(label));
 
   {
     // update the record through a different accessor
-    auto v1_other_accessor = *dba->vertices().begin();
+    auto v1_other_accessor = *dba->vertices(false).begin();
     v1_other_accessor.add_label(label);
     EXPECT_FALSE(v1.has_label(label));
     v1_other_accessor.SwitchNew();

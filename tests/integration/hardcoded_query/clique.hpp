@@ -39,8 +39,8 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
   // TODO dgleich: this code is very inefficient as it first makes a copy
   // of all the vertices/edges, and filters aftwarwards. I warned about this
   // happening in code review!!!
-  auto vertices_iterator = db_accessor.vertices();
-  auto edge_iterator = db_accessor.edges();
+  auto vertices_iterator = db_accessor.vertices(false);
+  auto edge_iterator = db_accessor.edges(false);
   std::vector<VertexAccessor> vertices(vertices_iterator.begin(),
                                        vertices_iterator.end());
   std::vector<EdgeAccessor> edges(edge_iterator.begin(), edge_iterator.end());

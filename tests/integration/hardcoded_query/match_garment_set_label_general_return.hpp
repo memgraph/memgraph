@@ -18,7 +18,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
                        Stream &stream, const std::string &general_label) {
   std::vector<std::string> headers{std::string("g")};
   stream.Header(headers);
-  for (auto vertex : db_accessor.vertices()) {
+  for (auto vertex : db_accessor.vertices(false)) {
     if (vertex.has_label(db_accessor.label("garment"))) {
       query::TypedValue prop =
           vertex.PropsAt(db_accessor.property("garment_id"));
