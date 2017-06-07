@@ -131,11 +131,13 @@ void query::Repl(Dbms &dbms) {
     // special commands
     if (command == "quit") break;
 
+    query::Interpreter interpeter;
+
     // regular cypher queries
     try {
       auto dba = dbms.active();
       ResultStreamFaker results;
-      query::Interpret(command, *dba, results);
+      interpeter.Interpret(command, *dba, results);
       PrintResults(results);
       dba->commit();
     } catch (const query::SyntaxException &e) {

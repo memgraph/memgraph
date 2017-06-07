@@ -59,11 +59,21 @@ inline std::string ToUpperCase(std::string s) {
  * Join strings in vector separated by a given separator.
  */
 inline std::string Join(const std::vector<std::string>& strings,
-                        const char* separator) {
-  std::ostringstream oss;
-  std::copy(strings.begin(), strings.end(),
-            std::ostream_iterator<std::string>(oss, separator));
-  return oss.str();
+                        const std::string& separator) {
+  if (strings.size() == 0U) return "";
+  int64_t total_size = 0;
+  for (const auto& x : strings) {
+    total_size += x.size();
+  }
+  total_size += separator.size() * (static_cast<int64_t>(strings.size()) - 1);
+  std::string s;
+  s.reserve(total_size);
+  s += strings[0];
+  for (auto it = strings.begin() + 1; it != strings.end(); ++it) {
+    s += separator;
+    s += *it;
+  }
+  return s;
 }
 
 /**

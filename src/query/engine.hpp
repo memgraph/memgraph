@@ -11,7 +11,6 @@ namespace fs = std::experimental::filesystem;
 #include "query/interpreter.hpp"
 #include "query/plan_compiler.hpp"
 #include "query/plan_interface.hpp"
-#include "query/preprocessor.hpp"
 #include "utils/dynamic_lib.hpp"
 
 DECLARE_bool(INTERPRET);
@@ -47,9 +46,8 @@ class QueryEngine : public Loggable {
    * @return void
    */
   auto ReloadCustom(const std::string &query, const fs::path &plan_path) {
-    auto preprocessed = preprocessor.preprocess(query);
     Unload(query);
-    LoadCpp(plan_path, preprocessed.hash);
+    LoadCpp(plan_path, query::StrippedQuery(query).hash());
   }
 
   /**
@@ -67,16 +65,16 @@ class QueryEngine : public Loggable {
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
     if (FLAGS_INTERPRET) {
-      query::Interpret(query, db_accessor, stream);
+      interpreter_.Interpret(query, db_accessor, stream);
       return true;
     }
 
     clock_t start_time = clock();
-    auto preprocessed = preprocessor.preprocess(query);
+    query::StrippedQuery stripped(query);
     clock_t end_parsing_time = clock();
-    auto plan = LoadCypher(preprocessed);
+    auto plan = LoadCypher(stripped);
     clock_t end_planning_time = clock();
-    auto result = plan->run(db_accessor, preprocessed.arguments, stream);
+    auto result = plan->run(db_accessor, stripped.parameters(), stream);
     clock_t end_execution_time = clock();
     if (UNLIKELY(!result)) {
       // info because it might be something like deadlock in which
@@ -112,7 +110,7 @@ class QueryEngine : public Loggable {
    * return bool is the plan unloaded
    */
   auto Unload(const std::string &query) {
-    return query_plans.access().remove(preprocessor.preprocess(query).hash);
+    return query_plans_.access().remove(query::StrippedQuery(query).hash());
   }
 
   /**
@@ -123,8 +121,8 @@ class QueryEngine : public Loggable {
    * return bool
    */
   auto Loaded(const std::string &query) {
-    auto plans_accessor = query_plans.access();
-    return plans_accessor.find(preprocessor.preprocess(query).hash) !=
+    auto plans_accessor = query_plans_.access();
+    return plans_accessor.find(query::StrippedQuery(query).hash()) !=
            plans_accessor.end();
   }
 
@@ -134,9 +132,8 @@ class QueryEngine : public Loggable {
    * @return size_t the number of loaded query plans
    */
   auto Size() {  // TODO: const once whan ConcurrentMap::Accessor becomes const
-    return query_plans.access().size();
+    return query_plans_.access().size();
   }
-  // return query_plans.access().size(); }
 
  private:
   /**
@@ -147,29 +144,25 @@ class QueryEngine : public Loggable {
    *
    * @return runnable query plan
    */
-  auto LoadCypher(const StrippedQuery &stripped) {
-    auto plans_accessor = query_plans.access();
+  auto LoadCypher(const query::StrippedQuery &stripped) {
+    auto plans_accessor = query_plans_.access();
 
     // code is already compiled and loaded, just return runnable
     // instance
-    auto query_plan_it = plans_accessor.find(stripped.hash);
+    auto query_plan_it = plans_accessor.find(stripped.hash());
     if (query_plan_it != plans_accessor.end())
       return query_plan_it->second->instance();
 
     // find hardcoded query plan if exists
     auto hardcoded_path = fs::path(FLAGS_COMPILE_DIRECTORY + "hardcode/" +
-                                   std::to_string(stripped.hash) + ".cpp");
+                                   std::to_string(stripped.hash()) + ".cpp");
     if (fs::exists(hardcoded_path))
-      return LoadCpp(hardcoded_path, stripped.hash);
+      return LoadCpp(hardcoded_path, stripped.hash());
 
     // generate query plan
     auto generated_path = fs::path(FLAGS_COMPILE_DIRECTORY +
-                                   std::to_string(stripped.hash) + ".cpp");
-
-    query::frontend::opencypher::Parser parser(stripped.query);
-    // backend::cpp::Generator(parser.tree(), stripped.query, stripped.hash,
-    //                         generated_path);
-    return LoadCpp(generated_path, stripped.hash);
+                                   std::to_string(stripped.hash()) + ".cpp");
+    return LoadCpp(generated_path, stripped.hash());
   }
 
   /**
@@ -182,7 +175,7 @@ class QueryEngine : public Loggable {
    * @return runnable query plan
    */
   auto LoadCpp(const fs::path &path_cpp, const HashType hash) {
-    auto plans_accessor = query_plans.access();
+    auto plans_accessor = query_plans_.access();
 
     // code is already compiled and loaded, just return runnable
     // instance
@@ -199,7 +192,7 @@ class QueryEngine : public Loggable {
     auto path_so = FLAGS_COMPILE_DIRECTORY + std::to_string(hash) + "_" +
                    (std::string)Timestamp::now() + ".so";
 
-    plan_compiler.Compile(path_cpp, path_so);
+    PlanCompiler().Compile(path_cpp, path_so);
 
     auto query_plan = std::make_unique<QueryPlanLib>(path_so);
     // TODO: underlying object has to be live during query execution
@@ -212,7 +205,6 @@ class QueryEngine : public Loggable {
     return query_plan_instance;
   }
 
-  QueryPreprocessor preprocessor;
-  PlanCompiler plan_compiler;
-  ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>> query_plans;
+  query::Interpreter interpreter_;
+  ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>> query_plans_;
 };

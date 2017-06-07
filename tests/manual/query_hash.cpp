@@ -3,7 +3,7 @@
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocessor.hpp"
+#include "query/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
 
@@ -24,16 +24,15 @@ int main(int argc, char **argv) {
   auto query = GET_ARG("-q", "CREATE (n) RETURN n").get_string();
 
   // run preprocessing
-  QueryPreprocessor preprocessor;
-  auto preprocessed = preprocessor.preprocess(query);
+  query::StrippedQuery preprocessed(query);
 
   // print query, stripped query, hash and variable values (propertie values)
   std::cout << fmt::format("Query: {}\n", query);
-  std::cout << fmt::format("Stripped query: {}\n", preprocessed.query);
-  std::cout << fmt::format("Query hash: {}\n", preprocessed.hash);
+  std::cout << fmt::format("Stripped query: {}\n", preprocessed.query());
+  std::cout << fmt::format("Query hash: {}\n", preprocessed.hash());
   std::cout << fmt::format("Property values:\n");
-  for (int i = 0; i < static_cast<int>(preprocessed.arguments.Size()); ++i) {
-    fmt::format("    {}", preprocessed.arguments.At(i));
+  for (int i = 0; i < static_cast<int>(preprocessed.parameters().Size()); ++i) {
+    fmt::format("    {}", preprocessed.parameters().At(i));
   }
   std::cout << std::endl;
 

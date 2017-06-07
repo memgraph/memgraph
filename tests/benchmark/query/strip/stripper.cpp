@@ -3,7 +3,7 @@
 #include "benchmark/benchmark_api.h"
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocessor.hpp"
+#include "query/stripped.hpp"
 #include "yaml-cpp/yaml.h"
 
 auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {
@@ -22,10 +22,9 @@ int main(int argc, char **argv) {
   YAML::Node dataset = YAML::LoadFile(
       "../../tests/data/cypher_queries/stripper/query_dict.yaml");
 
-  QueryPreprocessor processor;
-  using std::placeholders::_1;
-  std::function<StrippedQuery(const std::string &query)> preprocess =
-      std::bind(&QueryPreprocessor::preprocess, &processor, _1);
+  auto preprocess = [](const std::string &query) {
+    return query::StrippedQuery(query);
+  };
 
   auto tests = dataset["benchmark_queries"].as<std::vector<std::string>>();
   for (auto &test : tests) {

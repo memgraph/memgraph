@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "database/graph_db.hpp"
+#include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/assert.hpp"
@@ -823,122 +824,29 @@ antlrcpp::Any CypherMainVisitor::visitFunctionName(
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(
     CypherParser::DoubleLiteralContext *ctx) {
-  try {
-    return utils::ParseDouble(ctx->getText());
-  } catch (const utils::BasicException &) {
-    throw SemanticException("Couldn't parse string to double");
-  }
+  return ParseDoubleLiteral(ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitIntegerLiteral(
     CypherParser::IntegerLiteralContext *ctx) {
-  try {
-    // Not really correct since long long can have a bigger range than int64_t.
-    return static_cast<int64_t>(std::stoll(ctx->getText(), 0, 0));
-  } catch (const std::out_of_range &) {
-    throw SemanticException();
-  }
+  return ParseIntegerLiteral(ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitStringLiteral(
     const std::string &escaped) {
-  // This function is declared as lambda since its semantics is highly specific
-  // for this conxtext and shouldn't be used elsewhere.
-  auto EncodeEscapedUnicodeCodepoint = [](const std::string &s, int &i) {
-    int j = i + 1;
-    const int kShortUnicodeLength = 4;
-    const int kLongUnicodeLength = 8;
-    while (j < (int)s.size() - 1 && j < i + kLongUnicodeLength + 1 &&
-           isxdigit(s[j])) {
-      ++j;
-    }
-    if (j - i == kLongUnicodeLength + 1) {
-      char32_t t = stoi(s.substr(i + 1, kLongUnicodeLength), 0, 16);
-      i += kLongUnicodeLength;
-      std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
-      return converter.to_bytes(t);
-    } else if (j - i >= kShortUnicodeLength + 1) {
-      char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
-      i += kShortUnicodeLength;
-      std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
-          converter;
-      return converter.to_bytes(t);
-    } else {
-      // This should never happen, except grammar changes and we don't notice
-      // change in this production.
-      debug_assert(false, "can't happen");
-      throw std::exception();
-    }
-  };
-
-  std::string unescaped;
-  bool escape = false;
-
-  // First and last char is quote, we don't need to look at them.
-  for (int i = 1; i < (int)escaped.size() - 1; ++i) {
-    if (escape) {
-      switch (escaped[i]) {
-        case '\\':
-          unescaped += '\\';
-          break;
-        case '\'':
-          unescaped += '\'';
-          break;
-        case '"':
-          unescaped += '"';
-          break;
-        case 'B':
-        case 'b':
-          unescaped += '\b';
-          break;
-        case 'F':
-        case 'f':
-          unescaped += '\f';
-          break;
-        case 'N':
-        case 'n':
-          unescaped += '\n';
-          break;
-        case 'R':
-        case 'r':
-          unescaped += '\r';
-          break;
-        case 'T':
-        case 't':
-          unescaped += '\t';
-          break;
-        case 'U':
-        case 'u':
-          unescaped += EncodeEscapedUnicodeCodepoint(escaped, i);
-          break;
-        default:
-          // This should never happen, except grammar changes and we don't
-          // notice change in this production.
-          debug_assert(false, "can't happen");
-          throw std::exception();
-      }
-      escape = false;
-    } else if (escaped[i] == '\\') {
-      escape = true;
-    } else {
-      unescaped += escaped[i];
-    }
-  }
-  return unescaped;
+  return ParseStringLiteral(escaped);
 }
 
 antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
     CypherParser::BooleanLiteralContext *ctx) {
   if (ctx->getTokens(CypherParser::TRUE).size()) {
     return true;
-  } else if (ctx->getTokens(CypherParser::FALSE).size()) {
-    return false;
-  } else {
-    // This should never happen, except grammar changes and we don't
-    // notice change in this production.
-    debug_assert(false, "can't happen");
-    throw std::exception();
   }
+  if (ctx->getTokens(CypherParser::FALSE).size()) {
+    return false;
+  }
+  debug_assert(false, "Shouldn't happend");
+  throw std::exception();
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherDelete(

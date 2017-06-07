@@ -6,7 +6,7 @@
 #include <ctime>
 #include <iostream>
 
-#include "query/stripper.hpp"
+#include "query/stripped.hpp"
 
 int main(int argc, const char **a) {
   if (argc < 2) {
@@ -18,8 +18,9 @@ int main(int argc, const char **a) {
   const int REPEATS = 100;
 
   clock_t begin = clock();
-  for (int i = 0; i < REPEATS; ++i)
-    query::Strip(query);
+  for (int i = 0; i < REPEATS; ++i) {
+    query::StrippedQuery(std::string(query));
+  }
   clock_t end = clock();
 
   double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;

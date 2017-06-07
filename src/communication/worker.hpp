@@ -35,6 +35,7 @@ namespace communication {
  */
 template <typename Session, typename OutputStream, typename Socket>
 class Worker
+
     : public io::network::StreamReader<Worker<Session, OutputStream, Socket>,
                                        Session> {
   using StreamBuffer = io::network::StreamBuffer;

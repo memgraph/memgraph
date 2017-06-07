@@ -57,7 +57,7 @@ struct Parameters {
   }
 
   /** Returns the number of arguments in this container */
-  const size_t Size() const { return storage_.size(); }
+  size_t Size() const { return storage_.size(); }
 
  private:
   std::map<std::string, query::TypedValue> storage_;
@@ -71,4 +71,4 @@ struct Parameters {
   }
 };
 
-#endif //MEMGRAPH_PARAMETERS_HPP
+#endif  // MEMGRAPH_PARAMETERS_HPP

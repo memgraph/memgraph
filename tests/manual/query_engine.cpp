@@ -27,7 +27,6 @@ int main(int argc, char* argv[]) {
 
   // init watcher
   FSWatcher watcher;
-  QueryPreprocessor preprocessor;
 
   int i = 0;
   watcher.watch(

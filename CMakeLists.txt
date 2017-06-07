@@ -344,10 +344,6 @@ set(memgraph_src_files
     ${src_dir}/mvcc/id.cpp
     ${src_dir}/durability/snapshooter.cpp
     ${src_dir}/durability/recovery.cpp
-#    ${src_dir}/snapshot/snapshot_engine.cpp
-#    ${src_dir}/snapshot/snapshoter.cpp
-#    ${src_dir}/snapshot/snapshot_encoder.cpp
-#    ${src_dir}/snapshot/snapshot_decoder.cpp
     ${src_dir}/storage/property_value.cpp
     ${src_dir}/storage/locking/record_lock.cpp
 #    ${src_dir}/storage/garbage/garbage.cpp
@@ -368,8 +364,9 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
-    ${src_dir}/query/stripper.cpp
     ${src_dir}/query/engine.cpp
+    ${src_dir}/query/stripped.cpp
+    ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
     ${src_dir}/query/typed_value.cpp

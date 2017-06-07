@@ -5,8 +5,9 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
+#include "logging/logger.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/preprocessor.hpp"
+#include "query/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -67,10 +68,9 @@ int main(int argc, char **argv) {
 
   auto src_files = utils::LoadFilePaths(src_path, "cpp");
 
-  QueryPreprocessor preprocessor;
   for (auto &src_file : src_files) {
     auto query = ExtractQuery(src_file);
-    auto query_hash = preprocessor.preprocess(query).hash;
+    auto query_hash = query::StrippedQuery(query).hash();
     auto dst_file = dst_path / fs::path(std::to_string(query_hash) + ".cpp");
     fs::copy(src_file, dst_file, fs::copy_options::overwrite_existing);
     logger.info("{} - (copy) -> {}", src_file, dst_file);

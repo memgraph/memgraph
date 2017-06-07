@@ -8,7 +8,7 @@ namespace fs = std::experimental::filesystem;
 #include "logging/default.hpp"
 #include "logging/streams/stdout.cpp"
 #include "query/engine.hpp"
-#include "query/preprocessor.hpp"
+#include "query/stripped.hpp"
 #include "stream/print_record_stream.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/file.hpp"
@@ -50,14 +50,13 @@ auto LoadQueryHashes(Logger &log, const fs::path &path) {
   // the intention of following block is to get all hashes
   // for which query implementations have to be compiled
   // calculate all hashes from queries file
-  QueryPreprocessor preprocessor;
   // hashes calculated from all queries in queries file
   QueryHashesT query_hashes;
   // fill the above set
   auto queries = utils::ReadLines(path);
   for (auto &query : queries) {
     if (query.empty()) continue;
-    query_hashes.insert(preprocessor.preprocess(query).hash);
+    query_hashes.insert(query::StrippedQuery(query).hash());
   }
   permanent_assert(query_hashes.size() > 0,
                    "At least one hash has to be present");
@@ -78,7 +77,6 @@ auto LoadQueryHashes(Logger &log, const fs::path &path) {
 auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
                     const QueryHashesT &query_hashes, const fs::path &path) {
   log.info("*** Load/compile needed query implementations ***");
-  QueryPreprocessor preprocessor;
   auto plan_paths = LoadFilePaths(path, "cpp");
   // query mark will be used to extract queries from files (because we want
   // to be independent to a query hash)
@@ -105,7 +103,7 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
       // load/compile implementations only for the queries which are
       // contained in queries_file
       // it doesn't make sense to compile something which won't be runned
-      if (query_hashes.find(preprocessor.preprocess(query).hash) ==
+      if (query_hashes.find(query::StrippedQuery(query).hash()) ==
           query_hashes.end())
         continue;
       log.info("Path {} will be loaded.", plan_path.c_str());

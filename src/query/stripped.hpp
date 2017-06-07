@@ -2,10 +2,13 @@
 
 #include <map>
 
+#include "logging/loggable.hpp"
 #include "parameters.hpp"
 #include "storage/property_value_store.hpp"
 #include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
+
+namespace query {
 
 /*
 * StrippedQuery contains:
@@ -13,13 +16,15 @@
 *     * plan arguments stripped from query
 *     * hash of stripped query
 */
-struct StrippedQuery {
-  StrippedQuery(const std::string &unstripped_query, const std::string &&query,
-                const Parameters &arguments, HashType hash)
-      : unstripped_query(unstripped_query),
-        query(query),
-        arguments(arguments),
-        hash(hash) {}
+class StrippedQuery : Loggable {
+ public:
+  /**
+   * Strips the input query and stores stripped query, stripped arguments and
+   * stripped query hash.
+   *
+   * @param query input query
+   */
+  explicit StrippedQuery(const std::string &query);
 
   /**
    * Copy constructor is deleted because we don't want to make unnecessary
@@ -35,15 +40,18 @@ struct StrippedQuery {
   StrippedQuery(StrippedQuery &&other) = default;
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
-  // original, unstripped query
-  const std::string unstripped_query;
+  const std::string &query() const { return query_; }
+  const Parameters &parameters() const { return parameters_; }
+  HashType hash() const { return hash_; }
 
+ private:
   // stripped query
-  const std::string query;
+  std::string query_;
 
   // striped arguments
-  const Parameters arguments;
+  Parameters parameters_;
 
   // hash based on the stripped query
-  const HashType hash;
+  HashType hash_;
 };
+}
