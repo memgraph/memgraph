@@ -34,10 +34,10 @@ class PlanCompiler : public Loggable {
 #ifdef HARDCODED_OUTPUT_STREAM
                      "-DHARDCODED_OUTPUT_STREAM",
 #endif
-                     in_file,         // input file
-                     "-o", out_file,  // ouput file
-                     include_dirs, link_dirs, "-lmemgraph_pic",
-                     "-shared -fPIC"},  // shared library flags
+                     in_file,                  // input file
+                     "-o", out_file,           // ouput file
+                     include_dirs, link_dirs,  //"-lmemgraph_pic",
+                     "-shared -fPIC"},         // shared library flags
                     " ");
 
     logger.debug("compile command -> {}", compile_command);

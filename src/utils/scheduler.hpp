@@ -1,3 +1,5 @@
+#pragma once
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -27,6 +29,7 @@ class Scheduler {
   void Run(const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f) {
     debug_assert(is_working_ == false, "Thread already running.");
+    debug_assert(pause > std::chrono::seconds(0), "Pause is invalid.");
     is_working_ = true;
     thread_ = std::thread([this, pause, f]() {
       auto start_time = std::chrono::system_clock::now();

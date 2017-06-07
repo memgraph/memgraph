@@ -69,14 +69,14 @@ void RecoverDbms() {
   std::vector<EdgeAccessor> edges;
 
   int vertex_count = 0;
-  for (auto const &vertex : dba->vertices()) {
+  for (auto const &vertex : dba->vertices(false)) {
     vertices.push_back(vertex);
     vertex_count++;
   }
   EXPECT_EQ(vertex_count, 3);
 
   int edge_count = 0;
-  for (auto const &edge : dba->edges()) {
+  for (auto const &edge : dba->edges(false)) {
     EXPECT_NE(vertices.end(),
               std::find(vertices.begin(), vertices.end(), edge.to()));
     EXPECT_NE(vertices.end(),

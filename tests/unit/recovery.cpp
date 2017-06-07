@@ -125,9 +125,9 @@ TEST_F(RecoveryTest, TestEncoding) {
   buffer.Close();
 
   permanent_assert(static_cast<int>(to.size()) == 2,
-                    "There should be two edges.");
+                   "There should be two edges.");
   permanent_assert(static_cast<int>(from.size()) == 2,
-                    "There should be two edges.");
+                   "There should be two edges.");
 
   EXPECT_EQ(buffer.hash(), summary.hash_);
   EXPECT_NE(edge_types.end(),
@@ -161,14 +161,14 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
 
   auto dba = dbms_recover.active();
   int64_t vertex_count = 0;
-  for (const auto &vertex : dba->vertices()) {
+  for (const auto &vertex : dba->vertices(false)) {
     vertices.push_back(vertex);
     vertex_count++;
   }
   EXPECT_EQ(vertex_count, 3);
 
   int64_t edge_count = 0;
-  for (const auto &edge : dba->edges()) {
+  for (const auto &edge : dba->edges(false)) {
     EXPECT_NE(vertices.end(),
               std::find(vertices.begin(), vertices.end(), edge.to()));
     EXPECT_NE(vertices.end(),
@@ -177,7 +177,7 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
     edge_count++;
   }
   permanent_assert(static_cast<int>(edges.size()) == 2,
-                    "There should be two edges.");
+                   "There should be two edges.");
 
   EXPECT_EQ(edge_count, 2);
   EXPECT_TRUE(edges[0].to() == edges[1].to());
@@ -201,7 +201,7 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
 
   auto dba_get = dbms_recover.active();
   int64_t vertex_count = 0;
-  for (const auto &vertex : dba_get->vertices()) {
+  for (const auto &vertex : dba_get->vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
     EXPECT_TRUE(vertex.has_label(dba_get->label("label")));
     query::TypedValue prop =
@@ -213,7 +213,7 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
   EXPECT_EQ(vertex_count, 1000);
 
   int64_t edge_count = 0;
-  for (const auto &edge : dba_get->edges()) {
+  for (const auto &edge : dba_get->edges(false)) {
     EXPECT_EQ(edge.edge_type(), dba_get->edge_type("type"));
     query::TypedValue prop =
         query::TypedValue(edge.PropsAt(dba_get->property("prop")));

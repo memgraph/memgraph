@@ -581,23 +581,23 @@ class SkipList : private Lockable<lock_t> {
   class Accessor {
     friend class SkipList;
 
-    Accessor(SkipList *skiplist) : skiplist(skiplist) {
+    Accessor(SkipList *skiplist)
+        : skiplist(skiplist), status_(skiplist->gc.CreateNewAccessor()) {
       debug_assert(skiplist != nullptr, "Skiplist is nullptr.");
-
-      skiplist->gc.AddRef();
     }
 
    public:
     Accessor(const Accessor &) = delete;
 
-    Accessor(Accessor &&other) : skiplist(other.skiplist) {
+    Accessor(Accessor &&other)
+        : skiplist(other.skiplist), status_(other.status_) {
       other.skiplist = nullptr;
     }
 
     ~Accessor() {
       if (skiplist == nullptr) return;
 
-      skiplist->gc.ReleaseRef();
+      status_.alive_ = false;
     }
 
     Iterator begin() { return skiplist->begin(); }
@@ -698,6 +698,7 @@ class SkipList : private Lockable<lock_t> {
    private:
     SkipList *skiplist;
     Node *preds[H], *succs[H];
+    typename SkipListGC<Node>::AccessorStatus &status_;
   };
 
   Accessor access() { return Accessor(this); }
@@ -1139,7 +1140,6 @@ class SkipList : private Lockable<lock_t> {
       for (int level = height - 1; level >= 0; --level)
         preds[level]->forward(level, node->forward(level));
 
-      // TODO: review and test
       gc.Collect(node);
 
       count.fetch_sub(1);
@@ -1152,5 +1152,5 @@ class SkipList : private Lockable<lock_t> {
    */
   std::atomic<size_t> count{0};
   Node *header;
-  SkiplistGC<Node> gc;
+  SkipListGC<Node> gc;
 };

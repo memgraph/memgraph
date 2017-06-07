@@ -1,10 +1,11 @@
+#include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
 #include <chrono>
 #include <memory>
 #include <thread>
 
-#include "data_structures/concurrent/skiplist.hpp"
+#include "data_structures/concurrent/skiplist_gc.hpp"
 #include "logging/streams/stderr.hpp"
 
 /**
@@ -23,82 +24,103 @@ class FakeItem {
     return this->value > item.value;
   }
 
+  static void destroy(FakeItem *item) { delete item; }
+
  private:
   std::atomic<int> &count;
   int value;
 };
 
-TEST(SkipListGC, TripleScopeGC) {
-  SkipList<FakeItem> skiplist;
-  std::atomic<int> *count = new std::atomic<int>{0};
+DECLARE_int32(skiplist_gc_interval);
 
-  auto item = FakeItem(*count, 1);
+TEST(SkipListGC, CreateNewAccessors) {
+  FLAGS_skiplist_gc_interval = 0;
+  SkipListGC<FakeItem> gc;
+  auto &accessor1 = gc.CreateNewAccessor();
+  auto &accessor2 = gc.CreateNewAccessor();
+  auto &accessor3 = gc.CreateNewAccessor();
+
+  EXPECT_EQ(accessor1.id_, 1);
+  EXPECT_EQ(accessor2.id_, 2);
+  EXPECT_EQ(accessor3.id_, 3);
+
+  accessor1.alive_ = false;
+  accessor2.alive_ = false;
+  accessor3.alive_ = false;
+}
+
+TEST(SkipListGC, DeleteItem) {
+  FLAGS_skiplist_gc_interval = 0;
+  SkipListGC<FakeItem> gc;
+  auto &accessor1 = gc.CreateNewAccessor();
+  std::atomic<int> count{0};
+  auto item1 = new FakeItem(count, 1);
+  gc.Collect(item1);
+
+  // Kill the accesssor
+  accessor1.alive_ = false;
+  gc.GarbageCollect();
+  EXPECT_EQ(count, 1);
+}
+
+TEST(SkipListGC, DontDeleteItem) {
+  FLAGS_skiplist_gc_interval = 0;
+  SkipListGC<FakeItem> gc;
+  auto &accessor1 = gc.CreateNewAccessor();
+  auto &accessor2 = gc.CreateNewAccessor();
+  std::atomic<int> count{0};
+  auto item1 = new FakeItem(count, 1);
+  gc.Collect(item1);
+
+  // Kill the accesssor
+  accessor2.alive_ = false;
+
+  // Nothing deleted because accessor1 is blocking.
+  gc.GarbageCollect();
+  EXPECT_EQ(count, 0);
+
+  // Accessor 1 is not blocking anymore.
+  accessor1.alive_ = false;
+  gc.GarbageCollect();
+  EXPECT_EQ(count, 1);
+}
+
+TEST(SkipListGC, Destructor) {
+  FLAGS_skiplist_gc_interval = 0;
+  std::atomic<int> count{0};
+  auto item1 = new FakeItem(count, 1);
   {
-    auto access_1 = skiplist.access();
-    {
-      auto access_2 = skiplist.access();
-      {
-        auto access_3 = skiplist.access();
-        access_1.insert(item);  // add with 1
-        access_2.remove(item);  // remove with 2
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        EXPECT_EQ(*count, 0);
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      EXPECT_EQ(*count, 0);
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    EXPECT_EQ(*count, 0);
-  }  // scope end - GC called
-  for (int i = 0; i < 10; ++i) {
-    if (*count != 0) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    SkipListGC<FakeItem> gc;
+    gc.Collect(item1);
+    EXPECT_EQ(count, 0);
   }
-  EXPECT_EQ(*count, 1);
+  EXPECT_EQ(count, 1);
 }
 
-TEST(SkipListGC, BlockedGCNoGC) {
-  SkipList<FakeItem> skiplist;
-  std::atomic<int> *count = new std::atomic<int>{0};
-  auto item = FakeItem(*count, 1);
-  auto blocking_access = skiplist.access();
-  {
-    auto access = skiplist.access();
-    access.insert(item);
-    access.remove(item);
-  }  // scope end - GC still isn't called because of blocking_access
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  EXPECT_EQ(*count, 0);
-}
+TEST(SkipListGC, MultipleDeletes) {
+  FLAGS_skiplist_gc_interval = 0;
+  SkipListGC<FakeItem> gc;
+  std::atomic<int> count{0};
+  auto &accessor1 = gc.CreateNewAccessor();
+  auto item1 = new FakeItem(count, 1);
+  gc.Collect(item1);
 
-TEST(SkipListGC, NotInScopeGC) {
-  SkipList<FakeItem> skiplist;
-  std::atomic<int> *count = new std::atomic<int>{0};
-  auto item = FakeItem(*count, 1);
-  {
-    auto access = skiplist.access();
-    access.insert(item);
-    access.remove(item);
-  }  // scope end - GC called
-  for (int i = 0; i < 10; ++i) {
-    if (*count == 1) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  // If this count is not 1 that means we are still doing GC in the background
-  // and might crash the test if we try to modify count variable after it's been
-  // deallocated.
-  ASSERT_EQ(*count, 1);
-}
+  auto &accessor2 = gc.CreateNewAccessor();
+  auto item2 = new FakeItem(count, 1);
+  gc.Collect(item2);
 
-TEST(SkipListGC, StillInScopeNoGC) {
-  SkipList<FakeItem> skiplist;
-  std::atomic<int> *count = new std::atomic<int>{0};
-  auto item = FakeItem(*count, 1);
-  auto access = skiplist.access();
-  access.insert(item);
-  access.remove(item);
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  EXPECT_EQ(*count, 0);
+  auto &accessor3 = gc.CreateNewAccessor();
+  auto item3 = new FakeItem(count, 1);
+  gc.Collect(item3);
+
+  accessor1.alive_ = false;
+  accessor2.alive_ = false;
+  gc.GarbageCollect();
+  EXPECT_EQ(count, 2);
+
+  accessor3.alive_ = false;
+  gc.GarbageCollect();
+  EXPECT_EQ(count, 3);
 }
 
 int main(int argc, char **argv) {

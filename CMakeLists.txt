@@ -57,6 +57,7 @@ add_custom_target(clean_all
 
 # threading
 find_package(Threads REQUIRED)
+
 # optional readline
 find_package(Readline REQUIRED)
 if (READLINE_FOUND)
@@ -367,6 +368,7 @@ set(memgraph_src_files
     ${src_dir}/logging/log.cpp
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
+    ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
     ${src_dir}/query/stripper.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
@@ -382,19 +384,19 @@ set(memgraph_src_files
 
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib stdc++fs)
+target_link_libraries(memgraph_lib stdc++fs gflags)
 add_dependencies(memgraph_lib generate_opencypher_parser
                               generate_plan_compiler_flags)
 # executables that require memgraph_lib should link MEMGRAPH_ALL_LIBS to link all dependant libraries
-set(MEMGRAPH_ALL_LIBS gflags memgraph_lib stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
+set(MEMGRAPH_ALL_LIBS memgraph_lib stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
 # -----------------------------------------------------------------------------
 
 # STATIC PIC library used by query engine
-add_library(memgraph_pic STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_pic stdc++fs)
+add_library(memgraph_pic STATIC)
+target_link_libraries(memgraph_pic stdc++fs gflags)
 add_dependencies(memgraph_pic generate_opencypher_parser
                               generate_plan_compiler_flags)
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
@@ -414,7 +416,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 execute_process(
-    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
+    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
 )
 

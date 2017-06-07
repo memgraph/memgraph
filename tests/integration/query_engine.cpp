@@ -1,5 +1,7 @@
 #define HARDCODED_OUTPUT_STREAM
 
+#include "gflags/gflags.h"
+
 #include "config/config.hpp"
 #include "dbms/dbms.hpp"
 #include "query_engine_common.hpp"
