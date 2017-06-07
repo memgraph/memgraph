@@ -1,0 +1,37 @@
+#!/bin/bash
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# NOTE! database has to be started manually!
+
+# SYSTEM LEVEL DEPENDENCIES
+# TODO (install): npm
+# TODO (install): npm install -g yarn
+
+# DEPENDENCIES
+cd ${working_dir}
+git clone https://github.com/novnc/websockify
+git clone https://github.com/neo4j/neo4j-browser
+# NOTE: git will skip cloning if the repositories were already being cloned
+
+db_port=7687
+proxy_port=7688
+web_port=7689
+
+echo "Database port: ${db_port}"
+echo "Websocket proxy port: ${proxy_port}"
+echo "Neo4j Browser port: ${web_port}"
+
+# run web sockify
+cd ${working_dir}/websockify
+./run localhost:${proxy_port} localhost:${db_port} &
+proxy_pid=$!
+
+# run neo4j-browser
+cd ${working_dir}/neo4j-browser
+yarn # installs neo4j-browser dependencies
+yarn start -- --port ${web_port}
+
+kill -9 ${proxy_pid}
+
+# :server connect -> bolt://localhost:${proxy_port}

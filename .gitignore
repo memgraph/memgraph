@@ -23,6 +23,9 @@ release/barrier_*
 release/config/
 release/libs/
 release/memgraph_*
+release/websockify/
+release/neo4j-browser/
+release/bundle-report.html
 src/query/frontend/opencypher/generated/
 tags
 ve/
