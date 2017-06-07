@@ -1,6 +1,13 @@
 #include <experimental/filesystem>
-#include "dbms/dbms.hpp"
+
+#include "gflags/gflags.h"
 #include "gtest/gtest.h"
+
+#include "dbms/dbms.hpp"
+
+DECLARE_bool(RECOVERY_ON_STARTUP);
+DECLARE_string(SNAPSHOT_DIRECTORY);
+DECLARE_int32(SNAPSHOT_CYCLE_SEC);
 
 namespace fs = std::experimental::filesystem;
 
@@ -25,25 +32,17 @@ void CleanDbDir() {
 
 class DbmsRecoveryTest : public ::testing::Test {
  protected:
-  virtual void TearDown() {
-    CleanDbDir();
-    CONFIG(config::SNAPSHOTS_PATH) = snapshots_path_setup_;
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = snapshot_cycle_sec_setup_;
-  }
+  virtual void TearDown() { CleanDbDir(); }
 
   virtual void SetUp() {
     CleanDbDir();
-    snapshots_path_setup_ = CONFIG(config::SNAPSHOTS_PATH);
-    snapshot_cycle_sec_setup_ = CONFIG(config::SNAPSHOT_CYCLE_SEC);
-    CONFIG(config::SNAPSHOTS_PATH) = SNAPSHOTS_DBMS_RECOVERY_ALL_DB;
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = "-1";
+    FLAGS_SNAPSHOT_DIRECTORY = SNAPSHOTS_DBMS_RECOVERY_ALL_DB;
+    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
   }
-  std::string snapshots_path_setup_;
-  std::string snapshot_cycle_sec_setup_;
 };
 
 void CreateSnapshot() {
-  CONFIG(config::RECOVERY) = "false";
+  FLAGS_RECOVER_ON_STARTUP = false;
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -56,12 +55,13 @@ void CreateSnapshot() {
   dba->advance_command();
 
   Snapshooter snapshooter;
-  snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_DBMS_RECOVERY_DEFAULT_DB_DIR,
-                           1);
+  EXPECT_EQ(snapshooter.MakeSnapshot(*dba.get(),
+                                     SNAPSHOTS_DBMS_RECOVERY_DEFAULT_DB_DIR, 1),
+            true);
 }
 
 void RecoverDbms() {
-  CONFIG(config::RECOVERY) = "true";
+  FLAGS_RECOVER_ON_STARTUP = true;
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -84,7 +84,7 @@ void RecoverDbms() {
     edges.push_back(edge);
     edge_count++;
   }
-  EXPECT_EQ(edge_count, 2);
+  ASSERT_EQ(edge_count, 2);
   EXPECT_EQ(edges[0].to() == edges[1].to(), true);
   EXPECT_EQ(edges[0].from() == edges[1].from(), false);
 }

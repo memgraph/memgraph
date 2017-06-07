@@ -17,7 +17,6 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
-#include "utils/config/config.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace/log.hpp"
 #include "utils/terminate_handler.hpp"
@@ -46,9 +45,50 @@ void throw_and_stacktace(std::string message) {
   logger.info(stacktrace.dump());
 }
 
+// Load flags in this order, the last one has the highest priority:
+// 1) /etc/memgraph/config
+// 2) ~/.memgraph/config
+// 3) env - MEMGRAPH_CONFIG
+// 4) command line flags
+
+void load_config(int &argc, char **&argv) {
+  std::vector<fs::path> configs = {fs::path("/etc/memgraph/config")};
+  if (getenv("HOME") != nullptr)
+    configs.emplace_back(fs::path(getenv("HOME")) /
+                         fs::path(".memgraph/config"));
+  if (getenv("MEMGRAPH_CONFIG") != nullptr)
+    configs.emplace_back(fs::path(getenv("MEMGRAPH_CONFIG")));
+
+  std::vector<std::string> flagfile_arguments;
+  for (const auto &config : configs)
+    if (fs::exists(config)) {
+      flagfile_arguments.emplace_back(
+          std::string("--flagfile=" + config.generic_string()));
+    }
+
+  int custom_argc = static_cast<int>(flagfile_arguments.size()) + 1;
+  char **custom_argv = new char *[custom_argc];
+
+  custom_argv[0] = strdup(std::string("memgraph").c_str());
+  for (int i = 0; i < (int)flagfile_arguments.size(); ++i) {
+    custom_argv[i + 1] = strdup(flagfile_arguments[i].c_str());
+  }
+
+  // setup flags from config flags
+  gflags::ParseCommandLineFlags(&custom_argc, &custom_argv, false);
+
+  // unconsumed arguments have to be freed to avoid memory leak since they are
+  // strdup-ed.
+  for (int i = 0; i < custom_argc; ++i) free(custom_argv[i]);
+  delete[] custom_argv;
+
+  // setup flags from command line
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+}
+
 int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  load_config(argc, argv);
 // Logging init.
 #ifdef SYNC_LOGGER
   logging::init_sync();
@@ -77,9 +117,6 @@ int main(int argc, char **argv) {
     log_stacktrace("Abort signal raised");
     std::exit(EXIT_FAILURE);
   });
-
-  // Register args.
-  CONFIG_REGISTER_ARGS(argc, argv);
 
   // Initialize endpoint.
   endpoint_t endpoint;

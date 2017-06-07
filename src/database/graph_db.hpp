@@ -104,10 +104,6 @@ class GraphDb {
 
   // snapshooter
   Snapshooter snapshooter_;
-  std::string snapshot_folder_;
-  int max_retained_snapshots_;
-  int snapshot_cycle_sec_;
-  bool snapshot_db_destruction_;
 
   // Schedulers
   Scheduler<std::mutex> gc_scheduler_;

@@ -334,7 +334,6 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
 
 # all memgraph src files
 set(memgraph_src_files
-    ${src_dir}/config/config.cpp
     ${src_dir}/dbms/dbms.cpp
 #    ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/numerics/saturate.cpp
@@ -370,6 +369,7 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
     ${src_dir}/query/stripper.cpp
+    ${src_dir}/query/engine.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
     ${src_dir}/query/typed_value.cpp

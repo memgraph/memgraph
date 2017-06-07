@@ -1,36 +1,34 @@
-###########################
-# MEMGRAPH DEFAULT CONFIG #
-###########################
+# MEMGRAPH DEFAULT TESTING CONFIG
 
 # NOTE: all paths are relative to the run folder
 # (where the executable is runned)
 
 # path to the codes which will be compiled
-compile_path: "./compiled/"
+--compile_path="./compiled/"
 
 # path to the template (cpp) for codes generation
-template_cpp_path: "./template/plan_template_cpp"
+--template_cpp_path="./template/plan_template_cpp"
 
 # path to the folder with snapshots
-snapshots_path: "snapshots"
+--snapshots_path="snapshots"
 
 # cleaning cycle interval
 # if set to -1 the GC will not run
-cleaning_cycle_sec: "30"
+--cleaning_cycle_sec=30
 
 # snapshot cycle interval
 # if set to -1 the snapshooter will not run
-snapshot_cycle_sec: "-1"
+--snapshot_cycle_sec=-1
 
 # create snapshot disabled on db destruction
-snapshot_db_destruction: false
+--snapshot_db_destruction=false
 
 # max number of snapshots which will be kept on the disk at some point
 # if set to -1 the max number of snapshots is unlimited
-max_retained_snapshots: "-1"
+--max_retained_snapshots=-1
 
 # by default query engine runs in interpret mode
-interpret: true
+--interpret=true
 
 # database recovering is disabled by default
-recovery: false
+--recovery=false

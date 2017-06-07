@@ -2,9 +2,11 @@
 
 #include "gflags/gflags.h"
 
-#include "config/config.hpp"
 #include "dbms/dbms.hpp"
 #include "query_engine_common.hpp"
+
+DECLARE_bool(INTERPRET);
+DECLARE_string(COMPILE_DIRECTORY);
 
 using namespace std::chrono_literals;
 using namespace tests::integration;
@@ -30,10 +32,10 @@ int main(int argc, char *argv[]) {
   auto log = init_logging("IntegrationQueryEngine");
   // Manually set config compile_path to avoid loading whole config file with
   // the test.
-  CONFIG(config::COMPILE_PATH) = "../compiled/";
+  FLAGS_COMPILE_DIRECTORY = "../compiled/";
   // Set the interpret to false to avoid calling the interpreter which doesn't
   // support all the queries yet.
-  CONFIG(config::INTERPRET) = "false";
+  FLAGS_INTERPRET = false;
   Dbms dbms;
   StreamT stream(std::cout);
   QueryEngineT query_engine;

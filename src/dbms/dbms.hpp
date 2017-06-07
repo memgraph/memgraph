@@ -4,27 +4,28 @@
 #include <memory>
 #include <vector>
 
-#include "config/config.hpp"
+#include "gflags/gflags.h"
+
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
 
-//#include "dbms/cleaner.hpp"
+DECLARE_string(SNAPSHOT_DIRECTORY);
+DECLARE_bool(RECOVER_ON_STARTUP);
 
 namespace fs = std::experimental::filesystem;
-const std::string DEFAULT_SNAPSHOT_FOLDER = "snapshots";
-
 class Dbms {
  public:
   Dbms() {
-    if (CONFIG_BOOL(config::RECOVERY)) {
-      auto accessor = dbs.access();
-      std::string snapshot_folder = CONFIG(config::SNAPSHOTS_PATH);
-      if (snapshot_folder.empty()) snapshot_folder = DEFAULT_SNAPSHOT_FOLDER;
-      for (auto &snapshot_db : fs::directory_iterator(snapshot_folder)) {
-        // create db and set it active
-        active(snapshot_db.path().filename(), snapshot_db);
+    if (FLAGS_RECOVER_ON_STARTUP) {
+      if (fs::exists(fs::path(FLAGS_SNAPSHOT_DIRECTORY))) {
+        auto accessor = dbs.access();
+        for (auto &snapshot_db :
+             fs::directory_iterator(FLAGS_SNAPSHOT_DIRECTORY)) {
+          // create db and set it active
+          active(snapshot_db.path().filename(), snapshot_db);
+        }
       }
     }
 

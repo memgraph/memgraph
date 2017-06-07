@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include "gflags/gflags.h"
+
 #include "dbms/dbms.hpp"
 #include "query/console.hpp"
 #include "query/interpreter.hpp"
@@ -24,12 +26,12 @@ void random_generate(Dbms &dbms, uint node_count, int edge_factor = 5) {
 }
 
 int main(int argc, char *argv[]) {
-  REGISTER_ARGS(argc, argv);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   // parse the first cmd line argument as the count of nodes to randomly create
   uint node_count = 0;
   if (argc > 1) {
-    node_count = (uint) std::stoul(argv[1]);
+    node_count = (uint)std::stoul(argv[1]);
     permanent_assert(node_count < 10000000,
                      "More then 10M nodes requested, that's too much");
   }

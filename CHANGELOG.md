@@ -1,6 +1,7 @@
 # Change Log
 
 ## Next Build
+* Abandon old config and migrate to gflags.
 
 ### Major Features and Improvements
 

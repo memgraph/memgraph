@@ -1,11 +1,16 @@
-#include "durability/recovery.hpp"
 #include <cstdio>
 #include <experimental/filesystem>
+
+#include "gflags/gflags.h"
+#include "gtest/gtest.h"
+
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "dbms/dbms.hpp"
 #include "durability/file_reader_buffer.hpp"
-#include "gtest/gtest.h"
+#include "durability/recovery.hpp"
 #include "utils/assert.hpp"
+
+DECLARE_int32(SNAPSHOT_CYCLE_SEC);
 
 namespace fs = std::experimental::filesystem;
 
@@ -30,17 +35,12 @@ void CleanDbDir() {
 
 class RecoveryTest : public ::testing::Test {
  protected:
-  void TearDown() override {
-    CleanDbDir();
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = snapshot_cycle_sec_setup_;
-  }
+  void TearDown() override { CleanDbDir(); }
 
   void SetUp() override {
     CleanDbDir();
-    snapshot_cycle_sec_setup_ = CONFIG(config::SNAPSHOT_CYCLE_SEC);
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = "-1";
+    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
   }
-  std::string snapshot_cycle_sec_setup_;
   const int max_retained_snapshots_ = 10;
 };
 

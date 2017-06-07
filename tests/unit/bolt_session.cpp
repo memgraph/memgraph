@@ -1,18 +1,19 @@
-#include "bolt_common.hpp"
+#include "gflags/gflags.h"
 
+#include "bolt_common.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "config/config.hpp"
 #include "query/engine.hpp"
 
+DECLARE_bool(INTERPRET);
 
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS Dbms dbms;\
-                  TestSocket socket(10);\
-                  QueryEngine<ResultStreamT> query_engine;\
-                  SessionT session(std::move(socket), dbms, query_engine);\
-                  std::vector<uint8_t> &output = session.socket_.output;
-
+#define INIT_VARS                                          \
+  Dbms dbms;                                               \
+  TestSocket socket(10);                                   \
+  QueryEngine<ResultStreamT> query_engine;                 \
+  SessionT session(std::move(socket), dbms, query_engine); \
+  std::vector<uint8_t> &output = session.socket_.output;
 
 using ResultStreamT =
     communication::bolt::ResultStream<communication::bolt::Encoder<
@@ -20,19 +21,18 @@ using ResultStreamT =
 using SessionT = communication::bolt::Session<TestSocket>;
 using StateT = communication::bolt::State;
 
-
 // Sample testdata that has correct inputs and outputs.
-const uint8_t handshake_req[] = {
-    0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+const uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
+                                 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 const uint8_t handshake_resp[] = {0x00, 0x00, 0x00, 0x01};
 const uint8_t init_req[] = {
-    0xb2, 0x01, 0xd0, 0x15, 0x6c, 0x69, 0x62, 0x6e, 0x65, 0x6f, 0x34, 0x6a,
-    0x2d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2f, 0x31, 0x2e, 0x32, 0x2e,
-    0x31, 0xa3, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x85, 0x62, 0x61,
-    0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x61,
-    0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
-    0x6c, 0x73, 0x80};
+    0xb2, 0x01, 0xd0, 0x15, 0x6c, 0x69, 0x62, 0x6e, 0x65, 0x6f, 0x34,
+    0x6a, 0x2d, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2f, 0x31, 0x2e,
+    0x32, 0x2e, 0x31, 0xa3, 0x86, 0x73, 0x63, 0x68, 0x65, 0x6d, 0x65,
+    0x85, 0x62, 0x61, 0x73, 0x69, 0x63, 0x89, 0x70, 0x72, 0x69, 0x6e,
+    0x63, 0x69, 0x70, 0x61, 0x6c, 0x80, 0x8b, 0x63, 0x72, 0x65, 0x64,
+    0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x73, 0x80};
 const uint8_t init_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 const uint8_t run_req_header[] = {0xb2, 0x10, 0xd1};
 const uint8_t pullall_req[] = {0xb0, 0x3f};
@@ -41,7 +41,6 @@ const uint8_t reset_req[] = {0xb0, 0x0f};
 const uint8_t ackfailure_req[] = {0xb0, 0x0e};
 const uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 const uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
-
 
 // Write bolt chunk header (length)
 void WriteChunkHeader(SessionT &session, uint16_t len) {
@@ -52,16 +51,14 @@ void WriteChunkHeader(SessionT &session, uint16_t len) {
 }
 
 // Write bolt chunk tail (two zeros)
-void WriteChunkTail(SessionT &session) {
-  WriteChunkHeader(session, 0);
-}
+void WriteChunkTail(SessionT &session) { WriteChunkHeader(session, 0); }
 
 // Check that the server responded with a failure message
 void CheckFailureMessage(std::vector<uint8_t> &output) {
   ASSERT_GE(output.size(), 6);
   // skip the first two bytes because they are the chunk header
-  ASSERT_EQ(output[2], 0xB1); // tiny struct 1
-  ASSERT_EQ(output[3], 0x7F); // signature failure
+  ASSERT_EQ(output[2], 0xB1);  // tiny struct 1
+  ASSERT_EQ(output[3], 0x7F);  // signature failure
 }
 
 // Execute and check a correct handshake
@@ -78,7 +75,8 @@ void ExecuteHandshake(SessionT &session, std::vector<uint8_t> &output) {
 }
 
 // Write bolt chunk and execute command
-void ExecuteCommand(SessionT &session, const uint8_t *data, size_t len, bool chunk = true) {
+void ExecuteCommand(SessionT &session, const uint8_t *data, size_t len,
+                    bool chunk = true) {
   if (chunk) WriteChunkHeader(session, len);
   auto buff = session.Allocate();
   memcpy(buff.data, data, len);
@@ -117,21 +115,19 @@ void WriteRunRequest(SessionT &session, const char *str) {
 
   // write empty map for parameters
   buff = session.Allocate();
-  buff.data[0] = 0xA0; // TinyMap0
+  buff.data[0] = 0xA0;  // TinyMap0
   session.Written(1);
 
   // write chunk tail
   WriteChunkTail(session);
 }
 
-
 TEST(BoltSession, HandshakeWrongPreamble) {
   INIT_VARS;
 
   auto buff = session.Allocate();
   // copy 0x00000001 four times
-  for (int i = 0; i < 4; ++i)
-    memcpy(buff.data + i * 4, handshake_req + 4, 4);
+  for (int i = 0; i < 4; ++i) memcpy(buff.data + i * 4, handshake_req + 4, 4);
   session.Written(20);
   session.Execute();
 
@@ -162,7 +158,6 @@ TEST(BoltSession, HandshakeInTwoPackets) {
   CheckOutput(output, handshake_resp, 4);
 }
 
-
 TEST(BoltSession, HandshakeWriteFail) {
   INIT_VARS;
   session.socket_.SetWriteSuccess(false);
@@ -177,7 +172,6 @@ TEST(BoltSession, HandshakeOK) {
   INIT_VARS;
   ExecuteHandshake(session, output);
 }
-
 
 TEST(BoltSession, InitWrongSignature) {
   INIT_VARS;
@@ -234,7 +228,6 @@ TEST(BoltSession, InitOK) {
   ExecuteHandshake(session, output);
   ExecuteInit(session, output);
 }
-
 
 TEST(BoltSession, ExecuteRunWrongMarker) {
   INIT_VARS;
@@ -457,7 +450,7 @@ TEST(BoltSession, ErrorOK) {
   const uint8_t *dataset[] = {ackfailure_req, reset_req};
 
   for (int i = 0; i < 2; ++i) {
-  // first test with socket write success, then with socket write fail
+    // first test with socket write success, then with socket write fail
     for (int j = 0; j < 2; ++j) {
       INIT_VARS;
 
@@ -523,7 +516,7 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
 
   // Count chunks in output
   int len, num = 0;
-  while(output.size() > 0) {
+  while (output.size() > 0) {
     len = (output[0] << 8) + output[1];
     output.erase(output.begin(), output.begin() + len + 4);
     ++num;
@@ -579,13 +572,12 @@ TEST(BoltSession, InvalidChunk) {
   CheckFailureMessage(output);
 }
 
-
 int main(int argc, char **argv) {
   logging::init_sync();
   logging::log->pipe(std::make_unique<Stdout>());
   // Set the interpret to true to avoid calling the compiler which only
   // supports a limited set of queries.
-  CONFIG(config::INTERPRET) = "true";
+  FLAGS_INTERPRET = true;
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

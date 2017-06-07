@@ -1,10 +1,11 @@
-#include "durability/snapshooter.hpp"
 #include <algorithm>
+
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "config/config.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/file_writer_buffer.hpp"
 #include "utils/datetime/timestamp.hpp"
+
+#include "durability/snapshooter.hpp"
 
 bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
                                const fs::path &snapshot_folder,

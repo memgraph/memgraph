@@ -1,6 +1,7 @@
 #include <functional>
 
-#include "config/config.hpp"
+#include "gflags/gflags.h"
+
 #include "database/creation_exception.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
@@ -9,22 +10,27 @@
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 
-const int DEFAULT_CLEANING_CYCLE_SEC = 30;  // 30 seconds
-const std::string DEFAULT_SNAPSHOT_FOLDER = "snapshots";
-const int DEFAULT_MAX_RETAINED_SNAPSHOTS = -1;  // unlimited number of snapshots
-const int DEFAULT_SNAPSHOT_CYCLE_SEC = -1;      // off
+DEFINE_int32(GC_CYCLE_SEC, 30,
+             "Amount of time between starts of two cleaning cycles in seconds. "
+             "-1 to turn off.");
+DEFINE_int32(MAX_RETAINED_SNAPSHOTS, -1,
+             "Number of retained snapshots, -1 means without limit.");
+DEFINE_int32(SNAPSHOT_CYCLE_SEC, -1,
+             "Amount of time between starts of two snapshooters in seconds. -1 "
+             "to turn off.");
+DEFINE_bool(SNAPSHOT_ON_DB_DESTRUCTION, false,
+            "Snapshot on database destruction.");
+
+DECLARE_string(SNAPSHOT_DIRECTORY);
 
 GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
     : name_(name),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
-  const std::string time_str = CONFIG(config::CLEANING_CYCLE_SEC);
-  int pause = DEFAULT_CLEANING_CYCLE_SEC;
-  if (!time_str.empty()) pause = CONFIG_INTEGER(config::CLEANING_CYCLE_SEC);
   // Pause of -1 means we shouldn't run the GC.
-  if (pause != -1) {
-    gc_scheduler_.Run(std::chrono::seconds(pause), [this]() {
+  if (FLAGS_GC_CYCLE_SEC != -1) {
+    gc_scheduler_.Run(std::chrono::seconds(FLAGS_GC_CYCLE_SEC), [this]() {
       // main garbage collection logic
       // see wiki documentation for logic explanation
       const auto next_id = this->tx_engine.count() + 1;
@@ -51,36 +57,17 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
 
   RecoverDatabase(snapshot_db_dir);
   StartSnapshooting();
-
 }
 
 void GraphDb::StartSnapshooting() {
-  const std::string max_retained_snapshots_str =
-      CONFIG(config::MAX_RETAINED_SNAPSHOTS);
-  const std::string snapshot_cycle_sec_str =
-      CONFIG(config::SNAPSHOT_CYCLE_SEC);
-  const std::string snapshot_folder_str = CONFIG(config::SNAPSHOTS_PATH);
-
-  max_retained_snapshots_ = DEFAULT_MAX_RETAINED_SNAPSHOTS;
-  if (!max_retained_snapshots_str.empty())
-    max_retained_snapshots_ = CONFIG_INTEGER(config::MAX_RETAINED_SNAPSHOTS);
-
-  snapshot_cycle_sec_ = DEFAULT_SNAPSHOT_CYCLE_SEC;
-  if (!snapshot_cycle_sec_str.empty())
-    snapshot_cycle_sec_ = CONFIG_INTEGER(config::SNAPSHOT_CYCLE_SEC);
-
-  snapshot_folder_ = DEFAULT_SNAPSHOT_FOLDER;
-  if (!snapshot_folder_str.empty()) snapshot_folder_ = snapshot_folder_str;
-
-  snapshot_db_destruction_ = CONFIG_BOOL(config::SNAPSHOT_DB_DESTRUCTION);
-
-  if (snapshot_cycle_sec_ != -1) {
+  if (FLAGS_SNAPSHOT_CYCLE_SEC != -1) {
     auto create_snapshot = [this]() -> void {
       GraphDbAccessor db_accessor(*this);
-      snapshooter_.MakeSnapshot(db_accessor, fs::path(snapshot_folder_) / name_,
-                                max_retained_snapshots_);
+      snapshooter_.MakeSnapshot(db_accessor,
+                                fs::path(FLAGS_SNAPSHOT_DIRECTORY) / name_,
+                                FLAGS_MAX_RETAINED_SNAPSHOTS);
     };
-    snapshot_creator_.Run(std::chrono::seconds(snapshot_cycle_sec_),
+    snapshot_creator_.Run(std::chrono::seconds(FLAGS_SNAPSHOT_CYCLE_SEC),
                           create_snapshot);
   }
 }
@@ -110,10 +97,11 @@ GraphDb::~GraphDb() {
   snapshot_creator_.Stop();
 
   // Create last database snapshot
-  if (snapshot_db_destruction_) {
+  if (FLAGS_SNAPSHOT_ON_DB_DESTRUCTION == true) {
     GraphDbAccessor db_accessor(*this);
-    snapshooter_.MakeSnapshot(db_accessor, fs::path(snapshot_folder_) / name_,
-                              max_retained_snapshots_);
+    snapshooter_.MakeSnapshot(db_accessor,
+                              fs::path(FLAGS_SNAPSHOT_DIRECTORY) / name_,
+                              FLAGS_MAX_RETAINED_SNAPSHOTS);
   }
 
   // Delete vertices and edges which weren't collected before, also deletes

@@ -1,7 +1,14 @@
 #include <experimental/filesystem>
+
+#include "gflags/gflags.h"
+#include "gtest/gtest.h"
+
 #include "dbms/dbms.hpp"
 #include "durability/snapshooter.hpp"
-#include "gtest/gtest.h"
+
+DECLARE_bool(SNAPSHOT_ON_DB_DESTRUCTION);
+DECLARE_int32(SNAPSHOT_CYCLE_SEC);
+DECLARE_string(SNAPSHOT_DIRECTORY);
 
 namespace fs = std::experimental::filesystem;
 
@@ -28,15 +35,11 @@ void CleanDbDir() {
 
 class SnapshotTest : public ::testing::Test {
  protected:
-  virtual void TearDown() {
-    CleanDbDir();
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = snapshot_cycle_sec_setup_;
-  }
+  virtual void TearDown() { CleanDbDir(); }
 
   virtual void SetUp() {
     CleanDbDir();
-    snapshot_cycle_sec_setup_ = CONFIG(config::SNAPSHOT_CYCLE_SEC);
-    CONFIG(config::SNAPSHOT_CYCLE_SEC) = "-1";
+    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
   }
   std::string snapshot_cycle_sec_setup_;
 };
@@ -97,8 +100,8 @@ TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
 
 TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
   {
-    CONFIG(config::SNAPSHOTS_PATH) = SNAPSHOTS_FOLDER_ALL_DB;
-    CONFIG(config::SNAPSHOT_DB_DESTRUCTION) = "true";
+    FLAGS_SNAPSHOT_DIRECTORY = SNAPSHOTS_FOLDER_ALL_DB;
+    FLAGS_SNAPSHOT_ON_DB_DESTRUCTION = true;
     Dbms dbms;
     auto dba = dbms.active();
   }
