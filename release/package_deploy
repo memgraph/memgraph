@@ -3,7 +3,7 @@
 # Build, Package (docker image) & Deploy Memgraph
 
 function print_help () {
-    echo "Usage: $0 [-h|--help] -s|--server deploy_server_domain -u|--user username -k|--key private_user_key [--skip-compile]"
+    echo "Usage: $0 [-h|--help] -s|--server deploy_server_domain -u|--user username -k|--key private_user_key --version X.Y.Z [--skip-compile]"
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -12,6 +12,7 @@ project_dir="${working_dir}/.."
 # argument parsing
 required_args_no=0
 skip_compile=false
+version=0
 while [[ $# -gt 0 ]]
 do
     case $1 in
@@ -37,15 +38,20 @@ do
         --skip-compile)
         skip_compile=true
         ;;
+        --version)
+        version=$2
+        required_args_no=$((required_args_no+1))
+        shift
+        ;;
         *)
         # unknown option
         ;;
     esac
     shift # past argument or value
 done
-if [[ ${required_args_no} -ne 3 ]]; then
+if [[ ${required_args_no} -ne 4 ]]; then
     print_help
-    exit 1
+    exit -1
 fi
 
 echo "Deploy server: ${deploy_server}"
@@ -55,22 +61,26 @@ echo "Skip compile: ${skip_compile}"
 
 ## build binary
 if [[ "${skip_compile}" == true ]]; then
-    ${working_dir}/build_interpreter --skip-compile
+    ${working_dir}/build_interpreter --skip-compile --version ${version}
 else
-    ${working_dir}/build_interpreter
+    ${working_dir}/build_interpreter --version ${version}
 fi
  
 ## build package (docker image)
 cd ${working_dir}
 package_name=`ls -t -d memgraph_*/ | head -1 | sed 's/.$//'`
-docker build -t ${package_name} -f ${working_dir}/alpha_interpreter.dockerfile --build-arg build_name=${package_name} .
-docker save ${package_name} > ${package_name}.tar.gz
+# for some reason docker image has to be lowercase string
+# and because our package name is based on the cmake build type
+# string (which can be camel case) the package name has to be transformed
+docker_image_name=$(echo "${package_name}"| tr '[:upper:]' '[:lower:]')
+docker build -t ${docker_image_name} -f ${working_dir}/alpha.dockerfile --build-arg build_name=${package_name} .
+docker save ${docker_image_name} > ${docker_image_name}.tar.gz
 
 ## deploy
 # copy package
-scp -i ${deploy_key} ${package_name}.tar.gz ${deploy_user}@${deploy_server}:/home/${deploy_user}
+scp -i ${deploy_key} ${docker_image_name}.tar.gz ${deploy_user}@${deploy_server}:/home/${deploy_user}
 # load package
-ssh -i ${deploy_key} ${deploy_user}@${deploy_server} docker load -i /home/${deploy_user}/${package_name}.tar.gz
+ssh -i ${deploy_key} ${deploy_user}@${deploy_server} docker load -i /home/${deploy_user}/${docker_image_name}.tar.gz
 # spin up the instance
 public_port=$(echo ${package_name} | grep -o "memgraph_[0-9]*_" | sed 's/[^0-9]*//g')
-ssh -i ${deploy_key} ${deploy_user}@${deploy_server} docker run -d --name ${package_name} -p ${public_port}:7687 ${package_name}
+ssh -i ${deploy_key} ${deploy_user}@${deploy_server} docker run -d --name ${docker_image_name} -p ${public_port}:7687 ${docker_image_name}

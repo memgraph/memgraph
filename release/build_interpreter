@@ -4,10 +4,13 @@
 # Build & package (collect all required files in a folder).
 
 function print_help () {
-    echo "Usage: $0 [--skip-compile]"
+    echo "Usage: $0 [OPTION] --version MAJOR.MINOR.PATCH"
+    echo "Optional arguments:"
+    echo -e "  --h|--help      Print help."
+    echo -e "  --skip-compile  Skip compilation process."
+    echo -e "  --build-type    CMAKE_BUILD_TYPE options are: Debug|Release|RelWithDebInfo|MinSizeRel|Coverage|None (default is Debug)."
+    echo -e "  --config-file   Memgraph config file name (default is testing.conf)"
 }
-
-echo "Memgraph Release Building..."
 
 if [[ $EUID -eq 0 ]]; then
     echo "This script must NOT be run as root!" 1>&2
@@ -18,15 +21,30 @@ release_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 project_dir="${release_dir}/.."
 
 skip_compile=false
+build_type="Debug"
+config_file="testing.conf"
+version=""
 while [[ $# -gt 0 ]]
 do
     case $1 in
         -h|--help)
         print_help
-        exit -1
+        exit 1
         ;;
         --skip-compile)
         skip_compile=true
+        ;;
+        --build-type)
+        build_type=$2
+        shift
+        ;;
+        --config-file)
+        config_file=$2
+        shift
+        ;;
+        --version)
+        version=$2
+        shift
         ;;
         *)
         # unknown option
@@ -34,6 +52,17 @@ do
     esac
     shift # past argument or value
 done
+
+if [[ ! ${version} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "Something is wrong with your version number. Semantic version number is required (MAJOR.MINOR.PATCH).\n"
+    print_help
+    exit 1
+fi
+
+# TODO: Somehow check the correct value. One solution would be to create
+# a file with the current version number value. It's not required for now.
+
+echo "Memgraph Release Building (${version})"
 
 echo "Skip compile: ${skip_compile}"
 
@@ -45,7 +74,7 @@ if [[ "${skip_compile}" == false ]]; then
     # compile memgraph
     cd ${project_dir}/build
     rm -rf ./*
-    cmake -DCMAKE_BUILD_TYPE:String=debug ..
+    cmake -DCMAKE_BUILD_TYPE:String=${build_type} ..
     make -j8
 fi
 
@@ -57,10 +86,11 @@ release_folder=${release_dir}/${exe_name}
 # extract only required files
 # create dst directory
 cd ${release_dir}
-mkdir -p ${release_folder}
+mkdir -p ${release_folder}/config
 echo "Full build name: ${exe_name}" > ${release_folder}/build.info
+echo "${version}" > ${release_folder}/VERSION
 # copy binary & config
 cp ${project_dir}/build/${exe_name} ${release_folder}/memgraph
-cp -r ${project_dir}/config ${release_folder}/config
+cp ${project_dir}/config/${config_file} ${release_folder}/config/memgraph
 
 echo "Memgraph Build ${exe_name} DONE"
