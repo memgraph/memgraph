@@ -121,6 +121,8 @@ add_subdirectory(libs)
 set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # yaml-cpp
+# We no longer use yaml for configuration reading, maybe this dependancy should
+# be removed. It is only used in tests/benchmark/query/strip/stripper.cpp
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
 set(yaml_include_dir ${yaml_source_dir}/include)
 set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
