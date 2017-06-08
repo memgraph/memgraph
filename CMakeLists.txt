@@ -77,10 +77,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
-set(include_dir ${CMAKE_SOURCE_DIR}/include)
 set(build_include_dir ${CMAKE_BINARY_DIR}/include)
-set(test_include_dir ${CMAKE_BINARY_DIR}/tests/include)
-set(test_src_dir ${CMAKE_BINARY_DIR}/tests/src)
 # -----------------------------------------------------------------------------
 
 # build flags -----------------------------------------------------------------
@@ -101,13 +98,6 @@ else()
     set(CMAKE_CXX_FLAGS_DEBUG "-g")
 endif()
 
-# compiler specific flags
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    # set(CMAKE_CXX_FLAGS_DEBUG "-Wl,--export-dynamic ${CMAKE_CXX_FLAGS_DEBUG}")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # set(CMAKE_CXX_FLAGS_DEBUG "-rdynamic ${CMAKE_CXX_FLAGS_DEBUG}")
-endif()
-
 # default build type is debug
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
     set(CMAKE_BUILD_TYPE "debug")
@@ -125,7 +115,6 @@ set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # be removed. It is only used in tests/benchmark/query/strip/stripper.cpp
 set(yaml_source_dir ${libs_dir}/yaml-cpp)
 set(yaml_include_dir ${yaml_source_dir}/include)
-set(yaml_static_lib ${yaml_source_dir}/libyaml-cpp.a)
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
@@ -337,7 +326,6 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
 # all memgraph src files
 set(memgraph_src_files
     ${src_dir}/dbms/dbms.cpp
-#    ${src_dir}/dbms/cleaner.cpp
     ${src_dir}/utils/numerics/saturate.cpp
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp
@@ -348,11 +336,9 @@ set(memgraph_src_files
     ${src_dir}/durability/recovery.cpp
     ${src_dir}/storage/property_value.cpp
     ${src_dir}/storage/locking/record_lock.cpp
-#    ${src_dir}/storage/garbage/garbage.cpp
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/storage/edge_accessor.cpp
-#    ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
