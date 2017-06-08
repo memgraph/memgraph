@@ -25,6 +25,6 @@ foreach(poc_cpp ${poc_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
+    target_link_libraries(${target_name} memgraph_lib)
 
 endforeach()

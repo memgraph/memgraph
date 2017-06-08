@@ -379,21 +379,21 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
-# STATIC library used by memgraph executables
-add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib stdc++fs gflags)
-add_dependencies(memgraph_lib generate_opencypher_parser
-                              generate_plan_compiler_flags)
-# executables that require memgraph_lib should link MEMGRAPH_ALL_LIBS to link all dependant libraries
-set(MEMGRAPH_ALL_LIBS memgraph_lib stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
+# memgraph_lib and memgraph_pic depend on these libraries
+set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
-# -----------------------------------------------------------------------------
+
+# STATIC library used by memgraph executables
+add_library(memgraph_lib STATIC ${memgraph_src_files})
+target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
+add_dependencies(memgraph_lib generate_opencypher_parser
+                              generate_plan_compiler_flags)
 
 # STATIC PIC library used by query engine
-add_library(memgraph_pic STATIC)
-target_link_libraries(memgraph_pic stdc++fs gflags)
+add_library(memgraph_pic STATIC ${memgraph_src_files})
+target_link_libraries(memgraph_pic ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_pic generate_opencypher_parser
                               generate_plan_compiler_flags)
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
@@ -442,7 +442,7 @@ if (MEMGRAPH)
     add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
     set_property(TARGET ${MEMGRAPH_BUILD_NAME}
                  PROPERTY CXX_STANDARD ${cxx_standard})
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} ${MEMGRAPH_ALL_LIBS})
+    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
 endif()
 
 # utility target to copy hardcoded queries
@@ -450,7 +450,7 @@ endif()
 add_executable(__copy_hardcoded_queries ${src_dir}/copy_hardcoded_queries.cpp)
 set_property(TARGET __copy_hardcoded_queries PROPERTY CXX_STANDARD
         ${cxx_standard})
-target_link_libraries(__copy_hardcoded_queries ${MEMGRAPH_ALL_LIBS})
+target_link_libraries(__copy_hardcoded_queries memgraph_lib)
 add_custom_target(copy_hardcoded_queries ./__copy_hardcoded_queries --src
         ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query --dst
         ${CMAKE_BINARY_DIR}/compiled/hardcode
@@ -478,7 +478,7 @@ if(HARDCODED_TARGETS)
       set(target_name __${file_name}_hardcoded_target)
       add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
                                     ${file_path})
-      target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
+      target_link_libraries(${target_name} memgraph_lib)
       set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
       set_target_properties(${target_name}
                             PROPERTIES RUNTIME_OUTPUT_DIRECTORY

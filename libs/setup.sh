@@ -19,9 +19,12 @@ cd ..
 
 # fmt
 git clone https://github.com/fmtlib/fmt.git
-fmt_tag="e5e4fb370ccf327bbdcdcd782eb3e53580e11094" # v3.0.0
+fmt_tag="7fa8f8fa48b0903deab5bb42e6760477173ac485" # v3.0.1
+# Commit which fixes an issue when compiling with C++14 and higher.
+fmt_cxx14_fix="b9aaa507fc49680d037fd84c043f747a395bce04"
 cd fmt
 git checkout ${fmt_tag}
+git cherry-pick ${fmt_cxx14_fix}
 cd ..
 
 # google benchmark
