@@ -1,7 +1,7 @@
 ## openCypher Query Language
 
 [*openCypher*](http://www.opencypher.org/) is a query language for querying
-graph databases. It's aim is to be intuitive and easy to learn, while
+graph databases. It aims to be intuitive and easy to learn, while
 providing a powerful interface for working with graph based data.
 
 *Memgraph* supports most of the commonly used constructs of the language. This
@@ -15,12 +15,13 @@ not yet supported features of the language are listed.
 
 ### Reading existing Data
 
-The simplest usage of the language is to find some data stored in the
+The simplest usage of the language is to find data stored in the
 database. For that purpose, the following clauses are offered:
 
   * `MATCH`, which searches for patterns;
   * `WHERE`, for filtering the matched data and
-  * `RETURN`, which is used to define the results.
+  * `RETURN`, for defining what will be presented to the user in the result
+    set.
 
 #### MATCH
 
@@ -30,26 +31,26 @@ following query.
 
     MATCH (node) RETURN node
 
-Finding connected nodes can be achieved by using this query.
+Finding connected nodes can be achieved by using the query:
 
     MATCH (node1) -[connection]- (node2) RETURN node1, connection, node2
 
-In addition to general pattern matching, you can narrow down the search by
+In addition to general pattern matching, you can narrow the search down by
 specifying node labels and properties. Similarly, edge types and properties
 can also be specified. For example, finding each node labeled as `Person` and
-with property `age` being 42, is done with this query.
+with property `age` being 42, is done with the following query.
 
     MATCH (n :Person {age: 42}) RETURN n.
 
 While their friends can be found with the following.
 
-    MATCH (n :Person {age: 42}) -[:FRIENDS]- (friend) RETURN friend.
+    MATCH (n :Person {age: 42}) -[:FriendOf]- (friend) RETURN friend.
 
 More details on how `MATCH` works can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/match/).
-Note that *variable paths* and *named paths* are not yet supported.
+Note that *variable length paths* and *named paths* are not yet supported.
 
-The `MATCH` clause can be modified by prepending the `OPTIONAL` keyword. This
+The `MATCH` clause can be modified by prepending the `OPTIONAL` keyword.
 `OPTIONAL MATCH` clause behaves the same as a regular `MATCH`, but when it
 fails to find the pattern, missing parts of the pattern will be filled with
 `null` values. Examples can be found
@@ -64,24 +65,25 @@ finding each person older than 20 is done with the this query.
 
     MATCH (n :Person) WHERE n.age > 20 RETURN n
 
-Additional examples are over
+Additional examples can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/where/).
 
 #### RETURN
 
-The `RETURN` clause is used to define which data should be included in the
-resulting set. The simplest usage was already shown in the examples for
-`MATCH` and `WHERE` clauses. Another simple feature of `RETURN` is renaming
-the results via the `AS` keyword.
+The `RETURN` clause defines which data should be included in the resulting
+set. Basic usage was already shown in the examples for `MATCH` and `WHERE`
+clauses. Another feature of `RETURN` is renaming the results using the `AS`
+keyword.
 
 Example.
 
     MATCH (n :Person) RETURN n AS people
 
-That query would but all nodes under the column named `people` instead of `n`.
+That query would display all nodes under the header named `people` instead of
+`n`.
 
-When you want to get everything that was matched, you can use the `*` symbol
-as a shortcut.
+When you want to get everything that was matched, you can use the `*`
+(*asterisk*) symbol.
 
 This query:
 
@@ -91,24 +93,26 @@ is equivalent to:
 
     MATCH (node1) -[connection]- (node2) RETURN node1, connection, node2
 
-`RETURN` can be followed with the `DISTINCT` operator, which will remove
-duplicate results. For example, getting unique names of people is done with:
+`RETURN` can be followed by the `DISTINCT` operator, which will remove
+duplicate results. For example, getting unique names of people can be achieved
+with:
 
     MATCH (n :Person) RETURN DISTINCT n.name
 
-Besides choosing what will be the result and how it will be named, `RETURN`
-clause can also be used to:
+Besides choosing what will be the result and how it will be named, the
+`RETURN` clause can also be used to:
 
-  * limit or skip results with `LIMIT` or `SKIP` sub-clauses respectively;
+  * limit results with `LIMIT` sub-clause;
+  * skip results with `SKIP` sub-clause;
   * order results with `ORDER BY` sub-clause and
-  * perform aggregations.
+  * perform aggregations (such as `count`).
 
-More details on `RETURN` itself can be found
+More details on `RETURN` can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/return/).
 
 ##### SKIP & LIMIT
 
-These simple sub-clauses take the number of how many results to skip or limit.
+These sub-clauses take a number of how many results to skip or limit.
 For example, to get the first 3 results you can use this query.
 
     MATCH (n :Person) RETURN n LIMIT 3
@@ -129,12 +133,12 @@ Since the patterns which are matched can come in any order, it is very useful
 to be able to enforce some ordering among the results. In such cases, you can
 use the `ORDER BY` sub-clause.
 
-For example, the following query will get all people and order them by their
-names.
+For example, the following query will get all `:Person` nodes and order them
+by their names.
 
     MATCH (n :Person) RETURN n ORDER BY n.name
 
-By default, results will be in the ascending order. To change the order to be
+By default, ordering will be in the ascending order. To change the order to be
 descending, you should append `DESC`.
 
 For example, to order people by their name descending, you can use this query.
@@ -156,14 +160,14 @@ sub-clauses. For example, to get the oldest person you can use the following.
 
 ##### Aggregating
 
-openCypher has functions for aggregating the data. Memgraph currently supports
-the following aggregate functions.
+openCypher has functions for aggregating data. Memgraph currently supports
+the following aggregating functions.
 
   * `avg`, for calculating the average.
   * `collect`, for collecting multiple values into a single list.
   * `count`, for counting the resulting values.
-  * `max` and `min`, for calculating the maximum and minimum result,
-    respectively.
+  * `max`, for calculating the maximum result.
+  * `min`, for calculating the minimum result.
   * `sum`, for getting the sum of numeric results.
 
 Example, calculating the average age.
@@ -178,13 +182,13 @@ for additional details on how aggregations work.
 
 For adding new data, you can use the following clauses.
 
-  * `CREATE`, for creating nodes and edges.
-  * `SET`, for creating or updating labels, properties and edge types.
-  * `DELETE`, for deleting nodes and edge.
+  * `CREATE`, for creating new nodes and edges.
+  * `SET`, for adding new or updating existing labels and properties.
+  * `DELETE`, for deleting nodes and edges.
   * `REMOVE`, for removing labels and properties.
 
-You can still use the `RETURN` clause to produce results after creation, but
-it is not mandatory.
+You can still use the `RETURN` clause to produce results after writing, but it
+is not mandatory.
 
 #### CREATE
 
@@ -246,7 +250,7 @@ Example.
 
 ### Reading & Writing
 
-The query language supports combining multiple reads and writes using the
+OpenCypher supports combining multiple reads and writes using the
 `WITH` clause. In addition to combining, the `MERGE` clause is provided which
 may create patterns if they do not exist.
 
@@ -276,7 +280,7 @@ created. In a way, this clause is like a combination of `MATCH` and `CREATE`.
 
 Example. Ensure that a person has at least one friend.
 
-    MATCH (n :Person) MERGE (n) -[:FRIENDS]-> (m)
+    MATCH (n :Person) MERGE (n) -[:FriendOf]-> (m)
 
 The clause also provides additional features for updating the values depending
 on whether the pattern was created or matched. This is achieved with `ON
@@ -284,7 +288,7 @@ CREATE` and `ON MATCH` sub clauses.
 
 Example. Set a different properties depending on what `MERGE` did.
 
-    MATCH (n :Person) MERGE (n) -[:FRIENDS]-> (m)
+    MATCH (n :Person) MERGE (n) -[:FriendOf]-> (m)
     ON CREATE SET m.prop = "created" ON MATCH SET m.prop = "existed"
 
 For more details, click [this
