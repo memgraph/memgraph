@@ -33,7 +33,11 @@ State StateInitRun(Session &session) {
   if (UNLIKELY(marker != Marker::TinyStruct2)) {
     logger.debug("Expected TinyStruct2 marker, but received 0x{:02X}!",
                  underlying_cast(marker));
-    return State::Close;
+    logger.warn("The client sent malformed data, but we are continuing "
+                "because the official Neo4j Java driver sends malformed "
+                "data. D'oh!");
+    // TODO: this should be uncommented when the Neo4j Java driver is fixed
+    //return State::Close;
   }
 
   query::TypedValue client_name;
