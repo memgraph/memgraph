@@ -14,8 +14,9 @@
 
 namespace query {
 
-class Interpreter {
+class Interpreter : public Loggable {
  public:
+  Interpreter() : Loggable("Interpreter") {}
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream) {
@@ -132,6 +133,7 @@ class Interpreter {
     // have to be correct (for Bolt clients)
     summary["type"] = "rw";
     stream.Summary(summary);
+    logger.info("Execute '{}', {}", query, summary);
   }
 
  private:

@@ -17,13 +17,15 @@ class StreamReader : public StreamListener<Derived, Stream> {
       : StreamListener<Derived, Stream>(flags),
         logger_(logging::log->logger("io::StreamReader")) {}
 
-  bool Accept(Socket& socket) {
+  bool Accept(Socket &socket) {
     logger_.trace("Accept");
 
     // accept a connection from a socket
     Socket s;
     if (!socket.Accept(&s)) return false;
 
+    logger_.info("Client {}:{} connected.", s.endpoint().address(),
+                 s.endpoint().port());
     logger_.trace(
         "Accepted a connection: scoket {}, address '{}', family {}, port {}",
         s.id(), s.endpoint().address(), s.endpoint().family(),
@@ -32,7 +34,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
     if (!s.SetKeepAlive()) return false;
     if (!s.SetNoDelay()) return false;
 
-    auto& stream = this->derived().OnConnect(std::move(s));
+    auto &stream = this->derived().OnConnect(std::move(s));
 
     // we want to listen to an incoming event which is edge triggered and
     // we also want to listen on the hangup event
@@ -44,7 +46,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
     return true;
   }
 
-  void OnData(Stream& stream) {
+  void OnData(Stream &stream) {
     logger_.trace("On data");
 
     if (UNLIKELY(!stream.Alive())) {

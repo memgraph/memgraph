@@ -77,7 +77,9 @@ class Worker
   }
 
   void OnClose(Session &session) {
-    logger_.trace("Client closed the connection");
+    logger_.info("Client {}:{} closed the connection.",
+                 session.socket_.endpoint().address(),
+                 session.socket_.endpoint().port());
     // TODO: remove socket from epoll object
     session.Close();
     delete &session;
