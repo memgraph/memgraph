@@ -22,4 +22,4 @@ provided for the following languages.
   * [Python](http://neo4j.com/docs/api/python-driver)
 
 They can be used for easier building custom interfaces for Memgraph. We
-recommend using drivers starting from version 1.2.
+recommend using drivers starting from version 1.3.
