@@ -32,7 +32,7 @@ namespace fs = std::experimental::filesystem;
  * all the data publicly, and should therefore not be directly
  * exposed to client functions. The GraphDbAccessor is used for that.
  */
-class GraphDb {
+class GraphDb : public Loggable {
  public:
   /**
    * Construct database with a custom name.

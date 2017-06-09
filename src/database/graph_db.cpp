@@ -24,7 +24,8 @@ DEFINE_bool(snapshot_on_db_destruction, false,
 DECLARE_string(snapshot_directory);
 
 GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
-    : name_(name),
+    : Loggable("GraphDb"),
+      name_(name),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
@@ -82,8 +83,13 @@ void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
   Recovery recovery;
   for (auto &snapshot_file : snapshots) {
     GraphDbAccessor db_accessor(*this);
+    logger.info("Starting database recovery from snapshot {}...",
+                snapshot_file);
     if (recovery.Recover(snapshot_file.string(), db_accessor)) {
+      logger.info("Recovery successful.");
       return;
+    } else {
+      logger.error("Recovery unsuccessful, trying older snapshot...");
     }
   }
 }
@@ -99,9 +105,15 @@ GraphDb::~GraphDb() {
   // Create last database snapshot
   if (FLAGS_snapshot_on_db_destruction == true) {
     GraphDbAccessor db_accessor(*this);
-    snapshooter_.MakeSnapshot(db_accessor,
-                              fs::path(FLAGS_snapshot_directory) / name_,
-                              FLAGS_max_retained_snapshots);
+    logger.info("Creating snapshot on shutdown...");
+    const bool status = snapshooter_.MakeSnapshot(
+        db_accessor, fs::path(FLAGS_snapshot_directory) / name_,
+        FLAGS_max_retained_snapshots);
+    if (status) {
+      logger.info("Snapshot created successfully.");
+    } else {
+      logger.error("Snapshot creation failed!");
+    }
   }
 
   // Delete vertices and edges which weren't collected before, also deletes

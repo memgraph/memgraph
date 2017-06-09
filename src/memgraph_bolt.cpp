@@ -146,16 +146,12 @@ int main(int argc, char **argv) {
   bolt_server_t server(std::move(socket), dbms, query_engine);
 
   // register SIGTERM handler
-  SignalHandler::register_handler(Signal::Terminate, [&server]() {
-    server.Shutdown();
-    std::exit(EXIT_SUCCESS);
-  });
+  SignalHandler::register_handler(Signal::Terminate,
+                                  [&server]() { server.Shutdown(); });
 
   // register SIGINT handler
-  SignalHandler::register_handler(Signal::Interupt, [&server]() {
-    server.Shutdown();
-    std::exit(EXIT_FAILURE);
-  });
+  SignalHandler::register_handler(Signal::Interupt,
+                                  [&server]() { server.Shutdown(); });
 
   // Start worker threads.
   logger.info("Starting {} workers", FLAGS_num_workers);
