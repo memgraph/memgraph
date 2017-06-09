@@ -16,6 +16,7 @@
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
 
+#include "utils/flag_validation.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace/log.hpp"
 #include "utils/terminate_handler.hpp"
@@ -34,8 +35,9 @@ Logger logger;
 
 DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
 DEFINE_string(port, "7687", "Default port on which to listen.");
-DEFINE_int32(num_workers, std::thread::hardware_concurrency(),
-             "Number of workers");
+DEFINE_VALIDATED_int32(num_workers,
+                       std::max(std::thread::hardware_concurrency(), 1U),
+                       "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
 
 void throw_and_stacktace(std::string message) {
   Stacktrace stacktrace;
