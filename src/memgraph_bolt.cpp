@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
   load_config(argc, argv);
 
-  // Logging init.
+// Logging init.
 #ifdef SYNC_LOGGER
   logging::init_sync();
 #else

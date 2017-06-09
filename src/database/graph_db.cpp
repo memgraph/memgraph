@@ -10,18 +10,18 @@
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 
-DEFINE_int32(GC_CYCLE_SEC, 30,
+DEFINE_int32(gc_cycle_sec, 30,
              "Amount of time between starts of two cleaning cycles in seconds. "
              "-1 to turn off.");
-DEFINE_int32(MAX_RETAINED_SNAPSHOTS, -1,
+DEFINE_int32(max_retained_snapshots, -1,
              "Number of retained snapshots, -1 means without limit.");
-DEFINE_int32(SNAPSHOT_CYCLE_SEC, -1,
+DEFINE_int32(snapshot_cycle_sec, -1,
              "Amount of time between starts of two snapshooters in seconds. -1 "
              "to turn off.");
-DEFINE_bool(SNAPSHOT_ON_DB_DESTRUCTION, false,
+DEFINE_bool(snapshot_on_db_destruction, false,
             "Snapshot on database destruction.");
 
-DECLARE_string(SNAPSHOT_DIRECTORY);
+DECLARE_string(snapshot_directory);
 
 GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
     : name_(name),
@@ -29,8 +29,8 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
   // Pause of -1 means we shouldn't run the GC.
-  if (FLAGS_GC_CYCLE_SEC != -1) {
-    gc_scheduler_.Run(std::chrono::seconds(FLAGS_GC_CYCLE_SEC), [this]() {
+  if (FLAGS_gc_cycle_sec != -1) {
+    gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec), [this]() {
       // main garbage collection logic
       // see wiki documentation for logic explanation
       const auto next_id = this->tx_engine.count() + 1;
@@ -60,14 +60,14 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
 }
 
 void GraphDb::StartSnapshooting() {
-  if (FLAGS_SNAPSHOT_CYCLE_SEC != -1) {
+  if (FLAGS_snapshot_cycle_sec != -1) {
     auto create_snapshot = [this]() -> void {
       GraphDbAccessor db_accessor(*this);
       snapshooter_.MakeSnapshot(db_accessor,
-                                fs::path(FLAGS_SNAPSHOT_DIRECTORY) / name_,
-                                FLAGS_MAX_RETAINED_SNAPSHOTS);
+                                fs::path(FLAGS_snapshot_directory) / name_,
+                                FLAGS_max_retained_snapshots);
     };
-    snapshot_creator_.Run(std::chrono::seconds(FLAGS_SNAPSHOT_CYCLE_SEC),
+    snapshot_creator_.Run(std::chrono::seconds(FLAGS_snapshot_cycle_sec),
                           create_snapshot);
   }
 }
@@ -97,11 +97,11 @@ GraphDb::~GraphDb() {
   snapshot_creator_.Stop();
 
   // Create last database snapshot
-  if (FLAGS_SNAPSHOT_ON_DB_DESTRUCTION == true) {
+  if (FLAGS_snapshot_on_db_destruction == true) {
     GraphDbAccessor db_accessor(*this);
     snapshooter_.MakeSnapshot(db_accessor,
-                              fs::path(FLAGS_SNAPSHOT_DIRECTORY) / name_,
-                              FLAGS_MAX_RETAINED_SNAPSHOTS);
+                              fs::path(FLAGS_snapshot_directory) / name_,
+                              FLAGS_max_retained_snapshots);
   }
 
   // Delete vertices and edges which weren't collected before, also deletes

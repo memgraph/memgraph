@@ -6,9 +6,9 @@
 #include "dbms/dbms.hpp"
 #include "durability/snapshooter.hpp"
 
-DECLARE_bool(SNAPSHOT_ON_DB_DESTRUCTION);
-DECLARE_int32(SNAPSHOT_CYCLE_SEC);
-DECLARE_string(SNAPSHOT_DIRECTORY);
+DECLARE_bool(snapshot_on_db_destruction);
+DECLARE_int32(snapshot_cycle_sec);
+DECLARE_string(snapshot_directory);
 
 namespace fs = std::experimental::filesystem;
 
@@ -39,7 +39,7 @@ class SnapshotTest : public ::testing::Test {
 
   virtual void SetUp() {
     CleanDbDir();
-    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
+    FLAGS_snapshot_cycle_sec = -1;
   }
   std::string snapshot_cycle_sec_setup_;
 };
@@ -100,8 +100,8 @@ TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
 
 TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
   {
-    FLAGS_SNAPSHOT_DIRECTORY = SNAPSHOTS_FOLDER_ALL_DB;
-    FLAGS_SNAPSHOT_ON_DB_DESTRUCTION = true;
+    FLAGS_snapshot_directory = SNAPSHOTS_FOLDER_ALL_DB;
+    FLAGS_snapshot_on_db_destruction = true;
     Dbms dbms;
     auto dba = dbms.active();
   }

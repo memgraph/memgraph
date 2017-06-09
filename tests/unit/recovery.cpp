@@ -10,7 +10,7 @@
 #include "durability/recovery.hpp"
 #include "utils/assert.hpp"
 
-DECLARE_int32(SNAPSHOT_CYCLE_SEC);
+DECLARE_int32(snapshot_cycle_sec);
 
 namespace fs = std::experimental::filesystem;
 
@@ -39,7 +39,7 @@ class RecoveryTest : public ::testing::Test {
 
   void SetUp() override {
     CleanDbDir();
-    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
+    FLAGS_snapshot_cycle_sec = -1;
   }
   const int max_retained_snapshots_ = 10;
 };

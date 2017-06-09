@@ -5,7 +5,7 @@
 #include "communication/bolt/v1/session.hpp"
 #include "query/engine.hpp"
 
-DECLARE_bool(INTERPRET);
+DECLARE_bool(interpret);
 
 // Shortcuts for writing variable initializations in tests
 #define INIT_VARS                                          \
@@ -577,7 +577,7 @@ int main(int argc, char **argv) {
   logging::log->pipe(std::make_unique<Stdout>());
   // Set the interpret to true to avoid calling the compiler which only
   // supports a limited set of queries.
-  FLAGS_INTERPRET = true;
+  FLAGS_interpret = true;
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

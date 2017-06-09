@@ -13,8 +13,8 @@ namespace fs = std::experimental::filesystem;
 #include "query/plan_interface.hpp"
 #include "utils/dynamic_lib.hpp"
 
-DECLARE_bool(INTERPRET);
-DECLARE_string(COMPILE_DIRECTORY);
+DECLARE_bool(interpret);
+DECLARE_string(compile_directory);
 
 /**
  * Responsible for query execution.
@@ -64,7 +64,7 @@ class QueryEngine : public Loggable {
    */
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
            Stream &stream) {
-    if (FLAGS_INTERPRET) {
+    if (FLAGS_interpret) {
       interpreter_.Interpret(query, db_accessor, stream);
       return true;
     }
@@ -154,13 +154,13 @@ class QueryEngine : public Loggable {
       return query_plan_it->second->instance();
 
     // find hardcoded query plan if exists
-    auto hardcoded_path = fs::path(FLAGS_COMPILE_DIRECTORY + "hardcode/" +
+    auto hardcoded_path = fs::path(FLAGS_compile_directory + "hardcode/" +
                                    std::to_string(stripped.hash()) + ".cpp");
     if (fs::exists(hardcoded_path))
       return LoadCpp(hardcoded_path, stripped.hash());
 
     // generate query plan
-    auto generated_path = fs::path(FLAGS_COMPILE_DIRECTORY +
+    auto generated_path = fs::path(FLAGS_compile_directory +
                                    std::to_string(stripped.hash()) + ".cpp");
     return LoadCpp(generated_path, stripped.hash());
   }
@@ -189,7 +189,7 @@ class QueryEngine : public Loggable {
     // and that is a problem because at this point we want brand new
     // dynamic lib. That is the tmp solution. The right solution would be
     // to deal with this problem in DynamicLib
-    auto path_so = FLAGS_COMPILE_DIRECTORY + std::to_string(hash) + "_" +
+    auto path_so = FLAGS_compile_directory + std::to_string(hash) + "_" +
                    (std::string)Timestamp::now() + ".so";
 
     PlanCompiler().Compile(path_cpp, path_so);

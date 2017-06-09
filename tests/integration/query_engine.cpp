@@ -5,8 +5,8 @@
 #include "dbms/dbms.hpp"
 #include "query_engine_common.hpp"
 
-DECLARE_bool(INTERPRET);
-DECLARE_string(COMPILE_DIRECTORY);
+DECLARE_bool(interpret);
+DECLARE_string(compile_directory);
 
 using namespace std::chrono_literals;
 using namespace tests::integration;
@@ -32,10 +32,10 @@ int main(int argc, char *argv[]) {
   auto log = init_logging("IntegrationQueryEngine");
   // Manually set config compile_path to avoid loading whole config file with
   // the test.
-  FLAGS_COMPILE_DIRECTORY = "../compiled/";
+  FLAGS_compile_directory = "../compiled/";
   // Set the interpret to false to avoid calling the interpreter which doesn't
   // support all the queries yet.
-  FLAGS_INTERPRET = false;
+  FLAGS_interpret = false;
   Dbms dbms;
   StreamT stream(std::cout);
   QueryEngineT query_engine;

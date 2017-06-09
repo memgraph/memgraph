@@ -5,9 +5,9 @@
 
 #include "dbms/dbms.hpp"
 
-DECLARE_bool(RECOVERY_ON_STARTUP);
-DECLARE_string(SNAPSHOT_DIRECTORY);
-DECLARE_int32(SNAPSHOT_CYCLE_SEC);
+DECLARE_bool(recovery_on_startup);
+DECLARE_string(snapshot_directory);
+DECLARE_int32(snapshot_cycle_sec);
 
 namespace fs = std::experimental::filesystem;
 
@@ -36,13 +36,13 @@ class DbmsRecoveryTest : public ::testing::Test {
 
   virtual void SetUp() {
     CleanDbDir();
-    FLAGS_SNAPSHOT_DIRECTORY = SNAPSHOTS_DBMS_RECOVERY_ALL_DB;
-    FLAGS_SNAPSHOT_CYCLE_SEC = -1;
+    FLAGS_snapshot_directory = SNAPSHOTS_DBMS_RECOVERY_ALL_DB;
+    FLAGS_snapshot_cycle_sec = -1;
   }
 };
 
 void CreateSnapshot() {
-  FLAGS_RECOVER_ON_STARTUP = false;
+  FLAGS_recover_on_startup = false;
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -61,7 +61,7 @@ void CreateSnapshot() {
 }
 
 void RecoverDbms() {
-  FLAGS_RECOVER_ON_STARTUP = true;
+  FLAGS_recover_on_startup = true;
   Dbms dbms;
   auto dba = dbms.active();
 

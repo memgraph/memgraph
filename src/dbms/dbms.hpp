@@ -11,18 +11,18 @@
 #include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
 
-DECLARE_string(SNAPSHOT_DIRECTORY);
-DECLARE_bool(RECOVER_ON_STARTUP);
+DECLARE_string(snapshot_directory);
+DECLARE_bool(recover_on_startup);
 
 namespace fs = std::experimental::filesystem;
 class Dbms {
  public:
   Dbms() {
-    if (FLAGS_RECOVER_ON_STARTUP) {
-      if (fs::exists(fs::path(FLAGS_SNAPSHOT_DIRECTORY))) {
+    if (FLAGS_recover_on_startup) {
+      if (fs::exists(fs::path(FLAGS_snapshot_directory))) {
         auto accessor = dbs.access();
         for (auto &snapshot_db :
-             fs::directory_iterator(FLAGS_SNAPSHOT_DIRECTORY)) {
+             fs::directory_iterator(FLAGS_snapshot_directory)) {
           // create db and set it active
           active(snapshot_db.path().filename(), snapshot_db);
         }
