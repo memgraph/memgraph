@@ -478,19 +478,19 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
 
   // everything except for COUNT fails on a Vertex
   aggregate(n_id, Aggregation::Op::COUNT);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), TypedValueException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
   // on strings AVG and SUM fail
   aggregate(n_prop_string, Aggregation::Op::COUNT);
   aggregate(n_prop_string, Aggregation::Op::MIN);
   aggregate(n_prop_string, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::AVG),
-               TypedValueException);
+               QueryRuntimeException);
   EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::SUM),
-               TypedValueException);
+               QueryRuntimeException);
 
   // on ints nothing fails
   aggregate(n_prop_int, Aggregation::Op::COUNT);
@@ -534,24 +534,24 @@ TEST(QueryPlan, AggregateTypes) {
   // everything except for COUNT fails on a Vertex
   auto n_id = n_p1->expression_;
   aggregate(n_id, Aggregation::Op::COUNT);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), TypedValueException);
-  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), TypedValueException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
 
   // on strings AVG and SUM fail
   aggregate(n_p1, Aggregation::Op::COUNT);
   aggregate(n_p1, Aggregation::Op::MIN);
   aggregate(n_p1, Aggregation::Op::MAX);
-  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), TypedValueException);
-  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), TypedValueException);
+  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
   // combination of int and bool, everything except count fails
   aggregate(n_p2, Aggregation::Op::COUNT);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), TypedValueException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), TypedValueException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), TypedValueException);
-  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), TypedValueException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
 
 TEST(QueryPlan, Unwind) {

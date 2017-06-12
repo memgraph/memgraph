@@ -7,6 +7,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "query/common.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
@@ -66,36 +67,47 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return value;
   }
 
-#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP) \
-  TypedValue Visit(OP_NODE &op) override {       \
-    auto val1 = op.expression1_->Accept(*this);  \
-    auto val2 = op.expression2_->Accept(*this);  \
-    return val1 CPP_OP val2;                     \
+#define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)              \
+  TypedValue Visit(OP_NODE &op) override {                               \
+    auto val1 = op.expression1_->Accept(*this);                          \
+    auto val2 = op.expression2_->Accept(*this);                          \
+    try {                                                                \
+      return val1 CPP_OP val2;                                           \
+    } catch (const TypedValueException &) {                              \
+      throw QueryRuntimeException("Invalid types: {} and {} for '{}'",   \
+                                  val1.type(), val2.type(), #CYPHER_OP); \
+    }                                                                    \
   }
 
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP)  \
-  TypedValue Visit(OP_NODE &op) override {       \
-    return CPP_OP op.expression_->Accept(*this); \
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                \
+  TypedValue Visit(OP_NODE &op) override {                                \
+    auto val = op.expression_->Accept(*this);                             \
+    try {                                                                 \
+      return CPP_OP val;                                                  \
+    } catch (const TypedValueException &) {                               \
+      throw QueryRuntimeException("Invalid type {} for '{}'", val.type(), \
+                                  #CYPHER_OP);                            \
+    }                                                                     \
   }
 
-  BINARY_OPERATOR_VISITOR(OrOperator, ||);
-  BINARY_OPERATOR_VISITOR(XorOperator, ^);
-  BINARY_OPERATOR_VISITOR(AndOperator, &&);
-  BINARY_OPERATOR_VISITOR(AdditionOperator, +);
-  BINARY_OPERATOR_VISITOR(SubtractionOperator, -);
-  BINARY_OPERATOR_VISITOR(MultiplicationOperator, *);
-  BINARY_OPERATOR_VISITOR(DivisionOperator, /);
-  BINARY_OPERATOR_VISITOR(ModOperator, %);
-  BINARY_OPERATOR_VISITOR(NotEqualOperator, !=);
-  BINARY_OPERATOR_VISITOR(EqualOperator, ==);
-  BINARY_OPERATOR_VISITOR(LessOperator, <);
-  BINARY_OPERATOR_VISITOR(GreaterOperator, >);
-  BINARY_OPERATOR_VISITOR(LessEqualOperator, <=);
-  BINARY_OPERATOR_VISITOR(GreaterEqualOperator, >=);
+  BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
+  BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
+  BINARY_OPERATOR_VISITOR(AndOperator, &&, AND);
+  BINARY_OPERATOR_VISITOR(AdditionOperator, +, +);
+  BINARY_OPERATOR_VISITOR(SubtractionOperator, -, -);
+  BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
+  BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
+  BINARY_OPERATOR_VISITOR(ModOperator, %, %);
+  BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
+  BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
+  BINARY_OPERATOR_VISITOR(LessOperator, <, <);
+  BINARY_OPERATOR_VISITOR(GreaterOperator, >, >);
+  BINARY_OPERATOR_VISITOR(LessEqualOperator, <=, <=);
+  BINARY_OPERATOR_VISITOR(GreaterEqualOperator, >=, >=);
 
-  UNARY_OPERATOR_VISITOR(NotOperator, !);
-  UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +);
-  UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -);
+  UNARY_OPERATOR_VISITOR(NotOperator, !, NOT);
+  UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +, +);
+  UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
 
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
@@ -115,9 +127,12 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (_list.IsNull()) {
       return TypedValue::Null;
     }
-    // Exceptions have higher priority than returning null.
-    // We need to convert list to its type before checking if literal is null,
-    // because conversion will throw exception if list conversion fails.
+    // Exceptions have higher priority than returning nulls when list expression
+    // is not null.
+    if (_list.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("'IN' expected a list, but got {}",
+                                  _list.type());
+    }
     auto list = _list.Value<std::vector<TypedValue>>();
     if (literal.IsNull()) {
       return TypedValue::Null;
@@ -142,12 +157,14 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     auto _list = list_indexing.expression1_->Accept(*this);
     if (_list.type() != TypedValue::Type::List &&
         _list.type() != TypedValue::Type::Null) {
-      throw TypedValueException("Incompatible type in list lookup");
+      throw QueryRuntimeException(
+          "Expected a list to index with '[]', but got {}", _list.type());
     }
     auto _index = list_indexing.expression2_->Accept(*this);
     if (_index.type() != TypedValue::Type::Int &&
         _index.type() != TypedValue::Type::Null) {
-      throw TypedValueException("Incompatible type in list lookup");
+      throw QueryRuntimeException("Expected an int as a list index, but got {}",
+                                  _index.type());
     }
     if (_index.type() == TypedValue::Type::Null ||
         _list.type() == TypedValue::Type::Null) {
@@ -174,7 +191,9 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         if (bound.type() == TypedValue::Type::Null) {
           is_null = true;
         } else if (bound.type() != TypedValue::Type::Int) {
-          throw TypedValueException("Incompatible type in list slicing");
+          throw QueryRuntimeException(
+              "Expected an int for a bound in list slicing, but got {}",
+              bound.type());
         }
         return bound;
       }
@@ -188,7 +207,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
     } else if (_list.type() != TypedValue::Type::List) {
-      throw TypedValueException("Incompatible type in list slicing");
+      throw QueryRuntimeException("Expected a list to slice, but got {}",
+                                  _list.type());
     }
 
     if (is_null) {
@@ -232,7 +252,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         throw utils::NotYetImplemented(
             "Not yet implemented property lookup on map");
       default:
-        throw TypedValueException(
+        throw QueryRuntimeException(
             "Expected Node, Edge or Map for property lookup");
     }
   }
@@ -252,7 +272,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         return true;
       }
       default:
-        throw TypedValueException("Expected Node in labels test");
+        throw QueryRuntimeException("Expected Node in labels test");
     }
   }
 
@@ -272,7 +292,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         return false;
       }
       default:
-        throw TypedValueException("Expected Edge in edge type test");
+        throw QueryRuntimeException("Expected Edge in edge type test");
     }
   }
 

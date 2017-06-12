@@ -19,6 +19,32 @@
 
 namespace query::plan {
 
+namespace {
+
+// Sets a property on a record accessor from a TypedValue. In cases when the
+// TypedValue cannot be converted to PropertyValue,
+// QueryRuntimeException is raised.
+template <class TRecordAccessor>
+void PropsSetChecked(TRecordAccessor &record, GraphDbTypes::Property key,
+                     TypedValue value) {
+  try {
+    record.PropsSet(key, value);
+  } catch (const TypedValueException &) {
+    throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                value.type());
+  }
+}
+
+// Checks if the given value of the symbol has the expected type. If not, raises
+// QueryRuntimeException.
+void ExpectType(Symbol symbol, TypedValue value, TypedValue::Type expected) {
+  if (value.type() != expected)
+    throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected,
+                                symbol.name(), value.type());
+}
+
+}  // namespace
+
 bool Once::OnceCursor::Pull(Frame &, const SymbolTable &) {
   if (!did_pull_) {
     did_pull_ = true;
@@ -66,9 +92,8 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
-  for (auto &kv : self_.node_atom_->properties_) {
-    new_node.PropsSet(kv.first, kv.second->Accept(evaluator));
-  }
+  for (auto &kv : self_.node_atom_->properties_)
+    PropsSetChecked(new_node, kv.first, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
 }
 
@@ -97,6 +122,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame,
 
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.Value<VertexAccessor>();
 
   // Similarly to CreateNode, newly created edges and nodes should use the
@@ -134,16 +160,17 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     Frame &frame, const SymbolTable &symbol_table,
     ExpressionEvaluator &evaluator) {
   if (self_.existing_node_) {
-    TypedValue &dest_node_value =
-        frame[symbol_table.at(*self_.node_atom_->identifier_)];
+    const auto &dest_node_symbol =
+        symbol_table.at(*self_.node_atom_->identifier_);
+    TypedValue &dest_node_value = frame[dest_node_symbol];
+    ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.Value<VertexAccessor>();
   } else {
     // the node does not exist, it needs to be created
     auto node = db_.insert_vertex();
     for (auto label : self_.node_atom_->labels_) node.add_label(label);
-    for (auto kv : self_.node_atom_->properties_) {
-      node.PropsSet(kv.first, kv.second->Accept(evaluator));
-    }
+    for (auto kv : self_.node_atom_->properties_)
+      PropsSetChecked(node, kv.first, kv.second->Accept(evaluator));
     auto symbol = symbol_table.at(*self_.node_atom_->identifier_);
     frame[symbol] = node;
     return frame[symbol].Value<VertexAccessor>();
@@ -155,9 +182,8 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
     const SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
   EdgeAccessor edge =
       db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
-  for (auto kv : self_.edge_atom_->properties_) {
-    edge.PropsSet(kv.first, kv.second->Accept(evaluator));
-  }
+  for (auto kv : self_.edge_atom_->properties_)
+    PropsSetChecked(edge, kv.first, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 
@@ -321,7 +347,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   // Vertex could be null if it is created by a failed optional match, in such a
   // case we should stop expanding.
   if (vertex_value.IsNull()) return false;
-
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
   // Switch the expansion origin vertex to the desired state.
   switch (self_.graph_view_) {
@@ -362,8 +388,9 @@ bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
   if (self_.existing_edge_) {
     TypedValue &old_edge_value = frame[self_.edge_symbol_];
     // old_edge_value may be Null when using optional matching
-    return !old_edge_value.IsNull() &&
-           old_edge_value.Value<EdgeAccessor>() == new_edge;
+    if (old_edge_value.IsNull()) return false;
+    ExpectType(self_.edge_symbol_, old_edge_value, TypedValue::Type::Edge);
+    return old_edge_value.Value<EdgeAccessor>() == new_edge;
   } else {
     // not matching existing, so put the new_edge into the frame and return true
     frame[self_.edge_symbol_] = new_edge;
@@ -390,8 +417,9 @@ bool Expand::ExpandCursor::HandleExistingNode(const VertexAccessor new_node,
   if (self_.existing_node_) {
     TypedValue &old_node_value = frame[self_.node_symbol_];
     // old_node_value may be Null when using optional matching
-    return !old_node_value.IsNull() &&
-           old_node_value.Value<VertexAccessor>() == new_node;
+    if (old_node_value.IsNull()) return false;
+    ExpectType(self_.node_symbol_, old_node_value, TypedValue::Type::Vertex);
+    return old_node_value.Value<VertexAccessor>() == new_node;
   } else {
     // not matching existing, so put the new_node into the frame and return true
     frame[self_.node_symbol_] = new_node;
@@ -419,7 +447,14 @@ bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::OLD);
   while (input_cursor_->Pull(frame, symbol_table)) {
     TypedValue result = self_.expression_->Accept(evaluator);
-    if (result.IsNull() || !result.Value<bool>()) continue;
+    // Null is treated like false.
+    if (result.IsNull()) continue;
+
+    if (result.type() != TypedValue::Type::Bool)
+      throw QueryRuntimeException(
+          "Filter expression must be a bool or null, but got {}.",
+          result.type());
+    if (!result.Value<bool>()) continue;
     return true;
   }
   return false;
@@ -522,7 +557,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
         break;
       // check we're not trying to delete anything except vertices and edges
       default:
-        throw TypedValueException("Can only delete edges and vertices");
+        throw QueryRuntimeException("Can only delete edges and vertices");
     }
 
   return true;
@@ -553,17 +588,12 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
-  // TODO the following code uses implicit TypedValue to PropertyValue
-  // conversion which throws a TypedValueException if impossible
-  // this is correct, but the end user will get a not-very-informative
-  // error message, so address this when improving error feedback
-
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      lhs.Value<VertexAccessor>().PropsSet(self_.lhs_->property_, rhs);
+      PropsSetChecked(lhs.Value<VertexAccessor>(), self_.lhs_->property_, rhs);
       break;
     case TypedValue::Type::Edge:
-      lhs.Value<EdgeAccessor>().PropsSet(self_.lhs_->property_, rhs);
+      PropsSetChecked(lhs.Value<EdgeAccessor>(), self_.lhs_->property_, rhs);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -638,12 +668,8 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
       set_props(rhs.Value<VertexAccessor>().Properties());
       break;
     case TypedValue::Type::Map: {
-      // TODO the following code uses implicit TypedValue to PropertyValue
-      // conversion which throws a TypedValueException if impossible
-      // this is correct, but the end user will get a not-very-informative
-      // error message, so address this when improving error feedback
       for (const auto &kv : rhs.Value<std::map<std::string, TypedValue>>())
-        record.PropsSet(db_.property(kv.first), kv.second);
+        PropsSetChecked(record, db_.property(kv.first), kv.second);
       break;
     }
     default:
@@ -680,7 +706,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame,
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip setting labels on Null (can occur in optional match).
   if (vertex_value.IsNull()) return true;
-
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.add_label(label);
@@ -723,8 +749,6 @@ bool RemoveProperty::RemovePropertyCursor::Pull(
       // Skip removing properties on Null (can occur in optional match).
       break;
     default:
-      // TODO consider throwing a TypedValueException here
-      // deal with this when we'll be overhauling error-feedback
       throw QueryRuntimeException(
           "Properties can only be removed on Vertices and Edges");
   }
@@ -755,7 +779,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame,
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip removing labels on Null (can occur in optional match).
   if (vertex_value.IsNull()) return true;
-
+  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
   for (auto label : self_.labels_) vertex.remove_label(label);
@@ -796,6 +820,9 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     TAccessor &expand_accessor = expand_value.Value<TAccessor>();
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
+      // This shouldn't raise a TypedValueException, because the planner makes
+      // sure these are all of the expected type. In case they are not, an error
+      // should be raised long before this code is executed.
       TAccessor &previous_accessor = previous_value.Value<TAccessor>();
       if (expand_accessor == previous_accessor) return false;
     }
@@ -1026,10 +1053,12 @@ void Aggregate::AggregateCursor::Update(
     Frame &frame, const SymbolTable &symbol_table,
     ExpressionEvaluator &evaluator,
     Aggregate::AggregateCursor::AggregationValue &agg_value) {
-  debug_assert(self_.aggregations_.size() == agg_value.values_.size(),
-               "Inappropriate AggregationValue.values_ size");
-  debug_assert(self_.aggregations_.size() == agg_value.counts_.size(),
-               "Inappropriate AggregationValue.counts_ size");
+  debug_assert(
+      self_.aggregations_.size() == agg_value.values_.size(),
+      "Expected as much AggregationValue.values_ as there are aggregations.");
+  debug_assert(
+      self_.aggregations_.size() == agg_value.counts_.size(),
+      "Expected as much AggregationValue.counts_ as there are aggregations.");
 
   // we iterate over counts, values and aggregation info at the same time
   auto count_it = agg_value.counts_.begin();
@@ -1083,20 +1112,28 @@ void Aggregate::AggregateCursor::Update(
         break;
       case Aggregation::Op::MIN: {
         EnsureOkForMinMax(input_value);
-        // TODO an illegal comparison here will throw a TypedValueException
-        // consider catching and throwing something else
-        TypedValue comparison_result = input_value < *value_it;
-        // since we skip nulls we either have a valid comparison, or
-        // an exception was just thrown above
-        // safe to assume a bool TypedValue
-        if (comparison_result.Value<bool>()) *value_it = input_value;
+        try {
+          TypedValue comparison_result = input_value < *value_it;
+          // since we skip nulls we either have a valid comparison, or
+          // an exception was just thrown above
+          // safe to assume a bool TypedValue
+          if (comparison_result.Value<bool>()) *value_it = input_value;
+        } catch (const TypedValueException &) {
+          throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'",
+                                      input_value.type(), value_it->type());
+        }
         break;
       }
       case Aggregation::Op::MAX: {
         //  all comments as for Op::Min
         EnsureOkForMinMax(input_value);
-        TypedValue comparison_result = input_value > *value_it;
-        if (comparison_result.Value<bool>()) *value_it = input_value;
+        try {
+          TypedValue comparison_result = input_value > *value_it;
+          if (comparison_result.Value<bool>()) *value_it = input_value;
+        } catch (const TypedValueException &) {
+          throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'",
+                                      input_value.type(), value_it->type());
+        }
         break;
       }
       case Aggregation::Op::AVG:
@@ -1129,9 +1166,8 @@ void Aggregate::AggregateCursor::EnsureOkForMinMax(
     case TypedValue::Type::String:
       return;
     default:
-      // TODO consider better error feedback
-      throw TypedValueException(
-          "Only Bool, Int, Double and String properties are allowed in "
+      throw QueryRuntimeException(
+          "Only Bool, Int, Double and String values are allowed in "
           "MIN and MAX aggregations");
   }
 }
@@ -1142,9 +1178,8 @@ void Aggregate::AggregateCursor::EnsureOkForAvgSum(
     case TypedValue::Type::Double:
       return;
     default:
-      // TODO consider better error feedback
-      throw TypedValueException(
-          "Only numeric properties allowed in SUM and AVG aggregations");
+      throw QueryRuntimeException(
+          "Only numeric values allowed in SUM and AVG aggregations");
   }
 }
 
@@ -1547,7 +1582,8 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
     ExpressionEvaluator evaluator(frame, symbol_table, db_);
     TypedValue input_value = self_.input_expression_->Accept(evaluator);
     if (input_value.type() != TypedValue::Type::List)
-      throw QueryRuntimeException("UNWIND only accepts list values");
+      throw QueryRuntimeException("UNWIND only accepts list values, got '{}'",
+                                  input_value.type());
     input_value_ = input_value.Value<std::vector<TypedValue>>();
     input_value_it_ = input_value_.begin();
   }

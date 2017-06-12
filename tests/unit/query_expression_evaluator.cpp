@@ -361,7 +361,7 @@ TEST(ExpressionEvaluator, ListIndexingOperator) {
     auto *op = storage.Create<ListIndexingOperator>(
         storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>(TypedValue::Null));
-    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
 }
 
@@ -431,14 +431,14 @@ TEST(ExpressionEvaluator, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null),
         storage.Create<PrimitiveLiteral>("mirko"));
-    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
   {
     // List of illegal type.
     auto *op = storage.Create<ListSlicingOperator>(
         storage.Create<PrimitiveLiteral>("a"),
         storage.Create<PrimitiveLiteral>(-2), nullptr);
-    EXPECT_THROW(op->Accept(eval.eval), TypedValueException);
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
   {
     // Null value list with undefined upper bound.
