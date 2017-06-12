@@ -4,7 +4,8 @@
 
 namespace GraphDbTypes {
 // definitions for what data types are used for a Label, Property, EdgeType
-using Label = std::string *;
-using EdgeType = std::string *;
-using Property = std::string *;
+// TODO: Typedefing pointers is terrible astractions, get rid of it.
+using Label = const std::string *;
+using EdgeType = const std::string *;
+using Property = const std::string *;
 };

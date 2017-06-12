@@ -1,5 +1,5 @@
-#include "database/graph_db_accessor.hpp"
 #include "database/creation_exception.hpp"
+#include "database/graph_db_accessor.hpp"
 
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
@@ -169,7 +169,7 @@ GraphDbTypes::Label GraphDbAccessor::label(const std::string &label_name) {
   return &(*db_.labels_.access().insert(label_name).first);
 }
 
-std::string &GraphDbAccessor::label_name(
+const std::string &GraphDbAccessor::label_name(
     const GraphDbTypes::Label label) const {
   return *label;
 }
@@ -179,7 +179,7 @@ GraphDbTypes::EdgeType GraphDbAccessor::edge_type(
   return &(*db_.edge_types_.access().insert(edge_type_name).first);
 }
 
-std::string &GraphDbAccessor::edge_type_name(
+const std::string &GraphDbAccessor::edge_type_name(
     const GraphDbTypes::EdgeType edge_type) const {
   return *edge_type;
 }
@@ -189,7 +189,7 @@ GraphDbTypes::Property GraphDbAccessor::property(
   return &(*db_.properties_.access().insert(property_name).first);
 }
 
-std::string &GraphDbAccessor::property_name(
+const std::string &GraphDbAccessor::property_name(
     const GraphDbTypes::Property property) const {
   return *property;
 }

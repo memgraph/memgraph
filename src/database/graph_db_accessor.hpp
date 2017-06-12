@@ -353,7 +353,7 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  std::string &label_name(const GraphDbTypes::Label label) const;
+  const std::string &label_name(const GraphDbTypes::Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
@@ -367,7 +367,8 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  std::string &edge_type_name(const GraphDbTypes::EdgeType edge_type) const;
+  const std::string &edge_type_name(
+      const GraphDbTypes::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
@@ -381,7 +382,7 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  std::string &property_name(const GraphDbTypes::Property property) const;
+  const std::string &property_name(const GraphDbTypes::Property property) const;
 
   /**
    * Advances transaction's command id by 1.
