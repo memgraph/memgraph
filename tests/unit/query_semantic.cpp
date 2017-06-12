@@ -848,4 +848,24 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
 
+TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
+  // Test MATCH (n) -[r {prop: n.prop}]- (m) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  edge->properties_[prop] = n_prop;
+  auto node_n = NODE("n");
+  auto query = QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `n`, `r`, `m` and implicit in RETURN `r AS r`
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  auto n = symbol_table.at(*node_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+}
+
 }  // namespace

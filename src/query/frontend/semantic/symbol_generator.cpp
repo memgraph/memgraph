@@ -305,6 +305,11 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "when creating an edge");
     }
   }
+  scope_.in_property_map = true;
+  for (auto kv : edge_atom.properties_) {
+    kv.second->Accept(*this);
+  }
+  scope_.in_property_map = false;
   return true;
 }
 
