@@ -4,8 +4,8 @@
 
 #include <list>
 
-#include "mvcc/id.hpp"
 #include "mvcc/record.hpp"
+#include "transactions/transaction.hpp"
 #include "utils/assert.hpp"
 
 /**
@@ -31,7 +31,8 @@ class DeferredDeleter {
    * @param last_transaction - nothing newer or equal to it can see these
    * objects
    */
-  void AddObjects(const std::vector<T *> &objects, const Id &last_transaction) {
+  void AddObjects(const std::vector<T *> &objects,
+                  tx::transaction_id_t last_transaction) {
     debug_assert(
         objects_.size() == 0 || objects_.back().deleted_at <= last_transaction,
         "Transaction ids are not non-decreasing.");
@@ -43,7 +44,7 @@ class DeferredDeleter {
    * @brief - Free memory of objects deleted before the id.
    * @param id - delete before this id
    */
-  void FreeExpiredObjects(const Id &id) {
+  void FreeExpiredObjects(tx::transaction_id_t id) {
     auto it = objects_.begin();
     while (it != objects_.end() && it->deleted_at < id) {
       delete it->object;
@@ -69,8 +70,8 @@ class DeferredDeleter {
    */
   struct DeletedObject {
     const T *object;
-    const Id deleted_at;
-    DeletedObject(T *object, const Id &deleted_at)
+    const tx::transaction_id_t deleted_at;
+    DeletedObject(T *object, tx::transaction_id_t deleted_at)
         : object(object), deleted_at(deleted_at) {}
   };
 

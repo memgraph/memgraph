@@ -8,7 +8,7 @@
 #include "utils/assert.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(db.tx_engine.begin()) {}
+    : db_(db), transaction_(db.tx_engine.Begin()) {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
@@ -19,20 +19,20 @@ GraphDbAccessor::~GraphDbAccessor() {
 const std::string &GraphDbAccessor::name() const { return db_.name_; }
 
 void GraphDbAccessor::advance_command() {
-  transaction_->engine.advance(transaction_->id);
+  transaction_->engine_.Advance(transaction_->id_);
 }
 
 void GraphDbAccessor::commit() {
   debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
-  transaction_->commit();
+  transaction_->Commit();
   commited_ = true;
 }
 
 void GraphDbAccessor::abort() {
   debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
-  transaction_->abort();
+  transaction_->Abort();
   aborted_ = true;
 }
 

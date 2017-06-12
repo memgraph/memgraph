@@ -1,8 +1,6 @@
 #include <vector>
-#include "gc_common.hpp"
 #include "gtest/gtest.h"
 
-#include "mvcc/id.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
@@ -10,18 +8,20 @@
 #include "transactions/engine.hpp"
 #include "transactions/transaction.cpp"
 
+#include "mvcc_gc_common.hpp"
+
 class TestClass : public mvcc::Record<TestClass> {};
 
 TEST(MVCC, Deadlock) {
   tx::Engine engine;
 
-  auto t0 = engine.begin();
+  auto t0 = engine.Begin();
   mvcc::VersionList<TestClass> version_list1(*t0);
   mvcc::VersionList<TestClass> version_list2(*t0);
-  t0->commit();
+  t0->Commit();
 
-  auto t1 = engine.begin();
-  auto t2 = engine.begin();
+  auto t1 = engine.Begin();
+  auto t2 = engine.Begin();
 
   version_list1.update(*t1);
   version_list2.update(*t2);
@@ -34,23 +34,23 @@ TEST(MVCC, UpdateDontDelete) {
   std::atomic<int> count{0};
   {
     tx::Engine engine;
-    auto t1 = engine.begin();
-    mvcc::VersionList<PropCount> version_list(*t1, count);
-    t1->commit();
+    auto t1 = engine.Begin();
+    mvcc::VersionList<DestrCountRec> version_list(*t1, count);
+    t1->Commit();
 
-    auto t2 = engine.begin();
+    auto t2 = engine.Begin();
     version_list.update(*t2);
-    t2->abort();
+    t2->Abort();
     EXPECT_EQ(count, 0);
 
-    auto t3 = engine.begin();
+    auto t3 = engine.Begin();
 
     // Update re-links the node and shouldn't clear it yet.
     version_list.update(*t3);
     EXPECT_EQ(count, 0);
 
     // TODO Gleich: why don't we also test that remove doesn't delete?
-    t3->commit();
+    t3->Commit();
   }
   EXPECT_EQ(count, 3);
 }
@@ -58,13 +58,13 @@ TEST(MVCC, UpdateDontDelete) {
 // Check that we get the oldest record.
 TEST(MVCC, Oldest) {
   tx::Engine engine;
-  auto t1 = engine.begin();
+  auto t1 = engine.Begin();
   mvcc::VersionList<TestClass> version_list(*t1);
   auto first = version_list.Oldest();
   EXPECT_NE(first, nullptr);
   // TODO Gleich: no need to do 10 checks of the same thing
   for (int i = 0; i < 10; ++i) {
-    engine.advance(t1->id);
+    engine.Advance(t1->id_);
     version_list.update(*t1);
     EXPECT_EQ(version_list.Oldest(), first);
   }

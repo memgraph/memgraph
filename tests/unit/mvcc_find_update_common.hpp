@@ -1,18 +1,12 @@
 #include <vector>
 #include "gtest/gtest.h"
 
-#include "mvcc/id.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.cpp"
-
-// make it easy to compare Id with int
-bool operator==(const Id &left, const int right) {
-  return static_cast<uint64_t>(left) == static_cast<uint64_t>(right);
-}
 
 class TestClass : public mvcc::Record<TestClass> {
  public:
@@ -53,22 +47,22 @@ class TestClass : public mvcc::Record<TestClass> {
 class Mvcc : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    id0 = Id{0};
-    t1 = &engine.advance(t1->id);
-    id1 = t1->id;
+    id0 = 0;
+    t1 = &engine.Advance(t1->id_);
+    id1 = t1->id_;
     v1 = version_list.find(*t1);
-    t1->commit();
-    t2 = engine.begin();
-    id2 = t2->id;
+    t1->Commit();
+    t2 = engine.Begin();
+    id2 = t2->id_;
   }
   // variable where number of versions is stored
   int version_list_size = 0;
   tx::Engine engine;
-  tx::Transaction *t1 = engine.begin();
+  tx::Transaction *t1 = engine.Begin();
   mvcc::VersionList<TestClass> version_list{*t1, version_list_size};
   TestClass *v1 = nullptr;
   tx::Transaction *t2 = nullptr;
-  int id0, id1, id2;
+  tx::transaction_id_t id0, id1, id2;
 };
 
 // helper macros. important:
@@ -79,12 +73,12 @@ class Mvcc : public ::testing::Test {
 #define T4_FIND __attribute__((unused)) auto v4 = version_list.find(*t4)
 #define T2_UPDATE __attribute__((unused)) auto v2 = version_list.update(*t2)
 #define T3_UPDATE __attribute__((unused)) auto v3 = version_list.update(*t3)
-#define T2_COMMIT t2->commit();
-#define T3_COMMIT t3->commit();
-#define T2_ABORT t2->abort();
-#define T3_ABORT t3->abort();
-#define T3_BEGIN auto t3 = engine.begin(); __attribute__((unused)) int id3 = t3->id
-#define T4_BEGIN auto t4 = engine.begin();
+#define T2_COMMIT t2->Commit();
+#define T3_COMMIT t3->Commit();
+#define T2_ABORT t2->Abort();
+#define T3_ABORT t3->Abort();
+#define T3_BEGIN auto t3 = engine.Begin(); __attribute__((unused)) int id3 = t3->id_
+#define T4_BEGIN auto t4 = engine.Begin();
 #define T2_REMOVE version_list.remove(*t2)
 #define T3_REMOVE version_list.remove(*t3)
 #define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx.cre(), id##expected)

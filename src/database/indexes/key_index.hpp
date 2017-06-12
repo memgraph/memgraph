@@ -83,13 +83,15 @@ class KeyIndex {
    * @brief - Removes from the index all entries for which records don't contain
    * the given label anymore. Update all record which are not visible for any
    * transaction with an id larger or equal to `id`.
-   * @param id - oldest active id, safe to remove everything deleted before this
-   * id.
+   *
+   * @param snapshot - the GC snapshot. Consists of the oldest active
+   * transaction's snapshot, with that transaction's id appened as last.
    * @param engine - transaction engine to see which records are commited
    */
-  void Refresh(const Id &id, tx::Engine &engine) {
+  void Refresh(const tx::Snapshot &snapshot, tx::Engine &engine) {
     return IndexUtils::Refresh<TKey, IndexEntry, TRecord>(
-        indices_, id, engine, [](const TKey &key, const IndexEntry &entry) {
+        indices_, snapshot, engine,
+        [](const TKey &key, const IndexEntry &entry) {
           return KeyIndex::Exists(key, entry.record_);
         });
   }

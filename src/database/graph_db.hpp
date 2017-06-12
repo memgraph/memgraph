@@ -67,10 +67,6 @@ class GraphDb : public Loggable {
   /** transaction engine related to this database */
   tx::Engine tx_engine;
 
-  /** garbage collector related to this database*/
-  // TODO bring back garbage collection
-  //  Garbage garbage = {tx_engine};
-
   // database name
   // TODO consider if this is even necessary
   const std::string name_;

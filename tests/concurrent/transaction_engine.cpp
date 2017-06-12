@@ -18,9 +18,9 @@ int main() {
     uint64_t sum = 0;
 
     for (int i = 0; i < n; ++i) {
-      auto t = engine.begin();
-      sum += t->id;
-      engine.commit(*t);
+      auto t = engine.Begin();
+      sum += t->id_;
+      engine.Commit(*t);
     }
 
     sums[idx] = sum;

@@ -34,25 +34,29 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
     gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec), [this]() {
       // main garbage collection logic
       // see wiki documentation for logic explanation
-      const auto next_id = this->tx_engine.count() + 1;
-      const auto id = this->tx_engine.oldest_active().get_or(next_id);
+      const auto snapshot = this->tx_engine.GcSnapshot();
       {
         // This can be run concurrently
-        this->gc_vertices_.Run(id, this->tx_engine);
-        this->gc_edges_.Run(id, this->tx_engine);
+        this->gc_vertices_.Run(snapshot, this->tx_engine);
+        this->gc_edges_.Run(snapshot, this->tx_engine);
       }
       // This has to be run sequentially after gc because gc modifies
       // version_lists and changes the oldest visible record, on which Refresh
       // depends.
       {
         // This can be run concurrently
-        this->labels_index_.Refresh(id, this->tx_engine);
-        this->edge_types_index_.Refresh(id, this->tx_engine);
+        this->labels_index_.Refresh(snapshot, this->tx_engine);
+        this->edge_types_index_.Refresh(snapshot, this->tx_engine);
       }
-      this->edge_record_deleter_.FreeExpiredObjects(id);
-      this->vertex_record_deleter_.FreeExpiredObjects(id);
-      this->edge_version_list_deleter_.FreeExpiredObjects(id);
-      this->vertex_version_list_deleter_.FreeExpiredObjects(id);
+      // we free expired objects with snapshot.back(), which is
+      // the ID of the oldest active transaction (or next active, if there
+      // are no currently active). that's legal because that was the
+      // last possible transaction that could have obtained pointers
+      // to those records
+      this->edge_record_deleter_.FreeExpiredObjects(snapshot.back());
+      this->vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
+      this->edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
+      this->vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
     });
   }
 
@@ -122,8 +126,9 @@ GraphDb::~GraphDb() {
   for (auto &edge : this->edges_.access()) delete edge;
 
   // Free expired records with the maximal possible id from all the deleters.
-  this->edge_record_deleter_.FreeExpiredObjects(Id::MaximalId());
-  this->vertex_record_deleter_.FreeExpiredObjects(Id::MaximalId());
-  this->edge_version_list_deleter_.FreeExpiredObjects(Id::MaximalId());
-  this->vertex_version_list_deleter_.FreeExpiredObjects(Id::MaximalId());
+  this->edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  this->vertex_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  this->edge_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  this->vertex_version_list_deleter_.FreeExpiredObjects(
+      tx::Transaction::MaxId());
 }

@@ -2,7 +2,7 @@
 
 void RecordLock::lock() { mutex.lock(&timeout); }
 
-LockStatus RecordLock::lock(const Id& id) {
+LockStatus RecordLock::lock(tx::transaction_id_t id) {
   if (mutex.try_lock()) return owner = id, LockStatus::Acquired;
 
   if (owner == id) return LockStatus::AlreadyHeld;
@@ -11,9 +11,7 @@ LockStatus RecordLock::lock(const Id& id) {
 }
 
 void RecordLock::unlock() {
-  owner = INVALID;
   mutex.unlock();
 }
 
 constexpr struct timespec RecordLock::timeout;
-constexpr Id RecordLock::INVALID;

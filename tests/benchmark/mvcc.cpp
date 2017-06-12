@@ -15,11 +15,11 @@ void MvccMix(benchmark::State &state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
     tx::Engine engine;
-    auto t1 = engine.begin();
+    auto t1 = engine.Begin();
     mvcc::VersionList<Prop> version_list(*t1);
 
-    t1->commit();
-    auto t2 = engine.begin();
+    t1->Commit();
+    auto t2 = engine.Begin();
 
     state.ResumeTiming();
     version_list.update(*t2);
@@ -29,13 +29,13 @@ void MvccMix(benchmark::State &state) {
     version_list.find(*t2);
     state.PauseTiming();
 
-    t2->abort();
+    t2->Abort();
 
-    auto t3 = engine.begin();
+    auto t3 = engine.Begin();
     state.ResumeTiming();
     version_list.update(*t3);
     state.PauseTiming();
-    auto t4 = engine.begin();
+    auto t4 = engine.Begin();
 
     // Repeat find state.range(0) number of times.
     state.ResumeTiming();
@@ -44,8 +44,8 @@ void MvccMix(benchmark::State &state) {
     }
     state.PauseTiming();
 
-    t3->commit();
-    t4->commit();
+    t3->Commit();
+    t4->Commit();
     state.ResumeTiming();
   }
 }

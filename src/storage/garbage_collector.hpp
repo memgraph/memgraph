@@ -2,7 +2,6 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "logging/loggable.hpp"
-#include "mvcc/id.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "transactions/engine.hpp"
@@ -25,20 +24,22 @@ class GarbageCollector : public Loggable {
   /**
    * @brief - Runs garbage collector. Populates deferred deleters with version
    * lists and records.
-   * @param id - oldest active transaction id
+   *
+   * @param snapshot - the GC snapshot. Consists of the oldest active
+   * transaction's snapshot, with that transaction's id appened as last.
    * @param engine - reference to engine object
    */
-  void Run(const Id &id, tx::Engine &engine) {
+  void Run(const tx::Snapshot &snapshot, tx::Engine &engine) {
     auto collection_accessor = this->skiplist_.access();
     uint64_t count = 0;
     std::vector<T *> deleted_records;
     std::vector<mvcc::VersionList<T> *> deleted_version_lists;
     if (logger.Initialized())
-      logger.trace("Gc started cleaning everything deleted before {}", id);
+      logger.trace("GC started cleaning with snapshot: ", snapshot);
     for (auto version_list : collection_accessor) {
       // If the version_list is empty, i.e. there is nothing else to be read
       // from it we can delete it.
-      auto ret = version_list->GcDeleted(id, engine);
+      auto ret = version_list->GcDeleted(snapshot, engine);
       if (ret.first) {
         deleted_version_lists.push_back(version_list);
         count += collection_accessor.remove(version_list);
@@ -49,10 +50,10 @@ class GarbageCollector : public Loggable {
 
     // Add records to deleter, with the id larger or equal than the last active
     // transaction.
-    record_deleter_.AddObjects(deleted_records, engine.count());
+    record_deleter_.AddObjects(deleted_records, engine.Count());
     // Add version_lists to deleter, with the id larger or equal than the last
     // active transaction.
-    version_list_deleter_.AddObjects(deleted_version_lists, engine.count());
+    version_list_deleter_.AddObjects(deleted_version_lists, engine.Count());
   }
 
  private:

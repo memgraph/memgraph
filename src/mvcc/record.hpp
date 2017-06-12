@@ -9,7 +9,6 @@
 
 #include "mvcc/cre_exp.hpp"
 #include "mvcc/hints.hpp"
-#include "mvcc/id.hpp"
 #include "mvcc/version.hpp"
 #include "storage/locking/record_lock.hpp"
 
@@ -30,19 +29,19 @@ class Record : public Version<T> {
   // TODO maybe disable the copy-constructor and instead use a
   // data variable in the version_list update() function (and similar)
   // like it was in Dominik's implementation
-  Record(const Record &other) {}
+  Record(const Record &) {}
 
   // tx.cre is the id of the transaction that created the record
   // and tx.exp is the id of the transaction that deleted the record
   // these values are used to determine the visibility of the record
   // to the current transaction
-  CreExp<Id> tx;
+  CreExp<tx::transaction_id_t> tx;
 
   // cmd.cre is the id of the command in this transaction that created the
   // record and cmd.exp is the id of the command in this transaction that
   // deleted the record. these values are used to determine the visibility
   // of the record to the current command in the running transaction
-  CreExp<uint8_t> cmd;
+  CreExp<tx::command_id_t> cmd;
 
   Hints hints;
 
@@ -52,67 +51,86 @@ class Record : public Version<T> {
 
   // check if this record is visible to the transaction t
   bool visible(const tx::Transaction &t) {
-    // TODO check if the record was created by a transaction that has been
-    // aborted. one might implement this by checking the hints in mvcc
-    // anc/or consulting the commit log
-
     // Mike Olson says 17 march 1993: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
     // again. i know, it happened to me.
 
-    return ((tx.cre() == t.id &&      // inserted by the current transaction
-             cmd.cre() < t.cid &&     // before this command, and
-             (tx.exp() == Id(0) ||    // the row has not been deleted, or
-              (tx.exp() == t.id &&    // it was deleted by the current
+    // fetch expiration info in a safe way (see fetch_exp for details)
+    tx::transaction_id_t tx_exp;
+    tx::command_id_t cmd_exp;
+    std::tie(tx_exp, cmd_exp) = fetch_exp();
+
+    return ((tx.cre() == t.id_ &&     // inserted by the current transaction
+             cmd.cre() < t.cid() &&   // before this command, and
+             (tx_exp == 0 ||          // the row has not been deleted, or
+              (tx_exp == t.id_ &&     // it was deleted by the current
                                       // transaction
-               cmd.exp() >= t.cid)))  // but not before this command,
+               cmd_exp >= t.cid())))  // but not before this command,
             ||                        // or
             (cre_committed(tx.cre(), t) &&  // the record was inserted by a
                                             // committed transaction, and
-             (tx.exp() == Id(0) ||     // the record has not been deleted, or
-              (tx.exp() == t.id &&     // the row is being deleted by this
-                                       // transaction
-               cmd.exp() >= t.cid) ||  // but it's not deleted "yet", or
-              (tx.exp() != t.id &&     // the row was deleted by another
-                                       // transaction
-               !exp_committed(tx.exp(), t)  // that has not been committed
+             (tx_exp == 0 ||              // the record has not been deleted, or
+              (tx_exp == t.id_ &&         // the row is being deleted by this
+                                          // transaction
+               cmd_exp >= t.cid()) ||     // but it's not deleted "yet", or
+              (tx_exp != t.id_ &&         // the row was deleted by another
+                                          // transaction
+               !exp_committed(tx_exp, t)  // that has not been committed
                ))));
   }
 
   void mark_created(const tx::Transaction &t) {
-    debug_assert(tx.cre() == Id(0), "Marking node as created twice.");
-    tx.cre(t.id);
-    cmd.cre(t.cid);
+    debug_assert(tx.cre() == 0, "Marking node as created twice.");
+    tx.cre(t.id_);
+    cmd.cre(t.cid());
   }
 
   void mark_deleted(const tx::Transaction &t) {
-    if (tx.exp() != Id(0)) hints.exp.clear();
-    tx.exp(t.id);
-    cmd.exp(t.cid);
+    if (tx.exp() != 0) hints.exp.clear();
+    tx.exp(t.id_);
+    cmd.exp(t.cid());
   }
 
-  bool exp_committed(const Id &id, const tx::Transaction &t) {
+  bool exp_committed(tx::transaction_id_t id, const tx::Transaction &t) {
     return committed(hints.exp, id, t);
   }
 
-  bool exp_committed(const tx::Transaction &t) {
-    return committed(hints.exp, tx.exp(), t.engine);
+  bool exp_committed(tx::Engine &engine) {
+    return committed(hints.exp, tx.exp(), engine);
   }
 
-  bool cre_committed(const Id &id, const tx::Transaction &t) {
+  bool cre_committed(tx::transaction_id_t id, const tx::Transaction &t) {
     return committed(hints.cre, id, t);
   }
 
-  bool cre_committed(const tx::Transaction &t) {
-    return committed(hints.cre, tx.cre(), t);
-  }
+  /**
+   * Check if this record is visible w.r.t. to the given garbage collection
+   * snapshot. See source comments for exact logic.
+   *
+   * @param snapshot - the GC snapshot. Consists of the oldest active
+   * transaction's snapshot, with that transaction's id appened as last.
+   */
+  bool is_not_visible_from(const tx::Snapshot &snapshot,
+                           tx::Engine &engine) const {
+    // first get tx.exp so that all the subsequent checks operate on
+    // the same id. otherwise there could be a race condition
+    auto exp_id = tx.exp();
 
-  // Record won'te be visible to any transaction after or at `id` if it was
-  // expired before id or it's creation was aborted.
-  bool is_not_visible_from(const Id &id, tx::Engine &engine) const {
-    return (tx.exp() != Id(0) && tx.exp() < id &&
-            engine.clog.is_committed(tx.exp())) ||
-           engine.clog.is_aborted(tx.cre());
+    // a record is NOT visible if:
+    // 1. it creating transaction aborted (last check)
+    // OR
+    // 2. a) it's expiration is not 0 (some transaction expired it)
+    //    AND
+    //    b) the expiring transaction is older than latest active
+    //    AND
+    //    c) that transaction committed (as opposed to aborted)
+    //    AND
+    //    d) that transaction is not in oldest active transaction's
+    //       snapshot (consequently also not in the snapshots of
+    //       newer transactions)
+    return (exp_id != 0 && exp_id < snapshot.back() &&
+            engine.clog_.is_committed(exp_id) && !snapshot.contains(exp_id)) ||
+           engine.clog_.is_aborted(tx.cre());
   }
 
   // TODO: Test this
@@ -122,12 +140,17 @@ class Record : public Version<T> {
   // OR DURING this command. this is done to support cypher's
   // queries which can match, update and return in the same query
   bool is_visible_write(const tx::Transaction &t) {
-    return (tx.cre() == t.id &&       // inserted by the current transaction
-            cmd.cre() <= t.cid &&     // before OR DURING this command, and
-            (tx.exp() == Id(0) ||     // the row has not been deleted, or
-             (tx.exp() == t.id &&     // it was deleted by the current
+    // fetch expiration info in a safe way (see fetch_exp for details)
+    tx::transaction_id_t tx_exp;
+    tx::command_id_t cmd_exp;
+    std::tie(tx_exp, cmd_exp) = fetch_exp();
+
+    return (tx.cre() == t.id_ &&      // inserted by the current transaction
+            cmd.cre() <= t.cid() &&   // before OR DURING this command, and
+            (tx_exp == 0 ||           // the row has not been deleted, or
+             (tx_exp == t.id_ &&      // it was deleted by the current
                                       // transaction
-              cmd.exp() >= t.cid)));  // but not before this command,
+              cmd_exp >= t.cid())));  // but not before this command,
   }
 
   /**
@@ -135,7 +158,7 @@ class Record : public Version<T> {
    * of the given transaction.
    */
   bool is_created_by(const tx::Transaction &t) {
-    return tx.cre() == t.id && cmd.cre() == t.cid;
+    return tx.cre() == t.id_ && cmd.cre() == t.cid();
   }
 
   /**
@@ -143,22 +166,38 @@ class Record : public Version<T> {
    * of the given transaction.
    */
   bool is_deleted_by(const tx::Transaction &t) {
-    return tx.exp() == t.id && cmd.exp() == t.cid;
+    return tx.exp() == t.id_ && cmd.exp() == t.cid();
   }
 
- protected:
+ private:
+  /** Fetch the (transaction, command) expiration before the check
+   * because they can be concurrently modified by multiple transactions.
+   * Do it in a loop to ensure that command is consistent with transaction.
+   */
+  auto fetch_exp() {
+    tx::transaction_id_t tx_exp;
+    tx::command_id_t cmd_exp;
+    do {
+      tx_exp = tx.exp();
+      cmd_exp = cmd.exp();
+    } while (tx_exp != tx.exp());
+    return std::make_pair(tx_exp, cmd_exp);
+  }
+
   /**
-   * @brief - Check if the id is commited from the perspective of transactio,
-   * i.e. transaction can see the transaction with that id (it happened before
-   * the transaction, and is not in the snapshot). This method is used to test
-   * for visibility of some record.
+   * @brief - Check if the transaction with the given `id`
+   * is commited from the perspective of transaction `t`.
+   *
+   * Evaluates to true if that transaction has committed,
+   * it started before `t` and it's not in it's snapshot.
+   *
    * @param hints - hints to use to determine commit/abort
    * about transactions commit/abort status
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
   template <class U>
-  bool committed(U &hints, const Id &id, const tx::Transaction &t) {
+  bool committed(U &hints, tx::transaction_id_t id, const tx::Transaction &t) {
     // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
     // again. I know, it happened to me (and also to Matej Gradicek).
@@ -166,47 +205,47 @@ class Record : public Version<T> {
     // You certainly can't see the transaction with id greater than yours as
     // that means it started after this transaction and if it commited, it
     // commited after this transaction has started.
-    if (id >= t.id) return false;
+    if (id >= t.id_) return false;
 
     // The creating transaction is still in progress (examine snapshot)
-    if (t.in_snapshot(id)) return false;
+    if (t.snapshot().contains(id)) return false;
 
-    auto hint_bits = hints.load();
-
-    // TODO: Validate if this position is valid for next if.
-    // if hints are set, return if xid is committed
-    if (!hint_bits.is_unknown()) return hint_bits.is_committed();
-
-    // if hints are not set:
-    // - you are the first one to check since it ended, consult commit log
-    auto info = t.engine.clog.fetch_info(id);
-
-    if (info.is_committed()) return hints.set_committed(), true;
-
-    debug_assert(info.is_aborted(),
-                 "Info isn't aborted, but function would return as aborted.");
-    return hints.set_aborted(), false;
+    return committed(hints, id, t.engine_);
   }
 
   /**
-   * @brief - Check if the id is commited.
+   * @brief - Check if the transaction with the given `id`
+   * is committed.
+   *
    * @param hints - hints to use to determine commit/abort
    * @param id - id to check if commited
-   * @param engine - engine instance with information about transactions
+   * @param engine - engine instance with information about transaction
    * statuses
    * @return true if it's commited, false otherwise
    */
   template <class U>
-  bool committed(U &hints, const Id &id, tx::Engine &engine) {
+  bool committed(U &hints, tx::transaction_id_t id, tx::Engine &engine) {
     auto hint_bits = hints.load();
-    // if hints are set, return if xid is committed
+    // if hints are set, return if id is committed
     if (!hint_bits.is_unknown()) return hint_bits.is_committed();
 
-    // if hints are not set:
-    // - you are the first one to check since it ended, consult commit log
-    auto info = engine.clog.fetch_info(id);
+    // if hints are not set consult the commit log
+    auto info = engine.clog_.fetch_info(id);
+
+    // committed
     if (info.is_committed()) return hints.set_committed(), true;
-    if (info.is_aborted()) return hints.set_aborted(), false;
+
+    // we can't set_aborted hints because of a race-condition that
+    // can occurr when tx.exp gets changed by some transaction.
+    // to be correct, tx.exp and hints.exp.set_aborted should be
+    // atomic.
+    //
+    // this is not a problem with hints.cre.X because
+    // only one transaction ever creates a record
+    //
+    // it's also not a problem with hints.exp.set_committed
+    // because only one transaction ever can expire a record
+    // and commit
     return false;
   }
 };

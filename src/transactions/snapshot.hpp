@@ -1,66 +1,90 @@
 #pragma once
 
 #include <algorithm>
+#include <iostream>
 #include <vector>
 
-#include "mvcc/id.hpp"
+#include "transaction.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/assert.hpp"
 #include "utils/option.hpp"
 
 namespace tx {
 
 class Engine;
 
-template <class id_t>
+/** Ascendingly sorted collection of transaction ids.
+ *
+ * Represents the transactions that were active at
+ * some point in the discrete transaction time.
+ */
 class Snapshot {
  public:
   Snapshot() = default;
+  Snapshot(std::vector<transaction_id_t> &&active)
+      : transaction_ids_(std::move(active)) {}
+  // all the copy/move constructors/assignments act naturally
 
-  Snapshot(std::vector<id_t> active) : active(std::move(active)) {}
-
-  Snapshot(const Snapshot &other) { active = other.active; }
-
-  Snapshot(Snapshot &&other) { active = std::move(other.active); }
-
-  // True if all transaction from snapshot have finished.
-  bool all_finished(Engine &engine) const;
-
-  bool is_active(id_t xid) const {
-    return std::binary_search(active.begin(), active.end(), xid);
+  /** Returns true if this snapshot contains the given
+   * transaction id.
+   *
+   * @param xid - The transcation id in question
+   */
+  bool contains(transaction_id_t id) const {
+    return std::binary_search(transaction_ids_.begin(), transaction_ids_.end(),
+                              id);
   }
 
-  // Return id of oldest transaction. None if there is no transactions in
-  // snapshot.
-  Option<Id> oldest_active() const {
-    auto n = active.size();
-    if (n > 0) {
-      Id min = active[0];
-      for (auto i = 1; i < n; i++) {
-        if (active[i] < min) {
-          min = active[i];
-        }
-      }
-      return Option<Id>(min);
-
-    } else {
-      return Option<Id>();
-    }
+  /** Adds the given transaction id to the end of this Snapshot.
+   * The given id must be greater then all the existing ones,
+   * to maintain ascending sort order.
+   *
+   * @param id - the transaction id to add
+   */
+  void insert(transaction_id_t id) {
+    transaction_ids_.push_back(id);
+    debug_assert(
+        std::is_sorted(transaction_ids_.begin(), transaction_ids_.end()),
+        "Snapshot must be sorted");
   }
 
-  void insert(const id_t &id) { active.push_back(id); }
-
-  void remove(const id_t &id) {
-    // remove transaction from the active transactions list
-    auto last = std::remove(active.begin(), active.end(), id);
-    active.erase(last, active.end());
+  /** Removes the given transaction id from this Snapshot.
+   *
+   * @param id - the transaction id to remove
+   */
+  void remove(transaction_id_t id) {
+    auto last =
+        std::remove(transaction_ids_.begin(), transaction_ids_.end(), id);
+    transaction_ids_.erase(last, transaction_ids_.end());
   }
 
-  const id_t &front() const { return active.front(); }
+  transaction_id_t front() const {
+    debug_assert(transaction_ids_.size(), "Snapshot.front() on empty Snapshot");
+    return transaction_ids_.front();
+  }
 
-  const id_t &back() const { return active.back(); }
+  transaction_id_t back() const {
+    debug_assert(transaction_ids_.size(), "Snapshot.back() on empty Snapshot");
+    return transaction_ids_.back();
+  }
 
-  size_t size() { return active.size(); }
+  size_t size() const { return transaction_ids_.size(); }
+  bool empty() const { return transaction_ids_.empty(); }
+  bool operator==(const Snapshot &other) const {
+    return transaction_ids_ == other.transaction_ids_;
+  }
+  auto begin() const { return transaction_ids_.begin(); }
+  auto end() const { return transaction_ids_.end(); }
+
+  friend std::ostream &operator<<(std::ostream &stream,
+                                  const Snapshot &snapshot) {
+    stream << "Snapshot(";
+    PrintIterable(stream, snapshot.transaction_ids_);
+    stream << ")";
+    return stream;
+  }
 
  private:
-  std::vector<id_t> active;
+  std::vector<transaction_id_t> transaction_ids_;
 };
 }

@@ -5,6 +5,8 @@
 #include "database/indexes/label_property_index.hpp"
 #include "dbms/dbms.hpp"
 
+#include "mvcc_gc_common.hpp"
+
 class LabelPropertyIndexComplexTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
@@ -19,9 +21,9 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
     EXPECT_EQ(index.CreateIndex(*key), true);
     index.IndexFinishedBuilding(*key);
 
-    t = engine.begin();
+    t = engine.Begin();
     vlist = new mvcc::VersionList<Vertex>(*t);
-    engine.advance(t->id);
+    engine.Advance(t->id_);
 
     vertex = vlist->find(*t);
     ASSERT_NE(vertex, nullptr);
@@ -140,19 +142,19 @@ TEST_F(LabelPropertyIndexComplexTest, UniqueInsert) {
 // Check if index filters duplicates.
 TEST_F(LabelPropertyIndexComplexTest, UniqueFilter) {
   index.UpdateOnLabelProperty(vlist, vertex);
-  t->commit();
+  t->Commit();
 
-  auto t2 = engine.begin();
+  auto t2 = engine.Begin();
   auto vertex2 = vlist->update(*t2);
-  t2->commit();
+  t2->Commit();
 
   index.UpdateOnLabelProperty(vlist, vertex2);
   EXPECT_EQ(index.Count(*key), 2);
 
-  auto t3 = engine.begin();
+  auto t3 = engine.Begin();
   auto iter = index.GetVlists(*key, *t3, false);
   EXPECT_EQ(std::distance(iter.begin(), iter.end()), 1);
-  t3->commit();
+  t3->Commit();
 }
 
 // Remove label and check if index vertex is not returned now.
@@ -182,11 +184,11 @@ TEST_F(LabelPropertyIndexComplexTest, RemoveProperty) {
 // Refresh with a vertex that looses its labels and properties.
 TEST_F(LabelPropertyIndexComplexTest, Refresh) {
   index.UpdateOnLabelProperty(vlist, vertex);
-  t->commit();
+  t->Commit();
   EXPECT_EQ(index.Count(*key), 1);
   vertex->labels_.clear();
   vertex->properties_.clear();
-  index.Refresh(engine.count() + 1, engine);
+  index.Refresh(GcSnapshot(engine, nullptr), engine);
   auto iter = index.GetVlists(*key, *t, false);
   EXPECT_EQ(std::distance(iter.begin(), iter.end()), 0);
 }

@@ -116,12 +116,13 @@ static auto GetVlists(
 /**
  * @brief - Removes from the index all entries for which records don't contain
  * the given label/edge type/label + property anymore. Also update (remove)
- * all record which are not visible for any transaction with an id larger or
- * equal to `id`. This method assumes that the MVCC GC has been run with the
- * same 'id'.
+ * all records which are not visible for any transaction in the given
+ * 'snapshot'. This method assumes that the MVCC GC has been run with the
+ * same 'snapshot'.
+ *
  * @param indices - map of index entries (TIndexKey, skiplist<TIndexEntry>)
- * @param id - oldest active id, safe to remove everything deleted before this
- * id.
+ * @param snapshot - the GC snapshot. Consists of the oldest active
+ * transaction's snapshot, with that transaction's id appened as last.
  * @param engine - transaction engine to see which records are commited
  * @param exists - function which checks 'key' and 'entry' if the entry still
  * contains required properties (key + optional value (in case of label_property
@@ -132,45 +133,42 @@ static auto GetVlists(
  */
 template <class TKey, class TIndexEntry, class TRecord>
 static void Refresh(
-    ConcurrentMap<TKey, SkipList<TIndexEntry> *> &indices, const Id &id,
-    tx::Engine &engine,
+    ConcurrentMap<TKey, SkipList<TIndexEntry> *> &indices,
+    const tx::Snapshot &snapshot, tx::Engine &engine,
     const std::function<bool(const TKey &, const TIndexEntry &)> exists) {
+  // iterate over all the indices
   for (auto &key_indices_pair : indices.access()) {
+    // iterate over index entries
     auto indices_entries_accessor = key_indices_pair.second->access();
     for (auto indices_entry : indices_entries_accessor) {
-      // Remove it from index if it's deleted before the current id, or it
-      // doesn't have that label/edge_type/label+property anymore. We need to
-      // be careful when we are deleting the record which is not visible
-      // anymore because even though that record is not visible, some other,
-      // newer record could be visible, and might contain the label, and might
-      // not be in the index - that's why we can't remove it completely, but
-      // just update it's record value.
-      // We also need to be extra careful when checking for existance of
-      // label/edge_type because that record could still be under the update
-      // operation and as such could be modified while we are reading the
-      // label/edge_type - that's why we have to wait for it's creation id to
-      // be lower than ours `id` as that means it's surely either commited or
-      // aborted as we always refresh with the oldest active id.
-      if (indices_entry.record_->is_not_visible_from(id, engine)) {
-        // We first have to insert and then remove, because otherwise we might
-        // have a situation where there exists a vlist with the record
-        // containg the label/edge_type/label+property but it's not in our
-        // index.
-        // Get the oldest not deleted version for current 'id' (MVCC GC takes
-        // care of this.)
+      if (indices_entry.record_->is_not_visible_from(snapshot, engine)) {
+        // be careful when deleting the record which is not visible anymore.
+        // it's newer copy could be visible, and might still logically belong to
+        // index (it satisfies the `exists` function).  that's why we can't just
+        // remove the index entry, but also re-insert the oldest visible record
+        // to the index. if that record does not satisfy `exists`, it will be
+        // cleaned up in the next Refresh first insert and then remove,
+        // otherwise there is a timeframe during which the record is not present
+        // in the index
         auto new_record = indices_entry.vlist_->Oldest();
         if (new_record != nullptr)
           indices_entries_accessor.insert(
               TIndexEntry(indices_entry, new_record));
 
         auto success = indices_entries_accessor.remove(indices_entry);
-        debug_assert(success == true, "Not able to delete entry.");
-      } else if (indices_entry.record_->tx.cre() < id &&
-                 !exists(key_indices_pair.first, indices_entry)) {
-        // Since id is the oldest active id, if the record has been created
-        // before it we are sure that it won't be modified anymore and that
-        // the creating transaction finished, that's why it's safe to check
-        // it, and potentially remove it from index.
+        debug_assert(success, "Unable to delete entry.");
+      }
+
+      // if the record is still visible,
+      // check if it satisfies the `exists` function. if not
+      // it does not belong in index anymore.
+      // be careful when using the `exists` function
+      // because it's creator transaction could still be modifying it,
+      // and modify+read is not thread-safe. for that reason we need to
+      // first see if the the transaction that created it has ended
+      // (tx.cre() < oldest active trancsation).
+      else if (indices_entry.record_->tx.cre() < snapshot.back() &&
+               !exists(key_indices_pair.first, indices_entry)) {
         indices_entries_accessor.remove(indices_entry);
       }
     }

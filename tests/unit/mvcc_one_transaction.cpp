@@ -65,7 +65,7 @@ TEST_F(Mvcc, RemoveNotAdvanceRemove) {
 TEST_F(Mvcc, UpdateAdvanceUpdate) {
   T2_UPDATE;
   EXPECT_EQ(T2_FIND, v1);
-  engine.advance(t2->id);
+  engine.Advance(t2->id_);
   EXPECT_EQ(T2_FIND, v2);
   auto v2_2 = version_list.update(*t2);
   EXPECT_NXT(v2, v1);
@@ -82,7 +82,7 @@ TEST_F(Mvcc, UpdateAdvanceUpdate) {
 TEST_F(Mvcc, UpdateAdvanceRemove) {
   T2_UPDATE;
   EXPECT_EQ(T2_FIND, v1);
-  engine.advance(t2->id);
+  engine.Advance(t2->id_);
   EXPECT_EQ(T2_FIND, v2);
   T2_REMOVE;
   EXPECT_NXT(v2, v1);
@@ -96,7 +96,7 @@ TEST_F(Mvcc, UpdateAdvanceRemove) {
 TEST_F(Mvcc, RemoveAdvanceUpdate) {
   T2_REMOVE;
   EXPECT_EQ(T2_FIND, v1);
-  engine.advance(t2->id);
+  engine.Advance(t2->id_);
   EXPECT_EQ(T2_FIND, nullptr);
   EXPECT_DEATH(T2_UPDATE, ".*nullptr.*");
 }
@@ -104,7 +104,7 @@ TEST_F(Mvcc, RemoveAdvanceUpdate) {
 TEST_F(Mvcc, RemoveAdvanceRemove) {
   T2_REMOVE;
   EXPECT_EQ(T2_FIND, v1);
-  engine.advance(t2->id);
+  engine.Advance(t2->id_);
   EXPECT_EQ(T2_FIND, nullptr);
   EXPECT_DEATH(T2_REMOVE, ".*nullptr.*");
 }

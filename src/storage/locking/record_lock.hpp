@@ -1,19 +1,19 @@
 #pragma once
 
-#include "mvcc/id.hpp"
+#include "transactions/type.hpp"
 #include "storage/locking/lock_status.hpp"
 #include "threading/sync/futex.hpp"
 
 class RecordLock {
+  // TODO arbitrary constant, reconsider
   static constexpr struct timespec timeout { 2, 0 };
-  static constexpr Id INVALID = Id();
 
  public:
-  LockStatus lock(const Id& id);
+  LockStatus lock(tx::transaction_id_t id);
   void lock();
   void unlock();
 
  private:
   Futex mutex;
-  Id owner;
+  tx::transaction_id_t owner;
 };

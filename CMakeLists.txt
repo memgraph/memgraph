@@ -331,7 +331,6 @@ set(memgraph_src_files
     ${src_dir}/io/network/network_endpoint.cpp
     ${src_dir}/io/network/socket.cpp
     ${src_dir}/threading/thread.cpp
-    ${src_dir}/mvcc/id.cpp
     ${src_dir}/durability/snapshooter.cpp
     ${src_dir}/durability/recovery.cpp
     ${src_dir}/storage/property_value.cpp
@@ -339,7 +338,6 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/storage/edge_accessor.cpp
-    ${src_dir}/transactions/snapshot.cpp
     ${src_dir}/transactions/transaction.cpp
     ${src_dir}/template_engine/engine.cpp
     ${src_dir}/logging/streams/stdout.cpp

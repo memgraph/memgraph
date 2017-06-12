@@ -243,12 +243,13 @@ class LabelPropertyIndex {
    * @brief - Removes from the index all entries for which records don't contain
    * the given label anymore, or the record was deleted before this transaction
    * id.
-   * @param id - oldest active id, safe to remove everything deleted before this
-   * id.
+   *
+   * @param snapshot - the GC snapshot. Consists of the oldest active
+   * transaction's snapshot, with that transaction's id appened as last.
    */
-  void Refresh(const Id &id, tx::Engine &engine) {
+  void Refresh(const tx::Snapshot &snapshot, tx::Engine &engine) {
     return IndexUtils::Refresh<Key, IndexEntry, Vertex>(
-        indices_, id, engine, [](const Key &key, const IndexEntry &entry) {
+        indices_, snapshot, engine, [](const Key &key, const IndexEntry &entry) {
           return LabelPropertyIndex::Exists(key, entry.value_, entry.record_);
         });
   }

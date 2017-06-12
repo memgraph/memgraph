@@ -7,6 +7,8 @@
 #include "dbms/dbms.hpp"
 #include "storage/vertex.hpp"
 
+#include "mvcc_gc_common.hpp"
+
 using testing::UnorderedElementsAreArray;
 
 // Test index does it insert everything uniquely
@@ -15,10 +17,10 @@ TEST(LabelsIndex, UniqueInsert) {
   Dbms dbms;
   auto dba = dbms.active();
   tx::Engine engine;
-  auto t1 = engine.begin();
+  auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist(*t1);
-  t1->commit();
-  auto t2 = engine.begin();
+  t1->Commit();
+  auto t2 = engine.Begin();
 
   vlist.find(*t2)->labels_.push_back(dba->label("1"));
   index.Update(dba->label("1"), &vlist, vlist.find(*t2));
@@ -30,7 +32,7 @@ TEST(LabelsIndex, UniqueInsert) {
 
   vlist.find(*t2)->labels_.push_back(dba->label("3"));
   index.Update(dba->label("3"), &vlist, vlist.find(*t2));
-  t2->commit();
+  t2->Commit();
 
   EXPECT_EQ(index.Count(dba->label("1")), 1);
   EXPECT_EQ(index.Count(dba->label("2")), 1);
@@ -44,11 +46,10 @@ TEST(LabelsIndex, UniqueFilter) {
   auto dba = dbms.active();
   tx::Engine engine;
 
-  auto t1 = engine.begin();
+  auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist1(*t1);
   mvcc::VersionList<Vertex> vlist2(*t1);
-  t1->engine.advance(
-      t1->id);  // advance command so we can see our inserted version
+  engine.Advance(t1->id_);
   auto r1v1 = vlist1.find(*t1);
   auto r1v2 = vlist2.find(*t1);
   EXPECT_NE(vlist1.find(*t1), nullptr);
@@ -58,16 +59,16 @@ TEST(LabelsIndex, UniqueFilter) {
   vlist2.find(*t1)->labels_.push_back(label1);
   index.Update(label1, &vlist1, r1v1);
   index.Update(label1, &vlist2, r1v2);
-  t1->commit();
+  t1->Commit();
 
-  auto t2 = engine.begin();
+  auto t2 = engine.Begin();
   auto r2v1 = vlist1.update(*t2);
   auto r2v2 = vlist2.update(*t2);
   index.Update(label1, &vlist1, r2v1);
   index.Update(label1, &vlist2, r2v2);
-  t2->commit();
+  t2->Commit();
 
-  auto t3 = engine.begin();
+  auto t3 = engine.Begin();
   std::vector<mvcc::VersionList<Vertex> *> expected = {&vlist1, &vlist2};
   sort(expected.begin(),
        expected.end());  // Entries will be sorted by vlist pointers.
@@ -85,36 +86,37 @@ TEST(LabelsIndex, Refresh) {
   auto access = dbms.active();
   tx::Engine engine;
 
-  auto t1 = engine.begin();
+  // add two vertices to  database
+  auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist1(*t1);
   mvcc::VersionList<Vertex> vlist2(*t1);
-  t1->engine.advance(
-      t1->id);  // advance command so we can see our inserted version
-  auto r1v1 = vlist1.find(*t1);
-  auto r1v2 = vlist2.find(*t1);
-  EXPECT_NE(vlist1.find(*t1), nullptr);
+  engine.Advance(t1->id_);
 
-  auto label1 = access->label("1");
-  vlist1.find(*t1)->labels_.push_back(label1);
-  vlist2.find(*t1)->labels_.push_back(label1);
-  index.Update(label1, &vlist1, r1v1);
-  index.Update(label1, &vlist2, r1v2);
-  t1->commit();
+  auto v1r1 = vlist1.find(*t1);
+  auto v2r1 = vlist2.find(*t1);
+  EXPECT_NE(v1r1, nullptr);
+  EXPECT_NE(v2r1, nullptr);
 
-  auto t2 = engine.begin();
-  auto r2v1 = vlist1.update(*t2);
-  auto r2v2 = vlist2.update(*t2);
-  index.Update(label1, &vlist1, r2v1);
-  index.Update(label1, &vlist2, r2v2);
-  int last_id = t2->id;
-  t2->commit();
-  EXPECT_EQ(index.Count(label1), 4);
+  auto label = access->label("label");
+  v1r1->labels_.push_back(label);
+  v2r1->labels_.push_back(label);
+  index.Update(label, &vlist1, v1r1);
+  index.Update(label, &vlist2, v2r1);
+  t1->Commit();
 
-  index.Refresh(last_id, engine);
-  EXPECT_EQ(index.Count(label1), 4);
+  auto t2 = engine.Begin();
+  auto v1r2 = vlist1.update(*t2);
+  auto v2r2 = vlist2.update(*t2);
+  index.Update(label, &vlist1, v1r2);
+  index.Update(label, &vlist2, v2r2);
 
-  index.Refresh(last_id + 1, engine);
-  EXPECT_EQ(index.Count(label1), 2);
+  index.Refresh(GcSnapshot(engine, t2), engine);
+  EXPECT_EQ(index.Count(label), 4);
+
+  t2->Commit();
+  EXPECT_EQ(index.Count(label), 4);
+  index.Refresh(GcSnapshot(engine, nullptr), engine);
+  EXPECT_EQ(index.Count(label), 2);
 }
 
 // Transaction hasn't ended and so the vertex is not visible.

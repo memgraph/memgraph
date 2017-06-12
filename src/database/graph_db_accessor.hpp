@@ -261,12 +261,19 @@ class GraphDbAccessor {
     // index automatically, but we still have to add to index everything that
     // happened earlier. We have to first wait for every transaction that
     // happend before, or a bit later than CreateIndex to end.
-    auto wait_transaction = db_.tx_engine.begin();
-    wait_transaction->wait_for_active_except(transaction_->id);
-    wait_transaction->commit();
+    {
+      auto wait_transaction = db_.tx_engine.Begin();
+      for (auto id : wait_transaction->snapshot()) {
+        if (id == transaction_->id_) continue;
+        while (wait_transaction->engine_.clog_.fetch_info(id).is_active())
+          // TODO reconsider this constant, currently rule-of-thumb chosen
+          std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      wait_transaction->Commit();
+    }
 
     // This transaction surely sees everything that happened before CreateIndex.
-    auto transaction = db_.tx_engine.begin();
+    auto transaction = db_.tx_engine.Begin();
 
     for (auto vertex_vlist : db_.vertices_.access()) {
       auto vertex_record = vertex_vlist->find(*transaction);
@@ -277,7 +284,7 @@ class GraphDbAccessor {
     }
     // Commit transaction as we finished applying method on newest visible
     // records.
-    transaction->commit();
+    transaction->Commit();
     // After these two operations we are certain that everything is contained in
     // the index under the assumption that this transaction contained no
     // vertex/edge insert/update before this method was invoked.

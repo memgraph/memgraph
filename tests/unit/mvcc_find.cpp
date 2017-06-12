@@ -84,7 +84,7 @@ TEST_F(Mvcc, ReadUncommitedUpdateFromSameTXSameCommand) {
 
 TEST_F(Mvcc, ReadUncommitedUpdateFromSameTXNotSameCommand) {
   T2_UPDATE;
-  engine.advance(t2->id);
+  engine.Advance(t2->id_);
   EXPECT_EQ(v2, version_list.find(*t2));
 }
 
@@ -101,6 +101,6 @@ TEST_F(Mvcc, ReadUncommitedRemoveFromSameTXNotSameCommand) {
   T2_COMMIT;
   T3_BEGIN;
   T3_REMOVE;
-  engine.advance(t3->id);
+  engine.Advance(t3->id_);
   EXPECT_NE(v2, version_list.find(*t3));
 }

@@ -72,19 +72,25 @@ class VersionList {
   }
 
   /**
-   * This method is NOT thread-safe. This should never be called with a
-   * transaction id newer than the oldest active transaction id.
-   * Re-links all records which are no longer visible for any
-   * transaction with an id greater or equal to id.
-   * @param id - transaction id from which to start garbage collection
-   * that is not visible anymore. If none exists to_delete will rbecome nullptr.
+   * Garbage collects records that are not reachable/visible anymore.
+   *
+   * Relinks this version-list so that garbage collected records are no
+   * longer reachable through this version list.
+   * Visibility is defined in mvcc::Record::is_not_visible_from,
+   * to which the given `snapshot` is passed.
+   *
+   * This method is NOT thread-safe.
+   *
+   * @param snapshot - the GC snapshot. Consists of the oldest active
+   * transaction's snapshot, with that transaction's id appened as last.
    * @param engine - transaction engine to use - we need it to check which
    * records were commited and which werent
    * @return pair<status, to_delete>; status is true - If version list is empty
    * after garbage collection. to_delete points to the newest record that is not
    * visible anymore. If none exists to_delete will point to nullptr.
   */
-  std::pair<bool, T *> GcDeleted(const Id &id, tx::Engine &engine) {
+  std::pair<bool, T *> GcDeleted(const tx::Snapshot &snapshot,
+                                 tx::Engine &engine) {
     //    nullptr
     //       |
     //     [v1]      ...  all of this gets deleted!
@@ -100,7 +106,7 @@ class VersionList {
     T *head_of_deletable_records = current;
     T *oldest_visible_record = nullptr;
     while (current) {
-      if (!current->is_not_visible_from(id, engine))
+      if (!current->is_not_visible_from(snapshot, engine))
         oldest_visible_record = current;
       current = current->next();
     }
@@ -242,15 +248,13 @@ class VersionList {
                  "Record is nullptr on lock and validation.");
 
     // take a lock on this node
-    t.take_lock(lock);
+    t.TakeLock(lock);
 
     // if the record hasn't been deleted yet or the deleting transaction
     // has aborted, it's ok to modify it
-    if (!record->tx.exp() || !record->exp_committed(t)) return;
+    if (!record->tx.exp() || !record->exp_committed(t.engine_)) return;
 
     // if it committed, then we have a serialization conflict
-    debug_assert(record->hints.load().exp.is_committed(),
-                 "Serialization conflict.");
     throw SerializationError();
   }
 
