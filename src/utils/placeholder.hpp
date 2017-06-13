@@ -56,6 +56,7 @@ class Placeholder {
    * @param T& item reference to the item initialized in allocated memory
    */
   void set(const T &item) {
+    debug_assert(!initialized, "Placeholder object already initialized");
     new (data._M_addr()) T(item);
     initialized = true;
   }
@@ -66,6 +67,7 @@ class Placeholder {
    * @param T&& rvalue reference to the item which is moved to allocated memory
    */
   void set(T &&item) {
+    debug_assert(!initialized, "Placeholder object already initialized");
     new (data._M_addr()) T(std::move(item));
     initialized = true;
   }
@@ -79,6 +81,7 @@ class Placeholder {
    */
   template <class... Args>
   void emplace(Args &&... args) {
+    debug_assert(!initialized, "Placeholder object already initialized");
     new (data._M_addr()) T(args...);
     initialized = true;
   }
