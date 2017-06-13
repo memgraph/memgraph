@@ -31,17 +31,21 @@ class CommitLog {
 
   CommitLog operator=(CommitLog) = delete;
 
-  Info fetch_info(transaction_id_t id) { return Info{log.at(2 * id, 2)}; }
+  Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
 
-  bool is_active(transaction_id_t id) { return fetch_info(id).is_active(); }
+  bool is_active(transaction_id_t id) const {
+    return fetch_info(id).is_active();
+  }
 
-  bool is_committed(transaction_id_t id) {
+  bool is_committed(transaction_id_t id) const {
     return fetch_info(id).is_committed();
   }
 
   void set_committed(transaction_id_t id) { log.set(2 * id); }
 
-  bool is_aborted(transaction_id_t id) { return fetch_info(id).is_aborted(); }
+  bool is_aborted(transaction_id_t id) const {
+    return fetch_info(id).is_aborted();
+  }
 
   void set_aborted(transaction_id_t id) { log.set(2 * id + 1); }
 

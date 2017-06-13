@@ -137,15 +137,13 @@ class Engine : Lockable<SpinLock> {
     return active_.size();
   }
 
-  // TODO make this private and expose "const CommitLog"
-  // through a getter. To do that you need to make the
-  // appropriate CommitLog functions const. To do THAT,
-  // you need to make appropriate DynamicBitset functions
-  // const. While doing that, clean the DynamicBitset up.
-  /** Commit log of this engine */
-  CommitLog clog_;
+  /** Returns this engine's commit log */
+  auto &clog() const { return clog_; }
 
  private:
+  // commit log of this engine
+  CommitLog clog_;
+
   // Performs cleanup common to ending the transaction
   // with either commit or abort
   void Finalize(const Transaction &t) {

@@ -265,7 +265,7 @@ class GraphDbAccessor {
       auto wait_transaction = db_.tx_engine.Begin();
       for (auto id : wait_transaction->snapshot()) {
         if (id == transaction_->id_) continue;
-        while (wait_transaction->engine_.clog_.fetch_info(id).is_active())
+        while (wait_transaction->engine_.clog().fetch_info(id).is_active())
           // TODO reconsider this constant, currently rule-of-thumb chosen
           std::this_thread::sleep_for(std::chrono::microseconds(100));
       }

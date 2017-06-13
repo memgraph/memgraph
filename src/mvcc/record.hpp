@@ -129,8 +129,8 @@ class Record : public Version<T> {
     //       snapshot (consequently also not in the snapshots of
     //       newer transactions)
     return (exp_id != 0 && exp_id < snapshot.back() &&
-            engine.clog_.is_committed(exp_id) && !snapshot.contains(exp_id)) ||
-           engine.clog_.is_aborted(tx.cre());
+            engine.clog().is_committed(exp_id) && !snapshot.contains(exp_id)) ||
+           engine.clog().is_aborted(tx.cre());
   }
 
   // TODO: Test this
@@ -230,7 +230,7 @@ class Record : public Version<T> {
     if (!hint_bits.is_unknown()) return hint_bits.is_committed();
 
     // if hints are not set consult the commit log
-    auto info = engine.clog_.fetch_info(id);
+    auto info = engine.clog().fetch_info(id);
 
     // committed
     if (info.is_committed()) return hints.set_committed(), true;
