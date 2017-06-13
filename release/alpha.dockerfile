@@ -4,7 +4,7 @@ FROM ubuntu:16.04
 # FROM debian:jessie-slim # doesn't work because CXXABI_1.3.9 & GLIBCXX_3.4.21 not found
 # FROM debian:jessie      # doesn't work because CXXABI_1.3.9 & GLIBCXX_3.4.21 not found
 
-ENV MEMGRAPH_CONFIG /memgraph/config/memgraph
+ENV MEMGRAPH_CONFIG /memgraph/config/memgraph.conf
 
 ARG build_name
 

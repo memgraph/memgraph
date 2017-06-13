@@ -6,7 +6,7 @@
 function print_help () {
     echo "Usage: $0 [OPTION] --version MAJOR.MINOR.PATCH"
     echo "Optional arguments:"
-    echo -e "  --h|--help      Print help."
+    echo -e "  -h|--help      Print help."
     echo -e "  --skip-compile  Skip compilation process."
     echo -e "  --build-type    CMAKE_BUILD_TYPE options are: Debug|Release|RelWithDebInfo|MinSizeRel|Coverage|None (default is Debug)."
     echo -e "  --config-file   Memgraph config file name (default is testing.conf)"
@@ -91,6 +91,6 @@ echo "Full build name: ${exe_name}" > ${release_folder}/build.info
 echo "${version}" > ${release_folder}/VERSION
 # copy binary & config
 cp ${project_dir}/build/${exe_name} ${release_folder}/memgraph
-cp ${project_dir}/config/${config_file} ${release_folder}/config/memgraph
+cp ${project_dir}/config/${config_file} ${release_folder}/config/memgraph.conf
 
 echo "Memgraph Build ${exe_name} DONE"
