@@ -1,15 +1,15 @@
 #!/bin/bash
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
- 
+
 # coverage applies only on unit tests
 unit_test_dir='build/tests/unit'
 coverage_dir='build/coverage'
 coverage_file='coverage.info'
- 
+
 # execute unit tests to generate coverage files
 pushd ${unit_test_dir}
-ctest -R unit
+ctest -R unit --quiet
 popd
 
 # generate coverage info files for each unit test binary
