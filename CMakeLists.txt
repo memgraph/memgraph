@@ -354,6 +354,7 @@ set(memgraph_src_files
     ${src_dir}/query/stripped.cpp
     ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
+    ${src_dir}/query/frontend/ast/ast.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
     ${src_dir}/query/typed_value.cpp
     ${src_dir}/query/interpret/awesome_memgraph_functions.cpp
