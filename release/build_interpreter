@@ -22,7 +22,7 @@ project_dir="${release_dir}/.."
 
 skip_compile=false
 build_type="Debug"
-config_file="testing.conf"
+config_file="alpha.conf"
 version=""
 while [[ $# -gt 0 ]]
 do
