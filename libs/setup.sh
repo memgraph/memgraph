@@ -1,7 +1,13 @@
 #!/bin/bash
 
+# Download external dependencies.
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd ${working_dir}
+
 # antlr
-wget http://www.antlr.org/download/antlr-4.6-complete.jar
+antlr_generator_filename="antlr-4.6-complete.jar"
+wget -O ${antlr_generator_filename} http://www.antlr.org/download/${antlr_generator_filename}
 git clone https://github.com/antlr/antlr4.git
 antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
 cd antlr4
