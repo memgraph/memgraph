@@ -55,21 +55,24 @@ class Server
   }
 
   void Start(size_t n) {
+    logger_.info("Starting {} workers", n);
     workers_.reserve(n);
-
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
           std::make_shared<Worker<Session, OutputStream, Socket>>(
               dbms_, query_engine_));
       workers_.back()->Start(alive_);
     }
-
+    logger_.info("Server is fully armed and operational");
+    logger_.info("Listening on {} at {}", socket_.endpoint().address(),
+                 socket_.endpoint().port());
     while (alive_) {
       this->WaitAndProcessEvents();
     }
   }
 
   void Shutdown() {
+    logger_.info("Shutting down...");
     alive_.store(false);
 
     for (auto &worker : workers_) worker->thread_.join();
@@ -114,4 +117,5 @@ class Server
   Event event_;
   Logger logger_;
 };
-}
+
+}  // namespace communication

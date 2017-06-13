@@ -5,7 +5,6 @@
 #include "logging/default.cpp"
 #include "utils/fswatcher.hpp"
 #include "utils/signals/handler.hpp"
-#include "utils/stacktrace/log.hpp"
 #include "utils/terminate_handler.hpp"
 
 using namespace std::chrono_literals;

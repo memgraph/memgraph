@@ -1,7 +1,7 @@
 #pragma once
 
 #include "utils/auto_scope.hpp"
-#include "utils/stacktrace/stacktrace.hpp"
+#include "utils/stacktrace.hpp"
 
 #include <execinfo.h>
 #include <iostream>

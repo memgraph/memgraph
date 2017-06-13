@@ -18,7 +18,7 @@
 
 #include "utils/flag_validation.hpp"
 #include "utils/signals/handler.hpp"
-#include "utils/stacktrace/log.hpp"
+#include "utils/stacktrace.hpp"
 #include "utils/terminate_handler.hpp"
 
 namespace fs = std::experimental::filesystem;
@@ -38,11 +38,6 @@ DEFINE_string(port, "7687", "Default port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
-
-void throw_and_stacktace(std::string message) {
-  Stacktrace stacktrace;
-  logger.info(stacktrace.dump());
-}
 
 // Load flags in this order, the last one has the highest priority:
 // 1) /etc/memgraph/config
@@ -85,6 +80,14 @@ void load_config(int &argc, char **&argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 }
 
+void log_stacktrace(const std::string &title) {
+  Stacktrace stacktrace;
+  // TODO: Change this from 'info' to 'error', when default error logging is
+  // added.
+  logging::info(title);
+  logging::info(stacktrace.dump());
+}
+
 int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
   load_config(argc, argv);
@@ -99,7 +102,7 @@ int main(int argc, char **argv) {
 
   // Get logger.
   logger = logging::log->logger("Main");
-  logger.info("{}", logging::log->type());
+  logger.debug("Using {} logger", logging::log->type());
 
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
@@ -139,8 +142,6 @@ int main(int argc, char **argv) {
     std::exit(EXIT_FAILURE);
   }
 
-  logger.info("Listening on {} at {}", FLAGS_interface, FLAGS_port);
-
   Dbms dbms;
   QueryEngine<result_stream_t> query_engine;
 
@@ -156,9 +157,7 @@ int main(int argc, char **argv) {
                                   [&server]() { server.Shutdown(); });
 
   // Start worker threads.
-  logger.info("Starting {} workers", FLAGS_num_workers);
   server.Start(FLAGS_num_workers);
 
-  logger.info("Shutting down...");
   return EXIT_SUCCESS;
 }

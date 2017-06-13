@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "utils/signals/handler.hpp"
-#include "utils/stacktrace/stacktrace.hpp"
+#include "utils/stacktrace.hpp"
 
 TEST(SignalHandler, SegmentationFaultTest) {
   SignalHandler::register_handler(Signal::SegmentationFault, []() {

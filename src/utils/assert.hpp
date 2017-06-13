@@ -7,7 +7,7 @@
 #include <iostream>
 #include <sstream>
 
-#include "utils/stacktrace/stacktrace.hpp"
+#include "utils/stacktrace.hpp"
 
 /**
  * if STACKTRACE_ASSERT_ON is defined the full stacktrace will be printed on

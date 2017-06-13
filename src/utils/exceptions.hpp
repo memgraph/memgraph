@@ -9,7 +9,7 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
-#include "utils/stacktrace/stacktrace.hpp"
+#include "utils/stacktrace.hpp"
 
 namespace utils {
 
