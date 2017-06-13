@@ -110,11 +110,6 @@ add_subdirectory(libs)
 # fmt
 set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
-# yaml-cpp
-# We no longer use yaml for configuration reading, maybe this dependancy should
-# be removed. It is only used in tests/benchmark/query/strip/stripper.cpp
-set(yaml_source_dir ${libs_dir}/yaml-cpp)
-set(yaml_include_dir ${yaml_source_dir}/include)
 
 # prepare template and destination folders for query engine (tests)
 # and memgraph server binary
@@ -158,7 +153,7 @@ if(CLANG_TIDY)
         -config=''
         --
         -std=c++1y
-        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir} -I${yaml_include_dir}
+        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir}
     )
 endif()
 # -----------------------------------------------------------------------------
@@ -276,7 +271,6 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 include_directories(${src_dir})
 include_directories(${build_include_dir})
 include_directories(SYSTEM ${fmt_source_dir})
-include_directories(SYSTEM ${yaml_include_dir})
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # -----------------------------------------------------------------------------
@@ -351,7 +345,7 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
     ${src_dir}/query/engine.cpp
-    ${src_dir}/query/stripped.cpp
+    ${src_dir}/query/frontend/stripped.cpp
     ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/frontend/ast/ast.cpp
@@ -367,7 +361,7 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib and memgraph_pic depend on these libraries
-set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt yaml-cpp antlr_opencypher_parser_lib dl)
+set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt antlr_opencypher_parser_lib dl)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()

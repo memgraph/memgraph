@@ -21,13 +21,6 @@ set(GFLAGS_BUILD_gflags_nothreads_LIB OFF)
 set(GFLAGS_BUILD_gflags_LIB ON)
 add_subdirectory(gflags)
 
-
-# setup yaml cpp
-# disable tests because yaml doesn't have MASTER_PROJECT flag like fmt has
-# to override an option use option :)
-option(YAML_CPP_BUILD_TOOLS "" OFF)
-add_subdirectory(yaml-cpp)
-
 # setup cppitertools
 # CLion compatiblity; the target won't be built
 file(GLOB __CPPITERTOOLS_SOURCES __main.cpp

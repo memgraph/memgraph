@@ -3,7 +3,7 @@
 
 #include "query/parameters.hpp"
 #include "query/plan_interface.hpp"
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"

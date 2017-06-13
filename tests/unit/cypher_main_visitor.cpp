@@ -228,7 +228,8 @@ TYPED_TEST(CypherMainVisitorTest, IntegerLiteral) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<int64_t>(), 42);
+  EXPECT_EQ(literal->value_.Value<int64_t>(), 42);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, IntegerLiteralTooLarge) {
@@ -243,7 +244,8 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<bool>(), true);
+  EXPECT_EQ(literal->value_.Value<bool>(), true);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
@@ -253,7 +255,8 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<bool>(), false);
+  EXPECT_EQ(literal->value_.Value<bool>(), false);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
@@ -263,7 +266,8 @@ TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.type(), TypedValue::Type::Null);
+  EXPECT_EQ(literal->value_.type(), TypedValue::Type::Null);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ParenthesizedExpression) {
@@ -602,7 +606,8 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<std::string>(), "mi'rko");
+  EXPECT_EQ(literal->value_.Value<std::string>(), "mi'rko");
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
@@ -612,7 +617,8 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<std::string>(), "mi\"rko");
+  EXPECT_EQ(literal->value_.Value<std::string>(), "mi\"rko");
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
@@ -622,7 +628,8 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<std::string>(), "\\'\"\b\b\f\f\n\n\r\r\t\t");
+  EXPECT_EQ(literal->value_.Value<std::string>(), "\\'\"\b\b\f\f\n\n\r\r\t\t");
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
@@ -632,7 +639,8 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<std::string>(), u8"\u221daaa\u221daaa");
+  EXPECT_EQ(literal->value_.Value<std::string>(), u8"\u221daaa\u221daaa");
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
@@ -642,8 +650,9 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<std::string>(),
+  EXPECT_EQ(literal->value_.Value<std::string>(),
             u8"\U0001F600aaaa\U0001F600aaaaaaaa");
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
@@ -653,7 +662,8 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<double>(), 3.5);
+  EXPECT_EQ(literal->value_.Value<double>(), 3.5);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
@@ -663,7 +673,8 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(literal);
-  ASSERT_EQ(literal->value_.Value<double>(), 0.5);
+  EXPECT_EQ(literal->value_.Value<double>(), 0.5);
+  EXPECT_EQ(literal->token_position_, 2);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ListLiteral) {

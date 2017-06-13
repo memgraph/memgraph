@@ -2,7 +2,7 @@
 
 #include "database/graph_db_accessor.hpp"
 
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 
 /**
  * @class PlanInterface

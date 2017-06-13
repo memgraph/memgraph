@@ -3,7 +3,7 @@
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
 

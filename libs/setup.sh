@@ -47,15 +47,6 @@ cd googletest
 git checkout ${googletest_tag}
 cd ..
 
-# yaml-cpp
-git clone https://github.com/jbeder/yaml-cpp
-yaml_cpp_tag="519d33fea3fbcbe7e1f89f97ee0fa539cec33eb7" # master 18 Aug 2016
-# because a bug with link process had been fixed somewhen between
-# this commit and v0.5.3
-cd yaml-cpp
-git checkout ${yaml_cpp_tag}
-cd ..
-
 # lcov-to-coberatura-xml
 git clone https://github.com/eriwen/lcov-to-cobertura-xml.git
 lcov_to_xml_tag="59584761cb5da4687693faec05bf3e2b74e9dde9" # Dec 6, 2016

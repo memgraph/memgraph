@@ -5,7 +5,7 @@
 
 #include "gtest/gtest.h"
 
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 using query::TypedValue;

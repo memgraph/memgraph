@@ -6,7 +6,7 @@
 #include <ctime>
 #include <iostream>
 
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 
 int main(int argc, const char **a) {
   if (argc < 2) {

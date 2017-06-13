@@ -3,7 +3,7 @@
 #include <map>
 
 #include "logging/loggable.hpp"
-#include "parameters.hpp"
+#include "query/parameters.hpp"
 #include "storage/property_value_store.hpp"
 #include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"

@@ -529,15 +529,22 @@ class PrimitiveLiteral : public BaseLiteral {
   DEFVISITABLE(HierarchicalTreeVisitor);
 
   PrimitiveLiteral *Clone(AstTreeStorage &storage) const override {
-    return storage.Create<PrimitiveLiteral>(value_);
+    return storage.Create<PrimitiveLiteral>(value_, token_position_);
   }
 
   TypedValue value_;
+  // This field contains token position of literal used to create
+  // PrimitiveLiteral object. If PrimitiveLiteral object is not created from
+  // query leave its value at -1.
+  int token_position_ = -1;
 
  protected:
   PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
   template <typename T>
   PrimitiveLiteral(int uid, T value) : BaseLiteral(uid), value_(value) {}
+  template <typename T>
+  PrimitiveLiteral(int uid, T value, int token_position)
+      : BaseLiteral(uid), value_(value), token_position_(token_position) {}
 };
 
 class ListLiteral : public BaseLiteral {

@@ -137,7 +137,7 @@ class Interpreter : public Loggable {
   }
 
  private:
-  //  ConcurrentMap<HashType, std::unique_ptr<QueryPlanLib>> query_plans;
+  //  ConcurrentMap<HashType, CachedAst> ast_cache_;
 };
 
 }  // namespace query

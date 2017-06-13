@@ -1,42 +1,21 @@
-benchmark_queries:
-  - "MATCH (a) RETURN size(collect(a))"
-  
-  - "CREATE (a:L), (b1), (b2) CREATE (a)-[:A]->(b1), (a)-[:A]->(b2)"
-
-  - "MATCH (a:L)-[rel]->(b) RETURN a, count(*)"
-
-  - "CREATE ({division: 'Sweden'})"
- 
-  - "MATCH (n) RETURN n.division, count(*) ORDER BY count(*) DESC, n.division ASC"
-
-  - "UNWIND ['a', 'b', 'B', null, 'abc', 'abc1'] AS i RETURN max(i)"
-
-  - "CREATE ({created: true})"
-
-  - "MATCH (a)-[r]-(b) DELETE r, a, b RETURN count(*) AS c"
-
-  - "MATCH (u:User) WITH {key: u} AS nodes DELETE nodes.key"
-
-  - "CREATE ()-[:T {id: 42, alive: true, name: kifla, height: 4.2}]->()"
-
-  - "MATCH p = ()-[r:T]-() WHERE r.id = 42 DELETE r"
-
-  -  "UNWIND range(0, 1000) AS i CREATE (:A {id: i}) MERGE (:B {id: i % 10})"
-
-  - "MATCH (n) WHERE NOT(n.name = 'apa' AND false) RETURN n"
-
-  - "CREATE ()-[:REL {property1: 12, property2: 24}]->()"
-
-  - "MATCH (n:A) WHERE n.name = 'Andres' SET n.name = 'Michael' RETURN n"
-
-  - "MATCH (n:A) SET (n).name = 'memgraph' RETURN n"
-
-  - "CREATE (a {foo: [1, 2, 3]}) SET a.foo = a.foo + [4, 5] RETURN a.foo" 
-
-  - "MATCH (n:X {foo: 'A'}) SET n = {foo: 'B', baz: 'C'} RETURN n"
-
-  - "MATCH (n:X {foo: 'A'}) SET n += {foo: null} RETURN n" 
-
-  - "MATCH (n) WITH n LIMIT toInteger(ceil(1.7)) RETURN count(*) AS count"
-
-  - "MATCH (a:A), (b:B) MERGE (a)-[r:TYPE]->(b) ON CREATE SET r.name = 'Lola' RETURN count(r)"
+MATCH (a) RETURN size(collect(a))
+CREATE (a:L), (b1), (b2) CREATE (a)-[:A]->(b1), (a)-[:A]->(b2)
+MATCH (a:L)-[rel]->(b) RETURN a, count(*)
+CREATE ({division: 'Sweden'})
+MATCH (n) RETURN n.division, count(*) ORDER BY count(*) DESC, n.division ASC
+UNWIND ['a', 'b', 'B', null, 'abc', 'abc1'] AS i RETURN max(i)
+CREATE ({created: true})
+MATCH (a)-[r]-(b) DELETE r, a, b RETURN count(*) AS c
+MATCH (u:User) WITH {key: u} AS nodes DELETE nodes.key
+CREATE ()-[:T {id: 42, alive: true, name: kifla, height: 4.2}]->()
+MATCH p = ()-[r:T]-() WHERE r.id = 42 DELETE r
+UNWIND range(0, 1000) AS i CREATE (:A {id: i}) MERGE (:B {id: i % 10})
+MATCH (n) WHERE NOT(n.name = 'apa' AND false) RETURN n
+CREATE ()-[:REL {property1: 12, property2: 24}]->()
+MATCH (n:A) WHERE n.name = 'Andres' SET n.name = 'Michael' RETURN n
+MATCH (n:A) SET (n).name = 'memgraph' RETURN n
+CREATE (a {foo: [1, 2, 3]}) SET a.foo = a.foo + [4, 5] RETURN a.foo
+MATCH (n:X {foo: 'A'}) SET n = {foo: 'B', baz: 'C'} RETURN n
+MATCH (n:X {foo: 'A'}) SET n += {foo: null} RETURN n
+MATCH (n) WITH n LIMIT toInteger(ceil(1.7)) RETURN count(*) AS count
+MATCH (a:A), (b:B) MERGE (a)-[r:TYPE]->(b) ON CREATE SET r.name = 'Lola' RETURN count(r)

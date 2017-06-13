@@ -733,18 +733,20 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(
     CypherParser::LiteralContext *ctx) {
+  int token_position = ctx->getStart()->getTokenIndex();
   if (ctx->CYPHERNULL()) {
     return static_cast<BaseLiteral *>(
-        storage_.Create<PrimitiveLiteral>(TypedValue::Null));
+        storage_.Create<PrimitiveLiteral>(TypedValue::Null, token_position));
   } else if (ctx->StringLiteral()) {
     return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>()));
+        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>(),
+        token_position));
   } else if (ctx->booleanLiteral()) {
     return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        ctx->booleanLiteral()->accept(this).as<bool>()));
+        ctx->booleanLiteral()->accept(this).as<bool>(), token_position));
   } else if (ctx->numberLiteral()) {
     return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        ctx->numberLiteral()->accept(this).as<TypedValue>()));
+        ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
   } else if (ctx->listLiteral()) {
     return static_cast<BaseLiteral *>(storage_.Create<ListLiteral>(
         ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));

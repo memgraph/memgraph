@@ -1,4 +1,4 @@
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 
 #include <iostream>
 #include <string>
@@ -36,6 +36,7 @@ StrippedQuery::StrippedQuery(const std::string &query)
   // literal, appends is to the the stripped_query and adds the passed
   // value to stripped args.
   auto replace_stripped = [this, &token_strings](const TypedValue &value) {
+    // const std::string &new_value) {
     const auto &stripped_name = parameters_.Add(value);
     token_strings.push_back("$" + stripped_name);
   };

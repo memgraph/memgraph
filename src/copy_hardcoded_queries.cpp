@@ -7,7 +7,7 @@ namespace fs = std::experimental::filesystem;
 
 #include "logging/logger.hpp"
 #include "logging/streams/stdout.hpp"
-#include "query/stripped.hpp"
+#include "query/frontend/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
