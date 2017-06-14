@@ -110,12 +110,19 @@ class SkipListGC : public Loggable {
     // We can only modify this in a not-thread safe way because we are the only
     // thread ever accessing it here, i.e. there is at most one thread doing
     // this GarbageCollection.
+
+    // find the oldest not deletable record
+    // since we can't copy a concurrent list iterator, we must use two
+    // separate ones, while ensuring they point to the same record
+    // in the beginning of the search-loop
+    auto it = deleted_list_.begin();
     auto oldest_not_deletable = deleted_list_.begin();
+    while (oldest_not_deletable != it) oldest_not_deletable++;
+    // we need a bool to track if oldest_not_deletable should get
+    // deleted too (we have not skipped any record due to safe_id condition)
     bool delete_all = true;
-    for (auto it = deleted_list_.begin(); it != deleted_list_.end(); ++it) {
+    for (; it != deleted_list_.end(); ++it) {
       if (it->first > safe_id) {
-        // We have to increase iterator manually because the copy assignment
-        // operator is deleted.
         while (oldest_not_deletable != it) ++oldest_not_deletable;
         delete_all = false;
       }
