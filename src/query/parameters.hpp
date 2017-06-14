@@ -6,37 +6,41 @@
 #ifndef MEMGRAPH_PARAMETERS_HPP
 #define MEMGRAPH_PARAMETERS_HPP
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include "query/typed_value.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)
- * and provides ways of obtaining them by name or position.
+ * and provides ways of obtaining them by position.
  */
 struct Parameters {
  public:
   /**
-   * Adds a value to the stripped arguments under a sequentially
-   * generated name and returns a reference to that name.
+   * Adds a value to the stripped arguments under a token position.
    *
+   * @param position Token position in query of value.
    * @param value
-   * @return
    */
-  const std::string &Add(const query::TypedValue &value) {
-    return storage_.emplace(NextName(), value).first->first;
+  void Add(int position, const query::TypedValue &value) {
+    storage_.emplace_back(position, value);
   }
 
   /**
-   *  Returns the value found for the given name.
-   *  The name MUST be present in this container
-   *  (this is asserted).
+   *  Returns the value found for the given token position.
    *
-   *  @param name Param name.
-   *  @return Value for the given param.
+   *  @param position Token position in query of value.
+   *  @return Value for the given token position.
    */
-  const query::TypedValue &At(const std::string &name) const {
-    auto found = storage_.find(name);
+  const query::TypedValue &AtTokenPosition(int position) const {
+    auto found = std::find_if(storage_.begin(), storage_.end(),
+                              [&](const std::pair<int, query::TypedValue> a) {
+                                return a.first == position;
+                              });
     permanent_assert(found != storage_.end(),
-                     "Name must be present in stripped arg container");
+                     "Token position must be present in container");
     return found->second;
   }
 
@@ -44,31 +48,20 @@ struct Parameters {
    * Returns the position-th stripped value. Asserts that this
    * container has at least (position + 1) elements.
    *
-   * This is future proofing for when both query params and
-   * stripping will be supported and naming collisions will have to
-   * be avoided.
-   *
    * @param position Which stripped param is sought.
-   * @return Stripped param.
+   * @return Token position and value for sought param.
    */
-  const query::TypedValue &At(const size_t position) const {
-    permanent_assert(position < storage_.size(), "Invalid position");
-    return storage_.find(NameForPosition(position))->second;
+  const std::pair<int, query::TypedValue> &At(int position) const {
+    permanent_assert(position < static_cast<int>(storage_.size()),
+                     "Invalid position");
+    return storage_[position];
   }
 
   /** Returns the number of arguments in this container */
-  size_t Size() const { return storage_.size(); }
+  int size() const { return storage_.size(); }
 
  private:
-  std::map<std::string, query::TypedValue> storage_;
-
-  /** Generates and returns a new name */
-  std::string NextName() const { return NameForPosition(storage_.size()); }
-
-  /** Returns a name for positon */
-  std::string NameForPosition(unsigned long position) const {
-    return "stripped_arg_" + std::to_string(position);
-  }
+  std::vector<std::pair<int, query::TypedValue>> storage_;
 };
 
 #endif  // MEMGRAPH_PARAMETERS_HPP

@@ -74,7 +74,7 @@ class QueryEngine : public Loggable {
     clock_t end_parsing_time = clock();
     auto plan = LoadCypher(stripped);
     clock_t end_planning_time = clock();
-    auto result = plan->run(db_accessor, stripped.parameters(), stream);
+    auto result = plan->run(db_accessor, stripped.literals(), stream);
     clock_t end_execution_time = clock();
     if (UNLIKELY(!result)) {
       // info because it might be something like deadlock in which

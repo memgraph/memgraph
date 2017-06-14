@@ -7,6 +7,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 
@@ -37,6 +38,8 @@ class AstTreeStorage {
   AstTreeStorage();
   AstTreeStorage(const AstTreeStorage &) = delete;
   AstTreeStorage &operator=(const AstTreeStorage &) = delete;
+  AstTreeStorage(AstTreeStorage &&) = default;
+  AstTreeStorage &operator=(AstTreeStorage &&) = default;
 
   template <typename T, typename... Args>
   T *Create(Args &&... args) {
@@ -1362,6 +1365,51 @@ class Unwind : public Clause {
     debug_assert(named_expression,
                  "Unwind cannot take nullptr for named_expression")
   }
+};
+
+/// CachedAst is used for storing high level asts.
+///
+/// After query is stripped, parsed and converted to high level ast it can be
+/// stored in this class and new trees can be created by plugging different
+/// literals.
+class CachedAst {
+ public:
+  CachedAst(AstTreeStorage storage) : storage_(std::move(storage)) {}
+
+  /// Create new storage by plugging literals on its positions.
+  AstTreeStorage Plug(const Parameters &literals) {
+    AstTreeStorage new_ast;
+    storage_.query()->Clone(new_ast);
+    LiteralsPlugger plugger(literals);
+    new_ast.query()->Accept(plugger);
+    return new_ast;
+  }
+
+ private:
+  class LiteralsPlugger : public HierarchicalTreeVisitor {
+   public:
+    using HierarchicalTreeVisitor::PreVisit;
+    using typename HierarchicalTreeVisitor::ReturnType;
+    using HierarchicalTreeVisitor::Visit;
+    using HierarchicalTreeVisitor::PostVisit;
+
+    LiteralsPlugger(const Parameters &parameters) : parameters_(parameters) {}
+
+    bool Visit(PrimitiveLiteral &literal) override {
+      permanent_assert(
+          literal.token_position_ != -1,
+          "Use AstPlugLiteralsVisitor only on ast created by parsing queries");
+      literal.value_ = parameters_.AtTokenPosition(literal.token_position_);
+      return true;
+    }
+
+    bool Visit(Identifier &) override { return true; }
+
+   private:
+    const Parameters &parameters_;
+  };
+
+  AstTreeStorage storage_;
 };
 
 #undef CLONE_BINARY_EXPRESSION

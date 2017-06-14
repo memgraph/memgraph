@@ -1,28 +1,33 @@
 #pragma once
 
-#include <map>
-
 #include "logging/loggable.hpp"
 #include "query/parameters.hpp"
-#include "storage/property_value_store.hpp"
+#include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
 
 namespace query {
 
-/*
-* StrippedQuery contains:
-*     * stripped query
-*     * plan arguments stripped from query
-*     * hash of stripped query
-*/
+// Strings used to replace original tokens. Different types are replaced with
+// different token.
+const std::string kStrippedIntToken = "0";
+const std::string kStrippedDoubleToken = "0.0";
+const std::string kStrippedStringToken = "\"a\"";
+const std::string kStrippedBooleanToken = "true";
+
+/**
+ * StrippedQuery contains:
+ *     * stripped query
+ *     * literals stripped from query
+ *     * hash of stripped query
+ */
 class StrippedQuery : Loggable {
  public:
   /**
    * Strips the input query and stores stripped query, stripped arguments and
    * stripped query hash.
    *
-   * @param query input query
+   * @param query Input query.
    */
   explicit StrippedQuery(const std::string &query);
 
@@ -41,17 +46,17 @@ class StrippedQuery : Loggable {
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
   const std::string &query() const { return query_; }
-  const Parameters &parameters() const { return parameters_; }
+  auto &literals() const { return literals_; }
   HashType hash() const { return hash_; }
 
  private:
-  // stripped query
+  // Stripped query.
   std::string query_;
 
-  // striped arguments
-  Parameters parameters_;
+  // Token positions of stripped out literals mapped to their values.
+  Parameters literals_;
 
-  // hash based on the stripped query
+  // Hash based on the stripped query.
   HashType hash_;
 };
 }

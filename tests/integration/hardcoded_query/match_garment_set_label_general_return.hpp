@@ -23,7 +23,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       query::TypedValue prop =
           vertex.PropsAt(db_accessor.property("garment_id"));
       if (prop.type() == query::TypedValue::Type::Null) continue;
-      query::TypedValue cmp = prop == args.At(0);
+      query::TypedValue cmp = prop == args.At(0).second;
       if (cmp.type() != query::TypedValue::Type::Bool) continue;
       if (cmp.Value<bool>() != true) continue;
       vertex.add_label(db_accessor.label(general_label));

@@ -32,17 +32,19 @@ StrippedQuery::StrippedQuery(const std::string &query)
   std::vector<std::string> token_strings;
   token_strings.reserve(tokens.size());
 
-  // A helper function that generates a new param name for the stripped
-  // literal, appends is to the the stripped_query and adds the passed
-  // value to stripped args.
-  auto replace_stripped = [this, &token_strings](const TypedValue &value) {
-    // const std::string &new_value) {
-    const auto &stripped_name = parameters_.Add(value);
-    token_strings.push_back("$" + stripped_name);
+  // A helper function that stores literal and its token position in a
+  // literals_. In stripped query text literal is replaced with a new_value.
+  // new_value can be any value that is lexed as a literal.
+  auto replace_stripped = [this, &token_strings](
+      int position, const TypedValue &value, const std::string &new_value) {
+    literals_.Add(position, value);
+    token_strings.push_back(new_value);
   };
 
   // Convert tokens to strings, perform lowercasing and filtering.
   for (const auto *token : tokens) {
+    int position = token->getTokenIndex();
+
     switch (token->getType()) {
       case CypherLexer::UNION:
       case CypherLexer::ALL:
@@ -78,6 +80,8 @@ StrippedQuery::StrippedQuery(const std::string &query)
       case CypherLexer::ENDS:
       case CypherLexer::CONTAINS:
       case CypherLexer::IS:
+      // We don't strip NULL, since it can appear in special expressions like IS
+      // NULL and IS NOT NULL.
       case CypherLexer::CYPHERNULL:
       case CypherLexer::COUNT:
       case CypherLexer::FILTER:
@@ -95,22 +99,25 @@ StrippedQuery::StrippedQuery(const std::string &query)
       case CypherLexer::DecimalInteger:
       case CypherLexer::HexInteger:
       case CypherLexer::OctalInteger:
-        replace_stripped(ParseIntegerLiteral(token->getText()));
+        replace_stripped(position, ParseIntegerLiteral(token->getText()),
+                         kStrippedIntToken);
         break;
 
       case CypherLexer::StringLiteral:
-        replace_stripped(ParseStringLiteral(token->getText()));
+        replace_stripped(position, ParseStringLiteral(token->getText()),
+                         kStrippedStringToken);
         break;
 
       case CypherLexer::RegularDecimalReal:
       case CypherLexer::ExponentDecimalReal:
-        replace_stripped(ParseDoubleLiteral(token->getText()));
+        replace_stripped(position, ParseDoubleLiteral(token->getText()),
+                         kStrippedDoubleToken);
         break;
       case CypherLexer::TRUE:
-        replace_stripped(true);
+        replace_stripped(position, true, kStrippedBooleanToken);
         break;
       case CypherLexer::FALSE:
-        replace_stripped(false);
+        replace_stripped(position, false, kStrippedBooleanToken);
         break;
 
       default:

@@ -54,12 +54,12 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       vertices_indexed.push_back(&vertices[i]);
     if (query_type == CliqueQuery::SCORE_AND_LIMIT &&
         vertices[i].has_label(db_accessor.label("profile"))) {
-      auto has_prop =
-          vertices[i].PropsAt(db_accessor.property("profile_id")) == args.At(0);
+      auto has_prop = vertices[i].PropsAt(db_accessor.property("profile_id")) ==
+                      args.At(0).second;
       if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
-      has_prop =
-          vertices[i].PropsAt(db_accessor.property("partner_id")) == args.At(1);
+      has_prop = vertices[i].PropsAt(db_accessor.property("partner_id")) ==
+                 args.At(1).second;
       if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
       profile_index = i;
@@ -119,8 +119,9 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
   std::vector<std::vector<int>> results;
   for (int i = 0; i < n; ++i) {
     const VertexAccessor v = *vertices_indexed[i];
-    auto cmp_res = v.PropsAt(db_accessor.property("garment_id")) ==
-                   args.At(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0);
+    auto cmp_res =
+        v.PropsAt(db_accessor.property("garment_id")) ==
+        args.At(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0).second;
     if (cmp_res.type() != query::TypedValue::Type::Bool) continue;
     if (cmp_res.Value<bool>() != true) continue;
     auto neigh = connected[i].Ones();
@@ -202,7 +203,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     reverse(results.begin(), results.end());
   }
   const int limit = query_type == CliqueQuery::SCORE_AND_LIMIT
-                        ? args.At((int)args.Size() - 1).Value<int64_t>()
+                        ? args.At((int)args.size() - 1).second.Value<int64_t>()
                         : (int)results.size();
   for (int i = 0; i < std::min(limit, (int)results.size()); ++i) {
     std::vector<query::TypedValue> result;

@@ -26,7 +26,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g1.has_label(db_accessor.label("garment"))) {
         TypedValue prop = g1.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.At(0);
+        auto cmp = prop == args.At(0).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g1_set.push_back(g1);
@@ -36,7 +36,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g2.has_label(db_accessor.label("garment"))) {
         auto prop = g2.PropsAt(db_accessor.property("garment_id"));
         if (prop.type() == PropertyValue::Type::Null) continue;
-        auto cmp = prop == args.At(1);
+        auto cmp = prop == args.At(1).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g2_set.push_back(g2);

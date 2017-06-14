@@ -26,13 +26,13 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g1.has_label(db_accessor.label("profile"))) {
         auto prop = TypedValue(g1.PropsAt(db_accessor.property("profile_id")));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.At(0);
+        auto cmp = prop == args.At(0).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
 
         auto prop2 = TypedValue(g1.PropsAt(db_accessor.property("partner_id")));
         if (prop2.type() == TypedValue::Type::Null) continue;
-        auto cmp2 = prop2 == args.At(1);
+        auto cmp2 = prop2 == args.At(1).second;
         if (cmp2.type() != TypedValue::Type::Bool) continue;
         if (cmp2.Value<bool>() != true) continue;
         g1_set.push_back(g1);
@@ -42,7 +42,7 @@ class CPUPlan : public PlanInterface<Stream> {
       if (g2.has_label(db_accessor.label("garment"))) {
         auto prop = TypedValue(g2.PropsAt(db_accessor.property("garment_id")));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.At(2);
+        auto cmp = prop == args.At(2).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
         g2_set.push_back(g2);
@@ -52,7 +52,7 @@ class CPUPlan : public PlanInterface<Stream> {
       for (auto g2 : g2_set) {
         EdgeAccessor e =
             db_accessor.insert_edge(g1, g2, db_accessor.edge_type("score"));
-        e.PropsSet(db_accessor.property("score"), args.At(3));
+        e.PropsSet(db_accessor.property("score"), args.At(3).second);
         std::vector<TypedValue> result{TypedValue(e)};
         stream.Result(result);
       }

@@ -319,44 +319,45 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
 
 # all memgraph src files
 set(memgraph_src_files
+    ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
+    ${src_dir}/database/graph_db.cpp
+    ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/dbms/dbms.cpp
-    ${src_dir}/utils/numerics/saturate.cpp
+    ${src_dir}/durability/recovery.cpp
+    ${src_dir}/durability/snapshooter.cpp
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp
     ${src_dir}/io/network/socket.cpp
-    ${src_dir}/threading/thread.cpp
-    ${src_dir}/durability/snapshooter.cpp
-    ${src_dir}/durability/recovery.cpp
-    ${src_dir}/storage/property_value.cpp
-    ${src_dir}/storage/locking/record_lock.cpp
-    ${src_dir}/storage/record_accessor.cpp
-    ${src_dir}/storage/vertex_accessor.cpp
-    ${src_dir}/storage/edge_accessor.cpp
-    ${src_dir}/transactions/transaction.cpp
-    ${src_dir}/template_engine/engine.cpp
-    ${src_dir}/logging/streams/stdout.cpp
-    ${src_dir}/logging/streams/stderr.cpp
-    ${src_dir}/logging/levels.cpp
-    ${src_dir}/logging/logs/sync_log.cpp
-    ${src_dir}/logging/logs/async_log.cpp
     ${src_dir}/logging/default.cpp
+    ${src_dir}/logging/levels.cpp
     ${src_dir}/logging/log.cpp
-    ${src_dir}/database/graph_db.cpp
-    ${src_dir}/database/graph_db_accessor.cpp
-    ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
-    ${src_dir}/query/engine.cpp
-    ${src_dir}/query/frontend/stripped.cpp
+    ${src_dir}/logging/logs/async_log.cpp
+    ${src_dir}/logging/logs/sync_log.cpp
+    ${src_dir}/logging/streams/stderr.cpp
+    ${src_dir}/logging/streams/stdout.cpp
     ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
+    ${src_dir}/query/engine.cpp
     ${src_dir}/query/frontend/ast/ast.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
-    ${src_dir}/query/typed_value.cpp
+    ${src_dir}/query/frontend/semantic/symbol_generator.cpp
+    ${src_dir}/query/frontend/stripped.cpp
     ${src_dir}/query/interpret/awesome_memgraph_functions.cpp
+    ${src_dir}/query/interpreter.cpp
+    ${src_dir}/query/plan/cost_estimator.cpp
     ${src_dir}/query/plan/operator.cpp
     ${src_dir}/query/plan/rule_based_planner.cpp
     ${src_dir}/query/plan/variable_start_planner.cpp
-    ${src_dir}/query/plan/cost_estimator.cpp
-    ${src_dir}/query/frontend/semantic/symbol_generator.cpp
+    ${src_dir}/query/typed_value.cpp
+    ${src_dir}/storage/edge_accessor.cpp
+    ${src_dir}/storage/locking/record_lock.cpp
+    ${src_dir}/storage/property_value.cpp
+    ${src_dir}/storage/record_accessor.cpp
+    ${src_dir}/storage/vertex_accessor.cpp
+    ${src_dir}/template_engine/engine.cpp
+    ${src_dir}/threading/thread.cpp
+    ${src_dir}/transactions/transaction.cpp
+    ${src_dir}/utils/numerics/saturate.cpp
 )
 # -----------------------------------------------------------------------------
 

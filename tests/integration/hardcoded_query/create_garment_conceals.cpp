@@ -21,9 +21,9 @@ class CPUPlan : public PlanInterface<Stream> {
            Stream &stream) {
     auto v = db_accessor.insert_vertex();
     v.add_label(db_accessor.label("garment"));
-    v.PropsSet(db_accessor.property("garment_id"), args.At(0));
-    v.PropsSet(db_accessor.property("garment_category_id"), args.At(1));
-    v.PropsSet(db_accessor.property("conceals"), args.At(2));
+    v.PropsSet(db_accessor.property("garment_id"), args.At(0).second);
+    v.PropsSet(db_accessor.property("garment_category_id"), args.At(1).second);
+    v.PropsSet(db_accessor.property("conceals"), args.At(2).second);
     std::vector<std::string> headers{std::string("g")};
     stream.Header(headers);
     std::vector<TypedValue> result{TypedValue(v)};

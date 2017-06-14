@@ -24,13 +24,13 @@ class CPUPlan : public PlanInterface<Stream> {
       if (vertex.has_label(db_accessor.label("profile"))) {
         TypedValue prop = vertex.PropsAt(db_accessor.property("profile_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
-        auto cmp = prop == args.At(0);
+        auto cmp = prop == args.At(0).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
 
         TypedValue prop2 = vertex.PropsAt(db_accessor.property("partner_id"));
         if (prop2.type() == TypedValue::Type::Null) continue;
-        auto cmp2 = prop2 == args.At(1);
+        auto cmp2 = prop2 == args.At(1).second;
         if (cmp2.type() != TypedValue::Type::Bool) continue;
         if (cmp2.Value<bool>() != true) continue;
         std::vector<TypedValue> result{TypedValue(vertex)};
