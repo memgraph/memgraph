@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 '''
@@ -9,6 +8,8 @@ Only Bolt communication protocol is supported.
 '''
 
 import contextlib
+from threading import Thread
+from time import sleep
 
 from argparse import ArgumentParser
 from neo4j.v1 import GraphDatabase, basic_auth
@@ -43,59 +44,77 @@ class OutputData:
         '''
         self._statuses.append((name, status))
 
-    def console_dump(self):
+    def dump(self, print_f=print):
         '''
-        Dumps output data on the console output.
+        Dumps output using the given ouput function.
+
+        Args:
+            print_f - the function that consumes ouptput. Defaults to
+            the 'print' function.
         '''
-        print("Output data:")
+        print_f("Output data:")
         for name, status in self._statuses:
-            print("    %s: %s" % (name, status))
+            print_f("    %s: %s" % (name, status))
         for name, time, unit in self._measurements:
-            print("    %s: %s%s" % (name, time, unit))
+            print_f("    %s: %s%s" % (name, time, unit))
 
 
-def execute_till_success(session, query):
+def execute_till_success(session, query, max_retries=1000):
     '''
     Executes a query within Bolt session until the query is
     successfully executed against the database.
 
+    Args:
+        session - the bolt session to execute the query with
+        query - str, the query to execute
+        max_retries - int, maximum allowed number of attempts
+
     :param session: active Bolt session
     :param query: query to execute
 
-    :return: int, number of failuers
+    :return: tuple (results_data_list, number_of_failures)
     '''
     no_failures = 0
-    try_again = True
-    while try_again:
+    while True:
         try:
-            session.run(query).consume()
-            try_again = False
+            return session.run(query).data(), no_failures
         except Exception:
             no_failures += 1
-    return no_failures
+            if no_failures >= max_retries:
+                raise Exception("Query '%s' failed %d times, aborting" %
+                                (query, max_retries))
 
 
-def batch_rendered_strings(t, dps, bs=1):
-    '''
-    Batches rendered strings based on template and data points. Template is
-    populated from a single data point and than more rendered strings
-    are batched into a single string.
+def batch(input, batch_size):
+    """ Batches the given input (must be iterable).
+    Supports input generators. Returns a generator.
+    All is lazy. The last batch can contain less elements
+    then `batch_size`, but is for sure more then zero.
 
-    :param t: str, template for the rendered string (for one data point)
-    :param dps, list or iterator with data points to populate the template
-    :param bs: int, batch size
+    Args:
+        input - iterable of elements
+        batch_size - number of elements in the batch
+    Return:
+        a generator that yields batches of elements.
+    """
+    assert batch_size > 1, "Batch size must be greater then zero"
 
-    :returns: (str, batched dps (might be useful for further rendering))
-              e.g. if t = "test %s", dps = range(1, 6), bs = 2
-                        yields are going to be:
-                            "test 1 test 2", [1, 2]
-                            "test 3 test 4", [3, 4]
-                            "test 5" [5]
-    '''
-    no_dps = len(dps)
-    for ndx in range(0, no_dps, bs):
-        yield (' '.join([t % dp for dp in dps[ndx:min(ndx + bs, no_dps)]]),
-               dps[ndx:min(ndx + bs, no_dps)])
+    batch = []
+    for element in input:
+        batch.append(element)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if len(batch):
+        yield batch
+
+
+def render(template, iterable_arguments):
+    """
+    Calls template.format() for each given argument.
+    """
+    for arguments in iterable_arguments:
+        yield template.format(arguments)
 
 
 def assert_equal(expected, actual, message):
@@ -111,7 +130,7 @@ def assert_equal(expected, actual, message):
     assert expected == actual, message % (expected, actual)
 
 
-def parse_connection_arguments():
+def connection_argument_parser():
     '''
     Parses arguments related to establishing database connection like
     host, port, username, etc.
@@ -129,9 +148,6 @@ def parse_connection_arguments():
                         help='DBMS instance password.')
     parser.add_argument('--ssl-enabled', action='store_false',
                         help="Is SSL enabled?")
-
-    parser.parse_known_args()
-
     return parser
 
 
@@ -155,7 +171,32 @@ def bolt_session(url, auth, ssl=False):
 
 def argument_session(args):
     '''
-    :return: Bolt session based on program arguments
+    :return: Bolt session context manager based on program arguments
     '''
     return bolt_session('bolt://' + args.endpoint,
                         basic_auth(args.username, args.password))
+
+
+def argument_driver(args, ssl=False):
+    return GraphDatabase.driver(
+        'bolt://' + args.endpoint,
+        basic_auth=(args.username, args.password),
+        encrypted=ssl)
+
+
+def periodically_execute(callable, args, interval, daemon=True):
+    """
+    Periodically calls the given callable.
+
+    Args:
+        callable - the callable to call
+        args - arguments to pass to callable
+        interval - time (in seconds) between two calls
+        deamon - if the execution thread should be a daemon
+    """
+    def periodic_call():
+        while True:
+            sleep(interval)
+            callable()
+
+    Thread(target=periodic_call, args=args, daemon=daemon).start()

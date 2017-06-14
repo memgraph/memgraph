@@ -9,9 +9,8 @@ import logging
 import multiprocessing
 import time
 
-from common import parse_connection_arguments, argument_session, \
-                   assert_equal, batch_rendered_strings, \
-                   OutputData, execute_till_success
+from common import connection_argument_parser, argument_session, assert_equal,\
+                   OutputData, execute_till_success, batch, render
 
 
 def parse_args():
@@ -20,8 +19,7 @@ def parse_args():
 
     :return: parsed arguments
     '''
-    parser = parse_connection_arguments()
-
+    parser = connection_argument_parser()
     parser.add_argument('--no-workers', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of concurrent workers.')
@@ -36,7 +34,6 @@ def parse_args():
     parser.add_argument('--edge-batch-size', type=int, default=100,
                         help='Number of edges in a batch when edges '
                              'are created in batches.')
-
     return parser.parse_args()
 
 
@@ -57,23 +54,18 @@ def create_u_v_edges(u):
     start_time = time.time()
     with argument_session(args) as session:
         no_failures = 0
-        match_u_query = 'MATCH (u:U {id: %s}) ' % u
+        match_u = 'MATCH (u:U {id: %d})' % u
         if args.edge_batching:
             # TODO: try to randomize execution, the execution time should
             # be smaller, add randomize flag
-            for batchm, dps in batch_rendered_strings(
-                    'MATCH (v%s:V {id: %s})',
-                    [(i, i) for i in range(args.no_v)],
-                    args.edge_batch_size):
-                for batchc, _ in batch_rendered_strings(
-                        'CREATE (u)-[:R]->(v%s)',
-                        [dpi for dpi, _ in dps],
-                        args.edge_batch_size):
-                    no_failures += execute_till_success(
-                        session, match_u_query + batchm + batchc)
+            for v_id_batch in batch(range(args.no_v), args.edge_batch_size):
+                match_v = render(" MATCH (v{0}:V {{id: {0}}})", v_id_batch)
+                create_u = render(" CREATE (u)-[:R]->(v{0})", v_id_batch)
+                query = match_u + "".join(match_v) + "".join(create_u)
+                no_failures += execute_till_success(session, query)[1]
         else:
             no_failures += execute_till_success(
-                session, match_u_query + 'MATCH (v:V) CREATE (u)-[:R]->(v)')
+                session, match_u + ' MATCH (v:V) CREATE (u)-[:R]->(v)')[1]
 
     end_time = time.time()
     return u, end_time - start_time, "s", no_failures
@@ -129,17 +121,14 @@ def execution_handler():
         output_data.add_measurement("cleanup_time",
                                     cleanup_end_time - start_time)
 
-        # create vertices
         # create U vertices
-        for vertex_batch, _ in batch_rendered_strings('CREATE (:U {id: %s})',
-                                                      range(args.no_u),
-                                                      args.vertex_batch_size):
-            session.run(vertex_batch).consume()
+        for b in batch(render('CREATE (:U {{id: {}}})', range(args.no_u)),
+                       args.vertex_batch_size):
+            session.run(" ".join(b)).consume()
         # create V vertices
-        for vertex_batch, _ in batch_rendered_strings('CREATE (:V {id: %s})',
-                                                      range(args.no_v),
-                                                      args.vertex_batch_size):
-            session.run(vertex_batch).consume()
+        for b in batch(render('CREATE (:V {{id: {}}})', range(args.no_v)),
+                       args.vertex_batch_size):
+            session.run(" ".join(b)).consume()
         vertices_create_end_time = time.time()
         output_data.add_measurement(
             'vertices_create_time',
@@ -214,4 +203,4 @@ if __name__ == '__main__':
     output_data.add_status("edge_batching", args.edge_batching)
     output_data.add_status("edge_batch_size", args.edge_batch_size)
     execution_handler()
-    output_data.console_dump()
+    output_data.dump()

@@ -13,8 +13,7 @@ namespace mvcc {
 
 class SerializationError : public utils::BasicException {
   static constexpr const char *default_message =
-      "Can't serialize due to\
-        concurrent operation(s)";
+      "Can't serialize due to concurrent operations";
 
  public:
   using utils::BasicException::BasicException;
