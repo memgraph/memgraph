@@ -21,6 +21,12 @@ Memgraph is 100% Bolt compliant.  That means every Bolt compliant driver should
 work. The following clients and drivers are tested `libneo4j-client` (C),
 `neo4j-driver` (Python), `neo4j-driver` (Javascript), `Neo4j Driver` (Java).
 
+### Graph Gists
+
+A nice looking set of small graph examples could be found
+[here](https://neo4j.com/graphgists/).  You can take any use-case and try to
+execute the queries against Memgraph. We welcome your feedback!
+
 ### neo4j-client Example
 
 Please take a look [here](https://neo4j-client.net) for the installation details
