@@ -80,14 +80,6 @@ void load_config(int &argc, char **&argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 }
 
-void log_stacktrace(const std::string &title) {
-  Stacktrace stacktrace;
-  // TODO: Change this from 'info' to 'error', when default error logging is
-  // added.
-  logging::info(title);
-  logging::info(stacktrace.dump());
-}
-
 int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
   load_config(argc, argv);
@@ -109,12 +101,16 @@ int main(int argc, char **argv) {
 
   // Signal handling init.
   SignalHandler::register_handler(Signal::SegmentationFault, []() {
-    log_stacktrace("SegmentationFault signal raised");
-    std::exit(EXIT_FAILURE);
+    // Log that we got SIGSEGV and abort the program, because returning from
+    // SIGSEGV handler is undefined behaviour.
+    std::cerr << "SegmentationFault signal raised" << std::endl;
+    std::abort();  // This will continue into our SIGABRT handler.
   });
   SignalHandler::register_handler(Signal::Abort, []() {
-    log_stacktrace("Abort signal raised");
-    std::exit(EXIT_FAILURE);
+    // Log the stacktrace and let the abort continue.
+    Stacktrace stacktrace;
+    std::cerr << "Abort signal raised" << std::endl
+              << stacktrace.dump() << std::endl;
   });
 
   // Initialize endpoint.

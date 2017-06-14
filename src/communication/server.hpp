@@ -69,13 +69,15 @@ class Server
     while (alive_) {
       this->WaitAndProcessEvents();
     }
+
+    logger_.info("Shutting down...");
+    for (auto &worker : workers_) worker->thread_.join();
   }
 
   void Shutdown() {
-    logger_.info("Shutting down...");
+    // This should be as simple as possible, so that it can be called inside a
+    // signal handler.
     alive_.store(false);
-
-    for (auto &worker : workers_) worker->thread_.join();
   }
 
   void OnConnect() {
