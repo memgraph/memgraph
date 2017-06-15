@@ -19,8 +19,7 @@ using namespace antlr4;
 
 namespace query {
 
-StrippedQuery::StrippedQuery(const std::string &query)
-    : Loggable("StrippedQuery") {
+StrippedQuery::StrippedQuery(const std::string &query) {
   // Tokenize the query.
   ANTLRInputStream input(query);
   CypherLexer lexer(&input);
@@ -128,7 +127,5 @@ StrippedQuery::StrippedQuery(const std::string &query)
 
   query_ = utils::Join(token_strings, " ");
   hash_ = fnv(query_);
-  logger.info("stripped_query = {}", query_);
-  logger.info("query_hash = {}", hash_);
 }
 }

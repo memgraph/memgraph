@@ -21,7 +21,7 @@ const std::string kStrippedBooleanToken = "true";
  *     * literals stripped from query
  *     * hash of stripped query
  */
-class StrippedQuery : Loggable {
+class StrippedQuery {
  public:
   /**
    * Strips the input query and stores stripped query, stripped arguments and
