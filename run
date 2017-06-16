@@ -60,7 +60,7 @@ binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable \
     -name "memgraph*" | sort | tail -n 1)
 
 # get full path to memgraph config for interpreted queries
-config_path="${memgraph_src_dir}/config/memgraph.yaml"
+config_path="${memgraph_src_dir}/config/testing.conf"
 
 # run scenarios
 cd ${script_dir}
