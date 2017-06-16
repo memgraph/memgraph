@@ -153,6 +153,15 @@ Example. Ordering by first name descending and last name ascending.
 
     MATCH (n :Person) RETURN n ORDER BY n.name DESC, n.lastName
 
+Note that `ORDER BY` sees only the variable names as carried over by `RETURN`.
+This means that the following will result in an error.
+
+    MATCH (n :Person) RETURN old AS new ORDER BY old.name
+
+Instead, the `new` variable must be used:
+
+    MATCH (n: Person) RETURN old AS new ORDER BY new.name
+
 The `ORDER BY` sub-clause may come in handy with `SKIP` and/or `LIMIT`
 sub-clauses. For example, to get the oldest person you can use the following.
 
