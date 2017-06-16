@@ -74,7 +74,7 @@ if [[ "${skip_compile}" == false ]]; then
     # compile memgraph
     cd ${project_dir}/build
     rm -rf ./*
-    cmake -DCMAKE_BUILD_TYPE:String=${build_type} ..
+    cmake -DLOG_NO_STDOUT=ON -DCMAKE_BUILD_TYPE:String=${build_type} ..
     make -j8
 fi
 

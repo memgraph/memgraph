@@ -5,8 +5,8 @@ FROM ubuntu:16.04
 # FROM debian:jessie      # doesn't work because CXXABI_1.3.9 & GLIBCXX_3.4.21 not found
 
 ENV MEMGRAPH_CONFIG /memgraph/config/memgraph.conf
-
 ARG build_name
+RUN mkdir -p /var/lib/memgraph
 
 COPY ${build_name} /memgraph
 

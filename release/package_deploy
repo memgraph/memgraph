@@ -5,12 +5,13 @@
 function print_help () {
     echo "Usage: $0 [OPTION] --version MAJOR.MINOR.PATCH"
     echo "Optional arguments:"
-    echo -e "  -h|--help      Print help."
-    echo -e "  --skip-compile  Skip compilation process."
-    echo -e "  --skip-deploy   Skip deployment process."
-    echo -e "  -s|--server     Deployment server address. -|"
-    echo -e "  -u|--user       Deployment server user.    -| -> Required if deployment isn't skipped."
-    echo -e "  -k|--key        Deployment server SSH key. -|"
+    echo -e "  -h|--help           Print help."
+    echo -e "  --skip-compile      Skip compilation process."
+    echo -e "  --skip-deploy       Skip deployment process."
+    echo -e "  --docker-image-name Custom docker image name, otherwise the image name will be the same as the package name."
+    echo -e "  -s|--server         Deployment server address. -|"
+    echo -e "  -u|--user           Deployment server user.    -| -> Required if deployment isn't skipped."
+    echo -e "  -k|--key            Deployment server SSH key. -|"
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -21,6 +22,7 @@ required_args_no=0
 skip_compile=false
 skip_deploy=false
 version=0
+docker_image_name=""
 while [[ $# -gt 0 ]]
 do
     case $1 in
@@ -48,6 +50,10 @@ do
         ;;
         --skip-deploy)
         skip_deploy=true
+        ;;
+        --docker-image-name)
+        docker_image_name="$2"
+        shift
         ;;
         --version)
         version=$2
@@ -102,7 +108,9 @@ package_name=`ls -t -d memgraph_*/ | head -1 | sed 's/.$//'`
 # for some reason docker image has to be lowercase string
 # and because our package name is based on the cmake build type
 # string (which can be camel case) the package name has to be transformed
-docker_image_name=$(echo "${package_name}"| tr '[:upper:]' '[:lower:]')
+if [[ "${docker_image_name}" == "" ]] ; then
+    docker_image_name=$(echo "${package_name}"| tr '[:upper:]' '[:lower:]')
+fi
 docker build -t ${docker_image_name} -f ${working_dir}/alpha.dockerfile --build-arg build_name=${package_name} .
 docker save ${docker_image_name} > ${docker_image_name}.tar.gz
 
