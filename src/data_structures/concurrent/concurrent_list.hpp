@@ -127,7 +127,11 @@ class ConcurrentList {
     It &operator++() {
       debug_assert(valid(), "Not valid data.");
       do {
-        prev = curr;
+        // We don't care about previous unless it's alive. If it's not alive we
+        // are going to look for it again and just incurr performance hit
+        // because of constant lookup of previous alive iterator while
+        // re-linking.
+        if (!curr->removed) prev = curr;
         curr = load(curr->next);
       } while (valid() && is_removed());  // Loop ends if end of list is
                                           // found or if not removed
