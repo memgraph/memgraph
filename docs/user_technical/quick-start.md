@@ -1,25 +1,30 @@
 ## Quick Start
 
-This chapter outlines several ways to connect and execute openCypher queries
-against Memgraph using available Bolt clients and drivers.
+This chapter outlines several ways to execute openCypher queries on Memgraph,
+but first it's important to outline several technologies Memgraph uses.
 
-Before the start, it is important to mention a couple of current limitations.
-Memgraph doesn't yet support multi-command transactions.  In other words,
-explicit start and termination of transactions isn't yet supported. A
-transaction is created and committed implicitly before and after each `run`
-method.
+### OpenCypher
 
-SSL is also not supported yet, so a driver has to be configured without
-encryption.  This is usually accomplished by modifying the configuration
-parameters before using them to construct the driver. There should be a
-parameter controlling the encryption and it should be set to a disabled state.
-Furthermore, the authorization isn't supported yet.  Username and password
-parameters are ignored during the authorization process. In other words, any
-combination of username and password will work, preferably they should be empty.
+Memgraph supports the openCypher query language which has been developed by
+[Neo4j](http://neo4j.com). The language is currently going through a
+vendor-independent standardization process. It's a declarative language
+developed specifically for interaction with graph databases.
 
-Memgraph is 100% Bolt compliant.  That means every Bolt compliant driver should
-work. The following clients and drivers are tested `libneo4j-client` (C),
-`neo4j-driver` (Python), `neo4j-driver` (Javascript), `Neo4j Driver` (Java).
+### Bolt
+
+Clients connect to Memgraph using the
+[Bolt protocol](https://boltprotocol.org/). Bolt was designed for efficient
+communication with graph databases. Memgraph supports
+[Version 1](https://boltprotocol.org/v1/) of the protocol. Official Bolt
+protocol drivers are provided for multiple programming languages:
+
+  * [Java](http://neo4j.com/docs/api/java-driver)
+  * [Python](http://neo4j.com/docs/api/python-driver)
+  * [JavaScript](http://neo4j.com/docs/api/javascript-driver)
+  * [C#](http://neo4j.com/docs/api/dotnet-driver)
+
+It's also possible to interact with Memgraph using Neo4j's command-line tool,
+which is the easiest way for executing openCypher queries on Memgraph.
 
 ### Graph Gists
 
@@ -29,67 +34,94 @@ execute the queries against Memgraph. We welcome your feedback!
 
 ### neo4j-client Example
 
-Please take a look [here](https://neo4j-client.net) for the installation details
-and complete documentation.
+The command-line neo4j-client can be installed as described
+[on the official website](https://neo4j-client.net).
 
-#### Query execution
+The client can be started and connected to Memgraph with the following
+shell command:
 
-You can execute a single query by piping the query string to the client
 ```
-echo "MATCH (n) RETURN n;" | neo4j-client --insecure -u "" -p "" localhost 7687
+neo4j-client bolt://<IP_ADDRESS>:<PORT> --insecure --user u --pass p
 ```
-or start the client and then make the connection. The most important thing is
-not to forget `--insecure` parameter to disable SSL.
+
+Where `<IP_ADDRESS>` and `<PORT>` should be replaced with the network location
+where Memgraph is reachable. The `--insecure` option specifies that SLL should
+be disabled (Memgraph alpha does not support SSL).  `--user` and `--pass`
+parameter values are ignored by Memgraph (alpha is single-user), but need to
+be provided for the client to connect automatically.
+
+After the client has started it should present a command prompt similar to:
+
 ```
-neo4j-client --insecure
-# to establish a connection the connect command has to be excuted as follows
-:connect localhost 7687
+neo4j-client 2.1.3
+Enter `:help` for usage hints.
+Connected to 'neo4j://neo@127.0.0.1:7687' (insecure)
+neo4j>
 ```
-Each query written in the `neo4j-client` console has to be finished with `;`
-e.g.
+
+
+At this point it is possible to execute openCypher queries on Memgraph. Each
+query needs to end with the `;` (*semicolon*) character. For example:
+
 ```
-MATCH ()-[r]->() RETURN count(r);
+CREATE (u:User {name: "Your Name"})-[:Likes]->(m:Software {name: "Memgraph"});
+```
+
+followed by:
+
+```
+MATCH (u:User)-[r]->(x) RETURN u, r, x;
 ```
 
 ### Python Driver Example
 
-The details about Python driver can be found [on
-GitHub](https://github.com/neo4j/neo4j-python-driver).  Below is a very basic
-example how to execute queries against Memgraph.
-
-Similar to all other drivers, driver and session have to be initialized (at the
-end of execution they also have to be closed).  To execute a query, `run` method
-has to be called. `consume` is here just to block the execution until the query
-is actually executed.  At the end of the code snippet shown below, the `print`
-function is used to display properties and labels of the obtained data.
+Neo4j officially supports Python for interacting with an openCypher and Bolt
+compliant database. For details consult the
+[official documentation](http://neo4j.com/docs/api/python-driver) and the
+[GitHub project](https://github.com/neo4j/neo4j-python-driver).  Following is
+a basic usage example:
 
 ```
 from neo4j.v1 import GraphDatabase, basic_auth
 
+# Initialize and configure the driver.
+#   * provide the correct URL where Memgraph is reachable;
+#   * use an empty user name and password, and
+#   * disable encryption (not supported).
 driver = GraphDatabase.driver("bolt://localhost:7687",
                               auth=basic_auth("", ""),
                               encrypted=False)
+
+# Start a session in which queries are executed.
 session = driver.session()
 
-session.run('MATCH (n) DETACH DELETE n').consume()
+# Execute openCypher queries.
+# After each query, call either `consume()` or `data()`
 session.run('CREATE (alice:Person {name: "Alice", age: 22})').consume()
 
-returned_result_set = session.run('MATCH (n) RETURN n').data()
-returned_result = returned_result_set.pop()
-alice = returned_result["n"]
+# Get all the vertices from the database (potentially multiple rows).
+vertices = session.run('MATCH (n) RETURN n').data()
+# Assuming we started with an empty database, we should have Alice
+# as the only row in the results.
+only_row = vertices.pop()
+alice = only_row["n"]
 
-print(alice['name'])
-print(alice.labels)
-print(alice['age'])
+# Print out what we retrieved.
+print("Found a vertex with labels '{}', name '{}' and age {}".format(
+  alice['name'], alice.labels, alice['age'])
 
+# Remove all the data from the database.
+session.run('MATCH (n) DETACH DELETE n').consume()
+
+# Close the session and the driver.
 session.close()
 driver.close()
 ```
 
 ### Java Driver Example
 
-The details about Java driver can be found [on
-GitHub](https://github.com/neo4j/neo4j-java-driver).
+The details about Java driver can be found
+[on GitHub](https://github.com/neo4j/neo4j-java-driver).
 
 The example below is equivalent to Python example. Major difference is that
 `Config` object has to be created before the driver construction.  Encryption
@@ -104,7 +136,7 @@ import java.util.*;
 
 public class JavaQuickStart {
     public static void main(String[] args) {
-        // Init driver.
+        // Initialize driver.
         Config config = Config.build().withoutEncryption().toConfig();
         Driver driver = GraphDatabase.driver("bolt://localhost:7687",
                                              AuthTokens.basic("",""),
@@ -131,11 +163,11 @@ public class JavaQuickStart {
 
 ### Javascript Driver Example
 
-The details about Javascript driver can be found [on
-GitHub] (https://github.com/neo4j/neo4j-javascript-driver).
+The details about Javascript driver can be found
+[on GitHub](https://github.com/neo4j/neo4j-javascript-driver).
 
-The Javascript example below is equivalent to Python and Java examples. SSL can
-be disabled by passing `{encrypted: 'ENCRYPTION_OFF'}` during the driver
+The Javascript example below is equivalent to Python and Java examples. SSL
+can be disabled by passing `{encrypted: 'ENCRYPTION_OFF'}` during the driver
 construction.
 
 Here is an example related to `Node.js`. Memgraph doesn't have integrated
@@ -143,9 +175,9 @@ support for `Web Socket` which is required during the execution in any web
 browser. If you want to run `openCypher` queries from a web browser,
 [websockify](https://github.com/novnc/websockify) has to be up and running.
 Requests from web browsers are wrapped into `Web Socket` messages, and a proxy
-is needed to handle the overhead. The proxy has to be configured to point out to
-Memgraph's Bolt port and web browser driver has to send requests to the proxy
-port.
+is needed to handle the overhead. The proxy has to be configured to point out
+to Memgraph's Bolt port and web browser driver has to send requests to the
+proxy port.
 
 ```
 var neo4j = require('neo4j-driver').v1;
@@ -182,3 +214,34 @@ run_query("MATCH (n) DETACH DELETE n", function (result) {
   });
 });
 ```
+
+### Limitations
+
+Memgraph is currently in alpha stage, and has a number of limitations we plan
+to remove in future versions.
+
+#### Multiple-Query Transactions
+
+Even though Memgraph is a transactional database engine, transactions
+containing multiple queries are not yet supported. In other words, explicit
+transaction start and stop aren't yet supported. A transaction is created and
+committed implicitly for each executed query. If query execution fails, the
+transaction is aborted.
+
+#### Multiple Users & Authorization
+
+Memgraph is currently single-user only. There is no way to control user
+privileges. The default user has read and write privileges over the whole
+database.
+
+#### Multiple Databases
+
+Currently, a single Memgraph process exposes only one database that is
+implicitly used. To use multiple databases, it is necessary to launch multiple
+Memgraph processes.
+
+#### Secure Sockets Layer (SSL)
+
+Secure connections are not supported in alpha. For this reason each client
+driver needs to be configured not to use encryption. Consult driver-specific
+guides for details.
