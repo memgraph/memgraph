@@ -806,7 +806,12 @@ class NodeAtom : public PatternAtom {
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      identifier_->Accept(visitor);
+      bool cont = identifier_->Accept(visitor);
+      for (auto &property : properties_) {
+        if (cont) {
+          cont = property.second->Accept(visitor);
+        }
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -837,7 +842,12 @@ class EdgeAtom : public PatternAtom {
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      identifier_->Accept(visitor);
+      bool cont = identifier_->Accept(visitor);
+      for (auto &property : properties_) {
+        if (cont) {
+          cont = property.second->Accept(visitor);
+        }
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1396,6 +1406,8 @@ class CachedAst {
     LiteralsPlugger(const Parameters &parameters) : parameters_(parameters) {}
 
     bool Visit(PrimitiveLiteral &literal) override {
+      // TODO: If literal is a part of NamedExpression then we need to change
+      // text in NamedExpression, otherwise wrong header will be returned.
       permanent_assert(
           literal.token_position_ != -1,
           "Use AstPlugLiteralsVisitor only on ast created by parsing queries");

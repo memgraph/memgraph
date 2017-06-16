@@ -42,7 +42,9 @@ StrippedQuery::StrippedQuery(const std::string &query) {
 
   // Convert tokens to strings, perform lowercasing and filtering.
   for (const auto *token : tokens) {
-    int position = token->getTokenIndex();
+    // Position is calculated in query after stripping and whitespace
+    // normalisation, not before.
+    int position = token_strings.size() * 2;
 
     switch (token->getType()) {
       case CypherLexer::UNION:

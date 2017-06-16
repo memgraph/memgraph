@@ -281,7 +281,8 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     kv.second->Accept(*this);
   }
   scope_.in_property_map = false;
-  return true;
+  node_atom.identifier_->Accept(*this);
+  return false;
 }
 
 bool SymbolGenerator::PostVisit(NodeAtom &node_atom) {
@@ -310,7 +311,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     kv.second->Accept(*this);
   }
   scope_.in_property_map = false;
-  return true;
+  edge_atom.identifier_->Accept(*this);
+  return false;
 }
 
 bool SymbolGenerator::PostVisit(EdgeAtom &edge_atom) {

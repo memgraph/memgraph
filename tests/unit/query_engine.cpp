@@ -59,5 +59,14 @@ TEST(QueryEngine, AstCache) {
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
   }
+  {
+    // Cached ast, same literals, different whitespaces.
+    ResultStreamFaker stream;
+    auto dba = dbms.active();
+    engine.Run("RETURN 10.5+1", *dba, stream);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
+  }
 }
 }

@@ -32,9 +32,6 @@ class Interpreter : public Loggable {
     Context ctx(config, db_accessor);
     std::map<std::string, TypedValue> summary;
 
-    // query -> stripped query
-    StrippedQuery stripped(query);
-
     // stripped query -> high level tree
     AstTreeStorage ast_storage = [&]() {
       if (!FLAGS_ast_cache) {
@@ -48,8 +45,11 @@ class Interpreter : public Loggable {
         return std::move(visitor.storage());
       }
 
+      // query -> stripped query
+      StrippedQuery stripped(query);
+
       auto ast_cache_accessor = ast_cache_.access();
-      auto it = ast_cache_accessor.find(query::StrippedQuery(query).hash());
+      auto it = ast_cache_accessor.find(stripped.hash());
       if (it == ast_cache_accessor.end()) {
         // stripped query -> AST
         frontend::opencypher::Parser parser(stripped.query());
