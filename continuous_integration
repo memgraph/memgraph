@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 # constants
 memgraph_suite = "memgraph_V1"
-opencypher_suite = "openCypher_M05"
+opencypher_suite = "openCypher_M06"
 results_folder = os.path.join("tck_engine", "results")
 memgraph_suffix = "memgraph-%s.json" % memgraph_suite
 opencypher_suffix = "memgraph-%s.json" % opencypher_suite
