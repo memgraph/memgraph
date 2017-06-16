@@ -14,8 +14,9 @@
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
 
-// TODO: Remove this flag and add flag that limits cache size.
+// TODO: Remove ast_cache flag and add flag that limits cache size.
 DECLARE_bool(ast_cache);
+DECLARE_bool(query_cost_planner);
 
 namespace query {
 
@@ -77,8 +78,6 @@ class Interpreter : public Loggable {
     // high level tree -> logical plan
     std::unique_ptr<plan::LogicalOperator> logical_plan;
     double query_plan_cost_estimation = 0.0;
-    // TODO: Use gflags
-    bool FLAGS_query_cost_planner = true;
     if (FLAGS_query_cost_planner) {
       auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
           ast_storage, symbol_table, &db_accessor);
