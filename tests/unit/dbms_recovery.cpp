@@ -11,7 +11,8 @@ DECLARE_int32(snapshot_cycle_sec);
 
 namespace fs = std::experimental::filesystem;
 
-const fs::path SNAPSHOTS_DBMS_RECOVERY_ALL_DB = std::tmpnam(nullptr);
+char tmp[] = "XXXXXX";
+const fs::path SNAPSHOTS_DBMS_RECOVERY_ALL_DB = mkdtemp(tmp);
 const fs::path SNAPSHOTS_DBMS_RECOVERY_DEFAULT_DB_DIR =
     SNAPSHOTS_DBMS_RECOVERY_ALL_DB / "default";
 

@@ -12,13 +12,15 @@ DECLARE_string(snapshot_directory);
 
 namespace fs = std::experimental::filesystem;
 
-const std::string SNAPSHOTS_FOLDER_ALL_DB = "snapshots_test";
-const std::string SNAPSHOTS_TEST_DEFAULT_DB_DIR = "snapshots_test/default";
+char tmp[] = "XXXXXX";
+const fs::path SNAPSHOTS_FOLDER_ALL_DB = mkdtemp(tmp);
+const fs::path SNAPSHOTS_TEST_DEFAULT_DB_DIR =
+    SNAPSHOTS_FOLDER_ALL_DB / "default";
 
-// Other functionality will be tested in recovery tests.
+// Other functionality is tested in recovery tests.
 
 std::vector<fs::path> GetFilesFromDir(
-    const std::string &snapshots_default_db_dir) {
+    const fs::path &snapshots_default_db_dir) {
   std::vector<fs::path> files;
   for (auto &file : fs::directory_iterator(snapshots_default_db_dir))
     files.push_back(file.path());

@@ -14,7 +14,10 @@ DECLARE_int32(snapshot_cycle_sec);
 
 namespace fs = std::experimental::filesystem;
 
-const fs::path SNAPSHOTS_RECOVERY_DEFAULT_DB_DIR = std::tmpnam(nullptr);
+char tmp[] = "XXXXXX";
+const fs::path SNAPSHOTS_RECOVERY_ALL_DB_DIR = mkdtemp(tmp);
+const fs::path SNAPSHOTS_RECOVERY_DEFAULT_DB_DIR =
+    SNAPSHOTS_RECOVERY_ALL_DB_DIR / "default";
 
 std::vector<fs::path> GetFilesFromDir(
     const std::string &snapshots_default_db_dir) {
