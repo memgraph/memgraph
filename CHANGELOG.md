@@ -1,15 +1,21 @@
 # Change Log
 
-## Next Build
-* Abandon old config and migrate to gflags.
+## Next Build Number; Next Commit Hash; Next Version Number
 
 ### Major Features and Improvements
 
-TODO
+* Use label indexes to speed up querying.
+* Generate multiple query plans and use the cost estimator to select the best.
+* Snapshots & Recovery.
+* Abandon old yaml configuration and migrate to gflags.
+* Query stripping & AST caching support.
 
 ### Bug Fixes and Other Changes
 
-TODO
+* Fixed race condition in MVCC. Hints exp+aborted race condition prevented.
+* Fixed conceptual bug in MVCC GC. Evaluate old records w.r.t. the oldest
+  transaction's id AND snapshot.
+* User friendly error messages thrown from the query engine.
 
 ## Build 837
 
