@@ -18,8 +18,8 @@ DEFINE_int32(max_retained_snapshots, -1,
 DEFINE_int32(snapshot_cycle_sec, -1,
              "Amount of time between starts of two snapshooters in seconds. -1 "
              "to turn off.");
-DEFINE_bool(snapshot_on_db_destruction, false,
-            "Snapshot on database destruction.");
+DEFINE_bool(snapshot_on_db_exit, false,
+            "Snapshot on exiting the database.");
 
 DECLARE_string(snapshot_directory);
 
@@ -107,7 +107,7 @@ GraphDb::~GraphDb() {
   snapshot_creator_.Stop();
 
   // Create last database snapshot
-  if (FLAGS_snapshot_on_db_destruction == true) {
+  if (FLAGS_snapshot_on_db_exit == true) {
     GraphDbAccessor db_accessor(*this);
     logger.info("Creating snapshot on shutdown...");
     const bool status = snapshooter_.MakeSnapshot(

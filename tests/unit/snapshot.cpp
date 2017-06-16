@@ -6,7 +6,7 @@
 #include "dbms/dbms.hpp"
 #include "durability/snapshooter.hpp"
 
-DECLARE_bool(snapshot_on_db_destruction);
+DECLARE_bool(snapshot_on_db_exit);
 DECLARE_int32(snapshot_cycle_sec);
 DECLARE_string(snapshot_directory);
 
@@ -103,7 +103,7 @@ TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
 TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
   {
     FLAGS_snapshot_directory = SNAPSHOTS_FOLDER_ALL_DB;
-    FLAGS_snapshot_on_db_destruction = true;
+    FLAGS_snapshot_on_db_exit = true;
     Dbms dbms;
     auto dba = dbms.active();
   }

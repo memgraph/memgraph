@@ -12,6 +12,5 @@ data structures, multi-version concurrency control and asynchronous IO.
   * [Installation](installation.md)
   * [Quick Start](quick-start.md)
   * [openCypher Query Language](open-cypher.md)
-  * [Interfacing with Memgraph](interfaces.md)
   * [Upcoming Features](upcoming-features.md)
 
