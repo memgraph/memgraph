@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "utils/assert.hpp"
+#include "utils/crtp.hpp"
 #include "utils/placeholder.hpp"
 #include "utils/random/fast_binomial.hpp"
 

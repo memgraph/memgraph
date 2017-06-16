@@ -8,7 +8,7 @@
 
 #include "gflags/gflags.h"
 
-#include "data_structures/concurrent/concurrent_list.hpp"
+#include "data_structures/concurrent/push_queue.hpp"
 #include "logging/loggable.hpp"
 
 #include "threading/sync/spinlock.hpp"
@@ -39,10 +39,10 @@ class SkipListGC : public Loggable {
     // We have to unregister the job because otherwise Executioner might access
     // some member variables of this class after it has been destructed.
     GetExecutioner().UnRegisterJob(executor_job_id_);
-    for (auto it = deleted_list_.begin(); it != deleted_list_.end(); ++it) {
+    for (auto it = deleted_queue_.begin(); it != deleted_queue_.end(); ++it) {
       TNode::destroy(it->second);
-      it.remove();
     }
+    deleted_queue_.begin().delete_tail();
   }
 
   /**
@@ -111,36 +111,28 @@ class SkipListGC : public Loggable {
     // thread ever accessing it here, i.e. there is at most one thread doing
     // this GarbageCollection.
 
-    // find the oldest not deletable record
-    // since we can't copy a concurrent list iterator, we must use two
-    // separate ones, while ensuring they point to the same record
-    // in the beginning of the search-loop
-    auto it = deleted_list_.begin();
-    auto oldest_not_deletable = deleted_list_.begin();
-    while (oldest_not_deletable != it) oldest_not_deletable++;
-    // we need a bool to track if oldest_not_deletable should get
-    // deleted too (we have not skipped any record due to safe_id condition)
+    auto oldest_not_deletable = deleted_queue_.begin();
     bool delete_all = true;
-    for (; it != deleted_list_.end(); ++it) {
+    for (auto it = oldest_not_deletable; it != deleted_queue_.end(); ++it) {
       if (it->first > safe_id) {
-        while (oldest_not_deletable != it) ++oldest_not_deletable;
+        oldest_not_deletable = it;
         delete_all = false;
       }
     }
 
     // deleted_list is already empty, nothing to delete here.
-    if (oldest_not_deletable == deleted_list_.end()) return;
+    if (oldest_not_deletable == deleted_queue_.end()) return;
 
     // In case we didn't find anything that we can't delete we shouldn't
     // increment this because that would mean we skip over the first record
     // which is ready for destruction.
     if (!delete_all) ++oldest_not_deletable;
     int64_t destroyed = 0;
-    for (auto &it = oldest_not_deletable; it != deleted_list_.end(); ++it) {
+    for (auto it = oldest_not_deletable; it != deleted_queue_.end(); ++it) {
       TNode::destroy(it->second);
-      it.remove();
       ++destroyed;
     }
+    oldest_not_deletable.delete_tail();
     if (destroyed) logger.trace("Number of destroyed elements: {}", destroyed);
   }
 
@@ -153,8 +145,7 @@ class SkipListGC : public Loggable {
     // We can afford some inaccuary here - it's possible that some new accessor
     // incremented the last_accessor_id after we enter this method and as such
     // we might be a bit pessimistic here.
-    deleted_list_.begin().push(
-        std::make_pair(last_accessor_id_.load(), object));
+    deleted_queue_.push(last_accessor_id_.load(), object);
   }
 
  private:
@@ -168,5 +159,5 @@ class SkipListGC : public Loggable {
 
   // List of pairs of accessor_ids and pointers to entries which should be
   // destroyed sorted approximately descendingly by id.
-  ConcurrentList<std::pair<int64_t, TNode *>> deleted_list_;
+  ConcurrentPushQueue<std::pair<int64_t, TNode *>> deleted_queue_;
 };
