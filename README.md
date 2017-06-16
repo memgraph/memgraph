@@ -31,6 +31,9 @@ The following tck tests have been changed:
        To correct tests, tag "the result should be" was changed with a
        tag "the result should be (ignoring element order for lists)".
 
+    3. Behave can't escape character '|' and it throws parse error. Query was then
+       changed and result was returned with different name.
+
 Comparability.feature tests are failing because integers are compared to strings
 what is not allowed in openCypher.
 
