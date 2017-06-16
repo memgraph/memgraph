@@ -15,7 +15,7 @@ After a successful download the Memgraph Docker image
 can be imported into Docker:
 
 ```
-docker load -i /path/to/<memgraph_docker_image_name>.tar.gz
+docker load -i /path/to/memgraph_alpha_v0.5.0.tar.gz
 ```
 
 ### Image Configuration & Running Memgraph
@@ -23,7 +23,7 @@ docker load -i /path/to/<memgraph_docker_image_name>.tar.gz
 Memgraph can be started by executing:
 
 ```
-docker run -it -p 7687:7687 <memgraph_docker_image_name>
+docker run -it -p 7687:7687 memgraph_alpha_v0.5.0
 ```
 
 The `-it` option enables displaying Memgraph's logs inside the current shell.
@@ -41,20 +41,20 @@ Linux system all of that can be achieved with the following shell commands:
 
 ```
 # Create the snapshots folder on the host.
-mkdir -p memgraph_snapshots
+mkdir -p memgraph
 # Docker expects full path to the created folder.
-FULL_SNAPSHOTS_PATH=$PWD/memgraph_snapshots
+FULL_OUTPUT_PATH=$PWD/memgraph
 # Run Memgraph.
-docker run -d -p 7687:7687 -v ${FULL_SNAPSHOTS_PATH}:/memgraph/snapshots --name <memgraph_docker_container_name> <memgraph_docker_image_name>
+docker run -d -p 7687:7687 -v ${FULL_OUTPUT_PATH}:/var/lib/memgraph --name <memgraph_docker_container_name> memgraph_alpha_v0.5.0
 ```
 
 In the commands above `-d` means that the container will be detached (run in
-the background).
-`-v` mounts the snapshots folder inside the Docker container on the host file
-system.
-With `--name` a custom name for the container can be set (useful for easier
-container management). `<memgraph_docker_container_name>` could be any
-convenient name e.g.  `memgraph_alpha`.
+the background).  `-v` mounts a host folder to a path inside the Docker
+container. The output folder contains Memgraph's periodical snapshots and log
+file.  The log file should be uploaded to Memgraph's issue tracking system in
+case of an error.  With `--name` a custom name for the container can be set
+(useful for easier container management).  `<memgraph_docker_container_name>`
+could be any convenient name e.g.  `memgraph_alpha`.
 
 ### Memgraph Configuration Parameters
 
