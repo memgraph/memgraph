@@ -281,6 +281,9 @@ include_directories(${build_include_dir})
 include_directories(SYSTEM ${fmt_source_dir})
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
+# needed to include configured files (plan_compiler_flags.hpp)
+set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)
+include_directories(${generated_headers_dir})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -378,14 +381,12 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser
-                              generate_plan_compiler_flags)
+add_dependencies(memgraph_lib generate_opencypher_parser)
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_pic ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_pic generate_opencypher_parser
-                              generate_plan_compiler_flags)
+add_dependencies(memgraph_pic generate_opencypher_parser)
 set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 # -----------------------------------------------------------------------------
 
@@ -477,21 +478,4 @@ if(HARDCODED_TARGETS)
 endif()
 
 get_target_cxx_flags(memgraph_lib compile_flags)
-set(plan_compiler_flags_file ${build_include_dir}/query/plan_compiler_flags.hpp)
-add_custom_target(generate_plan_compiler_flags
-  COMMENT
-  "Generating ${plan_compiler_flags_file} with compile flags: ${compile_flags}"
-  VERBATIM
-  COMMAND
-  /bin/echo -e
-  "#pragma once"
-  "\\n// Generated from cmake. Flags are taken from current build configuration."
-  "\\n// Do not edit this manually!"
-  "\\nstatic constexpr const char compile_flags[] = \"${compile_flags}\";"
-  "\\nstatic constexpr const char include_dirs[] ="
-  "\"-I${CMAKE_BINARY_DIR}/include -I${CMAKE_SOURCE_DIR}/libs/fmt\";"
-  "\\nstatic constexpr const char link_dirs[] = \"-L${CMAKE_BINARY_DIR}\";"
-  > ${plan_compiler_flags_file}
-  BYPRODUCTS ${plan_compiler_flags_file}
-)
-set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${plan_compiler_flags_file})
+configure_file(${src_dir}/query/plan_compiler_flags.hpp.in ${generated_headers_dir}/query/plan_compiler_flags.hpp)

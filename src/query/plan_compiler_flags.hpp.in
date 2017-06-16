@@ -1,0 +1,6 @@
+#pragma once
+
+static constexpr const char compile_flags[] = "${compile_flags}";
+// TODO: this shouldn't look at CMAKE_SOURCE_DIR.
+static constexpr const char include_dirs[] = "-I${CMAKE_BINARY_DIR}/include -I${CMAKE_SOURCE_DIR}/libs/fmt";
+static constexpr const char link_dirs[] = "-L${CMAKE_BINARY_DIR}";
