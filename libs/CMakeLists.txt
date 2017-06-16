@@ -21,6 +21,17 @@ set(GFLAGS_BUILD_gflags_nothreads_LIB OFF)
 set(GFLAGS_BUILD_gflags_LIB ON)
 add_subdirectory(gflags)
 
+# Setup google logging after gflags (so that glog can use it).
+# We need to use `ExternalProject`, because currently glog's CMakeLists.txt
+# doesn't detect gflags if we do `add_subdirectory`.
+include(ExternalProject)
+ExternalProject_Add(glog DEPENDS gflags
+  PREFIX ${CMAKE_SOURCE_DIR}/libs/glog
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/libs/glog
+  CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+             -DCMAKE_INSTALL_PREFIX=${CMAKE_SOURCE_DIR}/libs/glog
+             -Dgflags_DIR=${CMAKE_CURRENT_BINARY_DIR}/gflags)
+
 # setup cppitertools
 # CLion compatiblity; the target won't be built
 file(GLOB __CPPITERTOOLS_SOURCES __main.cpp

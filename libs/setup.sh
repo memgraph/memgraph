@@ -47,6 +47,13 @@ cd googletest
 git checkout ${googletest_tag}
 cd ..
 
+# google logging
+git clone https://github.com/google/glog.git
+glog_tag="a6a166db069520dbbd653c97c2e5b12e08a8bb26" # v0.3.5
+cd glog
+git checkout ${glog_tag}
+cd ..
+
 # lcov-to-coberatura-xml
 git clone https://github.com/eriwen/lcov-to-cobertura-xml.git
 lcov_to_xml_tag="59584761cb5da4687693faec05bf3e2b74e9dde9" # Dec 6, 2016

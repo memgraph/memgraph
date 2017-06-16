@@ -284,6 +284,7 @@ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # needed to include configured files (plan_compiler_flags.hpp)
 set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)
 include_directories(${generated_headers_dir})
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs/glog/include)
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -373,7 +374,8 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib and memgraph_pic depend on these libraries
-set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt antlr_opencypher_parser_lib dl)
+set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt
+    antlr_opencypher_parser_lib dl ${CMAKE_SOURCE_DIR}/libs/glog/lib/libglog.a)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
@@ -381,7 +383,8 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser)
+add_dependencies(memgraph_lib generate_opencypher_parser
+                              glog)
 
 # STATIC PIC library used by query engine
 add_library(memgraph_pic STATIC ${memgraph_src_files})
