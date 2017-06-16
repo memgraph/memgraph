@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <iostream>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -63,6 +64,12 @@ class Server
               dbms_, query_engine_));
       workers_.back()->Start(alive_);
     }
+#ifdef LOG_NO_STDOUT
+    // TODO: Remove this when we switch to glog.
+    std::cout << "Server is fully armed and operational" << std::endl
+              << "Listening on " << socket_.endpoint().address() << " at "
+              << socket_.endpoint().port() << std::endl;
+#endif
     logger_.info("Server is fully armed and operational");
     logger_.info("Listening on {} at {}", socket_.endpoint().address(),
                  socket_.endpoint().port());
@@ -70,6 +77,10 @@ class Server
       this->WaitAndProcessEvents();
     }
 
+#ifdef LOG_NO_STDOUT
+    // TODO: Remove this when we switch to glog.
+    std::cout << "Shutting down..." << std::endl;
+#endif
     logger_.info("Shutting down...");
     for (auto &worker : workers_) worker->thread_.join();
   }

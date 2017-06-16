@@ -159,7 +159,13 @@ endif()
 # -----------------------------------------------------------------------------
 
 # logging levels --------------------------------------------------------------
+option (LOG_NO_STDOUT
+        "Disable logging to stdout. (Docker has a bug with large logs.)"
+        OFF)
 option(LOG_NO_TRACE "Disable trace logging" OFF)
+if (LOG_NO_STDOUT)
+    add_definitions(-DLOG_NO_STDOUT)
+endif()
 message(STATUS "LOG_NO_TRACE: ${LOG_NO_TRACE}")
 if (LOG_NO_TRACE)
     add_definitions(-DLOG_NO_TRACE)

@@ -15,6 +15,7 @@
 
 #include "logging/default.hpp"
 #include "logging/streams/stdout.hpp"
+#include "logging/streams/file.hpp"
 
 #include "utils/flag_validation.hpp"
 #include "utils/signals/handler.hpp"
@@ -38,6 +39,8 @@ DEFINE_string(port, "7687", "Default port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_string(log_file, "memgraph.log",
+              "Path to where the log should be stored.");
 
 // Load flags in this order, the last one has the highest priority:
 // 1) /etc/memgraph/config
@@ -90,7 +93,10 @@ int main(int argc, char **argv) {
 #else
   logging::init_async();
 #endif
+#ifndef LOG_NO_STDOUT
   logging::log->pipe(std::make_unique<Stdout>());
+#endif
+  logging::log->pipe(std::make_unique<File>(FLAGS_log_file));
 
   // Get logger.
   logger = logging::log->logger("Main");
