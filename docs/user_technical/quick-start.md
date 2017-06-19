@@ -220,6 +220,12 @@ run_query("MATCH (n) DETACH DELETE n", function (result) {
 Memgraph is currently in alpha stage, and has a number of limitations we plan
 to remove in future versions.
 
+#### Single query length
+
+The maximum length of a query that can be sent from a driver in Python is
+`16378` characters, from a driver in Java `8184` and from a driver in
+JavaScript `1373` characters.
+
 #### Multiple-Query Transactions
 
 Even though Memgraph is a transactional database engine, transactions
