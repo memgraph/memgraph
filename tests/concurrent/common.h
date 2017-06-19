@@ -7,8 +7,6 @@
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/concurrent/concurrent_multimap.hpp"
-#include "data_structures/concurrent/concurrent_multiset.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "data_structures/static_array.hpp"
@@ -27,8 +25,6 @@ using std::cout;
 using std::endl;
 using map_t = ConcurrentMap<int, int>;
 using set_t = ConcurrentSet<int>;
-using multiset_t = ConcurrentMultiSet<int>;
-using multimap_t = ConcurrentMultiMap<int, int>;
 
 using namespace std::chrono_literals;
 
@@ -126,37 +122,6 @@ void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
   for (int i = 0; i < set.size(); i++) {
     permanent_assert(!(set[i] ^ db.at(i)),
                      "Set constraints aren't fullfilled.");
-  }
-}
-
-// Checks multiIterator and iterator guarantees
-void check_multi_iterator(multimap_t::Accessor &accessor, size_t key_range,
-                          long set[]) {
-  for (int i = 0; i < key_range; i++) {
-    auto it = accessor.find(i);
-    auto it_m = accessor.find_multi(i);
-    permanent_assert(!(it_m != accessor.end(i) && it == accessor.end()),
-                     "MultiIterator ended before Iterator. Set: " << set[i]);
-    permanent_assert(!(it_m == accessor.end(i) && it != accessor.end()),
-                     "Iterator ended before MultiIterator. Set: " << set[i]);
-    permanent_assert((it_m == accessor.end(i) && it == accessor.end()) ||
-                         it->second == it_m->second,
-                     "MultiIterator didn't found the same "
-                     "first element. Set: "
-                         << set[i]);
-    if (set[i] > 0) {
-      for (int j = 0; j < set[i]; j++) {
-        permanent_assert(it->second == it_m->second,
-                         "MultiIterator and iterator aren't on the same "
-                         "element.");
-        permanent_assert(it_m->first == i,
-                         "MultiIterator is showing illegal data") it++;
-        it_m++;
-      }
-    }
-    permanent_assert(it_m == accessor.end(i),
-                     "There is more data than it should be in MultiIterator. "
-                         << it_m->first << "\n");
   }
 }
 

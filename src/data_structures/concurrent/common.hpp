@@ -5,7 +5,7 @@
 
 using std::pair;
 
-// Item stored in skiplist. Used by ConcurrentMap and ConcurrentMultiMap to
+// Item stored in skiplist. Used by ConcurrentMap to
 // store key and value but to make ordering on keys.
 template <typename K, typename T>
 class Item : public TotalOrdering<Item<K, T>>,
@@ -71,16 +71,6 @@ class AccessorBase {
   list_it_con end() const { return accessor.cend(); }
 
   list_it_con cend() const { return accessor.cend(); }
-
-  template <class K>
-  typename SkipList<T>::template MultiIterator<K> end(const K &data) {
-    return accessor.template mend<K>(data);
-  }
-
-  template <class K>
-  typename SkipList<T>::template MultiIterator<K> mend(const K &data) {
-    return accessor.template mend<K>(data);
-  }
 
   size_t size() const { return accessor.size(); }
 
