@@ -527,6 +527,106 @@ class SkipList : private Lockable<lock_t> {
       return skiplist->find_or_larger<It, K>(item);
     }
 
+    /**
+     * Position and count estimation. Gives estimates
+     * on the position of the given item in this skiplist, and
+     * the number of identical items according to 'greater'.
+     *
+     * If `item` is not contained in the skiplist,
+     * then the position where it would be inserted is returned
+     * as the position estimate, and 0 as count estimate.
+     *
+     * Position and count detection works by iterating over the
+     * list at a certain level. These levels can be tuned as
+     * a performance vs precision optimization. Lower levels mean
+     * higher precision, higher levels mean better performance.
+     * TODO: tune the levels once benchmarks are available.
+     *
+     * @param item The item for which the position is estimated.
+     * @param greater Comparison function. It must be partially
+     *  consistent with natural comparison of Skiplist elements:
+     *  if `greater` indicates that X is greater then
+     *  Y, then natural comparison must indicate the same. The
+     *  reverse does not have to hold.
+     * @param position_level_reduction - Defines at which level
+     *  item position is estimated. Position level is defined
+     *  as log2(skiplist->size()) - position_level_reduction.
+     * @param count_max_level - Defines the max level at which
+     *  item count is estimated.
+     * @tparam TGreater Type of `greater`
+     * @return A pair of ints where the first element is the estimated
+     *  position of item, and the second is the estimated number
+     *  of items that are the same according to `greater`.
+     */
+    template <typename TItem, typename TGreater = std::greater<T>>
+    auto position_and_count(const TItem &item, TGreater greater = TGreater{},
+                            int position_level_reduction = 10,
+                            int count_max_level = 3) {
+      // the level at which position will be sought
+      int position_level = std::max(
+          0, static_cast<int>(std::lround(std::log2(skiplist->size()))) -
+                 position_level_reduction);
+
+      Node *pred = skiplist->header;
+      Node *succ = nullptr;
+
+      int position = 0;
+      for (int i = position_level; i >= 0; i--) {
+        // count how many towers we pass on this level,
+        // used for calculating item position
+        int tower_count = 0;
+
+        succ = pred->forward(i);
+        while (succ && greater(item, succ->value())) {
+          pred = succ;
+          succ = succ->forward(i);
+          tower_count++;
+        }
+
+        // in the succs field we'll keep track of successors
+        // that are equal to item, or nullptr otherwise
+        succs[i] = (!succ || greater(succ->value(), item)) ? nullptr : succ;
+
+        position += (1 << i) * tower_count;
+      }
+
+      // if succ is nullptr, we have the last skiplist element
+      if (succ == nullptr) {
+        // pred now contains the first node whose value <= item
+        // check if we found the item exactly (value == item)
+        bool found = pred != skiplist->header && !greater(item, pred->value());
+        return std::make_pair(position, found ? 1 : 0);
+      }
+
+      // now we need to estimate the count of elements equal to item
+      // we'll do that by looking for the first element that is greater
+      // then item, and counting how far we have to look
+
+      // first find the rightmost (highest) succ that has value == item
+      int count_level = 0;
+      for (int i = position_level; i >= 0; i--)
+        if (succs[i]) {
+          count_level = i;
+          break;
+        }
+      count_level = std::min(count_level, count_max_level);
+      succ = succs[count_level];
+
+      // now expand to the right as long as element value == item
+      // at the same time accumulate count
+      int count = 1 << count_level;
+      for (; count_level >= 0; count_level--) {
+        Node *next = succ->forward(count_level);
+        while (next && !greater(next->value(), item)) {
+          succ = next;
+          next = next->forward(count_level);
+          count += 1 << count_level;
+        }
+      }
+
+      return std::make_pair(position, count);
+    }
+
     template <class K>
     bool contains(const K &item) const {
       return this->find(item) != this->end();
@@ -619,6 +719,7 @@ class SkipList : private Lockable<lock_t> {
       return std::make_pair(rend(), false);
     }
 
+    // TODO why are preds created here and not reused from accessor?
     Node *preds[H];
     find_path(item, preds);
     return std::make_pair(ReverseIterator(this, preds[0], preds), true);
@@ -673,11 +774,13 @@ class SkipList : private Lockable<lock_t> {
    *  towers that would link to the new tower. If nullptr, it is
    *  ignored.
    * @param succs - Like preds, for successor nodes.
+   * @tparam K - type of item that must be comparable to the
+   *  type of item <T> stored in the skiplist.
    * @return - The height of the node already present in the
    *  skiplist, that matches the given item (is equal to it).
    *  Returns -1 if there is no matching item in the skiplist.
    */
-  template <class K>
+  template <typename K>
   int find_path(const K &item, Node *preds[] = nullptr,
                 Node *succs[] = nullptr) const {
     int level_found = -1;
@@ -716,6 +819,11 @@ class SkipList : private Lockable<lock_t> {
     // finds the max level of the skiplist based on the size (simple math).
     auto level = static_cast<size_t>(std::round(std::log2(skiplist_size)));
 
+    // TODO
+    // inconsistent design, it seems that Accessor is trying to reuse nodes
+    // and pass the same ones to SkipList functions, why is this function
+    // doing it differently?
+    // also, why is 32 hardcoded?
     Node *first_preds[32];
     Node *second_preds[32];
 
