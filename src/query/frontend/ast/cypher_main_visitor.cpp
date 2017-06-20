@@ -332,7 +332,14 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     }
     return name;
   }
-  return std::string(ctx->getText());
+  if (ctx->UnescapedSymbolicName() || ctx->HexLetter()) {
+    return std::string(ctx->getText());
+  }
+  // Symbolic names are case sensitive. Since StrippedQuery lowercases all
+  // keywords there is no way to differentiate between differently cased
+  // symbolic names if they are equal to a keyword.
+  throw SemanticException(
+      fmt::format("Symbolic name can't be keyword {}", ctx->getText()));
 }
 
 antlrcpp::Any CypherMainVisitor::visitPattern(

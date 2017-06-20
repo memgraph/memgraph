@@ -143,6 +143,23 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
               ElementsAre(ast_generator.db_accessor_->label("l-$\"'ab`e``l")));
 }
 
+TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
+  ASSERT_THROW(TypeParam("RETURN n:DEletE"), SemanticException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
+  TypeParam ast_generator("RETURN n:a");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *labels_test = dynamic_cast<LabelsTest *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
+  EXPECT_EQ(identifier->name_, "n");
+  ASSERT_THAT(labels_test->labels_,
+              ElementsAre(ast_generator.db_accessor_->label("a")));
+}
+
 TYPED_TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
   TypeParam ast_generator("RETURN x");
   auto *query = ast_generator.query_;
