@@ -55,3 +55,10 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | in    |
             | false |
 
+    Scenario: Keyword as symbolic name
+        Given an empty graph
+        When executing query:
+            """
+            CREATE(a:DELete)
+            """
+        Then an error should be raised
