@@ -598,7 +598,7 @@ Feature: Functions
 
     Scenario: Keys test:
         Given an empty graph
-        And having executed:
+        When executing query:
             """
             CREATE (n{true: 123, a: null, b: 'x', null: 1}) RETURN KEYS(n) AS a
             """

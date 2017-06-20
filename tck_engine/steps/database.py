@@ -1,3 +1,5 @@
+import time
+
 def query(q, context, params={}):
     """
     Function used to execute query on database. Query results are
@@ -16,6 +18,7 @@ def query(q, context, params={}):
     if (context.config.database == "neo4j" or
         context.config.database == "memgraph"):
         session = context.driver.session()
+        start = time.time()
         try:
             # executing query
             results = session.run(q, params)
@@ -40,6 +43,10 @@ def query(q, context, params={}):
             context.exception = e
             context.log.info('%s', str(e))
         finally:
+            end = time.time()
+            if context.execution_step is not None and \
+                    context.execution_step:
+                context.execution_time = end - start
             session.close()
     return results_list
 
