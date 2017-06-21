@@ -39,12 +39,10 @@ if [[ "$test_suite" = "" ]]; then
     print_usage_and_exit
 fi
 
-## build memgraph
-
 # save the path where this script is
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-memgraph_src_dir=${script_dir}/dbms/memgraph
-memgraph_build_dir=${script_dir}/dbms/memgraph/build
+memgraph_src_dir=${script_dir}/../..
+memgraph_build_dir=${memgraph_src_dir}/build
 
 # activate virtualenv
 source $script_dir/ve3/bin/activate
@@ -59,12 +57,17 @@ cd ${memgraph_build_dir}
 binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable \
     -name "memgraph*" | sort | tail -n 1)
 
+if [[ "$binary_name" == "" ]]; then
+    echo "You must build Memgraph before running this script!"
+    exit 1
+fi
+
 # get full path to memgraph config for interpreted queries
 config_path="${memgraph_src_dir}/config/testing.conf"
 
 # run scenarios
 cd ${script_dir}
-tck_flags="--root tck_engine/tests/$test_suite 
+tck_flags="--root tck_engine/tests/$test_suite
            --no-side-effects --db memgraph"
 
 if [[ $unstable = true ]]; then

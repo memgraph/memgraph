@@ -6,28 +6,13 @@ function print_usage_and_exit {
     echo "Optional arguments:"
     echo -e "  -s\tuse sudo apt-get for installing required packages"
     echo -e "  -h\tdisplay this help and exit"
-    echo -e "  --no-clone-dependencies\tskip cloning memgraph sources"
-    echo -e "  --arc-diff\tcheckout the DIFF_ID from Phabricator"
     exit 1
 }
 
 # read arguments
-arcanist_diff_id=""
-clone_dependencies=true
 use_sudo=false
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --no-clone-dependencies)
-            clone_dependencies=false
-            shift
-            ;;
-        --arc-diff)
-            if [[ -z $2 ]]; then
-                print_usage_and_exit
-            fi
-            arcanist_diff_id=$2
-            shift 2
-            ;;
         -s)
             use_sudo=true
             shift
@@ -45,11 +30,10 @@ set -e
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd ${script_dir}
 
-required_pkgs=(git arcanist # used to clone sources
-               python-virtualenv python3-pip # required by 'run' script
-              )
+required_pkgs=(python-virtualenv python3-pip) # required by 'run' script
 
 # install all dependencies on debian based operating systems
+required_missing=false
 for pkg in ${required_pkgs[@]}; do
     if dpkg -s $pkg 2>/dev/null >/dev/null; then
         echo "Found $pkg"
@@ -78,36 +62,3 @@ fi
 source ve3/bin/activate
 pip3 install --upgrade pip
 pip3 install -r requirements.txt
-
-# TODO: use pullbot and read a password from program arg or env var
-#       (in order to use this script inside CI infrastructure)
-
-
-# clean dbms folder
-dbms_folder=${script_dir}/dbms
-mkdir -p ${dbms_folder}
-
-# clone memgraph & checkout right commit
-cd ${dbms_folder}
-if [[ $clone_dependencies = true ]] ; then
-    rm -rf ${dbms_folder}/*
-    git clone https://phabricator.memgraph.io/diffusion/MG/memgraph.git
-fi
-memgraph_folder=${dbms_folder}/memgraph
-cd ${memgraph_folder}
-git checkout dev
-# optionally apply arcanist patch
-if [[ !  -z  ${arcanist_diff_id}  ]]; then
-    # nocommit is here because arc tries to commit the patch
-    # and it fails if user isn't set (inside CI infrastructure the user
-    # probably won't be defined because CI infrastructure doesn't push
-    # any code back to the repository)
-    arc patch ${arcanist_diff_id} --nocommit
-fi
-./init
-
-# compile memgraph
-memgraph_build_dir=${script_dir}/dbms/memgraph/build
-cd ${memgraph_build_dir}
-cmake ..
-make -j8
