@@ -1,21 +1,17 @@
 #include <iostream>
 
-#include "gtest/gtest.h"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_set.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
 void print_skiplist(const ConcurrentSet<int>::Accessor &skiplist) {
-  logging::info("Skiplist set now has:");
-  for (auto &item : skiplist) logging::info("{}", item);
+  DLOG(INFO) << "Skiplist set now has:";
+  for (auto &item : skiplist) DLOG(INFO) << item;
 }
 
 TEST(ConcurrentSet, Mix) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
-
   ConcurrentSet<int> set;
 
   auto accessor = set.access();
@@ -51,6 +47,7 @@ TEST(ConcurrentSet, Mix) {
 }
 
 int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

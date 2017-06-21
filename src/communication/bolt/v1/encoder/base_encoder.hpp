@@ -2,8 +2,6 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "logging/default.hpp"
-#include "logging/logger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
 
@@ -35,12 +33,10 @@ namespace communication::bolt {
  * @tparam Buffer the output buffer that should be used
  */
 template <typename Buffer>
-class BaseEncoder : public Loggable {
+class BaseEncoder {
  public:
   BaseEncoder(Buffer &buffer, bool encode_ids = false)
-      : Loggable("communication::bolt::BaseEncoder"),
-        buffer_(buffer),
-        encode_ids_(encode_ids) {}
+      : buffer_(buffer), encode_ids_(encode_ids) {}
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 

@@ -3,8 +3,10 @@
 #include <ctime>
 #include <limits>
 
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
 #include "database/graph_db_accessor.hpp"
-#include "gflags/gflags.h"
 #include "query/context.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -20,9 +22,9 @@ DECLARE_bool(query_cost_planner);
 
 namespace query {
 
-class Interpreter : public Loggable {
+class Interpreter {
  public:
-  Interpreter() : Loggable("Interpreter") {}
+  Interpreter() {}
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream) {
@@ -163,7 +165,7 @@ class Interpreter : public Loggable {
     // have to be correct (for Bolt clients)
     summary["type"] = "rw";
     stream.Summary(summary);
-    logger.info("Execute '{}', {}", query, summary);
+    LOG(INFO) << "Execute " << query << ", " << summary;
   }
 
  private:

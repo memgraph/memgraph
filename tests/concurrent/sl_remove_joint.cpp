@@ -12,8 +12,9 @@ constexpr size_t no_insert_for_one_delete = 2;
 // This test checks remove method under pressure.
 // Each thread removes random data. So removes are joint.
 // Calls of remove method are interleaved with insert calls.
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
+
   memory_check(THREADS_NO, [] {
     map_t skiplist;
 

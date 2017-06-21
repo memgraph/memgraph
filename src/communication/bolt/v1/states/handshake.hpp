@@ -1,7 +1,8 @@
 #pragma once
 
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/state.hpp"
-#include "logging/default.hpp"
 
 namespace communication::bolt {
 
@@ -15,11 +16,9 @@ static constexpr uint8_t protocol[4] = {0x00, 0x00, 0x00, 0x01};
  */
 template <typename Session>
 State StateHandshakeRun(Session &session) {
-  static Logger logger = logging::log->logger("State HANDSHAKE");
-
   auto precmp = memcmp(session.buffer_.data(), preamble, sizeof(preamble));
   if (UNLIKELY(precmp != 0)) {
-    logger.debug("Received a wrong preamble!");
+    DLOG(WARNING) << "Received a wrong preamble!";
     return State::Close;
   }
 
@@ -28,7 +27,7 @@ State StateHandshakeRun(Session &session) {
   // this will change in the future
 
   if (!session.socket_.Write(protocol, sizeof(protocol))) {
-    logger.debug("Couldn't write handshake response!");
+    DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }
   session.connected_ = true;

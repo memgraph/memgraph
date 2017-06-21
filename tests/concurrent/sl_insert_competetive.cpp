@@ -9,8 +9,8 @@ constexpr size_t elems_per_thread = 100000;
 // Threads will try to insert keys in the same order.
 // This will force threads to compete intensly with each other.
 // Test checks for missing data and changed/overwriten data.
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
 
   memory_check(THREADS_NO, [] {
     map_t skiplist;

@@ -7,7 +7,6 @@
 
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/buffer.hpp"
-#include "logging/loggable.hpp"
 #include "utils/assert.hpp"
 
 namespace communication::bolt {
@@ -38,13 +37,12 @@ enum class ChunkState : uint8_t {
  * chunk for validity and then copies only data from the chunk. The headers
  * aren't copied so that the decoder can read only the raw encoded data.
  */
-class ChunkedDecoderBuffer : public Loggable {
+class ChunkedDecoderBuffer {
  private:
   using StreamBufferT = io::network::StreamBuffer;
 
  public:
-  ChunkedDecoderBuffer(Buffer<> &buffer)
-      : Loggable("ChunkedDecoderBuffer"), buffer_(buffer) {}
+  ChunkedDecoderBuffer(Buffer<> &buffer) : buffer_(buffer) {}
 
   /**
    * Reads data from the internal buffer.
@@ -76,7 +74,7 @@ class ChunkedDecoderBuffer : public Loggable {
     uint8_t *data = buffer_.data();
     size_t size = buffer_.size();
     if (size < 2) {
-      logger.trace("Size < 2");
+      DLOG(WARNING) << "Size < 2";
       return ChunkState::Partial;
     }
 
@@ -84,13 +82,13 @@ class ChunkedDecoderBuffer : public Loggable {
     chunk_size <<= 8;
     chunk_size += data[1];
     if (size < chunk_size + 4) {
-      logger.trace("Chunk size is {} but only have {} data bytes.", chunk_size,
-                   size);
+      DLOG(WARNING) << fmt::format(
+          "Chunk size is {} but only have {} data bytes.", chunk_size, size);
       return ChunkState::Partial;
     }
 
     if (data[chunk_size + 2] != 0 || data[chunk_size + 3] != 0) {
-      logger.trace("Invalid chunk!");
+      DLOG(WARNING) << "Invalid chunk!";
       buffer_.Shift(chunk_size + 4);
       return ChunkState::Invalid;
     }

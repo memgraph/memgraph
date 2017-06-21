@@ -3,10 +3,11 @@
 #include <experimental/filesystem>
 #include <set>
 namespace fs = std::experimental::filesystem;
+
+#include <glog/logging.h>
+
 #include "database/graph_db_accessor.hpp"
 #include "dbms/dbms.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.cpp"
 #include "query/engine.hpp"
 #include "query/frontend/stripped.hpp"
 #include "stream/print_record_stream.hpp"
@@ -28,25 +29,20 @@ using StreamT = PrintRecordStream;
  *
  * @param logger_name the name of a logger
  *
- * @return logger instance
  */
-auto init_logging(const std::string &logger_name) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
-  return logging::log->logger(logger_name);
+void init_logging(const std::string &logger_name) {
+  google::InitGoogleLogging(logger_name.c_str());
 }
 
 /**
  * Get query hashes from the file defied with a path.
  *
- * @param log external logger because this function should be called
- *               from test binaries
  * @param path path to a file with queries
  *
  * @return a set with all query hashes from the file
  */
-auto LoadQueryHashes(Logger &log, const fs::path &path) {
-  log.info("*** Get query hashes from the file defied with path ***");
+auto LoadQueryHashes(const fs::path &path) {
+  DLOG(INFO) << "*** Get query hashes from the file defied with path ***";
   // the intention of following block is to get all hashes
   // for which query implementations have to be compiled
   // calculate all hashes from queries file
@@ -60,23 +56,23 @@ auto LoadQueryHashes(Logger &log, const fs::path &path) {
   }
   permanent_assert(query_hashes.size() > 0,
                    "At least one hash has to be present");
-  log.info("{} different query hashes exist", query_hashes.size());
+  DLOG(INFO) << fmt::format("{} different query hashes exist",
+                            query_hashes.size());
   return query_hashes;
 }
 
 /**
  * Loads query plans into the engine passed by reference.
  *
- * @param log external logger reference
  * @param engine query engine
  * @param query_hashes hashes for which plans have to be loaded
  * @param path to a folder with query plan implementations
  *
  * @return void
  */
-auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
-                    const QueryHashesT &query_hashes, const fs::path &path) {
-  log.info("*** Load/compile needed query implementations ***");
+auto LoadQueryPlans(QueryEngineT &engine, const QueryHashesT &query_hashes,
+                    const fs::path &path) {
+  DLOG(INFO) << "*** Load/compile needed query implementations ***";
   auto plan_paths = LoadFilePaths(path, "cpp");
   // query mark will be used to extract queries from files (because we want
   // to be independent to a query hash)
@@ -106,7 +102,7 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
       if (query_hashes.find(query::StrippedQuery(query).hash()) ==
           query_hashes.end())
         continue;
-      log.info("Path {} will be loaded.", plan_path.c_str());
+      DLOG(INFO) << fmt::format("Path {} will be loaded.", plan_path.c_str());
       engine.ReloadCustom(query, plan_path);
       break;
     }
@@ -116,7 +112,6 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
 /**
  * Execute all query plans in file on the path.
  *
- * @param log external logger reference
  * @param engine query engine
  * @param dbms a database to execute queries on
  * @param path path a queries file
@@ -124,9 +119,9 @@ auto LoadQueryPlans(Logger &log, QueryEngineT &engine,
  *
  * @return void
  */
-auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine, Dbms &dbms,
-                       const fs::path &path, StreamT &stream) {
-  log.info("*** Execute the queries from the queries_file ***");
+auto ExecuteQueryPlans(QueryEngineT &engine, Dbms &dbms, const fs::path &path,
+                       StreamT &stream) {
+  DLOG(INFO) << "*** Execute the queries from the queries_file ***";
   // execute all queries from queries_file
   auto queries = utils::ReadLines(path);
   for (auto &query : queries) {
@@ -146,15 +141,13 @@ auto ExecuteQueryPlans(Logger &log, QueryEngineT &engine, Dbms &dbms,
  *     -q -> a file with queries
  *     -i -> a folder with query plans
  *
- * @param log external logger reference
  * @param engine query engine
  * @param dbms a database to execute queries on
  * @param stream used by query plans to output the results
  *
  * @return void
  */
-auto WarmUpEngine(Logger &log, QueryEngineT &engine, Dbms &dbms,
-                  StreamT &stream) {
+auto WarmUpEngine(QueryEngineT &engine, Dbms &dbms, StreamT &stream) {
   // path to a file with queries
   auto queries_file = fs::path(
       GET_ARG("-q", "../data/queries/core/mg_basic_002.txt").get_string());
@@ -163,13 +156,13 @@ auto WarmUpEngine(Logger &log, QueryEngineT &engine, Dbms &dbms,
       fs::path(GET_ARG("-i", "../integration/hardcoded_query").get_string());
 
   // load all query hashes from queries file
-  auto query_hashes = LoadQueryHashes(log, queries_file);
+  auto query_hashes = LoadQueryHashes(queries_file);
 
   // load compile all needed query plans
-  LoadQueryPlans(log, engine, query_hashes, implementations_folder);
+  LoadQueryPlans(engine, query_hashes, implementations_folder);
 
   // execute all loaded query plasn
-  ExecuteQueryPlans(log, engine, dbms, queries_file, stream);
+  ExecuteQueryPlans(engine, dbms, queries_file, stream);
 }
 }
 }

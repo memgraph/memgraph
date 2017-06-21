@@ -9,8 +9,8 @@ constexpr size_t key_range = elems_per_thread * THREADS_NO * 2;
 
 // This test checks insert_unique method under pressure.
 // Test checks for missing data and changed/overwriten data.
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
 
   memory_check(THREADS_NO, [] {
     map_t skiplist;

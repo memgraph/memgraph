@@ -1,14 +1,12 @@
 #include <iostream>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "dbms/dbms.hpp"
 #include "query/console.hpp"
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"
-
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 
 void random_generate(Dbms &dbms, uint node_count, int edge_factor = 5) {
   auto dba = dbms.active();
@@ -37,10 +35,7 @@ int main(int argc, char *argv[]) {
   }
 
   // TODO switch to GFlags, once finally available
-  if (argc > 2) {
-    logging::init_sync();
-    logging::log->pipe(std::make_unique<Stdout>());
-  }
+  if (argc > 2) google::InitGoogleLogging(argv[0]);
 
   Dbms dbms;
   std::cout << "Generating graph..." << std::endl;

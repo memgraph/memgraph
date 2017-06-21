@@ -1,3 +1,5 @@
+#include <glog/logging.h>
+
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 
@@ -412,8 +414,7 @@ TEST(BoltDecoder, Edge) {
 
 int main(int argc, char **argv) {
   InitializeData(data, SIZE);
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -1,13 +1,13 @@
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 
 #include <chrono>
 #include <memory>
 #include <thread>
 
+#include <glog/logging.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/logger.hpp"
-#include "logging/streams/stdout.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/garbage_collector.hpp"
@@ -19,8 +19,10 @@
 class MvccGcTest : public ::testing::Test {
  protected:
   tx::Engine engine;
+
  private:
   tx::Transaction *t0 = engine.Begin();
+
  protected:
   std::atomic<int> record_destruction_count{0};
   mvcc::VersionList<DestrCountRec> version_list{*t0, record_destruction_count};
@@ -39,10 +41,9 @@ class MvccGcTest : public ::testing::Test {
     }
   }
 
-  auto GcDeleted(tx::Transaction *latest=nullptr) {
+  auto GcDeleted(tx::Transaction *latest = nullptr) {
     return version_list.GcDeleted(GcSnapshot(engine, latest), engine);
   }
-
 };
 
 TEST_F(MvccGcTest, RemoveAndAbort) {
@@ -155,8 +156,7 @@ TEST(GarbageCollector, GcClean) {
 }
 
 int main(int argc, char **argv) {
-  ::logging::init_async();
-  ::logging::log->pipe(std::make_unique<Stdout>());
   ::testing::InitGoogleTest(&argc, argv);
+  google::InitGoogleLogging(argv[0]);
   return RUN_ALL_TESTS();
 }

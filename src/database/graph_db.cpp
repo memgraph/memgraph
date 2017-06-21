@@ -1,12 +1,12 @@
 #include <functional>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "database/creation_exception.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
-#include "logging/logger.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 
@@ -18,14 +18,12 @@ DEFINE_int32(max_retained_snapshots, -1,
 DEFINE_int32(snapshot_cycle_sec, -1,
              "Amount of time between starts of two snapshooters in seconds. -1 "
              "to turn off.");
-DEFINE_bool(snapshot_on_db_exit, false,
-            "Snapshot on exiting the database.");
+DEFINE_bool(snapshot_on_db_exit, false, "Snapshot on exiting the database.");
 
 DECLARE_string(snapshot_directory);
 
 GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
-    : Loggable("GraphDb"),
-      name_(name),
+    : name_(name),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
@@ -87,13 +85,14 @@ void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
   Recovery recovery;
   for (auto &snapshot_file : snapshots) {
     GraphDbAccessor db_accessor(*this);
-    logger.info("Starting database recovery from snapshot {}...",
-                snapshot_file);
+    std::cout << "Starting database recovery from snapshot " << snapshot_file
+              << std::endl;
     if (recovery.Recover(snapshot_file.string(), db_accessor)) {
-      logger.info("Recovery successful.");
+      std::cout << "Recovery successful." << std::endl;
       return;
     } else {
-      logger.error("Recovery unsuccessful, trying older snapshot...");
+      LOG(ERROR) << "Recovery unsuccessful, trying older snapshot..."
+                 << std::endl;
     }
   }
 }
@@ -109,14 +108,14 @@ GraphDb::~GraphDb() {
   // Create last database snapshot
   if (FLAGS_snapshot_on_db_exit == true) {
     GraphDbAccessor db_accessor(*this);
-    logger.info("Creating snapshot on shutdown...");
+    LOG(INFO) << "Creating snapshot on shutdown..." << std::endl;
     const bool status = snapshooter_.MakeSnapshot(
         db_accessor, fs::path(FLAGS_snapshot_directory) / name_,
         FLAGS_max_retained_snapshots);
     if (status) {
-      logger.info("Snapshot created successfully.");
+      std::cout << "Snapshot created successfully." << std::endl;
     } else {
-      logger.error("Snapshot creation failed!");
+      LOG(ERROR) << "Snapshot creation failed!" << std::endl;
     }
   }
 

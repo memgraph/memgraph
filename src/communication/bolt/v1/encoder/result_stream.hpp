@@ -4,8 +4,6 @@
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "query/typed_value.hpp"
 
-#include "logging/default.hpp"
-
 namespace communication::bolt {
 
 /**

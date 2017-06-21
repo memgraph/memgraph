@@ -1,7 +1,7 @@
-#include "benchmark/benchmark.h"
-#include "benchmark/benchmark_api.h"
-#include "logging/default.hpp"
-#include "logging/streams/stderr.hpp"
+#include <benchmark/benchmark.h>
+#include <benchmark/benchmark_api.h>
+#include <glog/logging.h>
+
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 
@@ -55,9 +55,9 @@ BENCHMARK(MvccMix)
     ->Range(1 << 14, 1 << 23)  // 1<<14, 1<<15, 1<<16, ...
     ->Unit(benchmark::kMillisecond);
 
+DEFINE_string(hehehe, "bok", "ne");
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stderr>());
+  google::InitGoogleLogging(argv[0]);
 
   ::benchmark::Initialize(&argc, argv);
   ::benchmark::RunSpecifiedBenchmarks();

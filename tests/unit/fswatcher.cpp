@@ -1,8 +1,9 @@
 #include <fstream>
 #include <thread>
 
-#include "gtest/gtest.h"
-#include "logging/default.cpp"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+
 #include "utils/fswatcher.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/terminate_handler.hpp"
@@ -122,8 +123,7 @@ TEST(FSWatcherTest, ModifiyLoop) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

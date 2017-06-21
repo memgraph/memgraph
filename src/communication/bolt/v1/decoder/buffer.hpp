@@ -7,7 +7,6 @@
 
 #include "communication/bolt/v1/constants.hpp"
 #include "io/network/stream_buffer.hpp"
-#include "logging/loggable.hpp"
 #include "utils/assert.hpp"
 #include "utils/bswap.hpp"
 
@@ -26,12 +25,12 @@ namespace communication::bolt {
  *         size of a chunk in the Bolt protocol
  */
 template <size_t Size = WHOLE_CHUNK_SIZE>
-class Buffer : public Loggable {
+class Buffer {
  private:
   using StreamBufferT = io::network::StreamBuffer;
 
  public:
-  Buffer() : Loggable("Buffer") {}
+  Buffer() = default;
 
   /**
    * Allocates a new StreamBuffer from the internal buffer.

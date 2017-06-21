@@ -1,13 +1,15 @@
 #pragma once
 
 #include <dlfcn.h>
+
 #include <experimental/filesystem>
+namespace fs = std::experimental::filesystem;
 #include <stdexcept>
 #include <string>
-#include "utils/exceptions.hpp"
-namespace fs = std::experimental::filesystem;
 
-#include "logging/loggable.hpp"
+#include <glog/logging.h>
+
+#include "utils/exceptions.hpp"
 
 namespace utils {
 
@@ -34,7 +36,7 @@ class DynamicLibException : public utils::BasicException {
  *         of undelying dynamic object.
  */
 template <typename T>
-class DynamicLib : public Loggable {
+class DynamicLib {
  public:
   /**
    * Initializes dynamic library (loads lib, produce and
@@ -43,7 +45,7 @@ class DynamicLib : public Loggable {
    * @param lib_path file system path to dynamic library
    */
   DynamicLib(const fs::path &lib_path)
-      : Loggable("DynamicLib"), lib_path(lib_path), lib_object(nullptr) {
+      : lib_path(lib_path), lib_object(nullptr) {
     // load dynamic lib
     // I've added the RTL_DEEPBIND flag when we are opening the dynamic_lib to
     // resolve symbols locally instead of globally. For additional information
@@ -51,7 +53,7 @@ class DynamicLib : public Loggable {
     dynamic_lib = dlopen(lib_path.c_str(), RTLD_NOW | RTLD_DEEPBIND);
     if (!dynamic_lib) throw DynamicLibException(dlerror());
     dlerror(); /* Clear any existing error */
-    logger.trace("dynamic lib at ADDRESS({}) was opened", dynamic_lib);
+    DLOG(INFO) << "dynamic lib at ADDRESS " << dynamic_lib << " was opened";
 
     // load produce method
     this->produce_method =
@@ -93,15 +95,15 @@ class DynamicLib : public Loggable {
   ~DynamicLib() {
     // first destroy underlying object
     if (lib_object != nullptr) {
-      logger.trace("shared object at ADDRESS({}) will be destroyed",
-                   (void *)lib_object);
+      DLOG(INFO) << "shared object at ADDRESS " << (void *)lib_object
+                 << " will be destroyed.";
       this->destruct_method(lib_object);
     }
 
     // then destroy dynamic lib
-    logger.trace("unloading lib {}", lib_path.c_str());
+    DLOG(INFO) << "unloading lib " << lib_path.c_str();
     if (dynamic_lib != nullptr) {
-      logger.trace("closing dynamic lib ADDRESS({})", (void *)dynamic_lib);
+      DLOG(INFO) << "closing dynamic lib ADDRESS " << (void *)dynamic_lib;
       // // IMPORTANT: weird problem the program SEGFAULT on dlclose
       // // TODO: FIX somehow
       // // maybe something similar is:
@@ -115,7 +117,7 @@ class DynamicLib : public Loggable {
       int closing_status = dlclose(dynamic_lib);
       if (closing_status != 0) throw DynamicLibException(dlerror());
     } else {
-      logger.trace("unload lib was called but lib ptr is null");
+      DLOG(WARNING) << "unload lib was called but lib ptr is null";
     }
   }
 

@@ -1,4 +1,5 @@
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
@@ -573,8 +574,7 @@ TEST(BoltSession, InvalidChunk) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   // Set the interpret to true to avoid calling the compiler which only
   // supports a limited set of queries.
   FLAGS_interpret = true;

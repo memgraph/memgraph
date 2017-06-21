@@ -1,7 +1,8 @@
 #pragma once
 
+#include <glog/logging.h>
+
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/loggable.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "transactions/engine.hpp"
@@ -11,13 +12,12 @@
  * @Tparam T type of underlying record in mvcc
  */
 template <typename T>
-class GarbageCollector : public Loggable {
+class GarbageCollector {
  public:
   GarbageCollector(SkipList<mvcc::VersionList<T> *> &skiplist,
                    DeferredDeleter<T> &record_deleter,
                    DeferredDeleter<mvcc::VersionList<T>> &version_list_deleter)
-      : Loggable("MvccGc"),
-        skiplist_(skiplist),
+      : skiplist_(skiplist),
         record_deleter_(record_deleter),
         version_list_deleter_(version_list_deleter){};
 
@@ -34,8 +34,6 @@ class GarbageCollector : public Loggable {
     uint64_t count = 0;
     std::vector<T *> deleted_records;
     std::vector<mvcc::VersionList<T> *> deleted_version_lists;
-    if (logger.Initialized())
-      logger.trace("GC started cleaning with snapshot: ", snapshot);
     for (auto version_list : collection_accessor) {
       // If the version_list is empty, i.e. there is nothing else to be read
       // from it we can delete it.
@@ -46,7 +44,9 @@ class GarbageCollector : public Loggable {
       }
       if (ret.second != nullptr) deleted_records.push_back(ret.second);
     }
-    if (logger.Initialized()) logger.trace("Destroyed: {}", count);
+    DLOG_IF(INFO, count > 0)
+        << "GC started cleaning with snapshot: " << snapshot;
+    DLOG_IF(INFO, count > 0) << "Destroyed: " << count;
 
     // Add records to deleter, with the id larger or equal than the last active
     // transaction.

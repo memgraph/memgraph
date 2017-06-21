@@ -6,12 +6,14 @@
 #include <thread>
 #include <vector>
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
 #include "dbms/dbms.hpp"
 #include "query/engine.hpp"
 
 #include "communication/worker.hpp"
 #include "io/network/event_listener.hpp"
-#include "logging/default.hpp"
 #include "utils/assert.hpp"
 
 namespace communication {
@@ -44,8 +46,7 @@ class Server
   Server(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
       : socket_(std::forward<Socket>(socket)),
         dbms_(dbms),
-        query_engine_(query_engine),
-        logger_(logging::log->logger("communication::Server")) {
+        query_engine_(query_engine) {
     event_.data.fd = socket_;
 
     // TODO: EPOLLET is hard to use -> figure out how should EPOLLET be used
@@ -56,7 +57,7 @@ class Server
   }
 
   void Start(size_t n) {
-    logger_.info("Starting {} workers", n);
+    std::cout << fmt::format("Starting {} workers", n) << std::endl;
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
@@ -64,24 +65,16 @@ class Server
               dbms_, query_engine_));
       workers_.back()->Start(alive_);
     }
-#ifdef LOG_NO_STDOUT
-    // TODO: Remove this when we switch to glog.
-    std::cout << "Server is fully armed and operational" << std::endl
-              << "Listening on " << socket_.endpoint().address() << " at "
-              << socket_.endpoint().port() << std::endl;
-#endif
-    logger_.info("Server is fully armed and operational");
-    logger_.info("Listening on {} at {}", socket_.endpoint().address(),
-                 socket_.endpoint().port());
+    std::cout << "Server is fully armed and operational" << std::endl;
+    std::cout << fmt::format("Listening on {} at {}",
+                             socket_.endpoint().address(),
+                             socket_.endpoint().port())
+              << std::endl;
     while (alive_) {
       this->WaitAndProcessEvents();
     }
 
-#ifdef LOG_NO_STDOUT
-    // TODO: Remove this when we switch to glog.
     std::cout << "Shutting down..." << std::endl;
-#endif
-    logger_.info("Shutting down...");
     for (auto &worker : workers_) worker->thread_.join();
   }
 
@@ -94,7 +87,7 @@ class Server
   void OnConnect() {
     debug_assert(idx_ < workers_.size(), "Invalid worker id.");
 
-    logger_.trace("on connect");
+    DLOG(INFO) << "on connect";
 
     if (UNLIKELY(!workers_[idx_]->Accept(socket_))) return;
 
@@ -112,7 +105,7 @@ class Server
   template <class... Args>
   void OnExceptionEvent(Event &event, Args &&... args) {
     // TODO: Do something about it
-    logger_.warn("epoll exception");
+    DLOG(WARNING) << "epoll exception";
   }
 
   void OnCloseEvent(Event &event) { close(event.data.fd); }
@@ -128,7 +121,6 @@ class Server
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
   Event event_;
-  Logger logger_;
 };
 
 }  // namespace communication

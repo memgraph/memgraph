@@ -3,6 +3,7 @@
 
 #include "gflags/gflags.h"
 #include "gflags/gflags_declare.h"
+#include "glog/logging.h"
 #include "data_structures/bitset/static_bitset.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "io/network/socket.hpp"

@@ -52,8 +52,7 @@ TEST(Bolt, ResultStream) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

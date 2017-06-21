@@ -10,10 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include <glog/logging.h>
+
 #include "benchmark/benchmark_api.h"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "skiplist_helper.hpp"
 #include "utils/random/random_generator.hpp"
 
@@ -69,8 +69,7 @@ auto BM_ReverseFromRBegin = [](benchmark::State &state) {
 auto BM_FindFromRBegin = [](benchmark::State &state) { FindFromRBegin(state); };
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   benchmark::RegisterBenchmark("ReverseFromRBegin", BM_ReverseFromRBegin)
       ->RangeMultiplier(2)

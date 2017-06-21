@@ -1,6 +1,6 @@
 #define HARDCODED_OUTPUT_STREAM
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
 
 #include "dbms/dbms.hpp"
 #include "query_engine_common.hpp"
@@ -10,8 +10,6 @@ DECLARE_string(compile_directory);
 
 using namespace std::chrono_literals;
 using namespace tests::integration;
-
-Logger logger;
 
 /**
  * IMPORTANT: tests only compilation and executability of implemented
@@ -24,12 +22,12 @@ int main(int argc, char *argv[]) {
   /**
    * init arguments
    */
-  REGISTER_ARGS(argc, argv);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   /**
    * init engine
    */
-  auto log = init_logging("IntegrationQueryEngine");
+  init_logging("IntegrationQueryEngine");
   // Manually set config compile_path to avoid loading whole config file with
   // the test.
   FLAGS_compile_directory = "../compiled/";
@@ -42,7 +40,7 @@ int main(int argc, char *argv[]) {
   // IMPORTANT: PrintRecordStream can be replaces with a smarter
   // object that can test the results
 
-  WarmUpEngine(log, query_engine, dbms, stream);
+  WarmUpEngine(query_engine, dbms, stream);
 
   return 0;
 }

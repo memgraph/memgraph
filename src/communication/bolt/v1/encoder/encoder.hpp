@@ -15,16 +15,13 @@ namespace communication::bolt {
 template <typename Buffer>
 class Encoder : private BaseEncoder<Buffer> {
  private:
-  using Loggable::logger;
   using BaseEncoder<Buffer>::WriteRAW;
   using BaseEncoder<Buffer>::WriteList;
   using BaseEncoder<Buffer>::WriteMap;
   using BaseEncoder<Buffer>::buffer_;
 
  public:
-  Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {
-    logger = logging::log->logger("communication::bolt::Encoder");
-  }
+  Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   /**
    * Writes a Record message. This method only stores data in the Buffer.

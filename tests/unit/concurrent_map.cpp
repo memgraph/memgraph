@@ -1,19 +1,17 @@
 #include <iostream>
 
-#include "gtest/gtest.h"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "logging/default.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
-#include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 
 using concurrent_map_t = ConcurrentMap<int, int>;
 
 void print_skiplist(const concurrent_map_t::Accessor &map) {
-  logging::info("Map now has: ");
-  for (auto &kv : map) logging::info("    ({}, {})", kv.first, kv.second);
+  DLOG(INFO) << "Map now has: ";
+  for (auto &kv : map)
+    DLOG(INFO) << fmt::format("    ({}, {})", kv.first, kv.second);
 }
 
 TEST(ConcurrentMapSkiplist, Mix) {
@@ -63,8 +61,7 @@ TEST(ConcurrentMapSkiplist, Mix) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

@@ -12,8 +12,8 @@ constexpr size_t no_insert_for_one_delete = 1;
 // Each thread makes a series of finds interleaved with method which change.
 // Exact ratio of finds per change and insert per delete can be regulated with
 // no_find_per_change and no_insert_for_one_delete.
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
   memory_check(THREADS_NO, [] {
     ConcurrentList<std::pair<int, int>> list;
     permanent_assert(list.size() == 0, "The list isn't empty");

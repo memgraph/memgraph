@@ -9,8 +9,8 @@ constexpr size_t elems_per_thread = 16e5;
 //     2. analyse this code
 //     3. fix the memory leak
 //     4. write proper test
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
 
   memory_check(THREADS_NO, [&] {
     ds::static_array<std::thread, THREADS_NO> threads;
@@ -59,8 +59,8 @@ int main() {
     // check size
     {
       auto accessor = skiplist.access();
-      permanent_assert(accessor.size() == 0, "Size should be 0, but size is "
-                                                 << accessor.size());
+      permanent_assert(accessor.size() == 0,
+                       "Size should be 0, but size is " << accessor.size());
     }
 
     // check count

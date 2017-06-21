@@ -6,10 +6,10 @@
 #include <mutex>
 #include <utility>
 
-#include "gflags/gflags.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "data_structures/concurrent/push_queue.hpp"
-#include "logging/loggable.hpp"
 
 #include "threading/sync/spinlock.hpp"
 #include "utils/executioner.hpp"
@@ -28,9 +28,9 @@ DECLARE_int32(skiplist_gc_interval);
  * collected.
  */
 template <class TNode>
-class SkipListGC : public Loggable {
+class SkipListGC {
  public:
-  explicit SkipListGC() : Loggable("SkipListGc") {
+  explicit SkipListGC() {
     executor_job_id_ = GetExecutioner().RegisterJob(
         std::bind(&SkipListGC::GarbageCollect, this));
   }
@@ -133,7 +133,7 @@ class SkipListGC : public Loggable {
       ++destroyed;
     }
     oldest_not_deletable.delete_tail();
-    if (destroyed) logger.trace("Number of destroyed elements: {}", destroyed);
+    if (destroyed) DLOG(INFO) << "Number of destroyed elements: " << destroyed;
   }
 
   /**

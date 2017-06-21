@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <sys/inotify.h>
 #include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -21,7 +22,8 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
-#include "logging/loggable.hpp"
+#include <glog/logging.h>
+
 #include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
@@ -163,7 +165,7 @@ class FSWatcherException : public StacktraceException {
  * parameters:
  *     * interval - time between two checks for the new file system events
  */
-class FSWatcher : public Loggable {
+class FSWatcher {
   /**
    * callback type (the code that will be notified will be notified
    * through callback of this type
@@ -174,10 +176,9 @@ class FSWatcher : public Loggable {
   /**
    * Initialize underlying notification system.
    */
-  FSWatcher(ms check_interval = ms(100))
-      : Loggable("FSWatcher"), check_interval_(check_interval) {
-    logger.debug("Inotify header length: {}", IN_HEADER_SIZE);
-    logger.debug("Inotify buffer length: {}", IN_BUFF_LEN);
+  FSWatcher(ms check_interval = ms(100)) : check_interval_(check_interval) {
+    DLOG(INFO) << fmt::format("Inotify header length: {}", IN_HEADER_SIZE);
+    DLOG(INFO) << fmt::format("Inotify buffer length: {}", IN_BUFF_LEN);
     inotify_fd_ = inotify_init();
     if (inotify_fd_ == -1)
       throw FSWatcherException("Unable to initialize inotify\n");
@@ -185,7 +186,7 @@ class FSWatcher : public Loggable {
   }
 
   ~FSWatcher() {
-    logger.debug("destructor call");
+    DLOG(INFO) << "destructor call";
     unwatchAll();
   }
 
@@ -257,8 +258,9 @@ class FSWatcher : public Loggable {
       entries_.emplace_back(Entry(wd, descriptor, callback));
     }
 
-    logger.debug("REGISTERED: wd({}) for path({}) and mask ({})", wd,
-                 descriptor.path.c_str(), (os_mask_t)(descriptor));
+    DLOG(INFO) << fmt::format("REGISTERED: wd({}) for path({}) and mask ({})",
+                              wd, descriptor.path.c_str(),
+                              (os_mask_t)(descriptor));
     start();
   }
 
@@ -309,7 +311,7 @@ class FSWatcher : public Loggable {
     // run separate thread
     dispatch_thread_ = std::thread([this]() {
 
-      logger.debug("dispatch thread - start");
+      DLOG(INFO) << "dispatch thread - start";
 
       while (is_running_.load()) {
         std::this_thread::sleep_for(check_interval_);
@@ -321,7 +323,7 @@ class FSWatcher : public Loggable {
         if (n == 0) throw FSWatcherException("read() -> 0.");
         if (n == -1) continue;
 
-        logger.info("Read {} bytes from inotify fd", (long)n);
+        DLOG(INFO) << fmt::format("Read {} bytes from inotify fd", (long)n);
 
         // process all of the events in buffer returned by read()
         for (auto p = buffer_; p < buffer_ + n;) {
@@ -348,8 +350,9 @@ class FSWatcher : public Loggable {
             continue;
           }
 
-          logger.info("LEN: {}, MASK: {}, NAME: {}", in_event_length,
-                      in_event->mask, in_event->name);
+          DLOG(INFO) << fmt::format("LEN: {}, MASK: {}, NAME: {}",
+                                    in_event_length, in_event->mask,
+                                    in_event->name);
 
           // find our watch descriptor
           auto entry = find_if(
@@ -366,7 +369,7 @@ class FSWatcher : public Loggable {
         }
       }
 
-      logger.debug("dispatch thread - finish");
+      DLOG(INFO) << "dispatch thread - finish";
     });
   }
 
@@ -413,8 +416,8 @@ class FSWatcher : public Loggable {
     if (status == -1)
       throw FSWatcherException("Unable to remove underlaying watch.");
     else
-      logger.info("UNREGISTER: fd({}), wd({}), status({})", inotify_fd_,
-                  entry.os_wd, status);
+      DLOG(INFO) << fmt::format("UNREGISTER: fd({}), wd({}), status({})",
+                                inotify_fd_, entry.os_wd, status);
   }
 
   /**

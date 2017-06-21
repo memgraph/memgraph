@@ -5,8 +5,9 @@
 #include <memory>
 #include <vector>
 
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/constants.hpp"
-#include "logging/loggable.hpp"
 #include "utils/bswap.hpp"
 
 namespace communication::bolt {
@@ -36,10 +37,9 @@ namespace communication::bolt {
  * @tparam Socket the output socket that should be used
  */
 template <class Socket>
-class ChunkedEncoderBuffer : public Loggable {
+class ChunkedEncoderBuffer {
  public:
-  ChunkedEncoderBuffer(Socket &socket)
-      : Loggable("Chunked Encoder Buffer"), socket_(socket) {}
+  ChunkedEncoderBuffer(Socket &socket) : socket_(socket) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size
@@ -119,7 +119,7 @@ class ChunkedEncoderBuffer : public Loggable {
 
     // Flush the whole buffer.
     if (!socket_.Write(buffer_.data() + offset_, size_ - offset_)) return false;
-    logger.trace("Flushed {} bytes.", size_);
+    DLOG(INFO) << "Flushed << " << size_ << " bytes.";
 
     // Cleanup.
     Clear();
@@ -143,7 +143,7 @@ class ChunkedEncoderBuffer : public Loggable {
 
     // Flush the first chunk
     if (!socket_.Write(buffer_.data(), first_chunk_size_)) return false;
-    logger.trace("Flushed {} bytes.", first_chunk_size_);
+    DLOG(INFO) << "Flushed << " << first_chunk_size_ << " bytes.";
 
     // Cleanup.
     // Here we use offset as a method of deleting from the front of the

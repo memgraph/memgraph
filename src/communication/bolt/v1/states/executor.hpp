@@ -2,9 +2,10 @@
 
 #include <string>
 
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "logging/default.hpp"
 #include "query/exceptions.hpp"
 #include "utils/exceptions.hpp"
 
@@ -18,41 +19,39 @@ namespace communication::bolt {
  */
 template <typename Session>
 State StateExecutorRun(Session &session) {
-  // initialize logger
-  static Logger logger = logging::log->logger("State EXECUTOR");
-
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    logger.debug("Missing header data!");
+    DLOG(WARNING) << "Missing header data!";
     return State::Close;
   }
 
   if (signature == Signature::Run) {
     if (marker != Marker::TinyStruct2) {
-      logger.debug("Expected TinyStruct2 marker, but received 0x{:02X}!",
-                   underlying_cast(marker));
+      DLOG(WARNING) << fmt::format(
+          "Expected TinyStruct2 marker, but received 0x{:02X}!",
+          underlying_cast(marker));
       return State::Close;
     }
 
     query::TypedValue query, params;
     if (!session.decoder_.ReadTypedValue(&query,
                                          query::TypedValue::Type::String)) {
-      logger.debug("Couldn't read query string!");
+      DLOG(WARNING) << "Couldn't read query string!";
       return State::Close;
     }
 
     if (!session.decoder_.ReadTypedValue(&params,
                                          query::TypedValue::Type::Map)) {
-      logger.debug("Couldn't read parameters!");
+      DLOG(WARNING) << "Couldn't read parameters!";
       return State::Close;
     }
 
     auto db_accessor = session.dbms_.active();
-    logger.debug("[ActiveDB] '{}'", db_accessor->name());
+    DLOG(INFO) << fmt::format("[ActiveDB] '{}'", db_accessor->name());
 
     try {
-      logger.trace("[Run] '{}'", query.Value<std::string>());
+      DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
       auto is_successfully_executed = session.query_engine_.Run(
           query.Value<std::string>(), *db_accessor, session.output_stream_);
 
@@ -73,10 +72,10 @@ State StateExecutorRun(Session &session) {
               "concurrent access)"}});
 
         if (!exec_fail_sent) {
-          logger.debug("Couldn't send failure message!");
+          DLOG(WARNING) << "Couldn't send failure message!";
           return State::Close;
         } else {
-          logger.debug("Query execution failed!");
+          DLOG(WARNING) << "Query execution failed!";
           return State::Error;
         }
       } else {
@@ -86,7 +85,7 @@ State StateExecutorRun(Session &session) {
         // message which contains header data. The rest of this data (records
         // and summary) will be sent after a PULL_ALL command from the client.
         if (!session.encoder_buffer_.FlushFirstChunk()) {
-          logger.debug("Couldn't flush header data from the buffer!");
+          DLOG(WARNING) << "Couldn't flush header data from the buffer!";
           return State::Close;
         }
         return State::Executor;
@@ -98,9 +97,9 @@ State StateExecutorRun(Session &session) {
       db_accessor->abort();
       bool fail_sent = session.encoder_.MessageFailure(
           {{"code", "Memgraph.Exception"}, {"message", e.what()}});
-      logger.debug("Error message: {}", e.what());
+      DLOG(WARNING) << fmt::format("Error message: {}", e.what());
       if (!fail_sent) {
-        logger.debug("Couldn't send failure message!");
+        DLOG(WARNING) << "Couldn't send failure message!";
         return State::Close;
       }
       return State::Error;
@@ -111,10 +110,10 @@ State StateExecutorRun(Session &session) {
       db_accessor->abort();
       bool fail_sent = session.encoder_.MessageFailure(
           {{"code", "Memgraph.Exception"}, {"message", e.what()}});
-      logger.debug("Error message: {}", e.what());
-      logger.debug("Error trace: {}", e.trace());
+      DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+      DLOG(WARNING) << fmt::format("Error trace: {}", e.trace());
       if (!fail_sent) {
-        logger.debug("Couldn't send failure message!");
+        DLOG(WARNING) << "Couldn't send failure message!";
         return State::Close;
       }
       return State::Error;
@@ -128,19 +127,20 @@ State StateExecutorRun(Session &session) {
            {"message",
             "An unknown exception occured, please contact your database "
             "administrator."}});
-      logger.debug("std::exception {}", e.what());
+      DLOG(WARNING) << fmt::format("std::exception {}", e.what());
       if (!fail_sent) {
-        logger.debug("Couldn't send failure message!");
+        DLOG(WARNING) << "Couldn't send failure message!";
         return State::Close;
       }
       return State::Error;
     }
 
   } else if (signature == Signature::PullAll) {
-    logger.trace("[PullAll]");
+    DLOG(INFO) << "[PullAll]";
     if (marker != Marker::TinyStruct) {
-      logger.debug("Expected TinyStruct marker, but received 0x{:02X}!",
-                   underlying_cast(marker));
+      DLOG(WARNING) << fmt::format(
+          "Expected TinyStruct marker, but received 0x{:02X}!",
+          underlying_cast(marker));
       return State::Close;
     }
     if (!session.encoder_buffer_.HasData()) {
@@ -151,7 +151,7 @@ State StateExecutorRun(Session &session) {
             "There is no data to "
             "send, you have to execute a RUN command before a PULL_ALL!"}});
       if (!data_fail_sent) {
-        logger.debug("Couldn't send failure message!");
+        DLOG(WARNING) << "Couldn't send failure message!";
         return State::Close;
       }
       return State::Error;
@@ -159,22 +159,23 @@ State StateExecutorRun(Session &session) {
     // flush pending data to the client, the success message is streamed
     // from the query engine, it contains statistics from the query run
     if (!session.encoder_buffer_.Flush()) {
-      logger.debug("Couldn't flush data from the buffer!");
+      DLOG(WARNING) << "Couldn't flush data from the buffer!";
       return State::Close;
     }
     return State::Executor;
 
   } else if (signature == Signature::DiscardAll) {
-    logger.trace("[DiscardAll]");
+    DLOG(INFO) << "[DiscardAll]";
     if (marker != Marker::TinyStruct) {
-      logger.debug("Expected TinyStruct marker, but received 0x{:02X}!",
-                   underlying_cast(marker));
+      DLOG(WARNING) << fmt::format(
+          "Expected TinyStruct marker, but received 0x{:02X}!",
+          underlying_cast(marker));
       return State::Close;
     }
     // clear all pending data and send a success message
     session.encoder_buffer_.Clear();
     if (!session.encoder_.MessageSuccess()) {
-      logger.debug("Couldn't send success message!");
+      DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
     return State::Executor;
@@ -190,21 +191,22 @@ State StateExecutorRun(Session &session) {
     // now this command only resets the session to a clean state. It
     // does not IGNORE running and pending commands as it should.
     if (marker != Marker::TinyStruct) {
-      logger.debug("Expected TinyStruct marker, but received 0x{:02X}!",
-                   underlying_cast(marker));
+      DLOG(WARNING) << fmt::format(
+          "Expected TinyStruct marker, but received 0x{:02X}!",
+          underlying_cast(marker));
       return State::Close;
     }
     // clear all pending data and send a success message
     session.encoder_buffer_.Clear();
     if (!session.encoder_.MessageSuccess()) {
-      logger.debug("Couldn't send success message!");
+      DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
     return State::Executor;
 
   } else {
-    logger.debug("Unrecognized signature recieved (0x{:02X})!",
-                 underlying_cast(signature));
+    DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",
+                                 underlying_cast(signature));
     return State::Close;
   }
 }

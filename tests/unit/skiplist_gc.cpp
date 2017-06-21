@@ -1,12 +1,11 @@
-#include "gflags/gflags.h"
-#include "gtest/gtest.h"
-
 #include <chrono>
 #include <memory>
 #include <thread>
 
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
+
 #include "data_structures/concurrent/skiplist_gc.hpp"
-#include "logging/streams/stderr.hpp"
 
 /**
  * FakeItem class which increments a variable in the destructor.
@@ -124,8 +123,7 @@ TEST(SkipListGC, MultipleDeletes) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stderr>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

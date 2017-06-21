@@ -1,9 +1,9 @@
 #include <chrono>
 #include <iostream>
 
-#include "gtest/gtest.h"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
-#include "logging/default.cpp"
 #include "utils/assert.hpp"
 #include "utils/timer/timer.hpp"
 
@@ -19,7 +19,7 @@ using namespace utils;
  */
 Timer::sptr create_test_timer(int64_t counter) {
   return std::make_shared<Timer>(counter,
-                                 []() { logging::info("Timer timeout"); });
+                                 []() { DLOG(INFO) << "Timer timeout"; });
 }
 
 TEST(TimerSchedulerTest, TimerSchedulerExecution) {
@@ -52,6 +52,7 @@ TEST(TimerSchedulerTest, TimerSchedulerExecution) {
 }
 
 int main(int argc, char **argv) {
+  ::google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

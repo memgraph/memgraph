@@ -1,9 +1,11 @@
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "logging/default.hpp"
 #include "utils/likely.hpp"
 
 namespace communication::bolt {
@@ -15,49 +17,52 @@ namespace communication::bolt {
  */
 template <typename Session>
 State StateInitRun(Session &session) {
-  static Logger logger = logging::log->logger("State INIT");
-  logger.debug("Parsing message");
+  DLOG(INFO) << "Parsing message";
 
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    logger.debug("Missing header data!");
+    DLOG(WARNING) << "Missing header data!";
     return State::Close;
   }
 
   if (UNLIKELY(signature != Signature::Init)) {
-    logger.debug("Expected Init signature, but received 0x{:02X}!",
-                 underlying_cast(signature));
+    DLOG(WARNING) << fmt::format(
+        "Expected Init signature, but received 0x{:02X}!",
+        underlying_cast(signature));
     return State::Close;
   }
   if (UNLIKELY(marker != Marker::TinyStruct2)) {
-    logger.debug("Expected TinyStruct2 marker, but received 0x{:02X}!",
-                 underlying_cast(marker));
-    logger.warn("The client sent malformed data, but we are continuing "
-                "because the official Neo4j Java driver sends malformed "
-                "data. D'oh!");
+    DLOG(WARNING) << fmt::format(
+        "Expected TinyStruct2 marker, but received 0x{:02X}!",
+        underlying_cast(marker));
+    DLOG(WARNING) << "The client sent malformed data, but we are continuing "
+                     "because the official Neo4j Java driver sends malformed "
+                     "data. D'oh!";
     // TODO: this should be uncommented when the Neo4j Java driver is fixed
-    //return State::Close;
+    // return State::Close;
   }
 
   query::TypedValue client_name;
   if (!session.decoder_.ReadTypedValue(&client_name,
                                        query::TypedValue::Type::String)) {
-    logger.debug("Couldn't read client name!");
+    DLOG(WARNING) << "Couldn't read client name!";
     return State::Close;
   }
 
   query::TypedValue metadata;
   if (!session.decoder_.ReadTypedValue(&metadata,
                                        query::TypedValue::Type::Map)) {
-    logger.debug("Couldn't read metadata!");
+    DLOG(WARNING) << "Couldn't read metadata!";
     return State::Close;
   }
 
-  logger.debug("Client connected '{}'", client_name.Value<std::string>());
+  LOG(INFO) << fmt::format("Client connected '{}'",
+                           client_name.Value<std::string>())
+            << std::endl;
 
   if (!session.encoder_.MessageSuccess()) {
-    logger.debug("Couldn't send success message to the client!");
+    DLOG(WARNING) << "Couldn't send success message to the client!";
     return State::Close;
   }
 

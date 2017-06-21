@@ -6,7 +6,7 @@
 #include <set>
 #include <thread>
 
-#include "logging/default.hpp"
+#include <glog/logging.h>
 
 namespace utils {
 
@@ -134,7 +134,7 @@ class TimerScheduler {
       while (is_running.load()) {
         std::this_thread::sleep_for(delta_time_type(delta_time));
         timer_container.process();
-        logging::info("timer_container.process()");
+        DLOG(INFO) << "timer_container.process()";
       }
     });
   }

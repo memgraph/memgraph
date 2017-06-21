@@ -7,8 +7,8 @@ constexpr size_t elements = 2e6;
  * Put elements number of elements in the skiplist per each thread and see
  * is there any memory leak
  */
-int main() {
-  init_log();
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
 
   memory_check(THREADS_NO, [] {
     map_t skiplist;

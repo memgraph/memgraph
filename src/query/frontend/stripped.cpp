@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "antlr4-runtime.h"
-#include "logging/loggable.hpp"
 #include "query/common.hpp"
 #include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
 #include "query/frontend/opencypher/generated/CypherLexer.h"

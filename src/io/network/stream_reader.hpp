@@ -13,21 +13,20 @@ namespace io::network {
 template <class Derived, class Stream>
 class StreamReader : public StreamListener<Derived, Stream> {
  public:
-  StreamReader(uint32_t flags = 0)
-      : StreamListener<Derived, Stream>(flags),
-        logger_(logging::log->logger("io::StreamReader")) {}
+  StreamReader(uint32_t flags = 0) : StreamListener<Derived, Stream>(flags) {}
 
   bool Accept(Socket &socket) {
-    logger_.trace("Accept");
+    DLOG(INFO) << "Accept";
 
     // accept a connection from a socket
     Socket s;
     if (!socket.Accept(&s)) return false;
 
-    logger_.info("Client {}:{} connected.", s.endpoint().address(),
-                 s.endpoint().port());
-    logger_.trace(
-        "Accepted a connection: scoket {}, address '{}', family {}, port {}",
+    std::cout << fmt::format("Client {}:{} connected.", s.endpoint().address(),
+                             s.endpoint().port())
+              << std::endl;
+    DLOG(INFO) << fmt::format(
+        "Accepted a connection: socket {}, address '{}', family {}, port {}",
         s.id(), s.endpoint().address(), s.endpoint().family(),
         s.endpoint().port());
 
@@ -47,10 +46,10 @@ class StreamReader : public StreamListener<Derived, Stream> {
   }
 
   void OnData(Stream &stream) {
-    logger_.trace("On data");
+    DLOG(INFO) << "On data";
 
     if (UNLIKELY(!stream.Alive())) {
-      logger_.trace("Calling OnClose because the stream isn't alive!");
+      DLOG(WARNING) << "Calling OnClose because the stream isn't alive!";
       this->derived().OnClose(stream);
       return;
     }
@@ -75,7 +74,7 @@ class StreamReader : public StreamListener<Derived, Stream> {
 
     // end of file, the client has closed the connection
     if (UNLIKELY(len == 0)) {
-      logger_.trace("Calling OnClose because the socket is closed!");
+      DLOG(WARNING) << "Calling OnClose because the socket is closed!";
       this->derived().OnClose(stream);
       return;
     }
@@ -85,8 +84,5 @@ class StreamReader : public StreamListener<Derived, Stream> {
 
     this->derived().OnRead(stream);
   }
-
- private:
-  Logger logger_;
 };
 }

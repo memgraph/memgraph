@@ -7,7 +7,7 @@
 using namespace std::chrono_literals;
 using namespace tests::integration;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   // init arguments
   REGISTER_ARGS(argc, argv);
 
@@ -16,14 +16,14 @@ int main(int argc, char* argv[]) {
       fs::path(GET_ARG("-i", "tests/integration/hardcoded_query").get_string());
 
   // init engine
-  auto log = init_logging("ManualQueryEngine");
+  init_logging("ManualQueryEngine");
   Dbms dbms;
   StreamT stream(std::cout);  // inject path to data queries
   QueryEngineT query_engine;
   // IMPORTANT: PrintRecordStream can be replaces with a smarter
   // object that can test the results
 
-  WarmUpEngine(log, query_engine, dbms, stream);
+  WarmUpEngine(query_engine, dbms, stream);
 
   // init watcher
   FSWatcher watcher;
@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
           auto lines = utils::ReadLines(event.path);
           for (int i = 0; i < (int)lines.size(); ++i) {
             // find query in the line
-            auto& line = lines[i];
+            auto &line = lines[i];
             auto pos = line.find(query_mark);
             // if query doesn't exist pass
             if (pos == std::string::npos) continue;
@@ -55,19 +55,20 @@ int main(int argc, char* argv[]) {
               ++i;
             }
 
-            log.info("Reload: {}", query);
+            DLOG(INFO) << fmt::format("Reload: {}", query);
             query_engine.Unload(query);
             try {
               query_engine.ReloadCustom(query, event.path);
               auto db_accessor = dbms.active();
               query_engine.Run(query, *db_accessor, stream);
-            } catch (query::PlanCompilationException& e) {
-              log.info("Query compilation failed: {}", e.what());
-            } catch (std::exception& e) {
-              log.info("Query execution failed: unknown reason");
+            } catch (query::PlanCompilationException &e) {
+              DLOG(ERROR) << fmt::format("Query compilation failed: {}",
+                                         e.what());
+            } catch (std::exception &e) {
+              DLOG(WARNING) << "Query execution failed: unknown reason";
             }
-            log.info("Number of available query plans: {}",
-                     query_engine.Size());
+            DLOG(INFO) << fmt::format("Number of available query plans: {}",
+                                      query_engine.Size());
           }
         }
       });

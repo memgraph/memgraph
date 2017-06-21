@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "benchmark/benchmark_api.h"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
+#include <benchmark/benchmark_api.h>
+#include <glog/logging.h>
+
 #include "query/frontend/stripped.hpp"
 
 auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {
@@ -20,8 +20,7 @@ auto BM_Strip = [](benchmark::State &state, auto &function, std::string query) {
 };
 
 int main(int argc, char *argv[]) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   auto preprocess = [](const std::string &query) {
     return query::StrippedQuery(query);

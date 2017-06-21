@@ -38,8 +38,8 @@ TEST(Network, Server) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < N; ++i)
-    clients.push_back(
-        std::thread(client_run, i, interface, ep.port_str(), data, 30000, SIZE));
+    clients.push_back(std::thread(client_run, i, interface, ep.port_str(), data,
+                                  30000, SIZE));
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();
@@ -50,8 +50,7 @@ TEST(Network, Server) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

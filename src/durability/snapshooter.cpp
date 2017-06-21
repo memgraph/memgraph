@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/file_writer_buffer.hpp"
@@ -12,7 +14,7 @@ bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
                                const int max_retained_snapshots) {
   if (!fs::exists(snapshot_folder) &&
       !fs::create_directories(snapshot_folder)) {
-    logger.error("Error while creating directory \"{}\"", snapshot_folder);
+    LOG(ERROR) << "Error while creating directory " << snapshot_folder;
     return false;
   }
   const auto snapshot_file = GetSnapshotFileName(snapshot_folder);
@@ -45,8 +47,8 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     buffer.Close();
   } catch (std::ifstream::failure e) {
     if (fs::exists(snapshot_file) && !fs::remove(snapshot_file)) {
-      logger.error("Error while removing corrupted snapshot file \"{}\"",
-                   snapshot_file);
+      LOG(ERROR) << "Error while removing corrupted snapshot file: "
+                 << snapshot_file;
     }
     return false;
   }
@@ -77,7 +79,7 @@ void Snapshooter::MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
   for (int i = 0; i < static_cast<int>(files.size()) - max_retained_snapshots;
        ++i) {
     if (!fs::remove(files[i])) {
-      logger.error("Error while removing file \"{}\"", files[i]);
+      LOG(ERROR) << "Error while removing file: " << files[i];
     }
   }
 }

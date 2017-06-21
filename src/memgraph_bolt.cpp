@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "gflags/gflags.h"
+#include "glog/logging.h"
 
 #include "dbms/dbms.hpp"
 #include "query/engine.hpp"
@@ -12,10 +13,6 @@
 #include "io/network/network_endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
-
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
-#include "logging/streams/file.hpp"
 
 #include "utils/flag_validation.hpp"
 #include "utils/signals/handler.hpp"
@@ -31,8 +28,6 @@ using result_stream_t =
         communication::bolt::ChunkedEncoderBuffer<socket_t>>>;
 using bolt_server_t =
     communication::Server<session_t, result_stream_t, socket_t>;
-
-Logger logger;
 
 DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
 DEFINE_string(port, "7687", "Default port on which to listen.");
@@ -87,20 +82,8 @@ int main(int argc, char **argv) {
   fs::current_path(fs::path(argv[0]).parent_path());
   load_config(argc, argv);
 
-// Logging init.
-#ifdef SYNC_LOGGER
-  logging::init_sync();
-#else
-  logging::init_async();
-#endif
-#ifndef LOG_NO_STDOUT
-  logging::log->pipe(std::make_unique<Stdout>());
-#endif
-  logging::log->pipe(std::make_unique<File>(FLAGS_log_file));
-
-  // Get logger.
-  logger = logging::log->logger("Main");
-  logger.debug("Using {} logger", logging::log->type());
+  google::InitGoogleLogging(argv[0]);
+  google::SetLogDestination(google::INFO, FLAGS_log_file.c_str());
 
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
@@ -124,23 +107,22 @@ int main(int argc, char **argv) {
   try {
     endpoint = endpoint_t(FLAGS_interface, FLAGS_port);
   } catch (io::network::NetworkEndpointException &e) {
-    logger.error("{}", e.what());
-    std::exit(EXIT_FAILURE);
+    LOG(FATAL) << e.what();
   }
 
   // Initialize socket.
   socket_t socket;
   if (!socket.Bind(endpoint)) {
-    logger.error("Cannot bind to socket on {} at {}", FLAGS_interface,
-                 FLAGS_port);
+    LOG(ERROR) << "Cannot bind to socket on " << FLAGS_interface << " at "
+               << FLAGS_port;
     std::exit(EXIT_FAILURE);
   }
   if (!socket.SetNonBlocking()) {
-    logger.error("Cannot set socket to non blocking!");
+    LOG(ERROR) << "Cannot set socket to non blocking!";
     std::exit(EXIT_FAILURE);
   }
   if (!socket.Listen(1024)) {
-    logger.error("Cannot listen on socket!");
+    LOG(ERROR) << "Cannot listen on socket!";
     std::exit(EXIT_FAILURE);
   }
 

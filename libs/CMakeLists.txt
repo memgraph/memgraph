@@ -19,7 +19,11 @@ add_subdirectory(googletest)
 # setup google flags
 set(GFLAGS_BUILD_gflags_nothreads_LIB OFF)
 set(GFLAGS_BUILD_gflags_LIB ON)
+# Gflags has to be position independant otherwise Glog complains.
+set(CMAKE_CXX_FLAGS_SAVED ${CMAKE_CXX_FLAGS})
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 add_subdirectory(gflags)
+set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_SAVED})
 
 # Setup google logging after gflags (so that glog can use it).
 # We need to use `ExternalProject`, because currently glog's CMakeLists.txt

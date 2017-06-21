@@ -158,56 +158,6 @@ if(CLANG_TIDY)
 endif()
 # -----------------------------------------------------------------------------
 
-# logging levels --------------------------------------------------------------
-option (LOG_NO_STDOUT
-        "Disable logging to stdout. (Docker has a bug with large logs.)"
-        OFF)
-if (LOG_NO_STDOUT)
-    add_definitions(-DLOG_NO_STDOUT)
-endif()
-message(STATUS "LOG_NO_STDOUT: ${LOG_NO_STDOUT}")
-
-option(LOG_NO_TRACE "Disable trace logging" OFF)
-message(STATUS "LOG_NO_TRACE: ${LOG_NO_TRACE}")
-if (LOG_NO_TRACE)
-    add_definitions(-DLOG_NO_TRACE)
-endif()
-
-option(LOG_NO_DEBUG "Disable debug logging" OFF)
-message(STATUS "LOG_NO_DEBUG: ${LOG_NO_DEBUG}")
-if (LOG_NO_DEBUG)
-    add_definitions(-DLOG_NO_DEBUG)
-endif()
-
-option(LOG_NO_INFO "Disable info logging" OFF)
-message(STATUS "LOG_NO_INFO: ${LOG_NO_INFO}")
-if (LOG_NO_INFO)
-    add_definitions(-DLOG_NO_INFO)
-endif()
-
-option(LOG_NO_WARN "Disable warn logging" OFF)
-message(STATUS "LOG_NO_WARN: ${LOG_NO_WARN}")
-if (LOG_NO_WARN)
-    add_definitions(-DLOG_NO_WARN)
-endif()
-
-option(LOG_NO_ERROR "Disable error logging" OFF)
-message(STATUS "LOG_NO_ERROR: ${LOG_NO_ERROR}")
-if (LOG_NO_ERROR)
-    add_definitions(-DLOG_NO_ERROR)
-endif()
-# -----------------------------------------------------------------------------
-
-# logger type
-# the default logger is sync logger
-# on: cmake ... -DSYNC_LOGGER=OFF ... async logger is going to be used
-option(SYNC_LOGGER "Sync logger" ON)
-message(STATUS "SYNC_LOGGER: ${SYNC_LOGGER}")
-if (SYNC_LOGGER)
-    add_definitions(-DSYNC_LOGGER)
-endif()
-# -----------------------------------------------------------------------------
-
 # custom assert control parameters
 
 # Debug assert, if value is OFF debug asserts will be inactive.
@@ -340,13 +290,6 @@ set(memgraph_src_files
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp
     ${src_dir}/io/network/socket.cpp
-    ${src_dir}/logging/default.cpp
-    ${src_dir}/logging/levels.cpp
-    ${src_dir}/logging/log.cpp
-    ${src_dir}/logging/logs/async_log.cpp
-    ${src_dir}/logging/logs/sync_log.cpp
-    ${src_dir}/logging/streams/stderr.cpp
-    ${src_dir}/logging/streams/stdout.cpp
     ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
     ${src_dir}/query/engine.cpp
@@ -374,8 +317,8 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib and memgraph_pic depend on these libraries
-set(MEMGRAPH_ALL_LIBS gflags stdc++fs Threads::Threads fmt
-    antlr_opencypher_parser_lib dl ${CMAKE_SOURCE_DIR}/libs/glog/lib/libglog.a)
+set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt
+    antlr_opencypher_parser_lib dl ${CMAKE_SOURCE_DIR}/libs/glog/lib/libglog.a gflags)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
@@ -385,12 +328,6 @@ add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_lib generate_opencypher_parser
                               glog)
-
-# STATIC PIC library used by query engine
-add_library(memgraph_pic STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_pic ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_pic generate_opencypher_parser)
-set_property(TARGET memgraph_pic PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 # -----------------------------------------------------------------------------
 
 # proof of concepts
@@ -406,8 +343,8 @@ if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
 endif()
 # -----------------------------------------------------------------------------
 
-execute_process(
-    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
+add_custom_command(TARGET memgraph_lib
+    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include ${libs_dir}/glog/include --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
 )
 

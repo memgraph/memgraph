@@ -2,8 +2,8 @@
 
 #include <string>
 
-#include "logging/default.hpp"
-#include "logging/loggable.hpp"
+#include <glog/logging.h>
+
 #include "query/exceptions.hpp"
 #include "query/plan_compiler_flags.hpp"
 #include "utils/string.hpp"
@@ -15,9 +15,9 @@
 /**
  * Compiles code into shared object (.so)
  */
-class PlanCompiler : public Loggable {
+class PlanCompiler {
  public:
-  PlanCompiler() : Loggable("PlanCompiler") {}
+  PlanCompiler() {}
 
   /**
    * Compiles in_file into out_file (.cpp -> .so)
@@ -40,22 +40,23 @@ class PlanCompiler : public Loggable {
                      "-shared -fPIC"},         // shared library flags
                     " ");
 
-    logger.debug("compile command -> {}", compile_command);
+    DLOG(INFO) << "compile command -> " << compile_command;
 
     // synchronous call
     auto compile_status = system(compile_command.c_str());
 
-    logger.debug("compile status {}", compile_status);
+    DLOG(INFO) << "compile status " << compile_status;
 
     // if compilation has failed throw exception
     if (compile_status != 0) {
-      logger.debug("FAIL: Query Code Compilation: {} -> {}", in_file, out_file);
+      DLOG(ERROR) << "FAIL: Query Code Compilation: " << in_file << " -> "
+                  << out_file;
       throw query::PlanCompilationException(
           "Code compilation error. Generated code is not compilable or "
           "compilation settings are wrong");
     }
 
-    logger.debug("SUCCESS: Query Code Compilation: {} -> {}", in_file,
-                 out_file);
+    DLOG(ERROR) << "SUCCESS: Query Code Compilation: " << in_file << " -> "
+                << out_file;
   }
 };

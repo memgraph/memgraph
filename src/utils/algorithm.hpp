@@ -1,8 +1,7 @@
 #pragma once
 
 #include <algorithm>
-
-#include "logging/default.hpp"
+#include <string>
 
 /**
  * Goes from first to last item in a container, if an element satisfying the

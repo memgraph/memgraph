@@ -7,13 +7,14 @@
 #include <sstream>
 #include <thread>
 
+#include <glog/logging.h>
+
 #include "dbms/dbms.hpp"
 #include "query/engine.hpp"
 
 #include "communication/bolt/v1/session.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/stream_reader.hpp"
-#include "logging/default.hpp"
 
 namespace communication {
 
@@ -44,12 +45,10 @@ class Worker
   using sptr = std::shared_ptr<Worker<Session, OutputStream, Socket>>;
 
   Worker(Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : dbms_(dbms),
-        query_engine_(query_engine),
-        logger_(logging::log->logger("communication::Worker")) {}
+      : dbms_(dbms), query_engine_(query_engine) {}
 
   Session &OnConnect(Socket &&socket) {
-    logger_.trace("Accepting connection on socket {}", socket.id());
+    DLOG(INFO) << "Accepting connection on socket " << socket.id();
 
     // TODO fix session lifecycle handling
     // dangling pointers are not cool :)
@@ -58,28 +57,29 @@ class Worker
   }
 
   void OnError(Session &session) {
-    logger_.error("Error occured in this session");
+    LOG(ERROR) << "Error occured in this session";
     OnClose(session);
   }
 
   void OnWaitTimeout() {}
 
   void OnRead(Session &session) {
-    logger_.trace("OnRead");
+    DLOG(INFO) << "OnRead";
 
     try {
       session.Execute();
     } catch (const std::exception &e) {
-      logger_.error("Error occured while executing statement.");
-      logger_.error("{}", e.what());
+      LOG(ERROR) << "Error occured while executing statement. " << std::endl
+                 << e.what();
       // TODO: report to client
     }
   }
 
   void OnClose(Session &session) {
-    logger_.info("Client {}:{} closed the connection.",
-                 session.socket_.endpoint().address(),
-                 session.socket_.endpoint().port());
+    std::cout << fmt::format("Client {}:{} closed the connection.",
+                             session.socket_.endpoint().address(),
+                             session.socket_.endpoint().port())
+              << std::endl;
     // TODO: remove socket from epoll object
     session.Close();
     delete &session;
@@ -87,8 +87,7 @@ class Worker
 
   template <class... Args>
   void OnException(Session &session, Args &&... args) {
-    logger_.error("Error occured in this session");
-    logger_.error(args...);
+    LOG(ERROR) << "Error occured in this session";
 
     // TODO: Do something about it
   }
@@ -104,6 +103,5 @@ class Worker
  private:
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
-  Logger logger_;
 };
 }

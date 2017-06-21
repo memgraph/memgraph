@@ -1,13 +1,12 @@
 #include <random>
 #include <thread>
 
+#include <benchmark/benchmark_api.h>
+#include <glog/logging.h>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/random/random_generator.hpp"
-
-#include "benchmark/benchmark_api.h"
 
 /*
   ConcurrentMap Benchmark Test:
@@ -120,8 +119,7 @@ void parse_arguments(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   parse_arguments(argc, argv);
 

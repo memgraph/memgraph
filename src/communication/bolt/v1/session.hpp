@@ -20,8 +20,6 @@
 
 #include "io/network/stream_buffer.hpp"
 
-#include "logging/loggable.hpp"
-
 namespace communication::bolt {
 
 /**
@@ -32,15 +30,14 @@ namespace communication::bolt {
  * @tparam Socket type of socket (could be a network socket or test socket)
  */
 template <typename Socket>
-class Session : public Loggable {
+class Session {
  private:
   using OutputStream = ResultStream<Encoder<ChunkedEncoderBuffer<Socket>>>;
   using StreamBuffer = io::network::StreamBuffer;
 
  public:
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : Loggable("communication::bolt::Session"),
-        socket_(std::move(socket)),
+      : socket_(std::move(socket)),
         dbms_(dbms),
         query_engine_(query_engine),
         encoder_buffer_(socket_),
@@ -70,23 +67,25 @@ class Session : public Loggable {
     // while there is data in the buffers
     while (buffer_.size() > 0 || decoder_buffer_.Size() > 0) {
       if (LIKELY(connected_)) {
-        logger.debug("Decoding chunk of size {}", buffer_.size());
+        DLOG(INFO) << fmt::format("Decoding chunk of size {}", buffer_.size());
         auto chunk_state = decoder_buffer_.GetChunk();
         if (chunk_state == ChunkState::Partial) {
-          logger.trace("Chunk isn't complete!");
+          DLOG(WARNING) << "Chunk isn't complete!";
           return;
         } else if (chunk_state == ChunkState::Invalid) {
-          logger.trace("Chunk is invalid!");
+          DLOG(WARNING) << "Chunk is invalid!";
           ClientFailureInvalidData();
           return;
         }
         // if chunk_state == ChunkState::Whole then we continue with
         // execution of the select below
       } else if (buffer_.size() < HANDSHAKE_SIZE) {
-        logger.debug("Received partial handshake of size {}", buffer_.size());
+        DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
+                                     buffer_.size());
         return;
       } else {
-        logger.debug("Decoding handshake of size {}", buffer_.size());
+        DLOG(WARNING) << fmt::format("Decoding handshake of size {}",
+                                     buffer_.size());
       }
 
       switch (state_) {
@@ -115,8 +114,9 @@ class Session : public Loggable {
         return;
       }
 
-      logger.trace("Buffer size: {}", buffer_.size());
-      logger.trace("Decoder buffer size: {}", decoder_buffer_.Size());
+      DLOG(INFO) << fmt::format("Buffer size: {}", buffer_.size());
+      DLOG(INFO) << fmt::format("Decoder buffer size: {}",
+                                decoder_buffer_.Size());
     }
   }
 
@@ -140,7 +140,7 @@ class Session : public Loggable {
    * Closes the session (client socket).
    */
   void Close() {
-    logger.debug("Closing session");
+    DLOG(INFO) << "Closing session";
     this->socket_.Close();
   }
 

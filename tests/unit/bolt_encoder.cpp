@@ -15,7 +15,8 @@ using query::TypedValue;
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
-uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
+uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len,
+                         uint8_t offset = 1) {
   uint64_t ret = 0;
   v.erase(v.begin(), v.begin() + offset);
   for (int i = 0; i < len; ++i) {
@@ -217,8 +218,7 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
 
 int main(int argc, char **argv) {
   InitializeData(data, SIZE);
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

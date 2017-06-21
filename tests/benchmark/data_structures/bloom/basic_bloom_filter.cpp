@@ -1,11 +1,10 @@
 #include <random>
 #include <thread>
 
-#include "benchmark/benchmark_api.h"
+#include <benchmark/benchmark_api.h>
+#include <glog/logging.h>
 
 #include "data_structures/bloom/bloom_filter.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
 #include "utils/random/random_generator.hpp"
@@ -31,8 +30,7 @@ auto BM_Bloom = [](benchmark::State &state, auto *bloom, const auto &elements) {
 };
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   StringGenerator generator(4);
 
@@ -52,4 +50,5 @@ int main(int argc, char **argv) {
 
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
+  return 0;
 }

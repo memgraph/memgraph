@@ -1,6 +1,5 @@
-#include "logging/loggable.hpp"
-#include "query/plan/operator.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 
 namespace query::plan {
@@ -30,7 +29,7 @@ namespace query::plan {
  * for a single query part, and query part reordering is
  * not allowed.
  */
-class CostEstimator : public HierarchicalLogicalOperatorVisitor, Loggable {
+class CostEstimator : public HierarchicalLogicalOperatorVisitor {
  public:
   struct CostParam {
     static constexpr double kScanAll{1.0};
@@ -55,7 +54,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor, Loggable {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
 
   CostEstimator(const GraphDbAccessor &db_accessor)
-      : Loggable("QueryCostEstimator"), db_accessor_(db_accessor) {}
+      : db_accessor_(db_accessor) {}
 
   bool PostVisit(ScanAll &) override;
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override;

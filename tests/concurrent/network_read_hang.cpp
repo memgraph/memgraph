@@ -4,16 +4,14 @@
 
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <iostream>
-#include <vector>
-#include <chrono>
 #include <thread>
+#include <vector>
 
-#include "gtest/gtest.h"
-
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
@@ -31,9 +29,9 @@ class TestOutputStream {};
 
 class TestSession {
  public:
-  TestSession(socket_t&& socket, Dbms& dbms,
-              QueryEngine<TestOutputStream>& query_engine)
-        : socket_(std::move(socket)) {
+  TestSession(socket_t &&socket, Dbms &dbms,
+              QueryEngine<TestOutputStream> &query_engine)
+      : socket_(std::move(socket)) {
     event_.data.ptr = this;
   }
 
@@ -41,21 +39,13 @@ class TestSession {
 
   int Id() const { return socket_.id(); }
 
-  void Execute() {
-    this->socket_.Write(buffer_.data(), buffer_.size());
-  }
+  void Execute() { this->socket_.Write(buffer_.data(), buffer_.size()); }
 
-  io::network::StreamBuffer Allocate() {
-    return buffer_.Allocate();
-  }
+  io::network::StreamBuffer Allocate() { return buffer_.Allocate(); }
 
-  void Written(size_t len) {
-    buffer_.Written(len);
-  }
+  void Written(size_t len) { buffer_.Written(len); }
 
-  void Close() {
-    this->socket_.Close();
-  }
+  void Close() { this->socket_.Close(); }
 
   socket_t socket_;
   communication::bolt::Buffer<> buffer_;
@@ -68,7 +58,7 @@ using test_server_t =
 test_server_t *serverptr;
 std::atomic<bool> run{true};
 
-void client_run(int num, const char* interface, const char* port) {
+void client_run(int num, const char *interface, const char *port) {
   endpoint_t endpoint(interface, port);
   socket_t socket;
   uint8_t data = 0x00;
@@ -79,13 +69,12 @@ void client_run(int num, const char* interface, const char* port) {
   ASSERT_TRUE(socket.Read(&data, 1));
   fprintf(stderr, "CLIENT %d READ 0x%02X!\n", num, data);
   ASSERT_EQ(data, 0xAA);
-  while (run)
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  while (run) std::this_thread::sleep_for(std::chrono::milliseconds(100));
   socket.Close();
 }
 
-void server_run(void* serverptr, int num) {
-  ((test_server_t*)serverptr)->Start(num);
+void server_run(void *serverptr, int num) {
+  ((test_server_t *)serverptr)->Start(num);
 }
 
 TEST(Network, SocketReadHangOnConcurrentConnections) {
@@ -114,8 +103,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < Nc; ++i)
-    clients.push_back(
-        std::thread(client_run, i, interface, ep.port_str()));
+    clients.push_back(std::thread(client_run, i, interface, ep.port_str()));
 
   // wait for 2s and stop clients
   std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -130,8 +118,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

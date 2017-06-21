@@ -5,8 +5,8 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
-#include "logging/logger.hpp"
-#include "logging/streams/stdout.hpp"
+#include <glog/logging.h>
+
 #include "query/frontend/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/exceptions.hpp"
@@ -48,22 +48,18 @@ std::string ExtractQuery(const fs::path &path) {
 }
 
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
-
-  auto logger = logging::log->logger("CopyHardcodedQueries");
-  logger.info("{}", logging::log->type());
+  google::InitGoogleLogging(argv[0]);
 
   REGISTER_ARGS(argc, argv);
 
   auto src_path = fs::path(
       GET_ARG("--src", "tests/integration/hardcoded_queries").get_string());
-  logger.info("Src path is: {}", src_path);
+  LOG(INFO) << "Src path is: " << src_path;
   permanent_assert(fs::exists(src_path), "src folder must exist");
 
   auto dst_path =
       fs::path(GET_ARG("--dst", "build/compiled/hardcode").get_string());
-  logger.info("Dst path is: {}", dst_path);
+  LOG(INFO) << "Dst path is: " << dst_path;
   fs::create_directories(dst_path);
 
   auto src_files = utils::LoadFilePaths(src_path, "cpp");
@@ -73,7 +69,7 @@ int main(int argc, char **argv) {
     auto query_hash = query::StrippedQuery(query).hash();
     auto dst_file = dst_path / fs::path(std::to_string(query_hash) + ".cpp");
     fs::copy(src_file, dst_file, fs::copy_options::overwrite_existing);
-    logger.info("{} - (copy) -> {}", src_file, dst_file);
+    LOG(INFO) << src_file << "- {(copy) -> " << dst_file;
   }
 
   auto hpp_files = utils::LoadFilePaths(src_path, "hpp");

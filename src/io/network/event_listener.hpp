@@ -1,7 +1,8 @@
 #pragma once
 
+#include <glog/logging.h>
+
 #include "io/network/epoll.hpp"
-#include "logging/default.hpp"
 #include "utils/crtp.hpp"
 
 namespace io::network {
@@ -15,8 +16,7 @@ class EventListener : public Crtp<Derived> {
  public:
   using Crtp<Derived>::derived;
 
-  EventListener(uint32_t flags = 0)
-      : listener_(flags), logger_(logging::log->logger("io::EventListener")) {}
+  EventListener(uint32_t flags = 0) : listener_(flags) {}
 
   void WaitAndProcessEvents() {
     // TODO hardcoded a wait timeout because of thread joining
@@ -33,7 +33,7 @@ class EventListener : public Crtp<Derived> {
 
 #ifndef NDEBUG
 #ifndef LOG_NO_TRACE
-    if (n > 0) logger_.trace("number of events: {}", n);
+    DLOG_IF(INFO, n > 0) << "number of events: " << n;
 #endif
 #endif
 
@@ -79,8 +79,5 @@ class EventListener : public Crtp<Derived> {
  protected:
   Epoll listener_;
   Epoll::Event events_[max_events];
-
- private:
-  Logger logger_;
 };
 }

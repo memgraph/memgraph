@@ -3,14 +3,16 @@
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
 
+#include <glog/logging.h>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
-#include "logging/loggable.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan_compiler.hpp"
 #include "query/plan_interface.hpp"
+#include "utils/datetime/timestamp.hpp"
 #include "utils/dynamic_lib.hpp"
 
 DECLARE_bool(interpret);
@@ -28,12 +30,12 @@ DECLARE_string(compile_directory);
  *         the whole result set)
  */
 template <typename Stream>
-class QueryEngine : public Loggable {
+class QueryEngine {
  private:
   using QueryPlanLib = utils::DynamicLib<QueryPlanTrait<Stream>>;
 
  public:
-  QueryEngine() : Loggable("QueryEngine") {}
+  QueryEngine() {}
 
   /**
    * Reloads query plan (plan_path contains compiled query plan).
@@ -79,7 +81,7 @@ class QueryEngine : public Loggable {
     if (UNLIKELY(!result)) {
       // info because it might be something like deadlock in which
       // case one thread is stopped and user has try again
-      logger.info("Unable to execute query (execution returned false)");
+      LOG(ERROR) << "Unable to execute query (execution returned false)";
       return result;
     }
 

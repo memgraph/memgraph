@@ -1,8 +1,10 @@
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "logging/default.hpp"
 
 namespace communication::bolt {
 
@@ -14,28 +16,27 @@ namespace communication::bolt {
  */
 template <typename Session>
 State StateErrorRun(Session &session) {
-  static Logger logger = logging::log->logger("State ERROR");
-
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    logger.debug("Missing header data!");
+    DLOG(INFO) << "Missing header data!";
     return State::Close;
   }
 
-  logger.trace("Message signature is: 0x{:02X}", underlying_cast(signature));
+  DLOG(INFO) << fmt::format("Message signature is: 0x{:02X}",
+                            underlying_cast(signature));
 
   // clear the data buffer if it has any leftover data
   session.encoder_buffer_.Clear();
 
   if (signature == Signature::AckFailure || signature == Signature::Reset) {
     if (signature == Signature::AckFailure)
-      logger.trace("AckFailure received");
+      DLOG(INFO) << "AckFailure received";
     else
-      logger.trace("Reset received");
+      DLOG(INFO) << "Reset received";
 
     if (!session.encoder_.MessageSuccess()) {
-      logger.debug("Couldn't send success message!");
+      DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
     return State::Executor;
@@ -45,7 +46,8 @@ State StateErrorRun(Session &session) {
     // all bolt client messages have less than 15 parameters
     // so if we receive anything than a TinyStruct it's an error
     if ((value & 0xF0) != underlying_cast(Marker::TinyStruct)) {
-      logger.debug("Expected TinyStruct marker, but received 0x{:02X}!", value);
+      DLOG(WARNING) << fmt::format(
+          "Expected TinyStruct marker, but received 0x{:02X}!", value);
       return State::Close;
     }
 
@@ -54,14 +56,15 @@ State StateErrorRun(Session &session) {
     query::TypedValue tv;
     for (int i = 0; i < value; ++i) {
       if (!session.decoder_.ReadTypedValue(&tv)) {
-        logger.debug("Couldn't clean up parameter {} / {}!", i, value);
+        DLOG(WARNING) << fmt::format("Couldn't clean up parameter {} / {}!", i,
+                                     value);
         return State::Close;
       }
     }
 
     // ignore this message
     if (!session.encoder_.MessageIgnored()) {
-      logger.debug("Couldn't send ignored message!");
+      DLOG(WARNING) << "Couldn't send ignored message!";
       return State::Close;
     }
 

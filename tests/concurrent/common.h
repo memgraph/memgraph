@@ -4,14 +4,14 @@
 #include <random>
 #include <thread>
 
+#include <glog/logging.h>
+
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "data_structures/static_array.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 #include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
 
@@ -73,9 +73,9 @@ void check_size_list(S &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(iterator_counter == size, "Iterator count should be "
-                                                 << size << ", but size is "
-                                                 << iterator_counter);
+  permanent_assert(iterator_counter == size,
+                   "Iterator count should be " << size << ", but size is "
+                                               << iterator_counter);
 }
 template <typename S>
 void check_size(typename S::Accessor &acc, long long size) {
@@ -91,9 +91,9 @@ void check_size(typename S::Accessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(iterator_counter == size, "Iterator count should be "
-                                                 << size << ", but size is "
-                                                 << iterator_counter);
+  permanent_assert(iterator_counter == size,
+                   "Iterator count should be " << size << ", but size is "
+                                               << iterator_counter);
 }
 
 // Checks if order in list is maintened. It expects map
@@ -202,7 +202,7 @@ auto insert_try(typename S::Accessor &acc, long long &downcount,
 // is aproximately equal to memory usage after function. Memory usage is thread
 // senstive so no_threads spawned in function is necessary.
 void memory_check(size_t no_threads, std::function<void()> f) {
-  logging::info("Number of threads: {}", no_threads);
+  DLOG(INFO) << fmt::format("Number of threads: {}", no_threads);
 
   // TODO: replace vm_size with something more appropriate
   //       the past implementation was teribble wrong
@@ -212,24 +212,18 @@ void memory_check(size_t no_threads, std::function<void()> f) {
   //       OR
   //       user Boost.Test
   auto start = vm_size();
-  logging::info("Memory check (used memory at the beginning): {}", start);
+  DLOG(INFO) << fmt::format("Memory check (used memory at the beginning): {}",
+                            start);
 
   f();
 
   auto end = vm_size();
-  logging::info("Memory check (used memory at the end): {}", end);
+  DLOG(INFO) << fmt::format("Memory check (used memory at the end): {}", end);
 
   long long delta = end - start;
-  logging::info("Delta: {}", delta);
+  DLOG(INFO) << fmt::format("Delta: {}", delta);
 
   // TODO: do memory check somehow
   // the past implementation was wrong
   permanent_assert(true, "Memory leak");
-}
-
-// TODO: move this inside logging/default
-// Initializes loging faccilityes
-void init_log() {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stdout>());
 }

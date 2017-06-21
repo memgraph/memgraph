@@ -1,7 +1,5 @@
 #pragma once
 
-#include "logging/loggable.hpp"
-
 #include <cstring>
 #include <experimental/filesystem>
 #include <vector>
@@ -14,9 +12,9 @@ class GraphDbAccessor;
  * Class responsible for making snapshots. Snapshots are stored in folder
  * memgraph/build/$snapshot_folder/$db_name using bolt protocol.
  */
-class Snapshooter : public Loggable {
+class Snapshooter {
  public:
-  Snapshooter() : Loggable("Snapshoter"){};
+  Snapshooter(){};
   /**
    * Make snapshot and save it in snapshots folder. Returns true if successful.
    * @param db_accessor:

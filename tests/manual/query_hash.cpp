@@ -1,8 +1,8 @@
 #include <iostream>
 #include <vector>
 
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
+#include <glog/logging.h>
+
 #include "query/frontend/stripped.hpp"
 #include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
@@ -14,8 +14,7 @@
  *     ./query_hash -q "CREATE (n {name: \"test\n"}) RETURN n"
  */
 int main(int argc, char **argv) {
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
 
   // init args
   REGISTER_ARGS(argc, argv);

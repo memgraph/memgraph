@@ -6,15 +6,15 @@
 #include <thread>
 #include <vector>
 
-#include "benchmark/benchmark.h"
-#include "benchmark/benchmark_api.h"
+#include <benchmark/benchmark.h>
+#include <benchmark/benchmark_api.h>
+#include <glog/logging.h>
+
 #include "data_structures/concurrent/skiplist.hpp"
-#include "logging/default.hpp"
-#include "logging/streams/stderr.hpp"
 #include "skiplist_helper.hpp"
 #include "utils/assert.hpp"
 
-void Insert(benchmark::State& state) {
+void Insert(benchmark::State &state) {
   SkipList<int> skiplist;
   while (state.KeepRunning()) {
     const int count = SkipListHelper::InsertConcurrentSkiplistTimed(
@@ -35,7 +35,7 @@ void Insert(benchmark::State& state) {
  * Invokes the test function with two arguments, time and number of threads.
  * Time is specified in microseconds.
  */
-static void CustomArguments(benchmark::internal::Benchmark* b) {
+static void CustomArguments(benchmark::internal::Benchmark *b) {
   for (int i = (1 << 18); i <= (1 << 20); i *= 2)
     for (int j = 1; j <= 8; ++j) b->Args({i, j});
 }
@@ -53,10 +53,8 @@ BENCHMARK(Insert)
     ->Repetitions(3)
     ->ReportAggregatesOnly(1);
 
-int main(int argc, char** argv) {
-  logging::init_async();
-  logging::log->pipe(std::make_unique<Stderr>());
-
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
   ::benchmark::Initialize(&argc, argv);
   ::benchmark::RunSpecifiedBenchmarks();
   return 0;

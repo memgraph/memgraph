@@ -4,10 +4,10 @@
 #include <iostream>
 #include <vector>
 
+#include <glog/logging.h>
+
 #include "dbms/dbms.hpp"
 #include "gtest/gtest.h"
-#include "logging/default.hpp"
-#include "logging/streams/stdout.hpp"
 
 /**
  * TODO (mferencevic): document
@@ -39,9 +39,7 @@ class TestSocket {
     return true;
   }
 
-  void SetWriteSuccess(bool success) {
-    write_success_ = success;
-  }
+  void SetWriteSuccess(bool success) { write_success_ = success; }
 
   std::vector<uint8_t> output;
 

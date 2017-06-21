@@ -17,8 +17,7 @@ TEST(BoltBuffer, AllocateAndWritten) {
   ASSERT_EQ(buffer.size(), 1000);
 
   uint8_t *tmp = buffer.data();
-  for (int i = 0; i < 1000; ++i)
-    EXPECT_EQ(data[i], tmp[i]);
+  for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
 }
 
 TEST(BoltBuffer, Shift) {
@@ -35,21 +34,18 @@ TEST(BoltBuffer, Shift) {
   ASSERT_EQ(buffer.size(), 2000);
 
   uint8_t *tmp = buffer.data();
-  for (int i = 0; i < 1000; ++i)
-    EXPECT_EQ(data[i], tmp[i]);
+  for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
 
   buffer.Shift(1000);
   ASSERT_EQ(buffer.size(), 1000);
   tmp = buffer.data();
 
-  for (int i = 0; i < 1000; ++i)
-    EXPECT_EQ(data[i + 1000], tmp[i]);
+  for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i + 1000], tmp[i]);
 }
 
 int main(int argc, char **argv) {
   InitializeData(data, SIZE);
-  logging::init_sync();
-  logging::log->pipe(std::make_unique<Stdout>());
+  google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
