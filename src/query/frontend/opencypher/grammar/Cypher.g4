@@ -83,7 +83,7 @@ returnItem : ( expression SP AS SP variable )
            | expression
            ;
 
-order : ORDER SP BY SP sortItem ( ',' SP? sortItem )* ;
+order : ORDER SP BY SP sortItem ( SP? ',' SP? sortItem )* ;
 
 skip : L_SKIP SP expression ;
 
@@ -102,7 +102,7 @@ patternPart : ( variable SP? '=' SP? anonymousPatternPart )
 anonymousPatternPart : patternElement ;
 
 patternElement : ( nodePattern ( SP? patternElementChain )* )
-               | ( '(' patternElement ')' )
+               | ( '(' SP? patternElement SP? ')' )
                ;
 
 nodePattern : '(' SP? ( variable SP? )? ( nodeLabels SP? )? ( properties SP? )? ')' ;

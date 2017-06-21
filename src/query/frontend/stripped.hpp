@@ -49,6 +49,23 @@ class StrippedQuery {
   HashType hash() const { return hash_; }
 
  private:
+  std::string GetFirstUtf8Symbol(const char *s) const;
+
+  // Return len of matched keyword if something is matched, otherwise 0.
+  int MatchKeyword(int start) const;
+  int MatchString(int start) const;
+  int MatchSpecial(int start) const;
+  int MatchDecimalInt(int start) const;
+  int MatchOctalInt(int start) const;
+  int MatchHexadecimalInt(int start) const;
+  int MatchReal(int start) const;
+  int MatchEscapedName(int start) const;
+  int MatchUnescapedName(int start) const;
+  int MatchWhitespaceAndComments(int start) const;
+
+  // Original query.
+  std::string original_;
+
   // Stripped query.
   std::string query_;
 

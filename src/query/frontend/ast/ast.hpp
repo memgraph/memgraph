@@ -1408,10 +1408,12 @@ class CachedAst {
     bool Visit(PrimitiveLiteral &literal) override {
       // TODO: If literal is a part of NamedExpression then we need to change
       // text in NamedExpression, otherwise wrong header will be returned.
-      permanent_assert(
-          literal.token_position_ != -1,
-          "Use AstPlugLiteralsVisitor only on ast created by parsing queries");
-      literal.value_ = parameters_.AtTokenPosition(literal.token_position_);
+      if (!literal.value_.IsNull()) {
+        permanent_assert(literal.token_position_ != -1,
+                         "Use AstPlugLiteralsVisitor only on ast created by "
+                         "parsing queries");
+        literal.value_ = parameters_.AtTokenPosition(literal.token_position_);
+      }
       return true;
     }
 

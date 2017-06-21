@@ -12,6 +12,12 @@ class QueryException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+class LexingException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  LexingException() : QueryException("") {}
+};
+
 class SyntaxException : public QueryException {
  public:
   using QueryException::QueryException;

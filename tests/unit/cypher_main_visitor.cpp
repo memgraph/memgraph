@@ -12,6 +12,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 namespace {
@@ -83,11 +84,38 @@ class ClonedAstGenerator {
   Query *query_;
 };
 
+// This generator strips ast, clones it and then plugs stripped out literals in
+// the same way it is done in ast cacheing in interpreter.
+class CachedAstGenerator {
+ public:
+  CachedAstGenerator(const std::string &query)
+      : dbms_(),
+        db_accessor_(dbms_.active()),
+        context_(Config{}, *db_accessor_),
+        query_string_(query),
+        storage_([&]() {
+          StrippedQuery stripped(query_string_);
+          ::frontend::opencypher::Parser parser(stripped.query());
+          CypherMainVisitor visitor(context_);
+          visitor.visit(parser.tree());
+          CachedAst cached(std::move(visitor.storage()));
+          return cached.Plug(stripped.literals());
+        }()),
+        query_(storage_.query()) {}
+
+  Dbms dbms_;
+  std::unique_ptr<GraphDbAccessor> db_accessor_;
+  Context context_;
+  std::string query_string_;
+  AstTreeStorage storage_;
+  Query *query_;
+};
+
 template <typename T>
 class CypherMainVisitorTest : public ::testing::Test {};
 
 typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
-                         ClonedAstGenerator>
+                         ClonedAstGenerator, CachedAstGenerator>
     AstGeneratorTypes;
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 
