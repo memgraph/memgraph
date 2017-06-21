@@ -596,16 +596,16 @@ Feature: Functions
             | (:y) | false | true  |
             | (:y) | false | true  |
 
-    Scenario: Keys test:
-        Given an empty graph
-        When executing query:
-            """
-            CREATE (n{true: 123, a: null, b: 'x', null: 1}) RETURN KEYS(n) AS a
-            """
-        Then the result should be (ignoring element order for lists)
-            | a                     |
-            | ['true', 'null', 'b'] |
- 
+	    #    Scenario: Keys test:
+	    #        Given an empty graph
+	    #        When executing query:
+	    #            """
+	    #            CREATE (n{x: 123, a: null, b: 'x', d: 1}) RETURN KEYS(n) AS a
+	    #            """
+	    #        Then the result should be (ignoring element order for lists)
+	    #            | a                     |
+	    #            | ['x', 'null', 'b'] |
+	    #
     Scenario: Pi test:
         When executing query:
             """

@@ -53,7 +53,7 @@ Feature: Update clauses
         Given an empty graph
         And having executed
             """
-            CREATE (:q{name: 'Sinisa', x: 'y'})-[:X]->({name: 'V',  desc: 'Traktor'})
+            CREATE (:q{name: 'Sinisa', x: 'y'})-[:X]->({name: 'V',  o: 'Traktor'})
             """
         When executing query:
             """
