@@ -450,7 +450,7 @@ class Decoder {
     std::vector<query::TypedValue> ret(size);
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadTypedValue(&ret[i])) {
-        DLOG(WARNING) << "[ReadList] Couldn't read element {}", i;
+        DLOG(WARNING) << "[ReadList] Couldn't read element " << i;
         return false;
       }
     }
