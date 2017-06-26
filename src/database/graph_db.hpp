@@ -52,6 +52,9 @@ class GraphDb {
    * Database object can't be copied.
    */
   GraphDb(const GraphDb &db) = delete;
+  GraphDb(GraphDb &&other) = default;
+  GraphDb &operator=(const GraphDb &other) = default;
+  GraphDb &operator=(GraphDb &&other) = default;
 
   /**
    * Starts database snapshooting.

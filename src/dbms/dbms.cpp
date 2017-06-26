@@ -24,6 +24,6 @@ std::unique_ptr<GraphDbAccessor> Dbms::active(const std::string &name,
 
   // set and return active db
   auto &db = it->second;
-  active_db.store(&db, std::memory_order_release);
+  active_db.store(&db);
   return std::make_unique<GraphDbAccessor>(db);
 }
