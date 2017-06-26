@@ -1,11 +1,10 @@
 #!/bin/bash
 
 function print_usage_and_exit {
-    echo "./init [-s] [--no-clone-dependencies] [--arc-diff DIFF_ID]"
+    echo "./init [-s]"
     echo -e "Prepare the environment for Memgraph QA.\n"
     echo "Optional arguments:"
     echo -e "  -s\tuse sudo apt-get for installing required packages"
-    echo -e "  -h\tdisplay this help and exit"
     exit 1
 }
 
