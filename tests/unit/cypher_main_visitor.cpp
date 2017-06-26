@@ -99,7 +99,7 @@ class CachedAstGenerator {
           CypherMainVisitor visitor(context_);
           visitor.visit(parser.tree());
           CachedAst cached(std::move(visitor.storage()));
-          return cached.Plug(stripped.literals());
+          return cached.Plug(stripped.literals(), stripped.named_expressions());
         }()),
         query_(storage_.query()) {}
 

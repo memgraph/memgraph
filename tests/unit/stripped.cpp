@@ -3,14 +3,18 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
+#include "query/exceptions.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 using namespace query;
 
 namespace {
+
+using testing::Pair;
+using testing::UnorderedElementsAre;
 
 void EXPECT_PROP_TRUE(const TypedValue& a) {
   EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.Value<bool>());
@@ -112,6 +116,18 @@ TEST(QueryStripper, StringLiteral3) {
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), "so\"me'");
   EXPECT_EQ(stripped.query(), "return " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, StringLiteral4) {
+  StrippedQuery stripped("RETURN '\\u1Aa4'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(), u8"\u1Aa4");
+  EXPECT_EQ(stripped.query(), "return " + kStrippedStringToken);
+}
+
+TEST(QueryStripper, StringLiteralIllegalEscapedSequence) {
+  EXPECT_THROW(StrippedQuery("RETURN 'so\\x'"), LexingException);
+  EXPECT_THROW(StrippedQuery("RETURN 'so\\uabc'"), LexingException);
 }
 
 TEST(QueryStripper, TrueLiteral) {
@@ -221,5 +237,48 @@ TEST(QueryStripper, OtherTokens) {
   StrippedQuery stripped("++=...");
   EXPECT_EQ(stripped.literals().size(), 0);
   EXPECT_EQ(stripped.query(), "+ += .. .");
+}
+
+TEST(QueryStripper, NamedExpression) {
+  StrippedQuery stripped("RETURN 2   + 3");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "2   + 3")));
+}
+
+TEST(QueryStripper, AliasedNamedExpression) {
+  StrippedQuery stripped("RETURN 2   + 3 AS x");
+  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre());
+}
+
+TEST(QueryStripper, MultipleNamedExpressions) {
+  StrippedQuery stripped("RETURN 2   + 3, x as s, x, n.x");
+  EXPECT_THAT(
+      stripped.named_expressions(),
+      UnorderedElementsAre(Pair(2, "2   + 3"), Pair(18, "x"), Pair(22, "n.x")));
+}
+
+TEST(QueryStripper, ReturnOrderBy) {
+  StrippedQuery stripped("RETURN 2   + 3 ORDER BY n.x, x");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "2   + 3")));
+}
+
+TEST(QueryStripper, ReturnSkip) {
+  StrippedQuery stripped("RETURN 2   + 3 SKIP 10");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "2   + 3")));
+}
+
+TEST(QueryStripper, ReturnLimit) {
+  StrippedQuery stripped("RETURN 2   + 3 LIMIT 12");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "2   + 3")));
+}
+
+TEST(QueryStripper, ReturnListsAndFunctionCalls) {
+  StrippedQuery stripped("RETURN [1,2,[3, 4] , 5], f(1, 2), 3");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "[1,2,[3, 4] , 5]"),
+                                   Pair(30, "f(1, 2)"), Pair(44, "3")));
 }
 }

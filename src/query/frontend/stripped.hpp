@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <unordered_map>
+
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
@@ -46,6 +49,7 @@ class StrippedQuery {
 
   const std::string &query() const { return query_; }
   auto &literals() const { return literals_; }
+  auto &named_expressions() const { return named_exprs_; }
   HashType hash() const { return hash_; }
 
  private:
@@ -71,6 +75,10 @@ class StrippedQuery {
 
   // Token positions of stripped out literals mapped to their values.
   Parameters literals_;
+
+  // Token positions of nonaliased named expressions in return statement mapped
+  // to theirs original/unstripped string.
+  std::unordered_map<int, std::string> named_exprs_;
 
   // Hash based on the stripped query.
   HashType hash_;

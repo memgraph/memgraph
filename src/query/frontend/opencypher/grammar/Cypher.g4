@@ -121,7 +121,7 @@ properties : mapLiteral
            | parameter
            ;
 
-relationshipTypes : ':' SP? relTypeName ( SP? '|' ':'? SP? relTypeName )* ;
+relationshipTypes : ':' SP? relTypeName ( SP? '|' SP? ':'? SP? relTypeName )* ;
 
 nodeLabels : nodeLabel ( SP? nodeLabel )* ;
 

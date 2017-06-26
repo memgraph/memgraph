@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "database/graph_db.hpp"
@@ -772,17 +773,28 @@ class NamedExpression : public Tree {
   }
 
   NamedExpression *Clone(AstTreeStorage &storage) const override {
-    return storage.Create<NamedExpression>(name_, expression_->Clone(storage));
+    return storage.Create<NamedExpression>(name_, expression_->Clone(storage),
+                                           token_position_);
   }
 
   std::string name_;
   Expression *expression_ = nullptr;
+  // This field contains token position of first token in named expression
+  // used to create name_. If NamedExpression object is not created from
+  // query or it is aliased leave this value at -1.
+  int token_position_ = -1;
 
  protected:
   NamedExpression(int uid) : Tree(uid) {}
   NamedExpression(int uid, const std::string &name) : Tree(uid), name_(name) {}
   NamedExpression(int uid, const std::string &name, Expression *expression)
       : Tree(uid), name_(name), expression_(expression) {}
+  NamedExpression(int uid, const std::string &name, Expression *expression,
+                  int token_position)
+      : Tree(uid),
+        name_(name),
+        expression_(expression),
+        token_position_(token_position) {}
 };
 
 class PatternAtom : public Tree {
@@ -1386,11 +1398,13 @@ class CachedAst {
  public:
   CachedAst(AstTreeStorage storage) : storage_(std::move(storage)) {}
 
-  /// Create new storage by plugging literals on its positions.
-  AstTreeStorage Plug(const Parameters &literals) {
+  /// Create new storage by plugging literals and named expessions on theirs
+  /// positions.
+  AstTreeStorage Plug(const Parameters &literals,
+                      const std::unordered_map<int, std::string> &named_exprs) {
     AstTreeStorage new_ast;
     storage_.query()->Clone(new_ast);
-    LiteralsPlugger plugger(literals);
+    LiteralsPlugger plugger(literals, named_exprs);
     new_ast.query()->Accept(plugger);
     return new_ast;
   }
@@ -1403,26 +1417,47 @@ class CachedAst {
     using HierarchicalTreeVisitor::Visit;
     using HierarchicalTreeVisitor::PostVisit;
 
-    LiteralsPlugger(const Parameters &parameters) : parameters_(parameters) {}
+    LiteralsPlugger(const Parameters &literals,
+                    const std::unordered_map<int, std::string> &named_exprs)
+        : literals_(literals), named_exprs_(named_exprs) {}
 
     bool Visit(PrimitiveLiteral &literal) override {
-      // TODO: If literal is a part of NamedExpression then we need to change
-      // text in NamedExpression, otherwise wrong header will be returned.
       if (!literal.value_.IsNull()) {
         permanent_assert(literal.token_position_ != -1,
                          "Use AstPlugLiteralsVisitor only on ast created by "
                          "parsing queries");
-        literal.value_ = parameters_.AtTokenPosition(literal.token_position_);
+        literal.value_ = literals_.AtTokenPosition(literal.token_position_);
       }
+      return true;
+    }
+
+    bool PreVisit(NamedExpression &named_expr) override {
+      // We care only about aliased named expressions in return.
+      if (!in_return_ || named_expr.token_position_ == -1) return true;
+      permanent_assert(
+          named_exprs_.count(named_expr.token_position_),
+          "There is no named expression string for needed position");
+      named_expr.name_ = named_exprs_.at(named_expr.token_position_);
       return true;
     }
 
     bool Visit(Identifier &) override { return true; }
 
-   private:
-    const Parameters &parameters_;
-  };
+    bool PreVisit(Return &) override {
+      in_return_ = true;
+      return true;
+    }
 
+    bool PostVisit(Return &) override {
+      in_return_ = false;
+      return true;
+    }
+
+   private:
+    const Parameters &literals_;
+    const std::unordered_map<int, std::string> &named_exprs_;
+    bool in_return_ = false;
+  };
   AstTreeStorage storage_;
 };
 

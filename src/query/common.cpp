@@ -27,8 +27,8 @@ std::string ParseStringLiteral(const std::string &s) {
     int j = i + 1;
     const int kShortUnicodeLength = 4;
     const int kLongUnicodeLength = 8;
-    while (j < (int)s.size() - 1 && j < i + kLongUnicodeLength + 1 &&
-           isxdigit(s[j])) {
+    while (j < static_cast<int>(s.size()) - 1 &&
+           j < i + kLongUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
     }
     if (j - i == kLongUnicodeLength + 1) {

@@ -67,7 +67,7 @@ class Interpreter {
                          CachedAst(std::move(visitor.storage())))
                  .first;
       }
-      return it->second.Plug(stripped.literals());
+      return it->second.Plug(stripped.literals(), stripped.named_expressions());
     }();
 
     clock_t frontend_end_time = clock();

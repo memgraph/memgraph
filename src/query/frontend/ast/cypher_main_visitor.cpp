@@ -211,8 +211,9 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
     if (in_with_ && !dynamic_cast<Identifier *>(named_expr->expression_)) {
       throw SemanticException("Only variables can be non aliased in with");
     }
-    // TODO: Should we get this by text or some escaping is needed?
     named_expr->name_ = std::string(ctx->getText());
+    named_expr->token_position_ =
+        ctx->expression()->getStart()->getTokenIndex();
   }
   return named_expr;
 }

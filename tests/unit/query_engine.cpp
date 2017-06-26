@@ -19,6 +19,8 @@ TEST(QueryEngine, AstCache) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     engine.Run("RETURN 2 + 3", *dba, stream);
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
@@ -63,7 +65,18 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, same literals, different whitespaces.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 10.5+1", *dba, stream);
+    engine.Run("RETURN  10.5 + 1", *dba, stream);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
+  }
+  {
+    // Cached ast, same literals, different named header.
+    ResultStreamFaker stream;
+    auto dba = dbms.active();
+    engine.Run("RETURN  10.5+1", *dba, stream);
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
