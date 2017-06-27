@@ -3,8 +3,8 @@
 #pragma once
 
 #include <algorithm>
+#include <experimental/optional>
 #include <memory>
-#include <query/exceptions.hpp>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
@@ -12,6 +12,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/common.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
@@ -54,6 +55,8 @@ class CreateNode;
 class CreateExpand;
 class ScanAll;
 class ScanAllByLabel;
+class ScanAllByLabelPropertyRange;
+class ScanAllByLabelPropertyValue;
 class Expand;
 class Filter;
 class Produce;
@@ -78,7 +81,8 @@ class Distinct;
 class CreateIndex;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, Expand, Filter,
+    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
+    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand, Filter,
     Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
     RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
@@ -287,6 +291,10 @@ class CreateExpand : public LogicalOperator {
  * ScanAll can either iterate over the previous graph state (state before
  * the current transacton+command) or over current state. This is controlled
  * with a constructor argument.
+ *
+ * @sa ScanAllByLabel
+ * @sa ScanAllByLabelPropertyRange
+ * @sa ScanAllByLabelPropertyValue
  */
 class ScanAll : public LogicalOperator {
  public:
@@ -294,6 +302,10 @@ class ScanAll : public LogicalOperator {
           GraphView graph_view = GraphView::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto input() const { return input_; }
+  auto output_symbol() const { return output_symbol_; }
+  auto graph_view() const { return graph_view_; }
 
  protected:
   const std::shared_ptr<LogicalOperator> input_;
@@ -312,6 +324,10 @@ class ScanAll : public LogicalOperator {
 /**
  * @brief Behaves like @c ScanAll, but this operator produces only vertices with
  * given label.
+ *
+ * @sa ScanAll
+ * @sa ScanAllByLabelPropertyRange
+ * @sa ScanAllByLabelPropertyValue
  */
 class ScanAllByLabel : public ScanAll {
  public:
@@ -325,6 +341,105 @@ class ScanAllByLabel : public ScanAll {
 
  private:
   const GraphDbTypes::Label label_;
+};
+
+/**
+ * Behaves like @c ScanAll, but produces only vertices with given label and
+ * property value which is inside a range (inclusive or exlusive).
+ *
+ * @sa ScanAll
+ * @sa ScanAllByLabel
+ * @sa ScanAllByLabelPropertyValue
+ */
+class ScanAllByLabelPropertyRange : public ScanAll {
+ public:
+  /** Defines a bounding value for a range. */
+  struct Bound {
+    /**
+     * Determines whether the value of bound expression should be included or
+     * excluded.
+     */
+    enum class Type { INCLUSIVE, EXCLUSIVE };
+
+    /** Expression which when evaluated will produce a value for the bound. */
+    Expression *expression;
+    /** Whether the bound is inclusive or exclusive. */
+    Type type;
+  };
+
+  /**
+   * Constructs the operator for given label and property value in range
+   * (inclusive).
+   *
+   * Range bounds are optional, but only one bound can be left out.
+   *
+   * @param input Preceding operator which will serve as the input.
+   * @param output_symbol Symbol where the vertices will be stored.
+   * @param label Label which the vertex must have.
+   * @param property Property from which the value will be looked up from.
+   * @param lower_bound Optional lower @c Bound.
+   * @param upper_bound Optional upper @c Bound.
+   * @param graph_view GraphView used when obtaining vertices.
+   */
+  ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
+                              Symbol output_symbol, GraphDbTypes::Label label,
+                              GraphDbTypes::Property property,
+                              std::experimental::optional<Bound> lower_bound,
+                              std::experimental::optional<Bound> upper_bound,
+                              GraphView graph_view = GraphView::OLD);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto label() const { return label_; }
+  auto property() const { return property_; }
+  auto lower_bound() const { return lower_bound_; }
+  auto upper_bound() const { return upper_bound_; }
+
+ private:
+  const GraphDbTypes::Label label_;
+  const GraphDbTypes::Property property_;
+  std::experimental::optional<Bound> lower_bound_;
+  std::experimental::optional<Bound> upper_bound_;
+};
+
+/**
+ * Behaves like @c ScanAll, but produces only vertices with given label and
+ * property value.
+ *
+ * @sa ScanAll
+ * @sa ScanAllByLabel
+ * @sa ScanAllByLabelPropertyRange
+ */
+class ScanAllByLabelPropertyValue : public ScanAll {
+ public:
+  /**
+   * Constructs the operator for given label and property value.
+   *
+   * @param input Preceding operator which will serve as the input.
+   * @param output_symbol Symbol where the vertices will be stored.
+   * @param label Label which the vertex must have.
+   * @param property Property from which the value will be looked up from.
+   * @param expression Expression producing the value of the vertex property.
+   * @param graph_view GraphView used when obtaining vertices.
+   */
+  ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                              Symbol output_symbol, GraphDbTypes::Label label,
+                              GraphDbTypes::Property property,
+                              Expression *expression,
+                              GraphView graph_view = GraphView::OLD);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto label() const { return label_; }
+  auto property() const { return property_; }
+  auto expression() const { return expression_; }
+
+ private:
+  const GraphDbTypes::Label label_;
+  const GraphDbTypes::Property property_;
+  Expression *expression_;
 };
 
 /**

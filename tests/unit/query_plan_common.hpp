@@ -20,6 +20,8 @@
 using namespace query;
 using namespace query::plan;
 
+using Bound = ScanAllByLabelPropertyRange::Bound;
+
 /**
  * Helper function that collects all the results from the given
  * Produce into a ResultStreamFaker and returns the results from it.
@@ -116,6 +118,46 @@ ScanAllTuple MakeScanAllByLabel(
   symbol_table[*node->identifier_] = symbol;
   auto logical_op =
       std::make_shared<ScanAllByLabel>(input, symbol, label, graph_view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
+/**
+ * Creates and returns a tuple of stuff for a scan-all starting from the node
+ * with the given name and label whose property values are in range.
+ *
+ * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
+ */
+ScanAllTuple MakeScanAllByLabelPropertyRange(
+    AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
+    GraphDbTypes::Label label, GraphDbTypes::Property property,
+    std::experimental::optional<Bound> lower_bound,
+    std::experimental::optional<Bound> upper_bound,
+    std::shared_ptr<LogicalOperator> input = {nullptr},
+    GraphView graph_view = GraphView::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  symbol_table[*node->identifier_] = symbol;
+  auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(
+      input, symbol, label, property, lower_bound, upper_bound, graph_view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
+/**
+ * Creates and returns a tuple of stuff for a scan-all starting from the node
+ * with the given name and label whose property value is equal to given value.
+ *
+ * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
+ */
+ScanAllTuple MakeScanAllByLabelPropertyValue(
+    AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
+    GraphDbTypes::Label label, GraphDbTypes::Property property,
+    Expression *value, std::shared_ptr<LogicalOperator> input = {nullptr},
+    GraphView graph_view = GraphView::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  symbol_table[*node->identifier_] = symbol;
+  auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(
+      input, symbol, label, property, value, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 

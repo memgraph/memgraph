@@ -833,3 +833,179 @@ TEST(QueryPlan, ScanAllByLabel) {
   ASSERT_EQ(result_row.size(), 1);
   EXPECT_EQ(result_row[0].Value<VertexAccessor>(), labeled_vertex);
 }
+
+TEST(QueryPlan, ScanAllByLabelProperty) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add 5 vertices with same label, but with different property values.
+  auto label = dba->label("label");
+  auto prop = dba->property("prop");
+  for (int i = 1; i <= 5; ++i) {
+    auto vertex = dba->insert_vertex();
+    vertex.add_label(label);
+    vertex.PropsSet(prop, i);
+  }
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, prop);
+  dba = dbms.active();
+  EXPECT_EQ(5, CountIterable(dba->vertices(false)));
+  // MATCH (n :label) WHERE 2 <= n.prop < 4
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyRange(
+      storage, symbol_table, "n", label, prop,
+      Bound{LITERAL(2), Bound::Type::INCLUSIVE},
+      Bound{LITERAL(4), Bound::Type::EXCLUSIVE});
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 2);
+  for (const auto &row : results) {
+    ASSERT_EQ(row.size(), 1);
+    auto vertex = row[0].Value<VertexAccessor>();
+    auto value = vertex.PropsAt(prop);
+    TypedValue::BoolEqual eq;
+    EXPECT_TRUE(eq(value, 2) || eq(value, 3));
+  }
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyCompareError) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add 2 vertices with same label, but with property values that cannot be
+  // compared.
+  auto label = dba->label("label");
+  auto prop = dba->property("prop");
+  auto number_vertex = dba->insert_vertex();
+  number_vertex.add_label(label);
+  number_vertex.PropsSet(prop, 42);
+  auto string_vertex = dba->insert_vertex();
+  string_vertex.add_label(label);
+  string_vertex.PropsSet(prop, "string");
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, prop);
+  dba = dbms.active();
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  // MATCH (n :label) WHERE 1 < n.prop
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyRange(
+      storage, symbol_table, "n", label, prop,
+      Bound{LITERAL(1), Bound::Type::EXCLUSIVE}, std::experimental::nullopt);
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  EXPECT_THROW(CollectProduce(produce.get(), symbol_table, *dba),
+               QueryRuntimeException);
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add 2 vertices with the same label, but with property values that cannot be
+  // compared. We are comparing to null, so no results should be produced.
+  auto label = dba->label("label");
+  auto prop = dba->property("prop");
+  auto number_vertex = dba->insert_vertex();
+  number_vertex.add_label(label);
+  number_vertex.PropsSet(prop, 42);
+  auto string_vertex = dba->insert_vertex();
+  string_vertex.add_label(label);
+  string_vertex.PropsSet(prop, "string");
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, prop);
+  dba = dbms.active();
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  // MATCH (n :label) WHERE null < n.prop
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyRange(
+      storage, symbol_table, "n", label, prop,
+      Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE},
+      std::experimental::nullopt);
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 0);
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add 2 vertices with same label, but with property values that cannot be
+  // compared. On the other hand, equality works fine.
+  auto label = dba->label("label");
+  auto prop = dba->property("prop");
+  auto number_vertex = dba->insert_vertex();
+  number_vertex.add_label(label);
+  number_vertex.PropsSet(prop, 42);
+  auto string_vertex = dba->insert_vertex();
+  string_vertex.add_label(label);
+  string_vertex.PropsSet(prop, "string");
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, prop);
+  dba = dbms.active();
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  // MATCH (n :label {prop: 42})
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
+                                                  label, prop, LITERAL(42));
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  ASSERT_EQ(results.size(), 1);
+  const auto &row = results[0];
+  ASSERT_EQ(row.size(), 1);
+  auto vertex = row[0].Value<VertexAccessor>();
+  auto value = vertex.PropsAt(prop);
+  TypedValue::BoolEqual eq;
+  EXPECT_TRUE(eq(value, 42));
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Add 2 vertices with the same label, but one has a property value while the
+  // other does not. Checking if the value is equal to null, should yield no
+  // results.
+  auto label = dba->label("label");
+  auto prop = dba->property("prop");
+  auto vertex = dba->insert_vertex();
+  vertex.add_label(label);
+  auto vertex_with_prop = dba->insert_vertex();
+  vertex_with_prop.add_label(label);
+  vertex_with_prop.PropsSet(prop, 42);
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, prop);
+  dba = dbms.active();
+  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
+  // MATCH (n :label {prop: 42})
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyValue(
+      storage, symbol_table, "n", label, prop, LITERAL(TypedValue::Null));
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  EXPECT_EQ(results.size(), 0);
+}

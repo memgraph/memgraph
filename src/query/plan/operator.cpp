@@ -194,48 +194,39 @@ class ScanAllCursor : public Cursor {
                 TVerticesFun get_vertices)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
-        get_vertices_(std::move(get_vertices)),
-        vertices_(get_vertices_()),
-        vertices_it_(vertices_.end()) {}
+        get_vertices_(std::move(get_vertices)) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
-    if (vertices_it_ == vertices_.end()) {
+    if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, symbol_table)) return false;
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
-      // Unfortunately, cppitertools doesn't have move assignment, so we
-      // reconstruct the iterable in-place.
-      ReconstructInPlace(vertices_, get_vertices_());
-      vertices_it_ = vertices_.begin();
+      vertices_.emplace(get_vertices_(frame, symbol_table));
+      vertices_it_.emplace(vertices_.value().begin());
     }
 
     // if vertices_ is empty then we are done even though we have just
     // reinitialized vertices_it_
-    if (vertices_it_ == vertices_.end()) return false;
+    if (vertices_it_.value() == vertices_.value().end()) return false;
 
-    frame[output_symbol_] = *vertices_it_++;
+    frame[output_symbol_] = *vertices_it_.value()++;
     return true;
   }
 
   void Reset() override {
     input_cursor_->Reset();
-    vertices_it_ = vertices_.end();
+    vertices_ = std::experimental::nullopt;
+    vertices_it_ = std::experimental::nullopt;
   }
 
  private:
-  template <class T, typename... Args>
-  void ReconstructInPlace(T &var, Args &&... args) {
-    static_assert(!std::has_virtual_destructor<T>::value,
-                  "It is unsafe to in-place reconstruct a derived type.");
-    var.~T();
-    new (&var) T(std::forward<Args>(args)...);
-  }
-
   const Symbol output_symbol_;
   const std::unique_ptr<Cursor> input_cursor_;
   TVerticesFun get_vertices_;
-  decltype(get_vertices_()) vertices_;
-  decltype(vertices_.begin()) vertices_it_;
+  std::experimental::optional<
+      typename std::result_of<TVerticesFun(Frame &, const SymbolTable &)>::type>
+      vertices_;
+  std::experimental::optional<decltype(vertices_.value().begin())> vertices_it_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
@@ -250,7 +241,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
 ACCEPT_WITH_INPUT(ScanAll)
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
-  auto vertices = [this, &db]() {
+  auto vertices = [this, &db](Frame &, const SymbolTable &) {
     return db.vertices(graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
@@ -265,11 +256,127 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
-  auto vertices = [this, &db] {
+  auto vertices = [this, &db](Frame &, const SymbolTable &) {
     return db.vertices(label_, graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices));
+}
+
+ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+    GraphDbTypes::Label label, GraphDbTypes::Property property,
+    std::experimental::optional<Bound> lower_bound,
+    std::experimental::optional<Bound> upper_bound, GraphView graph_view)
+    : ScanAll(input, output_symbol, graph_view),
+      label_(label),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
+  debug_assert(lower_bound_ || upper_bound_, "Only one bound can be left out");
+}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
+
+std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
+    GraphDbAccessor &db) {
+  auto is_less = [](const TypedValue &a, const TypedValue &b,
+                    Bound::Type bound_type) {
+    try {
+      auto is_below = bound_type == Bound::Type::INCLUSIVE ? a < b : a <= b;
+      if (is_below.IsNull() || is_below.Value<bool>()) return true;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException(
+          "Unable to compare values of type '{}' and '{}'", a.type(), b.type());
+    }
+    return false;
+  };
+  auto vertices = [this, &db, is_less](Frame &frame,
+                                       const SymbolTable &symbol_table) {
+    ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
+    auto lower_val = lower_bound_ ? lower_bound_->expression->Accept(evaluator)
+                                  : TypedValue::Null;
+    auto upper_val = upper_bound_ ? upper_bound_->expression->Accept(evaluator)
+                                  : TypedValue::Null;
+    return iter::filter(
+        [this, lower_val, upper_val, is_less](const VertexAccessor &vertex) {
+          TypedValue value = vertex.PropsAt(property_);
+          debug_assert(!value.IsNull(), "Unexpected property with Null value");
+          if (lower_bound_ && is_less(value, lower_val, lower_bound_->type))
+            return false;
+          if (upper_bound_ && is_less(upper_val, value, upper_bound_->type))
+            return false;
+          return true;
+        },
+        db.vertices(label_, property_, graph_view_ == GraphView::NEW));
+  };
+  return std::make_unique<ScanAllCursor<decltype(vertices)>>(
+      output_symbol_, input_->MakeCursor(db), std::move(vertices));
+}
+
+ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+    GraphDbTypes::Label label, GraphDbTypes::Property property,
+    Expression *expression, GraphView graph_view)
+    : ScanAll(input, output_symbol, graph_view),
+      label_(label),
+      property_(property),
+      expression_(expression) {
+  debug_assert(expression, "Expression is not optional.");
+}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
+
+class ScanAllByLabelPropertyValueCursor : public Cursor {
+ public:
+  ScanAllByLabelPropertyValueCursor(const ScanAllByLabelPropertyValue &self,
+                                    GraphDbAccessor &db)
+      : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db_)) {}
+
+  bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
+    if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      ExpressionEvaluator evaluator(frame, symbol_table, db_,
+                                    self_.graph_view());
+      TypedValue value = self_.expression()->Accept(evaluator);
+      if (value.IsNull()) return Pull(frame, symbol_table);
+      try {
+        vertices_.emplace(db_.vertices(self_.label(), self_.property(), value,
+                                       self_.graph_view() == GraphView::NEW));
+      } catch (const TypedValueException &) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                    value.type());
+      }
+      vertices_it_.emplace(vertices_.value().begin());
+    }
+
+    // if vertices_ is empty then we are done even though we have just
+    // reinitialized vertices_it_
+    if (vertices_it_.value() == vertices_.value().end()) return false;
+
+    frame[self_.output_symbol()] = *vertices_it_.value()++;
+    return true;
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::experimental::nullopt;
+    vertices_it_ = std::experimental::nullopt;
+  }
+
+ private:
+  const ScanAllByLabelPropertyValue &self_;
+  GraphDbAccessor &db_;
+  const std::unique_ptr<Cursor> input_cursor_;
+  std::experimental::optional<decltype(
+      db_.vertices(self_.label(), self_.property(), TypedValue::Null, false))>
+      vertices_;
+  std::experimental::optional<decltype(vertices_.value().begin())> vertices_it_;
+};
+
+std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
+    GraphDbAccessor &db) {
+  return std::make_unique<ScanAllByLabelPropertyValueCursor>(*this, db);
 }
 
 Expand::Expand(Symbol node_symbol, Symbol edge_symbol,
