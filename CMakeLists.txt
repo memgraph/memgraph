@@ -77,7 +77,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
 set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
-set(build_include_dir ${CMAKE_BINARY_DIR}/include)
 # -----------------------------------------------------------------------------
 
 # build flags -----------------------------------------------------------------
@@ -227,8 +226,6 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 
 # includes
 include_directories(${src_dir})
-include_directories(${build_include_dir})
-include_directories(SYSTEM ${fmt_source_dir})
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # needed to include configured files (plan_compiler_flags.hpp)
@@ -343,10 +340,14 @@ if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
 endif()
 # -----------------------------------------------------------------------------
 
-add_custom_command(TARGET memgraph_lib
+add_custom_target(recursive_include_plan_template
     COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include ${libs_dir}/glog/include --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
+    DEPENDS ${src_dir}/query/plan_template_cpp
+    SOURCES ${src_dir}/query/plan_template_cpp
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
 )
+add_dependencies(recursive_include_plan_template fmt gflags glog)
+add_dependencies(memgraph_lib recursive_include_plan_template)
 
 # memgraph build name
 execute_process(
