@@ -29,4 +29,8 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} gtest gtest_main gmock)
     target_link_libraries(${target_name} memgraph_lib rapidcheck)
 
+    # register test
+    set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
+    add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
+
 endforeach()
