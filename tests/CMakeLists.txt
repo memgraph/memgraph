@@ -8,6 +8,7 @@ include_directories(${catch_source_dir}/include)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/property_based)
 
 # copy test data
 file(COPY ${CMAKE_SOURCE_DIR}/tests/data
@@ -48,4 +49,10 @@ endif()
 # unit test binaries
 if (ALL_TESTS OR UNIT_TESTS)
     add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
+endif()
+
+# property based test binaries
+if (ALL_TESTS OR PROPERTY_BASED_TESTS)
+    include_directories(${CMAKE_SOURCE_DIR}/libs/rapidcheck/extras/gtest/include)
+    add_subdirectory(${PROJECT_SOURCE_DIR}/property_based)
 endif()

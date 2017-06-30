@@ -13,6 +13,9 @@ add_subdirectory(benchmark)
 # are disabled (reasonable configuration)
 add_subdirectory(fmt)
 
+# setup rapidcheck
+add_subdirectory(rapidcheck)
+
 # setup google test
 add_subdirectory(googletest)
 

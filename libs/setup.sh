@@ -33,6 +33,13 @@ git checkout ${fmt_tag}
 git cherry-pick ${fmt_cxx14_fix}
 cd ..
 
+# rapidcheck
+git clone https://github.com/emil-e/rapidcheck.git
+rapidcheck_tag="853e14f0f4313a9eb3c71e24848373e7b843dfd1" # Jun 23, 2017
+cd rapidcheck
+git checkout ${rapidcheck_tag}
+cd ..
+
 # google benchmark
 git clone https://github.com/google/benchmark.git
 benchmark_tag="4f8bfeae470950ef005327973f15b0044eceaceb" # v1.1.0

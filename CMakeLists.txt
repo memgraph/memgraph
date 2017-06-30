@@ -218,6 +218,8 @@ option(MANUAL_TESTS "Add manual test binaries" OFF)
 message(STATUS "Add manual test binaries: ${MANUAL_TESTS}")
 option(UNIT_TESTS "Add unit test binaries" OFF)
 message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
+option(PROPERTY_BASED_TESTS "Add property based test binaries" OFF)
+message(STATUS "Add property based test binaries: ${PROPERTY_BASED_TESTS}")
 option(HARDCODED_TARGETS "Make hardcoded query targets" ON)
 message(STATUS "Make hardcoded query targets: ${HARDCODED_TARGETS}")
 option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
@@ -335,7 +337,7 @@ endif()
 
 # tests
 if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
-        OR MANUAL_TESTS OR UNIT_TESTS)
+        OR MANUAL_TESTS OR UNIT_TESTS OR PROPERTY_BASED_TESTS)
     add_subdirectory(tests)
 endif()
 # -----------------------------------------------------------------------------
