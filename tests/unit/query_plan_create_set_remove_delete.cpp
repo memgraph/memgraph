@@ -934,3 +934,16 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   EXPECT_EQ(0, CountIterable(dba->vertices(false)));
   EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
 }
+
+TEST(QueryPlan, CreateIndex) {
+  // CREATE INDEX ON :label(property)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  EXPECT_FALSE(dba->LabelPropertyIndexExists(label, property));
+  auto create_index = std::make_shared<plan::CreateIndex>(label, property);
+  SymbolTable symbol_table;
+  EXPECT_EQ(PullAll(create_index, *dba, symbol_table), 1);
+  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+}

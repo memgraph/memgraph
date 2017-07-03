@@ -136,7 +136,8 @@ class Interpreter {
                dynamic_cast<plan::RemoveProperty *>(logical_plan.get()) ||
                dynamic_cast<plan::RemoveLabels *>(logical_plan.get()) ||
                dynamic_cast<plan::Delete *>(logical_plan.get()) ||
-               dynamic_cast<plan::Merge *>(logical_plan.get())) {
+               dynamic_cast<plan::Merge *>(logical_plan.get()) ||
+               dynamic_cast<plan::CreateIndex *>(logical_plan.get())) {
       stream.Header(header);
       auto cursor = logical_plan->MakeCursor(db_accessor);
       while (cursor->Pull(frame, symbol_table)) continue;

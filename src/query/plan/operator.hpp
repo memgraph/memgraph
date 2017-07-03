@@ -75,6 +75,7 @@ class Merge;
 class Optional;
 class Unwind;
 class Distinct;
+class CreateIndex;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, Expand, Filter,
@@ -83,7 +84,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
 
-using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once>;
+using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
 /**
  * @brief Base class for hierarhical visitors of @c LogicalOperator class
@@ -1285,6 +1286,28 @@ class Distinct : public LogicalOperator {
         TypedValueListEqual>
         seen_rows_;
   };
+};
+
+/**
+ * Creates an index for a combination of label and a property.
+ *
+ * This operator takes no input and it shouldn't serve as an input to any
+ * operator. Pulling from the cursor of this operator will create an index in
+ * the database for the vertices which have the given label and property. In
+ * case the index already exists, nothing happens.
+ */
+class CreateIndex : public LogicalOperator {
+ public:
+  CreateIndex(GraphDbTypes::Label label, GraphDbTypes::Property property);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  auto label() const { return label_; }
+  auto property() const { return property_; }
+
+ private:
+  GraphDbTypes::Label label_;
+  GraphDbTypes::Property property_;
 };
 
 }  // namespace plan

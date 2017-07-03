@@ -1637,4 +1637,40 @@ void Distinct::DistinctCursor::Reset() {
   seen_rows_.clear();
 }
 
+CreateIndex::CreateIndex(GraphDbTypes::Label label,
+                         GraphDbTypes::Property property)
+    : label_(label), property_(property) {}
+
+bool CreateIndex::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  return visitor.Visit(*this);
+}
+
+class CreateIndexCursor : public Cursor {
+ public:
+  CreateIndexCursor(CreateIndex &self, GraphDbAccessor &db)
+      : self_(self), db_(db) {}
+
+  bool Pull(Frame &, const SymbolTable &) override {
+    if (did_create_) return false;
+    try {
+      db_.BuildIndex(self_.label(), self_.property());
+    } catch (const IndexExistsException &) {
+      // Ignore creating an existing index.
+    }
+    did_create_ = true;
+    return true;
+  }
+
+  void Reset() override { did_create_ = false; }
+
+ private:
+  const CreateIndex &self_;
+  GraphDbAccessor &db_;
+  bool did_create_ = false;
+};
+
+std::unique_ptr<Cursor> CreateIndex::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<CreateIndexCursor>(*this, db);
+}
+
 }  // namespace query::plan

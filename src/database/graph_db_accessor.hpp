@@ -14,6 +14,11 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 
+/** Thrown when creating an index which already exists. */
+class IndexExistsException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /**
  * An accessor for the database object: exposes functions
  * for operating on the database. All the functions in
@@ -253,7 +258,7 @@ class GraphDbAccessor {
                   const GraphDbTypes::Property &property) {
     const LabelPropertyIndex::Key key(label, property);
     if (db_.label_property_index_.CreateIndex(key) == false) {
-      throw utils::BasicException(
+      throw IndexExistsException(
           "Index is either being created by another transaction or already "
           "exists.");
     }

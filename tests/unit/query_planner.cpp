@@ -82,6 +82,11 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
     // Ignore checking Once, it is implicitly at the end.
     return true;
   }
+
+  bool Visit(CreateIndex &op) override {
+    CheckOp(op);
+    return true;
+  }
 #undef PRE_VISIT
 
   std::list<BaseOpChecker *> checkers_;

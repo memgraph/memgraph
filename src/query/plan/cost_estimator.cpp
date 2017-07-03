@@ -58,5 +58,6 @@ bool CostEstimator::PostVisit(Unwind &unwind) {
 }
 
 bool CostEstimator::Visit(Once &) { return true; }
+bool CostEstimator::Visit(CreateIndex &) { return true; }
 
 }  // namespace query::plan

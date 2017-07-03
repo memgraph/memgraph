@@ -64,6 +64,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ExpandUniquenessFilter<EdgeAccessor> &) override;
   bool PostVisit(Unwind &unwind) override;
   bool Visit(Once &) override;
+  bool Visit(CreateIndex &) override;
 
   auto cost() const { return cost_; }
   auto cardinality() const { return cardinality_; }
