@@ -14,6 +14,7 @@
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
@@ -353,20 +354,8 @@ class ScanAllByLabel : public ScanAll {
  */
 class ScanAllByLabelPropertyRange : public ScanAll {
  public:
-  /** Defines a bounding value for a range. */
-  struct Bound {
-    /**
-     * Determines whether the value of bound expression should be included or
-     * excluded.
-     */
-    enum class Type { INCLUSIVE, EXCLUSIVE };
-
-    /** Expression which when evaluated will produce a value for the bound. */
-    Expression *expression;
-    /** Whether the bound is inclusive or exclusive. */
-    Type type;
-  };
-
+  /** Bound with expression which when evaluated produces the bound value. */
+  using Bound = utils::Bound<Expression *>;
   /**
    * Constructs the operator for given label and property value in range
    * (inclusive).

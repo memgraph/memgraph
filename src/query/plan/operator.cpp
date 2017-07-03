@@ -294,17 +294,17 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
   auto vertices = [this, &db, is_less](Frame &frame,
                                        const SymbolTable &symbol_table) {
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
-    auto lower_val = lower_bound_ ? lower_bound_->expression->Accept(evaluator)
+    auto lower_val = lower_bound_ ? lower_bound_->value()->Accept(evaluator)
                                   : TypedValue::Null;
-    auto upper_val = upper_bound_ ? upper_bound_->expression->Accept(evaluator)
+    auto upper_val = upper_bound_ ? upper_bound_->value()->Accept(evaluator)
                                   : TypedValue::Null;
     return iter::filter(
         [this, lower_val, upper_val, is_less](const VertexAccessor &vertex) {
           TypedValue value = vertex.PropsAt(property_);
           debug_assert(!value.IsNull(), "Unexpected property with Null value");
-          if (lower_bound_ && is_less(value, lower_val, lower_bound_->type))
+          if (lower_bound_ && is_less(value, lower_val, lower_bound_->type()))
             return false;
-          if (upper_bound_ && is_less(upper_val, value, upper_bound_->type))
+          if (upper_bound_ && is_less(upper_val, value, upper_bound_->type()))
             return false;
           return true;
         },
