@@ -19,6 +19,7 @@ using query::Symbol;
 using query::SymbolTable;
 using query::SymbolGenerator;
 using Direction = query::EdgeAtom::Direction;
+using Bound = ScanAllByLabelPropertyRange::Bound;
 
 namespace {
 
@@ -120,8 +121,6 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
-using ExpectScanAllByLabelPropertyRange =
-    OpChecker<ScanAllByLabelPropertyRange>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectProduce = OpChecker<Produce>;
@@ -231,6 +230,41 @@ class ExpectScanAllByLabelPropertyValue
   GraphDbTypes::Label label_;
   GraphDbTypes::Property property_;
   query::Expression *expression_;
+};
+
+class ExpectScanAllByLabelPropertyRange
+    : public OpChecker<ScanAllByLabelPropertyRange> {
+ public:
+  ExpectScanAllByLabelPropertyRange(
+      GraphDbTypes::Label label, GraphDbTypes::Property property,
+      std::experimental::optional<Bound> lower_bound,
+      std::experimental::optional<Bound> upper_bound)
+      : label_(label),
+        property_(property),
+        lower_bound_(lower_bound),
+        upper_bound_(upper_bound) {}
+
+  void ExpectOp(ScanAllByLabelPropertyRange &scan_all,
+                const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label(), label_);
+    EXPECT_EQ(scan_all.property(), property_);
+    if (lower_bound_) {
+      ASSERT_TRUE(scan_all.lower_bound());
+      EXPECT_EQ(scan_all.lower_bound()->value(), lower_bound_->value());
+      EXPECT_EQ(scan_all.lower_bound()->type(), lower_bound_->type());
+    }
+    if (upper_bound_) {
+      ASSERT_TRUE(scan_all.upper_bound());
+      EXPECT_EQ(scan_all.upper_bound()->value(), upper_bound_->value());
+      EXPECT_EQ(scan_all.upper_bound()->type(), upper_bound_->type());
+    }
+  }
+
+ private:
+  GraphDbTypes::Label label_;
+  GraphDbTypes::Property property_;
+  std::experimental::optional<Bound> lower_bound_;
+  std::experimental::optional<Bound> upper_bound_;
 };
 
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
@@ -1098,6 +1132,77 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
             ExpectFilter(),
             ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2),
             ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
+  // Test MATCH (n :label) WHERE n.property REL_OP 42 RETURN n
+  // REL_OP is one of: `<`, `<=`, `>`, `>=`
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  AstTreeStorage storage;
+  auto lit_42 = LITERAL(42);
+  auto n_prop = PROPERTY_LOOKUP("n", property);
+  auto check_planned_range = [&label, &property, &dba](
+      const auto &rel_expr, auto lower_bound, auto upper_bound) {
+    // Shadow the first storage, so that the query is created in this one.
+    AstTreeStorage storage;
+    QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr), RETURN("n"));
+    auto symbol_table = MakeSymbolTable(*storage.query());
+    auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+    CheckPlan(*plan, symbol_table,
+              ExpectScanAllByLabelPropertyRange(label, property, lower_bound,
+                                                upper_bound),
+              ExpectFilter(), ExpectProduce());
+  };
+  {
+    // Test relation operators which form an upper bound for range.
+    std::vector<std::pair<query::Expression *, Bound::Type>> upper_bound_rel_op{
+        std::make_pair(LESS(n_prop, lit_42), Bound::Type::EXCLUSIVE),
+        std::make_pair(LESS_EQ(n_prop, lit_42), Bound::Type::INCLUSIVE),
+        std::make_pair(GREATER(lit_42, n_prop), Bound::Type::EXCLUSIVE),
+        std::make_pair(GREATER_EQ(lit_42, n_prop), Bound::Type::INCLUSIVE)};
+    for (const auto &rel_op : upper_bound_rel_op) {
+      check_planned_range(rel_op.first, std::experimental::nullopt,
+                          Bound(lit_42, rel_op.second));
+    }
+  }
+  {
+    // Test relation operators which form a lower bound for range.
+    std::vector<std::pair<query::Expression *, Bound::Type>> lower_bound_rel_op{
+        std::make_pair(LESS(lit_42, n_prop), Bound::Type::EXCLUSIVE),
+        std::make_pair(LESS_EQ(lit_42, n_prop), Bound::Type::INCLUSIVE),
+        std::make_pair(GREATER(n_prop, lit_42), Bound::Type::EXCLUSIVE),
+        std::make_pair(GREATER_EQ(n_prop, lit_42), Bound::Type::INCLUSIVE)};
+    for (const auto &rel_op : lower_bound_rel_op) {
+      check_planned_range(rel_op.first, Bound(lit_42, rel_op.second),
+                          std::experimental::nullopt);
+    }
+  }
+}
+
+TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
+  // Test MATCH (n: label) WHERE n.property = n.property RETURN n
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  AstTreeStorage storage;
+  QUERY(
+      MATCH(PATTERN(NODE("n", label))),
+      WHERE(EQ(PROPERTY_LOOKUP("n", property), PROPERTY_LOOKUP("n", property))),
+      RETURN("n"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  // We can only get ScanAllByLabelIndex, because we are comparing properties
+  // with those on the same node.
+  CheckPlan(*plan, symbol_table, ExpectScanAllByLabel(), ExpectFilter(),
+            ExpectProduce());
 }
 
 }  // namespace

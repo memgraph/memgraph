@@ -462,6 +462,12 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define ADD(expr1, expr2) \
   storage.Create<query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))
+#define LESS_EQ(expr1, expr2) \
+  storage.Create<query::LessEqualOperator>((expr1), (expr2))
+#define GREATER(expr1, expr2) \
+  storage.Create<query::GreaterOperator>((expr1), (expr2))
+#define GREATER_EQ(expr1, expr2) \
+  storage.Create<query::GreaterEqualOperator>((expr1), (expr2))
 #define SUM(expr) \
   storage.Create<query::Aggregation>((expr), query::Aggregation::Op::SUM)
 #define COUNT(expr) \

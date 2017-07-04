@@ -718,6 +718,41 @@ bool FindBestLabelPropertyIndex(
   return found;
 }
 
+ScanAll *GenScanByIndex(
+    LogicalOperator *last_op, const GraphDbAccessor &db,
+    const Symbol &node_symbol, const MatchContext &context,
+    const std::set<GraphDbTypes::Label> &labels,
+    const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
+        &properties) {
+  debug_assert(!labels.empty(),
+               "Without labels, indexed data cannot be scanned.");
+  // First, try to see if we can use label+property index. If not, use just the
+  // label index (which ought to exist).
+  GraphDbTypes::Label best_label;
+  std::pair<GraphDbTypes::Property, Filters::PropertyFilter> best_property;
+  if (FindBestLabelPropertyIndex(db, labels, properties, node_symbol,
+                                 context.bound_symbols, best_label,
+                                 best_property)) {
+    const auto &prop_filter = best_property.second;
+    if (prop_filter.lower_bound || prop_filter.upper_bound) {
+      return new ScanAllByLabelPropertyRange(
+          std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
+          best_property.first, prop_filter.lower_bound, prop_filter.upper_bound,
+          context.graph_view);
+    } else {
+      debug_assert(
+          prop_filter.expression,
+          "Property filter should either have bounds or an expression.");
+      return new ScanAllByLabelPropertyValue(
+          std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
+          best_property.first, prop_filter.expression, context.graph_view);
+    }
+  }
+  auto label = FindBestLabelIndex(db, labels);
+  return new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
+                            node_symbol, label, context.graph_view);
+}
+
 LogicalOperator *PlanMatching(const Matching &matching,
                               LogicalOperator *input_op,
                               PlanningContext &planning_ctx,
@@ -743,30 +778,14 @@ LogicalOperator *PlanMatching(const Matching &matching,
         last_op = new ScanAll(std::shared_ptr<LogicalOperator>(last_op),
                               node1_symbol, context.graph_view);
       } else {
-        // With labels, we can scan indexed data. First, try to see if we can
-        // use label+property index. If not, use just the label index (which
-        // ought to exist).
-        GraphDbTypes::Label best_label;
-        std::pair<GraphDbTypes::Property, Filters::PropertyFilter>
-            best_property;
+        // With labels, we can scan indexed data.
         auto properties =
             FindOr(matching.filters.property_filters(), node1_symbol,
                    std::map<GraphDbTypes::Property,
                             std::vector<Filters::PropertyFilter>>())
                 .first;
-        if (FindBestLabelPropertyIndex(planning_ctx.db, labels, properties,
-                                       node1_symbol, bound_symbols, best_label,
-                                       best_property)) {
-          last_op = new ScanAllByLabelPropertyValue(
-              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              best_label, best_property.first, best_property.second.expression,
-              context.graph_view);
-        } else {
-          auto label = FindBestLabelIndex(planning_ctx.db, labels);
-          last_op =
-              new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
-                                 node1_symbol, label, context.graph_view);
-        }
+        last_op = GenScanByIndex(last_op, planning_ctx.db, node1_symbol,
+                                 context, labels, properties);
       }
       context.new_symbols.emplace_back(node1_symbol);
       last_op = GenFilters(last_op, bound_symbols, all_filters, storage);
@@ -855,6 +874,7 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
 // and properties to be used with indexing. Note that all filters are never
 // updated here, but only labels and properties are.
 void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
+  using Bound = ScanAllByLabelPropertyRange::Bound;
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
                                 auto *&ident) {
     return (prop_lookup = dynamic_cast<PropertyLookup *>(maybe_lookup)) &&
@@ -868,6 +888,28 @@ void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
       val_expr->Accept(collector);
       property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
           .emplace_back(PropertyFilter{collector.symbols_, val_expr});
+    }
+  };
+  auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    if (get_property_lookup(expr1, prop_lookup, ident)) {
+      // n.prop > value
+      UsedSymbolsCollector collector(symbol_table);
+      expr2->Accept(collector);
+      auto prop_filter = PropertyFilter{collector.symbols_};
+      prop_filter.lower_bound = Bound{expr2, bound_type};
+      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
+          .emplace_back(std::move(prop_filter));
+    }
+    if (get_property_lookup(expr2, prop_lookup, ident)) {
+      // value > n.prop
+      UsedSymbolsCollector collector(symbol_table);
+      expr1->Accept(collector);
+      auto prop_filter = PropertyFilter{collector.symbols_};
+      prop_filter.upper_bound = Bound{expr1, bound_type};
+      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
+          .emplace_back(std::move(prop_filter));
     }
   };
   // We are only interested to see the insides of And, because Or prevents
@@ -898,9 +940,25 @@ void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
     add_prop_equal(eq->expression1_, eq->expression2_);
     // And reversed.
     add_prop_equal(eq->expression2_, eq->expression1_);
+  } else if (auto *gt = dynamic_cast<GreaterOperator *>(expr)) {
+    add_prop_greater(gt->expression1_, gt->expression2_,
+                     Bound::Type::EXCLUSIVE);
+  } else if (auto *ge = dynamic_cast<GreaterEqualOperator *>(expr)) {
+    add_prop_greater(ge->expression1_, ge->expression2_,
+                     Bound::Type::INCLUSIVE);
+  } else if (auto *lt = dynamic_cast<LessOperator *>(expr)) {
+    // Like greater, but in reverse.
+    add_prop_greater(lt->expression2_, lt->expression1_,
+                     Bound::Type::EXCLUSIVE);
+  } else if (auto *le = dynamic_cast<LessEqualOperator *>(expr)) {
+    // Like greater equal, but in reverse.
+    add_prop_greater(le->expression2_, le->expression1_,
+                     Bound::Type::INCLUSIVE);
   }
-  // TODO: Collect potential property indexing by range.
-  return;
+  // TODO: Collect comparisons like `expr1 < n.prop < expr2` for potential
+  // indexing by range. Note, that the generated Ast uses AND for chained
+  // relation operators. Therefore, `expr1 < n.prop < expr2` will be represented
+  // as `expr1 < n.prop AND n.prop < expr2`.
 }
 
 void Filters::CollectPatternFilters(Pattern &pattern,

@@ -31,11 +31,15 @@ class Filters {
  public:
   /// Stores the symbols and expression used to filter a property.
   struct PropertyFilter {
+    using Bound = ScanAllByLabelPropertyRange::Bound;
+
     /// Set of used symbols in the @c expression.
     std::unordered_set<Symbol> used_symbols;
     /// Expression which when evaluated produces the value a property must
     /// equal.
-    Expression *expression;
+    Expression *expression = nullptr;
+    std::experimental::optional<Bound> lower_bound;
+    std::experimental::optional<Bound> upper_bound;
   };
 
   /// All filter expressions that should be generated.
