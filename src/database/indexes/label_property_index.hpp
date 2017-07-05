@@ -202,8 +202,8 @@ class LabelPropertyIndex {
                                  IndexEntry, Vertex>(
         std::move(access), start_iter,
         [value](const IndexEntry &entry) {
-          return !IndexEntry::Cmp(value, entry.value_) &&
-                 !IndexEntry::Cmp(entry.value_, value);
+          return !IndexEntry::Less(value, entry.value_) &&
+                 !IndexEntry::Less(entry.value_, value);
         },
         t,
         [key](const IndexEntry &entry, const Vertex *const vertex) {
@@ -232,11 +232,38 @@ class LabelPropertyIndex {
    * @param key - key to query for.
    * @return number of items
    */
-  size_t Count(const Key &key) {
+  int64_t Count(const Key &key) {
     auto index = GetKeyStorage(key);
     permanent_assert(index != nullptr, "Index doesn't exist.");
     debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
     return index->access().size();
+  }
+
+  /**
+   * Returns the approximate position and count of the given value in the
+   * index for the given Key.
+   *
+   * Both are approximations for several reasons. Initially the position
+   * and count are obtained from the skipist (the index) and as such are
+   * not exact for perfromance reasons. At the same time the position
+   * and count are calculated based on property value comparison: an
+   * additional error is accumulated because the index could contain
+   * the same vertex with the same value multiple times,
+   * as well as the same vertex with different values.
+   */
+  auto PositionAndCount(const Key &key, const PropertyValue &value) {
+    auto access = GetKeyStorage(key)->access();
+    return access.position_and_count(
+        value,
+        // the 'less' function
+        [](const PropertyValue &a, const IndexEntry &b) {
+          return IndexEntry::Less(a, b.value_);
+        },
+        // the 'equal_to' function
+        [](const PropertyValue &a, const IndexEntry &b) {
+          return !(IndexEntry::Less(a, b.value_) ||
+                   IndexEntry::Less(b.value_, a));
+        });
   }
 
   /**
@@ -249,7 +276,8 @@ class LabelPropertyIndex {
    */
   void Refresh(const tx::Snapshot &snapshot, tx::Engine &engine) {
     return IndexUtils::Refresh<Key, IndexEntry, Vertex>(
-        indices_, snapshot, engine, [](const Key &key, const IndexEntry &entry) {
+        indices_, snapshot, engine,
+        [](const Key &key, const IndexEntry &entry) {
           return LabelPropertyIndex::Exists(key, entry.value_, entry.record_);
         });
   }
@@ -270,8 +298,8 @@ class LabelPropertyIndex {
     // Comparision operators - we need them to keep this sorted inside
     // skiplist.
     bool operator<(const IndexEntry &other) const {
-      bool this_value_smaller = Cmp(this->value_, other.value_);
-      if (this_value_smaller || Cmp(other.value_, this->value_))
+      bool this_value_smaller = Less(this->value_, other.value_);
+      if (this_value_smaller || Less(other.value_, this->value_))
         return this_value_smaller;
       if (this->vlist_ != other.vlist_) return this->vlist_ < other.vlist_;
       return this->record_ < other.record_;
@@ -288,7 +316,7 @@ class LabelPropertyIndex {
      * @return true if the first property value is smaller( should be before)
      * than the second one
      */
-    static bool Cmp(const PropertyValue &a, const PropertyValue &b) {
+    static bool Less(const PropertyValue &a, const PropertyValue &b) {
       if (a.type() != b.type() &&
           !(IsCastableToDouble(a) && IsCastableToDouble(b)))
         return a.type() < b.type();
@@ -310,7 +338,7 @@ class LabelPropertyIndex {
             auto vb = b.Value<std::vector<PropertyValue>>();
             if (va.size() != vb.size()) return va.size() < vb.size();
             return lexicographical_compare(va.begin(), va.end(), vb.begin(),
-                                           vb.end(), Cmp);
+                                           vb.end(), Less);
           }
           default:
             permanent_fail("Unimplemented type operator.");
@@ -350,8 +378,8 @@ class LabelPropertyIndex {
      */
     bool IsAlreadyChecked(const IndexEntry &previous) const {
       return previous.vlist_ == this->vlist_ &&
-             !Cmp(previous.value_, this->value_) &&
-             !Cmp(this->value_, previous.value_);
+             !Less(previous.value_, this->value_) &&
+             !Less(this->value_, previous.value_);
     }
 
     const PropertyValue value_;
@@ -406,7 +434,7 @@ class LabelPropertyIndex {
     // Property doesn't exists.
     if (prop.type() == PropertyValue::Type::Null) return false;
     // Property value is the same as expected.
-    return !IndexEntry::Cmp(prop, value) && !IndexEntry::Cmp(value, prop);
+    return !IndexEntry::Less(prop, value) && !IndexEntry::Less(value, prop);
   }
 
   ConcurrentMap<Key, SkipList<IndexEntry> *> indices_;

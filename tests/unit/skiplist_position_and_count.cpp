@@ -39,14 +39,20 @@ auto Less(int granularity) {
   };
 }
 
-#define EXPECT_ABS_POS_COUNT(granularity, position, expected_position,         \
-                             expected_count)                                   \
-  {                                                                            \
-    auto sl = SkiplistRange(10000);                                            \
-    auto position_and_count =                                                  \
-        sl->access().position_and_count(position, Less(granularity), 1000, 0); \
-    EXPECT_EQ(position_and_count.first, expected_position);                    \
-    EXPECT_EQ(position_and_count.second, expected_count);                      \
+auto Equal(int granularity) {
+  return [granularity](const int &a, const int &b) {
+    return a / granularity == b / granularity;
+  };
+}
+
+#define EXPECT_ABS_POS_COUNT(granularity, position, expected_position, \
+                             expected_count)                           \
+  {                                                                    \
+    auto sl = SkiplistRange(10000);                                    \
+    auto position_and_count = sl->access().position_and_count(         \
+        position, Less(granularity), Equal(granularity), 1000, 0);     \
+    EXPECT_EQ(position_and_count.first, expected_position);            \
+    EXPECT_EQ(position_and_count.second, expected_count);              \
   }
 
 TEST(SkiplistPosAndCount, AbsoluteAccuracy) {

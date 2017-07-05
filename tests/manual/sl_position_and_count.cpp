@@ -38,15 +38,19 @@ std::unique_ptr<SkipList<int>> make_sl(int size) {
  *
  * @param size - size of the skiplist to test with
  * @param iterations - number of iterations of each test.
- * @param granulation - How many sequential ints should be
+ * @param granularity - How many sequential ints should be
  *  considered equal in testing by the custom `less`
  *  function.
  */
-void test(int size, int iterations = 20, int granulation = 1) {
-  auto less = [granulation](const int &a, const int &b) {
-    return a / granulation < b / granulation;
+void test(int size, int iterations = 20, int granularity = 1) {
+  auto less = [granularity](const int &a, const int &b) {
+    return a / granularity < b / granularity;
   };
-  log("\nTesting skiplist size {} with granulation {}", size, granulation);
+
+  auto equal = [granularity](const int &a, const int &b) {
+    return a / granularity == b / granularity;
+  };
+  log("\nTesting skiplist size {} with granularity {}", size, granularity);
 
   // test at 1/4, 1/2 and 3/4 points
   std::vector<int> test_positions({size / 4, size / 2, size * 3 / 4});
@@ -60,7 +64,7 @@ void test(int size, int iterations = 20, int granulation = 1) {
     for (auto pos : {0, 1, 2}) {
       clock_t start_time = clock();
       auto pos_and_count =
-          sl->access().position_and_count(test_positions[pos], less);
+          sl->access().position_and_count(test_positions[pos], less, equal);
       auto t = double(clock() - start_time) / CLOCKS_PER_SEC;
 
       position[pos].push_back(pos_and_count.first);
@@ -77,7 +81,7 @@ void test(int size, int iterations = 20, int granulation = 1) {
       position_elem = std::abs(position_elem - test_position);
     log("\t\tMean position error: {}", mean(position[pos_index]));
     for (auto &count_elem : count[pos_index])
-      count_elem = std::abs(count_elem - granulation);
+      count_elem = std::abs(count_elem - granularity);
     log("\t\tMean count error: {}", mean(count[pos_index]));
     log("\t\tMean time (ms): {}", mean(time[pos_index]) * 1000);
   }
@@ -91,9 +95,9 @@ int main(int argc, char *argv[]) {
   if (argc > 1) size = (int)std::stoi(argv[1]);
   if (argc > 2) iterations = (int)std::stoi(argv[2]);
 
-  std::vector<int> granulations;
-  for (int i = 1; i < size; i *= 100) granulations.push_back(i);
-  for (auto granulation : granulations) test(size, iterations, granulation);
+  std::vector<int> granularitys;
+  for (int i = 1; i < size; i *= 100) granularitys.push_back(i);
+  for (auto granularity : granularitys) test(size, iterations, granularity);
 
   return 0;
 }

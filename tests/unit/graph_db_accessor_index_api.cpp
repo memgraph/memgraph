@@ -1,3 +1,4 @@
+#include <experimental/optional>
 #include <memory>
 
 #include <gmock/gmock.h>
@@ -6,6 +7,7 @@
 #include "data_structures/ptr_int.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "dbms/dbms.hpp"
+#include "utils/bound.hpp"
 
 using testing::UnorderedElementsAreArray;
 
@@ -81,6 +83,67 @@ TEST(GraphDbAccessor, VertexByLabelPropertyCount) {
   EXPECT_EQ(dba->vertices_count(lab2, prop2), 17);
   EXPECT_EQ(dba->vertices_count(), 14 + 15 + 16 + 17);
 }
+
+#define EXPECT_WITH_MARGIN(x, center) \
+  EXPECT_THAT(                        \
+      x, testing::AllOf(testing::Ge(center - 2), testing::Le(center + 2)));
+
+TEST(GraphDbAccessor, VertexByLabelPropertyValueCount) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  dba->BuildIndex(label, property);
+
+  // add some vertices without the property
+  for (int i = 0; i < 20; i++) dba->insert_vertex();
+
+  // add vertices with prop values [0, 29), ten vertices for each value
+  for (int i = 0; i < 300; i++) {
+    auto vertex = dba->insert_vertex();
+    vertex.add_label(label);
+    vertex.PropsSet(property, i / 10);
+  }
+  // add verties in t he [30, 40) range, 100 vertices for each value
+  for (int i = 0; i < 1000; i++) {
+    auto vertex = dba->insert_vertex();
+    vertex.add_label(label);
+    vertex.PropsSet(property, 30 + i / 100);
+  }
+
+  // test estimates for exact value count
+  EXPECT_WITH_MARGIN(dba->vertices_count(label, property, 10), 10);
+  EXPECT_WITH_MARGIN(dba->vertices_count(label, property, 14), 10);
+  EXPECT_WITH_MARGIN(dba->vertices_count(label, property, 30), 100);
+  EXPECT_WITH_MARGIN(dba->vertices_count(label, property, 39), 100);
+  EXPECT_EQ(dba->vertices_count(label, property, 40), 0);
+
+  // helper functions
+  auto Inclusive = [](int64_t value) {
+    return std::experimental::make_optional(
+        utils::MakeBoundInclusive(PropertyValue(value)));
+  };
+  auto Exclusive = [](int64_t value) {
+    return std::experimental::make_optional(
+        utils::MakeBoundExclusive(PropertyValue(value)));
+  };
+  auto Count = [&dba, label, property](auto lower, auto upper) {
+    return dba->vertices_count(label, property, lower, upper);
+  };
+
+  using std::experimental::nullopt;
+  EXPECT_DEATH(Count(nullopt, nullopt), "bound must be provided");
+  EXPECT_WITH_MARGIN(Count(nullopt, Exclusive(4)), 40);
+  EXPECT_WITH_MARGIN(Count(nullopt, Inclusive(4)), 50);
+  EXPECT_WITH_MARGIN(Count(Exclusive(13), nullopt), 160 + 1000);
+  EXPECT_WITH_MARGIN(Count(Inclusive(13), nullopt), 170 + 1000);
+  EXPECT_WITH_MARGIN(Count(Inclusive(13), Exclusive(14)), 10);
+  EXPECT_WITH_MARGIN(Count(Exclusive(13), Inclusive(14)), 10);
+  EXPECT_WITH_MARGIN(Count(Exclusive(13), Exclusive(13)), 0);
+  EXPECT_WITH_MARGIN(Count(Inclusive(20), Exclusive(13)), 0);
+}
+
+#undef EXPECT_WITH_MARGIN
 
 TEST(GraphDbAccessor, EdgeByEdgeTypeCount) {
   Dbms dbms;
@@ -166,7 +229,8 @@ TEST(GraphDbAccessor, FilterLabelPropertySpecificValue) {
               i);
 }
 
-// Inserts integers, double, lists, booleans into index and check if they are
+// Inserts integers, double, lists, booleans into index and check if they
+// are
 // sorted as they should be sorted.
 TEST(GraphDbAccessor, SortedLabelPropertyEntries) {
   Dbms dbms;
@@ -212,7 +276,8 @@ TEST(GraphDbAccessor, SortedLabelPropertyEntries) {
     expected_property_value[20 + 2 * i + 1] = vertex_accessor.PropsAt(property);
   }
 
-  // lists of ints - insert in reverse to check for comparision between lists.
+  // lists of ints - insert in reverse to check for comparision between
+  // lists.
   for (int i = 9; i >= 0; --i) {
     auto vertex_accessor = dba2->insert_vertex();
     vertex_accessor.add_label(label);
@@ -332,10 +397,4 @@ TEST(GraphDbAccessor, VisibilityAfterDeletion) {
   dba->advance_command();
   EXPECT_EQ(Count(dba->vertices(lab, false)), 3);
   EXPECT_EQ(Count(dba->vertices(lab, true)), 3);
-}
-
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

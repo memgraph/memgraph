@@ -26,10 +26,34 @@ class Bound {
   const auto &value() const { return value_; }
   /** Whether the bound is inclusive or exclusive. */
   auto type() const { return type_; }
+  auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
+  auto IsExclusive() const { return type_ == BoundType::EXCLUSIVE; }
 
  private:
   TValue value_;
   Type type_;
+};
+
+/**
+ * Creates an inclusive @c Bound.
+ *
+ * @param value - Bound value
+ * @tparam TValue - value type
+ */
+template <typename TValue>
+Bound<TValue> MakeBoundInclusive(TValue value) {
+  return Bound<TValue>(value, BoundType::INCLUSIVE);
+};
+
+/**
+ * Creates an exclusive @c Bound.
+ *
+ * @param value - Bound value
+ * @tparam TValue - value type
+ */
+template <typename TValue>
+Bound<TValue> MakeBoundExclusive(TValue value) {
+  return Bound<TValue>(value, BoundType::EXCLUSIVE);
 };
 
 }  // namespace utils

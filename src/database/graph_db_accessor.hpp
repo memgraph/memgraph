@@ -5,14 +5,16 @@
 
 #pragma once
 
+#include <experimental/optional>
+
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
 #include "graph_db.hpp"
-#include "transactions/transaction.hpp"
-
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "transactions/transaction.hpp"
+#include "utils/bound.hpp"
 
 /** Thrown when creating an index which already exists. */
 class IndexExistsException : public utils::BasicException {
@@ -310,13 +312,13 @@ class GraphDbAccessor {
    * Return approximate number of all vertices in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */
-  size_t vertices_count() const;
+  int64_t vertices_count() const;
 
   /*
    * Return approximate number of all edges in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */
-  size_t edges_count() const;
+  int64_t edges_count() const;
 
   /**
    * Return approximate number of vertices under indexes with the given label.
@@ -324,7 +326,7 @@ class GraphDbAccessor {
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  size_t vertices_count(const GraphDbTypes::Label &label) const;
+  int64_t vertices_count(const GraphDbTypes::Label &label) const;
 
   /**
    * Return approximate number of vertices under indexes with the given label
@@ -335,8 +337,32 @@ class GraphDbAccessor {
    * @return number of vertices with the given label, fails if no such
    * label+property index exists.
    */
-  size_t vertices_count(const GraphDbTypes::Label &label,
-                        const GraphDbTypes::Property &property) const;
+  int64_t vertices_count(const GraphDbTypes::Label &label,
+                         const GraphDbTypes::Property &property) const;
+
+  /**
+   * Returns approximate number of vertices that have the given label
+   * and the given value for the given property.
+   *
+   * Assumes that an index for that (label, property) exists.
+   */
+  int64_t vertices_count(const GraphDbTypes::Label &label,
+                         const GraphDbTypes::Property &property,
+                         const PropertyValue &value) const;
+
+  /**
+   * Returns approximate number of vertices that have the given label
+   * and whose vaue is in the range defined by upper and lower @c Bound.
+   * At least one bound must be specified. If lower bound is not specified,
+   * the whole upper bound prefix is returned.
+   *
+   * Assumes that an index for that (label, property) exists.
+   */
+  int64_t vertices_count(
+      const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
+      const std::experimental::optional<utils::Bound<PropertyValue>> upper)
+      const;
 
   /**
    * Return approximate number of edges under indexes with the given edge_type.
@@ -344,7 +370,7 @@ class GraphDbAccessor {
    * @param edge_type - edge_type to check for
    * @return number of edges with the given edge_type
    */
-  size_t edges_count(const GraphDbTypes::EdgeType &edge_type) const;
+  int64_t edges_count(const GraphDbTypes::EdgeType &edge_type) const;
 
   /**
    * Obtains the Label for the label's name.

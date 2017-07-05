@@ -548,19 +548,24 @@ class SkipList : private Lockable<lock_t> {
      *  if `less` indicates that X is less than
      *  Y, then natural comparison must indicate the same. The
      *  reverse does not have to hold.
+     * @param greater Comparsion function, analogue to less.
      * @param position_level_reduction - Defines at which level
      *  item position is estimated. Position level is defined
      *  as log2(skiplist->size()) - position_level_reduction.
      * @param count_max_level - Defines the max level at which
      *  item count is estimated.
-     * @tparam TLess Type of `less`
+     * @tparam TItem - type of item skiplist elements are compared
+     * to. Does not have to be the same type as skiplist element.
+     * @tparam TLess - less comparison function type.
+     * @tparam TEqual - equality comparison function type.
      * @return A pair of ints where the first element is the estimated
      *  position of item, and the second is the estimated number
      *  of items that are the same according to `less`.
      */
-    template <typename TItem, typename TLess = std::less<T>>
-    std::pair<size_t, size_t> position_and_count(
-        const TItem &item, TLess less = TLess{},
+    template <typename TItem, typename TLess = std::less<T>,
+              typename TEqual = std::equal_to<T>>
+    std::pair<int64_t, int64_t> position_and_count(
+        const TItem &item, TLess less = TLess(), TEqual equal = TEqual(),
         int position_level_reduction = 10, int count_max_level = 3) {
       // the level at which position will be sought
       int position_level = std::max(
@@ -579,9 +584,10 @@ class SkipList : private Lockable<lock_t> {
         // on the current height (i) find the last tower
         // whose value is lesser than item, store it in pred
         // while succ will be either skiplist end or the
-        // first element greater or equal to item
+        // first element greater than item
         succ = pred->forward(i);
-        while (succ && less(succ->value(), item)) {
+        while (succ &&
+               !(less(item, succ->value()) || equal(item, succ->value()))) {
           pred = succ;
           succ = succ->forward(i);
           tower_count++;

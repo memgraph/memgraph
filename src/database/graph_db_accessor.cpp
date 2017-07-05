@@ -60,21 +60,67 @@ void GraphDbAccessor::update_property_index(
       property, record_accessor.vlist_, vertex);
 }
 
-size_t GraphDbAccessor::vertices_count() const {
+int64_t GraphDbAccessor::vertices_count() const {
   return db_.vertices_.access().size();
 }
 
-size_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label) const {
+int64_t GraphDbAccessor::vertices_count(
+    const GraphDbTypes::Label &label) const {
   return db_.labels_index_.Count(label);
 }
 
-size_t GraphDbAccessor::vertices_count(
+int64_t GraphDbAccessor::vertices_count(
     const GraphDbTypes::Label &label,
     const GraphDbTypes::Property &property) const {
   const LabelPropertyIndex::Key key(label, property);
   debug_assert(db_.label_property_index_.IndexExists(key),
                "Index doesn't exist.");
   return db_.label_property_index_.Count(key);
+}
+
+int64_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label,
+                                        const GraphDbTypes::Property &property,
+                                        const PropertyValue &value) const {
+  const LabelPropertyIndex::Key key(label, property);
+  debug_assert(db_.label_property_index_.IndexExists(key),
+               "Index doesn't exist.");
+  return db_.label_property_index_.PositionAndCount(key, value).second;
+}
+
+int64_t GraphDbAccessor::vertices_count(
+    const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+    const std::experimental::optional<utils::Bound<PropertyValue>> lower,
+    const std::experimental::optional<utils::Bound<PropertyValue>> upper)
+    const {
+  const LabelPropertyIndex::Key key(label, property);
+  debug_assert(db_.label_property_index_.IndexExists(key),
+               "Index doesn't exist.");
+  debug_assert(lower || upper, "At least one bound must be provided");
+
+  if (!upper) {
+    auto lower_pac =
+        db_.label_property_index_.PositionAndCount(key, lower.value().value());
+    int64_t size = db_.label_property_index_.Count(key);
+    return std::max(0l,
+                    size - lower_pac.first -
+                        (lower.value().IsInclusive() ? 0l : lower_pac.second));
+
+  } else if (!lower) {
+    auto upper_pac =
+        db_.label_property_index_.PositionAndCount(key, upper.value().value());
+    return upper.value().IsInclusive() ? upper_pac.first + upper_pac.second
+                                       : upper_pac.first;
+
+  } else {
+    auto lower_pac =
+        db_.label_property_index_.PositionAndCount(key, lower.value().value());
+    auto upper_pac =
+        db_.label_property_index_.PositionAndCount(key, upper.value().value());
+    auto result = upper_pac.first - lower_pac.first;
+    if (lower.value().IsExclusive()) result -= lower_pac.second;
+    if (upper.value().IsInclusive()) result += upper_pac.second;
+    return std::max(0l, result);
+  }
 }
 
 bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
@@ -133,11 +179,11 @@ void GraphDbAccessor::update_edge_type_index(
   this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 
-size_t GraphDbAccessor::edges_count() const {
+int64_t GraphDbAccessor::edges_count() const {
   return db_.edges_.access().size();
 }
 
-size_t GraphDbAccessor::edges_count(
+int64_t GraphDbAccessor::edges_count(
     const GraphDbTypes::EdgeType &edge_type) const {
   return db_.edge_types_index_.Count(edge_type);
 }
