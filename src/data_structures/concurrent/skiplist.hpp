@@ -530,7 +530,7 @@ class SkipList : private Lockable<lock_t> {
     /**
      * Position and count estimation. Gives estimates
      * on the position of the given item in this skiplist, and
-     * the number of identical items according to 'greater'.
+     * the number of identical items according to 'less'.
      *
      * If `item` is not contained in the skiplist,
      * then the position where it would be inserted is returned
@@ -543,9 +543,9 @@ class SkipList : private Lockable<lock_t> {
      * TODO: tune the levels once benchmarks are available.
      *
      * @param item The item for which the position is estimated.
-     * @param greater Comparison function. It must be partially
+     * @param less Comparison function. It must be partially
      *  consistent with natural comparison of Skiplist elements:
-     *  if `greater` indicates that X is greater then
+     *  if `less` indicates that X is less than
      *  Y, then natural comparison must indicate the same. The
      *  reverse does not have to hold.
      * @param position_level_reduction - Defines at which level
@@ -553,15 +553,15 @@ class SkipList : private Lockable<lock_t> {
      *  as log2(skiplist->size()) - position_level_reduction.
      * @param count_max_level - Defines the max level at which
      *  item count is estimated.
-     * @tparam TGreater Type of `greater`
+     * @tparam TLess Type of `less`
      * @return A pair of ints where the first element is the estimated
      *  position of item, and the second is the estimated number
-     *  of items that are the same according to `greater`.
+     *  of items that are the same according to `less`.
      */
-    template <typename TItem, typename TGreater = std::greater<T>>
-    auto position_and_count(const TItem &item, TGreater greater = TGreater{},
-                            int position_level_reduction = 10,
-                            int count_max_level = 3) {
+    template <typename TItem, typename TLess = std::less<T>>
+    std::pair<size_t, size_t> position_and_count(
+        const TItem &item, TLess less = TLess{},
+        int position_level_reduction = 10, int count_max_level = 3) {
       // the level at which position will be sought
       int position_level = std::max(
           0, static_cast<int>(std::lround(std::log2(skiplist->size()))) -
@@ -576,8 +576,12 @@ class SkipList : private Lockable<lock_t> {
         // used for calculating item position
         int tower_count = 0;
 
+        // on the current height (i) find the last tower
+        // whose value is lesser than item, store it in pred
+        // while succ will be either skiplist end or the
+        // first element greater or equal to item
         succ = pred->forward(i);
-        while (succ && greater(item, succ->value())) {
+        while (succ && less(succ->value(), item)) {
           pred = succ;
           succ = succ->forward(i);
           tower_count++;
@@ -585,22 +589,17 @@ class SkipList : private Lockable<lock_t> {
 
         // in the succs field we'll keep track of successors
         // that are equal to item, or nullptr otherwise
-        succs[i] = (!succ || greater(succ->value(), item)) ? nullptr : succ;
+        succs[i] = (!succ || less(item, succ->value())) ? nullptr : succ;
 
         position += (1 << i) * tower_count;
       }
 
-      // if succ is nullptr, we have the last skiplist element
-      if (succ == nullptr) {
-        // pred now contains the first node whose value <= item
-        // check if we found the item exactly (value == item)
-        bool found = pred != skiplist->header && !greater(item, pred->value());
-        return std::make_pair(position, found ? 1 : 0);
-      }
+      // if succ is nullptr, then item is greater than all elements in the list
+      if (succ == nullptr) return std::make_pair(size(), 0);
 
       // now we need to estimate the count of elements equal to item
       // we'll do that by looking for the first element that is greater
-      // then item, and counting how far we have to look
+      // than item, and counting how far we have to look
 
       // first find the rightmost (highest) succ that has value == item
       int count_level = 0;
@@ -617,7 +616,7 @@ class SkipList : private Lockable<lock_t> {
       int count = 1 << count_level;
       for (; count_level >= 0; count_level--) {
         Node *next = succ->forward(count_level);
-        while (next && !greater(next->value(), item)) {
+        while (next && !less(item, next->value())) {
           succ = next;
           next = next->forward(count_level);
           count += 1 << count_level;

@@ -39,20 +39,20 @@ std::unique_ptr<SkipList<int>> make_sl(int size) {
  * @param size - size of the skiplist to test with
  * @param iterations - number of iterations of each test.
  * @param granulation - How many sequential ints should be
- *  considered equal in testing by the custom `greater`
+ *  considered equal in testing by the custom `less`
  *  function.
  */
 void test(int size, int iterations = 20, int granulation = 1) {
-  auto greater = [granulation](const int &a, const int &b) {
-    return a / granulation > b / granulation;
+  auto less = [granulation](const int &a, const int &b) {
+    return a / granulation < b / granulation;
   };
   log("\nTesting skiplist size {} with granulation {}", size, granulation);
 
   // test at 1/4, 1/2 and 3/4 points
-  std::vector<int> positions({size / 4, size / 2, size * 3 / 4});
+  std::vector<int> test_positions({size / 4, size / 2, size * 3 / 4});
 
-  std::vector<std::vector<int>> less(3);
-  std::vector<std::vector<int>> equal(3);
+  std::vector<std::vector<int>> position(3);
+  std::vector<std::vector<int>> count(3);
   std::vector<std::vector<double>> time(3);
   for (int iteration = 0; iteration < iterations; iteration++) {
     auto sl = make_sl(size);
@@ -60,26 +60,26 @@ void test(int size, int iterations = 20, int granulation = 1) {
     for (auto pos : {0, 1, 2}) {
       clock_t start_time = clock();
       auto pos_and_count =
-          sl->access().position_and_count(positions[pos], greater);
+          sl->access().position_and_count(test_positions[pos], less);
       auto t = double(clock() - start_time) / CLOCKS_PER_SEC;
 
-      less[pos].push_back(pos_and_count.first);
-      equal[pos].push_back(pos_and_count.second);
+      position[pos].push_back(pos_and_count.first);
+      count[pos].push_back(pos_and_count.second);
       time[pos].push_back(t);
     }
   }
 
   // convert values to errors
-  for (auto pos : {0, 1, 2}) {
-    auto position = positions[pos];
-    log("\tPosition {}", position);
-    for (auto &less_elem : less[pos])
-      less_elem = std::abs(less_elem - position);
-    log("\t\tMean position error: {}", mean(less[pos]));
-    for (auto &equal_elem : equal[pos])
-      equal_elem = std::abs(equal_elem - granulation);
-    log("\t\tMean count error: {}", mean(equal[pos]));
-    log("\t\tMean time (ms): {}", mean(time[pos]) * 1000);
+  for (auto pos_index : {0, 1, 2}) {
+    auto test_position = test_positions[pos_index];
+    log("\tPosition {}", test_position);
+    for (auto &position_elem : position[pos_index])
+      position_elem = std::abs(position_elem - test_position);
+    log("\t\tMean position error: {}", mean(position[pos_index]));
+    for (auto &count_elem : count[pos_index])
+      count_elem = std::abs(count_elem - granulation);
+    log("\t\tMean count error: {}", mean(count[pos_index]));
+    log("\t\tMean time (ms): {}", mean(time[pos_index]) * 1000);
   }
 }
 
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
   if (argc > 2) iterations = (int)std::stoi(argv[2]);
 
   std::vector<int> granulations;
-  for (int i = 1 ; i < size ; i *= 100) granulations.push_back(i);
+  for (int i = 1; i < size; i *= 100) granulations.push_back(i);
   for (auto granulation : granulations) test(size, iterations, granulation);
 
   return 0;
