@@ -208,6 +208,21 @@ class ExpectOptional : public OpChecker<Optional> {
   const std::list<BaseOpChecker *> &optional_;
 };
 
+class ExpectCreateIndex : public OpChecker<CreateIndex> {
+ public:
+  ExpectCreateIndex(GraphDbTypes::Label label, GraphDbTypes::Property property)
+      : label_(label), property_(property) {}
+
+  void ExpectOp(CreateIndex &create_index, const SymbolTable &) override {
+    EXPECT_EQ(create_index.label(), label_);
+    EXPECT_EQ(create_index.property(), property_);
+  }
+
+ private:
+  GraphDbTypes::Label label_;
+  GraphDbTypes::Property property_;
+};
+
 auto MakeSymbolTable(query::Query &query) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -908,6 +923,17 @@ TEST(TestLogicalPlanner, ListSliceAggregationReturn) {
   // '42', because slicing is an operator.
   auto aggr = ExpectAggregate({sum}, {list, group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, CreateIndex) {
+  // Test CREATE INDEX ON :label(property)
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  AstTreeStorage storage;
+  QUERY(CREATE_INDEX_ON(label, property));
+  CheckPlan(storage, ExpectCreateIndex(label, property));
 }
 
 }  // namespace

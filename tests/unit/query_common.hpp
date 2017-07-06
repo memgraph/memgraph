@@ -455,6 +455,8 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
   query::test_common::OnCreate {                 \
     std::vector<query::Clause *> { __VA_ARGS__ } \
   }
+#define CREATE_INDEX_ON(label, property) \
+  storage.Create<query::CreateIndex>((label), (property))
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 // Various operators
 #define ADD(expr1, expr2) \

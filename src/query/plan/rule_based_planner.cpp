@@ -914,6 +914,11 @@ std::unique_ptr<LogicalOperator> RuleBasedPlanner::Plan(
         input_op =
             new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
                              unwind->named_expression_->expression_, symbol);
+      } else if (auto *create_index =
+                     dynamic_cast<query::CreateIndex *>(clause)) {
+        debug_assert(!input_op, "Unexpected operator before CreateIndex");
+        input_op = new plan::CreateIndex(create_index->label_,
+                                         create_index->property_);
       } else {
         throw utils::NotYetImplemented(
             "Encountered a clause which cannot be converted to operator(s)");
