@@ -3,10 +3,10 @@
 #include <thread>
 #include <vector>
 
+#include "memory/allocator.hpp"
+#include "memory/maker.hpp"
 #include "utils/assert.hpp"
 #include "utils/measure_time.hpp"
-#include "utils/memory/allocator.hpp"
-#include "utils/memory/maker.hpp"
 
 struct TestStructure {
   TestStructure(int a, int b, int c, int d) : a(a), b(b), c(c), d(d) {}

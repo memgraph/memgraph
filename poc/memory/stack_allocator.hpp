@@ -2,9 +2,9 @@
 
 #include <cmath>
 
+#include "memory/block_allocator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
-#include "utils/memory/block_allocator.hpp"
 
 // http://en.cppreference.com/w/cpp/language/new
 

@@ -4,7 +4,7 @@
 #include <benchmark/benchmark_api.h>
 #include <glog/logging.h>
 
-#include "data_structures/bloom/bloom_filter.hpp"
+#include "bloom_filter.hpp"
 #include "utils/hashing/fnv64.hpp"
 #include "utils/random/random_generator.hpp"
 

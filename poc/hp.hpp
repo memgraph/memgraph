@@ -50,7 +50,8 @@ class HP {
       hp.clear(*this);
     }
 
-    reference& operator=(reference&& other) { return *this; }
+    // TODO: ???
+    reference& operator=(reference&&) { return *this; }
 
    private:
     reference(int64_t idx) : idx(idx) {}

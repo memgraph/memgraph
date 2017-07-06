@@ -4,8 +4,6 @@ project(${project_name}_tests)
 
 enable_testing()
 
-include_directories(${catch_source_dir}/include)
-
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/property_based)

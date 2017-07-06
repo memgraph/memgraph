@@ -11,7 +11,6 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "data_structures/static_array.hpp"
 #include "utils/assert.hpp"
 #include "utils/sysinfo/memory.hpp"
 
@@ -73,7 +72,7 @@ void check_size_list(S &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(iterator_counter == size,
+  permanent_assert(static_cast<int64_t>(iterator_counter) == size,
                    "Iterator count should be " << size << ", but size is "
                                                << iterator_counter);
 }
@@ -91,7 +90,7 @@ void check_size(typename S::Accessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(iterator_counter == size,
+  permanent_assert(static_cast<int64_t>(iterator_counter) == size,
                    "Iterator count should be " << size << ", but size is "
                                                << iterator_counter);
 }
@@ -111,7 +110,7 @@ void check_order(typename S::Accessor &acc) {
 }
 
 void check_zero(size_t key_range, long array[], const char *str) {
-  for (int i = 0; i < key_range; i++) {
+  for (int i = 0; i < static_cast<int>(key_range); i++) {
     permanent_assert(array[i] == 0,
                      str << " doesn't hold it's guarantees. It has " << array[i]
                          << " extra elements.");
@@ -119,7 +118,7 @@ void check_zero(size_t key_range, long array[], const char *str) {
 }
 
 void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
-  for (int i = 0; i < set.size(); i++) {
+  for (int i = 0; i < static_cast<int>(set.size()); i++) {
     permanent_assert(!(set[i] ^ db.at(i)),
                      "Set constraints aren't fullfilled.");
   }
@@ -177,7 +176,7 @@ std::vector<bool> collect_set(
   std::vector<bool> set;
   for (auto &data : collect(futures)) {
     set.resize(data.second.size());
-    for (int i = 0; i < data.second.size(); i++) {
+    for (int i = 0; i < static_cast<int>(data.second.size()); i++) {
       set[i] = set[i] | data.second[i];
     }
   }

@@ -1,19 +1,19 @@
-#include "common.h"
+#include "common.hpp"
 
 constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
 constexpr size_t elems_per_thread = 1e5;
 
 // TODO: document the test
 
-int main(int argc, char **argv) {
+int main(int, char **argv) {
   google::InitGoogleLogging(argv[0]);
   memory_check(THREADS_NO, [&] {
-    ds::static_array<std::thread, THREADS_NO> threads;
+    std::vector<std::thread> threads;
     map_t skiplist;
 
     // put THREADS_NO * elems_per_thread items to the skiplist
     for (size_t thread_i = 0; thread_i < THREADS_NO; ++thread_i) {
-      threads[thread_i] = std::thread(
+      threads.emplace_back(
           [&skiplist](size_t start, size_t end) {
             auto accessor = skiplist.access();
             for (size_t elem_i = start; elem_i < end; ++elem_i) {
@@ -54,8 +54,8 @@ int main(int argc, char **argv) {
     // check size
     {
       auto accessor = skiplist.access();
-      permanent_assert(accessor.size() == 0,
-                       "Size should be 0, but size is " << accessor.size());
+      permanent_assert(accessor.size() == 0, "Size should be 0, but size is "
+                                                 << accessor.size());
     }
 
     // check count

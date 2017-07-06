@@ -1,6 +1,6 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include "utils/memory/block_allocator.hpp"
+#include "memory/block_allocator.hpp"
 
 TEST(BlockAllocatorTest, UnusedVsReleaseSize) {
   BlockAllocator<64> block_allocator(10);

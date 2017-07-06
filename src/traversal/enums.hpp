@@ -24,11 +24,7 @@ namespace traversal_template {
  * it is mentioned that Vertex uniqueness can result in exponential performance
  * degradation. Figure out why and how.
  */
-enum class Uniqueness {
-  None,
-  Vertex,
-  Edge
-};
+enum class Uniqueness { None, Vertex, Edge };
 
 /**
  * Indicates how a path should be expanded using the traversal API. For the
@@ -47,14 +43,13 @@ enum class Uniqueness {
  *
  * Note that this implies that a Path has direction (start and finish).
  */
-enum class Expansion {
-  Front,
-  Back
-};
+enum class Expansion { Front, Back };
 
 /**
- * Indicates which relationships from the expansion vertex should be used to expand
- * the path. Direction::In means that incoming relationships are used for expansion.
+ * Indicates which relationships from the expansion vertex should be used to
+ * expand
+ * the path. Direction::In means that incoming relationships are used for
+ * expansion.
  *
  * For example, for the given graph data:
  *
@@ -64,13 +59,10 @@ enum class Expansion {
  *
  *    p = (b)
  *
- * Expansion (let's assume Expansion::Back) in the Direction::In would result in:
+ * Expansion (let's assume Expansion::Back) in the Direction::In would result
+ * in:
  *
  *    q = (b)<-[]-(a)
  */
-enum class Direction {
-  In,
-  Out,
-  Both
-};
+enum class Direction { In, Out, Both };
 }

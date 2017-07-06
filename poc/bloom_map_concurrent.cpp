@@ -5,8 +5,8 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "data_structures/bloom/bloom_filter.hpp"
-#include "data_structures/concurrent/concurrent_bloom_map.hpp"
+#include "bloom_filter.hpp"
+#include "concurrent_bloom_map.hpp"
 #include "utils/hashing/fnv64.hpp"
 #include "utils/random/random_generator.hpp"
 

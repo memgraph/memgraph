@@ -5,13 +5,12 @@
 
 #pragma once
 
-#include <list>
 #include <functional>
+#include <list>
 
 #include "enums.hpp"
 #include "path.hpp"
 #include "utils/assert.hpp"
-
 
 /**
  * This namespace contains traversal class templates that must
@@ -49,8 +48,7 @@ namespace traversal_template {
  */
 template <typename TVertex, typename TEdge>
 class UniquenessGroup {
-public:
-
+ public:
   UniquenessGroup(const Path<TVertex, TEdge> &path) : current_path_(path) {}
 
   /**
@@ -61,12 +59,10 @@ public:
    * @return
    */
   bool Contains(const TVertex &vertex) const {
-    if (current_path_.Contains(vertex))
-      return true;
+    if (current_path_.Contains(vertex)) return true;
 
     for (const auto &group : subgroups_)
-      if (group.get().Contains(vertex))
-        return true;
+      if (group.get().Contains(vertex)) return true;
 
     return false;
   }
@@ -79,12 +75,10 @@ public:
    * @return
    */
   bool Contains(const TEdge &edge) const {
-    if (current_path_.Contains(edge))
-      return true;
+    if (current_path_.Contains(edge)) return true;
 
     for (const auto &group : subgroups_)
-      if (group.get().Contains(edge))
-        return true;
+      if (group.get().Contains(edge)) return true;
 
     return false;
   }
@@ -95,14 +89,17 @@ public:
    *
    * @param subgroup
    */
-  void Add(const UniquenessGroup<TVertex, TEdge> &subgroup) { subgroups_.emplace_back(subgroup); }
+  void Add(const UniquenessGroup<TVertex, TEdge> &subgroup) {
+    subgroups_.emplace_back(subgroup);
+  }
 
-private:
+ private:
   // the currently traversed path of this uniqueness group
   // set by the BeginType
   const Path<TVertex, TEdge> &current_path_;
 
-  std::vector<std::reference_wrapper<const UniquenessGroup<TVertex, TEdge>>> subgroups_;
+  std::vector<std::reference_wrapper<const UniquenessGroup<TVertex, TEdge>>>
+      subgroups_;
 };
 
 /**
@@ -116,14 +113,13 @@ private:
  * @tparam TVertex
  * @tparam TEdge
  */
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 class ExpandBaseType {
-
   using TPath = Path<TVertex, TEdge>;
   using VertexFilter = std::function<bool(const TVertex &)>;
   using EdgeFilter = std::function<bool(const TEdge &)>;
 
-public:
+ public:
   /**
    * @return This expander's visitable's uniqueness group.
    */
@@ -131,8 +127,7 @@ public:
     return visitable_.UniquenessGroup();
   }
 
-protected:
-
+ protected:
   // tracking last appended path elements during traversal
   TVertex const *current_vertex_ = nullptr;
   TEdge const *current_edge_ = nullptr;
@@ -161,18 +156,15 @@ protected:
    *    provided).
    * @param uniqueness Which kind of uniqueness should be applied.
    */
-  ExpandBaseType(TVisitable &&visitable,
-                 Expansion expansion,
-                 Direction direction,
-                 VertexFilter vertex_filter,
-                 EdgeFilter edge_filter,
-                 Uniqueness uniqueness
-  ) : visitable_(std::forward<TVisitable>(visitable)),
-      expansion_(expansion),
-      direction_(direction),
-      vertex_filter_(vertex_filter),
-      edge_filter_(edge_filter),
-      uniqueness_(uniqueness) {}
+  ExpandBaseType(TVisitable &&visitable, Expansion expansion,
+                 Direction direction, VertexFilter vertex_filter,
+                 EdgeFilter edge_filter, Uniqueness uniqueness)
+      : visitable_(std::forward<TVisitable>(visitable)),
+        expansion_(expansion),
+        direction_(direction),
+        vertex_filter_(vertex_filter),
+        edge_filter_(edge_filter),
+        uniqueness_(uniqueness) {}
 
   /**
    * Visits the given visitor with every expansion of the given path
@@ -183,9 +175,9 @@ protected:
    * @param p
    */
   void VisitExpansions(std::function<void(TPath &)> visitor, TPath &p) {
-
     // the start or end point of the vertex
-    const auto &origin_vertex = expansion_ == Expansion::Back ? p.Back() : p.Front();
+    const auto &origin_vertex =
+        expansion_ == Expansion::Back ? p.Back() : p.Front();
 
     if (direction_ == Direction::In || direction_ == Direction::Both)
       VisitExpansions(origin_vertex.in(), p, visitor, Direction::In);
@@ -193,7 +185,7 @@ protected:
       VisitExpansions(origin_vertex.out(), p, visitor, Direction::Out);
   }
 
-private:
+ private:
   /**
    * Helper method that handles path expansion and visiting w.r.t.
    * expansion params.
@@ -209,21 +201,21 @@ private:
    * @param visitor
    * @param direction
    */
-  template<typename Edges>
-  void VisitExpansions(Edges &edges,
-                       TPath &p,
+  template <typename Edges>
+  void VisitExpansions(Edges &edges, TPath &p,
                        std::function<void(TPath &)> visitor,
                        Direction direction) {
-
     for (const TEdge &e : edges) {
       // edge filtering and uniqueness
       if (edge_filter_ && !edge_filter_(e)) continue;
-      if (uniqueness_ == Uniqueness::Edge && UniquenessGroup().Contains(e)) continue;
+      if (uniqueness_ == Uniqueness::Edge && UniquenessGroup().Contains(e))
+        continue;
 
       // vertex filtering and uniqueness
       const TVertex &v = (direction == Direction::In) ? e.from() : e.to();
       if (vertex_filter_ && !vertex_filter_(v)) continue;
-      if (uniqueness_ == Uniqueness::Vertex && UniquenessGroup().Contains(v))continue;
+      if (uniqueness_ == Uniqueness::Vertex && UniquenessGroup().Contains(v))
+        continue;
 
       current_edge_ = &e;
       current_vertex_ = &v;
@@ -257,15 +249,13 @@ private:
  * @tparam TVertex
  * @tparam TEdge
  */
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 class ExpandVariableType : public ExpandBaseType<TVisitable, TVertex, TEdge> {
-
   using TPath = Path<TVertex, TEdge>;
   using VertexFilter = std::function<bool(const TVertex &)>;
   using EdgeFilter = std::function<bool(const TEdge &)>;
 
-
-public:
+ public:
   /**
    * For most params see the ExpandBaseType::ExpandBaseType documentation.
    *
@@ -274,30 +264,26 @@ public:
    * @param max_length Maximum number of vertices in a path for it to be
    *    visited. Exclusive.
    */
-  ExpandVariableType(TVisitable &&visitable,
-                     Expansion expansion,
-                     Direction direction,
-                     VertexFilter vertex_filter,
-                     EdgeFilter edge_filter,
-                     int min_length,
-                     int max_length,
-                     Uniqueness uniqueness) :
-      ExpandBaseType<TVisitable, TVertex, TEdge>(std::forward<TVisitable>(visitable),
-                                                 expansion, direction, {}, edge_filter, uniqueness),
-      min_length_(min_length),
-      max_length_(max_length),
-      current_vertex_filter_(vertex_filter) {
-  }
+  ExpandVariableType(TVisitable &&visitable, Expansion expansion,
+                     Direction direction, VertexFilter vertex_filter,
+                     EdgeFilter edge_filter, int min_length, int max_length,
+                     Uniqueness uniqueness)
+      : ExpandBaseType<TVisitable, TVertex, TEdge>(
+            std::forward<TVisitable>(visitable), expansion, direction, {},
+            edge_filter, uniqueness),
+        min_length_(min_length),
+        max_length_(max_length),
+        current_vertex_filter_(vertex_filter) {}
 
   /**
-   * Calls the given visitor function once for every path this traversal generates.
+   * Calls the given visitor function once for every path this traversal
+   * generates.
    *
    * @param visitor
    */
   void Visit(std::function<void(TPath &)> visitor) {
-    this->visitable_.Visit([this, &visitor](TPath &p) {
-      VisitRecursive(visitor, p, p.Size());
-    });
+    this->visitable_.Visit(
+        [this, &visitor](TPath &p) { VisitRecursive(visitor, p, p.Size()); });
   }
 
   /**
@@ -306,10 +292,8 @@ public:
    *
    * @return An expansion that generates paths one traversal longer.
    */
-  auto Expand(Expansion expansion,
-              Direction direction,
-              VertexFilter vertex_filter = {},
-              EdgeFilter edge_filter = {});
+  auto Expand(Expansion expansion, Direction direction,
+              VertexFilter vertex_filter = {}, EdgeFilter edge_filter = {});
 
   /**
    * Expands from this expansion along a variable number traversal.
@@ -317,13 +301,10 @@ public:
    *
    * @return An expansion that generates paths variable length longer.
    */
-  auto ExpandVariable(
-      Expansion expansion,
-      Direction direction,
-      VertexFilter vertex_filter = {},
-      EdgeFilter edge_filter = {},
-      int min_length = 0,
-      int max_length = 1000);
+  auto ExpandVariable(Expansion expansion, Direction direction,
+                      VertexFilter vertex_filter = {},
+                      EdgeFilter edge_filter = {}, int min_length = 0,
+                      int max_length = 1000);
 
   /**
    * Returns a reference to the vertex currently being traversed
@@ -331,7 +312,9 @@ public:
    * TRAVERSAL!!!
    */
   const TVertex &CurrentVertex() const {
-    debug_assert(this->current_vertex_ != nullptr, "Current vertex not set, function most likely called outside of traversal");
+    debug_assert(this->current_vertex_ != nullptr,
+                 "Current vertex not set, function most likely called outside "
+                 "of traversal");
     return *this->current_vertex_;
   }
 
@@ -341,18 +324,22 @@ public:
    * TRAVERSAL!!!
    */
   const std::list<TEdge> &CurrentEdges() const {
-    debug_assert(this->current_edge_ != nullptr, "Current edge not set, function most likely called outside of traversal");
+    debug_assert(this->current_edge_ != nullptr,
+                 "Current edge not set, function most likely called outside of "
+                 "traversal");
     return current_edges_;
   }
 
-private:
+ private:
   // see constructor documentation for member var explanation
   const int min_length_;
   const int max_length_;
 
-  // the expand variable has another vertex filter used only on the last path element
+  // the expand variable has another vertex filter used only on the last path
+  // element
   // because traversal is done recursively using superclass functionality,
-  // so we give an empty filter to superclass so it does not end traversal, and use
+  // so we give an empty filter to superclass so it does not end traversal, and
+  // use
   // this filter to see if we actually need to visit the path or not
   const VertexFilter current_vertex_filter_;
 
@@ -369,22 +356,25 @@ private:
    * @param p_start_size The size of the path before variable-length expansion.
    *    It's necessary to keep track of it because min and max length are
    *    evaluated against how much this traversal generated, not against the
-   *    actual path length (there could have been plan expansions before this variable length).
+   *    actual path length (there could have been plan expansions before this
+   * variable length).
    */
-  void VisitRecursive(std::function<void(TPath &)> visitor, TPath &p, const size_t p_start_size) {
-    debug_assert(p.Size() >= p_start_size, "Current path must be greater then start size");
+  void VisitRecursive(std::function<void(TPath &)> visitor, TPath &p,
+                      const size_t p_start_size) {
+    debug_assert(p.Size() >= p_start_size,
+                 "Current path must be greater then start size");
 
     size_t recursion_size = p.Size() - p_start_size;
 
     // only append to current_edges once the first traversal happened
-    if (recursion_size > 0)
-      current_edges_.emplace_back(*this->current_edge_);
+    if (recursion_size > 0) current_edges_.emplace_back(*this->current_edge_);
 
-    if (recursion_size >= min_length_ && (!current_vertex_filter_ || current_vertex_filter_(*this->current_vertex_)))
+    if (recursion_size >= min_length_ &&
+        (!current_vertex_filter_ ||
+         current_vertex_filter_(*this->current_vertex_)))
       visitor(p);
 
-    if (recursion_size >= max_length_ - 1)
-      return;
+    if (recursion_size >= max_length_ - 1) return;
 
     // a lambda we'll inject to ExpandVisit, that calls this function
     // with the expanded path
@@ -394,8 +384,7 @@ private:
 
     this->VisitExpansions(recursive_visitor, p);
 
-    if (recursion_size > 0)
-      current_edges_.pop_back();
+    if (recursion_size > 0) current_edges_.pop_back();
   }
 };
 
@@ -409,36 +398,32 @@ private:
  * @tparam TVertex
  * @tparam TEdge
  */
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 class ExpandType : public ExpandBaseType<TVisitable, TVertex, TEdge> {
-
   using TPath = Path<TVertex, TEdge>;
   using VertexFilter = std::function<bool(const TVertex &)>;
   using EdgeFilter = std::function<bool(const TEdge &)>;
 
-
-public:
+ public:
   /**
    * For all params see the ExpandBaseType::ExpandBaseType documentation.
    */
-  ExpandType(TVisitable &&visitable,
-             Expansion expansion,
-             Direction direction,
-             VertexFilter vertex_filter,
-             EdgeFilter edge_filter,
-             Uniqueness uniqueness) :
-      ExpandBaseType<TVisitable, TVertex, TEdge>(std::forward<TVisitable>(visitable),
-                                                 expansion, direction, vertex_filter, edge_filter, uniqueness) {}
+  ExpandType(TVisitable &&visitable, Expansion expansion, Direction direction,
+             VertexFilter vertex_filter, EdgeFilter edge_filter,
+             Uniqueness uniqueness)
+      : ExpandBaseType<TVisitable, TVertex, TEdge>(
+            std::forward<TVisitable>(visitable), expansion, direction,
+            vertex_filter, edge_filter, uniqueness) {}
 
   /**
-   * Calls the given visitor function once for every path this traversal generates.
+   * Calls the given visitor function once for every path this traversal
+   * generates.
    *
    * @param visitor
    */
   void Visit(std::function<void(TPath &)> visitor) {
-    this->visitable_.Visit([this, &visitor](TPath &p) {
-      this->VisitExpansions(visitor, p);
-    });
+    this->visitable_.Visit(
+        [this, &visitor](TPath &p) { this->VisitExpansions(visitor, p); });
   }
 
   /**
@@ -447,7 +432,9 @@ public:
    * TRAVERSAL!!!
    */
   const TVertex &CurrentVertex() const {
-    debug_assert(this->current_vertex_ != nullptr, "Current vertex not set, function most likely called outside of traversal");
+    debug_assert(this->current_vertex_ != nullptr,
+                 "Current vertex not set, function most likely called outside "
+                 "of traversal");
     return *this->current_vertex_;
   }
 
@@ -457,7 +444,9 @@ public:
    * TRAVERSAL!!!
    */
   const TEdge &CurrentEdge() const {
-    debug_assert(this->current_edge_ != nullptr, "Current edge not set, function most likely called outside of traversal");
+    debug_assert(this->current_edge_ != nullptr,
+                 "Current edge not set, function most likely called outside of "
+                 "traversal");
     return *this->current_edge_;
   }
 
@@ -467,12 +456,11 @@ public:
    *
    * @return An expansion that generates paths one traversal longer.
    */
-  auto Expand(Expansion expansion,
-              Direction direction,
-              VertexFilter vertex_filter = {},
-              EdgeFilter edge_filter = {}) {
+  auto Expand(Expansion expansion, Direction direction,
+              VertexFilter vertex_filter = {}, EdgeFilter edge_filter = {}) {
     return ExpandType<ExpandType<TVisitable, TVertex, TEdge> &, TVertex, TEdge>(
-        *this, expansion, direction, vertex_filter, edge_filter, this->uniqueness_);
+        *this, expansion, direction, vertex_filter, edge_filter,
+        this->uniqueness_);
   }
 
   /**
@@ -481,15 +469,14 @@ public:
    *
    * @return An expansion that generates paths variable length longer.
    */
-  auto ExpandVariable(
-      Expansion expansion,
-      Direction direction,
-      VertexFilter vertex_filter = {},
-      EdgeFilter edge_filter = {},
-      int min_length = 0,
-      int max_length = 1000) {
-    return ExpandVariableType<const ExpandType<TVisitable, TVertex, TEdge> &, TVertex, TEdge>(
-        *this, expansion, direction, vertex_filter, edge_filter, min_length, max_length, this->uniqueness_);
+  auto ExpandVariable(Expansion expansion, Direction direction,
+                      VertexFilter vertex_filter = {},
+                      EdgeFilter edge_filter = {}, int min_length = 0,
+                      int max_length = 1000) {
+    return ExpandVariableType<const ExpandType<TVisitable, TVertex, TEdge> &,
+                              TVertex, TEdge>(
+        *this, expansion, direction, vertex_filter, edge_filter, min_length,
+        max_length, this->uniqueness_);
   }
 };
 
@@ -500,17 +487,17 @@ public:
  * @tparam TVertex
  * @tparam TEdge
  */
-template<typename TIterable, typename TVertex, typename TEdge>
+template <typename TIterable, typename TVertex, typename TEdge>
 class BeginType {
-
   using TPath = Path<TVertex, TEdge>;
   using VertexFilter = std::function<bool(const TVertex &)>;
   using EdgeFilter = std::function<bool(const TEdge &)>;
 
-public:
-
-  BeginType(const TIterable &vertices, VertexFilter vertex_filter) :
-      vertices_(vertices), vertex_filter_(vertex_filter), uniqueness_group_(path) {}
+ public:
+  BeginType(const TIterable &vertices, VertexFilter vertex_filter)
+      : vertices_(vertices),
+        vertex_filter_(vertex_filter),
+        uniqueness_group_(path) {}
 
   /**
    * Calls the visitor with a path containing a single vertex
@@ -521,16 +508,13 @@ public:
    */
   void Visit(std::function<void(TPath &)> visitor) {
     for (const TVertex &v : vertices_) {
-
-      if (vertex_filter_ && !vertex_filter_(v))
-        continue;
+      if (vertex_filter_ && !vertex_filter_(v)) continue;
 
       path.Start(v);
       visitor(path);
       path.PopFront();
     }
   }
-
 
   /**
    * The UniquenessGroup of this BeginType (the only one that
@@ -546,7 +530,9 @@ public:
    * TRAVERSAL!!!
    */
   const TVertex &CurrentVertex() const {
-    debug_assert(path.Size() > 0, "Current path is empty, function most likely called outside of traversal");
+    debug_assert(path.Size() > 0,
+                 "Current path is empty, function most likely called outside "
+                 "of traversal");
     return path.Front();
   }
 
@@ -556,10 +542,8 @@ public:
    *
    * @return An expansion that generates paths one traversal longer.
    */
-  auto Expand(Expansion expansion,
-              Direction direction,
-              VertexFilter vertex_filter = {},
-              EdgeFilter edge_filter = {},
+  auto Expand(Expansion expansion, Direction direction,
+              VertexFilter vertex_filter = {}, EdgeFilter edge_filter = {},
               Uniqueness uniqueness = Uniqueness::Edge) {
     return ExpandType<BeginType<TIterable, TVertex, TEdge> &, TVertex, TEdge>(
         *this, expansion, direction, vertex_filter, edge_filter, uniqueness);
@@ -571,21 +555,21 @@ public:
    *
    * @return An expansion that generates paths variable length longer.
    */
-  auto ExpandVariable(
-      Expansion expansion,
-      Direction direction,
-      VertexFilter vertex_filter = {},
-      EdgeFilter edge_filter = {},
-      int min_length = 1,
-      int max_length = 1000,
-      Uniqueness uniqueness = Uniqueness::Edge) {
-    return ExpandVariableType<BeginType<TIterable, TVertex, TEdge> &, TVertex, TEdge>(
-        *this, expansion, direction, vertex_filter, edge_filter, min_length, max_length, uniqueness);
+  auto ExpandVariable(Expansion expansion, Direction direction,
+                      VertexFilter vertex_filter = {},
+                      EdgeFilter edge_filter = {}, int min_length = 1,
+                      int max_length = 1000,
+                      Uniqueness uniqueness = Uniqueness::Edge) {
+    return ExpandVariableType<BeginType<TIterable, TVertex, TEdge> &, TVertex,
+                              TEdge>(*this, expansion, direction, vertex_filter,
+                                     edge_filter, min_length, max_length,
+                                     uniqueness);
   }
 
-private:
+ private:
   const TIterable &vertices_;
-  // the BeingType has only one path that gets appended to and emitted to visitors
+  // the BeingType has only one path that gets appended to and emitted to
+  // visitors
   TPath path;
   const VertexFilter vertex_filter_;
   // TODO review: why do I have to have namespace:: here???
@@ -601,7 +585,7 @@ private:
  *
  * @return A BeginType.
  */
-template<typename TIterable, typename TVertex, typename TEdge>
+template <typename TIterable, typename TVertex, typename TEdge>
 auto Begin(const TIterable &vertices,
            std::function<bool(const TVertex &)> vertex_filter = {}) {
   return BeginType<TIterable, TVertex, TEdge>(vertices, vertex_filter);
@@ -610,14 +594,14 @@ auto Begin(const TIterable &vertices,
 /**
  * Creates a start point for a recursion of Cartesian wrappers.
  */
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 class CartesianUnaryType {
   using TPath = Path<TVertex, TEdge>;
   using TPaths = Paths<TVertex, TEdge>;
 
-public:
-  CartesianUnaryType(TVisitable &&visitable) :
-      visitable_(std::forward<TVisitable>(visitable)) {}
+ public:
+  CartesianUnaryType(TVisitable &&visitable)
+      : visitable_(std::forward<TVisitable>(visitable)) {}
 
   void Visit(std::function<void(TPaths &)> visitor) const {
     TPaths paths;
@@ -628,29 +612,35 @@ public:
     });
   }
 
-private:
+ private:
   const TVisitable visitable_;
 };
 
 /**
  * Provides means to visit a cartesian product of traversals.
  *
- * @tparam TVisitableFirst A visitable whose visitor accepts a list of path reference (recursion down).
- * @tparam TVisitableOthers Visitables whose visitor accepts a single path reference.
+ * @tparam TVisitableFirst A visitable whose visitor accepts a list of path
+ * reference (recursion down).
+ * @tparam TVisitableOthers Visitables whose visitor accepts a single path
+ * reference.
  */
-template<typename TVisitableFirst, typename TVisitableOthers, typename TVertex, typename TEdge>
+template <typename TVisitableFirst, typename TVisitableOthers, typename TVertex,
+          typename TEdge>
 class CartesianBinaryType {
   using TPath = Path<TVertex, TEdge>;
   using TPaths = Paths<TVertex, TEdge>;
 
-public:
+ public:
   /**
-   * @tparam visitable_first A visitable whose visitor accepts a list of path reference (recursion down).
-   * @tparam visitable_others Visitable whose visitor accepts a single path reference.
+   * @tparam visitable_first A visitable whose visitor accepts a list of path
+   * reference (recursion down).
+   * @tparam visitable_others Visitable whose visitor accepts a single path
+   * reference.
    */
-  CartesianBinaryType(TVisitableFirst &&visitable_first, TVisitableOthers &&visitable_others) :
-      visitable_first_(std::forward<TVisitableFirst>(visitable_first)),
-      visitable_others_(std::forward<TVisitableOthers>(visitable_others)) {}
+  CartesianBinaryType(TVisitableFirst &&visitable_first,
+                      TVisitableOthers &&visitable_others)
+      : visitable_first_(std::forward<TVisitableFirst>(visitable_first)),
+        visitable_others_(std::forward<TVisitableOthers>(visitable_others)) {}
 
   /**
    * Calls the given visitor with a list of reference wrappers to Paths
@@ -659,7 +649,6 @@ public:
    * @param visitor
    */
   void Visit(std::function<void(TPaths &)> visitor) const {
-
     // TODO currently cartesian product does NOT check for uniqueness
     // for example between edges in the emitted path combinations
 
@@ -672,14 +661,15 @@ public:
     });
   }
 
-private:
+ private:
   const TVisitableFirst visitable_first_;
   const TVisitableOthers visitable_others_;
 };
 
 /**
  * Creates an object that can be visited with a function that accepts a list
- * of path reference wrappers. That function will be called one for every element
+ * of path reference wrappers. That function will be called one for every
+ * element
  * of a cartesian product of the given visitables (that emit paths).
  *
  * @tparam TVisitableFirst  A visitable that emits paths.
@@ -688,15 +678,16 @@ private:
  * @param others  An arbitrary number of visitables that emit paths.
  * @return  See above.
  */
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 auto Cartesian(TVisitable &&visitable) {
-  return CartesianUnaryType<TVisitable, TVertex, TEdge>(std::forward<TVisitable>(visitable));
-
+  return CartesianUnaryType<TVisitable, TVertex, TEdge>(
+      std::forward<TVisitable>(visitable));
 }
 
 /**
  * Creates an object that can be visited with a function that accepts a list
- * of path reference wrappers. That function will be called one for every element
+ * of path reference wrappers. That function will be called one for every
+ * element
  * of a cartesian product of the given visitables (that emit paths).
  *
  * @tparam TVisitableFirst  A visitable that emits paths.
@@ -705,34 +696,32 @@ auto Cartesian(TVisitable &&visitable) {
  * @param others  An arbitrary number of visitables that emit paths.
  * @return  See above.
  */
-template<typename TVisitableFirst, typename Vertex, typename Edge, typename... TVisitableOthers>
+template <typename TVisitableFirst, typename Vertex, typename Edge,
+          typename... TVisitableOthers>
 auto Cartesian(TVisitableFirst &&first, TVisitableOthers &&... others) {
-  return CartesianBinaryType<TVisitableFirst, decltype(Cartesian(std::forward<TVisitableOthers>(others)...)),
-      Vertex, Edge>(
-      std::forward<TVisitableFirst>(first),
-      Cartesian(std::forward<TVisitableOthers>(others)...)
-  );
+  return CartesianBinaryType<
+      TVisitableFirst,
+      decltype(Cartesian(std::forward<TVisitableOthers>(others)...)), Vertex,
+      Edge>(std::forward<TVisitableFirst>(first),
+            Cartesian(std::forward<TVisitableOthers>(others)...));
 }
 
-template<typename TVisitable, typename TVertex, typename TEdge>
-auto ExpandVariableType<TVisitable, TVertex, TEdge>::Expand(Expansion expansion,
-                                                            Direction direction,
-                                                            VertexFilter vertex_filter,
-                                                            EdgeFilter edge_filter) {
-  return ExpandType<ExpandVariableType<TVisitable, TVertex, TEdge> &, TVertex, TEdge>(
-      *this, expansion, direction, vertex_filter, edge_filter, this->uniqueness_);
+template <typename TVisitable, typename TVertex, typename TEdge>
+auto ExpandVariableType<TVisitable, TVertex, TEdge>::Expand(
+    Expansion expansion, Direction direction, VertexFilter vertex_filter,
+    EdgeFilter edge_filter) {
+  return ExpandType<ExpandVariableType<TVisitable, TVertex, TEdge> &, TVertex,
+                    TEdge>(*this, expansion, direction, vertex_filter,
+                           edge_filter, this->uniqueness_);
 }
 
-template<typename TVisitable, typename TVertex, typename TEdge>
+template <typename TVisitable, typename TVertex, typename TEdge>
 auto ExpandVariableType<TVisitable, TVertex, TEdge>::ExpandVariable(
-    Expansion expansion,
-    Direction direction,
-    VertexFilter vertex_filter,
-    EdgeFilter edge_filter,
-    int min_length,
-    int max_length) {
-  return ExpandVariableType<ExpandVariableType<TVisitable, TVertex, TEdge> &, TVertex, TEdge>(
-      *this, expansion, direction, vertex_filter, edge_filter, min_length, max_length, this->uniqueness_);
+    Expansion expansion, Direction direction, VertexFilter vertex_filter,
+    EdgeFilter edge_filter, int min_length, int max_length) {
+  return ExpandVariableType<ExpandVariableType<TVisitable, TVertex, TEdge> &,
+                            TVertex, TEdge>(
+      *this, expansion, direction, vertex_filter, edge_filter, min_length,
+      max_length, this->uniqueness_);
 }
-
 }

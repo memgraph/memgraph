@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 
 #include <memory>
-#include "data_structures/map/rh_hashmap.hpp"
+#include "rh_hashmap.hpp"
 
 class Data {
  private:

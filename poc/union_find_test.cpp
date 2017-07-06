@@ -3,9 +3,9 @@
 
 #include "gtest/gtest.h"
 
-#include "data_structures/union_find/union_find.hpp"
+#include "union_find.hpp"
 
-void _expect_fully(UnionFind<> &uf, bool connected, int from = 0, int to = -1) {
+void ExpectFully(UnionFind<> &uf, bool connected, int from = 0, int to = -1) {
   if (to == -1) to = uf.size();
 
   for (int i = from; i < to; i++)
@@ -42,27 +42,27 @@ TEST(UnionFindTest, ModifiedSizeTest) {
 
 TEST(UnionFindTest, Disconectivity) {
   UnionFind<> uf(10);
-  _expect_fully(uf, false);
+  ExpectFully(uf, false);
 }
 
 TEST(UnionFindTest, ConnectivityAlongChain) {
   UnionFind<> uf(10);
   for (unsigned int i = 1; i < uf.size(); i++) uf.connect(i - 1, i);
-  _expect_fully(uf, true);
+  ExpectFully(uf, true);
 }
 
 TEST(UnionFindTest, ConnectivityOnTree) {
   UnionFind<> uf(10);
-  _expect_fully(uf, false);
+  ExpectFully(uf, false);
 
   uf.connect(0, 1);
   uf.connect(0, 2);
-  _expect_fully(uf, true, 0, 3);
-  _expect_fully(uf, false, 2);
+  ExpectFully(uf, true, 0, 3);
+  ExpectFully(uf, false, 2);
 
   uf.connect(2, 3);
-  _expect_fully(uf, true, 0, 4);
-  _expect_fully(uf, false, 3);
+  ExpectFully(uf, true, 0, 4);
+  ExpectFully(uf, false, 3);
 }
 
 TEST(UnionFindTest, DisjointChains) {

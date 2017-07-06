@@ -2,7 +2,7 @@
 
 #include "io/network/stream_buffer.hpp"
 #include "io/network/stream_listener.hpp"
-#include "memory/literals.hpp"
+#include "utils/memory_literals.hpp"
 
 namespace io::network {
 

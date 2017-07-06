@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 
-#include "utils/memory/allocator.hpp"
+#include "memory/allocator.hpp"
 
 TEST(AllocatorTest, ABlockOfIntegersCanBeAllocated) {
   constexpr int N = 100;

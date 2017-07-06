@@ -2,7 +2,6 @@
 
 #include <shared_mutex>
 
-#include "memory/lazy_gc.hpp"
 #include "storage/locking/record_lock.hpp"
 #include "threading/sync/lockable.hpp"
 #include "transactions/transaction.hpp"

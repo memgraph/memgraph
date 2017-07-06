@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <list>
 #include <algorithm>
 #include <functional>
+#include <list>
 
 #include "enums.hpp"
 #include "utils/assert.hpp"
@@ -26,23 +26,19 @@ namespace traversal_template {
  * @tparam TVertex
  * @tparam TEdge
  */
-template<typename TVertex, typename TEdge>
+template <typename TVertex, typename TEdge>
 class Path {
-public:
-
+ public:
   Path() {}
 
-  size_t Size() const {
-    return vertices_.size();
-  }
+  size_t Size() const { return vertices_.size(); }
 
   friend std::ostream &operator<<(std::ostream &stream, const Path &path) {
     auto vertices_it = path.vertices_.begin();
     auto vertices_end = path.vertices_.end();
     auto edges_it = path.edges_.begin();
 
-    if (vertices_it != vertices_end)
-      stream << *vertices_it++;
+    if (vertices_it != vertices_end) stream << *vertices_it++;
 
     while (vertices_it != vertices_end)
 
@@ -67,7 +63,8 @@ public:
    * @return A reference to this same path.
    */
   Path &Start(const TVertex &v) {
-    debug_assert(vertices_.size() == 0, "Can only start iteration on empty path");
+    debug_assert(vertices_.size() == 0,
+                 "Can only start iteration on empty path");
     vertices_.push_back(v);
     return *this;
   }
@@ -96,7 +93,8 @@ public:
    * Gets the last Vertex of this path. Fails if the path contains no elements.
    */
   const TVertex &Back() const {
-    debug_assert(vertices_.size() > 0, "Can only get a Vertex on non-empty path");
+    debug_assert(vertices_.size() > 0,
+                 "Can only get a Vertex on non-empty path");
     return vertices_.back();
   }
 
@@ -116,21 +114,23 @@ public:
   }
 
   /**
-   * Removes the last element from the path. Fails if the path contains no elements.
+   * Removes the last element from the path. Fails if the path contains no
+   * elements.
    */
   void PopBack() {
-    debug_assert(vertices_.size() > 0, "Can only remove a vertex from a non-empty path");
+    debug_assert(vertices_.size() > 0,
+                 "Can only remove a vertex from a non-empty path");
     vertices_.pop_back();
 
-    if (vertices_.size() > 0)
-      edges_.pop_back();
+    if (vertices_.size() > 0) edges_.pop_back();
   }
 
   /**
    * Gets the first Vertex of this path. Fails if the path contains no elements.
    */
   const TVertex &Front() const {
-    debug_assert(vertices_.size() > 0, "Can only get a vertex from a non-empty path");
+    debug_assert(vertices_.size() > 0,
+                 "Can only get a vertex from a non-empty path");
     return vertices_.front();
   }
 
@@ -148,14 +148,15 @@ public:
   }
 
   /**
-   * Removes the first element from the path. Fails if the path contains no elements.
+   * Removes the first element from the path. Fails if the path contains no
+   * elements.
    */
   void PopFront() {
-    debug_assert(vertices_.size() > 0, "Can only remove a vertex from a non-empty path");
+    debug_assert(vertices_.size() > 0,
+                 "Can only remove a vertex from a non-empty path");
     vertices_.pop_front();
 
-    if (vertices_.size() > 0)
-      edges_.pop_front();
+    if (vertices_.size() > 0) edges_.pop_front();
   }
 
   /**
@@ -176,7 +177,7 @@ public:
    */
   const auto &Edges() const { return edges_; }
 
-private:
+ private:
   std::list<TVertex> vertices_;
   std::list<TEdge> edges_;
 };
@@ -192,7 +193,8 @@ private:
 template <typename TVertex, typename TEdge>
 class Paths : public std::list<std::reference_wrapper<Path<TVertex, TEdge>>> {
   using Path = Path<TVertex, TEdge>;
-public:
+
+ public:
   bool operator==(const Paths<TVertex, TEdge> &other) const {
     return std::equal(this->begin(), this->end(), other.begin(),
                       [](const std::reference_wrapper<Path> &p1,
@@ -201,7 +203,7 @@ public:
                       });
   }
 
-  bool operator!=(const Paths &other) const { return !(*this == other);}
+  bool operator!=(const Paths &other) const { return !(*this == other); }
 
   friend std::ostream &operator<<(std::ostream &stream, const Paths &paths) {
     stream << "[";
@@ -214,4 +216,3 @@ public:
   }
 };
 }
-

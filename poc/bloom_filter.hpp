@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bitset>
+#include <functional>
 #include <iostream>
 #include <vector>
 

@@ -57,13 +57,4 @@ class Dbms {
 
   // currently active database
   std::atomic<GraphDb *> active_db;
-
-  //    // Cleaning thread.
-  //      TODO re-enable cleaning
-  //    Cleaning cleaning = {dbs, CONFIG_INTEGER(config::CLEANING_CYCLE_SEC)};
-  //
-  //    // Snapshoting thread.
-  //      TODO re-enable cleaning
-  //    Snapshoter snapshoter = {dbs,
-  //    CONFIG_INTEGER(config::SNAPSHOT_CYCLE_SEC)};
 };

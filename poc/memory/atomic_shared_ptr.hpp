@@ -3,6 +3,7 @@
 #include <atomic>
 #include <memory>
 
+// I heard this is patented.
 template <class T>
 class atomic_shared_ptr final {
  public:

@@ -9,8 +9,8 @@
 #include "path.hpp"
 #include "templates.hpp"
 
-#include "storage/vertex_accessor.hpp"
 #include "storage/edge_accessor.hpp"
+#include "storage/vertex_accessor.hpp"
 
 /**
  * A specialization of the "traversal" namespace that uses
@@ -25,34 +25,36 @@ using Paths = traversal_template::Paths<VertexAccessor, EdgeAccessor>;
 /**
  * Specialization of the traversal_template::Begin function.
  */
-template<typename TCollection>
-auto Begin(const TCollection &vertices, std::function<bool(const VertexAccessor &)> vertex_filter = {}) {
-return traversal_template::Begin<TCollection, VertexAccessor, EdgeAccessor>(vertices, vertex_filter);
+template <typename TCollection>
+auto Begin(const TCollection &vertices,
+           std::function<bool(const VertexAccessor &)> vertex_filter = {}) {
+  return traversal_template::Begin<TCollection, VertexAccessor, EdgeAccessor>(
+      vertices, vertex_filter);
 }
 
 /**
  * Specialization of the traversal_template::Cartesian function that accepts
  * a single argument.
  */
-template<typename TVisitable>
+template <typename TVisitable>
 auto Cartesian(TVisitable &&visitable) {
-  return traversal_template::Cartesian<TVisitable, VertexAccessor, EdgeAccessor>(
+  return traversal_template::Cartesian<TVisitable, VertexAccessor,
+                                       EdgeAccessor>(
       std::forward<TVisitable>(visitable));
 }
-
 
 /**
  * Specialization of the traversal_template::Cartesian function that accepts
  * multiple arguments.
  */
-template<typename TVisitableFirst, typename... TVisitableOthers>
+template <typename TVisitableFirst, typename... TVisitableOthers>
 auto Cartesian(TVisitableFirst &&first, TVisitableOthers &&... others) {
-  return traversal_template::CartesianBinaryType<TVisitableFirst, decltype(Cartesian(
-      std::forward<TVisitableOthers>(others)...)),
+  return traversal_template::CartesianBinaryType<
+      TVisitableFirst,
+      decltype(Cartesian(std::forward<TVisitableOthers>(others)...)),
       VertexAccessor, EdgeAccessor>(
       std::forward<TVisitableFirst>(first),
-      Cartesian(std::forward<TVisitableOthers>(others)...)
-  );
+      Cartesian(std::forward<TVisitableOthers>(others)...));
 }
 }
 

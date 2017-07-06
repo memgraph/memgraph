@@ -1,6 +1,6 @@
 #include "gtest/gtest.h"
 
-#include "utils/memory/stack_allocator.hpp"
+#include "memory/stack_allocator.hpp"
 
 struct Object {
   int a;

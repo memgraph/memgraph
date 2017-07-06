@@ -1,4 +1,4 @@
-#include "common.h"
+#include "common.hpp"
 
 constexpr size_t THREADS_NO = std::min(max_no_threads, 8);
 constexpr size_t op_per_thread = 1e5;

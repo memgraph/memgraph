@@ -26,5 +26,9 @@ foreach(poc_cpp ${poc_cpps})
 
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
+    # gtest
+    target_link_libraries(${target_name} gtest gtest_main gmock)
+    # google-benchmark
+    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
 
 endforeach()
