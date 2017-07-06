@@ -1,8 +1,8 @@
 #include <experimental/filesystem>
 #include <iostream>
 
-#include "gflags/gflags.h"
-#include "glog/logging.h"
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "dbms/dbms.hpp"
 #include "query/engine.hpp"

@@ -6,9 +6,9 @@
 namespace fs = std::experimental::filesystem;
 
 #include <glog/logging.h>
+#include "gflags/gflags.h"
 
 #include "query/frontend/stripped.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
@@ -21,6 +21,11 @@ namespace fs = std::experimental::filesystem;
  * @param path to the query file.
  * @return query as a string.
  */
+
+DEFINE_string(src, "tests/integration/hardcoded_queries",
+              "Path to sources of hardcoded queries.");
+DEFINE_string(dst, "build/compiled/hardcode",
+              "Destination path of hardcoded queries");
 
 std::string ExtractQuery(const fs::path &path) {
   auto comment_mark = std::string("// ");
@@ -48,17 +53,14 @@ std::string ExtractQuery(const fs::path &path) {
 }
 
 int main(int argc, char **argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, false);
   google::InitGoogleLogging(argv[0]);
 
-  REGISTER_ARGS(argc, argv);
-
-  auto src_path = fs::path(
-      GET_ARG("--src", "tests/integration/hardcoded_queries").get_string());
+  auto src_path = FLAGS_src;
   LOG(INFO) << "Src path is: " << src_path;
   permanent_assert(fs::exists(src_path), "src folder must exist");
 
-  auto dst_path =
-      fs::path(GET_ARG("--dst", "build/compiled/hardcode").get_string());
+  auto dst_path = FLAGS_dst;
   LOG(INFO) << "Dst path is: " << dst_path;
   fs::create_directories(dst_path);
 

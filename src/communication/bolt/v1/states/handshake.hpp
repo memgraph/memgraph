@@ -2,6 +2,7 @@
 
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 
 namespace communication::bolt {

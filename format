@@ -15,4 +15,3 @@ do
     echo "formatting code under $directory/"
     find "$directory" \( -name '*.hpp' -or -name '*.cpp' \) -print0 | xargs -0 "${clang_format}" -i
 done
-

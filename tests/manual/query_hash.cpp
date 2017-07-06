@@ -4,8 +4,9 @@
 #include <glog/logging.h>
 
 #include "query/frontend/stripped.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/type_discovery.hpp"
+
+DEFINE_string(q, "CREATE (n) RETURN n", "Query");
 
 /**
  * Useful when somebody wants to get a hash for some query.
@@ -14,13 +15,11 @@
  *     ./query_hash -q "CREATE (n {name: \"test\n"}) RETURN n"
  */
 int main(int argc, char **argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  // init args
-  REGISTER_ARGS(argc, argv);
-
   // take query from input args
-  auto query = GET_ARG("-q", "CREATE (n) RETURN n").get_string();
+  auto query = FLAGS_q;
 
   // run preprocessing
   query::StrippedQuery preprocessed(query);

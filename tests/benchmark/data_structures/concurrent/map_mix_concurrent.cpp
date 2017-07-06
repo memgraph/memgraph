@@ -3,9 +3,9 @@
 
 #include <benchmark/benchmark_api.h>
 #include <glog/logging.h>
+#include "gflags/gflags.h"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/random/random_generator.hpp"
 
 /*
@@ -53,6 +53,13 @@ auto BM_Rape = [](benchmark::State &state, auto *map, auto &elements) {
   Rape(state, map, elements);
 };
 
+DEFINE_int32(insert, 50, "Insertions percentage");
+DEFINE_int32(delete, 20, "Deletions percentage");
+DEFINE_int32(find, 30, "Find percentage");
+DEFINE_int32(start, 0, "Range start");
+DEFINE_int32(end, 1000000000, "Range end");
+DEFINE_int32(threads, 1, "Number of threads");
+
 /*
   Commandline Arguments Parsing
 
@@ -75,12 +82,10 @@ auto BM_Rape = [](benchmark::State &state, auto *map, auto &elements) {
     * Number of threads
         -threads number
 */
-void parse_arguments(int argc, char **argv) {
-  REGISTER_ARGS(argc, argv);
-
-  INSERT_PERC = GET_ARG("-insert", "50").get_int();
-  DELETE_PERC = GET_ARG("-delete", "20").get_int();
-  CONTAINS_PERC = GET_ARG("-find", "30").get_int();
+void parse_arguments() {
+  INSERT_PERC = FLAGS_insert;
+  DELETE_PERC = FLAGS_delete;
+  CONTAINS_PERC = FLAGS_find;
 
   if (INSERT_PERC + DELETE_PERC + CONTAINS_PERC != 100) {
     std::cout << "Invalid percentage" << std::endl;
@@ -88,18 +93,17 @@ void parse_arguments(int argc, char **argv) {
     exit(-1);
   }
 
-  RANGE_START = GET_ARG("-start", "0").get_int();
+  RANGE_START = FLAGS_start;
+  RANGE_END = FLAGS_end;
 
-  RANGE_END = GET_ARG("-end", "1000000000").get_int();
-
-  THREADS = std::min(GET_ARG("-threads", "1").get_int(),
-                     (int)std::thread::hardware_concurrency());
+  THREADS = std::min(FLAGS_threads,
+                     static_cast<int>(std::thread::hardware_concurrency()));
 }
 
 int main(int argc, char **argv) {
+  benchmark::Initialize(&argc, argv);
+  parse_arguments();
   google::InitGoogleLogging(argv[0]);
-
-  parse_arguments(argc, argv);
 
   IntegerGenerator int_gen(RANGE_START, RANGE_END);
   PairGenerator<IntegerGenerator, IntegerGenerator> pair_gen(&int_gen,
@@ -114,7 +118,6 @@ int main(int argc, char **argv) {
       ->Complexity(benchmark::oN)
       ->Threads(THREADS);
 
-  benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
 
   return 0;

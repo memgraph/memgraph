@@ -31,4 +31,3 @@ if [[ "$running" != "" ]]; then
 else
     echo "All ok!"
 fi
-

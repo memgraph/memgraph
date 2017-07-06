@@ -20,4 +20,5 @@ on a 64 bit linux kernel.
 * fmt format
 * google benchmark
 * google test
-* yaml-cpp
+* glog
+* gflags

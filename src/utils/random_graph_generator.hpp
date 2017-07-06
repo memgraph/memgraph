@@ -68,7 +68,7 @@ class RandomGraphGenerator {
    */
   void AddEdges(uint count, const std::string &edge_type_name,
                 std::function<bool(VertexAccessor &va)> from_filter = {},
-                std::function<bool(VertexAccessor &va)> to_filter = {}) {
+                std::function<bool(VertexAccessor &va)> = {}) {
     permanent_assert(!did_commit_, "Already committed");
 
     // create two temporary sets of vertices we will poll from
@@ -76,7 +76,7 @@ class RandomGraphGenerator {
     auto vertices_to = Filter(vertices_, from_filter);
 
     auto edge_type = dba_.edge_type(edge_type_name);
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i < static_cast<int>(count); ++i)
       edges_.push_back(dba_.insert_edge(
           vertices_from[rand() % vertices_from.size()].get(),
           vertices_to[rand() % vertices_to.size()].get(), edge_type));
@@ -94,7 +94,7 @@ class RandomGraphGenerator {
    */
   template <typename TValue>
   void SetVertexProperty(
-      uint count, const std::string &prop_name,
+      uint, const std::string &prop_name,
       std::function<TValue()> value_generator,
       std::function<bool(VertexAccessor &va)> predicate = {}) {
     permanent_assert(!did_commit_, "Already committed");
@@ -139,7 +139,7 @@ class RandomGraphGenerator {
   std::vector<std::reference_wrapper<TItem>> Filter(
       std::vector<TItem> &collection,
       std::function<bool(TItem &item)> predicate = {}) {
-    if (!predicate) predicate = [](TItem &item) { return true; };
+    if (!predicate) predicate = [](TItem &) { return true; };
     std::vector<std::reference_wrapper<TItem>> r_val;
     for (TItem &item : collection)
       if (predicate(item)) r_val.emplace_back(std::ref(item));

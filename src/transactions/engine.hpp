@@ -9,7 +9,6 @@
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/transaction_store.hpp"
-#include "utils/counters/simple_counter.hpp"
 #include "utils/exceptions.hpp"
 
 namespace tx {
@@ -34,6 +33,19 @@ class Engine : Lockable<SpinLock> {
       std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
 
  public:
+  template <class T>
+  class SimpleCounter {
+   public:
+    SimpleCounter(T initial) : counter(initial) {}
+
+    T next() { return ++counter; }
+
+    T count() { return counter; }
+
+   private:
+    T counter;
+  };
+
   /** Begins a transaction and returns a pointer to
    * it's object.
    *

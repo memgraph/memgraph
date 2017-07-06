@@ -3,7 +3,6 @@
 #include <functional>
 
 #include "data_structures/bloom/bloom_filter.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
 
 using StringHashFunction = std::function<uint64_t(const std::string &)>;

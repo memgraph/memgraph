@@ -308,10 +308,8 @@ set(memgraph_src_files
     ${src_dir}/storage/property_value.cpp
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
-    ${src_dir}/template_engine/engine.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/transactions/transaction.cpp
-    ${src_dir}/utils/numerics/saturate.cpp
 )
 # -----------------------------------------------------------------------------
 

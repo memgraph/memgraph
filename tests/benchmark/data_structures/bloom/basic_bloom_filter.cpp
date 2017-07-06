@@ -5,7 +5,6 @@
 #include <glog/logging.h>
 
 #include "data_structures/bloom/bloom_filter.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/hashing/fnv64.hpp"
 #include "utils/random/random_generator.hpp"
 
@@ -30,6 +29,7 @@ auto BM_Bloom = [](benchmark::State &state, auto *bloom, const auto &elements) {
 };
 
 int main(int argc, char **argv) {
+  benchmark::Initialize(&argc, argv);
   google::InitGoogleLogging(argv[0]);
 
   StringGenerator generator(4);
@@ -48,7 +48,6 @@ int main(int argc, char **argv) {
       ->Range(1, 1 << 16)
       ->Complexity(benchmark::oN);
 
-  benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
   return 0;
 }

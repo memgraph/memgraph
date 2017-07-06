@@ -7,6 +7,10 @@
 
 DECLARE_bool(interpret);
 DECLARE_string(compile_directory);
+DEFINE_string(q, "../data/queries/core/mg_basic_002.txt",
+              "Path to warm up queries");
+DEFINE_string(i, "../integration/hardcoded_query",
+              "Path to folder with query implementations");
 
 using namespace std::chrono_literals;
 using namespace tests::integration;
@@ -19,9 +23,6 @@ using namespace tests::integration;
  * NOTE: This test will be usefull to test generated query plans.
  */
 int main(int argc, char *argv[]) {
-  /**
-   * init arguments
-   */
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   /**

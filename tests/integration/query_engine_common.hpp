@@ -4,6 +4,7 @@
 #include <set>
 namespace fs = std::experimental::filesystem;
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include "database/graph_db_accessor.hpp"
@@ -11,9 +12,11 @@ namespace fs = std::experimental::filesystem;
 #include "query/engine.hpp"
 #include "query/frontend/stripped.hpp"
 #include "stream/print_record_stream.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
+
+DECLARE_string(q);
+DECLARE_string(i);
 
 namespace tests {
 namespace integration {
@@ -149,11 +152,9 @@ auto ExecuteQueryPlans(QueryEngineT &engine, Dbms &dbms, const fs::path &path,
  */
 auto WarmUpEngine(QueryEngineT &engine, Dbms &dbms, StreamT &stream) {
   // path to a file with queries
-  auto queries_file = fs::path(
-      GET_ARG("-q", "../data/queries/core/mg_basic_002.txt").get_string());
+  auto queries_file = fs::path(FLAGS_q);
   // folder with query implementations
-  auto implementations_folder =
-      fs::path(GET_ARG("-i", "../integration/hardcoded_query").get_string());
+  auto implementations_folder = fs::path(FLAGS_i);
 
   // load all query hashes from queries file
   auto query_hashes = LoadQueryHashes(queries_file);

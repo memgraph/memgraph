@@ -2,10 +2,10 @@
 #include <thread>
 
 #include <benchmark/benchmark_api.h>
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "utils/command_line/arguments.hpp"
 #include "utils/random/random_generator.hpp"
 
 /*
@@ -27,6 +27,11 @@ using utils::random::StringGenerator;
 
 using IntegerGenerator = NumberGenerator<std::uniform_int_distribution<int>,
                                          std::default_random_engine, int>;
+
+DEFINE_int32(start, 0, "Range start");
+DEFINE_int32(end, 1000000000, "Range end");
+DEFINE_int32(threads, 1, "Number of threads");
+DEFINE_int32(string_length, 128, "String length");
 
 // Global arguments
 int MAX_ELEMENTS = 1 << 18, MULTIPLIER = 2;
@@ -105,23 +110,19 @@ auto BM_ContainsValue = [](benchmark::State &state, auto *map, auto elements) {
    * Random String lenght
       -string-length number
 */
-void parse_arguments(int argc, char **argv) {
-  REGISTER_ARGS(argc, argv);
+void parse_arguments() {
+  RANGE_START = FLAGS_start;
+  RANGE_END = FLAGS_end;
 
-  RANGE_START = GET_ARG("-start", "0").get_int();
-  RANGE_END = GET_ARG("-end", "1000000000").get_int();
-
-  THREADS = std::min(GET_ARG("-threads", "1").get_int(),
-                     (int)std::thread::hardware_concurrency());
-
-  STRING_LENGTH =
-      ProgramArguments::instance().get_arg("-string-length", "128").get_int();
+  THREADS = std::min(FLAGS_threads,
+                     static_cast<int>(std::thread::hardware_concurrency()));
+  STRING_LENGTH = FLAGS_string_length;
 }
 
 int main(int argc, char **argv) {
+  benchmark::Initialize(&argc, argv);
+  parse_arguments();
   google::InitGoogleLogging(argv[0]);
-
-  parse_arguments(argc, argv);
 
   StringGenerator sg(STRING_LENGTH);
   IntegerGenerator ig(RANGE_START, RANGE_END);
@@ -245,7 +246,6 @@ int main(int argc, char **argv) {
       ->Complexity(benchmark::oN)
       ->Threads(THREADS);
 
-  benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
 
   return 0;

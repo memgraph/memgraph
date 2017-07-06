@@ -1,19 +1,24 @@
 #define HARDCODED_OUTPUT_STREAM
+#include <gflags/gflags.h>
 #include "../integration/query_engine_common.hpp"
 #include "dbms/dbms.hpp"
 
 #include "utils/fswatcher.hpp"
 
+// Needed by query_engine_common.hpp.
+DEFINE_string(q, "../data/queries/core/mg_basic_002.txt",
+              "Path to warm up queries");
+DEFINE_string(i, "../integration/hardcoded_query",
+              "Path to folder with query implementations");
+
 using namespace std::chrono_literals;
 using namespace tests::integration;
 
 int main(int argc, char *argv[]) {
-  // init arguments
-  REGISTER_ARGS(argc, argv);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   // forlder with query implementations
-  auto implementations_folder =
-      fs::path(GET_ARG("-i", "tests/integration/hardcoded_query").get_string());
+  auto implementations_folder = fs::path(FLAGS_i);
 
   // init engine
   init_logging("ManualQueryEngine");
