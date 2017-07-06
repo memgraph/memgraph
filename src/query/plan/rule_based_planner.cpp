@@ -140,6 +140,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  ReturnType Visit(query::CreateIndex &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -445,6 +446,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     has_aggregation_.pop_back();
     return true;
   }
+
+  bool Visit(query::CreateIndex &) override { return true; }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.
   // This should be used when body.all_identifiers is true, to generate

@@ -154,6 +154,12 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitCreate(CypherParser::CreateContext *ctx) override;
 
   /**
+   * @return CreateIndex*
+   */
+  antlrcpp::Any visitCreateIndex(
+      CypherParser::CreateIndexContext *ctx) override;
+
+  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(

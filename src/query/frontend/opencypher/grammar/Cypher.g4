@@ -39,6 +39,7 @@ clause : cypherMatch
        | remove
        | with
        | cypherReturn
+       | createIndex
        ;
 
 cypherMatch : ( OPTIONAL SP )? MATCH SP? pattern ( SP? where )? ;
@@ -252,6 +253,8 @@ integerLiteral : HexInteger
                | DecimalInteger
                ;
 
+createIndex : CREATE SP INDEX SP ON SP? ':' SP? labelName SP? '(' SP? propertyKeyName SP? ')' ;
+
 HexInteger : '0x' ( HexDigit )+ ;
 
 DecimalInteger : ZeroDigit
@@ -437,6 +440,8 @@ SINGLE : ( 'S' | 's' ) ( 'I' | 'i' ) ( 'N' | 'n' ) ( 'G' | 'g' ) ( 'L' | 'l' ) (
 TRUE : ( 'T' | 't' ) ( 'R' | 'r' ) ( 'U' | 'u' ) ( 'E' | 'e' )  ;
 
 FALSE : ( 'F' | 'f' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'S' | 's' ) ( 'E' | 'e' )  ;
+
+INDEX : ( 'I' | 'i') ( 'N' | 'n' ) ( 'D' | 'd' ) ( 'E' | 'e' ) ( 'X' | 'x' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

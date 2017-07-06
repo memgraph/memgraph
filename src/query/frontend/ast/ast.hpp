@@ -1389,6 +1389,26 @@ class Unwind : public Clause {
   }
 };
 
+class CreateIndex : public Clause {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  CreateIndex *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<CreateIndex>(label_, property_);
+  }
+
+  GraphDbTypes::Label label_;
+  GraphDbTypes::Property property_;
+
+ protected:
+  CreateIndex(int uid, GraphDbTypes::Label label,
+              GraphDbTypes::Property property)
+      : Clause(uid), label_(label), property_(property) {}
+};
+
 /// CachedAst is used for storing high level asts.
 ///
 /// After query is stripped, parsed and converted to high level ast it can be
@@ -1442,6 +1462,7 @@ class CachedAst {
     }
 
     bool Visit(Identifier &) override { return true; }
+    bool Visit(CreateIndex &) override { return true; }
 
     bool PreVisit(Return &) override {
       in_return_ = true;

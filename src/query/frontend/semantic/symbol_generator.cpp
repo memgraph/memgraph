@@ -109,11 +109,11 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 
 // Clauses
 
-bool SymbolGenerator::PreVisit(Create &create) {
+bool SymbolGenerator::PreVisit(Create &) {
   scope_.in_create = true;
   return true;
 }
-bool SymbolGenerator::PostVisit(Create &create) {
+bool SymbolGenerator::PostVisit(Create &) {
   scope_.in_create = false;
   return true;
 }
@@ -174,6 +174,8 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope_.identifiers_in_property_maps.clear();
   return true;
 }
+
+bool SymbolGenerator::Visit(CreateIndex &) { return true; }
 
 // Expressions
 
@@ -242,7 +244,7 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Aggregation &aggr) {
+bool SymbolGenerator::PostVisit(Aggregation &) {
   scope_.in_aggregation = false;
   return true;
 }
@@ -259,7 +261,7 @@ bool SymbolGenerator::PreVisit(Pattern &pattern) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Pattern &pattern) {
+bool SymbolGenerator::PostVisit(Pattern &) {
   scope_.in_pattern = false;
   scope_.in_create_node = false;
   return true;
@@ -285,7 +287,7 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   return false;
 }
 
-bool SymbolGenerator::PostVisit(NodeAtom &node_atom) {
+bool SymbolGenerator::PostVisit(NodeAtom &) {
   scope_.in_node_atom = false;
   return true;
 }
@@ -315,7 +317,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
   return false;
 }
 
-bool SymbolGenerator::PostVisit(EdgeAtom &edge_atom) {
+bool SymbolGenerator::PostVisit(EdgeAtom &) {
   scope_.in_edge_atom = false;
   scope_.in_create_edge = false;
   return true;

@@ -43,6 +43,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_update = false;
   bool has_return = false;
   bool has_optional_match = false;
+  bool has_create_index = false;
   for (Clause *clause : query_->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
@@ -80,13 +81,21 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
         throw SemanticException("Return can't be before with");
       }
       has_update = has_return = has_optional_match = false;
+    } else if (dynamic_cast<CreateIndex *>(clause)) {
+      // If there is CreateIndex clause then there shouldn't be anything else.
+      if (query_->clauses_.size() != 1U) {
+        throw SemanticException(
+            "CreateIndex must be only clause in the query.");
+      }
+      has_create_index = true;
     } else {
       debug_assert(false, "Can't happen");
     }
   }
-  if (!has_update && !has_return) {
+  if (!has_update && !has_return && !has_create_index) {
     throw SemanticException(
-        "Query should either update something or return results");
+        "Query should either update something, return results or create an "
+        "index");
   }
 
   // Construct unique names for anonymous identifiers;
@@ -136,6 +145,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->unwind()) {
     return static_cast<Clause *>(ctx->unwind()->accept(this).as<Unwind *>());
   }
+  if (ctx->createIndex()) {
+    return static_cast<Clause *>(
+        ctx->createIndex()->accept(this).as<CreateIndex *>());
+  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented();
   return 0;
@@ -156,7 +169,16 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
   auto *create = storage_.Create<Create>();
   create->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
   return create;
-  ;
+}
+
+/**
+ * @return CreateIndex*
+ */
+antlrcpp::Any CypherMainVisitor::visitCreateIndex(
+    CypherParser::CreateIndexContext *ctx) {
+  return storage_.Create<CreateIndex>(
+      ctx_.db_accessor_.label(ctx->labelName()->accept(this)),
+      ctx->propertyKeyName()->accept(this));
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
@@ -598,7 +620,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression6(
 // Power.
 antlrcpp::Any CypherMainVisitor::visitExpression5(
     CypherParser::Expression5Context *ctx) {
-  if (ctx->expression4().size() > 1u) {
+  if (ctx->expression4().size() > 1U) {
     // TODO: implement power operator. In neo4j power is left associative and
     // int^int -> float.
     throw utils::NotYetImplemented();

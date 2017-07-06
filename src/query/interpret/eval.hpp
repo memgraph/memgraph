@@ -51,6 +51,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   BLOCK_VISIT(RemoveLabels);
   BLOCK_VISIT(Merge);
   BLOCK_VISIT(Unwind);
+  BLOCK_VISIT(CreateIndex);
 
 #undef BLOCK_VISIT
 

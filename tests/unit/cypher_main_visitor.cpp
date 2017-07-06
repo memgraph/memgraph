@@ -1225,6 +1225,14 @@ TYPED_TEST(CypherMainVisitorTest, ClausesOrdering) {
                SemanticException);
   TypeParam("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
   TypeParam("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
+
+  TypeParam("CREATE INDEX ON :a(b)");
+  ASSERT_THROW(TypeParam("CREATE INDEX ON :a(n) CREATE INDEX ON :b(c)"),
+               SemanticException);
+  ASSERT_THROW(TypeParam("CREATE (n) CREATE INDEX ON :a(n)"),
+               SemanticException);
+  ASSERT_THROW(TypeParam("CREATE INDEX ON :a(n) RETURN 2 + 2"),
+               SemanticException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, Merge) {
@@ -1260,5 +1268,16 @@ TYPED_TEST(CypherMainVisitorTest, Unwind) {
 
 TYPED_TEST(CypherMainVisitorTest, UnwindWithoutAsError) {
   EXPECT_THROW(TypeParam("UNWIND [1,2,3] RETURN 42"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
+  TypeParam ast_generator("Create InDeX oN :mirko(slavko)");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *create_index = dynamic_cast<CreateIndex *>(query->clauses_[0]);
+  ASSERT_TRUE(create_index);
+  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->label("mirko"));
+  ASSERT_EQ(create_index->property_,
+            ast_generator.db_accessor_->property("slavko"));
 }
 }
