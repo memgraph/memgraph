@@ -68,7 +68,7 @@ void CheckPlansProduce(
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto plans =
-      MakeLogicalPlan<VariableStartPlanner>(storage, symbol_table, &dba);
+      MakeLogicalPlan<VariableStartPlanner>(storage, symbol_table, dba);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());

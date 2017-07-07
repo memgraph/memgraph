@@ -655,18 +655,13 @@ void AddMatching(const Match &match, const SymbolTable &symbol_table,
 }
 
 const GraphDbTypes::Label &FindBestLabelIndex(
-    const GraphDbAccessor *db, const std::set<GraphDbTypes::Label> &labels) {
+    const GraphDbAccessor &db, const std::set<GraphDbTypes::Label> &labels) {
   debug_assert(!labels.empty(),
                "Trying to find the best label without any labels.");
-  if (!db) {
-    // We don't have a database to get index information, so just take the first
-    // label.
-    return *labels.begin();
-  }
   return *std::min_element(labels.begin(), labels.end(),
-                           [db](const auto &label1, const auto &label2) {
-                             return db->vertices_count(label1) <
-                                    db->vertices_count(label2);
+                           [&db](const auto &label1, const auto &label2) {
+                             return db.vertices_count(label1) <
+                                    db.vertices_count(label2);
                            });
 }
 
@@ -676,16 +671,12 @@ const GraphDbTypes::Label &FindBestLabelIndex(
 // function will return `false` while leaving `best_label` and `best_property`
 // unchanged.
 bool FindBestLabelPropertyIndex(
-    const GraphDbAccessor *db, const std::set<GraphDbTypes::Label> &labels,
+    const GraphDbAccessor &db, const std::set<GraphDbTypes::Label> &labels,
     const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
         &property_filters,
     const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
     GraphDbTypes::Label &best_label,
     std::pair<GraphDbTypes::Property, Filters::PropertyFilter> &best_property) {
-  if (!db) {
-    // Without the database, we cannot determine whether the index even exists.
-    return false;
-  }
   auto are_bound = [&bound_symbols](const auto &used_symbols) {
     for (const auto &used_symbol : used_symbols) {
       if (bound_symbols.find(used_symbol) == bound_symbols.end()) {
@@ -699,8 +690,8 @@ bool FindBestLabelPropertyIndex(
   for (const auto &label : labels) {
     for (const auto &prop_pair : property_filters) {
       const auto &property = prop_pair.first;
-      if (db->LabelPropertyIndexExists(label, property)) {
-        auto vertices_count = db->vertices_count(label, property);
+      if (db.LabelPropertyIndexExists(label, property)) {
+        auto vertices_count = db.vertices_count(label, property);
         if (vertices_count < min_count) {
           for (const auto &prop_filter : prop_pair.second) {
             if (prop_filter.used_symbols.find(symbol) !=

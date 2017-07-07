@@ -82,7 +82,7 @@ class Interpreter {
     double query_plan_cost_estimation = 0.0;
     if (FLAGS_query_cost_planner) {
       auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
-          ast_storage, symbol_table, &db_accessor);
+          ast_storage, symbol_table, db_accessor);
       double min_cost = std::numeric_limits<double>::max();
       for (auto &plan : plans) {
         plan::CostEstimator estimator(db_accessor);
@@ -98,7 +98,7 @@ class Interpreter {
       query_plan_cost_estimation = min_cost;
     } else {
       logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-          ast_storage, symbol_table, &db_accessor);
+          ast_storage, symbol_table, db_accessor);
       plan::CostEstimator cost_estimator(db_accessor);
       logical_plan->Accept(cost_estimator);
       query_plan_cost_estimation = cost_estimator.cost();

@@ -141,10 +141,10 @@ struct PlanningContext {
   /// @brief The storage is used to traverse the AST as well as create new nodes
   /// for use in operators.
   AstTreeStorage &ast_storage;
-  /// @brief Optional GraphDbAccessor, which may be used to get some information
-  /// from the database to generate better plans. The accessor is required only
-  /// to live long enough for the plan generation to finish.
-  const GraphDbAccessor *db = nullptr;
+  /// @brief GraphDbAccessor, which may be used to get some information from the
+  /// database to generate better plans. The accessor is required only to live
+  /// long enough for the plan generation to finish.
+  const GraphDbAccessor &db;
   /// @brief Symbol set is used to differentiate cycles in pattern matching.
   ///
   /// During planning, symbols will be added as each operator produces values
@@ -216,9 +216,9 @@ std::vector<QueryPart> CollectQueryParts(const SymbolTable &, AstTreeStorage &);
 /// @sa RuleBasedPlanner
 /// @sa VariableStartPlanner
 template <class TPlanner>
-typename TPlanner::PlanResult MakeLogicalPlan(
-    AstTreeStorage &storage, SymbolTable &symbol_table,
-    const GraphDbAccessor *db = nullptr) {
+typename TPlanner::PlanResult MakeLogicalPlan(AstTreeStorage &storage,
+                                              SymbolTable &symbol_table,
+                                              const GraphDbAccessor &db) {
   auto query_parts = CollectQueryParts(symbol_table, storage);
   PlanningContext context{symbol_table, storage, db};
   return TPlanner(context).Plan(query_parts);
