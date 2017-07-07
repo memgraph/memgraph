@@ -52,7 +52,7 @@ class PrintOperatorTree(gdb.Command):
         next_op = operator.cast(operator.dynamic_type)
         tree = []
         while next_op is not None:
-            tree.append('* %s' % next_op.type.name)
+            tree.append('* %s <%s>' % (next_op.type.name, next_op.address))
             next_op = _get_operator_input(next_op)
         print('\n'.join(tree))
 

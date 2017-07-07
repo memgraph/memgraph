@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
 namespace query::plan {
@@ -166,59 +168,6 @@ Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
   return expr1 ? expr1 : expr2;
 }
 
-template <class TAtom>
-Expression *PropertiesEqual(AstTreeStorage &storage,
-                            UsedSymbolsCollector &collector, TAtom *atom) {
-  Expression *filter_expr = nullptr;
-  for (auto &prop_pair : atom->properties_) {
-    prop_pair.second->Accept(collector);
-    auto *property_lookup =
-        storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
-    auto *prop_equal =
-        storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-    filter_expr = BoolJoin<FilterAndOperator>(storage, filter_expr, prop_equal);
-  }
-  return filter_expr;
-}
-
-void CollectPatternFilters(
-    Pattern &pattern, const SymbolTable &symbol_table,
-    std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> &filters,
-    AstTreeStorage &storage) {
-  UsedSymbolsCollector collector(symbol_table);
-  auto node_filter = [&](NodeAtom *node) {
-    Expression *labels_filter =
-        node->labels_.empty() ? nullptr : storage.Create<LabelsTest>(
-                                              node->identifier_, node->labels_);
-    auto *props_filter = PropertiesEqual(storage, collector, node);
-    if (labels_filter || props_filter) {
-      collector.symbols_.insert(symbol_table.at(*node->identifier_));
-      filters.emplace_back(
-          BoolJoin<FilterAndOperator>(storage, labels_filter, props_filter),
-          collector.symbols_);
-      collector.symbols_.clear();
-    }
-  };
-  auto expand_filter = [&](NodeAtom *prev_node, EdgeAtom *edge,
-                           NodeAtom *node) {
-    Expression *types_filter = edge->edge_types_.empty()
-                                   ? nullptr
-                                   : storage.Create<EdgeTypeTest>(
-                                         edge->identifier_, edge->edge_types_);
-    auto *props_filter = PropertiesEqual(storage, collector, edge);
-    if (types_filter || props_filter) {
-      const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-      collector.symbols_.insert(edge_symbol);
-      filters.emplace_back(
-          BoolJoin<FilterAndOperator>(storage, types_filter, props_filter),
-          collector.symbols_);
-      collector.symbols_.clear();
-    }
-    node_filter(node);
-  };
-  ForeachPattern(pattern, node_filter, expand_filter);
-}
-
 // Contextual information used for generating match operators.
 struct MatchContext {
   const SymbolTable &symbol_table;
@@ -232,16 +181,18 @@ struct MatchContext {
   std::vector<Symbol> new_symbols;
 };
 
-auto GenFilters(
-    LogicalOperator *last_op, const std::unordered_set<Symbol> &bound_symbols,
-    std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> &filters,
-    AstTreeStorage &storage) {
+auto GenFilters(LogicalOperator *last_op,
+                const std::unordered_set<Symbol> &bound_symbols,
+                std::vector<std::pair<Expression *, std::unordered_set<Symbol>>>
+                    &all_filters,
+                AstTreeStorage &storage) {
   Expression *filter_expr = nullptr;
-  for (auto filters_it = filters.begin(); filters_it != filters.end();) {
+  for (auto filters_it = all_filters.begin();
+       filters_it != all_filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
       filter_expr =
           BoolJoin<FilterAndOperator>(storage, filter_expr, filters_it->first);
-      filters_it = filters.erase(filters_it);
+      filters_it = all_filters.erase(filters_it);
     } else {
       filters_it++;
     }
@@ -691,12 +642,10 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
   matching.expansions.insert(matching.expansions.end(), expansions.begin(),
                              expansions.end());
   for (auto *pattern : patterns) {
-    CollectPatternFilters(*pattern, symbol_table, matching.filters, storage);
+    matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
   }
   if (where) {
-    UsedSymbolsCollector collector(symbol_table);
-    where->expression_->Accept(collector);
-    matching.filters.emplace_back(where->expression_, collector.symbols_);
+    matching.filters.CollectWhereFilter(*where, symbol_table);
   }
 }
 void AddMatching(const Match &match, const SymbolTable &symbol_table,
@@ -706,19 +655,76 @@ void AddMatching(const Match &match, const SymbolTable &symbol_table,
 }
 
 const GraphDbTypes::Label &FindBestLabelIndex(
-    const std::vector<GraphDbTypes::Label> &labels, const GraphDbAccessor *db) {
+    const GraphDbAccessor *db, const std::set<GraphDbTypes::Label> &labels) {
   debug_assert(!labels.empty(),
                "Trying to find the best label without any labels.");
   if (!db) {
     // We don't have a database to get index information, so just take the first
     // label.
-    return labels.front();
+    return *labels.begin();
   }
   return *std::min_element(labels.begin(), labels.end(),
                            [db](const auto &label1, const auto &label2) {
                              return db->vertices_count(label1) <
                                     db->vertices_count(label2);
                            });
+}
+
+// Finds the label-property combination which has indexed the lowest amount of
+// vertices. `best_label` and `best_property` will be set to that combination
+// and the function will return `true`. If the index cannot be found, the
+// function will return `false` while leaving `best_label` and `best_property`
+// unchanged.
+bool FindBestLabelPropertyIndex(
+    const GraphDbAccessor *db, const std::set<GraphDbTypes::Label> &labels,
+    const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
+        &property_filters,
+    const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
+    GraphDbTypes::Label &best_label,
+    std::pair<GraphDbTypes::Property, Filters::PropertyFilter> &best_property) {
+  if (!db) {
+    // Without the database, we cannot determine whether the index even exists.
+    return false;
+  }
+  auto are_bound = [&bound_symbols](const auto &used_symbols) {
+    for (const auto &used_symbol : used_symbols) {
+      if (bound_symbols.find(used_symbol) == bound_symbols.end()) {
+        return false;
+      }
+    }
+    return true;
+  };
+  bool found = false;
+  size_t min_count = std::numeric_limits<size_t>::max();
+  for (const auto &label : labels) {
+    for (const auto &prop_pair : property_filters) {
+      const auto &property = prop_pair.first;
+      if (db->LabelPropertyIndexExists(label, property)) {
+        auto vertices_count = db->vertices_count(label, property);
+        if (vertices_count < min_count) {
+          for (const auto &prop_filter : prop_pair.second) {
+            if (prop_filter.used_symbols.find(symbol) !=
+                prop_filter.used_symbols.end()) {
+              // Skip filter expressions which use the symbol whose property we
+              // are looking up. We cannot scan by such expressions. For
+              // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so
+              // we cannot scan `n` by property index.
+              continue;
+            }
+            if (are_bound(prop_filter.used_symbols)) {
+              // Take the first property filter which uses bound symbols.
+              best_label = label;
+              best_property = {property, prop_filter};
+              min_count = vertices_count;
+              found = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return found;
 }
 
 LogicalOperator *PlanMatching(const Matching &matching,
@@ -728,27 +734,51 @@ LogicalOperator *PlanMatching(const Matching &matching,
   auto &bound_symbols = context.bound_symbols;
   auto &storage = planning_ctx.ast_storage;
   const auto &symbol_table = context.symbol_table;
-  // Copy filters, because we will modify the list as we generate Filters.
-  auto filters = matching.filters;
+  // Copy all_filters, because we will modify the list as we generate Filters.
+  auto all_filters = matching.filters.all_filters();
   // Try to generate any filters even before the 1st match operator. This
   // optimizes the optional match which filters only on symbols bound in regular
   // match.
-  auto *last_op = GenFilters(input_op, bound_symbols, filters, storage);
+  auto *last_op = GenFilters(input_op, bound_symbols, all_filters, storage);
   for (const auto &expansion : matching.expansions) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
     if (BindSymbol(bound_symbols, node1_symbol)) {
       // We have just bound this symbol, so generate ScanAll which fills it.
-      const auto &labels = expansion.node1->labels_;
+      auto labels = FindOr(matching.filters.label_filters(), node1_symbol,
+                           std::set<GraphDbTypes::Label>())
+                        .first;
       if (labels.empty()) {
+        // Without labels, we can only generate ScanAll of everything.
         last_op = new ScanAll(std::shared_ptr<LogicalOperator>(last_op),
                               node1_symbol, context.graph_view);
       } else {
-        auto label = FindBestLabelIndex(labels, planning_ctx.db);
-        last_op = new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
-                                     node1_symbol, label, context.graph_view);
+        // With labels, we can scan indexed data. First, try to see if we can
+        // use label+property index. If not, use just the label index (which
+        // ought to exist).
+        GraphDbTypes::Label best_label;
+        std::pair<GraphDbTypes::Property, Filters::PropertyFilter>
+            best_property;
+        auto properties =
+            FindOr(matching.filters.property_filters(), node1_symbol,
+                   std::map<GraphDbTypes::Property,
+                            std::vector<Filters::PropertyFilter>>())
+                .first;
+        if (FindBestLabelPropertyIndex(planning_ctx.db, labels, properties,
+                                       node1_symbol, bound_symbols, best_label,
+                                       best_property)) {
+          last_op = new ScanAllByLabelPropertyValue(
+              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+              best_label, best_property.first, best_property.second.expression,
+              context.graph_view);
+        } else {
+          auto label = FindBestLabelIndex(planning_ctx.db, labels);
+          last_op =
+              new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
+                                 node1_symbol, label, context.graph_view);
+        }
       }
       context.new_symbols.emplace_back(node1_symbol);
-      last_op = GenFilters(last_op, bound_symbols, filters, storage);
+      last_op = GenFilters(last_op, bound_symbols, all_filters, storage);
     }
     // We have an edge, so generate Expand.
     if (expansion.edge) {
@@ -795,10 +825,10 @@ LogicalOperator *PlanMatching(const Matching &matching,
           }
         }
       }
-      last_op = GenFilters(last_op, bound_symbols, filters, storage);
+      last_op = GenFilters(last_op, bound_symbols, all_filters, storage);
     }
   }
-  debug_assert(filters.empty(), "Expected to generate all filters");
+  debug_assert(all_filters.empty(), "Expected to generate all filters");
   return last_op;
 }
 
@@ -829,6 +859,116 @@ auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
 }
 
 }  // namespace
+
+// Analyzes the filter expression by collecting information on filtering labels
+// and properties to be used with indexing. Note that all filters are never
+// updated here, but only labels and properties are.
+void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
+  auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
+                                auto *&ident) {
+    return (prop_lookup = dynamic_cast<PropertyLookup *>(maybe_lookup)) &&
+           (ident = dynamic_cast<Identifier *>(prop_lookup->expression_));
+  };
+  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
+      UsedSymbolsCollector collector(symbol_table);
+      val_expr->Accept(collector);
+      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
+          .emplace_back(PropertyFilter{collector.symbols_, val_expr});
+    }
+  };
+  // We are only interested to see the insides of And, because Or prevents
+  // indexing since any labels and properties found there may be optional.
+  if (auto *and_op = dynamic_cast<AndOperator *>(expr)) {
+    AnalyzeFilter(and_op->expression1_, symbol_table);
+    AnalyzeFilter(and_op->expression2_, symbol_table);
+  } else if (auto *labels_test = dynamic_cast<LabelsTest *>(expr)) {
+    // Since LabelsTest may contain any expression, we can only use the
+    // simplest test on an identifier.
+    if (auto *ident = dynamic_cast<Identifier *>(labels_test->expression_)) {
+      const auto &symbol = symbol_table.at(*ident);
+      label_filters_[symbol].insert(labels_test->labels_.begin(),
+                                    labels_test->labels_.end());
+    }
+  } else if (auto *eq = dynamic_cast<EqualOperator *>(expr)) {
+    // Try to get property equality test from the top expressions.
+    // Unfortunately, we cannot go deeper inside Equal, because chained equals
+    // need not correspond to And. For example, `(n.prop = value) = false)`:
+    //         EQ
+    //       /    \
+    //      EQ   false  -- top expressions
+    //    /    \
+    // n.prop  value
+    // Here the `prop` may be different than `value` resulting in `false`. This
+    // would compare with the top level `false`, producing `true`. Therefore, it
+    // is incorrect to pick up `n.prop = value` for scanning by property index.
+    add_prop_equal(eq->expression1_, eq->expression2_);
+    // And reversed.
+    add_prop_equal(eq->expression2_, eq->expression1_);
+  }
+  // TODO: Collect potential property indexing by range.
+  return;
+}
+
+void Filters::CollectPatternFilters(Pattern &pattern,
+                                    const SymbolTable &symbol_table,
+                                    AstTreeStorage &storage) {
+  UsedSymbolsCollector collector(symbol_table);
+  auto add_properties_filter = [&](auto *atom) {
+    const auto &symbol = symbol_table.at(*atom->identifier_);
+    for (auto &prop_pair : atom->properties_) {
+      collector.symbols_.clear();
+      prop_pair.second->Accept(collector);
+      // Store a PropertyFilter on the value of the property.
+      property_filters_[symbol][prop_pair.first].emplace_back(
+          PropertyFilter{collector.symbols_, prop_pair.second});
+      // Create an equality expression and store it in all_filters_.
+      auto *property_lookup =
+          storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+      auto *prop_equal =
+          storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+      collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
+      all_filters_.emplace_back(prop_equal, collector.symbols_);
+    }
+  };
+  auto add_node_filter = [&](NodeAtom *node) {
+    const auto &node_symbol = symbol_table.at(*node->identifier_);
+    if (!node->labels_.empty()) {
+      // Store the filtered labels.
+      label_filters_[node_symbol].insert(node->labels_.begin(),
+                                         node->labels_.end());
+      // Create a LabelsTest and store it in all_filters_.
+      all_filters_.emplace_back(
+          storage.Create<LabelsTest>(node->identifier_, node->labels_),
+          std::unordered_set<Symbol>{node_symbol});
+    }
+    add_properties_filter(node);
+  };
+  auto add_expand_filter = [&](NodeAtom *prev_node, EdgeAtom *edge,
+                               NodeAtom *node) {
+    const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    if (!edge->edge_types_.empty()) {
+      all_filters_.emplace_back(
+          storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),
+          std::unordered_set<Symbol>{edge_symbol});
+    }
+    add_properties_filter(edge);
+    add_node_filter(node);
+  };
+  ForeachPattern(pattern, add_node_filter, add_expand_filter);
+}
+
+// Adds the where filter expression to all filters and collects additional
+// information for potential property and label indexing.
+void Filters::CollectWhereFilter(Where &where,
+                                 const SymbolTable &symbol_table) {
+  UsedSymbolsCollector collector(symbol_table);
+  where.expression_->Accept(collector);
+  all_filters_.emplace_back(where.expression_, collector.symbols_);
+  AnalyzeFilter(where.expression_, symbol_table);
+}
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.

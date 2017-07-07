@@ -26,7 +26,54 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
 };
 
-/// @brief Normalized representation of a single or multiple Match clauses.
+/// Stores information on filters used inside the @c Matching of a @c QueryPart.
+class Filters {
+ public:
+  /// Stores the symbols and expression used to filter a property.
+  struct PropertyFilter {
+    /// Set of used symbols in the @c expression.
+    std::unordered_set<Symbol> used_symbols;
+    /// Expression which when evaluated produces the value a property must
+    /// equal.
+    Expression *expression;
+  };
+
+  /// All filter expressions that should be generated.
+  auto &all_filters() { return all_filters_; }
+  const auto &all_filters() const { return all_filters_; }
+  /// Mapping from a symbol to labels that are filtered on it. These should be
+  /// used only for generating indexed scans.
+  const auto &label_filters() const { return label_filters_; }
+  /// Mapping from a symbol to properties that are filtered on it. These should
+  /// be used only for generating indexed scans.
+  const auto &property_filters() const { return property_filters_; }
+
+  /// Collects filtering information from a pattern.
+  ///
+  /// Goes through all the atoms in a pattern and generates filter expressions
+  /// for found labels, properties and edge types. The generated expressions are
+  /// stored in @c all_filters. Also, @c label_filters and @c property_filters
+  /// are populated.
+  void CollectPatternFilters(Pattern &, const SymbolTable &, AstTreeStorage &);
+  /// Collects filtering information from a where expression.
+  ///
+  /// Takes the where expression and stores it in @c all_filters, then analyzes
+  /// the expression for additional information. The additional information is
+  /// used to populate @c label_filters and @c property_filters, so that indexed
+  /// scanning can use it.
+  void CollectWhereFilter(Where &, const SymbolTable &);
+
+ private:
+  void AnalyzeFilter(Expression *, const SymbolTable &);
+
+  std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> all_filters_;
+  std::unordered_map<Symbol, std::set<GraphDbTypes::Label>> label_filters_;
+  std::unordered_map<
+      Symbol, std::map<GraphDbTypes::Property, std::vector<PropertyFilter>>>
+      property_filters_;
+};
+
+/// Normalized representation of a single or multiple Match clauses.
 ///
 /// For example, `MATCH (a :Label) -[e1]- (b) -[e2]- (c) MATCH (n) -[e3]- (m)
 /// WHERE c.prop < 42` will produce the following.
@@ -37,16 +84,15 @@ struct Expansion {
 /// Filters will contain 2 pairs. One for testing `:Label` on symbol `a` and the
 /// other obtained from `WHERE` on symbol `c`.
 struct Matching {
-  /// @brief All expansions that need to be performed across @c Match clauses.
+  /// All expansions that need to be performed across @c Match clauses.
   std::vector<Expansion> expansions;
-  /// @brief Symbols for edges established in match, used to ensure
-  /// Cyphermorphism.
+  /// Symbols for edges established in match, used to ensure Cyphermorphism.
   ///
   /// There are multiple sets, because each Match clause determines a single
   /// set.
   std::vector<std::unordered_set<Symbol>> edge_symbols;
-  /// @brief Pairs of filter expression and symbols used in them.
-  std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> filters;
+  /// Information on used filter expressions while matching.
+  Filters filters;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on

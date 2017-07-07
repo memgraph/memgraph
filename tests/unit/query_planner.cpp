@@ -50,6 +50,8 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Delete);
   PRE_VISIT(ScanAll);
   PRE_VISIT(ScanAllByLabel);
+  PRE_VISIT(ScanAllByLabelPropertyValue);
+  PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(Expand);
   PRE_VISIT(Filter);
   PRE_VISIT(Produce);
@@ -118,6 +120,8 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
+using ExpectScanAllByLabelPropertyRange =
+    OpChecker<ScanAllByLabelPropertyRange>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectProduce = OpChecker<Produce>;
@@ -206,6 +210,27 @@ class ExpectOptional : public OpChecker<Optional> {
 
  private:
   const std::list<BaseOpChecker *> &optional_;
+};
+
+class ExpectScanAllByLabelPropertyValue
+    : public OpChecker<ScanAllByLabelPropertyValue> {
+ public:
+  ExpectScanAllByLabelPropertyValue(GraphDbTypes::Label label,
+                                    GraphDbTypes::Property property,
+                                    query::Expression *expression)
+      : label_(label), property_(property), expression_(expression) {}
+
+  void ExpectOp(ScanAllByLabelPropertyValue &scan_all,
+                const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label(), label_);
+    EXPECT_EQ(scan_all.property(), property_);
+    EXPECT_EQ(scan_all.expression(), expression_);
+  }
+
+ private:
+  GraphDbTypes::Label label_;
+  GraphDbTypes::Property property_;
+  query::Expression *expression_;
 };
 
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
@@ -934,6 +959,144 @@ TEST(TestLogicalPlanner, CreateIndex) {
   AstTreeStorage storage;
   QUERY(CREATE_INDEX_ON(label, property));
   CheckPlan(storage, ExpectCreateIndex(label, property));
+}
+
+TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
+  // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  auto not_indexed = dba->property("not_indexed");
+  auto vertex = dba->insert_vertex();
+  vertex.add_label(label);
+  vertex.PropsSet(property, 42);
+  dba->commit();
+  dba = dbms.active();
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  auto node = NODE("n", label);
+  auto lit_42 = LITERAL(42);
+  node->properties_[property] = lit_42;
+  node->properties_[not_indexed] = LITERAL(0);
+  QUERY(MATCH(PATTERN(node)), RETURN("n"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan =
+      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, dba.get());
+  CheckPlan(*plan, symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
+  // Test MATCH (n {property: 42}) WHERE n.not_indexed AND n:label RETURN n
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  auto not_indexed = dba->property("not_indexed");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  auto node = NODE("n");
+  auto lit_42 = LITERAL(42);
+  node->properties_[property] = lit_42;
+  QUERY(MATCH(PATTERN(node)),
+        WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
+                  storage.Create<query::LabelsTest>(
+                      IDENT("n"), std::vector<GraphDbTypes::Label>{label}))),
+        RETURN("n"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan =
+      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, dba.get());
+  CheckPlan(*plan, symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
+  // Test MATCH (n :label) WHERE n.property = 42 RETURN n
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  auto lit_42 = LITERAL(42);
+  QUERY(MATCH(PATTERN(NODE("n", label))),
+        WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan =
+      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, dba.get());
+  CheckPlan(*plan, symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, BestPropertyIndexed) {
+  // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->label("label");
+  auto property = dba->property("property");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  // Add a vertex with :label+property combination, so that the best
+  // :label+better remains empty and thus better choice.
+  auto vertex = dba->insert_vertex();
+  vertex.add_label(label);
+  vertex.PropsSet(property, 1);
+  dba->commit();
+  dba = dbms.active();
+  ASSERT_EQ(dba->vertices_count(label, property), 1);
+  auto better = dba->property("better");
+  dba->BuildIndex(label, better);
+  dba = dbms.active();
+  ASSERT_EQ(dba->vertices_count(label, better), 0);
+  auto lit_42 = LITERAL(42);
+  QUERY(MATCH(PATTERN(NODE("n", label))),
+        WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
+                  EQ(PROPERTY_LOOKUP("n", better), lit_42))),
+        RETURN("n"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan =
+      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, dba.get());
+  CheckPlan(*plan, symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, better, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
+  // Test MATCH (n :label1), (m :label2) WHERE n.prop1 = 1 AND m.prop2 = 2
+  //      RETURN n, m
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label1 = dba->label("label1");
+  auto label2 = dba->label("label2");
+  auto prop1 = dba->property("prop1");
+  auto prop2 = dba->property("prop2");
+  dba->BuildIndex(label1, prop1);
+  dba = dbms.active();
+  dba->BuildIndex(label2, prop2);
+  dba = dbms.active();
+  AstTreeStorage storage;
+  auto lit_1 = LITERAL(1);
+  auto lit_2 = LITERAL(2);
+  QUERY(MATCH(PATTERN(NODE("n", label1)), PATTERN(NODE("m", label2))),
+        WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1),
+                  EQ(PROPERTY_LOOKUP("m", prop2), lit_2))),
+        RETURN("n", "m"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan =
+      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, dba.get());
+  CheckPlan(*plan, symbol_table,
+            ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
+            ExpectFilter(),
+            ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2),
+            ExpectFilter(), ExpectProduce());
 }
 
 }  // namespace

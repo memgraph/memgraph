@@ -303,7 +303,7 @@ class GraphDbAccessor {
    * is ready for use.
    */
   bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
-                                const GraphDbTypes::Property &property) {
+                                const GraphDbTypes::Property &property) const {
     return db_.label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
   }
