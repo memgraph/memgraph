@@ -19,10 +19,10 @@ def main():
     argp.add_argument('--neo4j-latency',
                       help='Path to the json of neo4j latency')
     args = argp.parse_args()
-   
+
     fig = plt.gcf()
     fig.set_size_inches(10, 16)
- 
+
     with open(args.neo4j_latency) as json_file:
         json_neo = json.load(json_file)
 

@@ -51,10 +51,3 @@ TCK Engine problems:
          | -properties | 1 |
 
          Database is returning properties_set, not properties_created and properties_deleted.
-
-## KPI Service
-
-Flask application used to get results from executing tests with TCK Engine.
-Application can be ran executing:
-
-    1. python3 kpi_service/kpi_service.py

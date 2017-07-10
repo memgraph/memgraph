@@ -114,24 +114,32 @@ set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 # and memgraph server binary
 # copy query_engine template file
 set(query_engine_template_file ${src_dir}/query/plan_template_cpp)
-FILE(COPY ${query_engine_template_file}
-    DESTINATION ${CMAKE_BINARY_DIR}/tests/template)
-FILE(COPY ${query_engine_template_file}
-    DESTINATION ${CMAKE_BINARY_DIR}/tests/integration/template)
-FILE(COPY ${query_engine_template_file}
-    DESTINATION ${CMAKE_BINARY_DIR}/tests/manual/template)
-FILE(COPY ${query_engine_template_file}
-    DESTINATION ${CMAKE_BINARY_DIR}/template)
+configure_file(${query_engine_template_file}
+    ${CMAKE_BINARY_DIR}/tests/template/plan_template_cpp COPYONLY)
+configure_file(${query_engine_template_file}
+    ${CMAKE_BINARY_DIR}/tests/integration/template/plan_template_cpp COPYONLY)
+configure_file(${query_engine_template_file}
+    ${CMAKE_BINARY_DIR}/tests/manual/template/plan_template_cpp COPYONLY)
+configure_file(${query_engine_template_file}
+    ${CMAKE_BINARY_DIR}/template/plan_template_cpp COPYONLY)
 # create destination folder for compiled queries
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled)
 FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled)
 # copy hardcoded queries
-FILE(COPY ${tests_dir}/integration/hardcoded_query
-     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
-FILE(COPY ${tests_dir}/integration/stream
-     DESTINATION ${CMAKE_BINARY_DIR}/tests/integration)
+file(GLOB __HARDCODED_FILES
+    ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*)
+foreach(file_path ${__HARDCODED_FILES})
+    get_filename_component(file_name ${file_path} NAME)
+    configure_file(${file_path} ${CMAKE_BINARY_DIR}/tests/integration/hardcoded_query/${file_name} COPYONLY)
+endforeach()
+file(GLOB __STREAM
+    ${CMAKE_SOURCE_DIR}/tests/integration/stream/*)
+foreach(file_path ${__STREAM})
+    get_filename_component(file_name ${file_path} NAME)
+    configure_file(${file_path} ${CMAKE_BINARY_DIR}/tests/integration/stream/${file_name} COPYONLY)
+endforeach()
 # -----------------------------------------------------------------------------
 
 # linter setup (clang-tidy)
@@ -206,20 +214,6 @@ message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
 # tests
-option(ALL_TESTS "Add all test binaries" ON)
-message(STATUS "Add all test binaries: ${ALL_TESTS}")
-option(BENCHMARK_TESTS "Add benchmark test binaries" OFF)
-message(STATUS "Add benchmark test binaries: ${BENCHMARK_TESTS}")
-option(CONCURRENT_TESTS "Add concurrent test binaries" OFF)
-message(STATUS "Add concurrent test binaries: ${CONCURRENT_TESTS}")
-option(INTEGRATION_TESTS "Add integration test binaries" OFF)
-message(STATUS "Add integration test binaries: ${INTEGRATION_TESTS}")
-option(MANUAL_TESTS "Add manual test binaries" OFF)
-message(STATUS "Add manual test binaries: ${MANUAL_TESTS}")
-option(UNIT_TESTS "Add unit test binaries" OFF)
-message(STATUS "Add unit test binaries: ${UNIT_TESTS}")
-option(PROPERTY_BASED_TESTS "Add property based test binaries" OFF)
-message(STATUS "Add property based test binaries: ${PROPERTY_BASED_TESTS}")
 option(HARDCODED_TARGETS "Make hardcoded query targets" ON)
 message(STATUS "Make hardcoded query targets: ${HARDCODED_TARGETS}")
 option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
@@ -334,10 +328,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 # tests
-if (ALL_TESTS OR BENCHMARK_TESTS OR CONCURRENT_TEST OR INTEGRATION_TEST
-        OR MANUAL_TESTS OR UNIT_TESTS OR PROPERTY_BASED_TESTS)
-    add_subdirectory(tests)
-endif()
+add_subdirectory(tests)
 # -----------------------------------------------------------------------------
 
 add_custom_target(recursive_include_plan_template
@@ -403,19 +394,19 @@ set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
 #   3. integration tests for all pilot/clients written in cucumber
 # the following targets address only the first phase
 if(HARDCODED_TARGETS)
-  file(GLOB __HARDCODED_SOURCES
-       ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
-  foreach(file_path ${__HARDCODED_SOURCES})
-      get_filename_component(file_name ${file_path} NAME_WE)
-      set(target_name __${file_name}_hardcoded_target)
-      add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
-                                    ${file_path})
-      target_link_libraries(${target_name} memgraph_lib)
-      set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
-      set_target_properties(${target_name}
-                            PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                            "${CMAKE_BINARY_DIR}/__hardcoded_targets")
-  endforeach()
+    file(GLOB __HARDCODED_SOURCES
+        ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
+    foreach(file_path ${__HARDCODED_SOURCES})
+        get_filename_component(file_name ${file_path} NAME_WE)
+        set(target_name __${file_name}_hardcoded_target)
+        add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
+                                      ${file_path})
+        target_link_libraries(${target_name} memgraph_lib)
+        set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
+        set_target_properties(${target_name}
+                              PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                              "${CMAKE_BINARY_DIR}/__hardcoded_targets")
+    endforeach()
 endif()
 
 get_target_cxx_flags(memgraph_lib compile_flags)

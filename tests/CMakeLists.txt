@@ -25,32 +25,20 @@ endif (UNIX)
 # -----------------------------------------------------------------------------
 
 # benchmark test binaries
-if (ALL_TESTS OR BENCHMARK_TESTS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
-endif()
+add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
 
 # concurrent test binaries
-if (ALL_TESTS OR CONCURRENT_TESTS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
-endif()
+add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
 
 # integration test binaries
-if (ALL_TESTS OR INTEGRATION_TESTS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/integration)
-endif()
+add_subdirectory(${PROJECT_SOURCE_DIR}/integration)
 
 # manual test binaries
-if (ALL_TESTS OR MANUAL_TESTS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
-endif()
+add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
 
 # unit test binaries
-if (ALL_TESTS OR UNIT_TESTS)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
-endif()
+add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
 
 # property based test binaries
-if (ALL_TESTS OR PROPERTY_BASED_TESTS)
-    include_directories(${CMAKE_SOURCE_DIR}/libs/rapidcheck/extras/gtest/include)
-    add_subdirectory(${PROJECT_SOURCE_DIR}/property_based)
-endif()
+include_directories(${CMAKE_SOURCE_DIR}/libs/rapidcheck/extras/gtest/include)
+add_subdirectory(${PROJECT_SOURCE_DIR}/property_based)
