@@ -1,0 +1,6 @@
+from setup import VERTEX_COUNT
+
+SKIP = VERTEX_COUNT // 4
+LIMIT = VERTEX_COUNT // 4
+
+print("MATCH (n) RETURN n ORDER BY n.id SKIP %d LIMIT %d" % (SKIP, LIMIT))

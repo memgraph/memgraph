@@ -358,6 +358,8 @@ string(STRIP ${COMMIT_NO} COMMIT_NO)
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
     "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
+add_custom_target(memgraph_link_target ALL
+    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph)
 # -----------------------------------------------------------------------------
 
 # memgraph main executable
