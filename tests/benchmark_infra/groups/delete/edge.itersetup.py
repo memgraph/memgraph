@@ -1,3 +1,3 @@
 from setup import create_edges
 
-create_edges(400, 200)
+create_edges(50000, 1000)

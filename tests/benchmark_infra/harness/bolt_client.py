@@ -57,7 +57,6 @@ def main():
     argp = ArgumentParser("Bolt client execution process")
     # positional args
     argp.add_argument("db_uri")
-    argp.add_argument("queries", nargs="*")
     # named, optional
     argp.add_argument("--encrypt", action="store_true")
 
@@ -70,6 +69,8 @@ def main():
         _print_dict({RETURN_CODE: 1, ERROR_MSG: "Invalid cmd-line arguments"})
         sys.exit(1)
 
+    queries = sys.stdin.read().split("\n")
+
     driver = GraphDatabase.driver(
         args.db_uri,
         auth=basic_auth("", ""),
@@ -80,7 +81,7 @@ def main():
     # execute the queries
     metadatas = []
     start = time.time()
-    for query in args.queries:
+    for query in queries:
         result = session.run(query)
         metadatas.append(result.summary().metadata)
     end = time.time()
@@ -88,8 +89,8 @@ def main():
 
     _print_dict({
         RETURN_CODE: 0,
-        WALL_TIME: (None if not args.queries else
-                    delta_time / float(len(args.queries))),
+        WALL_TIME: (None if not queries else
+                    delta_time / float(len(queries))),
         "metadatas": metadatas
     })
 

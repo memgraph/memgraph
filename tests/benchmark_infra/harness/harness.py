@@ -12,6 +12,7 @@ from subprocess import check_output
 from argparse import ArgumentParser
 from collections import OrderedDict
 from collections import defaultdict
+import tempfile
 
 import jail_faker as jail
 from bolt_client import WALL_TIME
@@ -60,7 +61,8 @@ class QuerySuite():
 
         def _queries(self, data):
             """ Helper function for breaking down and filtering queries"""
-            for element in filter(None, map(str.strip, data.split(";"))):
+            for element in filter(
+                    None, map(str.strip, data.replace("\n", " ").split(";"))):
                 yield element
 
         def __call__(self):
@@ -200,7 +202,7 @@ class QuerySuite():
 
         # warmup phase
         for _ in range(min(scenario_config.get("iterations", 1),
-                           scenario_config.get("warmup", 5))):
+                           scenario_config.get("warmup", 3))):
             execute("itersetup")
             execute("run")
             execute("iterteardown")
@@ -217,7 +219,7 @@ class QuerySuite():
             # most likely run faster
             execute("itersetup")
             # TODO measure CPU time (expose it from the runner)
-            run_result = execute('run')
+            run_result = execute("run")
             assert len(run_result.get("metadatas", [])), \
                 "Scenario run must have exactly one query"
             add_measurement(run_result, iteration, WALL_TIME)
@@ -304,12 +306,22 @@ class MemgraphRunner:
         log.debug("MemgraphRunner.execute('%s')", str(queries))
         client_args = [path.join(path.dirname(__file__), "bolt_client.py")]
         client_args.append(self.args.MemgraphRunnerURI)
-        client_args += queries
         if (self.args.MemgraphRunnerEncryptBolt):
             client_args.append("--encrypt")
+        queries_fd, queries_path = tempfile.mkstemp()
+        try:
+            queries_file = os.fdopen(queries_fd, "w")
+            queries_file.write("\n".join(queries))
+            queries_file.close()
+        except:
+            queries_file.close()
+            os.remove(queries_path)
+            raise Exception("Writing queries to temporary file failed")
+
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
-            "python3", client_args, timeout=120)
+            "python3", client_args, timeout=120, stdin=queries_path)
+        os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
                 stderr = f.read()
