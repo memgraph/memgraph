@@ -248,11 +248,17 @@ class GraphDbAccessor {
   }
 
   /**
-   * @brief - Build the given label/property Index. BuildIndex shouldn't be
-   * called in the same transaction where you are creating/or modifying
-   * vertices/edges. It should be a part of a separate transaction. Blocks the
-   * caller until the index is ready for use. Throws exception if index already
-   * exists or is being created by another transaction.
+   * Adds an index for the given (label, property) and populates
+   * it with existing vertices that belong to it.
+   *
+   * You should never call BuildIndex on a GraphDbAccessor
+   * (transaction) on which new vertices have been inserted or
+   * existing ones updated. Do it in a new accessor instead.
+   *
+   * Build index throws if an index for the given
+   * (label, property) already exists (even if it's being built
+   * by a concurrent transaction and is not yet ready for use).
+   *
    * @param label - label to build for
    * @param property - property to build for
    */
