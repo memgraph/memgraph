@@ -54,17 +54,17 @@ def main():
     # create vertices
     for vertex_index in range(VERTEX_COUNT):
         print("CREATE %s" % vertex(vertex_index))
-        if vertex_index != 0 and vertex_index % BATCH_SIZE == 0:
+        if (vertex_index != 0 and vertex_index % BATCH_SIZE == 0) or \
+                vertex_index + 1 == VERTEX_COUNT:
             print(";")
 
     # create edges
     for edge_index in range(EDGE_COUNT):
-        print("MERGE (a%d {%s: %d})-%s->(b%d {%s: %d})" % (
-            edge_index, ID, randint(0, VERTEX_COUNT - 1),
-            edge(edge_index),
-            edge_index, ID, randint(0, VERTEX_COUNT - 1)))
-        if edge_index != 0 and edge_index % BATCH_SIZE == 0:
-            print(";")
+        print("MATCH (a {%s: %d}), (b {%s: %d}) MERGE (a)-%s->(b)" % (
+            ID, randint(0, VERTEX_COUNT - 1),
+            ID, randint(0, VERTEX_COUNT - 1),
+            edge(edge_index)))
+        print(";")
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ def main():
     argp = ArgumentParser("Bolt client execution process")
     # positional args
     argp.add_argument("db_uri")
-    argp.add_argument("queries", nargs="+")
+    argp.add_argument("queries", nargs="*")
     # named, optional
     argp.add_argument("--encrypt", action="store_true")
 
@@ -88,7 +88,8 @@ def main():
 
     _print_dict({
         RETURN_CODE: 0,
-        WALL_TIME: delta_time / float(len(args.queries)),
+        WALL_TIME: (None if not args.queries else
+                    delta_time / float(len(args.queries))),
         "metadatas": metadatas
     })
 

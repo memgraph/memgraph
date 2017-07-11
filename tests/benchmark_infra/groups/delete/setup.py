@@ -9,17 +9,17 @@ BATCH_SIZE = 50
 def create_vertices(vertex_count):
     for vertex in range(vertex_count):
         print("CREATE (:Label {id: %d})" % vertex)
-        if vertex != 0 and vertex % BATCH_SIZE == 0:
+        if (vertex != 0 and vertex % BATCH_SIZE == 0) or \
+                (vertex + 1 == vertex_count):
             print(";")
 
 
 def create_edges(edge_count, vertex_count):
     """ vertex_count is the number of already existing vertices in graph """
     for edge in range(edge_count):
-        print("MERGE ({id: %d})-[:Type]->({id: %d})" % (
+        print("MATCH (a {id: %d}), (b {id: %d}) MERGE (a)-[:Type]->(b)" % (
             randint(0, vertex_count - 1), randint(0, vertex_count - 1)))
-        if edge != 0 and edge % BATCH_SIZE == 0:
-            print(";")
+        print(";")
 
 
 if __name__ == '__main__':
