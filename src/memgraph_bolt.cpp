@@ -62,7 +62,7 @@ void load_config(int &argc, char **&argv) {
   char **custom_argv = new char *[custom_argc];
 
   custom_argv[0] = strdup(std::string("memgraph").c_str());
-  for (int i = 0; i < (int)flagfile_arguments.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(flagfile_arguments.size()); ++i) {
     custom_argv[i + 1] = strdup(flagfile_arguments[i].c_str());
   }
 

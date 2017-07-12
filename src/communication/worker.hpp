@@ -42,7 +42,7 @@ class Worker
   using StreamBuffer = io::network::StreamBuffer;
 
  public:
-  using sptr = std::shared_ptr<Worker<Session, OutputStream, Socket>>;
+  using uptr = std::unique_ptr<Worker<Session, OutputStream, Socket>>;
 
   Worker(Dbms &dbms, QueryEngine<OutputStream> &query_engine)
       : dbms_(dbms), query_engine_(query_engine) {}
@@ -86,7 +86,7 @@ class Worker
   }
 
   template <class... Args>
-  void OnException(Session &session, Args &&... args) {
+  void OnException(Session &, Args &&...) {
     LOG(ERROR) << "Error occured in this session";
 
     // TODO: Do something about it

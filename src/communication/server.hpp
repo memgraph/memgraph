@@ -61,7 +61,7 @@ class Server
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
-          std::make_shared<Worker<Session, OutputStream, Socket>>(
+          std::make_unique<Worker<Session, OutputStream, Socket>>(
               dbms_, query_engine_));
       workers_.back()->Start(alive_);
     }
@@ -91,7 +91,7 @@ class Server
 
     if (UNLIKELY(!workers_[idx_]->Accept(socket_))) return;
 
-    idx_ = idx_ == (int)workers_.size() - 1 ? 0 : idx_ + 1;
+    idx_ = idx_ == static_cast<int>(workers_.size()) - 1 ? 0 : idx_ + 1;
   }
 
   void OnWaitTimeout() {}
@@ -103,7 +103,7 @@ class Server
   }
 
   template <class... Args>
-  void OnExceptionEvent(Event &event, Args &&... args) {
+  void OnExceptionEvent(Event &, Args &&...) {
     // TODO: Do something about it
     DLOG(WARNING) << "epoll exception";
   }
@@ -113,7 +113,7 @@ class Server
   void OnErrorEvent(Event &event) { close(event.data.fd); }
 
  private:
-  std::vector<typename Worker<Session, OutputStream, Socket>::sptr> workers_;
+  std::vector<typename Worker<Session, OutputStream, Socket>::uptr> workers_;
   std::atomic<bool> alive_{true};
   int idx_{0};
 
