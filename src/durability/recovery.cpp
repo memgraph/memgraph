@@ -25,6 +25,19 @@ bool Recovery::Decode(const fs::path &snapshot_file,
   }
   std::unordered_map<uint64_t, VertexAccessor> vertices;
 
+  query::TypedValue tv;
+  if (!decoder.ReadTypedValue(&tv, query::TypedValue::Type::List)) {
+    buffer.Close();
+    return false;
+  }
+  auto &label_property_vector = tv.Value<std::vector<query::TypedValue>>();
+  for (int i = 0; i < label_property_vector.size(); i += 2) {
+    auto label = label_property_vector[i].Value<std::string>();
+    auto property = label_property_vector[i + 1].Value<std::string>();
+    db_accessor.BuildIndex(db_accessor.label(label),
+                           db_accessor.property(property));
+  }
+
   for (int64_t i = 0; i < summary.vertex_num_; ++i) {
     communication::bolt::DecodedVertex vertex;
     if (!decoder.ReadVertex(&vertex)) {

@@ -33,8 +33,17 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     // BaseEncoder encodes graph elements. Flag true is for storing vertex IDs.
     communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer, true);
     int64_t vertex_num = 0, edge_num = 0;
-
     buffer.Open(snapshot_file);
+
+    std::vector<query::TypedValue> label_property_vector;
+    for (const auto &key : db_accessor_.GetIndicesKeys()) {
+      query::TypedValue label(*key.label_);
+      query::TypedValue property(*key.property_);
+      label_property_vector.push_back(label);
+      label_property_vector.push_back(property);
+    }
+    encoder.WriteList(label_property_vector);
+
     for (const auto &vertex : db_accessor_.vertices(false)) {
       encoder.WriteVertex(vertex);
       vertex_num++;

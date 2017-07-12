@@ -309,6 +309,13 @@ class GraphDbAccessor {
   }
 
   /**
+   * @brief - Returns vector of keys of label-property indices.
+   */
+  std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
+    return db_.label_property_index_.GetIndicesKeys();
+  }
+
+  /**
    * Return approximate number of all vertices in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */

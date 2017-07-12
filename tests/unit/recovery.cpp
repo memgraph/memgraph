@@ -109,9 +109,11 @@ TEST_F(RecoveryTest, TestEncoding) {
   snapshot::Summary summary;
   buffer.Open(snapshot, summary);
 
+  query::TypedValue tv;
+  decoder.ReadTypedValue(&tv);
+
   std::vector<int64_t> ids;
   std::vector<std::string> edge_types;
-
   for (int i = 0; i < summary.vertex_num_; ++i) {
     communication::bolt::DecodedVertex vertex;
     decoder.ReadVertex(&vertex);
@@ -203,6 +205,52 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
   EXPECT_TRUE(recovery.Recover(snapshot, *dba_recover));
 
   auto dba_get = dbms_recover.active();
+  int64_t vertex_count = 0;
+  for (const auto &vertex : dba_get->vertices(false)) {
+    EXPECT_EQ(vertex.labels().size(), 1);
+    EXPECT_TRUE(vertex.has_label(dba_get->label("label")));
+    query::TypedValue prop =
+        query::TypedValue(vertex.PropsAt(dba_get->property("prop")));
+    query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
+    EXPECT_TRUE((prop == expected_prop).Value<bool>());
+    vertex_count++;
+  }
+  EXPECT_EQ(vertex_count, 1000);
+
+  int64_t edge_count = 0;
+  for (const auto &edge : dba_get->edges(false)) {
+    EXPECT_EQ(edge.edge_type(), dba_get->edge_type("type"));
+    query::TypedValue prop =
+        query::TypedValue(edge.PropsAt(dba_get->property("prop")));
+    query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
+    EXPECT_TRUE((prop == expected_prop).Value<bool>());
+    edge_count++;
+  }
+  EXPECT_EQ(edge_count, 999);
+  dba_get->commit();
+}
+
+TEST_F(RecoveryTest, TestLabelPropertyIndexRecovery) {
+  // Creates snapshot of the graph with indices.
+  Dbms dbms;
+  auto dba = dbms.active();
+  dba->BuildIndex(dba->label("label"), dba->property("prop"));
+  dba->commit();
+  CreateBigGraph(dbms);
+  TakeSnapshot(dbms, max_retained_snapshots_);
+  std::string snapshot = GetLatestSnapshot();
+
+  Dbms dbms_recover;
+  auto dba_recover = dbms_recover.active();
+
+  Recovery recovery;
+  EXPECT_TRUE(recovery.Recover(snapshot, *dba_recover));
+
+  auto dba_get = dbms_recover.active();
+  EXPECT_EQ(dba_get->GetIndicesKeys().size(), 1);
+  EXPECT_TRUE(dba_get->LabelPropertyIndexExists(dba_get->label("label"),
+                                                dba_get->property("prop")));
+
   int64_t vertex_count = 0;
   for (const auto &vertex : dba_get->vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
