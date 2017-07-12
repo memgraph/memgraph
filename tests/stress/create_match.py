@@ -13,7 +13,7 @@ import random
 import time
 
 from collections import defaultdict
-from common import parse_connection_arguments, argument_session
+from common import connection_argument_parser, argument_session
 
 
 def parse_args():
@@ -22,7 +22,7 @@ def parse_args():
 
     :return: parsed arguments
     '''
-    parser = parse_connection_arguments()
+    parser = connection_argument_parser()
 
     # specific
     parser.add_argument('--no-workers', type=int,
