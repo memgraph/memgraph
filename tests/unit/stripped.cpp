@@ -97,6 +97,12 @@ TEST(QueryStripper, ExponentDecimal4) {
   EXPECT_EQ(stripped.query(), "return " + kStrippedDoubleToken);
 }
 
+TEST(QueryStripper, SymbolicNameStartingWithE) {
+  StrippedQuery stripped("RETURN e1");
+  EXPECT_EQ(stripped.literals().size(), 0);
+  EXPECT_EQ(stripped.query(), "return e1");
+}
+
 TEST(QueryStripper, StringLiteral) {
   StrippedQuery stripped("RETURN 'something'");
   EXPECT_EQ(stripped.literals().size(), 1);

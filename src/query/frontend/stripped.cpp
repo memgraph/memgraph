@@ -343,15 +343,17 @@ int StrippedQuery::MatchHexadecimalInt(int start) const {
 }
 
 int StrippedQuery::MatchReal(int start) const {
-  enum class State { BEFORE_DOT, DOT, AFTER_DOT, E, E_MINUS, AFTER_E };
-  State state = State::BEFORE_DOT;
+  enum class State { START, BEFORE_DOT, DOT, AFTER_DOT, E, E_MINUS, AFTER_E };
+  State state = State::START;
   auto i = start;
   while (i < static_cast<int>(original_.size())) {
     if (original_[i] == '.') {
-      if (state != State::BEFORE_DOT) break;
+      if (state != State::BEFORE_DOT && state != State::START) break;
       state = State::DOT;
     } else if ('0' <= original_[i] && original_[i] <= '9') {
-      if (state == State::DOT) {
+      if (state == State::START) {
+        state = State::BEFORE_DOT;
+      } else if (state == State::DOT) {
         state = State::AFTER_DOT;
       } else if (state == State::E || state == State::E_MINUS) {
         state = State::AFTER_E;
