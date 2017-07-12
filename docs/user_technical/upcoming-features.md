@@ -14,20 +14,13 @@ will be continually working on improving the performance. This includes:
   * memory usage and
   * other improvements.
 
-### Indexing by Label-Property
+### Label-Property Index Usage Improvements
 
-Currently, all nodes in the database are indexed by their labels (if they have
-any). This improves the performance of finding labeled data. We plan to extend
-indexing to include combinations of labels and property values. These kinds of
-indexes would need to be created on demand, by using a new query language
-construct.
+Currently, indexing combinations of labels and properties can be created, but
+cannot be deleted. We plan to add a new query language construct which will
+allow deletion of created indices.
 
-The idea behind label-property indexing is to improve the performance of
-finding data, which contains a specific combination of labels and property
-values. In addition to finding the exact values, with this mechanism, we will
-offer faster retrieving of property values in sorted order.
-
-### Improving openCypher support
+### Improving openCypher Support
 
 Although we have implemented the most common features of the openCypher query
 language, there are other useful features we are still working on.
