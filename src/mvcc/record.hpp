@@ -230,10 +230,10 @@ class Record : public Version<T> {
     if (!hint_bits.is_unknown()) return hint_bits.is_committed();
 
     // if hints are not set consult the commit log
-    auto info = engine.clog().fetch_info(id);
+    auto is_commited = engine.clog().is_committed(id);
 
     // committed
-    if (info.is_committed()) return hints.set_committed(), true;
+    if (is_commited) return hints.set_committed(), true;
 
     // we can't set_aborted hints because of a race-condition that
     // can occurr when tx.exp gets changed by some transaction.

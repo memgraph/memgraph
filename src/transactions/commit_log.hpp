@@ -5,33 +5,15 @@
 
 namespace tx {
 
+// This class is lock free. There is no need to acquire any lock when accessing
+// this class and this class doesn't acquire any lock on method calls.
 class CommitLog {
  public:
-  struct Info {
-    enum Status {
-      ACTIVE = 0,     // 00
-      COMMITTED = 1,  // 01
-      ABORTED = 2,    // 10
-    };
-
-    bool is_active() const { return flags == ACTIVE; }
-
-    bool is_committed() const { return flags & COMMITTED; }
-
-    bool is_aborted() const { return flags & ABORTED; }
-
-    operator uint8_t() const { return flags; }
-
-    uint8_t flags;
-  };
-
   CommitLog() = default;
-  CommitLog(CommitLog &) = delete;
+  CommitLog(const CommitLog &) = delete;
   CommitLog(CommitLog &&) = delete;
-
-  CommitLog operator=(CommitLog) = delete;
-
-  Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
+  CommitLog &operator=(const CommitLog &) = delete;
+  CommitLog &operator=(CommitLog &&) = delete;
 
   bool is_active(transaction_id_t id) const {
     return fetch_info(id).is_active();
@@ -50,6 +32,26 @@ class CommitLog {
   void set_aborted(transaction_id_t id) { log.set(2 * id + 1); }
 
  private:
+  struct Info {
+    enum Status {
+      ACTIVE = 0,     // 00
+      COMMITTED = 1,  // 01
+      ABORTED = 2,    // 10
+    };
+
+    bool is_active() const { return flags == ACTIVE; }
+
+    bool is_committed() const { return flags & COMMITTED; }
+
+    bool is_aborted() const { return flags & ABORTED; }
+
+    operator uint8_t() const { return flags; }
+
+    uint8_t flags;
+  };
+
+  Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
+
   // TODO: Searching the log will take more and more time the more and more
   // transactoins are done. This could be awerted if DynamicBitset is changed
   // to point to largest chunk instead of the smallest.
