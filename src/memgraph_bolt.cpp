@@ -113,17 +113,14 @@ int main(int argc, char **argv) {
   // Initialize socket.
   socket_t socket;
   if (!socket.Bind(endpoint)) {
-    LOG(ERROR) << "Cannot bind to socket on " << FLAGS_interface << " at "
+    LOG(FATAL) << "Cannot bind to socket on " << FLAGS_interface << " at "
                << FLAGS_port;
-    std::exit(EXIT_FAILURE);
   }
   if (!socket.SetNonBlocking()) {
-    LOG(ERROR) << "Cannot set socket to non blocking!";
-    std::exit(EXIT_FAILURE);
+    LOG(FATAL) << "Cannot set socket to non blocking!";
   }
   if (!socket.Listen(1024)) {
-    LOG(ERROR) << "Cannot listen on socket!";
-    std::exit(EXIT_FAILURE);
+    LOG(FATAL) << "Cannot listen on socket!";
   }
 
   Dbms dbms;

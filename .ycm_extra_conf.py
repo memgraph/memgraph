@@ -25,6 +25,8 @@ BASE_FLAGS = [
     '-I./libs/googletest/googletest/include',
     '-I./libs/googletest/googlemock/include',
     '-I./libs/benchmark/include',
+    # We include cppitertools headers directly from libs directory.
+    '-I./libs',
     '-I./libs/rapidcheck/include',
     '-I./libs/antlr4/runtime/Cpp/runtime/src',
     '-I./build/libs/gflags/include'
