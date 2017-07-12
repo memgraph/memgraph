@@ -8,7 +8,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"

@@ -2,7 +2,7 @@
 
 #include <gflags/gflags.h>
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query_engine_common.hpp"
 
 DECLARE_bool(interpret);

@@ -2,7 +2,7 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"

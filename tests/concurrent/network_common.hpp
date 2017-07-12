@@ -11,7 +11,7 @@
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 #include "query/engine.hpp"

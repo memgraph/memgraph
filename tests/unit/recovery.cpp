@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "durability/file_reader_buffer.hpp"
 #include "durability/recovery.hpp"
 #include "utils/assert.hpp"

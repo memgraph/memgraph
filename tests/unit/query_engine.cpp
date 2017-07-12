@@ -1,6 +1,6 @@
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/engine.hpp"

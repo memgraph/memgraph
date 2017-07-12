@@ -3,7 +3,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/console.hpp"
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"

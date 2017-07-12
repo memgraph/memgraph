@@ -9,7 +9,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/engine.hpp"
 
 #include "communication/worker.hpp"

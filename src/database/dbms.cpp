@@ -1,6 +1,6 @@
 #include "gflags/gflags.h"
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 DEFINE_string(snapshot_directory, "snapshots",
               "Relative path to directory in which to save snapshots.");

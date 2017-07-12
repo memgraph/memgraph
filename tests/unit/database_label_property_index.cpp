@@ -3,7 +3,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 #include "mvcc_gc_common.hpp"
 

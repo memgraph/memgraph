@@ -3,7 +3,7 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "durability/snapshooter.hpp"
 
 DECLARE_bool(snapshot_on_db_exit);

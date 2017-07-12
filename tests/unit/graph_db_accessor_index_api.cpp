@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "database/graph_db_accessor.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "utils/bound.hpp"
 
 using testing::UnorderedElementsAreArray;

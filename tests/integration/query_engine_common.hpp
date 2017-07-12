@@ -8,7 +8,7 @@ namespace fs = std::experimental::filesystem;
 #include <glog/logging.h>
 
 #include "database/graph_db_accessor.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/engine.hpp"
 #include "query/frontend/stripped.hpp"
 #include "stream/print_record_stream.hpp"

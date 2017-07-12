@@ -3,7 +3,7 @@
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/engine.hpp"
 
 #include "communication/bolt/v1/constants.hpp"

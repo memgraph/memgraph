@@ -2,7 +2,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 /**
  * gtest/gtest.h must be included before rapidcheck/gtest.h!

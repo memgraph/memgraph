@@ -1,7 +1,7 @@
 #define HARDCODED_OUTPUT_STREAM
 #include <gflags/gflags.h>
 #include "../integration/query_engine_common.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 #include "utils/fswatcher.hpp"
 

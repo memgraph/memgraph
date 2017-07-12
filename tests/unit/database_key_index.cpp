@@ -3,7 +3,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "storage/vertex.hpp"
 
 #include "mvcc_gc_common.hpp"

@@ -8,7 +8,7 @@
 #include <list>
 
 #include "communication/result_stream_faker.hpp"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 namespace query {
 

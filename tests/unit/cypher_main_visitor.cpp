@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "antlr4-runtime.h"
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/context.hpp"

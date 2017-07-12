@@ -4,7 +4,7 @@
 
 #include "gtest/gtest.h"
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"

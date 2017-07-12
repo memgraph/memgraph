@@ -3,7 +3,7 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 
 DECLARE_bool(recovery_on_startup);
 DECLARE_string(snapshot_directory);

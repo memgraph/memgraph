@@ -6,7 +6,7 @@
 
 #include <glog/logging.h>
 
-#include "dbms/dbms.hpp"
+#include "database/dbms.hpp"
 #include "gtest/gtest.h"
 
 /**
