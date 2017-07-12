@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 JAVA=java
 JAVAC=javac
 
@@ -19,5 +21,8 @@ if [ ! -f $DRIVER ]; then
     wget -O $DRIVER http://central.maven.org/maven2/org/neo4j/driver/neo4j-java-driver/1.3.1/neo4j-java-driver-1.3.1.jar || exit 1
 fi
 
-javac -classpath .:$DRIVER test.java || exit 1
-java -classpath .:$DRIVER test || exit 1
+javac -classpath .:$DRIVER Basic.java
+java -classpath .:$DRIVER Basic
+
+javac -classpath .:$DRIVER MaxQueryLength.java
+java -classpath .:$DRIVER MaxQueryLength

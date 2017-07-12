@@ -3,7 +3,7 @@ import org.neo4j.driver.v1.types.*;
 import static org.neo4j.driver.v1.Values.parameters;
 import java.util.*;
 
-public class test {
+public class Basic {
     public static void main(String[] args) {
         Config config = Config.build().withoutEncryption().toConfig();
         Driver driver = GraphDatabase.driver( "bolt://localhost:7687", AuthTokens.basic( "neo4j", "1234" ), config );

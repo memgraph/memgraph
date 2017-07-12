@@ -1,11 +1,11 @@
 #!/bin/bash
 
+set -e
+
 VIRTUALENV=virtualenv
 PIP=pip
 PYTHON=python
 WORKING_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-set -e
 
 cd ${WORKING_DIR}
 
@@ -17,11 +17,12 @@ fi
 
 # setup virtual environment
 if [ ! -d "ve3" ]; then
-    virtualenv -p python3 ve3
+    virtualenv -p python3 ve3 || exit 1
 fi
 source ve3/bin/activate
 $PIP install --upgrade pip
 $PIP install neo4j-driver
 
 # execute test
-$PYTHON test.py
+$PYTHON basic.py
+$PYTHON max_query_length.py

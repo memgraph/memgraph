@@ -224,7 +224,7 @@ to remove in future versions.
 
 The maximum length of a query that can be sent from a driver in Python is
 `16378` characters, from a driver in Java `8184` and from a driver in
-JavaScript `1373` characters.
+JavaScript `1392` characters.
 
 #### Multiple-Query Transactions
 

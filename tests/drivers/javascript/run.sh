@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 NODE=nodejs
 NPM=npm
 
@@ -13,5 +15,7 @@ if ! which $NPM >/dev/null; then
     exit 1
 fi
 
-$NPM install neo4j-driver || exit 1
-$NODE test.js || exit 1
+$NPM install neo4j-driver
+
+$NODE basic.js
+$NODE max_query_length.js
