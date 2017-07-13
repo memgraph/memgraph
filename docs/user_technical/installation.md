@@ -15,7 +15,7 @@ After a successful download the Memgraph Docker image
 can be imported into Docker:
 
 ```
-docker load -i /path/to/memgraph_alpha_v0.5.0.tar.gz
+docker load -i /path/to/memgraph_alpha_v0.6.0.tar.gz
 ```
 
 ### Image Configuration & Running Memgraph
@@ -23,7 +23,7 @@ docker load -i /path/to/memgraph_alpha_v0.5.0.tar.gz
 Memgraph can be started by executing:
 
 ```
-docker run -it -p 7687:7687 memgraph_alpha_v0.5.0
+docker run -it -p 7687:7687 memgraph_alpha_v0.6.0
 ```
 
 The `-it` option enables displaying Memgraph's logs inside the current shell.
@@ -45,7 +45,7 @@ mkdir -p memgraph
 # Docker expects full path to the created folder.
 FULL_OUTPUT_PATH=$PWD/memgraph
 # Run Memgraph.
-docker run -d -p 7687:7687 -v ${FULL_OUTPUT_PATH}:/var/lib/memgraph --name <memgraph_docker_container_name> memgraph_alpha_v0.5.0
+docker run -d -p 7687:7687 -v ${FULL_OUTPUT_PATH}:/var/lib/memgraph --name <memgraph_docker_container_name> memgraph_alpha_v0.6.0
 ```
 
 In the commands above `-d` means that the container will be detached (run in
