@@ -1,12 +1,12 @@
 # Change Log
 
-## Next version number (v0.6.0 -> two new features AST cache + Label-Property Index)
+## v0.6.0
 
 ### Major Features and Improvements
 
-* AST Caching (TODO write more details)
-* Label + Property Index support (TODO write more details)
-* Different Logging Setup & Format (TODO write more details)
+* AST caching
+* Label + property index support
+* Different logging setup & format
 
 ## v0.5.0
 
