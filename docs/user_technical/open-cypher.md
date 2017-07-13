@@ -412,3 +412,25 @@ functions.
  `startsWith` | Check if the first argument starts with the second.
  `endsWith`   | Check if the first argument ends with the second.
  `contains`   | Check if the first argument has an element which is equal to the second argument.
+
+### Differences
+
+Although we try to implement openCypher query language as closely to the
+language reference as possible, we had to make some changes to enhance the
+user experience.
+
+#### Symbolic Names
+
+We don't allow symbolic names (variables, label names...) to be openCypher
+keywords (WHERE, MATCH, COUNT, SUM...).
+
+#### Matching the Same Edge
+
+We support using the same edge name to match that edge across the whole pattern.
+For example:
+
+    MATCH ()-[r]-()-[r]-() RETURN r
+
+The above would find the edge `r` which forms a circular connection on a node.
+This behaviour is not supported in openCypher reference and the query would
+fail.
