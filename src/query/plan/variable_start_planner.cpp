@@ -1,5 +1,16 @@
 #include "query/plan/planner.hpp"
 
+#include <limits>
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
+#include "utils/flag_validation.hpp"
+
+DEFINE_VALIDATED_uint64(
+    query_max_plans, 1000U, "Maximum number of generated plans for a query",
+    FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
+
 namespace query::plan {
 
 namespace {
@@ -153,6 +164,37 @@ std::vector<std::vector<T>> CartesianProduct(
   return products;
 }
 
+template <typename T>
+std::uint64_t CartesianProductSize(const std::vector<std::vector<T>> &sets) {
+  std::uint64_t n = 1U;
+  for (const auto &set : sets) {
+    if (set.empty()) {
+      return 0U;
+    }
+    std::uint64_t new_n = n * set.size();
+    if (new_n < n || new_n < set.size()) {
+      DLOG(WARNING) << "Unsigned wrap-around when calculating expected size of "
+                       "Cartesian product.";
+      return std::numeric_limits<std::uint64_t>::max();
+    }
+    n = new_n;
+  }
+  return n;
+}
+
+// Shortens variants if their Cartesian product exceeds the query_max_plans
+// flag.
+template <typename T>
+void LimitPlans(std::vector<std::vector<T>> &variants) {
+  size_t to_shorten = 0U;
+  while (CartesianProductSize(variants) > FLAGS_query_max_plans) {
+    if (variants[to_shorten].size() > 1U) {
+      variants[to_shorten].pop_back();
+    }
+    to_shorten = (to_shorten + 1U) % variants.size();
+  }
+}
+
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
 // matchings. After all matchings produce multiple alternative starts, the
 // Cartesian product of all of them is returned.
@@ -162,6 +204,7 @@ std::vector<std::vector<Matching>> VaryMultiMatchingStarts(
   for (const auto &matching : matchings) {
     variants.emplace_back(VaryMatchingStart(matching, symbol_table));
   }
+  LimitPlans(variants);
   return CartesianProduct<Matching>(variants.cbegin(), variants.cend());
 }
 
@@ -232,6 +275,7 @@ std::vector<std::vector<QueryPart>> VaryQueryMatching(
     alternative_query_parts.emplace_back(
         VaryQuertPartMatching(query_part, symbol_table));
   }
+  LimitPlans(alternative_query_parts);
   return CartesianProduct<QueryPart>(alternative_query_parts.cbegin(),
                                      alternative_query_parts.cend());
 }
