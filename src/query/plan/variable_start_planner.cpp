@@ -171,13 +171,12 @@ std::uint64_t CartesianProductSize(const std::vector<std::vector<T>> &sets) {
     if (set.empty()) {
       return 0U;
     }
-    std::uint64_t new_n = n * set.size();
-    if (new_n < n || new_n < set.size()) {
+    if (std::numeric_limits<std::uint64_t>::max() / n < set.size()) {
       DLOG(WARNING) << "Unsigned wrap-around when calculating expected size of "
                        "Cartesian product.";
       return std::numeric_limits<std::uint64_t>::max();
     }
-    n = new_n;
+    n *= set.size();
   }
   return n;
 }
