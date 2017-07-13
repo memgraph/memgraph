@@ -25,7 +25,7 @@ TEST(SkipList, HangDuringFindOrLarger) {
     threads.emplace_back([&iter, &skiplist]() {
       auto accessor = skiplist.access();
       for (int i = 0; i < iter; ++i)
-        accessor.find_or_larger<SkipList<int>::ConstIterator>(rand() % 3);
+        accessor.find_or_larger(rand() % 3);
     });
   }
   for (auto &thread : threads) thread.join();

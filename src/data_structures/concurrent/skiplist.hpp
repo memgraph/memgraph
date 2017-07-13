@@ -517,14 +517,29 @@ class SkipList : private Lockable<lock_t> {
       return skiplist->reverse(item);
     }
 
-    template <class K>
-    ConstIterator find_or_larger(const K &item) const {
-      return static_cast<const SkipList &>(*skiplist).find_or_larger(item);
+  /**
+   * Returns an iterator pointing to the element equal to
+   * item, or the first larger element.
+   *
+   * @param item An item that is comparable to skiplist element type.
+   * @tparam TItem item type
+   */
+    template <class TItem>
+    Iterator find_or_larger(const TItem &item) {
+      return skiplist->find_or_larger<Iterator, TItem>(item);
     }
 
-    template <class It, class K>
-    It find_or_larger(const K &item) {
-      return skiplist->find_or_larger<It, K>(item);
+  /**
+   * Returns an iterator pointing to the element equal to
+   * item, or the first larger element.
+   *
+   * @param item An item that is comparable to skiplist element type.
+   * @tparam TItem item type
+   */
+    template <class TItem>
+    ConstIterator find_or_larger(const TItem &item) const {
+      return static_cast<const SkipList &>(*skiplist)
+          .find_or_larger<ConstIterator, TItem>(item);
     }
 
     /**

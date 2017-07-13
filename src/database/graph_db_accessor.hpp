@@ -186,6 +186,48 @@ class GraphDbAccessor {
   }
 
   /**
+   * Return an iterable over VertexAccessors which contain the
+   * given label and whose property value (for the given property)
+   * falls within the given (lower, upper) @c Bound.
+   *
+   * The returned iterator will only contain
+   * vertices/edges whose property value is comparable with the
+   * given bounds (w.r.t. type). This has implications on Cypher
+   * query execuction semantics which have not been resovled yet.
+   *
+   * At least one of the bounds must be specified. Bonds can't be
+   * @c PropertyValue::Null. If both bounds are
+   * specified, their PropertyValue elments must be of comparable
+   * types.
+   *
+   * @param label - label for which to return VertexAccessors
+   * @param property - property for which to return VertexAccessors
+   * @param lower - Lower bound of the interval.
+   * @param upper - Upper bound of the interval.
+   * @param value - property value for which to return VertexAccessors
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   * @return iterable collection of record accessors
+   * satisfy the bounds and are visible to the current transaction.
+   */
+  auto vertices(
+      const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
+      const std::experimental::optional<utils::Bound<PropertyValue>> upper,
+      bool current_state) {
+    debug_assert(db_.label_property_index_.IndexExists(
+                     LabelPropertyIndex::Key(label, property)),
+                 "Label+property index doesn't exist.");
+    return iter::imap([this, current_state](
+                          auto vlist) { return VertexAccessor(*vlist, *this); },
+                      db_.label_property_index_.GetVlists(
+                          LabelPropertyIndex::Key(label, property), lower,
+                          upper, *transaction_, current_state));
+  }
+
+  /**
    * Creates a new Edge and returns an accessor to it.
    *
    * @param from The 'from' vertex.
@@ -366,8 +408,9 @@ class GraphDbAccessor {
   /**
    * Returns approximate number of vertices that have the given label
    * and whose vaue is in the range defined by upper and lower @c Bound.
-   * At least one bound must be specified. If lower bound is not specified,
-   * the whole upper bound prefix is returned.
+   *
+   * At least one bound must be specified. Neither can be
+   * PropertyValue::Null.
    *
    * Assumes that an index for that (label, property) exists.
    */

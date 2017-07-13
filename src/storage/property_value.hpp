@@ -28,6 +28,15 @@ class PropertyValue {
   // single static reference to Null, used whenever Null should be returned
   static const PropertyValue Null;
 
+  /** Checks if the given PropertyValue::Types are comparable */
+  static bool AreComparableTypes(Type a, Type b) {
+    auto is_numeric = [](const Type t) {
+      return t == Type::Int || t == Type::Double;
+    };
+
+    return a == b || (is_numeric(a) && is_numeric(b));
+  }
+
   // constructors for primitive types
   PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
   PropertyValue(int value) : type_(Type::Int) { int_v = value; }

@@ -297,21 +297,14 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
   auto vertices = [this, &db, is_less](Frame &frame,
                                        const SymbolTable &symbol_table) {
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
-    auto lower_val = lower_bound_ ? lower_bound_->value()->Accept(evaluator)
-                                  : TypedValue::Null;
-    auto upper_val = upper_bound_ ? upper_bound_->value()->Accept(evaluator)
-                                  : TypedValue::Null;
-    return iter::filter(
-        [this, lower_val, upper_val, is_less](const VertexAccessor &vertex) {
-          TypedValue value = vertex.PropsAt(property_);
-          debug_assert(!value.IsNull(), "Unexpected property with Null value");
-          if (lower_bound_ && is_less(value, lower_val, lower_bound_->type()))
-            return false;
-          if (upper_bound_ && is_less(upper_val, value, upper_bound_->type()))
-            return false;
-          return true;
-        },
-        db.vertices(label_, property_, graph_view_ == GraphView::NEW));
+    auto convert = [&evaluator](const auto &bound)
+        -> std::experimental::optional<utils::Bound<PropertyValue>> {
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
+    return db.vertices(label_, property_, convert(lower_bound()),
+                       convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);

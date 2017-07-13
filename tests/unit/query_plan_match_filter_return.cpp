@@ -840,104 +840,79 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   // Add 5 vertices with same label, but with different property values.
   auto label = dba->label("label");
   auto prop = dba->property("prop");
-  for (int i = 1; i <= 5; ++i) {
+
+  // vertex property values that will be stored into the DB
+  // clang-format off
+  std::vector<TypedValue> values{
+      true, false, "a", "b", "c", 0, 1, 2, 0.5, 1.5, 2.5,
+      std::vector<TypedValue>{0}, std::vector<TypedValue>{1},
+      std::vector<TypedValue>{2}};
+  // clang-format on
+
+  for (const auto &value : values) {
     auto vertex = dba->insert_vertex();
     vertex.add_label(label);
-    vertex.PropsSet(prop, i);
+    vertex.PropsSet(prop, value);
   }
   dba->commit();
   dba = dbms.active();
   dba->BuildIndex(label, prop);
-  dba = dbms.active();
-  EXPECT_EQ(5, CountIterable(dba->vertices(false)));
-  // MATCH (n :label) WHERE 2 <= n.prop < 4
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(
-      storage, symbol_table, "n", label, prop,
-      Bound{LITERAL(2), Bound::Type::INCLUSIVE},
-      Bound{LITERAL(4), Bound::Type::EXCLUSIVE});
-  // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
-  EXPECT_EQ(results.size(), 2);
-  for (const auto &row : results) {
-    ASSERT_EQ(row.size(), 1);
-    auto vertex = row[0].Value<VertexAccessor>();
-    auto value = vertex.PropsAt(prop);
-    TypedValue::BoolEqual eq;
-    EXPECT_TRUE(eq(value, 2) || eq(value, 3));
-  }
-}
-
-TEST(QueryPlan, ScanAllByLabelPropertyCompareError) {
-  Dbms dbms;
-  auto dba = dbms.active();
-  // Add 2 vertices with same label, but with property values that cannot be
-  // compared.
-  auto label = dba->label("label");
-  auto prop = dba->property("prop");
-  auto number_vertex = dba->insert_vertex();
-  number_vertex.add_label(label);
-  number_vertex.PropsSet(prop, 42);
-  auto string_vertex = dba->insert_vertex();
-  string_vertex.add_label(label);
-  string_vertex.PropsSet(prop, "string");
   dba->commit();
   dba = dbms.active();
-  dba->BuildIndex(label, prop);
-  dba = dbms.active();
-  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
-  // MATCH (n :label) WHERE 1 < n.prop
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(
-      storage, symbol_table, "n", label, prop,
-      Bound{LITERAL(1), Bound::Type::EXCLUSIVE}, std::experimental::nullopt);
-  // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  EXPECT_THROW(CollectProduce(produce.get(), symbol_table, *dba),
-               QueryRuntimeException);
-}
+  ASSERT_EQ(14, CountIterable(dba->vertices(false)));
 
-TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
-  Dbms dbms;
-  auto dba = dbms.active();
-  // Add 2 vertices with the same label, but with property values that cannot be
-  // compared. We are comparing to null, so no results should be produced.
-  auto label = dba->label("label");
-  auto prop = dba->property("prop");
-  auto number_vertex = dba->insert_vertex();
-  number_vertex.add_label(label);
-  number_vertex.PropsSet(prop, 42);
-  auto string_vertex = dba->insert_vertex();
-  string_vertex.add_label(label);
-  string_vertex.PropsSet(prop, "string");
-  dba->commit();
-  dba = dbms.active();
-  dba->BuildIndex(label, prop);
-  dba = dbms.active();
-  EXPECT_EQ(2, CountIterable(dba->vertices(false)));
-  // MATCH (n :label) WHERE null < n.prop
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(
-      storage, symbol_table, "n", label, prop,
-      Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE},
-      std::experimental::nullopt);
-  // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
-  auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
-  EXPECT_EQ(results.size(), 0);
+  auto check = [&dba, label, prop](TypedValue lower, Bound::Type lower_type,
+                                   TypedValue upper, Bound::Type upper_type,
+                                   const std::vector<TypedValue> &expected) {
+    AstTreeStorage storage;
+    SymbolTable symbol_table;
+    auto scan_all = MakeScanAllByLabelPropertyRange(
+        storage, symbol_table, "n", label, prop,
+        Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
+    // RETURN n
+    auto output = NEXPR("n", IDENT("n"));
+    auto produce = MakeProduce(scan_all.op_, output);
+    symbol_table[*output->expression_] = scan_all.sym_;
+    symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    ASSERT_EQ(results.size(), expected.size());
+    for (int i = 0; i < expected.size(); i++) {
+      TypedValue equal =
+          results[i][0].Value<VertexAccessor>().PropsAt(prop) == expected[i];
+      ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
+      EXPECT_TRUE(equal.Value<bool>());
+    }
+  };
+
+  // normal ranges that return something
+  check(false, Bound::Type::INCLUSIVE, true, Bound::Type::EXCLUSIVE, {false});
+  check(false, Bound::Type::EXCLUSIVE, true, Bound::Type::INCLUSIVE, {true});
+  check("a", Bound::Type::EXCLUSIVE, "c", Bound::Type::EXCLUSIVE, {"b"});
+  check(0, Bound::Type::EXCLUSIVE, 2, Bound::Type::INCLUSIVE, {0.5, 1, 1.5, 2});
+  check(1.5, Bound::Type::EXCLUSIVE, 2.5, Bound::Type::INCLUSIVE, {2, 2.5});
+  check(std::vector<TypedValue>{0.5}, Bound::Type::EXCLUSIVE,
+        std::vector<TypedValue>{1.5}, Bound::Type::INCLUSIVE,
+        {TypedValue(std::vector<TypedValue>{1})});
+
+  // when a range contains different types, nothing should get returned
+  for (const auto &value_a : values)
+    for (const auto &value_b : values) {
+      if (PropertyValue::AreComparableTypes(
+              static_cast<PropertyValue>(value_a).type(),
+              static_cast<PropertyValue>(value_b).type()))
+        continue;
+      check(value_a, Bound::Type::INCLUSIVE, value_b, Bound::Type::INCLUSIVE,
+            {});
+    }
+
+  // it's not allowed to have Null as a bound, we assert against that
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  EXPECT_DEATH(check(TypedValue::Null, Bound::Type::INCLUSIVE, 0,
+                     Bound::Type::INCLUSIVE, {}),
+               "Null value is not a valid index bound");
+  EXPECT_DEATH(check(0, Bound::Type::INCLUSIVE, TypedValue::Null,
+                     Bound::Type::INCLUSIVE, {}),
+               "Null value is not a valid index bound");
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {

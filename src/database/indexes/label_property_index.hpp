@@ -1,5 +1,7 @@
 #pragma once
 
+#include <experimental/optional>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
@@ -8,6 +10,7 @@
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/bound.hpp"
 #include "utils/total_ordering.hpp"
 
 /**
@@ -195,9 +198,10 @@ class LabelPropertyIndex {
                  const tx::Transaction &t, bool current_state) {
     debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
     auto access = GetKeyStorage(key)->access();
-    auto start_iter =
-        access.find_or_larger<typename SkipList<IndexEntry>::Iterator,
-                              IndexEntry>(IndexEntry(value, nullptr, nullptr));
+    auto min_ptr = std::numeric_limits<std::uintptr_t>::min();
+    auto start_iter = access.find_or_larger(IndexEntry(
+        value, reinterpret_cast<mvcc::VersionList<Vertex> *>(min_ptr),
+        reinterpret_cast<const Vertex *>(min_ptr)));
     return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
                                  IndexEntry, Vertex>(
         std::move(access), start_iter,
@@ -206,6 +210,97 @@ class LabelPropertyIndex {
                  !IndexEntry::Less(entry.value_, value);
         },
         t,
+        [key](const IndexEntry &entry, const Vertex *const vertex) {
+          return LabelPropertyIndex::Exists(key, entry.value_, vertex);
+        },
+        current_state);
+  }
+
+  /**
+   * @brief - Get an iterable over all mvcc::VersionLists that
+   * are contained in this index and satisfy the given bounds.
+   *
+   * The returned iterator will only contain
+   * vertices/edges whose property value is comparable with the
+   * given bounds (w.r.t. type). This has implications on Cypher
+   * query execuction semantics which have not been resolved yet.
+   *
+   * At least one of the bounds must be specified. Bounds can't be
+   * @c PropertyValue::Null. If both bounds are
+   * specified, their PropertyValue elments must be of comparable
+   * types.
+   *
+   * @param key - Label+Property to query.
+   * @param lower - Lower bound of the interval.
+   * @param upper - Upper bound of the interval.
+   * @param t - current transaction, which determines visibility.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   * @return iterable collection of mvcc:VersionLists pointers that
+   * satisfy the bounds and are visible to the given transaction.
+   */
+  auto GetVlists(
+      const Key &key,
+      const std::experimental::optional<utils::Bound<PropertyValue>> lower,
+      const std::experimental::optional<utils::Bound<PropertyValue>> upper,
+      const tx::Transaction &transaction, bool current_state) {
+    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+
+    auto type = [](const auto &bound) { return bound.value().value().type(); };
+    debug_assert(lower || upper, "At least one bound must be provided");
+    debug_assert(!lower || type(lower) != PropertyValue::Type::Null,
+                 "Null value is not a valid index bound");
+    debug_assert(!upper || type(upper) != PropertyValue::Type::Null,
+                 "Null value is not a valid index bound");
+
+    // helper function for creating a bound with an IndexElement
+    auto make_index_bound = [](const auto &optional_bound, bool bottom) {
+      std::uintptr_t ptr_bound =
+          bottom ? std::numeric_limits<std::uintptr_t>::min()
+                 : std::numeric_limits<std::uintptr_t>::max();
+      return IndexEntry(
+          optional_bound.value().value(),
+          reinterpret_cast<mvcc::VersionList<Vertex> *>(ptr_bound),
+          reinterpret_cast<const Vertex *>(ptr_bound));
+    };
+
+    auto access = GetKeyStorage(key)->access();
+
+    // create the iterator startpoint based on the lower bound
+    auto start_iter = lower
+                          ? access.find_or_larger(make_index_bound(
+                                lower, lower.value().IsInclusive()))
+                          : access.begin();
+
+    // a function that defines if an entry staisfies the filtering predicate.
+    // since we already handled the lower bound, we only need to deal with the
+    // upper bound and value type
+    std::function<bool(const IndexEntry &entry)> predicate;
+    if (lower && upper &&
+        !PropertyValue::AreComparableTypes(type(lower), type(upper)))
+      predicate = [](const IndexEntry &) { return false; };
+    else if (upper) {
+      auto upper_index_entry =
+          make_index_bound(upper, upper.value().IsExclusive());
+      predicate = [upper_index_entry](const IndexEntry &entry) {
+        return PropertyValue::AreComparableTypes(
+                   entry.value_.type(), upper_index_entry.value_.type()) &&
+               entry < upper_index_entry;
+      };
+    } else {
+      auto lower_type = type(lower);
+      make_index_bound(lower, lower.value().IsExclusive());
+      predicate = [lower_type](const IndexEntry &entry) {
+        return PropertyValue::AreComparableTypes(entry.value_.type(),
+                                                 lower_type);
+      };
+    }
+
+    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
+                                 IndexEntry, Vertex>(
+        std::move(access), start_iter, predicate, transaction,
         [key](const IndexEntry &entry, const Vertex *const vertex) {
           return LabelPropertyIndex::Exists(key, entry.value_, vertex);
         },
@@ -328,8 +423,7 @@ class LabelPropertyIndex {
      * than the second one
      */
     static bool Less(const PropertyValue &a, const PropertyValue &b) {
-      if (a.type() != b.type() &&
-          !(IsCastableToDouble(a) && IsCastableToDouble(b)))
+      if (!PropertyValue::AreComparableTypes(a.type(), b.type()))
         return a.type() < b.type();
 
       if (a.type() == b.type()) {
@@ -356,30 +450,18 @@ class LabelPropertyIndex {
         }
       }
 
+      // helper for getting a double from PropertyValue, if possible
+      auto get_double = [](const PropertyValue &value) {
+        debug_assert(value.type() == PropertyValue::Type::Int ||
+                         value.type() == PropertyValue::Type::Double,
+                     "Invalid data type.");
+        if (value.type() == PropertyValue::Type::Int)
+          return static_cast<double>(value.Value<int64_t>());
+        return value.Value<double>();
+      };
+
       // Types are int and double - convert int to double
-      return GetDouble(a) < GetDouble(b);
-    }
-
-    /**
-     * @brief - Return value casted to double. This is only possible for
-     * integers and doubles.
-     */
-    static double GetDouble(const PropertyValue &value) {
-      debug_assert(value.type() == PropertyValue::Type::Int ||
-                       value.type() == PropertyValue::Type::Double,
-                   "Invalid data type.");
-      if (value.type() == PropertyValue::Type::Int)
-        return static_cast<double>(value.Value<int64_t>());
-      return value.Value<double>();
-    }
-
-    /**
-     * @brief - Return if this value is castable to double (returns true for
-     * integers and doubles).
-     */
-    static bool IsCastableToDouble(const PropertyValue &value) {
-      return value.type() == PropertyValue::Type::Int ||
-             value.type() == PropertyValue::Type::Double;
+      return get_double(a) < get_double(b);
     }
 
     /**
