@@ -14,6 +14,7 @@ namespace fs = std::experimental::filesystem;
 #include "query/plan_interface.hpp"
 #include "utils/datetime/timestamp.hpp"
 #include "utils/dynamic_lib.hpp"
+#include "utils/timer.hpp"
 
 DECLARE_bool(interpret);
 DECLARE_string(compile_directory);
@@ -71,13 +72,18 @@ class QueryEngine {
       return true;
     }
 
-    clock_t start_time = clock();
+    utils::Timer parsing_timer;
     query::StrippedQuery stripped(query);
-    clock_t end_parsing_time = clock();
+    auto parsing_time = parsing_timer.Elapsed();
+
+    utils::Timer planning_timer;
     auto plan = LoadCypher(stripped);
-    clock_t end_planning_time = clock();
+    auto planning_time = planning_timer.Elapsed();
+
+    utils::Timer execution_timer;
     auto result = plan->run(db_accessor, stripped.literals(), stream);
-    clock_t end_execution_time = clock();
+    auto execution_time = execution_timer.Elapsed();
+
     if (UNLIKELY(!result)) {
       // info because it might be something like deadlock in which
       // case one thread is stopped and user has try again
@@ -91,13 +97,11 @@ class QueryEngine {
     };
 
     std::map<std::string, query::TypedValue> summary;
-    summary["query_parsing_time"] = time_second(start_time, end_parsing_time);
+    summary["query_parsing_time"] = parsing_time.count();
     // This doesn't do any actual planning, but benchmarking harness knows how
     // to work with this field.
-    summary["query_planning_time"] =
-        time_second(end_parsing_time, end_planning_time);
-    summary["query_plan_execution_time"] =
-        time_second(end_planning_time, end_execution_time);
+    summary["query_planning_time"] = planning_time.count();
+    summary["query_plan_execution_time"] = execution_time.count();
     summary["type"] = "rw";
     stream.Summary(summary);
 

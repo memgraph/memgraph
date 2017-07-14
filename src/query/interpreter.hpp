@@ -15,6 +15,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
+#include "utils/timer.hpp"
 
 // TODO: Remove ast_cache flag and add flag that limits cache size.
 DECLARE_bool(ast_cache);
@@ -28,8 +29,7 @@ class Interpreter {
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream) {
-    clock_t start_time = clock();
-
+    utils::Timer frontend_timer;
     Config config;
     Context ctx(config, db_accessor);
     std::map<std::string, TypedValue> summary;
@@ -69,9 +69,9 @@ class Interpreter {
       }
       return it->second.Plug(stripped.literals(), stripped.named_expressions());
     }();
+    auto frontend_time = frontend_timer.Elapsed();
 
-    clock_t frontend_end_time = clock();
-
+    utils::Timer planning_timer;
     // symbol table fill
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
@@ -106,9 +106,9 @@ class Interpreter {
 
     // generate frame based on symbol table max_position
     Frame frame(symbol_table.max_position());
+    auto planning_time = planning_timer.Elapsed();
 
-    clock_t planning_end_time = clock();
-
+    utils::Timer execution_timer;
     std::vector<std::string> header;
     std::vector<Symbol> output_symbols(
         logical_plan->OutputSymbols(symbol_table));
@@ -144,19 +144,16 @@ class Interpreter {
     } else {
       throw QueryRuntimeException("Unknown top level LogicalOperator");
     }
-
-    clock_t execution_end_time = clock();
+    auto execution_time = execution_timer.Elapsed();
 
     // helper function for calculating time in seconds
     auto time_second = [](clock_t start, clock_t end) {
       return TypedValue(double(end - start) / CLOCKS_PER_SEC);
     };
 
-    summary["query_parsing_time"] = time_second(start_time, frontend_end_time);
-    summary["query_planning_time"] =
-        time_second(frontend_end_time, planning_end_time);
-    summary["query_plan_execution_time"] =
-        time_second(planning_end_time, execution_end_time);
+    summary["query_parsing_time"] = frontend_time.count();
+    summary["query_planning_time"] = planning_time.count();
+    summary["query_plan_execution_time"] = execution_time.count();
     summary["query_cost_estimate"] = query_plan_cost_estimation;
 
     // TODO: set summary['type'] based on transaction metadata

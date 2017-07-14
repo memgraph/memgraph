@@ -83,7 +83,7 @@ class Transaction {
   // should stop execution, it is only a hint, transaction can disobey.
   std::atomic<bool> should_abort_{false};
   // Creation time.
-  const std::chrono::time_point<std::chrono::system_clock> creation_time_{
-      std::chrono::system_clock::now()};
+  const std::chrono::time_point<std::chrono::steady_clock> creation_time_{
+      std::chrono::steady_clock::now()};
 };
 }

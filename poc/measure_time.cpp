@@ -4,8 +4,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "timer.hpp"
 #include "utils/assert.hpp"
-#include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
 using namespace utils;

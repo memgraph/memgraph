@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <atomic>
 
-#include "utils/cpu_relax.hpp"
+#include "threading/sync/cpu_relax.hpp"
 
 /**
  * @class SpinLock

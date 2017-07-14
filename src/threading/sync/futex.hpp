@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include "threading/sync/lock_timeout_exception.hpp"
-#include "utils/cpu_relax.hpp"
+#include "threading/sync/cpu_relax.hpp"
 
 namespace sys {
 inline int futex(void *addr1, int op, int val1, const struct timespec *timeout,
