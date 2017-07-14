@@ -60,6 +60,12 @@ class TypeMismatchError : public SemanticException {
             name, datum, expected)) {}
 };
 
+class HintedAbortError : public QueryException {
+ public:
+  using QueryException::QueryException;
+  HintedAbortError() : QueryException("") {}
+};
+
 /**
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.

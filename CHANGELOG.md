@@ -1,5 +1,11 @@
 # Change Log
 
+## Next version
+
+### Major Features and Improvements
+
+* User specified transaction execution timeout.
+
 ## v0.6.0
 
 ### Major Features and Improvements

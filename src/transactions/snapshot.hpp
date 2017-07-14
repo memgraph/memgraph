@@ -73,8 +73,10 @@ class Snapshot {
   bool operator==(const Snapshot &other) const {
     return transaction_ids_ == other.transaction_ids_;
   }
-  auto begin() const { return transaction_ids_.begin(); }
-  auto end() const { return transaction_ids_.end(); }
+  auto begin() { return transaction_ids_.begin(); }
+  auto end() { return transaction_ids_.end(); }
+  auto begin() const { return transaction_ids_.cbegin(); }
+  auto end() const { return transaction_ids_.cend(); }
 
   friend std::ostream &operator<<(std::ostream &stream,
                                   const Snapshot &snapshot) {

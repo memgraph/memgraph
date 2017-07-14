@@ -32,7 +32,6 @@ class Engine : Lockable<SpinLock> {
   static constexpr auto kMaxCommandId =
       std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
 
- public:
   template <class T>
   class SimpleCounter {
    public:
@@ -46,6 +45,7 @@ class Engine : Lockable<SpinLock> {
     T counter;
   };
 
+ public:
   /** Begins a transaction and returns a pointer to
    * it's object.
    *
@@ -87,39 +87,36 @@ class Engine : Lockable<SpinLock> {
     return *t;
   }
 
-  /** Returns the snapshot relevant to garbage collection
-   * of database records.
+  /** Returns the snapshot relevant to garbage collection of database records.
    *
-   * If there are no active transactions that means
-   * a snapshot containing only the next transaction ID.
-   * If there are active transactions, that means the
-   * oldest active transaction's snapshot, with that
-   * transaction's ID appened as last.
+   * If there are no active transactions that means a snapshot containing only
+   * the next transaction ID.  If there are active transactions, that means the
+   * oldest active transaction's snapshot, with that transaction's ID appened as
+   * last.
    *
-   * The idea is that data records can only be deleted
-   * if they were expired (and that was committed) by
-   * a transaction older then the older currently active.
-   * We need the full snapshot to prevent overlaps (see
-   * general GC documentation).
+   * The idea is that data records can only be deleted if they were expired (and
+   * that was committed) by a transaction older then the older currently active.
+   * We need the full snapshot to prevent overlaps (see general GC
+   * documentation).
    */
   Snapshot GcSnapshot() {
     auto guard = this->acquire_unique();
 
-    // no active transactions
+    // No active transactions.
     if (active_.size() == 0) {
       auto snapshot_copy = active_;
       snapshot_copy.insert(counter_.count() + 1);
       return snapshot_copy;
     }
 
-    // there are active transactions
+    // There are active transactions.
     auto snapshot_copy = store_.get(active_.front())->snapshot();
     snapshot_copy.insert(active_.front());
     return snapshot_copy;
   }
 
-  /** Comits the given transaction. Deletes the transaction
-   * object, it's not valid after this function executes. */
+  /** Comits the given transaction. Deletes the transaction object, it's not
+   * valid after this function executes. */
   void Commit(const Transaction &t) {
     auto guard = this->acquire_unique();
     clog_.set_committed(t.id_);
@@ -127,8 +124,8 @@ class Engine : Lockable<SpinLock> {
     Finalize(t);
   }
 
-  /** Aborts the given transaction. Deletes the transaction
-   * object, it's not valid after this function executes. */
+  /** Aborts the given transaction. Deletes the transaction object, it's not
+   * valid after this function executes. */
   void Abort(const Transaction &t) {
     auto guard = this->acquire_unique();
     clog_.set_aborted(t.id_);
@@ -136,8 +133,8 @@ class Engine : Lockable<SpinLock> {
     Finalize(t);
   }
 
-  /** The total number of transactions that have
-   * executed since the creation of this engine */
+  /** The total number of transactions that have executed since the creation of
+   * this engine */
   auto Count() {
     auto guard = this->acquire_unique();
     return counter_.count();
@@ -149,28 +146,36 @@ class Engine : Lockable<SpinLock> {
     return active_.size();
   }
 
+  /** Calls function f on each active transaction. */
+  void ForEachActiveTransaction(std::function<void(Transaction &)> f) {
+    this->acquire_unique();
+    for (auto transaction : active_) {
+      f(*store_.get(transaction));
+    }
+  }
+
   /** Returns this engine's commit log */
   auto &clog() const { return clog_; }
 
  private:
-  // commit log of this engine
+  // Commit log of this engine.
   CommitLog clog_;
 
-  // Performs cleanup common to ending the transaction
-  // with either commit or abort
+  // Performs cleanup common to ending the transaction with either commit or
+  // abort.
   void Finalize(const Transaction &t) {
     active_.remove(t.id_);
     store_.del(t.id_);
   }
 
-  // transaction counter. contains the number of transactions
-  // ever created till now
+  // Transaction counter. contains the number of transactions ever created till
+  // now.
   SimpleCounter<transaction_id_t> counter_{0};
 
-  // a snapshot of currently active transactions
+  // A snapshot of currently active transactions.
   Snapshot active_;
 
-  // storage for the transactions
+  // Storage for the transactions.
   TransactionStore<transaction_id_t> store_;
 };
 }

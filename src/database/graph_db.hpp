@@ -68,7 +68,7 @@ class GraphDb {
   void RecoverDatabase(const fs::path &snapshot_db_path);
 
   /** transaction engine related to this database */
-  tx::Engine tx_engine;
+  tx::Engine tx_engine_;
 
   // database name
   // TODO consider if this is even necessary
@@ -107,4 +107,7 @@ class GraphDb {
   // Schedulers
   Scheduler<std::mutex> gc_scheduler_;
   Scheduler<std::mutex> snapshot_creator_;
+  // Periodically wakes up and hints to transactions that are running for a long
+  // time to stop their execution.
+  Scheduler<std::mutex> transaction_killer_;
 };

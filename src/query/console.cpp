@@ -73,8 +73,10 @@ void PrintResults(ResultStreamFaker results) {
   auto &results_data = results.GetResults();
   std::vector<std::vector<std::string>> result_strings(
       results_data.size(), std::vector<std::string>(column_widths.size()));
-  for (int row_ind = 0; row_ind < results_data.size(); ++row_ind) {
-    for (int col_ind = 0; col_ind < column_widths.size(); ++col_ind) {
+  for (int row_ind = 0; row_ind < static_cast<int>(results_data.size());
+       ++row_ind) {
+    for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
+         ++col_ind) {
       std::string string_val =
           TypedValueToString(results_data[row_ind][col_ind]);
       column_widths[col_ind] =
@@ -94,7 +96,8 @@ void PrintResults(ResultStreamFaker results) {
 
   auto emit_result_vec = [&](const std::vector<std::string> result_vec) {
     std::cout << "| ";
-    for (int col_ind = 0; col_ind < column_widths.size(); ++col_ind) {
+    for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
+         ++col_ind) {
       const std::string &res = result_vec[col_ind];
       std::cout << res << std::string(column_widths[col_ind] - res.size(), ' ');
       std::cout << " | ";
@@ -148,6 +151,8 @@ void query::Repl(Dbms &dbms) {
       std::cout << "RUNTIME EXCEPTION: " << e.what() << std::endl;
     } catch (const query::TypedValueException &e) {
       std::cout << "TYPED VALUE EXCEPTION: " << e.what() << std::endl;
+    } catch (const query::HintedAbortError &e) {
+      std::cout << "HINTED ABORT ERROR: " << e.what() << std::endl;
     } catch (const utils::NotYetImplemented &e) {
       std::cout << e.what() << std::endl;
     }

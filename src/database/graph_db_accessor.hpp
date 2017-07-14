@@ -275,7 +275,7 @@ class GraphDbAccessor {
     // happened earlier. We have to first wait for every transaction that
     // happend before, or a bit later than CreateIndex to end.
     {
-      auto wait_transaction = db_.tx_engine.Begin();
+      auto wait_transaction = db_.tx_engine_.Begin();
       for (auto id : wait_transaction->snapshot()) {
         if (id == transaction_->id_) continue;
         while (wait_transaction->engine_.clog().is_active(id))
@@ -286,7 +286,7 @@ class GraphDbAccessor {
     }
 
     // This transaction surely sees everything that happened before CreateIndex.
-    auto transaction = db_.tx_engine.Begin();
+    auto transaction = db_.tx_engine_.Begin();
 
     for (auto vertex_vlist : db_.vertices_.access()) {
       auto vertex_record = vertex_vlist->find(*transaction);
@@ -442,6 +442,11 @@ class GraphDbAccessor {
    * Abort transaction.
    */
   void abort();
+
+  /**
+   * Return true if transaction is hinted to abort.
+   */
+  bool should_abort() const;
 
   /**
    * Initializes the record pointers in the given accessor.

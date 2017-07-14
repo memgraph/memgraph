@@ -8,7 +8,7 @@
 #include "utils/assert.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(db.tx_engine.Begin()) {}
+    : db_(db), transaction_(db.tx_engine_.Begin()) {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
@@ -34,6 +34,10 @@ void GraphDbAccessor::abort() {
                "Already aborted or commited transaction.");
   transaction_->Abort();
   aborted_ = true;
+}
+
+bool GraphDbAccessor::should_abort() const {
+  return transaction_->should_abort();
 }
 
 VertexAccessor GraphDbAccessor::insert_vertex() {

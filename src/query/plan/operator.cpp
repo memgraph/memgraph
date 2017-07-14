@@ -78,8 +78,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame,
   if (input_cursor_->Pull(frame, symbol_table)) {
     Create(frame, symbol_table);
     return true;
-  } else
-    return false;
+  }
+  return false;
 }
 
 void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
@@ -191,12 +191,14 @@ template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   ScanAllCursor(Symbol output_symbol, std::unique_ptr<Cursor> input_cursor,
-                TVerticesFun get_vertices)
+                TVerticesFun get_vertices, GraphDbAccessor &db)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
-        get_vertices_(std::move(get_vertices)) {}
+        get_vertices_(std::move(get_vertices)),
+        db_(db) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
+    if (db_.should_abort()) throw HintedAbortError();
     if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, symbol_table)) return false;
       // We need a getter function, because in case of exhausting a lazy
@@ -227,6 +229,7 @@ class ScanAllCursor : public Cursor {
       typename std::result_of<TVerticesFun(Frame &, const SymbolTable &)>::type>
       vertices_;
   std::experimental::optional<decltype(vertices_.value().begin())> vertices_it_;
+  GraphDbAccessor &db_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
@@ -245,7 +248,7 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
     return db.vertices(graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db), std::move(vertices));
+      output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
@@ -260,7 +263,7 @@ std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
     return db.vertices(label_, graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db), std::move(vertices));
+      output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
 
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
@@ -311,7 +314,7 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
         db.vertices(label_, property_, graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
-      output_symbol_, input_->MakeCursor(db), std::move(vertices));
+      output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
@@ -334,6 +337,7 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
       : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db_)) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
+    if (db_.should_abort()) throw HintedAbortError();
     if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, symbol_table)) return false;
       ExpressionEvaluator evaluator(frame, symbol_table, db_,
@@ -400,10 +404,11 @@ std::unique_ptr<Cursor> Expand::MakeCursor(GraphDbAccessor &db) {
 }
 
 Expand::ExpandCursor::ExpandCursor(const Expand &self, GraphDbAccessor &db)
-    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)), db_(db) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   while (true) {
+    if (db_.should_abort()) throw HintedAbortError();
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       EdgeAccessor edge = *(*in_edges_it_)++;
@@ -1117,7 +1122,7 @@ void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
     ProcessOne(frame, symbol_table, evaluator);
 
   // calculate AVG aggregations (so far they have only been summed)
-  for (int pos = 0; pos < self_.aggregations_.size(); ++pos) {
+  for (int pos = 0; pos < static_cast<int>(self_.aggregations_.size()); ++pos) {
     if (std::get<1>(self_.aggregations_[pos]) != Aggregation::Op::AVG) continue;
     for (auto &kv : aggregation_) {
       AggregationValue &agg_value = kv.second;
@@ -1157,8 +1162,7 @@ void Aggregate::AggregateCursor::EnsureInitialized(
 }
 
 void Aggregate::AggregateCursor::Update(
-    Frame &frame, const SymbolTable &symbol_table,
-    ExpressionEvaluator &evaluator,
+    Frame &, const SymbolTable &, ExpressionEvaluator &evaluator,
     Aggregate::AggregateCursor::AggregationValue &agg_value) {
   debug_assert(
       self_.aggregations_.size() == agg_value.values_.size(),
@@ -1580,7 +1584,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
     if (pull_input_) {
       // if we have just now pulled from the input
       // and failed to pull from merge_match, we should create
-      bool merge_create_pull_result =
+      __attribute__((unused)) bool merge_create_pull_result =
           merge_create_cursor_->Pull(frame, symbol_table);
       debug_assert(merge_create_pull_result, "MergeCreate must never fail");
       return true;
@@ -1680,6 +1684,7 @@ Unwind::UnwindCursor::UnwindCursor(Unwind &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Unwind::UnwindCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+  if (db_.should_abort()) throw HintedAbortError();
   // if we reached the end of our list of values
   // pull from the input
   if (input_value_it_ == input_value_.end()) {

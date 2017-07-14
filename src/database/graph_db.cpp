@@ -18,6 +18,10 @@ DEFINE_int32(max_retained_snapshots, -1,
 DEFINE_int32(snapshot_cycle_sec, -1,
              "Amount of time between starts of two snapshooters in seconds. -1 "
              "to turn off.");
+DEFINE_int32(query_execution_time_sec, 180,
+             "Maximum allowed query execution time. Queries exceeding this "
+             "limit will be aborted. Value of -1 means no limit.");
+
 DEFINE_bool(snapshot_on_db_exit, false, "Snapshot on exiting the database.");
 
 DECLARE_string(snapshot_directory);
@@ -32,19 +36,19 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
     gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec), [this]() {
       // main garbage collection logic
       // see wiki documentation for logic explanation
-      const auto snapshot = this->tx_engine.GcSnapshot();
+      const auto snapshot = this->tx_engine_.GcSnapshot();
       {
         // This can be run concurrently
-        this->gc_vertices_.Run(snapshot, this->tx_engine);
-        this->gc_edges_.Run(snapshot, this->tx_engine);
+        this->gc_vertices_.Run(snapshot, this->tx_engine_);
+        this->gc_edges_.Run(snapshot, this->tx_engine_);
       }
       // This has to be run sequentially after gc because gc modifies
       // version_lists and changes the oldest visible record, on which Refresh
       // depends.
       {
         // This can be run concurrently
-        this->labels_index_.Refresh(snapshot, this->tx_engine);
-        this->edge_types_index_.Refresh(snapshot, this->tx_engine);
+        this->labels_index_.Refresh(snapshot, this->tx_engine_);
+        this->edge_types_index_.Refresh(snapshot, this->tx_engine_);
       }
       // we free expired objects with snapshot.back(), which is
       // the ID of the oldest active transaction (or next active, if there
@@ -60,6 +64,20 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
 
   RecoverDatabase(snapshot_db_dir);
   StartSnapshooting();
+
+  if (FLAGS_query_execution_time_sec != -1) {
+    transaction_killer_.Run(
+        std::chrono::seconds(std::max(1, FLAGS_query_execution_time_sec / 4)),
+        [this]() {
+          tx_engine_.ForEachActiveTransaction([](tx::Transaction &t) {
+            if (t.creation_time() +
+                    std::chrono::seconds(FLAGS_query_execution_time_sec) <
+                std::chrono::system_clock::now()) {
+              t.set_should_abort();
+            };
+          });
+        });
+  }
 }
 
 void GraphDb::StartSnapshooting() {
@@ -104,6 +122,9 @@ GraphDb::~GraphDb() {
   // Stop the snapshot creator to avoid snapshooting while database is beeing
   // deleted.
   snapshot_creator_.Stop();
+
+  // Stop transaction killer.
+  transaction_killer_.Stop();
 
   // Create last database snapshot
   if (FLAGS_snapshot_on_db_exit == true) {

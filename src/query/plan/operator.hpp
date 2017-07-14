@@ -557,6 +557,8 @@ class Expand : public LogicalOperator {
      */
     bool HandleExistingNode(const VertexAccessor new_node, Frame &frame,
                             const SymbolTable &symbol_table);
+
+    GraphDbAccessor &db_;
   };
 };
 

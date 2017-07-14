@@ -71,6 +71,7 @@ parameters:
  --max-retained-snapshots | integer | 3 | Number of retained snapshots.<br/>Value -1 means without limit.
  --snapshot-on-db-exit | bool | false | Make a snapshot when closing Memgraph.
  --recover-on-startup | bool | false | Recover the database on startup using the last<br/>stored snapshot.
+ --query-execution-time-sec | integer | 180 | Maximum allowed query execution time. <br/>Queries exceeding this limit will be aborted. Value of -1 means no limit.
 
 [^1]: Maximum number of concurrent executions on the current CPU.
 

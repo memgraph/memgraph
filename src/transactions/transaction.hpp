@@ -1,19 +1,21 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
 
 #include "storage/locking/record_lock.hpp"
+#include "threading/sync/lockable.hpp"
+#include "threading/sync/spinlock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
 #include "type.hpp"
 
 namespace tx {
 
-/** A database transaction. Encapsulates an atomic,
- * abortable unit of work. Also defines that all db
- * ops are single-threaded within a single transaction */
+/** A database transaction. Encapsulates an atomic, abortable unit of work. Also
+ * defines that all db ops are single-threaded within a single transaction */
 class Transaction {
  public:
   /** Returns the maximum possible transcation id */
@@ -24,29 +26,27 @@ class Transaction {
  private:
   friend class Engine;
 
-  // the constructor is private, only the Engine ever uses it
+  // The constructor is private, only the Engine ever uses it.
   Transaction(transaction_id_t id, const Snapshot &snapshot, Engine &engine);
 
-  // a transaction can't be moved nor copied. it's owned by the transaction
-  // engine, and it's lifetime is managed by it
+  // A transaction can't be moved nor copied. it's owned by the transaction
+  // engine, and it's lifetime is managed by it.
   Transaction(const Transaction &) = delete;
   Transaction(Transaction &&) = delete;
   Transaction &operator=(const Transaction &) = delete;
   Transaction &operator=(Transaction &&) = delete;
 
  public:
-  /** Acquires the lock over the given RecordLock, preventing
-   * other transactions from doing the same */
+  /** Acquires the lock over the given RecordLock, preventing other transactions
+   * from doing the same */
   void TakeLock(RecordLock &lock);
 
-  /** Commits this transaction. After this call this transaction
-   * object is no longer valid for use (it gets deleted by the
-   * engine that owns it). */
+  /** Commits this transaction. After this call this transaction object is no
+   * longer valid for use (it gets deleted by the engine that owns it). */
   void Commit();
 
-  /** Aborts this transaction. After this call this transaction
-   * object is no longer valid for use (it gets deleted by the
-   * engine that owns it). */
+  /** Aborts this transaction. After this call this transaction object is no
+   * longer valid for use (it gets deleted by the engine that owns it). */
   void Abort();
 
   /** Transaction's id. Unique in the engine that owns it */
@@ -62,12 +62,28 @@ class Transaction {
   /** Returns this transaction's snapshot. */
   const Snapshot &snapshot() const { return snapshot_; }
 
+  /** Signal to transaction that it should abort. It doesn't really enforce that
+   * transaction will abort, but it merely hints too the transaction that it is
+   * preferable to stop its execution.
+   */
+  void set_should_abort() { should_abort_ = true; }
+
+  bool should_abort() const { return should_abort_; }
+
+  auto creation_time() const { return creation_time_; }
+
  private:
-  // index of the current command in the current transaction;
+  // Index of the current command in the current transaction.
   command_id_t cid_{1};
-  // a snapshot of currently active transactions
+  // A snapshot of currently active transactions.
   const Snapshot snapshot_;
-  // locks
+  // Record locks held by this transaction.
   LockStore<RecordLock> locks_;
+  // True if transaction should abort. Used to signal query executor that it
+  // should stop execution, it is only a hint, transaction can disobey.
+  std::atomic<bool> should_abort_{false};
+  // Creation time.
+  const std::chrono::time_point<std::chrono::system_clock> creation_time_{
+      std::chrono::system_clock::now()};
 };
 }
