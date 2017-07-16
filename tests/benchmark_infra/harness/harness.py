@@ -21,7 +21,7 @@ from perf import Perf
 log = logging.getLogger(__name__)
 
 
-class QuerySuite():
+class QuerySuite:
     """
     Executes a Query-based benchmark scenario. Query-based scenarios
     consist of setup steps (Cypher queries) executed before the benchmark,
@@ -43,7 +43,7 @@ class QuerySuite():
         args, _ = argp.parse_known_args(args)
         self.perf = Perf() if args.perf else None
 
-    class Loader():
+    class Loader:
         """
         Loads file contents. Supported types are:
             .py - executable that prints out Cypher queries
@@ -188,9 +188,11 @@ class QuerySuite():
         measurement_sums = defaultdict(float)
         def add_measurement(dictionary, iteration, key):
             if key in dictionary:
-                measurement = {"target": key, "value": dictionary[key],
-                               "unit": "s", "type": "time"}
-                measurement["iteration"] = iteration
+                measurement = {"target": key,
+                               "value": float(dictionary[key]),
+                               "unit": "s",
+                               "type": "time",
+                               "iteration": iteration}
                 measurements.append(measurement)
                 try:
                     measurement_sums[key] += float(dictionary[key])
@@ -340,30 +342,12 @@ class MemgraphRunner:
         self.memgraph_bin.wait()
 
 
-def send_data(storage_url, data_type, payload):
-    log.info("Sending %d elements of type '%s' to storage at '%s'",
-             len(payload), data_type, storage_url)
-    log.debug("Sending payload:\n%s", json.dumps(payload, indent=2))
-    r = requests.post("%s/store/%s" % (storage_url, data_type), json=payload)
-    if r.status_code != 200:
-        raise Exception("Unable to send %s data." % data_type)
-    log.debug("Storage server response:\n%s", r.json())
-    if len(r.json()) == 0:
-        raise Exception("Invalid storage server response")
-    return r.json()
-
-
-def send_data_one(storage_url, data_type, payload):
-    return send_data(storage_url, data_type, [payload])[0]
-
-
 def parse_known_args():
     argp = ArgumentParser(description=__doc__)
     # positional, mandatory args
     argp.add_argument("suite", help="Suite to run.")
     argp.add_argument("runner", help="Engine to use.")
     # named, optional arguments
-    argp.add_argument("--storage-url", help="URL of the storage server")
     argp.add_argument("--groups", nargs="+", help="Groups to run. If none are"
                       " provided, all available grups are run.")
     argp.add_argument("--scenarios", nargs="+", help="Scenarios to run. If "
@@ -383,8 +367,7 @@ def main():
         logging.getLogger("urllib3").setLevel(logging.WARNING)
         logging.getLogger("neo4j.bolt").setLevel(logging.WARNING)
     log.info("Memgraph benchmark suite harness")
-    log.info("Executing for suite '%s', runner '%s', storage '%s'",
-             args.suite, args.runner, args.storage_url)
+    log.info("Executing for suite '%s', runner '%s'", args.suite, args.runner)
 
     # Create suite
     suites = {"QuerySuite": QuerySuite}
@@ -440,19 +423,16 @@ def main():
         log.info("Executing group.scenario '%s.%s' with elements %s",
                  group, scenario_name, list(scenario.keys()))
         for iter_result in suite.run(scenario, scenario_name, runner):
-            iter_result['group'] = group
-            iter_result['scenario'] = scenario_name
+            iter_result["group"] = group
+            iter_result["scenario"] = scenario_name
             results.append(iter_result)
     run = dict()
     run["suite"] = args.suite
     run["runner"] = runner.__class__.__name__
     run["runner_config"] = vars(runner.args)
     run.update(args.additional_run_fields)
-    if args.storage_url is not None:
-        run_uuid = send_data_one(args.storage_url, "run", run)
-        for result in results:
-            result["run"] = run_uuid
-        send_data(args.storage_url, "measurement", results)
+    for result in results:
+        jail.store_data(json.dumps(result))
     print("\n\n{}\n".format(suite.summary))
 
 

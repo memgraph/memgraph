@@ -9,7 +9,8 @@ import threading
 import time
 import uuid
 from signal import *
-
+import datetime
+import json
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -194,7 +195,19 @@ def get_process():
     return None
 
 # TODO: ovo treba napravit
-def store_data(data):
+def store_data(_data, self):
+    data = json.loads(_data)
+    assert "unit" in data, "unit is nonoptional field"
+    assert "type" in data, "type is nonoptional field"
+    assert "value" in data, "value is nonoptional field"
+    if not hasattr(self, "timestamp"):
+        self.timestamp = datetime.datetime.now().isoformat()
+    with open(os.path.join(os.path.dirname(__file__), "results",
+        self.timestamp), "a") as results_file:
+        json.dump(data, results_file)
+        results_file.write("\n")
+
+
     # TODO: treba assertat da data ima neke keyeve u sebi
     # TODO: to trebaju bit keyevi value, type i sl...
 
@@ -218,6 +231,7 @@ def store_data(data):
     # to znaci da treba bit lista dictionary-ja
 
     pass
+store_data.__defaults__ = (store_data,)
 
 
 if __name__ == "__main__":
