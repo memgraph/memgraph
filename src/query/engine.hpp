@@ -91,11 +91,6 @@ class QueryEngine {
       return result;
     }
 
-    // helper function for calculating time in seconds
-    auto time_second = [](clock_t start, clock_t end) {
-      return query::TypedValue(double(end - start) / CLOCKS_PER_SEC);
-    };
-
     std::map<std::string, query::TypedValue> summary;
     summary["query_parsing_time"] = parsing_time.count();
     // This doesn't do any actual planning, but benchmarking harness knows how
