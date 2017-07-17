@@ -2,8 +2,8 @@
 
 #include <limits>
 
-#include <gflags/gflags.h>
-#include <glog/logging.h>
+#include "cppitertools/slice.hpp"
+#include "gflags/gflags.h"
 
 #include "utils/flag_validation.hpp"
 
@@ -140,71 +140,133 @@ std::vector<Matching> VaryMatchingStart(const Matching &matching,
 //    std::vector<int> second_set{4,5};
 //    std::vector<std::vector<int>> all_sets{first_set, second_set};
 //    // prod should be {{1, 4}, {1, 5}, {2, 4}, {2, 5}, {3, 4}, {3, 5}}
-//    auto prod = CartesianProduct(all_sets.cbegin(), all_sets.cend())
+//    auto product = CartesianProduct(all_sets.cbegin(), all_sets.cend());
+//    for (const auto &set : product) {
+//      ...
+//    }
+//
+// The product is created lazily by iterating over the constructed
+// CartesianProduct instance.
 template <typename T>
-std::vector<std::vector<T>> CartesianProduct(
-    typename std::vector<std::vector<T>>::const_iterator begin,
-    typename std::vector<std::vector<T>>::const_iterator end) {
-  std::vector<std::vector<T>> products;
-  if (begin == end) {
-    return products;
-  }
-  auto later_products = CartesianProduct<T>(begin + 1, end);
-  for (const auto &elem : *begin) {
-    if (later_products.empty()) {
-      products.emplace_back(std::vector<T>{elem});
-    } else {
-      for (const auto &rest : later_products) {
-        std::vector<T> product{elem};
-        product.insert(product.end(), rest.begin(), rest.end());
-        products.emplace_back(std::move(product));
+class CartesianProduct {
+ public:
+  CartesianProduct(std::vector<std::vector<T>> sets)
+      : original_sets_(std::move(sets)),
+        begin_(original_sets_.cbegin()),
+        end_(original_sets_.cend()) {}
+
+  class iterator {
+   public:
+    typedef std::input_iterator_tag iterator_category;
+    typedef std::vector<T> value_type;
+    typedef long difference_type;
+    typedef const std::vector<T> &reference;
+    typedef const std::vector<T> *pointer;
+
+    explicit iterator(CartesianProduct &self, bool is_done)
+        : self_(self), is_done_(is_done) {
+      if (is_done || self.begin_ == self.end_) {
+        is_done_ = true;
+        return;
+      }
+      auto begin = self.begin_;
+      while (begin != self.end_) {
+        auto set_it = begin->cbegin();
+        if (set_it == begin->cend()) {
+          // One of the sets is empty, so there is no product.
+          is_done_ = true;
+          return;
+        }
+        // Collect the first product, by taking the first element of each set.
+        current_product_.emplace_back(*set_it);
+        // Store starting iterators to all sets.
+        sets_.emplace_back(begin, set_it);
+        begin++;
       }
     }
-  }
-  return products;
-}
 
-template <typename T>
-std::uint64_t CartesianProductSize(const std::vector<std::vector<T>> &sets) {
-  std::uint64_t n = 1U;
-  for (const auto &set : sets) {
-    if (set.empty()) {
-      return 0U;
+    iterator &operator++() {
+      if (is_done_) return *this;
+      // Increment the leftmost set iterator.
+      auto sets_it = sets_.begin();
+      sets_it->second++;
+      // If the leftmost is at the end, reset it and increment the next
+      // leftmost.
+      while (sets_it->second == sets_it->first->cend()) {
+        sets_it->second = sets_it->first->cbegin();
+        sets_it++;
+        if (sets_it == sets_.end()) {
+          // The leftmost set is the last set and it was exhausted, so we are
+          // done.
+          is_done_ = true;
+          return *this;
+        }
+        sets_it->second++;
+      }
+      // We can now collect another product from the modified set iterators.
+      debug_assert(
+          current_product_.size() == sets_.size(),
+          "Expected size of current_product_ to match the size of sets_");
+      size_t i = 0;
+      // Change only the prefix of the product, remaining elements (after
+      // sets_it) should be the same.
+      auto last_unmodified = sets_it + 1;
+      for (auto kv_it = sets_.begin(); kv_it != last_unmodified; ++kv_it) {
+        current_product_[i++] = *kv_it->second;
+      }
+      return *this;
     }
-    if (std::numeric_limits<std::uint64_t>::max() / n < set.size()) {
-      DLOG(WARNING) << "Unsigned wrap-around when calculating expected size of "
-                       "Cartesian product.";
-      return std::numeric_limits<std::uint64_t>::max();
-    }
-    n *= set.size();
-  }
-  return n;
-}
 
-// Shortens variants if their Cartesian product exceeds the query_max_plans
-// flag.
-template <typename T>
-void LimitPlans(std::vector<std::vector<T>> &variants) {
-  size_t to_shorten = 0U;
-  while (CartesianProductSize(variants) > FLAGS_query_max_plans) {
-    if (variants[to_shorten].size() > 1U) {
-      variants[to_shorten].pop_back();
+    bool operator==(const iterator &other) const {
+      if (self_.begin_ != other.self_.begin_ || self_.end_ != other.self_.end_)
+        return false;
+      return (is_done_ && other.is_done_) || (sets_ == other.sets_);
     }
-    to_shorten = (to_shorten + 1U) % variants.size();
-  }
-}
+
+    bool operator!=(const iterator &other) const { return !(*this == other); }
+
+    // Iterator interface says that dereferencing a past-the-end iterator is
+    // undefined, so don't bother checking if we are done.
+    reference operator*() const { return current_product_; }
+    pointer operator->() const { return &current_product_; }
+
+   private:
+    CartesianProduct &self_;
+    // Vector of (original_sets_iterator, set_iterator) pairs. The
+    // original_sets_iterator points to the set among all the sets, while the
+    // set_iterator points to an element inside the pointed to set.
+    std::vector<
+        std::pair<decltype(self_.begin_), decltype(self_.begin_->cbegin())>>
+        sets_;
+    // Currently built product from pointed to elements in all sets.
+    std::vector<T> current_product_;
+    // Set to true when we have generated all products.
+    bool is_done_ = false;
+  };
+
+  auto begin() { return iterator(*this, false); }
+  auto end() { return iterator(*this, true); }
+
+ private:
+  friend class iterator;
+  // The original sets whose Cartesian product we are calculating.
+  std::vector<std::vector<T>> original_sets_;
+  // Iterators to the beginning and end of original_sets_.
+  typename std::vector<std::vector<T>>::const_iterator begin_;
+  typename std::vector<std::vector<T>>::const_iterator end_;
+};
 
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
 // matchings. After all matchings produce multiple alternative starts, the
 // Cartesian product of all of them is returned.
-std::vector<std::vector<Matching>> VaryMultiMatchingStarts(
-    const std::vector<Matching> &matchings, const SymbolTable &symbol_table) {
+auto VaryMultiMatchingStarts(const std::vector<Matching> &matchings,
+                             const SymbolTable &symbol_table) {
   std::vector<std::vector<Matching>> variants;
   for (const auto &matching : matchings) {
     variants.emplace_back(VaryMatchingStart(matching, symbol_table));
   }
-  LimitPlans(variants);
-  return CartesianProduct<Matching>(variants.cbegin(), variants.cend());
+  return iter::slice(CartesianProduct<Matching>(std::move(variants)), 0UL,
+                     FLAGS_query_max_plans);
 }
 
 // Produces alternative query parts out of a single part by varying how each
@@ -266,17 +328,16 @@ std::vector<QueryPart> VaryQuertPartMatching(const QueryPart &query_part,
 
 // Generates different, equivalent query parts by taking different graph
 // matching routes for each query part.
-std::vector<std::vector<QueryPart>> VaryQueryMatching(
-    const std::vector<QueryPart> &query_parts,
-    const SymbolTable &symbol_table) {
+auto VaryQueryMatching(const std::vector<QueryPart> &query_parts,
+                       const SymbolTable &symbol_table) {
   std::vector<std::vector<QueryPart>> alternative_query_parts;
   for (const auto &query_part : query_parts) {
     alternative_query_parts.emplace_back(
         VaryQuertPartMatching(query_part, symbol_table));
   }
-  LimitPlans(alternative_query_parts);
-  return CartesianProduct<QueryPart>(alternative_query_parts.cbegin(),
-                                     alternative_query_parts.cend());
+  return iter::slice(
+      CartesianProduct<QueryPart>(std::move(alternative_query_parts)), 0UL,
+      FLAGS_query_max_plans);
 }
 
 }  // namespace
@@ -286,7 +347,7 @@ std::vector<std::unique_ptr<LogicalOperator>> VariableStartPlanner::Plan(
   std::vector<std::unique_ptr<LogicalOperator>> plans;
   auto alternatives = VaryQueryMatching(query_parts, context_.symbol_table);
   RuleBasedPlanner rule_planner(context_);
-  for (auto &alternative_query_parts : alternatives) {
+  for (auto alternative_query_parts : alternatives) {
     context_.bound_symbols.clear();
     plans.emplace_back(rule_planner.Plan(alternative_query_parts));
   }
