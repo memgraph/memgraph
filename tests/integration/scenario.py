@@ -68,7 +68,7 @@ if __name__ == "__main__":
 					received = {k: v for (k, v) in data.items()}
 				else:
 					received = data
-				
+
 				# get expected elements
 				expected = expected[0]
 

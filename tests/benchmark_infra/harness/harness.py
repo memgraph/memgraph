@@ -21,7 +21,7 @@ from perf import Perf
 log = logging.getLogger(__name__)
 
 
-class QuerySuite:
+class _QuerySuite:
     """
     Executes a Query-based benchmark scenario. Query-based scenarios
     consist of setup steps (Cypher queries) executed before the benchmark,
@@ -179,9 +179,10 @@ class QuerySuite:
         scenario_config = scenario.get("config")
         scenario_config = next(scenario_config()) if scenario_config else {}
 
-        def execute(config_name):
+        def execute(config_name, num_client_workers=1):
             queries = scenario.get(config_name)
-            return runner.execute(queries()) if queries else None
+            return runner.execute(queries(), num_client_workers) if queries \
+                    else None
 
         measurements = []
 
@@ -206,7 +207,7 @@ class QuerySuite:
         for _ in range(min(scenario_config.get("iterations", 1),
                            scenario_config.get("warmup", 3))):
             execute("itersetup")
-            execute("run")
+            execute("run", scenario_config.get("num_client_workers", 1))
             execute("iterteardown")
 
         if self.perf:
@@ -221,16 +222,16 @@ class QuerySuite:
             # most likely run faster
             execute("itersetup")
             # TODO measure CPU time (expose it from the runner)
-            run_result = execute("run")
-            assert len(run_result.get("metadatas", [])), \
-                "Scenario run must have exactly one query"
+            run_result = execute("run",
+                    scenario_config.get("num_client_workers", 1))
             add_measurement(run_result, iteration, WALL_TIME)
-            add_measurement(run_result["metadatas"][0], iteration,
-                            "query_parsing_time")
-            add_measurement(run_result["metadatas"][0], iteration,
-                            "query_plan_execution_time")
-            add_measurement(run_result["metadatas"][0], iteration,
-                            "query_planning_time")
+            if len(run_result.get("metadatas", [])) == 1:
+                add_measurement(run_result["metadatas"][0], iteration,
+                                "query_parsing_time")
+                add_measurement(run_result["metadatas"][0], iteration,
+                                "query_plan_execution_time")
+                add_measurement(run_result["metadatas"][0], iteration,
+                                "query_planning_time")
             execute("iterteardown")
 
         if self.perf:
@@ -258,12 +259,36 @@ class QuerySuite:
 
     def runners(self):
         """ Which runners can execute a QuerySuite scenario """
-        return ["MemgraphRunner"]
+        assert False, "This is a base class, use one of derived suites"
 
     def groups(self):
         """ Which groups can be executed by a QuerySuite scenario """
+        assert False, "This is a base class, use one of derived suites"
         return ["create", "match", "expression", "aggregation", "return",
                 "update", "delete", "hardcoded"]
+
+
+class QuerySuite(_QuerySuite):
+    def __init__(self, args):
+        _QuerySuite.__init__(self, args)
+
+    def runners(self):
+        return ["MemgraphRunner"]
+
+    def groups(self):
+        return ["create", "match", "expression", "aggregation", "return",
+                "update", "delete"]
+
+
+class QueryParallelSuite(_QuerySuite):
+    def __init__(self, args):
+        _QuerySuite.__init__(self, args)
+
+    def runners(self):
+        return ["MemgraphRunner"]
+
+    def groups(self):
+        return ["aggregation_parallel"]
 
 
 class MemgraphRunner:
@@ -287,7 +312,7 @@ class MemgraphRunner:
                 default=os.path.join(os.path.dirname(__file__),
                     "../../../build/memgraph"))
         argp.add_argument("--MemgraphRunnerConfig", required=False)
-        argp.add_argument("--MemgraphRunnerURI", default="bolt://localhost:7687")
+        argp.add_argument("--MemgraphRunnerURI", default="localhost:7687")
         argp.add_argument("--MemgraphRunnerEncryptBolt", action="store_true")
         self.args, _ = argp.parse_known_args(args)
 
@@ -304,12 +329,13 @@ class MemgraphRunner:
         time.sleep(1.0)
         return self.memgraph_bin.get_pid()
 
-    def execute(self, queries):
+    def execute(self, queries, num_client_workers):
         log.debug("MemgraphRunner.execute('%s')", str(queries))
         client_args = [path.join(path.dirname(__file__), "bolt_client.py")]
-        client_args.append(self.args.MemgraphRunnerURI)
-        if (self.args.MemgraphRunnerEncryptBolt):
-            client_args.append("--encrypt")
+        client_args += ["--endpoint", self.args.MemgraphRunnerURI]
+        client_args += ["--num-workers", str(num_client_workers)]
+        if self.args.MemgraphRunnerEncryptBolt:
+            client_args.append("--ssl-enabled")
         queries_fd, queries_path = tempfile.mkstemp()
         try:
             queries_file = os.fdopen(queries_fd, "w")
@@ -370,7 +396,7 @@ def main():
     log.info("Executing for suite '%s', runner '%s'", args.suite, args.runner)
 
     # Create suite
-    suites = {"QuerySuite": QuerySuite}
+    suites = {"QuerySuite": QuerySuite, "QueryParallelSuite": QueryParallelSuite}
     if args.suite not in suites:
         raise Exception(
             "Suite '{}' isn't registered. Registered suites are: {}".format(
@@ -413,7 +439,7 @@ def main():
                 continue
             filtered_scenarios[(group, scenario_name)] = scenario
 
-    if (len(filtered_scenarios) == 0):
+    if len(filtered_scenarios) == 0:
         log.info("No scenarios to execute")
         return
 

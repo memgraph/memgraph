@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 """
 A python script that launches the memgraph client,
@@ -24,20 +24,26 @@ Note that 'metadata' are only valid if the return_code is 0
 """
 
 import sys
+import os
+# tests/stress dir, that's the place of common.py.
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.realpath(__file__)))), "stress"))
 import time
 import json
 from argparse import ArgumentParser
 from contextlib import redirect_stderr
 import io
+from multiprocessing import Pool
+from common import connection_argument_parser, execute_till_success, \
+        argument_session
+from functools import partial
 
 from neo4j.v1 import GraphDatabase, basic_auth
-
 
 # string constants
 RETURN_CODE = "return_code"
 ERROR_MSG = "error_msg"
 WALL_TIME = "wall_time"
-
 
 def _prepare_for_json(obj):
     if isinstance(obj, dict):
@@ -53,14 +59,16 @@ def _print_dict(d):
     print(json.dumps(_prepare_for_json(d), indent=2))
 
 
-def main():
-    argp = ArgumentParser("Bolt client execution process")
-    # positional args
-    argp.add_argument("db_uri")
-    # named, optional
-    argp.add_argument("--encrypt", action="store_true")
+def _run_query(args, query):
+    with argument_session(args) as session:
+        return execute_till_success(session, query)[2]
 
-    # parse ags, ensure that stdout is not polluted by argument parsing
+
+def main():
+    argp = connection_argument_parser()
+    argp.add_argument("--num-workers", type=int, default=1)
+
+    # Parse args and ensure that stdout is not polluted by argument parsing.
     try:
         f = io.StringIO()
         with redirect_stderr(f):
@@ -71,31 +79,19 @@ def main():
 
     queries = sys.stdin.read().split("\n")
 
-    driver = GraphDatabase.driver(
-        args.db_uri,
-        auth=basic_auth("", ""),
-        encrypted=args.encrypt)
-
-    session = driver.session()
-
-    # execute the queries
+    # Execute the queries.
     metadatas = []
-    start = time.time()
-    for query in queries:
-        result = session.run(query)
-        metadatas.append(result.summary().metadata)
-    end = time.time()
-    delta_time = end - start
+    with Pool(args.num_workers) as pool:
+        start = time.time()
+        metadatas = list(pool.map(partial(_run_query, args), queries))
+        end = time.time()
+        delta_time = end - start
 
     _print_dict({
         RETURN_CODE: 0,
-        WALL_TIME: (None if not queries else
-                    delta_time / float(len(queries))),
+        WALL_TIME: (None if not queries else delta_time),
         "metadatas": metadatas
     })
-
-    session.close()
-    driver.close()
 
 
 if __name__ == '__main__':

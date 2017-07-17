@@ -77,7 +77,13 @@ def execute_till_success(session, query, max_retries=1000):
     no_failures = 0
     while True:
         try:
-            return session.run(query).data(), no_failures
+            result = session.run(query)
+            # neo4.Address object can't be pickled so we need to convert it to
+            # str in metadata dictionary. This is important so that we can use
+            # this function in multiprocessing.Pool.map.
+            metadata  = {k: str(v) for k, v in
+                    result.summary().metadata.items()}
+            return result.data(), no_failures, metadata
         except Exception:
             no_failures += 1
             if no_failures >= max_retries:
@@ -146,7 +152,7 @@ def connection_argument_parser():
                         help='DBMS instance username.')
     parser.add_argument('--password', type=int, default='1234',
                         help='DBMS instance password.')
-    parser.add_argument('--ssl-enabled', action='store_false',
+    parser.add_argument('--ssl-enabled', action='store_true',
                         help="Is SSL enabled?")
     return parser
 
