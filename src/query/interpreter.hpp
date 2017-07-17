@@ -146,11 +146,6 @@ class Interpreter {
     }
     auto execution_time = execution_timer.Elapsed();
 
-    // helper function for calculating time in seconds
-    auto time_second = [](clock_t start, clock_t end) {
-      return TypedValue(double(end - start) / CLOCKS_PER_SEC);
-    };
-
     summary["query_parsing_time"] = frontend_time.count();
     summary["query_planning_time"] = planning_time.count();
     summary["query_plan_execution_time"] = execution_time.count();
