@@ -148,7 +148,7 @@ class Engine : Lockable<SpinLock> {
 
   /** Calls function f on each active transaction. */
   void ForEachActiveTransaction(std::function<void(Transaction &)> f) {
-    this->acquire_unique();
+    auto guard = this->acquire_unique();
     for (auto transaction : active_) {
       f(*store_.get(transaction));
     }
