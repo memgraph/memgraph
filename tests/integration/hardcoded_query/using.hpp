@@ -8,7 +8,7 @@
 using Stream = communication::bolt::ResultStream<communication::bolt::Encoder<
     communication::bolt::ChunkedEncoderBuffer<io::network::Socket>>>;
 #else
-#include "../stream/print_record_stream.hpp"
+#include "../print_record_stream.hpp"
 using Stream = PrintRecordStream;
 #endif
 #include "data_structures/bitset/static_bitset.hpp"

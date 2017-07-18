@@ -134,12 +134,9 @@ foreach(file_path ${__HARDCODED_FILES})
     get_filename_component(file_name ${file_path} NAME)
     configure_file(${file_path} ${CMAKE_BINARY_DIR}/tests/integration/hardcoded_query/${file_name} COPYONLY)
 endforeach()
-file(GLOB __STREAM
-    ${CMAKE_SOURCE_DIR}/tests/integration/stream/*)
-foreach(file_path ${__STREAM})
-    get_filename_component(file_name ${file_path} NAME)
-    configure_file(${file_path} ${CMAKE_BINARY_DIR}/tests/integration/stream/${file_name} COPYONLY)
-endforeach()
+set(print_record_stream_path ${CMAKE_SOURCE_DIR}/tests/integration/print_record_stream.hpp)
+get_filename_component(print_record_stream_file_name ${print_record_stream_path} NAME)
+configure_file(${print_record_stream_path} ${CMAKE_BINARY_DIR}/tests/integration/${print_record_stream_file_name} COPYONLY)
 # -----------------------------------------------------------------------------
 
 # linter setup (clang-tidy)
