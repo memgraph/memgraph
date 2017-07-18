@@ -9,8 +9,8 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
-#include "communication/bolt/v1/states/executor.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
+#include "communication/bolt/v1/states/idle_result.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
@@ -90,16 +90,17 @@ class Session {
 
       switch (state_) {
         case State::Handshake:
-          state_ = StateHandshakeRun<Session<Socket>>(*this);
+          state_ = StateHandshakeRun(*this);
           break;
         case State::Init:
-          state_ = StateInitRun<Session<Socket>>(*this);
+          state_ = StateInitRun(*this);
           break;
-        case State::Executor:
-          state_ = StateExecutorRun<Session<Socket>>(*this);
+        case State::Idle:
+        case State::Result:
+          state_ = StateIdleResultRun(*this, state_);
           break;
         case State::Error:
-          state_ = StateErrorRun<Session<Socket>>(*this);
+          state_ = StateErrorRun(*this);
           break;
         case State::Close:
           // This state is handled below

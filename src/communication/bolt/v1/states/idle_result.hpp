@@ -19,7 +19,7 @@ namespace communication::bolt {
  * @param session the session that should be used for the run
  */
 template <typename Session>
-State StateExecutorRun(Session &session) {
+State StateIdleResultRun(Session &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
@@ -50,6 +50,11 @@ State StateExecutorRun(Session &session) {
 
     auto db_accessor = session.dbms_.active();
     DLOG(INFO) << fmt::format("[ActiveDB] '{}'", db_accessor->name());
+
+    if (state != State::Idle) {
+      DLOG(WARNING) << "Unexpected RUN command!";
+      return State::Error;
+    }
 
     try {
       DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
@@ -89,7 +94,7 @@ State StateExecutorRun(Session &session) {
           DLOG(WARNING) << "Couldn't flush header data from the buffer!";
           return State::Close;
         }
-        return State::Executor;
+        return State::Result;
       }
 
     } catch (const utils::BasicException &e) {
@@ -144,7 +149,7 @@ State StateExecutorRun(Session &session) {
           underlying_cast(marker));
       return State::Close;
     }
-    if (!session.encoder_buffer_.HasData()) {
+    if (state != State::Result) {
       // the buffer doesn't have data, return a failure message
       bool data_fail_sent = session.encoder_.MessageFailure(
           {{"code", "Memgraph.Exception"},
@@ -163,7 +168,7 @@ State StateExecutorRun(Session &session) {
       DLOG(WARNING) << "Couldn't flush data from the buffer!";
       return State::Close;
     }
-    return State::Executor;
+    return State::Idle;
 
   } else if (signature == Signature::DiscardAll) {
     DLOG(INFO) << "[DiscardAll]";
@@ -173,13 +178,27 @@ State StateExecutorRun(Session &session) {
           underlying_cast(marker));
       return State::Close;
     }
+
+    if (state != State::Result) {
+      bool data_fail_discard = session.encoder_.MessageFailure(
+          {{"code", "Memgraph.Exception"},
+           {"message",
+            "There is no data to "
+            "discard, you have to execute a RUN command before a "
+            "DISCARD_ALL!"}});
+      if (!data_fail_discard) {
+        DLOG(WARNING) << "Couldn't send failure message!";
+        return State::Close;
+      }
+      return State::Error;
+    }
     // clear all pending data and send a success message
     session.encoder_buffer_.Clear();
     if (!session.encoder_.MessageSuccess()) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
-    return State::Executor;
+    return State::Idle;
 
   } else if (signature == Signature::Reset) {
     // IMPORTANT: This implementation of the Bolt RESET command isn't fully
@@ -203,7 +222,7 @@ State StateExecutorRun(Session &session) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
-    return State::Executor;
+    return State::Idle;
 
   } else {
     DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",

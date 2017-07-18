@@ -40,7 +40,7 @@ State StateErrorRun(Session &session) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
-    return State::Executor;
+    return State::Idle;
   } else {
     uint8_t value = underlying_cast(marker);
 

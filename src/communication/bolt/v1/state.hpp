@@ -21,9 +21,15 @@ enum class State : uint8_t {
   Init,
 
   /**
-   * This state executes commands from the Bolt protocol.
+   * This state waits for next query (RUN command).
    */
-  Executor,
+  Idle,
+
+  /**
+   * This state holds results of RUN command and waits for either PULL_ALL or
+   * DISCARD_ALL command.
+   */
+  Result,
 
   /**
    * This state handles errors.

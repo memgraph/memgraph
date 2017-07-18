@@ -66,6 +66,6 @@ State StateInitRun(Session &session) {
     return State::Close;
   }
 
-  return State::Executor;
+  return State::Idle;
 }
 }

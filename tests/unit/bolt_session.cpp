@@ -89,7 +89,7 @@ void ExecuteCommand(SessionT &session, const uint8_t *data, size_t len,
 // Execute and check a correct init
 void ExecuteInit(SessionT &session, std::vector<uint8_t> &output) {
   ExecuteCommand(session, init_req, sizeof(init_req));
-  ASSERT_EQ(session.state_, StateT::Executor);
+  ASSERT_EQ(session.state_, StateT::Idle);
   ASSERT_TRUE(session.socket_.IsOpen());
   PrintOutput(output);
   CheckOutput(output, init_resp, 7);
@@ -286,6 +286,18 @@ TEST(BoltSession, ExecuteRunBasicException) {
   }
 }
 
+TEST(BoltSession, ExecuteRunWithoutPullAll) {
+  INIT_VARS;
+
+  ExecuteHandshake(session, output);
+  ExecuteInit(session, output);
+
+  WriteRunRequest(session, "RETURN 2");
+  session.Execute();
+
+  ASSERT_EQ(session.state_, StateT::Result);
+}
+
 TEST(BoltSession, ExecutePullAllDiscardAllResetWrongMarker) {
   // This test first tests PULL_ALL then DISCARD_ALL and then RESET
   // It tests for missing data in the message header
@@ -351,7 +363,7 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
       ExecuteCommand(session, dataset[i], 2);
 
       if (j == 0) {
-        ASSERT_EQ(session.state_, StateT::Executor);
+        ASSERT_EQ(session.state_, StateT::Idle);
         ASSERT_TRUE(session.socket_.IsOpen());
         ASSERT_FALSE(session.encoder_buffer_.HasData());
         PrintOutput(output);
@@ -470,7 +482,7 @@ TEST(BoltSession, ErrorOK) {
       ASSERT_EQ(session.decoder_buffer_.Size(), 0);
 
       if (j == 0) {
-        ASSERT_EQ(session.state_, StateT::Executor);
+        ASSERT_EQ(session.state_, StateT::Idle);
         ASSERT_TRUE(session.socket_.IsOpen());
         CheckOutput(output, success_resp, sizeof(success_resp));
       } else {
@@ -511,7 +523,7 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
   WriteRunRequest(session, "CREATE (n) RETURN n");
   ExecuteCommand(session, pullall_req, sizeof(pullall_req));
 
-  ASSERT_EQ(session.state_, StateT::Executor);
+  ASSERT_EQ(session.state_, StateT::Idle);
   ASSERT_TRUE(session.socket_.IsOpen());
   PrintOutput(output);
 
@@ -543,7 +555,7 @@ TEST(BoltSession, PartialChunk) {
   // missing chunk tail
   session.Execute();
 
-  ASSERT_EQ(session.state_, StateT::Executor);
+  ASSERT_EQ(session.state_, StateT::Idle);
   ASSERT_TRUE(session.socket_.IsOpen());
   ASSERT_EQ(output.size(), 0);
 
@@ -551,7 +563,7 @@ TEST(BoltSession, PartialChunk) {
 
   session.Execute();
 
-  ASSERT_EQ(session.state_, StateT::Executor);
+  ASSERT_EQ(session.state_, StateT::Error);
   ASSERT_TRUE(session.socket_.IsOpen());
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);
