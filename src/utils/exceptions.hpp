@@ -182,14 +182,15 @@ class StacktraceException : public std::exception {
 /**
  * @brief Raise this exception for functionality which is yet to be implemented.
  */
-class NotYetImplemented final : public StacktraceException {
+class NotYetImplemented final : public BasicException {
  public:
-  using StacktraceException::StacktraceException;
+  explicit NotYetImplemented(const std::string &what) noexcept
+      : BasicException("Not yet implemented: " + what) {}
 
-  /**
-   * @brief Construct with the default "Not yet implemented!" message.
-   */
-  NotYetImplemented() noexcept : StacktraceException("Not yet implemented!") {}
+  template <class... Args>
+  explicit NotYetImplemented(const std::string &format,
+                             Args &&... args) noexcept
+      : NotYetImplemented(fmt::format(format, std::forward<Args>(args)...)) {}
 };
 
 }  // namespace utils

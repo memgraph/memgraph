@@ -55,7 +55,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       case kGeTokenId:
         return storage_.Create<GreaterEqualOperator>(e1, e2);
       default:
-        throw utils::NotYetImplemented();
+        throw utils::NotYetImplemented("binary operator");
     }
   }
 
@@ -68,7 +68,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       case kUnaryMinusTokenId:
         return storage_.Create<UnaryMinusOperator>(e);
       default:
-        throw utils::NotYetImplemented();
+        throw utils::NotYetImplemented("unary operator");
     }
   }
 

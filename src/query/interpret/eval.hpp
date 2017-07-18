@@ -250,8 +250,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
             property_lookup.property_);
       case TypedValue::Type::Map:
         // TODO implement me
-        throw utils::NotYetImplemented(
-            "Not yet implemented property lookup on map");
+        throw utils::NotYetImplemented("property lookup on map");
       default:
         throw QueryRuntimeException(
             "Expected Node, Edge or Map for property lookup");

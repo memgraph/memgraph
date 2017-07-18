@@ -1109,8 +1109,7 @@ std::unique_ptr<LogicalOperator> RuleBasedPlanner::Plan(
         input_op = new plan::CreateIndex(create_index->label_,
                                          create_index->property_);
       } else {
-        throw utils::NotYetImplemented(
-            "Encountered a clause which cannot be converted to operator(s)");
+        throw utils::NotYetImplemented("clause conversion to operator(s)");
       }
     }
   }

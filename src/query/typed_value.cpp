@@ -505,7 +505,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return true;
     }
     case TypedValue::Type::Path:
-      throw utils::NotYetImplemented();
+      throw utils::NotYetImplemented("equality for TypedValue::Type::Path");
     default:
       permanent_fail("Unhandled comparison for types");
   }
@@ -780,7 +780,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Edge:
       return value.Value<EdgeAccessor>().temporary_id();
     case TypedValue::Type::Path:
-      throw utils::NotYetImplemented();
+      throw utils::NotYetImplemented("hashing for TypedValue::Type::Path");
       break;
   }
   permanent_fail("Unhandled TypedValue.type() in hash function");
