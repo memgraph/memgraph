@@ -287,4 +287,16 @@ TEST(QueryStripper, ReturnListsAndFunctionCalls) {
               UnorderedElementsAre(Pair(2, "[1,2,[3, 4] , 5]"),
                                    Pair(30, "f(1, 2)"), Pair(44, "3")));
 }
+
+TEST(QueryStripper, Parameters) {
+  StrippedQuery stripped("RETURN $123, $pero, $`mirko ``slavko`");
+  EXPECT_EQ(stripped.literals().size(), 0);
+  EXPECT_EQ(stripped.query(), "return $123 , $pero , $`mirko ``slavko`");
+  EXPECT_THAT(stripped.parameters(),
+              UnorderedElementsAre(Pair(2, "123"), Pair(7, "pero"),
+                                   Pair(12, "mirko `slavko")));
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "$123"), Pair(7, "$pero"),
+                                   Pair(12, "$`mirko ``slavko`")));
+}
 }

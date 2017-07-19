@@ -8,6 +8,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -28,7 +29,8 @@ class Interpreter {
   Interpreter() {}
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
-                 Stream &stream) {
+                 Stream &stream,
+                 const std::map<std::string, TypedValue> &params) {
     utils::Timer frontend_timer;
     Config config;
     Context ctx(config, db_accessor);
@@ -37,6 +39,13 @@ class Interpreter {
     // stripped query -> high level tree
     AstTreeStorage ast_storage = [&]() {
       if (!FLAGS_ast_cache) {
+        // This is totally fine, since we don't really expect anyone to turn off
+        // the cache.
+        if (!params.empty()) {
+          throw utils::NotYetImplemented(
+              "Params not implemented if ast cache is turned off");
+        }
+
         // stripped query -> AST
         frontend::opencypher::Parser parser(query);
         auto low_level_tree = parser.tree();
@@ -67,7 +76,20 @@ class Interpreter {
                          CachedAst(std::move(visitor.storage())))
                  .first;
       }
-      return it->second.Plug(stripped.literals(), stripped.named_expressions());
+
+      // Update literals map with provided parameters.
+      auto literals = stripped.literals();
+      for (const auto &param_pair : stripped.parameters()) {
+        auto param_it = params.find(param_pair.second);
+        if (param_it == params.end()) {
+          throw query::UnprovidedParameterError(
+              fmt::format("Parameter$ {} not provided", param_pair.second));
+        }
+        literals.Add(param_pair.first, param_it->second);
+      }
+
+      // Plug literals, parameters and named expressions.
+      return it->second.Plug(literals, stripped.named_expressions());
     }();
     auto frontend_time = frontend_timer.Elapsed();
 

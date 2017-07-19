@@ -738,8 +738,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     return static_cast<Expression *>(
         ctx->literal()->accept(this).as<BaseLiteral *>());
   } else if (ctx->parameter()) {
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented("atom parameters");
+    return static_cast<Expression *>(
+        ctx->parameter()->accept(this).as<PrimitiveLiteral *>());
   } else if (ctx->parenthesizedExpression()) {
     return static_cast<Expression *>(
         ctx->parenthesizedExpression()->accept(this));
@@ -759,6 +759,15 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
   throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
+}
+
+antlrcpp::Any CypherMainVisitor::visitParameter(
+    CypherParser::ParameterContext *ctx) {
+  return storage_.Create<PrimitiveLiteral>(
+      ctx->getText(),  // Not really important since we do parameter
+                       // substitution by token position not by its name.
+                       // Lookup by name is already done in stage before.
+      ctx->getStart()->getTokenIndex());
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(

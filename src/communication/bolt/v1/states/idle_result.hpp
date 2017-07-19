@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 
 #include <glog/logging.h>
@@ -59,7 +60,8 @@ State StateIdleResultRun(Session &session, State state) {
     try {
       DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
       auto is_successfully_executed = session.query_engine_.Run(
-          query.Value<std::string>(), *db_accessor, session.output_stream_);
+          query.Value<std::string>(), *db_accessor, session.output_stream_,
+          params.Value<std::map<std::string, query::TypedValue>>());
 
       if (!is_successfully_executed) {
         // abort transaction

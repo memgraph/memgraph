@@ -15,19 +15,19 @@ TEST(TransactionTimeout, TransactionTimeout) {
   {
     ResultStreamFaker stream;
     auto dba1 = dbms.active();
-    engine.Run("MATCH (n) RETURN n", *dba1, stream);
+    engine.Run("MATCH (n) RETURN n", *dba1, stream, {});
   }
   {
     ResultStreamFaker stream;
     auto dba2 = dbms.active();
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    ASSERT_THROW(engine.Run("MATCH (n) RETURN n", *dba2, stream),
+    ASSERT_THROW(engine.Run("MATCH (n) RETURN n", *dba2, stream, {}),
                  query::HintedAbortError);
   }
   {
     ResultStreamFaker stream;
     auto dba3 = dbms.active();
-    engine.Run("MATCH (n) RETURN n", *dba3, stream);
+    engine.Run("MATCH (n) RETURN n", *dba3, stream, {});
   }
 }
 

@@ -66,6 +66,12 @@ class HintedAbortError : public QueryException {
   HintedAbortError() : QueryException("") {}
 };
 
+class UnprovidedParameterError : public QueryException {
+ public:
+  using QueryException::QueryException;
+  UnprovidedParameterError() : QueryException("") {}
+};
+
 /**
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.

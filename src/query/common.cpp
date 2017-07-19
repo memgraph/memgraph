@@ -113,4 +113,21 @@ double ParseDoubleLiteral(const std::string &s) {
     throw SemanticException("Couldn't parse string to double");
   }
 }
+
+std::string ParseParameter(const std::string &s) {
+  debug_assert(s[0] == '$', "Invalid string passed as parameter name");
+  if (s[1] != '`') return s.substr(1);
+  // If parameter name is escaped symbolic name then symbolic name should be
+  // unescaped and leading and trailing backquote should be removed.
+  debug_assert(s.size() > 3U && s.back() == '`',
+               "Invalid string passed as parameter name");
+  std::string out;
+  for (int i = 2; i < static_cast<int>(s.size()) - 1; ++i) {
+    if (s[i] == '`') {
+      ++i;
+    }
+    out.push_back(s[i]);
+  }
+  return out;
+}
 }

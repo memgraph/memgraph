@@ -140,7 +140,7 @@ void query::Repl(Dbms &dbms) {
     try {
       auto dba = dbms.active();
       ResultStreamFaker results;
-      interpeter.Interpret(command, *dba, results);
+      interpeter.Interpret(command, *dba, results, {});
       PrintResults(results);
       dba->commit();
     } catch (const query::SyntaxException &e) {

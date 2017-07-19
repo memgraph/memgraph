@@ -48,8 +48,9 @@ class StrippedQuery {
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
   const std::string &query() const { return query_; }
-  auto &literals() const { return literals_; }
-  auto &named_expressions() const { return named_exprs_; }
+  const auto &literals() const { return literals_; }
+  const auto &named_expressions() const { return named_exprs_; }
+  const auto &parameters() const { return parameters_; }
   HashType hash() const { return hash_; }
 
  private:
@@ -63,6 +64,7 @@ class StrippedQuery {
   int MatchOctalInt(int start) const;
   int MatchHexadecimalInt(int start) const;
   int MatchReal(int start) const;
+  int MatchParameter(int start) const;
   int MatchEscapedName(int start) const;
   int MatchUnescapedName(int start) const;
   int MatchWhitespaceAndComments(int start) const;
@@ -74,7 +76,13 @@ class StrippedQuery {
   std::string query_;
 
   // Token positions of stripped out literals mapped to their values.
+  // TODO: Parameters class really doesn't provided anything interesting. This
+  // could be changed to std::unordered_map, but first we need to rewrite (or
+  // get rid of) hardcoded queries which expect Parameters.
   Parameters literals_;
+
+  // Token positions of query parameters mapped to theirs names.
+  std::unordered_map<int, std::string> parameters_;
 
   // Token positions of nonaliased named expressions in return statement mapped
   // to theirs original/unstripped string.

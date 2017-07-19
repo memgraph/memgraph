@@ -14,6 +14,7 @@ namespace fs = std::experimental::filesystem;
 #include "query/plan_interface.hpp"
 #include "utils/datetime/timestamp.hpp"
 #include "utils/dynamic_lib.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
 DECLARE_bool(interpret);
@@ -66,10 +67,16 @@ class QueryEngine {
    *             true if query execution was successfull
    */
   auto Run(const std::string &query, GraphDbAccessor &db_accessor,
-           Stream &stream) {
+           Stream &stream,
+           const std::map<std::string, query::TypedValue> &params) {
     if (FLAGS_interpret) {
-      interpreter_.Interpret(query, db_accessor, stream);
+      interpreter_.Interpret(query, db_accessor, stream, params);
       return true;
+    }
+
+    if (!params.empty()) {
+      throw utils::NotYetImplemented(
+          "Params not yet implemented in compiled queries");
     }
 
     utils::Timer parsing_timer;

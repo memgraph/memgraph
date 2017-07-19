@@ -5,10 +5,12 @@
 
 namespace query {
 
-// These are the functions for parsing literals from opepncypher query.
+// These are the functions for parsing literals and parameter names from
+// opencypher query.
 int64_t ParseIntegerLiteral(const std::string &s);
 std::string ParseStringLiteral(const std::string &s);
 double ParseDoubleLiteral(const std::string &s);
+std::string ParseParameter(const std::string &s);
 
 /**
  * Indicates that some part of query execution should

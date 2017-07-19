@@ -28,6 +28,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     STRING,
     INT,  // Decimal, octal and hexadecimal.
     REAL,
+    PARAMETER,
     ESCAPED_NAME,
     UNESCAPED_NAME,
     SPACE
@@ -50,6 +51,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     update(MatchOctalInt(i), Token::INT);
     update(MatchHexadecimalInt(i), Token::INT);
     update(MatchReal(i), Token::REAL);
+    update(MatchParameter(i), Token::PARAMETER);
     update(MatchEscapedName(i), Token::ESCAPED_NAME);
     update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
     update(MatchWhitespaceAndComments(i), Token::SPACE);
@@ -77,8 +79,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     const auto &token = tokens[i];
     // Position is calculated in query after stripping and whitespace
     // normalisation, not before. There will be twice as much tokens before
-    // this one because space tokens will be inserted between every one.
-    int token_index = token_strings.size() * 2;
+    // this one because space tokens will be inserted between every one we also
+    // need to shift token index for every parameter since antlr's parser thinks
+    // of parameter as two tokens.
+    int token_index = token_strings.size() * 2 + parameters_.size();
     switch (token.first) {
       case Token::UNMATCHED:
         debug_assert(false, "Shouldn't happen");
@@ -111,6 +115,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       case Token::SPECIAL:
       case Token::ESCAPED_NAME:
       case Token::UNESCAPED_NAME:
+        token_strings.push_back(token.second);
+        break;
+      case Token::PARAMETER:
+        parameters_[token_index] = ParseParameter(token.second);
         token_strings.push_back(token.second);
         break;
     }
@@ -373,6 +381,19 @@ int StrippedQuery::MatchReal(int start) const {
   if (state == State::E) --i;
   if (state == State::E_MINUS) i -= 2;
   return i - start;
+}
+
+int StrippedQuery::MatchParameter(int start) const {
+  int len = original_.size();
+  if (start + 1 == len) return 0;
+  if (original_[start] != '$') return 0;
+  int max_len = 0;
+  max_len = std::max(max_len, MatchUnescapedName(start + 1));
+  max_len = std::max(max_len, MatchEscapedName(start + 1));
+  max_len = std::max(max_len, MatchKeyword(start + 1));
+  max_len = std::max(max_len, MatchDecimalInt(start + 1));
+  if (max_len == 0) return 0;
+  return 1 + max_len;
 }
 
 int StrippedQuery::MatchEscapedName(int start) const {

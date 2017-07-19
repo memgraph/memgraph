@@ -134,7 +134,7 @@ auto ExecuteQueryPlans(QueryEngineT &engine, Dbms &dbms, const fs::path &path,
     // Create new db_accessor since one query is associated with one
     // transaction.
     auto db_accessor = dbms.active();
-    engine.Run(query, *db_accessor, stream);
+    engine.Run(query, *db_accessor, stream, {});
   }
 }
 

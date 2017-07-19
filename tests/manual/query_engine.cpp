@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
             try {
               query_engine.ReloadCustom(query, event.path);
               auto db_accessor = dbms.active();
-              query_engine.Run(query, *db_accessor, stream);
+              query_engine.Run(query, *db_accessor, stream, {});
             } catch (query::PlanCompilationException &e) {
               DLOG(ERROR) << fmt::format("Query compilation failed: {}",
                                          e.what());

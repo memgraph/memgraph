@@ -420,6 +420,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitAtom(CypherParser::AtomContext *ctx) override;
 
   /**
+   * @return PrimitiveLiteral*
+   */
+  antlrcpp::Any visitParameter(CypherParser::ParameterContext *ctx) override;
+
+  /**
    * @return Expression*
    */
   antlrcpp::Any visitParenthesizedExpression(
