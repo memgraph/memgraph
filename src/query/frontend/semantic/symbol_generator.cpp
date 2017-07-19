@@ -307,6 +307,11 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "Bidirectional relationship are not supported "
           "when creating an edge");
     }
+    if (edge_atom.has_range_) {
+      throw SemanticException(
+          "Variable length relationships are not supported when creating an "
+          "edge.");
+    }
   }
   scope_.in_property_map = true;
   for (auto kv : edge_atom.properties_) {

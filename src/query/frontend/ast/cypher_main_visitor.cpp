@@ -4,6 +4,7 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -434,17 +435,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
               .as<std::map<GraphDbTypes::Property, Expression *>>();
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
-      // TODO: implement other clauses.
-      throw utils::NotYetImplemented("variable relationship length");
+      edge->has_range_ = true;
+      auto range = ctx->relationshipDetail()
+                       ->rangeLiteral()
+                       ->accept(this)
+                       .as<std::pair<Expression *, Expression *>>();
+      edge->lower_bound_ = range.first;
+      edge->upper_bound_ = range.second;
     }
   }
-  //    relationship.has_range = true;
-  //    auto range = ctx->relationshipDetail()
-  //                     ->rangeLiteral()
-  //                     ->accept(this)
-  //                     .as<std::pair<int64_t, int64_t>>();
-  //    relationship.lower_bound = range.first;
-  //    relationship.upper_bound = range.second;
   if (!edge->identifier_) {
     anonymous_identifiers.push_back(&edge->identifier_);
   }
@@ -478,29 +477,31 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
 
 antlrcpp::Any CypherMainVisitor::visitRangeLiteral(
     CypherParser::RangeLiteralContext *ctx) {
-  if (ctx->integerLiteral().size() == 0U) {
-    // -[*]-
-    return std::pair<int64_t, int64_t>(1LL, LLONG_MAX);
-  } else if (ctx->integerLiteral().size() == 1U) {
+  debug_assert(ctx->expression().size() <= 2U,
+               "Expected 0, 1 or 2 bounds in range literal.");
+  if (ctx->expression().size() == 0U) {
+    // Case -[*]-
+    return std::pair<Expression *, Expression *>(nullptr, nullptr);
+  } else if (ctx->expression().size() == 1U) {
     auto dots_tokens = ctx->getTokens(kDotsTokenId);
-    int64_t bound = ctx->integerLiteral()[0]->accept(this).as<int64_t>();
+    Expression *bound = ctx->expression()[0]->accept(this);
     if (!dots_tokens.size()) {
-      // -[*2]-
-      return std::pair<int64_t, int64_t>(bound, bound);
+      // Case -[*bound]-
+      return std::pair<Expression *, Expression *>(bound, bound);
     }
     if (dots_tokens[0]->getSourceInterval().startsAfter(
-            ctx->integerLiteral()[0]->getSourceInterval())) {
-      // -[*2..]-
-      return std::pair<int64_t, int64_t>(bound, LLONG_MAX);
+            ctx->expression()[0]->getSourceInterval())) {
+      // Case -[*bound..]-
+      return std::pair<Expression *, Expression *>(bound, nullptr);
     } else {
-      // -[*..2]-
-      return std::pair<int64_t, int64_t>(1LL, bound);
+      // Case -[*..bound]-
+      return std::pair<Expression *, Expression *>(nullptr, bound);
     }
   } else {
-    int64_t lbound = ctx->integerLiteral()[0]->accept(this).as<int64_t>();
-    int64_t rbound = ctx->integerLiteral()[1]->accept(this).as<int64_t>();
-    // -[*2..5]-
-    return std::pair<int64_t, int64_t>(lbound, rbound);
+    // Case -[*lbound..rbound]-
+    Expression *lbound = ctx->expression()[0]->accept(this);
+    Expression *rbound = ctx->expression()[1]->accept(this);
+    return std::pair<Expression *, Expression *>(lbound, rbound);
   }
 }
 

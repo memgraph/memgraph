@@ -128,7 +128,7 @@ nodeLabels : nodeLabel ( SP? nodeLabel )* ;
 
 nodeLabel : ':' SP? labelName ;
 
-rangeLiteral : '*' SP? ( integerLiteral SP? )? ( '..' SP? ( integerLiteral SP? )? )? ;
+rangeLiteral : '*' SP? ( expression SP? )? ( '..' SP? ( expression SP? )? )? ;
 
 labelName : symbolicName ;
 

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <climits>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -120,7 +121,7 @@ typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 
 TYPED_TEST(CypherMainVisitorTest, SyntaxException) {
-  ASSERT_THROW(TypeParam("CREATE ()-[*1...2]-()"), SyntaxException);
+  ASSERT_THROW(TypeParam("CREATE ()-[*1....2]-()"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, SyntaxExceptionOnTrailingText) {
@@ -885,54 +886,105 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
   EXPECT_TRUE(edge->identifier_->user_declared_);
 }
 
-// // Relationship with unbounded variable range.
-// TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
-//   ParserTables parser("CREATE ()-[*]-()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   CompareRelationships(*parser.relationships_.begin(),
-//                        Relationship::Direction::BOTH, {}, {}, true, 1,
-//                        LLONG_MAX);
-// }
-//
-// // Relationship with lower bounded variable range.
-// TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
-//   ParserTables parser("CREATE ()-[*5..]-()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   CompareRelationships(*parser.relationships_.begin(),
-//                        Relationship::Direction::BOTH, {}, {}, true, 5,
-//                        LLONG_MAX);
-// }
-//
-// // Relationship with upper bounded variable range.
-// TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
-//   ParserTables parser("CREATE ()-[*..10]-()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   CompareRelationships(*parser.relationships_.begin(),
-//                        Relationship::Direction::BOTH, {}, {}, true, 1, 10);
-// }
-//
-// // Relationship with lower and upper bounded variable range.
-// TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
-//   ParserTables parser("CREATE ()-[*5..10]-()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   CompareRelationships(*parser.relationships_.begin(),
-//                        Relationship::Direction::BOTH, {}, {}, true, 5, 10);
-// }
-//
-// // Relationship with fixed number of edges.
-// TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
-//   ParserTables parser("CREATE ()-[*10]-()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 0U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   CompareRelationships(*parser.relationships_.begin(),
-//                        Relationship::Direction::BOTH, {}, {}, true, 10, 10);
-// }
-//
-//
+// Assert that match has a single pattern with a single edge atom and store it
+// in edge parameter.
+void AssertMatchSingleEdgeAtom(Match *match, EdgeAtom *&edge) {
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  edge = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(edge);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
+  TypeParam ast_generator("MATCH ()-[r*]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->lower_bound_, nullptr);
+  EXPECT_EQ(edge->upper_bound_, nullptr);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
+  TypeParam ast_generator("MATCH ()-[r*42..]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  auto *lower_bound = dynamic_cast<PrimitiveLiteral *>(edge->lower_bound_);
+  ASSERT_TRUE(lower_bound);
+  EXPECT_TRUE(lower_bound->value_.Value<int64_t>() == 42);
+  EXPECT_EQ(edge->upper_bound_, nullptr);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
+  TypeParam ast_generator("MATCH ()-[r*..42]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->lower_bound_, nullptr);
+  auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
+  ASSERT_TRUE(upper_bound);
+  EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 42);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
+  TypeParam ast_generator("MATCH ()-[r*24..42]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  auto lower_bound = dynamic_cast<PrimitiveLiteral *>(edge->lower_bound_);
+  ASSERT_TRUE(lower_bound);
+  EXPECT_EQ(lower_bound->value_.Value<int64_t>(), 24);
+  auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
+  ASSERT_TRUE(upper_bound);
+  EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 42);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
+  TypeParam ast_generator("MATCH ()-[r*42]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  auto lower_bound = dynamic_cast<PrimitiveLiteral *>(edge->lower_bound_);
+  ASSERT_TRUE(lower_bound);
+  EXPECT_EQ(lower_bound->value_.Value<int64_t>(), 42);
+  auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
+  ASSERT_TRUE(upper_bound);
+  EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 42);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
+  // [r*1...2] should be parsed as [r*1..0.2]
+  TypeParam ast_generator("MATCH ()-[r*1...2]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  auto lower_bound = dynamic_cast<PrimitiveLiteral *>(edge->lower_bound_);
+  ASSERT_TRUE(lower_bound);
+  EXPECT_EQ(lower_bound->value_.Value<int64_t>(), 1);
+  auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
+  ASSERT_TRUE(upper_bound);
+  EXPECT_EQ(upper_bound->value_.Value<double>(), 0.2);
+}
+
 // // PatternPart with variable.
 // TYPED_TEST(CypherMainVisitorTest, PatternPartVariable) {
 //   ParserTables parser("CREATE var=()--()");

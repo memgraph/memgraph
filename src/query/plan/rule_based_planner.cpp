@@ -792,6 +792,10 @@ LogicalOperator *PlanMatching(const Matching &matching,
     }
     // We have an edge, so generate Expand.
     if (expansion.edge) {
+      if (expansion.edge->has_range_) {
+        throw utils::NotYetImplemented(
+            "planning variable length relationships");
+      }
       // If the expand symbols were already bound, then we need to indicate
       // that they exist. The Expand will then check whether the pattern holds
       // instead of writing the expansion to symbols.

@@ -860,6 +860,12 @@ class EdgeAtom : public PatternAtom {
           cont = property.second->Accept(visitor);
         }
       }
+      if (cont && lower_bound_) {
+        cont = lower_bound_->Accept(visitor);
+      }
+      if (cont && upper_bound_) {
+        cont = upper_bound_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -871,6 +877,9 @@ class EdgeAtom : public PatternAtom {
     for (auto property : properties_) {
       edge_atom->properties_[property.first] = property.second->Clone(storage);
     }
+    edge_atom->has_range_ = has_range_;
+    edge_atom->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
+    edge_atom->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
     return edge_atom;
   }
 
@@ -878,6 +887,9 @@ class EdgeAtom : public PatternAtom {
   std::vector<GraphDbTypes::EdgeType> edge_types_;
   // TODO: change to unordered_map
   std::map<GraphDbTypes::Property, Expression *> properties_;
+  bool has_range_ = false;
+  Expression *lower_bound_ = nullptr;
+  Expression *upper_bound_ = nullptr;
 
  protected:
   using PatternAtom::PatternAtom;
