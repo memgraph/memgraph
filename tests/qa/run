@@ -47,20 +47,9 @@ memgraph_build_dir=${memgraph_src_dir}/build
 # activate virtualenv
 source $script_dir/ve3/bin/activate
 
-function cleanup_and_exit {
-    pkill -9 -f "${binary_name}"
-    exit $1
-}
-
 cd ${memgraph_build_dir}
 # binary is available after the build
-binary_name=$(find ${memgraph_build_dir}/ -maxdepth 1 -executable \
-    -name "memgraph*" | sort | tail -n 1)
-
-if [[ "$binary_name" == "" ]]; then
-    echo "You must build Memgraph before running this script!"
-    exit 1
-fi
+binary_name=memgraph
 
 # get full path to memgraph config for interpreted queries
 config_path="${memgraph_src_dir}/config/testing.conf"
@@ -79,7 +68,23 @@ fi
 set +e
 
 # run memgraph
-MEMGRAPH_CONFIG=${config_path} ${binary_name} 1>&2 &
+MEMGRAPH_CONFIG="$config_path" "$memgraph_build_dir/$binary_name" 1>&2 &
+background_pid=$!
+
+function cleanup_and_exit {
+    kill -9 $background_pid
+    exit $1
+}
+
+sleep 0.1
+
+ps -p $background_pid > /dev/null
+if [[ $? -ne 0 ]]; then
+    echo "Starting memgraph failed."
+    echo "Perhaps you forgot to build Memgraph before running this script, "
+    echo "or another program uses same port!"
+    cleanup_and_exit 1
+fi
 
 python3 tck_engine/test_executor.py $tck_flags
-cleanup_and_exit ${exit_code}
+cleanup_and_exit 0

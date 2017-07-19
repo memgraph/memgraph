@@ -16,7 +16,7 @@ Feature: Merge feature
             """
         Then the result should be:
             | n          |
-            | (:X{a: 1}) | 
+            | (:X{a: 1}) |
 
     Scenario: Merge node test02
         Given an empty graph
