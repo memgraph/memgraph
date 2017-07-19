@@ -8,13 +8,13 @@ providing a powerful interface for working with graph based data.
 chapter contains the details of features which are implemented. Additionally,
 not yet supported features of the language are listed.
 
-  * [Reading existing Data](#reading-existing-data)
-  * [Writing new Data](#writing-new-data)
+  * [Reading Existing Data](#reading-existing-data)
+  * [Writing New Data](#writing-new-data)
   * [Reading & Writing](#reading-amp-writing)
   * [Indexing](#indexing)
   * [Other Features](#other-features)
 
-### Reading existing Data
+### Reading Existing Data
 
 The simplest usage of the language is to find data stored in the
 database. For that purpose, the following clauses are offered:
@@ -188,7 +188,7 @@ Click
 [here](https://neo4j.com/docs/developer-manual/current/cypher/functions/aggregating/)
 for additional details on how aggregations work.
 
-### Writing new Data
+### Writing New Data
 
 For adding new data, you can use the following clauses.
 
@@ -200,6 +200,9 @@ For adding new data, you can use the following clauses.
 You can still use the `RETURN` clause to produce results after writing, but it
 is not mandatory.
 
+Details on which kind of data can be stored in *Memgraph* can be found in
+[Storable Data Types](data-types.md) chapter.
+
 #### CREATE
 
 This clause is used to add new nodes and edges to the database. The creation
@@ -208,6 +211,12 @@ is done by providing a pattern, similarly to `MATCH` clause.
 For example, to create 2 new nodes connected with a new edge, use this query.
 
     CREATE (node1) -[:edge_type]-> (node2)
+
+Labels and properties can be set during creation using the same syntax as in
+[MATCH](#match) patterns. For example, creating a node with a label and a
+property:
+
+    CREATE (node :Label {property: "my property value"}
 
 Additional information on `CREATE` is
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/create/).

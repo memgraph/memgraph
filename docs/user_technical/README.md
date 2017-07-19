@@ -11,6 +11,7 @@ data structures, multi-version concurrency control and asynchronous IO.
   * [About Memgraph](#about-memgraph)
   * [Installation](installation.md)
   * [Quick Start](quick-start.md)
+  * [Storable Data Types](data-types.md)
   * [openCypher Query Language](open-cypher.md)
   * [Upcoming Features](upcoming-features.md)
 
