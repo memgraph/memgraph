@@ -99,6 +99,7 @@ class GraphDbAccessor {
    *    ignored).
    */
   auto vertices(bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
@@ -127,6 +128,7 @@ class GraphDbAccessor {
    * @return iterable collection
    */
   auto vertices(const GraphDbTypes::Label &label, bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return iter::imap(
         [this, current_state](auto vlist) {
           return VertexAccessor(*vlist, *this);
@@ -147,6 +149,7 @@ class GraphDbAccessor {
    */
   auto vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property, bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
@@ -173,6 +176,7 @@ class GraphDbAccessor {
   auto vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property,
                 const PropertyValue &value, bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
@@ -217,6 +221,7 @@ class GraphDbAccessor {
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
@@ -255,6 +260,8 @@ class GraphDbAccessor {
    *    ignored).
    */
   auto edges(bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return EdgeAccessor(*vlist, *this); },
@@ -283,6 +290,7 @@ class GraphDbAccessor {
    * @return iterable collection
    */
   auto edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return iter::imap([this, current_state](
                           auto vlist) { return EdgeAccessor(*vlist, *this); },
                       db_.edge_types_index_.GetVlists(edge_type, *transaction_,
@@ -306,6 +314,8 @@ class GraphDbAccessor {
    */
   void BuildIndex(const GraphDbTypes::Label &label,
                   const GraphDbTypes::Property &property) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+
     const LabelPropertyIndex::Key key(label, property);
     if (db_.label_property_index_.CreateIndex(key) == false) {
       throw IndexExistsException(
@@ -352,6 +362,7 @@ class GraphDbAccessor {
    */
   bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
                                 const GraphDbTypes::Property &property) const {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return db_.label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
   }
@@ -360,6 +371,7 @@ class GraphDbAccessor {
    * @brief - Returns vector of keys of label-property indices.
    */
   std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return db_.label_property_index_.GetIndicesKeys();
   }
 
@@ -503,6 +515,7 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   bool Reconstruct(RecordAccessor<TRecord> &accessor) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     accessor.vlist_->find_set_old_new(*transaction_, accessor.old_,
                                       accessor.new_);
     accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
@@ -525,6 +538,7 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   void update(RecordAccessor<TRecord> &accessor) {
+    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     // can't update a deleted record if:
     // - we only have old_ and it hasn't been deleted
     // - we have new_ and it hasn't been deleted
