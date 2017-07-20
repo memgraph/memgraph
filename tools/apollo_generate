@@ -1,0 +1,150 @@
+#!/usr/bin/python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+class UnbufferedFile:
+    def __init__(self, f):
+        self._file = f
+
+    def write(self, data):
+        self._file.write(data)
+        self.flush()
+
+    def flush(self):
+        self._file.flush()
+
+    def isatty(self):
+        return True
+
+# Remove buffering from output streams
+sys.stdout = UnbufferedFile(sys.stdout)
+sys.stderr = UnbufferedFile(sys.stderr)
+
+# paths
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+BASE_DIR = os.path.join(*os.path.split(SCRIPT_DIR)[:-1])
+WORKSPACE_DIR = os.path.join(*os.path.split(BASE_DIR)[:-1])
+BASE_DIR_NAME = os.path.basename(BASE_DIR)
+BUILD_DIR = os.path.join(BASE_DIR, "build")
+TESTS_DIR = os.path.join(BUILD_DIR, "tests")
+OUTPUT_DIR = os.path.join(BUILD_DIR, "apollo")
+
+# output lists
+ARCHIVES = []
+RUNS = []
+
+# helper functions
+def run_cmd(cmd, cwd):
+    ret = subprocess.run(cmd, cwd = cwd, stdout = subprocess.PIPE, check = True)
+    return ret.stdout.decode("utf-8")
+
+def generate_run(name, typ = "run", supervisor = "", commands = "",
+        arguments = "", enable_network = False,
+        outfile_paths = "", infile = ""):
+    if not commands.endswith("\n"): commands += "\n"
+    return dict(name = name, type = typ, supervisor = supervisor,
+            commands = commands, arguments = arguments,
+            enable_network = enable_network, outfile_paths = outfile_paths,
+            infile = infile)
+
+def generate_archive(name, short_name, archive):
+    return dict(name = name, short_name = short_name, archive = archive)
+
+def create_archive(name, files, cwd):
+    oname = name + ".tar.gz"
+    ofile = os.path.join(OUTPUT_DIR, oname)
+    print("Creating archive:", name)
+    for i in range(len(files)):
+        files[i] = os.path.relpath(files[i], cwd)
+    subprocess.run(["tar", "-cpzf", ofile, "-C", cwd] + files, check = True)
+    return oname
+
+def store_metadata(cwd, name, data):
+    json.dump(data, open(os.path.join(cwd, name + ".json"), "w"))
+
+# create output directory
+if os.path.exists(OUTPUT_DIR):
+    shutil.rmtree(OUTPUT_DIR)
+os.makedirs(OUTPUT_DIR)
+
+# store memgraph binary to archive
+binary_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
+binary_path = os.path.join(BUILD_DIR, binary_name)
+config_path = os.path.join(BASE_DIR, "config")
+config_copy_path = os.path.join(BUILD_DIR, "config")
+if os.path.exists(config_copy_path):
+    shutil.rmtree(config_copy_path)
+shutil.copytree(config_path, config_copy_path)
+archive = create_archive("binary", [binary_path, config_copy_path], BUILD_DIR)
+ARCHIVES.append(generate_archive("Binary", "binary", archive))
+
+# store documentation to archive
+docs_path = os.path.join(BASE_DIR, "docs", "doxygen", "html")
+archive = create_archive("doxygen_documentation", [docs_path], docs_path)
+ARCHIVES.append(generate_archive("Doxygen documentation", "doxygen_documentation", archive))
+
+# TODO: store user documentation to archive
+
+# ctest tests
+ctest_output = run_cmd(["ctest", "-N"], TESTS_DIR)
+tests = []
+
+# test ordering: first unit, then concurrent, then everything else
+CTEST_ORDER = {"unit": 0, "concurrent": 1}
+for row in ctest_output.split("\n"):
+    # filter rows to find tests, ctest prefixes all test names with BASE_DIR_NAME
+    if row.count(BASE_DIR_NAME + "_") == 0: continue
+    name = row.split(":")[1].strip().replace(BASE_DIR_NAME + "_", "")
+    path = os.path.join(TESTS_DIR, name.replace("_", "/", 1))
+    order = CTEST_ORDER.get(name.split("_")[0], len(CTEST_ORDER))
+    tests.append((order, name, path))
+
+tests.sort()
+
+for test in tests:
+    order, name, path = test
+
+    # TODO: integration_query_engine is currently ignored because it
+    # doesn't include its compile dependencies properly
+    if name == "integration_query_engine": continue
+
+    dirname = os.path.dirname(path)
+    cmakedir = os.path.join(dirname, "CMakeFiles", BASE_DIR_NAME + "_" + name + ".dir")
+    files = [path, cmakedir]
+
+    # extra files for specific tests
+    if name in ["unit_fswatcher", "integration_query_engine"]:
+        files.append(os.path.normpath(os.path.join(dirname, "..", "data")))
+    if name == "integration_query_engine":
+        files.append(os.path.normpath(os.path.join(dirname, "..", "compiled")))
+        files.append(os.path.join(BUILD_DIR, "include"))
+        for i in ["hardcoded_query", "stream", "template"]:
+            files.append(os.path.join(dirname, i))
+
+    # larger timeout for benchmark tests
+    prefix = ""
+    if name.startswith("benchmark"):
+        prefix = "TIMEOUT=600 "
+
+    cwd = os.path.dirname(BASE_DIR)
+    infile = create_archive(name, files, cwd = cwd)
+
+    exepath = os.path.relpath(path, cwd)
+    commands = "cd {}\n{}./{}\n".format(os.path.dirname(exepath),
+            prefix, os.path.basename(exepath))
+
+    outfile_paths = ""
+    if name.startswith("unit"):
+        cmakedir_rel = os.path.relpath(cmakedir, WORKSPACE_DIR)
+        outfile_paths = "\./" + cmakedir_rel.replace(".", "\\.") + ".+\n"
+    run = generate_run(name, commands = commands, infile = infile,
+            outfile_paths = outfile_paths)
+
+    RUNS.append(run)
+
+# store ARCHIVES and RUNS
+store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
+store_metadata(OUTPUT_DIR, "runs", RUNS)
