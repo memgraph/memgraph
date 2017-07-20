@@ -116,7 +116,9 @@ relationshipPattern : ( leftArrowHead SP? dash SP? relationshipDetail? SP? dash 
                     | ( dash SP? relationshipDetail? SP? dash )
                     ;
 
-relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? rangeLiteral? ( properties SP? )? ']' ;
+relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? properties SP? ']'
+                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? ( properties SP? )? ']'
+                   ;
 
 properties : mapLiteral
            | parameter
@@ -128,7 +130,7 @@ nodeLabels : nodeLabel ( SP? nodeLabel )* ;
 
 nodeLabel : ':' SP? labelName ;
 
-rangeLiteral : '*' SP? ( expression SP? )? ( '..' SP? ( expression SP? )? )? ;
+rangeLiteral : '*' SP? ( expression SP? )? ( '..' ( SP? expression )? )? ;
 
 labelName : symbolicName ;
 

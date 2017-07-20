@@ -985,6 +985,57 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
   EXPECT_EQ(upper_bound->value_.Value<double>(), 0.2);
 }
 
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
+  TypeParam ast_generator("MATCH ()-[r* {prop: 42}]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->lower_bound_, nullptr);
+  EXPECT_EQ(edge->upper_bound_, nullptr);
+  auto prop = ast_generator.db_accessor_->property("prop");
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
+}
+
+TYPED_TEST(CypherMainVisitorTest,
+           RelationshipPatternDotsUnboundedWithEdgeTypeProperty) {
+  TypeParam ast_generator("MATCH ()-[r:edge_type*..{prop: 42}]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->lower_bound_, nullptr);
+  EXPECT_EQ(edge->upper_bound_, nullptr);
+  auto prop = ast_generator.db_accessor_->property("prop");
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
+  ASSERT_EQ(edge->edge_types_.size(), 1U);
+  auto edge_type = ast_generator.db_accessor_->edge_type("edge_type");
+  EXPECT_EQ(edge->edge_types_[0], edge_type);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
+  TypeParam ast_generator("MATCH ()-[r*..2{prop: 42}]->() RETURN r");
+  auto *query = ast_generator.query_;
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->lower_bound_, nullptr);
+  auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
+  ASSERT_TRUE(upper_bound);
+  EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 2);
+  auto prop = ast_generator.db_accessor_->property("prop");
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
+}
+
 // // PatternPart with variable.
 // TYPED_TEST(CypherMainVisitorTest, PatternPartVariable) {
 //   ParserTables parser("CREATE var=()--()");
