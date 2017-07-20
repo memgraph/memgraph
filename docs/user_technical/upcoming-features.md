@@ -69,21 +69,6 @@ paths of length between 2 and 4 can be obtained with a query like:
 
     MATCH (node1) -[*2..4]-> (node2)
 
-#### Parameters
-
-When automating the queries for Memgraph, it comes in handy to change only
-some parts of the query. Usually, these parts are values which are used for
-filtering results or similar, while the rest of the query remains the same.
-
-Parameters will allow using the same query, but with different parameter
-values. The syntax uses the `$` symbol to designate a parameter name. For
-example, parameterizing filtering a node property:
-
-    MATCH (node1 {property: $propertyValue}) RETURN node1
-
-Other than helping users reuse similar queries, parameters should improve the
-performance of running those queries.
-
 #### Functions
 
 Memgraph's openCypher implementation supports the most useful functions, but

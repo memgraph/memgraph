@@ -422,6 +422,39 @@ functions.
  `endsWith`   | Check if the first argument ends with the second.
  `contains`   | Check if the first argument has an element which is equal to the second argument.
 
+#### Parameters
+
+When automating the queries for Memgraph, it comes in handy to change only
+some parts of the query. Usually, these parts are values which are used for
+filtering results or similar, while the rest of the query remains the same.
+
+Parameters allow reusing the same query, but with different parameter values.
+The syntax uses the `$` symbol to designate a parameter name. We don't allow
+old Cypher parameter syntax using curly brace. For example, you can parameterize
+filtering a node property:
+
+    MATCH (node1 {property: $propertyValue}) RETURN node1
+
+You can use parameters instead of any literal in the query, but not instead of
+property maps even though that is allowed in standard openCypher. Following
+example is illegal in Memgraph:
+
+    MATCH (node1 $propertyValue) RETURN node1
+
+To use parameters with Python driver use following syntax:
+
+    session.run('CREATE (alice:Person {name: $name, age: $ageValue}',
+                name='Alice', ageValue=22)).consume()
+
+To use parameters which names are integers you will need to wrap parameters in
+a dictionary and convert them to strings before running a query:
+
+    session.run('CREATE (alice:Person {name: $0, age: $1}',
+                {'0': "Alice", '1': 22})).consume()
+
+To use parameters with some other driver please consult appropriate
+documentation.
+
 ### Differences
 
 Although we try to implement openCypher query language as closely to the
