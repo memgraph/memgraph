@@ -275,7 +275,7 @@ TEST(BoltSession, ExecuteRunBasicException) {
     session.Execute();
 
     if (i == 0) {
-      ASSERT_EQ(session.state_, StateT::Error);
+      ASSERT_EQ(session.state_, StateT::ErrorIdle);
       ASSERT_TRUE(session.socket_.IsOpen());
       CheckFailureMessage(output);
     } else {
@@ -331,7 +331,7 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
     ExecuteCommand(session, pullall_req, sizeof(pullall_req));
 
     if (i == 0) {
-      ASSERT_EQ(session.state_, StateT::Error);
+      ASSERT_EQ(session.state_, StateT::ErrorIdle);
       ASSERT_TRUE(session.socket_.IsOpen());
       CheckFailureMessage(output);
     } else {
@@ -408,7 +408,7 @@ TEST(BoltSession, ErrorIgnoreMessage) {
     ASSERT_EQ(session.decoder_buffer_.Size(), 0);
 
     if (i == 0) {
-      ASSERT_EQ(session.state_, StateT::Error);
+      ASSERT_EQ(session.state_, StateT::ErrorIdle);
       ASSERT_TRUE(session.socket_.IsOpen());
       CheckOutput(output, ignored_resp, sizeof(ignored_resp));
     } else {
@@ -417,6 +417,32 @@ TEST(BoltSession, ErrorIgnoreMessage) {
       ASSERT_EQ(output.size(), 0);
     }
   }
+}
+
+TEST(BoltSession, ErrorRunAfterRun) {
+  // first test with socket write success, then with socket write fail
+  INIT_VARS;
+
+  ExecuteHandshake(session, output);
+  ExecuteInit(session, output);
+
+  WriteRunRequest(session, "MATCH (n) RETURN n");
+  session.Execute();
+
+  output.clear();
+
+  session.socket_.SetWriteSuccess(true);
+
+  // Session holds results of last run.
+  ASSERT_EQ(session.state_, StateT::Result);
+
+  // New run request.
+  WriteRunRequest(session, "MATCH (n) RETURN n");
+  session.Execute();
+
+  // Run after run fails, but we still keep results.
+  ASSERT_EQ(session.state_, StateT::ErrorResult);
+  ASSERT_TRUE(session.socket_.IsOpen());
 }
 
 TEST(BoltSession, ErrorCantCleanup) {
@@ -563,7 +589,7 @@ TEST(BoltSession, PartialChunk) {
 
   session.Execute();
 
-  ASSERT_EQ(session.state_, StateT::Error);
+  ASSERT_EQ(session.state_, StateT::ErrorIdle);
   ASSERT_TRUE(session.socket_.IsOpen());
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);

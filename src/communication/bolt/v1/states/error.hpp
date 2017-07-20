@@ -16,7 +16,7 @@ namespace communication::bolt {
  * @param session the session that should be used for the run
  */
 template <typename Session>
-State StateErrorRun(Session &session) {
+State StateErrorRun(Session &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
@@ -40,7 +40,13 @@ State StateErrorRun(Session &session) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
-    return State::Idle;
+    if (signature == Signature::Reset) {
+      return State::Idle;
+    }
+    if (state == State::ErrorIdle) {
+      return State::Idle;
+    }
+    return State::Result;
   } else {
     uint8_t value = underlying_cast(marker);
 
@@ -70,7 +76,7 @@ State StateErrorRun(Session &session) {
     }
 
     // cleanup done, command ignored, stay in error state
-    return State::Error;
+    return state;
   }
 }
 }

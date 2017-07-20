@@ -32,9 +32,16 @@ enum class State : uint8_t {
   Result,
 
   /**
-   * This state handles errors.
+   * This state handles errors, if client handles error response correctly next
+   * state is Idle.
    */
-  Error,
+  ErrorIdle,
+
+  /**
+   * This state handles errors, if client handles error response correctly next
+   * state is Result.
+   */
+  ErrorResult,
 
   /**
    * This is a 'virtual' state (it doesn't have a run function) which tells

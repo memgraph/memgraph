@@ -5,6 +5,7 @@
 
 #include "database/dbms.hpp"
 #include "query/engine.hpp"
+#include "transactions/transaction.hpp"
 
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
@@ -99,8 +100,9 @@ class Session {
         case State::Result:
           state_ = StateIdleResultRun(*this, state_);
           break;
-        case State::Error:
-          state_ = StateErrorRun(*this);
+        case State::ErrorIdle:
+        case State::ErrorResult:
+          state_ = StateErrorRun(*this, state_);
           break;
         case State::Close:
           // This state is handled below
@@ -147,6 +149,8 @@ class Session {
 
   GraphDbAccessor ActiveDb() { return dbms_.active(); }
 
+  // TODO: Rethink if there is a way to hide some members. At the momemnt all of
+  // them are public.
   Socket socket_;
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
@@ -162,6 +166,8 @@ class Session {
   io::network::Epoll::Event event_;
   bool connected_{false};
   State state_;
+  // Active transaction of the session, can be null.
+  tx::Transaction *transaction_;
 
  private:
   void ClientFailureInvalidData() {
