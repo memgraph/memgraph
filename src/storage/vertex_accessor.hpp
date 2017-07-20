@@ -7,8 +7,8 @@
 
 #include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
-#include "storage/vertex.hpp"
 #include "storage/util.hpp"
+#include "storage/vertex.hpp"
 
 #include "storage/edge_accessor.hpp"
 
@@ -61,17 +61,21 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * Returns all the Labels of the Vertex.
    * @return
    */
-  const std::vector<GraphDbTypes::Label>& labels() const;
+  const std::vector<GraphDbTypes::Label> &labels() const;
 
   /**
    * Returns EdgeAccessors for all incoming edges.
    */
-  auto in() { return make_accessor_iterator<EdgeAccessor>(current().in_, db_accessor()); }
+  auto in() const {
+    return make_accessor_iterator<EdgeAccessor>(current().in_, db_accessor());
+  }
 
   /**
    * Returns EdgeAccessors for all outgoing edges.
    */
-  auto out() { return make_accessor_iterator<EdgeAccessor>(current().out_, db_accessor()); }
+  auto out() const {
+    return make_accessor_iterator<EdgeAccessor>(current().out_, db_accessor());
+  }
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);

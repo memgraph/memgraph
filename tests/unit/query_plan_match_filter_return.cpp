@@ -3,9 +3,13 @@
 // Created by Florijan Stamenkovic on 14.03.17.
 //
 
+#include <experimental/optional>
 #include <iterator>
 #include <memory>
+#include <unordered_map>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -270,6 +274,268 @@ TEST(QueryPlan, Expand) {
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 }
 
+/**
+ * A fixture that sets a graph up and provides some functions.
+ *
+ * The graph is a double chain:
+ *    (v:0)-(v:1)-(v:2)
+ *         X     X
+ *    (v:0)-(v:1)-(v:2)
+ *
+ * Each vertex is labeled (the labels are available as a
+ * member in this class). Edges have properties set that
+ * indicate origin and destination vertex for debugging.
+ */
+class QueryPlanExpandVariable : public testing::Test {
+ protected:
+  // type returned by the GetResults function, used
+  // a lot below in test declaration
+  using map_int = std::unordered_map<int, int>;
+
+  Dbms dbms;
+  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  // labels for layers in the double chain
+  std::vector<GraphDbTypes::Label> labels;
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // using std::experimental::nullopt
+  std::experimental::nullopt_t nullopt = std::experimental::nullopt;
+
+  void SetUp() {
+    // create the graph
+    int chain_length = 3;
+    std::vector<VertexAccessor> layer;
+    for (int from_layer_ind = -1; from_layer_ind < chain_length - 1;
+         from_layer_ind++) {
+      std::vector<VertexAccessor> new_layer{dba->insert_vertex(),
+                                            dba->insert_vertex()};
+      auto label = dba->label(std::to_string(from_layer_ind + 1));
+      labels.push_back(label);
+      for (size_t v_to_ind = 0; v_to_ind < new_layer.size(); v_to_ind++) {
+        auto &v_to = new_layer[v_to_ind];
+        v_to.add_label(label);
+        for (size_t v_from_ind = 0; v_from_ind < layer.size(); v_from_ind++) {
+          auto &v_from = layer[v_from_ind];
+          auto edge =
+              dba->insert_edge(v_from, v_to, dba->edge_type("edge_type"));
+          edge.PropsSet(dba->property("p"),
+                        fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
+                                    from_layer_ind + 1, v_to_ind));
+        }
+      }
+      layer = new_layer;
+    }
+    dba->advance_command();
+    ASSERT_EQ(CountIterable(dba->vertices(false)), 2 * chain_length);
+    ASSERT_EQ(CountIterable(dba->edges(false)), 4 * (chain_length - 1));
+  }
+
+  /**
+   * Expands the given LogicalOperator input with a match
+   * (ScanAll->Filter(label)->Expand). Can create both VariableExpand
+   * ops and plain Expand (depending on template param).
+   * When creating plain Expand the bound arguments (lower, upper) are ignored.
+   *
+   * @return the last created logical op.
+   */
+  template <typename TExpansionOperator>
+  std::shared_ptr<LogicalOperator> AddMatch(
+      std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
+      int layer, EdgeAtom::Direction direction,
+      std::experimental::optional<size_t> lower,
+      std::experimental::optional<size_t> upper, Symbol edge_sym,
+      bool existing_edge, const std::string &node_to) {
+    auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
+    auto filter_op = std::make_shared<Filter>(
+        n_from.op_, storage.Create<query::LabelsTest>(
+                        n_from.node_->identifier_,
+                        std::vector<GraphDbTypes::Label>{labels[layer]}));
+
+    auto n_to = NODE(node_to);
+    auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
+    symbol_table[*n_to->identifier_] = n_to_sym;
+
+    if (std::is_same<TExpansionOperator, ExpandVariable>::value)
+      return std::make_shared<ExpandVariable>(
+          n_to_sym, edge_sym, direction, lower, upper, filter_op, n_from.sym_,
+          false, existing_edge, GraphView::OLD);
+    else
+      return std::make_shared<Expand>(n_to_sym, edge_sym, direction, filter_op,
+                                      n_from.sym_, false, existing_edge,
+                                      GraphView::OLD);
+  }
+
+  /* Creates an edge (in the frame and symbol table). Returns the symbol. */
+  auto Edge(const std::string &identifier, EdgeAtom::Direction direction) {
+    auto edge = EDGE(identifier, direction);
+    auto edge_sym = symbol_table.CreateSymbol(identifier, true);
+    symbol_table[*edge->identifier_] = edge_sym;
+    return edge_sym;
+  }
+
+  /**
+   * Pulls from the given input and analyses the edge-list (result of variable
+   * length expansion) found in the results under the given symbol.
+   *
+   * @return a map {path_lenth -> number_of_results}
+   */
+  auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
+    map_int count_per_length;
+    Frame frame(symbol_table.max_position());
+    auto cursor = input_op->MakeCursor(*dba);
+    while (cursor->Pull(frame, symbol_table)) {
+      auto length = frame[symbol].Value<std::vector<TypedValue>>().size();
+      auto found = count_per_length.find(length);
+      if (found == count_per_length.end())
+        count_per_length[length] = 1;
+      else
+        found->second++;
+    }
+    return count_per_length;
+  }
+};
+
+TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
+                         std::experimental::optional<size_t> lower,
+                         std::experimental::optional<size_t> upper) {
+    auto e = Edge("r", direction);
+    return GetResults(AddMatch<ExpandVariable>(nullptr, "n", layer, direction,
+                                               lower, upper, e, false, "m"),
+                      e);
+  };
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, 0), (map_int{{0, 2}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 0), (map_int{{0, 2}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, 0), (map_int{{0, 2}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, 1), (map_int{}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1), (map_int{{1, 4}}));
+  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, 1), (map_int{{1, 4}}));
+  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, 1), (map_int{{1, 4}}));
+  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, 1), (map_int{{1, 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2), (map_int{{2, 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3), (map_int{{2, 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 2),
+            (map_int{{1, 4}, {2, 8}}));
+
+  // the following tests also check edge-uniqueness (cyphermorphisim)
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2),
+            (map_int{{1, 4}, {2, 12}}));
+  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4),
+            (map_int{{4, 24}}));
+}
+
+TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
+                         std::experimental::optional<size_t> lower,
+                         std::experimental::optional<size_t> upper,
+                         bool single_expansion_before,
+                         bool add_uniqueness_check) {
+
+    std::shared_ptr<LogicalOperator> last_op{nullptr};
+    std::vector<Symbol> symbols;
+
+    if (single_expansion_before) {
+      symbols.push_back(Edge("r0", direction));
+      last_op = AddMatch<Expand>(last_op, "n0", layer, direction, lower, upper,
+                                 symbols.back(), false, "m0");
+    }
+
+    auto var_length_sym = Edge("r1", direction);
+    symbols.push_back(var_length_sym);
+    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, lower,
+                                       upper, var_length_sym, false, "m1");
+
+    if (!single_expansion_before) {
+      symbols.push_back(Edge("r2", direction));
+      last_op = AddMatch<Expand>(last_op, "n2", layer, direction, lower, upper,
+                                 symbols.back(), false, "m2");
+    }
+
+    if (add_uniqueness_check) {
+      auto last_symbol = symbols.back();
+      symbols.pop_back();
+      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+          last_op, last_symbol, symbols);
+    }
+
+    return GetResults(last_op, var_length_sym);
+  };
+
+  // no uniqueness between variable and single expansion
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, false),
+            (map_int{{2, 4 * 8}}));
+  // with uniqueness test, different ordering of (variable, single) expansion
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true, true),
+            (map_int{{2, 3 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false, true),
+            (map_int{{2, 3 * 8}}));
+}
+
+TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
+                         std::experimental::optional<size_t> lower,
+                         std::experimental::optional<size_t> upper,
+                         bool add_uniqueness_check) {
+    auto e1 = Edge("r1", direction);
+    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction,
+                                          lower, upper, e1, false, "m1");
+    auto e2 = Edge("r2", direction);
+    auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction,
+                                            lower, upper, e2, false, "m2");
+    if (add_uniqueness_check) {
+      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+          last_op, e2, std::vector<Symbol>{e1});
+    }
+
+    return GetResults(last_op, e2);
+  };
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false),
+            (map_int{{2, 8 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true),
+            (map_int{{2, 5 * 8}}));
+}
+
+TEST_F(QueryPlanExpandVariable, ExistingEdges) {
+  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
+                         std::experimental::optional<size_t> lower,
+                         std::experimental::optional<size_t> upper,
+                         bool same_edge_symbol) {
+    auto e1 = Edge("r1", direction);
+    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction,
+                                          lower, upper, e1, false, "m1");
+    auto e2 = same_edge_symbol ? e1 : Edge("r2", direction);
+    auto second = AddMatch<ExpandVariable>(first, "n2", layer, direction, lower,
+                                           upper, e2, same_edge_symbol, "m2");
+    return GetResults(second, e2);
+  };
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, false),
+            (map_int{{1, 4 * 4}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, true),
+            (map_int{{1, 4}}));
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 1, false),
+            (map_int{{0, 2 * 6}, {1, 4 * 6}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 1, true),
+            (map_int{{0, 4}, {1, 4}}));
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false),
+            (map_int{{2, 8 * 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true),
+            (map_int{{2, 8}}));
+
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, false),
+            (map_int{{1, 4 * 16}, {2, 12 * 16}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, true),
+            (map_int{{1, 4}, {2, 12}}));
+}
+
+// TODO test optional + variable length
+
 TEST(QueryPlan, ExpandOptional) {
   Dbms dbms;
   auto dba = dbms.active();
@@ -395,6 +661,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_missing = dba->label("missing");
   n.node_->labels_.emplace_back(label_missing);
+
   auto *filter_expr =
       storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
@@ -876,7 +1143,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     symbol_table[*output] = symbol_table.CreateSymbol("n", true);
     auto results = CollectProduce(produce.get(), symbol_table, *dba);
     ASSERT_EQ(results.size(), expected.size());
-    for (int i = 0; i < expected.size(); i++) {
+    for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
           results[i][0].Value<VertexAccessor>().PropsAt(prop) == expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
@@ -956,7 +1223,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
 TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   Dbms dbms;
   auto dba = dbms.active();
-  // Add 2 vertices with the same label, but one has a property value while the
+  // Add 2 vertices with the same label, but one has a property value while
+  // the
   // other does not. Checking if the value is equal to null, should yield no
   // results.
   auto label = dba->label("label");
@@ -983,4 +1251,11 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
   auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 0);
+}
+
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
+  ::testing::InitGoogleTest(&argc, argv);
+  google::ParseCommandLineFlags(&argc, &argv, true);
+  return RUN_ALL_TESTS();
 }

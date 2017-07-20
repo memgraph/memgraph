@@ -2,10 +2,12 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <algorithm>
 #include <experimental/optional>
 #include <memory>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -59,6 +61,7 @@ class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class Expand;
+class ExpandVariable;
 class Filter;
 class Produce;
 class Delete;
@@ -83,9 +86,10 @@ class CreateIndex;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
-    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand, Filter,
-    Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, ExpandUniquenessFilter<VertexAccessor>,
+    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
+    ExpandVariable, Filter, Produce, Delete, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels,
+    ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
 
@@ -432,6 +436,57 @@ class ScanAllByLabelPropertyValue : public ScanAll {
 };
 
 /**
+ * Common functionality and data members of single-edge
+ * and variable-length expansion
+ */
+class ExpandCommon {
+ protected:
+  // types that we'll use for members in both subclasses
+  using InEdgeT = decltype(std::declval<VertexAccessor>().in());
+  using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
+  using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
+  using OutEdgeIteratorT =
+      decltype(std::declval<VertexAccessor>().out().begin());
+
+ public:
+  ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
+               EdgeAtom::Direction direction,
+               const std::shared_ptr<LogicalOperator> &input,
+               Symbol input_symbol, bool existing_node, bool existing_edge,
+               GraphView graph_view = GraphView::AS_IS);
+
+ protected:
+  // info on what's getting expanded
+  const Symbol node_symbol_;
+  const Symbol edge_symbol_;
+  const EdgeAtom::Direction direction_;
+
+  // the input op and the symbol under which the op's result
+  // can be found in the frame
+  const std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+
+  // if the given node and edge atom refer to symbols
+  // (query identifiers) that have already been expanded
+  // and should be just validated in the frame
+  const bool existing_node_;
+  const bool existing_edge_;
+
+  // from which state the input node should get expanded
+  const GraphView graph_view_;
+
+  /**
+   * For a newly expanded node handles existence checking and
+   * frame placement.
+   *
+   * @return If or not the given new_node is a valid expansion. It is not
+   * valid only when matching and existing node and new_node does not match
+   * the old.
+   */
+  bool HandleExistingNode(const VertexAccessor &new_node, Frame &frame) const;
+};
+
+/**
  * @brief Expansion operator. For a node existing in the frame it
  * expands one edge and one node and places them on the frame.
  *
@@ -445,13 +500,7 @@ class ScanAllByLabelPropertyValue : public ScanAll {
  * only expansions that match defined equalities are succesfully
  * pulled.
  */
-class Expand : public LogicalOperator {
-  using InEdgeT = decltype(std::declval<VertexAccessor>().in());
-  using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
-  using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
-  using OutEdgeIteratorT =
-      decltype(std::declval<VertexAccessor>().out().begin());
-
+class Expand : public LogicalOperator, ExpandCommon {
  public:
   /**
    * @brief Creates an expansion.
@@ -479,32 +528,10 @@ class Expand : public LogicalOperator {
    *    in the Frame and should just be checked for equality.
    * @param existing_edge Same like `existing_node`, but for edges.
    */
-  Expand(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
-         const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-         bool existing_node, bool existing_edge,
-         GraphView graph_view = GraphView::AS_IS);
+  using ExpandCommon::ExpandCommon;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
-
- private:
-  // info on what's getting expanded
-  const Symbol node_symbol_;
-  const Symbol edge_symbol_;
-  const EdgeAtom::Direction direction_;
-
-  // the input op and the symbol under which the op's result
-  // can be found in the frame
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-
-  // if the given node and edge atom refer to symbols
-  // (query identifiers) that have already been expanded
-  // and should be just validated in the frame
-  const bool existing_node_;
-  const bool existing_edge_;
-
-  // from which state the input node should get expanded
-  const GraphView graph_view_;
 
   class ExpandCursor : public Cursor {
    public:
@@ -515,6 +542,7 @@ class Expand : public LogicalOperator {
    private:
     const Expand &self_;
     const std::unique_ptr<Cursor> input_cursor_;
+    GraphDbAccessor &db_;
 
     // the iterable over edges and the current edge iterator are referenced via
     // unique pointers because they can not be initialized in the constructor of
@@ -527,17 +555,6 @@ class Expand : public LogicalOperator {
     bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
 
     /**
-     * For a newly expanded edge handles existence checking and frame insertion.
-     *
-     * @return If or not the given new_edge is a valid expansion. It is not
-     * valid only when matching and existing edge and new_edge does not match
-     * the
-     * old.
-     */
-    bool HandleExistingEdge(const EdgeAccessor &new_edge, Frame &frame,
-                            const SymbolTable &symbol_table);
-
-    /**
      * Expands a node for the given newly expanded edge.
      *
      * @return True if after this call a new node has been successfully
@@ -545,28 +562,102 @@ class Expand : public LogicalOperator {
      * new node does not qualify.
      */
     bool PullNode(const EdgeAccessor &new_edge, EdgeAtom::Direction direction,
-                  Frame &frame, const SymbolTable &symbol_table);
+                  Frame &frame);
 
     /**
-     * For a newly expanded node handles existence checking and frame insertion.
+     * For a newly expanded edge handles existence checking and
+     * frame placement.
      *
-     * @return If or not the given new_node is a valid expansion. It is not
-     * valid only when matching and existing node and new_node does not match
-     * the
-     * old.
+     * @return If or not the given new_edge is a valid expansion. It is not
+     * valid only when matching and existing edge and new_edge does not match
+     * the old.
      */
-    bool HandleExistingNode(const VertexAccessor new_node, Frame &frame,
-                            const SymbolTable &symbol_table);
-
-    GraphDbAccessor &db_;
+    bool HandleExistingEdge(const EdgeAccessor &new_edge, Frame &frame) const;
   };
 };
 
 /**
+ * @brief Variable-length expansion operator. For a node existing in
+ * the frame it expands a variable number of edges and places them
+ * (in a list-type TypedValue), as well as the final destination node,
+ * on the frame.
+ *
+ * This class does not handle node/edge filtering based on
+ * properties, labels and edge types. However, it does handle
+ * filtering on existing node / edge. Additionally it handles's
+ * edge-uniquess (cyphermorphism) because it's not feasable to do
+ * later.
+ *
+ * Filtering on existing means that for a pattern that references
+ * an already declared node or edge (for example in
+ * MATCH (a) MATCH (a)--(b)),
+ * only expansions that match defined equalities are succesfully
+ * pulled.
+ */
+class ExpandVariable : public LogicalOperator, ExpandCommon {
+  // the ExpandVariableCursor is not declared in the header because
+  // it's edges_ and edges_it_ are decltyped using a helper function
+  // that should be inaccessible (private class function won't compile)
+  friend class ExpandVariableCursor;
+
+ public:
+  /**
+   * @brief Creates a variable-length expansion.
+   *
+   * Expansion length bounds are both inclusive (as in Neo's Cypher
+   * implementation). At least one of them has to be specified.
+   *
+   * Edge/Node existence is controlled via booleans. A true value
+   * simply denotes that this expansion references an already
+   * Pulled node/edge, and should only be checked for equalities
+   * during expansion.
+   *
+   * Expansion can be done from old or new state of the vertex
+   * the expansion originates from. This is controlled with a
+   * constructor argument.
+   *
+   * @param node_symbol Symbol pointing to the node to be expanded. This is
+   *    where the new node will be stored.
+   * @param edge_symbol Symbol for the edges to be expanded. This is where
+   *    a TypedValue containing a list of expanded edges will be stored.
+   * @param direction EdgeAtom::Direction determining the direction of edge
+   *    expansion. The direction is relative to the starting vertex for each
+   *    expansion.
+   * @param lower_bound An optional indicator of the minimum number of edges
+   *    that get expanded (inclusive).
+   * @param lower_bound An optional indicator of the maximum number of edges
+   *    that get expanded (inclusive).
+   * @param input Optional LogicalOperator that preceeds this one.
+   * @param input_symbol Symbol that points to a VertexAccessor in the Frame
+   *    that expansion should emanate from.
+   * @param existing_node If or not the node to be expanded is already present
+   *    in the Frame and should just be checked for equality.
+   * @param existing_edge Same like `existing_node`, but for edges.
+   */
+  // TODO change API to take expression instead of size_t
+  ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
+                 EdgeAtom::Direction direction,
+                 std::experimental::optional<size_t> lower_bound,
+                 std::experimental::optional<size_t> upper_bound,
+                 const std::shared_ptr<LogicalOperator> &input,
+                 Symbol input_symbol, bool existing_node, bool existing_edge,
+                 GraphView graph_view = GraphView::AS_IS);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  // lower and upper bounds of the variable length expansion are
+  // optional, but at least one must be set
+  const std::experimental::optional<size_t> lower_bound_;
+  const std::experimental::optional<size_t> upper_bound_;
+};
+/**
  * @brief Filter whose Pull returns true only when the given expression
  * evaluates into true.
  *
- * The given expression is assumed to return either NULL (treated as false) or a
+ * The given expression is assumed to return either NULL (treated as false) or
+ * a
  * boolean value.
  */
 class Filter : public LogicalOperator {
@@ -667,8 +758,8 @@ class Delete : public LogicalOperator {
 /**
  * @brief Logical Op for setting a single property on a single vertex or edge.
  *
- * The property value is an expression that must evaluate to some type that can
- * be stored (a TypedValue that can be converted to PropertyValue).
+ * The property value is an expression that must evaluate to some type that
+ * can be stored (a TypedValue that can be converted to PropertyValue).
  */
 class SetProperty : public LogicalOperator {
  public:
@@ -699,7 +790,8 @@ class SetProperty : public LogicalOperator {
  * @brief Logical op for setting the whole properties set on a vertex or an
  * edge.
  *
- * The value being set is an expression that must evaluate to a vertex, edge or
+ * The value being set is an expression that must evaluate to a vertex, edge
+ * or
  * map (literal or parameter).
  *
  * Supports setting (replacing the whole properties set with another) and
@@ -710,8 +802,10 @@ class SetProperties : public LogicalOperator {
   /**
    * @brief Defines how setting the properties works.
    *
-   * @c UPDATE means that the current property set is augmented with additional
-   * ones (existing props of the same name are replaced), while @c REPLACE means
+   * @c UPDATE means that the current property set is augmented with
+   * additional
+   * ones (existing props of the same name are replaced), while @c REPLACE
+   * means
    * that the old props are discarded and replaced with new ones.
    */
   enum class Op { UPDATE, REPLACE };
@@ -857,6 +951,8 @@ class RemoveLabels : public LogicalOperator {
  *
  * Works for both Edge and Vertex uniqueness checks
  * (provide the accessor type as a template argument).
+ * Supports variable-length-edges (uniqueness comparisons
+ * between edges and an edge lists).
  */
 template <typename TAccessor>
 class ExpandUniquenessFilter : public LogicalOperator {
