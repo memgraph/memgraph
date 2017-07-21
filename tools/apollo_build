@@ -1,0 +1,17 @@
+# WARNING: do not run this script without defining THREADS!
+# If THREADS isn't defined then this script will call 'make -j'.
+# From the manpage: "If the  -j  option is given without an argument, make will not limit the number of jobs that can run simultaneously."
+# That means that the whole build will be started simultaneously and IT WILL CRASH YOUR COMPUTER!
+
+cd ..
+
+./init
+bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
+
+cd build
+cmake -DTEST_COVERAGE=ON ..
+TIMEOUT=1000 make -j$THREADS
+
+cd ../tools
+
+./apollo_generate
