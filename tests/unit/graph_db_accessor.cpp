@@ -1,3 +1,4 @@
+#include <experimental/optional>
 #include "gtest/gtest.h"
 
 #include "database/graph_db.hpp"
@@ -323,6 +324,32 @@ TEST(GraphDbAccessorTest, Properties) {
   // test that getting labels through a different accessor works
   EXPECT_EQ(prop, dbms.active()->property("name"));
   EXPECT_NE(prop, dbms.active()->property("surname"));
+}
+
+TEST(GraphDbAccessorTest, Transfer) {
+  Dbms dbms;
+
+  auto dba1 = dbms.active();
+  auto prop = dba1->property("property");
+  VertexAccessor v1 = dba1->insert_vertex();
+  v1.PropsSet(prop, 1);
+  VertexAccessor v2 = dba1->insert_vertex();
+  v2.PropsSet(prop, 2);
+  EdgeAccessor e12 = dba1->insert_edge(v1, v2, dba1->edge_type("et"));
+  e12.PropsSet(prop, 12);
+
+  // make dba2 that has dba1 in it's snapshot, so data isn't visible
+  auto dba2 = dbms.active();
+  EXPECT_EQ(dba2->Transfer(v1), std::experimental::nullopt);
+  EXPECT_EQ(dba2->Transfer(e12), std::experimental::nullopt);
+
+  // make dba3 that does not have dba1 in it's snapshot
+  dba1->commit();
+  auto dba3 = dbms.active();
+  // we can transfer accessors even though the GraphDbAccessor they
+  // belong to is not alive anymore
+  EXPECT_EQ(dba3->Transfer(v1)->PropsAt(prop).Value<int64_t>(), 1);
+  EXPECT_EQ(dba3->Transfer(e12)->PropsAt(prop).Value<int64_t>(), 12);
 }
 
 int main(int argc, char **argv) {

@@ -298,16 +298,45 @@ class GraphDbAccessor {
   }
 
   /**
-   * Adds an index for the given (label, property) and populates
-   * it with existing vertices that belong to it.
+   * Creates and returns a new accessor that represents the same graph element
+   * (node / version) as the given `accessor`, but in this `GraphDbAccessor`.
    *
-   * You should never call BuildIndex on a GraphDbAccessor
-   * (transaction) on which new vertices have been inserted or
-   * existing ones updated. Do it in a new accessor instead.
+   * It is possible that the given `accessor` graph element is not visible in
+   * this `GraphDbAccessor`'s transaction.  If that is the case, a `nullopt` is
+   * returned.
    *
-   * Build index throws if an index for the given
-   * (label, property) already exists (even if it's being built
-   * by a concurrent transaction and is not yet ready for use).
+   * The returned accessor does NOT have the same `current_` set as the given
+   * `accessor`. It has default post-construction `current_` set (`old` if
+   * available, otherwise `new`).
+   *
+   * @param accessor The [Vertex/Edge]Accessor whose underlying graph
+   *  element we want in this GraphDbAccessor.
+   * @return See above.
+   * @tparam TAccessor Either VertexAccessor or EdgeAccessor
+   */
+  template <typename TAccessor>
+  std::experimental::optional<TAccessor> Transfer(const TAccessor &accessor) {
+    if (accessor.db_accessor_ == this)
+      return std::experimental::make_optional(accessor);
+
+    TAccessor accessor_in_this(*accessor.vlist_, *this);
+    if (accessor_in_this.current_)
+      return std::experimental::make_optional(std::move(accessor_in_this));
+    else
+      return std::experimental::nullopt;
+  }
+
+  /**
+   * Adds an index for the given (label, property) and populates it with
+   * existing vertices that belong to it.
+   *
+   * You should never call BuildIndex on a GraphDbAccessor (transaction) on
+   * which new vertices have been inserted or existing ones updated. Do it in a
+   * new accessor instead.
+   *
+   * Build index throws if an index for the given (label, property) already
+   * exists (even if it's being built by a concurrent transaction and is not yet
+   * ready for use).
    *
    * @param label - label to build for
    * @param property - property to build for
