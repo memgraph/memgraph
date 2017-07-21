@@ -38,15 +38,7 @@ class Session {
 
  public:
   Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : socket_(std::move(socket)),
-        dbms_(dbms),
-        query_engine_(query_engine),
-        encoder_buffer_(socket_),
-        encoder_(encoder_buffer_),
-        output_stream_(encoder_),
-        decoder_buffer_(buffer_),
-        decoder_(decoder_buffer_),
-        state_(State::Handshake) {
+      : socket_(std::move(socket)), dbms_(dbms), query_engine_(query_engine) {
     event_.data.ptr = this;
   }
 
@@ -155,17 +147,17 @@ class Session {
   Dbms &dbms_;
   QueryEngine<OutputStream> &query_engine_;
 
-  ChunkedEncoderBuffer<Socket> encoder_buffer_;
-  Encoder<ChunkedEncoderBuffer<Socket>> encoder_;
-  OutputStream output_stream_;
+  ChunkedEncoderBuffer<Socket> encoder_buffer_{socket_};
+  Encoder<ChunkedEncoderBuffer<Socket>> encoder_{encoder_buffer_};
+  OutputStream output_stream_{encoder_};
 
   Buffer<> buffer_;
-  ChunkedDecoderBuffer decoder_buffer_;
-  Decoder<ChunkedDecoderBuffer> decoder_;
+  ChunkedDecoderBuffer decoder_buffer_{buffer_};
+  Decoder<ChunkedDecoderBuffer> decoder_{decoder_buffer_};
 
   io::network::Epoll::Event event_;
   bool connected_{false};
-  State state_;
+  State state_{State::Handshake};
   // Active transaction of the session, can be null.
   tx::Transaction *transaction_;
 

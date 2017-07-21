@@ -38,6 +38,11 @@ State HandleRun(Session &session, State state, Marker marker) {
   DLOG(INFO) << fmt::format("[ActiveDB] '{}'", db_accessor->name());
 
   if (state != State::Idle) {
+    // TODO: We shouldn't clear the buffer and move to ErrorIdle state, but send
+    // MessageFailure without sending data that is already in buffer and move to
+    // ErrorResult state.
+    session.encoder_buffer_.Clear();
+
     // send failure message
     bool unexpected_run_fail_sent = session.encoder_.MessageFailure(
         {{"code", "Memgraph.QueryExecutionFail"},
@@ -48,9 +53,12 @@ State HandleRun(Session &session, State state, Marker marker) {
       DLOG(WARNING) << "Couldn't send failure message!";
       return State::Close;
     } else {
-      return State::ErrorResult;
+      return State::ErrorIdle;
     }
   }
+
+  debug_assert(!session.encoder_buffer_.HasData(),
+               "There should be no data to write in this state");
 
   try {
     DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
