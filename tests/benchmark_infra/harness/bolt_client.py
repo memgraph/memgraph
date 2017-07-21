@@ -35,7 +35,7 @@ from contextlib import redirect_stderr
 import io
 from multiprocessing import Pool
 from common import connection_argument_parser, execute_till_success, \
-        argument_session
+        argument_driver
 from functools import partial
 
 from neo4j.v1 import GraphDatabase, basic_auth
@@ -59,10 +59,12 @@ def _print_dict(d):
     print(json.dumps(_prepare_for_json(d), indent=2))
 
 
-def _run_query(args, query):
-    with argument_session(args) as session:
-        return execute_till_success(session, query)[2]
-
+def _run_query(args, query, self):
+    if not hasattr(self, "driver"):
+        self.driver = argument_driver(args)
+        self.session = self.driver.session()
+        return execute_till_success(self.session, query)[2]
+_run_query.__defaults__ = (_run_query,)
 
 def main():
     argp = connection_argument_parser()

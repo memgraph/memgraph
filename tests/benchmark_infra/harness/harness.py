@@ -288,7 +288,7 @@ class QueryParallelSuite(_QuerySuite):
         return ["MemgraphRunner"]
 
     def groups(self):
-        return ["aggregation_parallel"]
+        return ["aggregation_parallel", "create_parallel"]
 
 
 class MemgraphRunner:
@@ -348,7 +348,7 @@ class MemgraphRunner:
 
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
-            "python3", client_args, timeout=120, stdin=queries_path)
+            "python3", client_args, timeout=300, stdin=queries_path)
         os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
