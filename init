@@ -81,4 +81,9 @@ cd libs
 ./setup.sh
 cd ..
 
+# setup qa dependencies
+cd tests/qa
+./init
+cd ../..
+
 echo "Done installing dependencies for Memgraph"

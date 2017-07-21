@@ -18,8 +18,8 @@ def parse_args():
     argp.add_argument("--db-user", default="neo4j", help="Default is neo4j.")
     argp.add_argument(
         "--db-pass", default="1234", help="Default is 1234.")
-    argp.add_argument("--db-uri", default="bolt://localhost:7687",
-                      help="Default is bolt://localhost:7687.")
+    argp.add_argument("--db-uri", default="bolt://127.0.0.1:7687",
+                      help="Default is bolt://127.0.0.1:7687.")
     argp.add_argument("--output-folder", default="tck_engine/results/",
                       help="Test result output folder, default is results/.")
     argp.add_argument("--logging", default="DEBUG", choices=[

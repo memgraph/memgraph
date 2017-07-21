@@ -71,8 +71,12 @@ if os.path.exists(OUTPUT_DIR):
 os.makedirs(OUTPUT_DIR)
 
 # store memgraph binary to archive
-binary_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
+binary_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-type",
+        "f", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
+binary_link_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-type",
+        "l", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
 binary_path = os.path.join(BUILD_DIR, binary_name)
+binary_link_path = os.path.join(BUILD_DIR, binary_link_name)
 config_path = os.path.join(BASE_DIR, "config")
 config_copy_path = os.path.join(BUILD_DIR, "config")
 if os.path.exists(config_copy_path):
@@ -146,6 +150,17 @@ for test in tests:
             outfile_paths = outfile_paths)
 
     RUNS.append(run)
+
+# quality assurance tests
+qa_path = os.path.join(BASE_DIR, "tests", "qa")
+infile = create_archive("quality_assurance", [qa_path, binary_path,
+        binary_link_path, config_path], cwd = WORKSPACE_DIR)
+commands = "cd {}/tests/qa\n./continuous_integration\n".format(
+        BASE_DIR_NAME)
+RUNS.append(generate_run("quality_assurance", commands = commands,
+        infile = infile, outfile_paths = "\./{}/tests/qa/"
+        "\.quality_assurance_status".format(
+        BASE_DIR_NAME)))
 
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
