@@ -94,12 +94,13 @@ tests = []
 
 # test ordering: first unit, then concurrent, then everything else
 CTEST_ORDER = {"unit": 0, "concurrent": 1}
+CTEST_DELIMITER = "__"
 for row in ctest_output.split("\n"):
     # filter rows to find tests, ctest prefixes all test names with BASE_DIR_NAME
-    if row.count(BASE_DIR_NAME + "_") == 0: continue
-    name = row.split(":")[1].strip().replace(BASE_DIR_NAME + "_", "")
-    path = os.path.join(TESTS_DIR, name.replace("_", "/", 1))
-    order = CTEST_ORDER.get(name.split("_")[0], len(CTEST_ORDER))
+    if row.count(BASE_DIR_NAME + CTEST_DELIMITER) == 0: continue
+    name = row.split(":")[1].strip().replace(BASE_DIR_NAME + CTEST_DELIMITER, "")
+    path = os.path.join(TESTS_DIR, name.replace(CTEST_DELIMITER, "/", 1))
+    order = CTEST_ORDER.get(name.split(CTEST_DELIMITER)[0], len(CTEST_ORDER))
     tests.append((order, name, path))
 
 tests.sort()
@@ -109,16 +110,17 @@ for test in tests:
 
     # TODO: integration_query_engine is currently ignored because it
     # doesn't include its compile dependencies properly
-    if name == "integration_query_engine": continue
+    if name == "integration__query_engine": continue
 
     dirname = os.path.dirname(path)
-    cmakedir = os.path.join(dirname, "CMakeFiles", BASE_DIR_NAME + "_" + name + ".dir")
+    cmakedir = os.path.join(dirname, "CMakeFiles",
+            BASE_DIR_NAME + CTEST_DELIMITER + name + ".dir")
     files = [path, cmakedir]
 
     # extra files for specific tests
-    if name in ["unit_fswatcher", "integration_query_engine"]:
+    if name in ["unit__fswatcher", "integration__query_engine"]:
         files.append(os.path.normpath(os.path.join(dirname, "..", "data")))
-    if name == "integration_query_engine":
+    if name == "integration__query_engine":
         files.append(os.path.normpath(os.path.join(dirname, "..", "compiled")))
         files.append(os.path.join(BUILD_DIR, "include"))
         for i in ["hardcoded_query", "stream", "template"]:
