@@ -1383,4 +1383,21 @@ TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
   ASSERT_EQ(create_index->property_,
             ast_generator.db_accessor_->property("slavko"));
 }
+
+TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
+  TypeParam ast_generator("RETURN all(x IN [1,2,3] WHERE x = 2)");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 1U);
+  auto *ret = dynamic_cast<Return *>(query->clauses_[0]);
+  ASSERT_TRUE(ret);
+  ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
+  auto *all = dynamic_cast<All *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(all);
+  EXPECT_EQ(all->identifier_->name_, "x");
+  auto *list_literal = dynamic_cast<ListLiteral *>(all->list_expression_);
+  EXPECT_TRUE(list_literal);
+  auto *eq = dynamic_cast<EqualOperator *>(all->where_->expression_);
+  EXPECT_TRUE(eq);
+}
+
 }

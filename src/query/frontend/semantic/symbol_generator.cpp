@@ -4,7 +4,10 @@
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 
+#include <experimental/optional>
 #include <unordered_set>
+
+#include "utils/algorithm.hpp"
 
 namespace query {
 
@@ -263,6 +266,28 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
 bool SymbolGenerator::PostVisit(Aggregation &) {
   scope_.in_aggregation = false;
   return true;
+}
+
+bool SymbolGenerator::PreVisit(All &all) {
+  all.list_expression_->Accept(*this);
+  // Bind the new symbol after visiting the list expression. Keep the old symbol
+  // so it can be restored.
+  std::experimental::optional<Symbol> prev_symbol;
+  auto prev_symbol_it = scope_.symbols.find(all.identifier_->name_);
+  if (prev_symbol_it != scope_.symbols.end()) {
+    prev_symbol = prev_symbol_it->second;
+  }
+  symbol_table_[*all.identifier_] = CreateSymbol(all.identifier_->name_, true);
+  // Visit Where with the new symbol bound.
+  all.where_->Accept(*this);
+  // Restore the old symbol or just remove the newly bound if there was no
+  // symbol before.
+  if (prev_symbol) {
+    scope_.symbols[all.identifier_->name_] = *prev_symbol;
+  } else {
+    scope_.symbols.erase(all.identifier_->name_);
+  }
+  return false;
 }
 
 // Pattern and its subparts.

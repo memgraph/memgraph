@@ -133,16 +133,22 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::PostVisit;
-  using typename HierarchicalTreeVisitor::ReturnType;
   using HierarchicalTreeVisitor::Visit;
 
-  ReturnType Visit(Identifier &ident) override {
+  bool PostVisit(All &all) override {
+    // Remove the symbol which is bound by all, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*all.identifier_));
+    return true;
+  }
+
+  bool Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
     return true;
   }
 
-  ReturnType Visit(PrimitiveLiteral &) override { return true; }
-  ReturnType Visit(query::CreateIndex &) override { return true; }
+  bool Visit(PrimitiveLiteral &) override { return true; }
+  bool Visit(query::CreateIndex &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -275,6 +281,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     while (it != has_aggregation_.end()) {
       has_aggr = has_aggr || *it;
       it = has_aggregation_.erase(it);
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
+  bool PostVisit(All &all) override {
+    // Remove the symbol which is bound by all, because we are only interested
+    // in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*all.identifier_));
+    debug_assert(has_aggregation_.size() >= 3U,
+                 "Expected 3 has_aggregation_ flags for ALL arguments");
+    bool has_aggr = false;
+    for (int i = 0; i < 3; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
     }
     has_aggregation_.emplace_back(has_aggr);
     return true;

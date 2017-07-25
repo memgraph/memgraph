@@ -483,3 +483,7 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 // List slicing
 #define SLICE(list, lower_bound, upper_bound) \
   storage.Create<query::ListSlicingOperator>(list, lower_bound, upper_bound)
+// all(variable IN list WHERE predicate)
+#define ALL(variable, list, where)                                        \
+  storage.Create<query::All>(storage.Create<query::Identifier>(variable), \
+                             list, where)

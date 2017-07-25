@@ -530,6 +530,13 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    */
   antlrcpp::Any visitUnwind(CypherParser::UnwindContext *ctx) override;
 
+  /**
+   * Never call this. Ast generation for these expressions should be done by
+   * explicitly visiting the members of @c FilterExpressionContext.
+   */
+  antlrcpp::Any visitFilterExpression(
+      CypherParser::FilterExpressionContext *) override;
+
  public:
   Query *query() { return query_; }
   AstTreeStorage &storage() { return storage_; }

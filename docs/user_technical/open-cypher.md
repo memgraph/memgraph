@@ -421,6 +421,7 @@ functions.
  `startsWith` | Check if the first argument starts with the second.
  `endsWith`   | Check if the first argument ends with the second.
  `contains`   | Check if the first argument has an element which is equal to the second argument.
+ `all`        | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.
 
 #### Parameters
 

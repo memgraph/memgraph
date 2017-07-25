@@ -6,14 +6,15 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "database/dbms.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
-#include "database/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
+
 #include "query_common.hpp"
 
 using namespace query;
@@ -1007,4 +1008,38 @@ TEST(ExpressionEvaluator, FunctionContains) {
   EXPECT_FALSE(EvaluateFunction(kContains, {"cde", "abcdef"}).Value<bool>());
   EXPECT_FALSE(EvaluateFunction(kContains, {"abcdef", "dEf"}).Value<bool>());
 }
+
+TEST(ExpressionEvaluator, FunctionAll) {
+  AstTreeStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all =
+      ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*all->identifier_] = x_sym;
+  eval.symbol_table[*ident_x] = x_sym;
+  auto value = all->Accept(eval.eval);
+  ASSERT_EQ(value.type(), TypedValue::Type::Bool);
+  EXPECT_FALSE(value.Value<bool>());
+}
+
+TEST(ExpressionEvaluator, FunctionAllNullList) {
+  AstTreeStorage storage;
+  auto *all = ALL("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*all->identifier_] = x_sym;
+  auto value = all->Accept(eval.eval);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
+  AstTreeStorage storage;
+  auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*all->identifier_] = x_sym;
+  EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
+}
+
 }

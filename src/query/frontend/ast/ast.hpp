@@ -1014,6 +1014,42 @@ class Where : public Tree {
   Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
 };
 
+class All : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+          where_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  All *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<All>(identifier_->Clone(storage),
+                               list_expression_->Clone(storage),
+                               where_->Clone(storage));
+  }
+
+  Identifier *identifier_ = nullptr;
+  Expression *list_expression_ = nullptr;
+  Where *where_ = nullptr;
+
+ protected:
+  All(int uid, Identifier *identifier, Expression *list_expression,
+      Where *where)
+      : Expression(uid),
+        identifier_(identifier),
+        list_expression_(list_expression),
+        where_(where) {
+    debug_assert(identifier, "identifier must not be nullptr");
+    debug_assert(list_expression, "list_expression must not be nullptr");
+    debug_assert(where, "where must not be nullptr");
+  }
+};
+
 class Match : public Clause {
   friend class AstTreeStorage;
 

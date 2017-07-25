@@ -596,16 +596,6 @@ Feature: Functions
             | (:y) | false | true  |
             | (:y) | false | true  |
 
-	    #    Scenario: Keys test:
-	    #        Given an empty graph
-	    #        When executing query:
-	    #            """
-	    #            CREATE (n{x: 123, a: null, b: 'x', d: 1}) RETURN KEYS(n) AS a
-	    #            """
-	    #        Then the result should be (ignoring element order for lists)
-	    #            | a                     |
-	    #            | ['x', 'null', 'b'] |
-	    #
     Scenario: Pi test:
         When executing query:
             """
@@ -614,3 +604,28 @@ Feature: Functions
         Then the result should be:
             | n                   |
             | 3.141592653589793   |
+
+    Scenario: All test 01:
+        When executing query:
+            """
+            RETURN all(x IN [1, 2, '3'] WHERE x < 2) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: All test 02:
+        When executing query:
+            """
+            RETURN all(x IN [1, 2, 3] WHERE x < 4) AS a
+            """
+        Then the result should be:
+            | a     |
+            | true |
+
+    Scenario: All test 03:
+        When executing query:
+            """
+            RETURN all(x IN [1, 2, '3'] WHERE x < 3) AS a
+            """
+        Then an error should be raised

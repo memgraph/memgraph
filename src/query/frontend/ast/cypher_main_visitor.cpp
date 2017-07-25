@@ -756,6 +756,17 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     // functionInvocation and atom producions in opencypher grammar.
     return static_cast<Expression *>(
         storage_.Create<Aggregation>(nullptr, Aggregation::Op::COUNT));
+  } else if (ctx->ALL()) {
+    auto *ident = storage_.Create<Identifier>(ctx->filterExpression()
+                                                  ->idInColl()
+                                                  ->variable()
+                                                  ->accept(this)
+                                                  .as<std::string>());
+    Expression *list_expr =
+        ctx->filterExpression()->idInColl()->expression()->accept(this);
+    Where *where = ctx->filterExpression()->where()->accept(this);
+    return static_cast<Expression *>(
+        storage_.Create<All>(ident, list_expr, where));
   }
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
@@ -1022,6 +1033,12 @@ antlrcpp::Any CypherMainVisitor::visitUnwind(CypherParser::UnwindContext *ctx) {
   named_expr->name_ =
       std::string(ctx->variable()->accept(this).as<std::string>());
   return storage_.Create<Unwind>(named_expr);
+}
+
+antlrcpp::Any CypherMainVisitor::visitFilterExpression(
+    CypherParser::FilterExpressionContext *) {
+  debug_fail("Should never be called. See documentation in hpp.");
+  return 0;
 }
 
 }  // namespace query::frontend

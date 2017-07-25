@@ -326,6 +326,33 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return function.function_(arguments, db_accessor_);
   }
 
+  TypedValue Visit(All &all) override {
+    auto list_value = all.list_expression_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue::Null;
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("'ALL' expected a list, but got {}",
+                                  list_value.type());
+    }
+    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &symbol = symbol_table_.at(*all.identifier_);
+    for (const auto &element : list) {
+      frame_[symbol] = element;
+      auto result = all.where_->expression_->Accept(*this);
+      if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
+        throw QueryRuntimeException(
+            "Predicate of 'ALL' needs to evaluate to 'Boolean', but it "
+            "resulted in '{}'",
+            result.type());
+      }
+      if (result.IsNull() || !result.Value<bool>()) {
+        return result;
+      }
+    }
+    return true;
+  }
+
  private:
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.

@@ -1205,4 +1205,14 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
             ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, ReturnSumGroupByAll) {
+  // Test RETURN sum([1,2,3]), all(x in [1] where x = 1)
+  AstTreeStorage storage;
+  auto sum = SUM(LIST(LITERAL(1), LITERAL(2), LITERAL(3)));
+  auto *all = ALL("x", LIST(LITERAL(1)), WHERE(EQ(IDENT("x"), LITERAL(1))));
+  QUERY(RETURN(sum, AS("sum"), all, AS("all")));
+  auto aggr = ExpectAggregate({sum}, {all});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
 }  // namespace

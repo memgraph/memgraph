@@ -984,5 +984,30 @@ TEST(TestSymbolGenerator, MatchPropertySameIdentifier) {
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
 }
 
+TEST(TestSymbolGenerator, WithReturnAll) {
+  // Test WITH 42 AS x RETURN all(x IN [x] WHERE x = 2) AS x, x AS y
+  AstTreeStorage storage;
+  auto *with_as_x = AS("x");
+  auto *list_x = IDENT("x");
+  auto *where_x = IDENT("x");
+  auto *all = ALL("x", LIST(list_x), WHERE(EQ(where_x, LITERAL(2))));
+  auto *ret_as_x = AS("x");
+  auto *ret_x = IDENT("x");
+  auto query = QUERY(WITH(LITERAL(42), with_as_x),
+                     RETURN(all, ret_as_x, ret_x, AS("y")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `WITH .. AS x`, `ALL(x ...)`, `ALL(...) AS x` and `AS y`.
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  // Check `WITH .. AS x` is the same as `[x]` and `RETURN ... x AS y`
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*list_x));
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*ret_x));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*all->identifier_));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*ret_as_x));
+  // Check `ALL(x ...)` is only equal to `WHERE x = 2`
+  EXPECT_EQ(symbol_table.at(*all->identifier_), symbol_table.at(*where_x));
+  EXPECT_NE(symbol_table.at(*all->identifier_), symbol_table.at(*ret_as_x));
+}
 
 }  // namespace
