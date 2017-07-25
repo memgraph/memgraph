@@ -167,11 +167,11 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope_.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
-  for (auto &ident : scope_.identifiers_in_property_maps) {
+  for (auto &ident : scope_.identifiers_in_match) {
     if (!HasSymbol(ident->name_)) throw UnboundVariableError(ident->name_);
     symbol_table_[*ident] = scope_.symbols[ident->name_];
   }
-  scope_.identifiers_in_property_maps.clear();
+  scope_.identifiers_in_match.clear();
   return true;
 }
 
@@ -185,7 +185,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
                             scope_.in_skip ? "SKIP" : "LIMIT");
   }
   Symbol symbol;
-  if (scope_.in_pattern && !scope_.in_property_map) {
+  if (scope_.in_pattern && scope_.in_pattern_identifier) {
     // Patterns can bind new symbols or reference already bound. But there
     // are the following special cases:
     //  1) Patterns used to create nodes and edges cannot redeclare already
@@ -203,15 +203,31 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::Vertex;
-    if (scope_.in_edge_atom) {
-      type = Symbol::Type::Edge;
+    if (scope_.visiting_edge) {
+      if (scope_.visiting_edge->has_range_ && HasSymbol(ident.name_)) {
+        // TOOD: Support using variable paths with already obtained results from
+        // an existing symbol.
+        throw RedeclareVariableError(ident.name_);
+      }
+      if (scope_.visiting_edge->has_range_) {
+        type = Symbol::Type::EdgeList;
+      } else {
+        type = Symbol::Type::Edge;
+      }
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
-  } else if (scope_.in_pattern && scope_.in_property_map && scope_.in_match) {
-    // Variables in property maps during MATCH can reference symbols bound later
-    // in the same MATCH. We collect them here, so that they can be checked
-    // after visiting Match.
-    scope_.identifiers_in_property_maps.emplace_back(&ident);
+  } else if (scope_.in_pattern && !scope_.in_pattern_identifier &&
+             scope_.in_match) {
+    if (scope_.in_edge_range &&
+        scope_.visiting_edge->identifier_->name_ == ident.name_) {
+      // Prevent variable path bounds to reference the identifier which is bound
+      // by the variable path itself.
+      throw UnboundVariableError(ident.name_);
+    }
+    // Variables in property maps or bounds of variable length path during MATCH
+    // can reference symbols bound later in the same MATCH. We collect them
+    // here, so that they can be checked after visiting Match.
+    scope_.identifiers_in_match.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
     if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);
@@ -278,12 +294,12 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
         "Cannot create node '" + node_name +
         "' with labels or properties, because it is already declared.");
   }
-  scope_.in_property_map = true;
   for (auto kv : node_atom.properties_) {
     kv.second->Accept(*this);
   }
-  scope_.in_property_map = false;
+  scope_.in_pattern_identifier = true;
   node_atom.identifier_->Accept(*this);
+  scope_.in_pattern_identifier = false;
   return false;
 }
 
@@ -293,7 +309,7 @@ bool SymbolGenerator::PostVisit(NodeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
-  scope_.in_edge_atom = true;
+  scope_.visiting_edge = &edge_atom;
   if (scope_.in_create || scope_.in_merge) {
     scope_.in_create_edge = true;
     if (edge_atom.edge_types_.size() != 1U) {
@@ -313,17 +329,27 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "edge.");
     }
   }
-  scope_.in_property_map = true;
   for (auto kv : edge_atom.properties_) {
     kv.second->Accept(*this);
   }
-  scope_.in_property_map = false;
+  if (edge_atom.has_range_) {
+    scope_.in_edge_range = true;
+    if (edge_atom.lower_bound_) {
+      edge_atom.lower_bound_->Accept(*this);
+    }
+    if (edge_atom.upper_bound_) {
+      edge_atom.upper_bound_->Accept(*this);
+    }
+    scope_.in_edge_range = false;
+  }
+  scope_.in_pattern_identifier = true;
   edge_atom.identifier_->Accept(*this);
+  scope_.in_pattern_identifier = false;
   return false;
 }
 
 bool SymbolGenerator::PostVisit(EdgeAtom &) {
-  scope_.in_edge_atom = false;
+  scope_.visiting_edge = nullptr;
   scope_.in_create_edge = false;
   return true;
 }

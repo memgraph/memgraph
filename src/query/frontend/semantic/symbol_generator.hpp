@@ -65,11 +65,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     // in_node_atom.
     bool in_create_node{false};
     // True if creating an edge;
-    // shortcut for (in_create || in_merge) && in_edge_atom.
+    // shortcut for (in_create || in_merge) && visiting_edge.
     bool in_create_edge{false};
     bool in_node_atom{false};
-    bool in_edge_atom{false};
-    bool in_property_map{false};
+    EdgeAtom *visiting_edge{nullptr};
     bool in_aggregation{false};
     bool in_return{false};
     bool in_with{false};
@@ -78,13 +77,20 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_order_by{false};
     bool in_where{false};
     bool in_match{false};
+    // True when visiting a pattern identifier, which can be reused or created
+    // in the pattern itself.
+    bool in_pattern_identifier{false};
+    // True when visiting range bounds of a variable path.
+    bool in_edge_range{false};
     // True if the return/with contains an aggregation in any named expression.
     bool has_aggregation{false};
     // Map from variable names to symbols.
     std::map<std::string, Symbol> symbols;
-    // Identifiers found in property maps of patterns in a single Match clause.
-    // They need to be checked after visiting Match.
-    std::vector<Identifier *> identifiers_in_property_maps;
+    // Identifiers found in property maps of patterns or as variable length path
+    // bounds in a single Match clause. They need to be checked after visiting
+    // Match. Identifiers created by naming vertices, edges and paths are *not*
+    // stored in here.
+    std::vector<Identifier *> identifiers_in_match;
   };
 
   bool HasSymbol(const std::string &name);

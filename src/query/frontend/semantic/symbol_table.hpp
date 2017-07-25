@@ -10,10 +10,12 @@ namespace query {
 class Symbol {
  public:
   // This is similar to TypedValue::Type, but this has `Any` type.
-  enum class Type { Any, Vertex, Edge, Path, Number };
+  // TODO: Make a better Type structure which can store a generic List.
+  enum class Type { Any, Vertex, Edge, Path, Number, EdgeList };
 
   static std::string TypeToString(Type type) {
-    const char *enum_string[] = {"Any", "Vertex", "Edge", "Path", "Number"};
+    const char *enum_string[] = {"Any",  "Vertex", "Edge",
+                                 "Path", "Number", "EdgeList"};
     return enum_string[static_cast<int>(type)];
   }
 

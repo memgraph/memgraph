@@ -868,4 +868,121 @@ TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
 }
 
+TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
+  // Test MATCH (n) -[r *..l.prop]- (m), (l) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r");
+  edge->has_range_ = true;
+  auto l_prop = PROPERTY_LOOKUP("l", prop);
+  edge->upper_bound_ = l_prop;
+  auto node_l = NODE("l");
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `n`, `r`, `m`, `l` and implicit in RETURN `r AS r`
+  EXPECT_EQ(symbol_table.max_position(), 5);
+  auto l = symbol_table.at(*node_l->identifier_);
+  EXPECT_EQ(l, symbol_table.at(*l_prop->expression_));
+  auto r = symbol_table.at(*edge->identifier_);
+  EXPECT_EQ(r.type(), Symbol::Type::EdgeList);
+}
+
+TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
+  // Test MATCH (n) -[r *..l.prop]- (m) MATCH (l) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r");
+  edge->has_range_ = true;
+  auto l_prop = PROPERTY_LOOKUP("l", prop);
+  edge->upper_bound_ = l_prop;
+  auto node_l = NODE("l");
+  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))),
+                     MATCH(PATTERN(node_l)), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, CreateVariablePath) {
+  // Test CREATE (n) -[r *]-> (m) raises a SemanticException, since variable
+  // paths cannot be created.
+  AstTreeStorage storage;
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
+  edge->has_range_ = true;
+  auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, MergeVariablePath) {
+  // Test MERGE (n) -[r *]-> (m) raises a SemanticException, since variable
+  // paths cannot be created.
+  AstTreeStorage storage;
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
+  edge->has_range_ = true;
+  auto query = QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m"))));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, RedeclareVariablePath) {
+  // Test MATCH (n) -[n*]-> (m) RETURN n raises RedeclareVariableError.
+  // This is just a temporary solution, before we add the support for using
+  // variable paths with already declared symbols. In the future, this test
+  // should be changed to check for type errors.
+  AstTreeStorage storage;
+  auto edge = EDGE("n", EdgeAtom::Direction::OUT);
+  edge->has_range_ = true;
+  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
+}
+
+TEST(TestSymbolGenerator, VariablePathSameIdentifier) {
+  // Test MATCH (n) -[r *r.prop..]-> (m) RETURN r raises UnboundVariableError.
+  // `r` cannot be used inside the range expression, since it is bound by the
+  // variable expansion itself.
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
+  edge->has_range_ = true;
+  edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
+  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchPropertySameIdentifier) {
+  // Test MATCH (n {prop: n.prop}) RETURN n
+  // Using `n.prop` needs to work, because filters are run after the value for
+  // matched symbol is obtained.
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  node_n->properties_[prop] = n_prop;
+  auto query = QUERY(MATCH(PATTERN(node_n)), RETURN("n"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  auto n = symbol_table.at(*node_n->identifier_);
+  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+}
+
+
 }  // namespace
