@@ -44,19 +44,44 @@ class NodeSymbolEqual {
 };
 
 // Finds the next Expansion which has one of its nodes among the already
-// expanded nodes. The function may modify expansions, by flipping their nodes
+// expanded symbols. The function may modify expansions, by flipping their nodes
 // and direction. This is done, so that the return iterator always points to the
 // expansion whose node1 is the already expanded one, while node2 may not be.
-auto NextExpansion(const std::unordered_set<const NodeAtom *, NodeSymbolHash,
-                                            NodeSymbolEqual> &expanded_nodes,
+auto NextExpansion(const SymbolTable &symbol_table,
+                   const std::unordered_set<Symbol> &expanded_symbols,
+                   const std::unordered_set<Symbol> &all_expansion_symbols,
                    std::vector<Expansion> &expansions) {
+  // Returns true if the expansion is a regular expand or if it is a variable
+  // path expand, but with bound symbols used inside the range expression.
+  auto can_expand = [&](auto &expansion) {
+    for (const auto &range_symbol : expansion.symbols_in_range) {
+      // If the symbols used in range need to be bound during this whole
+      // expansion, we must check whether they have already been expanded and
+      // therefore bound. If the symbols are not found in the whole expansion,
+      // then the semantic analysis should guarantee that the symbols have been
+      // bound long before we expand.
+      if (all_expansion_symbols.find(range_symbol) !=
+              all_expansion_symbols.end() &&
+          expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
+        return false;
+      }
+    }
+    return true;
+  };
   auto expansion_it = expansions.begin();
   for (; expansion_it != expansions.end(); ++expansion_it) {
-    if (expanded_nodes.find(expansion_it->node1) != expanded_nodes.end()) {
+    if (!can_expand(*expansion_it)) {
+      continue;
+    }
+    const auto &node1_symbol =
+        symbol_table.at(*expansion_it->node1->identifier_);
+    if (expanded_symbols.find(node1_symbol) != expanded_symbols.end()) {
       return expansion_it;
     }
     auto *node2 = expansion_it->node2;
-    if (node2 && expanded_nodes.find(node2) != expanded_nodes.end()) {
+    if (node2 &&
+        expanded_symbols.find(symbol_table.at(*node2->identifier_)) !=
+            expanded_symbols.end()) {
       // We need to flip the expansion, since we want to expand from node2.
       std::swap(expansion_it->node2, expansion_it->node1);
       if (expansion_it->direction != EdgeAtom::Direction::BOTH) {
@@ -79,19 +104,30 @@ std::vector<Expansion> ExpansionsFrom(
     const NodeAtom *start_node, std::vector<Expansion> original_expansions,
     const SymbolTable &symbol_table) {
   std::vector<Expansion> expansions;
-  std::unordered_set<const NodeAtom *, NodeSymbolHash, NodeSymbolEqual>
-      expanded_nodes({start_node}, original_expansions.size(),
-                     NodeSymbolHash(symbol_table),
-                     NodeSymbolEqual(symbol_table));
+  std::unordered_set<Symbol> expanded_symbols(
+      {symbol_table.at(*start_node->identifier_)});
+  std::unordered_set<Symbol> all_expansion_symbols;
+  for (const auto &expansion : original_expansions) {
+    all_expansion_symbols.insert(
+        symbol_table.at(*expansion.node1->identifier_));
+    if (expansion.edge) {
+      all_expansion_symbols.insert(
+          symbol_table.at(*expansion.edge->identifier_));
+      all_expansion_symbols.insert(
+          symbol_table.at(*expansion.node2->identifier_));
+    }
+  }
   while (!original_expansions.empty()) {
-    auto next_it = NextExpansion(expanded_nodes, original_expansions);
+    auto next_it = NextExpansion(symbol_table, expanded_symbols,
+                                 all_expansion_symbols, original_expansions);
     if (next_it == original_expansions.end()) {
       // Pick a new starting expansion, since we cannot continue the chain.
       next_it = original_expansions.begin();
     }
-    expanded_nodes.insert(next_it->node1);
+    expanded_symbols.insert(symbol_table.at(*next_it->node1->identifier_));
     if (next_it->node2) {
-      expanded_nodes.insert(next_it->node2);
+      expanded_symbols.insert(symbol_table.at(*next_it->edge->identifier_));
+      expanded_symbols.insert(symbol_table.at(*next_it->node2->identifier_));
     }
     expansions.emplace_back(*next_it);
     original_expansions.erase(next_it);
@@ -271,7 +307,7 @@ auto VaryMultiMatchingStarts(const std::vector<Matching> &matchings,
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
-std::vector<QueryPart> VaryQuertPartMatching(const QueryPart &query_part,
+std::vector<QueryPart> VaryQueryPartMatching(const QueryPart &query_part,
                                              const SymbolTable &symbol_table) {
   std::vector<QueryPart> variants;
   // Get multiple regular matchings, each starting from different node.
@@ -333,7 +369,7 @@ auto VaryQueryMatching(const std::vector<QueryPart> &query_parts,
   std::vector<std::vector<QueryPart>> alternative_query_parts;
   for (const auto &query_part : query_parts) {
     alternative_query_parts.emplace_back(
-        VaryQuertPartMatching(query_part, symbol_table));
+        VaryQueryPartMatching(query_part, symbol_table));
   }
   return iter::slice(
       CartesianProduct<QueryPart>(std::move(alternative_query_parts)), 0UL,

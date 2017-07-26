@@ -406,3 +406,54 @@ Feature: Match
             | 1   |
             | 3   |
             | 4   |
+
+    Scenario: Test match unbounded variable path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1}) -[:r]-> ({a:2}) -[:r]-> ({a:3})
+            """
+        When executing query:
+            """
+            MATCH (n) -[r*]-> (m) RETURN n.a, m.a
+            """
+        Then the result should be:
+            | n.a | m.a |
+            | 1   | 2   |
+            | 1   | 3   |
+            | 2   | 3   |
+
+    Scenario: Test match 0 length variable path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1}) -[:r]-> ({a:2}) -[:r]-> ({a:3})
+            """
+        When executing query:
+            """
+            MATCH (n) -[r*0]-> (m) RETURN n.a, m.a
+            """
+        Then the result should be:
+            | n.a | m.a |
+            | 1   | 1   |
+            | 2   | 2   |
+            | 3   | 3   |
+
+    Scenario: Test match bounded variable path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1}) -[:r]-> ({a:2}) -[:r]-> ({a:3})
+            """
+        When executing query:
+            """
+            MATCH (n) -[r*0..1]-> (m) RETURN n.a, m.a
+            """
+        Then the result should be:
+            | n.a | m.a |
+            | 1   | 1   |
+            | 1   | 2   |
+            | 2   | 2   |
+            | 2   | 3   |
+            | 3   | 3   |
+

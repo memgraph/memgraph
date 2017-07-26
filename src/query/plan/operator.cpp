@@ -592,10 +592,15 @@ class ExpandVariableCursor : public Cursor {
       if (PullInput(frame, symbol_table)) {
         // if lower bound is zero we also yield empty paths
         if (self_.lower_bound_ && self_.lower_bound_.value() == 0) {
-          // take into account existing_edge when yielding empty paths
           auto &edges_on_frame =
               frame[self_.edge_symbol_].Value<std::vector<TypedValue>>();
-          if (!self_.existing_edge_ || edges_on_frame.empty()) return true;
+          auto &start_vertex =
+              frame[self_.input_symbol_].Value<VertexAccessor>();
+          // take into account existing_edge when yielding empty paths
+          if ((!self_.existing_edge_ || edges_on_frame.empty()) &&
+              // Place the start vertex on the frame.
+              self_.HandleExistingNode(start_vertex, frame))
+            return true;
         }
         // if lower bound is not zero, we just continue, the next
         // loop iteration will attempt to expand and we're good

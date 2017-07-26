@@ -622,13 +622,20 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
 // This representation makes it easier to permute from which node or edge we
 // want to start expanding.
 std::vector<Expansion> NormalizePatterns(
-    const std::vector<Pattern *> &patterns) {
+    const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
   auto ignore_node = [&](auto *node) {};
   auto collect_expansion = [&](auto *prev_node, auto *edge,
                                auto *current_node) {
-    expansions.emplace_back(
-        Expansion{prev_node, edge, edge->direction_, current_node});
+    UsedSymbolsCollector collector(symbol_table);
+    if (edge->lower_bound_) {
+      edge->lower_bound_->Accept(collector);
+    }
+    if (edge->upper_bound_) {
+      edge->upper_bound_->Accept(collector);
+    }
+    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_,
+                                      collector.symbols_, current_node});
   };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
@@ -650,7 +657,7 @@ std::vector<Expansion> NormalizePatterns(
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
                  const SymbolTable &symbol_table, AstTreeStorage &storage,
                  Matching &matching) {
-  auto expansions = NormalizePatterns(patterns);
+  auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
     if (expansion.edge) {
@@ -813,10 +820,6 @@ LogicalOperator *PlanMatching(const Matching &matching,
     }
     // We have an edge, so generate Expand.
     if (expansion.edge) {
-      if (expansion.edge->has_range_) {
-        throw utils::NotYetImplemented(
-            "planning variable length relationships");
-      }
       // If the expand symbols were already bound, then we need to indicate
       // that they exist. The Expand will then check whether the pattern holds
       // instead of writing the expansion to symbols.
@@ -834,10 +837,36 @@ LogicalOperator *PlanMatching(const Matching &matching,
       } else {
         context.new_symbols.emplace_back(edge_symbol);
       }
-      last_op =
-          new Expand(node_symbol, edge_symbol, expansion.direction,
-                     std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-                     existing_node, existing_edge, context.graph_view);
+      if (expansion.edge->has_range_) {
+        std::experimental::optional<size_t> lower_bound;
+        std::experimental::optional<size_t> upper_bound;
+        auto get_bound = [](auto *bound_expr) {
+          auto *literal = dynamic_cast<PrimitiveLiteral *>(bound_expr);
+          if (!literal || literal->value_.type() != TypedValue::Type::Int ||
+              literal->value_.Value<int64_t>() < 0) {
+            throw SemanticException(
+                "Length of variable path must be a non-negative integer "
+                "literal.");
+          }
+          return literal->value_.Value<int64_t>();
+        };
+        // Default lower bound to 1 if none provided.
+        lower_bound = expansion.edge->lower_bound_
+                          ? get_bound(expansion.edge->lower_bound_)
+                          : 1U;
+        if (expansion.edge->upper_bound_) {
+          upper_bound = get_bound(expansion.edge->upper_bound_);
+        }
+        last_op = new ExpandVariable(
+            node_symbol, edge_symbol, expansion.direction, lower_bound,
+            upper_bound, std::shared_ptr<LogicalOperator>(last_op),
+            node1_symbol, existing_node, existing_edge, context.graph_view);
+      } else {
+        last_op =
+            new Expand(node_symbol, edge_symbol, expansion.direction,
+                       std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+                       existing_node, existing_edge, context.graph_view);
+      }
       if (!existing_edge) {
         // Ensure Cyphermorphism (different edge symbols always map to different
         // edges).
@@ -1023,6 +1052,10 @@ void Filters::CollectPatternFilters(Pattern &pattern,
   auto add_expand_filter = [&](NodeAtom *prev_node, EdgeAtom *edge,
                                NodeAtom *node) {
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    if (edge->has_range_ &&
+        (!edge->edge_types_.empty() || !edge->properties_.empty())) {
+      throw utils::NotYetImplemented("filtering variable length paths");
+    }
     if (!edge->edge_types_.empty()) {
       all_filters_.emplace_back(
           storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),

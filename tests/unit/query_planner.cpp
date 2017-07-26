@@ -54,6 +54,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyValue);
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(Expand);
+  PRE_VISIT(ExpandVariable);
   PRE_VISIT(Filter);
   PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
@@ -122,6 +123,7 @@ using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectExpand = OpChecker<Expand>;
+using ExpectExpandVariable = OpChecker<ExpandVariable>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectSetProperty = OpChecker<SetProperty>;
@@ -1213,6 +1215,25 @@ TEST(TestLogicalPlanner, ReturnSumGroupByAll) {
   QUERY(RETURN(sum, AS("sum"), all, AS("all")));
   auto aggr = ExpectAggregate({sum}, {all});
   CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchExpandVariable) {
+  // Test MATCH (n) -[r *..3]-> (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r");
+  edge->has_range_ = true;
+  edge->upper_bound_ = LITERAL(3);
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
+  // Test MATCH (n) -[r *]-> (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r");
+  edge->has_range_ = true;
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
 }  // namespace

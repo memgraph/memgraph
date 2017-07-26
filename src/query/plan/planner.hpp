@@ -12,16 +12,18 @@ class SymbolTable;
 
 namespace plan {
 
-/// @brief Normalized representation of a pattern that needs to be matched.
+/// Normalized representation of a pattern that needs to be matched.
 struct Expansion {
-  /// @brief The first node in the expansion, it can be a single node.
+  /// The first node in the expansion, it can be a single node.
   NodeAtom *node1 = nullptr;
-  /// @brief Optional edge which connects the 2 nodes.
+  /// Optional edge which connects the 2 nodes.
   EdgeAtom *edge = nullptr;
-  /// @brief Direction of the edge, it may be flipped compared to original
+  /// Direction of the edge, it may be flipped compared to original
   /// @c EdgeAtom during plan generation.
   EdgeAtom::Direction direction = EdgeAtom::Direction::BOTH;
-  /// @brief Optional node at the other end of an edge. If the expansion
+  /// Set of symbols found inside the range expressions of a variable path edge.
+  std::unordered_set<Symbol> symbols_in_range;
+  /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
 };

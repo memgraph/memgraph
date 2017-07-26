@@ -48,26 +48,7 @@ example:
 
     MATCH path = (node1) -[connection]-> (node2)
 
-Path naming is especially useful with another upcoming feature, *variable
-length paths*.
-
-#### Variable Length Paths
-
-There are cases when a user needs to find data which is connected by
-traversing a path of connections, but the user doesn't know how many
-connections need to be traversed. openCypher allows for designating patterns
-with variable path lengths. Matching such a path is achieved by using the `*`
-(*asterisk*) symbol inside the pattern for a connection. For example,
-traversing from `node1` to `node2` by following any number of connections in a
-single direction can be achieved with:
-
-    MATCH (node1) -[*]-> (node2)
-
-If paths are very long, finding them could take a long time. To prevent that,
-a user can provide the minimum and maximum length of the path. For example,
-paths of length between 2 and 4 can be obtained with a query like:
-
-    MATCH (node1) -[*2..4]-> (node2)
+Path naming is especially useful with the *variable length paths* feature.
 
 #### Functions
 
