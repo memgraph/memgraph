@@ -457,3 +457,30 @@ Feature: Match
             | 2   | 3   |
             | 3   | 3   |
 
+    Scenario: Test match filtered edge type variable path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1}) -[:r1]-> ({a:2}) -[:r2]-> ({a:3})
+            """
+        When executing query:
+            """
+            MATCH (n) -[:r1*]-> (m) RETURN n.a, m.a
+            """
+        Then the result should be:
+            | n.a | m.a |
+            | 1   | 2   |
+
+    Scenario: Test match filtered properties variable path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1}) -[:r {p1: 1, p2: 2}]-> ({a:2}) -[:r {p1: 1, p2: 3}]-> ({a:3})
+            """
+        When executing query:
+            """
+            MATCH (n) -[*{p1: 1, p2:2}]-> (m) RETURN n.a, m.a
+            """
+        Then the result should be:
+            | n.a | m.a |
+            | 1   | 2   |

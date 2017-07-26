@@ -60,7 +60,7 @@ class Filters {
   /// for found labels, properties and edge types. The generated expressions are
   /// stored in @c all_filters. Also, @c label_filters and @c property_filters
   /// are populated.
-  void CollectPatternFilters(Pattern &, const SymbolTable &, AstTreeStorage &);
+  void CollectPatternFilters(Pattern &, SymbolTable &, AstTreeStorage &);
   /// Collects filtering information from a where expression.
   ///
   /// Takes the where expression and stores it in @c all_filters, then analyzes
@@ -203,8 +203,9 @@ class VariableStartPlanner {
 ///
 /// This function will normalize patterns inside @c Match and @c Merge clauses
 /// and do some other preprocessing in order to generate multiple @c QueryPart
-/// structures.
-std::vector<QueryPart> CollectQueryParts(const SymbolTable &, AstTreeStorage &);
+/// structures. @c AstTreeStorage and @c SymbolTable may be used to create new
+/// AST nodes.
+std::vector<QueryPart> CollectQueryParts(SymbolTable &, AstTreeStorage &);
 
 /// @brief Generates the LogicalOperator tree and returns the resulting plan.
 ///

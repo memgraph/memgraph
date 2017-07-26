@@ -62,7 +62,7 @@ auto ReducePattern(
   return last_res;
 }
 
-void ForeachPattern(
+void ForEachPattern(
     Pattern &pattern, std::function<void(NodeAtom *)> base,
     std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
   debug_assert(!pattern.atoms_.empty(), "Missing atoms in pattern");
@@ -643,7 +643,7 @@ std::vector<Expansion> NormalizePatterns(
       debug_assert(node, "First pattern atom is not a node");
       expansions.emplace_back(Expansion{node});
     } else {
-      ForeachPattern(*pattern, ignore_node, collect_expansion);
+      ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
   }
   return expansions;
@@ -655,7 +655,7 @@ std::vector<Expansion> NormalizePatterns(
 // will lift them out of a pattern and generate new expressions (just like they
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
-                 const SymbolTable &symbol_table, AstTreeStorage &storage,
+                 SymbolTable &symbol_table, AstTreeStorage &storage,
                  Matching &matching) {
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
@@ -676,7 +676,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
     matching.filters.CollectWhereFilter(*where, symbol_table);
   }
 }
-void AddMatching(const Match &match, const SymbolTable &symbol_table,
+void AddMatching(const Match &match, SymbolTable &symbol_table,
                  AstTreeStorage &storage, Matching &matching) {
   return AddMatching(match.patterns_, match.where_, symbol_table, storage,
                      matching);
@@ -1015,25 +1015,39 @@ void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
   // as `expr1 < n.prop AND n.prop < expr2`.
 }
 
-void Filters::CollectPatternFilters(Pattern &pattern,
-                                    const SymbolTable &symbol_table,
+void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                                     AstTreeStorage &storage) {
   UsedSymbolsCollector collector(symbol_table);
-  auto add_properties_filter = [&](auto *atom) {
+  auto add_properties_filter = [&](auto *atom, bool is_variable_path = false) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
     for (auto &prop_pair : atom->properties_) {
       collector.symbols_.clear();
       prop_pair.second->Accept(collector);
-      // Store a PropertyFilter on the value of the property.
-      property_filters_[symbol][prop_pair.first].emplace_back(
-          PropertyFilter{collector.symbols_, prop_pair.second});
+      auto *identifier = atom->identifier_;
+      if (is_variable_path) {
+        // Create a new identifier and a symbol which will be filled in All.
+        identifier = identifier->Clone(storage);
+        symbol_table[*identifier] =
+            symbol_table.CreateSymbol(identifier->name_, false);
+      } else {
+        // Store a PropertyFilter on the value of the property.
+        property_filters_[symbol][prop_pair.first].emplace_back(
+            PropertyFilter{collector.symbols_, prop_pair.second});
+      }
       // Create an equality expression and store it in all_filters_.
       auto *property_lookup =
-          storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+          storage.Create<PropertyLookup>(identifier, prop_pair.first);
       auto *prop_equal =
           storage.Create<EqualOperator>(property_lookup, prop_pair.second);
       collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
-      all_filters_.emplace_back(prop_equal, collector.symbols_);
+      if (is_variable_path) {
+        all_filters_.emplace_back(
+            storage.Create<All>(identifier, atom->identifier_,
+                                storage.Create<Where>(prop_equal)),
+            collector.symbols_);
+      } else {
+        all_filters_.emplace_back(prop_equal, collector.symbols_);
+      }
     }
   };
   auto add_node_filter = [&](NodeAtom *node) {
@@ -1052,19 +1066,28 @@ void Filters::CollectPatternFilters(Pattern &pattern,
   auto add_expand_filter = [&](NodeAtom *prev_node, EdgeAtom *edge,
                                NodeAtom *node) {
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-    if (edge->has_range_ &&
-        (!edge->edge_types_.empty() || !edge->properties_.empty())) {
-      throw utils::NotYetImplemented("filtering variable length paths");
-    }
     if (!edge->edge_types_.empty()) {
-      all_filters_.emplace_back(
-          storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),
-          std::unordered_set<Symbol>{edge_symbol});
+      if (edge->has_range_) {
+        // We need a new identifier and symbol for All.
+        auto *identifier = edge->identifier_->Clone(storage);
+        symbol_table[*identifier] =
+            symbol_table.CreateSymbol(identifier->name_, false);
+        auto *edge_type_test =
+            storage.Create<EdgeTypeTest>(identifier, edge->edge_types_);
+        all_filters_.emplace_back(
+            storage.Create<All>(identifier, edge->identifier_,
+                                storage.Create<Where>(edge_type_test)),
+            std::unordered_set<Symbol>{edge_symbol});
+      } else {
+        all_filters_.emplace_back(
+            storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),
+            std::unordered_set<Symbol>{edge_symbol});
+      }
     }
-    add_properties_filter(edge);
+    add_properties_filter(edge, edge->has_range_);
     add_node_filter(node);
   };
-  ForeachPattern(pattern, add_node_filter, add_expand_filter);
+  ForEachPattern(pattern, add_node_filter, add_expand_filter);
 }
 
 // Adds the where filter expression to all filters and collects additional
@@ -1079,7 +1102,7 @@ void Filters::CollectWhereFilter(Where &where,
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
-std::vector<QueryPart> CollectQueryParts(const SymbolTable &symbol_table,
+std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
                                          AstTreeStorage &storage) {
   auto query = storage.query();
   std::vector<QueryPart> query_parts(1);

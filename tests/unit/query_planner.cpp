@@ -1236,4 +1236,19 @@ TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
+  // Test MATCH (n) -[r :type * {prop: 42}]-> (m) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto type = dba->edge_type("type");
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r", type);
+  edge->has_range_ = true;
+  edge->properties_[prop] = LITERAL(42);
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(),
+            ExpectProduce());
+}
+
 }  // namespace
