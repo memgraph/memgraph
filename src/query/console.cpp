@@ -145,6 +145,8 @@ void query::Repl(Dbms &dbms) {
       dba->commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
+    } catch (const query::LexingException &e) {
+      std::cout << "LEXING EXCEPTION: " << e.what() << std::endl;
     } catch (const query::SemanticException &e) {
       std::cout << "SEMANTIC EXCEPTION: " << e.what() << std::endl;
     } catch (const query::QueryRuntimeException &e) {
