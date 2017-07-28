@@ -11,42 +11,53 @@ template <class T>
 class LockStore {
   class LockHolder {
    public:
-    LockHolder() noexcept = default;
+    LockHolder() = default;
 
     template <class... Args>
-    LockHolder(T *lock, Args &&... args) : lock(lock) {
+    LockHolder(T *lock, Args &&... args) : lock_(lock) {
       debug_assert(lock != nullptr, "Lock is nullptr.");
-      auto status = lock->lock(std::forward<Args>(args)...);
+      auto status = lock_->Lock(std::forward<Args>(args)...);
 
-      if (status != LockStatus::Acquired) lock = nullptr;
+      if (status != LockStatus::Acquired) {
+        lock_ = nullptr;
+      }
     }
 
     LockHolder(const LockHolder &) = delete;
-    LockHolder(LockHolder &&other) noexcept : lock(other.lock) {
-      other.lock = nullptr;
+    LockHolder &operator=(const LockHolder &) = delete;
+
+    LockHolder(LockHolder &&other) : lock_(other.lock_) {
+      other.lock_ = nullptr;
+    }
+
+    LockHolder &operator=(LockHolder &&other) {
+      if (this == &other) return *this;
+      lock_ = other.lock_;
+      other.lock_ = nullptr;
     }
 
     ~LockHolder() {
-      if (lock != nullptr) lock->unlock();
+      if (lock_ != nullptr) {
+        lock_->Unlock();
+      }
     }
 
-    bool active() const noexcept { return lock != nullptr; }
+    bool active() const { return lock_ != nullptr; }
 
    private:
-    T *lock{nullptr};
+    T *lock_{nullptr};
   };
 
  public:
   template <class... Args>
-  void take(T *lock, Args &&... args) {
-    locks.emplace_back(LockHolder(lock, std::forward<Args>(args)...));
-    if (!locks.back().active()) {
-      locks.pop_back();
-      return;
+  void Take(T *lock, Args &&... args) {
+    locks_.emplace_back(LockHolder(lock, std::forward<Args>(args)...));
+    if (!locks_.back().active()) {
+      locks_.pop_back();
     }
   }
 
  private:
-  std::vector<LockHolder> locks;
+  std::vector<LockHolder> locks_;
 };
-};
+}

@@ -1,17 +1,17 @@
 #include "storage/locking/record_lock.hpp"
 
-void RecordLock::lock() { mutex.lock(&timeout); }
+LockStatus RecordLock::Lock(tx::transaction_id_t id) {
+  if (mutex_.try_lock()) {
+    owner_ = id;
+    return LockStatus::Acquired;
+  }
 
-LockStatus RecordLock::lock(tx::transaction_id_t id) {
-  if (mutex.try_lock()) return owner = id, LockStatus::Acquired;
+  if (owner_ == id) return LockStatus::AlreadyHeld;
 
-  if (owner == id) return LockStatus::AlreadyHeld;
-
-  return mutex.lock(&timeout), LockStatus::Acquired;
+  mutex_.lock(&kTimeout);
+  return LockStatus::Acquired;
 }
 
-void RecordLock::unlock() {
-  mutex.unlock();
-}
+void RecordLock::Unlock() { mutex_.unlock(); }
 
-constexpr struct timespec RecordLock::timeout;
+constexpr struct timespec RecordLock::kTimeout;

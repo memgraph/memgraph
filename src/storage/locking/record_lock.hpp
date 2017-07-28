@@ -1,19 +1,18 @@
 #pragma once
 
-#include "transactions/type.hpp"
 #include "storage/locking/lock_status.hpp"
 #include "threading/sync/futex.hpp"
+#include "transactions/type.hpp"
 
 class RecordLock {
   // TODO arbitrary constant, reconsider
-  static constexpr struct timespec timeout { 2, 0 };
+  static constexpr struct timespec kTimeout { 2, 0 };
 
  public:
-  LockStatus lock(tx::transaction_id_t id);
-  void lock();
-  void unlock();
+  LockStatus Lock(tx::transaction_id_t id);
+  void Unlock();
 
  private:
-  Futex mutex;
-  tx::transaction_id_t owner;
+  Futex mutex_;
+  tx::transaction_id_t owner_;
 };
