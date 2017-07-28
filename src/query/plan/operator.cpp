@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <limits>
 #include <type_traits>
 
 #include "query/plan/operator.hpp"
@@ -514,20 +515,16 @@ bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
   }
 }
 
-ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                               EdgeAtom::Direction direction,
-                               std::experimental::optional<size_t> lower_bound,
-                               std::experimental::optional<size_t> upper_bound,
-                               const std::shared_ptr<LogicalOperator> &input,
-                               Symbol input_symbol, bool existing_node,
-                               bool existing_edge, GraphView graph_view)
+ExpandVariable::ExpandVariable(
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    Expression *lower_bound,
+    Expression *upper_bound,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, bool existing_edge, GraphView graph_view)
     : ExpandCommon(node_symbol, edge_symbol, direction, input, input_symbol,
                    existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {
-  debug_assert(lower_bound || upper_bound,
-               "At least one variable-length expansion must be specified");
-}
+      upper_bound_(upper_bound) {}
 
 bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
                                               Frame &frame) const {
@@ -583,7 +580,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
 class ExpandVariableCursor : public Cursor {
  public:
   ExpandVariableCursor(const ExpandVariable &self, GraphDbAccessor &db)
-      : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
+      : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
     while (true) {
@@ -591,7 +588,7 @@ class ExpandVariableCursor : public Cursor {
 
       if (PullInput(frame, symbol_table)) {
         // if lower bound is zero we also yield empty paths
-        if (self_.lower_bound_ && self_.lower_bound_.value() == 0) {
+        if (lower_bound_ == 0) {
           auto &edges_on_frame =
               frame[self_.edge_symbol_].Value<std::vector<TypedValue>>();
           auto &start_vertex =
@@ -619,7 +616,14 @@ class ExpandVariableCursor : public Cursor {
 
  private:
   const ExpandVariable &self_;
+  GraphDbAccessor &db_;
   const std::unique_ptr<Cursor> input_cursor_;
+  // bounds. in the cursor they are not optional but set to
+  // default values if missing in the ExpandVariable operator
+  // initialize to arbitrary values, they should only be used
+  // after a successful pull from the input
+  int64_t upper_bound_{-1};
+  int64_t lower_bound_{-1};
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
@@ -657,7 +661,26 @@ class ExpandVariableCursor : public Cursor {
         break;
     }
 
-    if (!self_.upper_bound_ || self_.upper_bound_.value() > 0) {
+    // evaluate the upper and lower bounds
+    ExpressionEvaluator evaluator(frame, symbol_table, db_);
+    auto calc_bound = [this, &evaluator](auto &bound) {
+      TypedValue value = bound->Accept(evaluator);
+      try {
+        auto return_value = value.Value<int64_t>();
+        if (return_value < 0)
+          throw QueryRuntimeException(
+              "Variable expansion bound must be positive or zero");
+        return return_value;
+      } catch (TypedValueException &e) {
+        throw QueryRuntimeException("Variable expansion bound must be an int");
+      }
+    };
+
+    lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+    upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_)
+                                      : std::numeric_limits<int64_t>::max();
+
+    if (upper_bound_ > 0) {
       edges_.emplace_back(ExpandFromVertex(vertex, self_.direction_));
       edges_it_.emplace_back(edges_.back().begin());
     }
@@ -794,15 +817,15 @@ class ExpandVariableCursor : public Cursor {
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
-      if (!self_.upper_bound_ || self_.upper_bound_.value() > edges_.size()) {
+      if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
       // we only yield true if we satisfy the lower bound, and frame
       // edge placement indicated we are good
-      auto bound_ok = !self_.lower_bound_ ||
-                      edges_on_frame.size() >= self_.lower_bound_.value();
+      auto bound_ok =
+          static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_;
       if (bound_ok && edge_placement_result == EdgePlacementResult::YIELD)
         return true;
       else

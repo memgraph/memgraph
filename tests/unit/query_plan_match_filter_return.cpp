@@ -357,11 +357,15 @@ class QueryPlanExpandVariable : public testing::Test {
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
     symbol_table[*n_to->identifier_] = n_to_sym;
 
-    if (std::is_same<TExpansionOperator, ExpandVariable>::value)
+    if (std::is_same<TExpansionOperator, ExpandVariable>::value) {
+      // convert optional ints to optional expressions
+      auto convert = [this](std::experimental::optional<size_t> bound) {
+        return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
+      };
       return std::make_shared<ExpandVariable>(
-          n_to_sym, edge_sym, direction, lower, upper, filter_op, n_from.sym_,
-          false, existing_edge, GraphView::OLD);
-    else
+          n_to_sym, edge_sym, direction, convert(lower), convert(upper),
+          filter_op, n_from.sym_, false, existing_edge, GraphView::OLD);
+    } else
       return std::make_shared<Expand>(n_to_sym, edge_sym, direction, filter_op,
                                       n_from.sym_, false, existing_edge,
                                       GraphView::OLD);
@@ -425,6 +429,18 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
             (map_int{{1, 4}, {2, 12}}));
   EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4),
             (map_int{{4, 24}}));
+
+  // default bound values (lower default is 1, upper default is inf)
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0), (map_int{}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1),
+            (map_int{{1, 4}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2),
+            (map_int{{1, 4}, {2, 8}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt),
+            (map_int{{7, 24}, {8, 24}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt),
+            (map_int{{8, 24}}));
+  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt), (map_int{}));
 }
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {

@@ -605,7 +605,7 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
    * @brief Creates a variable-length expansion.
    *
    * Expansion length bounds are both inclusive (as in Neo's Cypher
-   * implementation). At least one of them has to be specified.
+   * implementation).
    *
    * Edge/Node existence is controlled via booleans. A true value
    * simply denotes that this expansion references an already
@@ -634,11 +634,9 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
    *    in the Frame and should just be checked for equality.
    * @param existing_edge Same like `existing_node`, but for edges.
    */
-  // TODO change API to take expression instead of size_t
   ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                 EdgeAtom::Direction direction,
-                 std::experimental::optional<size_t> lower_bound,
-                 std::experimental::optional<size_t> upper_bound,
+                 EdgeAtom::Direction direction, Expression *lower_bound,
+                 Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, bool existing_node, bool existing_edge,
                  GraphView graph_view = GraphView::AS_IS);
@@ -647,10 +645,10 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
 
  private:
-  // lower and upper bounds of the variable length expansion are
-  // optional, but at least one must be set
-  const std::experimental::optional<size_t> lower_bound_;
-  const std::experimental::optional<size_t> upper_bound_;
+  // lower and upper bounds of the variable length expansion
+  // both are optional, defaults are (1, inf)
+  Expression *lower_bound_;
+  Expression *upper_bound_;
 };
 /**
  * @brief Filter whose Pull returns true only when the given expression

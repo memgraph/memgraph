@@ -838,29 +838,11 @@ LogicalOperator *PlanMatching(const Matching &matching,
         context.new_symbols.emplace_back(edge_symbol);
       }
       if (expansion.edge->has_range_) {
-        std::experimental::optional<size_t> lower_bound;
-        std::experimental::optional<size_t> upper_bound;
-        auto get_bound = [](auto *bound_expr) {
-          auto *literal = dynamic_cast<PrimitiveLiteral *>(bound_expr);
-          if (!literal || literal->value_.type() != TypedValue::Type::Int ||
-              literal->value_.Value<int64_t>() < 0) {
-            throw SemanticException(
-                "Length of variable path must be a non-negative integer "
-                "literal.");
-          }
-          return literal->value_.Value<int64_t>();
-        };
-        // Default lower bound to 1 if none provided.
-        lower_bound = expansion.edge->lower_bound_
-                          ? get_bound(expansion.edge->lower_bound_)
-                          : 1U;
-        if (expansion.edge->upper_bound_) {
-          upper_bound = get_bound(expansion.edge->upper_bound_);
-        }
         last_op = new ExpandVariable(
-            node_symbol, edge_symbol, expansion.direction, lower_bound,
-            upper_bound, std::shared_ptr<LogicalOperator>(last_op),
-            node1_symbol, existing_node, existing_edge, context.graph_view);
+            node_symbol, edge_symbol, expansion.direction,
+            expansion.edge->lower_bound_, expansion.edge->upper_bound_,
+            std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+            existing_node, existing_edge, context.graph_view);
       } else {
         last_op =
             new Expand(node_symbol, edge_symbol, expansion.direction,
