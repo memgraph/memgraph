@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 import atexit
 import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -18,10 +17,8 @@ TEMP_DIR = os.path.join(SCRIPT_DIR, ".temp")
 STORAGE_DIR = os.path.join(SCRIPT_DIR, ".storage")
 
 
-
 class ProcessException(Exception):
     pass
-
 
 
 class Process:
@@ -33,9 +30,9 @@ class Process:
         self._usage = {}
         self._files = []
 
-    def run(self, binary, args = [], env = {}, timeout = 120, stdin = "/dev/null"):
+    def run(self, binary, args=[], env={}, timeout=10000, stdin="/dev/null"):
         # don't start a new process if one is already running
-        if self._proc != None and self._proc.returncode == None:
+        if self._proc is not None and self._proc.returncode is None:
             raise ProcessException
 
         # clear previous usage

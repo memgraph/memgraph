@@ -1,5 +1,5 @@
 BATCH_SIZE = 100
-VERTEX_COUNT = 10000
+VERTEX_COUNT = 1000000
 
 for i in range(VERTEX_COUNT):
     print("CREATE (n%d {x: %d})" % (i, i))

@@ -12,7 +12,7 @@ from threading import Thread
 from time import sleep
 
 from argparse import ArgumentParser
-from neo4j.v1 import GraphDatabase, basic_auth
+from neo4j.v1 import GraphDatabase
 
 
 class OutputData:
@@ -180,13 +180,13 @@ def argument_session(args):
     :return: Bolt session context manager based on program arguments
     '''
     return bolt_session('bolt://' + args.endpoint,
-                        basic_auth(args.username, args.password))
+                        (args.username, str(args.password)))
 
 
 def argument_driver(args, ssl=False):
     return GraphDatabase.driver(
         'bolt://' + args.endpoint,
-        basic_auth=(args.username, args.password),
+        auth=(args.username, str(args.password)),
         encrypted=ssl)
 
 

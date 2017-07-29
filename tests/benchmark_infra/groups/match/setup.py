@@ -8,7 +8,7 @@ from random import randint
 def rint(upper_bound_exclusive):
     return randint(0, upper_bound_exclusive - 1)
 
-VERTEX_COUNT = 100
+VERTEX_COUNT = 10000
 EDGE_COUNT = VERTEX_COUNT * 3
 
 # numbers of *different* labels, edge types and properties

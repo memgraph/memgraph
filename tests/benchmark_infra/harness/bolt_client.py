@@ -25,25 +25,25 @@ Note that 'metadata' are only valid if the return_code is 0
 
 import sys
 import os
+import time
+import json
+import io
+from contextlib import redirect_stderr
+from multiprocessing import Pool
+from functools import partial
+
 # tests/stress dir, that's the place of common.py.
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__)))), "stress"))
-import time
-import json
-from argparse import ArgumentParser
-from contextlib import redirect_stderr
-import io
-from multiprocessing import Pool
 from common import connection_argument_parser, execute_till_success, \
         argument_driver
-from functools import partial
 
-from neo4j.v1 import GraphDatabase, basic_auth
 
 # string constants
 RETURN_CODE = "return_code"
 ERROR_MSG = "error_msg"
 WALL_TIME = "wall_time"
+
 
 def _prepare_for_json(obj):
     if isinstance(obj, dict):
@@ -61,10 +61,12 @@ def _print_dict(d):
 
 def _run_query(args, query, self):
     if not hasattr(self, "driver"):
+        # TODO: this driver and session is never closed.
         self.driver = argument_driver(args)
         self.session = self.driver.session()
-        return execute_till_success(self.session, query)[2]
+    return execute_till_success(self.session, query)[2]
 _run_query.__defaults__ = (_run_query,)
+
 
 def main():
     argp = connection_argument_parser()
@@ -79,7 +81,7 @@ def main():
         _print_dict({RETURN_CODE: 1, ERROR_MSG: "Invalid cmd-line arguments"})
         sys.exit(1)
 
-    queries = sys.stdin.read().split("\n")
+    queries = filter(lambda x: x.strip() != '', sys.stdin.read().split("\n"))
 
     # Execute the queries.
     metadatas = []

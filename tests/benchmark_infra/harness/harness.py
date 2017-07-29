@@ -4,7 +4,6 @@
 import logging
 import os
 from os import path
-import requests
 import time
 import itertools
 import json
@@ -13,6 +12,7 @@ from argparse import ArgumentParser
 from collections import OrderedDict
 from collections import defaultdict
 import tempfile
+import shutil
 
 import jail_faker as jail
 from bolt_client import WALL_TIME
@@ -30,7 +30,7 @@ class _QuerySuite:
     """
     # what the QuerySuite can work with
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
-                  "teardown"}
+                  "teardown", "common"}
     summary = "Summary:\n{:>30}{:>30}{:>30}{:>30}{:>30}\n".format(
             "scenario_name", "query_parsing_time", "query_planning_time",
             "query_plan_execution_time", WALL_TIME)
@@ -94,6 +94,7 @@ class _QuerySuite:
             groups_root/
                 groupname1/
                     config.json
+                    common.py
                     setup.FILE_TYPE
                     teardown.FILE_TYPE
                     itersetup.FILE_TYPE
@@ -182,11 +183,12 @@ class _QuerySuite:
         def execute(config_name, num_client_workers=1):
             queries = scenario.get(config_name)
             return runner.execute(queries(), num_client_workers) if queries \
-                    else None
+                else None
 
         measurements = []
 
         measurement_sums = defaultdict(float)
+
         def add_measurement(dictionary, iteration, key):
             if key in dictionary:
                 measurement = {"target": key,
@@ -223,7 +225,7 @@ class _QuerySuite:
             execute("itersetup")
             # TODO measure CPU time (expose it from the runner)
             run_result = execute("run",
-                    scenario_config.get("num_client_workers", 1))
+                                 scenario_config.get("num_client_workers", 1))
             add_measurement(run_result, iteration, WALL_TIME)
             if len(run_result.get("metadatas", [])) == 1:
                 add_measurement(run_result["metadatas"][0], iteration,
@@ -241,21 +243,20 @@ class _QuerySuite:
         execute("teardown")
         runner.stop()
         self.append_scenario_summary(scenario_name, measurement_sums,
-                num_iterations)
+                                     num_iterations)
         return measurements
 
     def append_scenario_summary(self, scenario_name, measurement_sums,
-            num_iterations):
+                                num_iterations):
         self.summary += "{:>30}".format(scenario_name)
         for key in ("query_parsing_time", "query_planning_time",
-                "query_plan_execution_time", WALL_TIME):
+                    "query_plan_execution_time", WALL_TIME):
             if key not in measurement_sums:
                 time = "-"
             else:
                 time = "{:.10f}".format(measurement_sums[key] / num_iterations)
             self.summary += "{:>30}".format(time)
         self.summary += "\n"
-
 
     def runners(self):
         """ Which runners can execute a QuerySuite scenario """
@@ -273,7 +274,7 @@ class QuerySuite(_QuerySuite):
         _QuerySuite.__init__(self, args)
 
     def runners(self):
-        return ["MemgraphRunner"]
+        return ["MemgraphRunner", "NeoRunner"]
 
     def groups(self):
         return ["create", "match", "expression", "aggregation", "return",
@@ -285,56 +286,42 @@ class QueryParallelSuite(_QuerySuite):
         _QuerySuite.__init__(self, args)
 
     def runners(self):
-        return ["MemgraphRunner"]
+        return ["MemgraphRunner", "NeoRunner"]
 
     def groups(self):
         return ["aggregation_parallel", "create_parallel"]
 
 
-class MemgraphRunner:
+class _BaseRunner:
     """
-    Knows how to start and stop Memgraph (backend) some client frontent
-    (bolt), and execute a cypher query.
+    Knows how to start and stop database (backend) some client frontend (bolt),
+    and execute a cypher query.
     Execution returns benchmarking data (execution times, memory
     usage etc).
+    Inherited class should implement start method and initialise database_bin
+    and bolt_client members of type Process.
     """
     def __init__(self, args):
-        """
-        Creates and configures MemgraphRunner.
-        Args:
-            args: args to pass to ArgumentParser
-        """
-        log.info("Initializing MemgraphRunner with arguments %r", args)
+        self.log = logging.getLogger("_BaseRunner")
 
-        # parse arguments
-        argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--MemgraphRunnerBin",
-                default=os.path.join(os.path.dirname(__file__),
-                    "../../../build/memgraph"))
-        argp.add_argument("--MemgraphRunnerConfig", required=False)
-        argp.add_argument("--MemgraphRunnerURI", default="localhost:7687")
-        argp.add_argument("--MemgraphRunnerEncryptBolt", action="store_true")
-        self.args, _ = argp.parse_known_args(args)
-
-        self.memgraph_bin = jail.get_process()
-        self.bolt_client = jail.get_process()
+    def _get_argparser(self):
+        argp = ArgumentParser("RunnerArgumentParser")
+        # TODO: These two options should be passed two database and client, not
+        # only client as we are doing at the moment.
+        argp.add_argument("--RunnerUri", default="localhost:7687")
+        argp.add_argument("--RunnerEncryptBolt", action="store_true")
+        return argp
 
     def start(self):
-        log.info("MemgraphRunner.start")
-        environment = os.environ.copy()
-        if self.args.MemgraphRunnerConfig:
-            environment["MEMGRAPH_CONFIG"] = self.args.MemgraphRunnerConfig
-        self.memgraph_bin.run(self.args.MemgraphRunnerBin, env=environment)
-        # TODO change to a check via SIGUSR
-        time.sleep(1.0)
-        return self.memgraph_bin.get_pid()
+        raise NotImplementedError(
+                "This method should be implemented in derivded class")
 
     def execute(self, queries, num_client_workers):
-        log.debug("MemgraphRunner.execute('%s')", str(queries))
+        self.log.debug("execute('%s')", str(queries))
         client_args = [path.join(path.dirname(__file__), "bolt_client.py")]
-        client_args += ["--endpoint", self.args.MemgraphRunnerURI]
+        client_args += ["--endpoint", self.args.RunnerUri]
         client_args += ["--num-workers", str(num_client_workers)]
-        if self.args.MemgraphRunnerEncryptBolt:
+        if self.args.RunnerEncryptBolt:
             client_args.append("--ssl-enabled")
         queries_fd, queries_path = tempfile.mkstemp()
         try:
@@ -348,24 +335,93 @@ class MemgraphRunner:
 
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
-            "python3", client_args, timeout=300, stdin=queries_path)
+            "python3", client_args, timeout=10000, stdin=queries_path)
         os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
                 stderr = f.read()
-            log.error("MemgraphRunner - error while executing queries '%s'. "
-                      "Failed with return_code %d and stderr:\n%s",
-                      str(queries), return_code, stderr)
+            self.log.error("Error while executing queries '%s'. "
+                           "Failed with return_code %d and stderr:\n%s",
+                           str(queries), return_code, stderr)
             raise Exception("BoltClient execution failed")
         with open(self.bolt_client.get_stdout()) as f:
             return json.loads(f.read())
 
     def stop(self):
-        log.info("MemgraphRunner.stop")
+        self.log.info("stop")
         self.bolt_client.send_signal(jail.SIGKILL)
         self.bolt_client.wait()
-        self.memgraph_bin.send_signal(jail.SIGKILL)
-        self.memgraph_bin.wait()
+        self.database_bin.send_signal(jail.SIGKILL)
+        self.database_bin.wait()
+
+
+class MemgraphRunner(_BaseRunner):
+    """
+    Knows how to start and stop Memgraph (backend) some client frontent
+    (bolt), and execute a cypher query.
+    Execution returns benchmarking data (execution times, memory
+    usage etc).
+    """
+    def __init__(self, args):
+        super(MemgraphRunner, self).__init__(args)
+        self.log = logging.getLogger("MemgraphRunner")
+        argp = self._get_argparser()
+        argp.add_argument("--RunnerBin",
+                          default=os.path.join(os.path.dirname(__file__),
+                                               "../../../build/memgraph"))
+        argp.add_argument("--RunnerConfig",
+                          default=os.path.join(
+                              os.path.dirname(__file__),
+                              "../../../config/benchmarking.conf"))
+        # parse args
+        self.log.info("Initializing Runner with arguments %r", args)
+        self.args, _ = argp.parse_known_args(args)
+        self.database_bin = jail.get_process()
+        self.bolt_client = jail.get_process()
+
+    def start(self):
+        self.log.info("start")
+        environment = os.environ.copy()
+        environment["MEMGRAPH_CONFIG"] = self.args.RunnerConfig
+        self.database_bin.run(self.args.RunnerBin, env=environment,
+                              timeout=10000)
+        # TODO change to a check via SIGUSR
+        time.sleep(1.0)
+        return self.database_bin.get_pid()
+
+
+class NeoRunner(_BaseRunner):
+    def __init__(self, args):
+        super(NeoRunner, self).__init__(args)
+        self.log = logging.getLogger("NeoRunner")
+        argp = self._get_argparser()
+        argp.add_argument(
+            "--RunnerConfigDir",
+            default=path.join(path.dirname(path.realpath(__file__)),
+                              "neo4j_config"))
+        argp.add_argument(
+            "--RunnerHomeDir",
+            default=path.join(path.dirname(path.realpath(__file__)),
+                              "neo4j_home"))
+        # parse args
+        self.log.info("Initializing Runner with arguments %r", args)
+        self.args, _ = argp.parse_known_args(args)
+        self.database_bin = jail.get_process()
+        self.bolt_client = jail.get_process()
+
+    def start(self):
+        self.log.info("start")
+        environment = os.environ.copy()
+        environment["NEO4J_CONF"] = self.args.RunnerConfigDir
+        environment["NEO4J_HOME"] = self.args.RunnerHomeDir
+        neo4j_data_path = path.join(environment["NEO4J_HOME"], "data")
+        if path.exists(neo4j_data_path):
+            shutil.rmtree(neo4j_data_path)
+        self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
+                              env=environment, timeout=10000)
+        # TODO change to a check via SIGUSR
+        time.sleep(5.0)
+        return self.database_bin.get_pid()
 
 
 def parse_known_args():
@@ -396,7 +452,8 @@ def main():
     log.info("Executing for suite '%s', runner '%s'", args.suite, args.runner)
 
     # Create suite
-    suites = {"QuerySuite": QuerySuite, "QueryParallelSuite": QueryParallelSuite}
+    suites = {"QuerySuite": QuerySuite,
+              "QueryParallelSuite": QueryParallelSuite}
     if args.suite not in suites:
         raise Exception(
             "Suite '{}' isn't registered. Registered suites are: {}".format(
@@ -410,7 +467,7 @@ def main():
              sum([len(x) for x in group_scenarios.values()]))
 
     # Create runner
-    runners = {"MemgraphRunner": MemgraphRunner}
+    runners = {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
     # TODO if make runner argument optional, then execute all runners
     if args.runner not in suite.runners():
         raise Exception("Runner '{}' not registered for suite '{}'".format(

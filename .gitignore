@@ -1,4 +1,5 @@
 *.breakpoint
+*.data
 *.dSYM/
 *.o
 *.out
@@ -12,6 +13,7 @@
 .gdb_history
 .idea
 .ycm_extra_conf.pyc
+.temp/
 Testing/
 build
 build/
@@ -31,3 +33,4 @@ src/query/frontend/opencypher/generated/
 tags
 ve/
 ve3/
+perf.data*

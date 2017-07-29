@@ -1,3 +1,3 @@
 from setup import create_vertices
 
-create_vertices(1000)
+create_vertices(500)
