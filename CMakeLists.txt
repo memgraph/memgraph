@@ -356,7 +356,7 @@ string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
     "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
 add_custom_target(memgraph_link_target ALL
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph)
+	COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
 # -----------------------------------------------------------------------------
 
 # memgraph main executable
@@ -365,7 +365,6 @@ if (MEMGRAPH)
     set_property(TARGET ${MEMGRAPH_BUILD_NAME}
                  PROPERTY CXX_STANDARD ${cxx_standard})
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
-    add_custom_target(memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
 endif()
 
 # utility target to copy hardcoded queries
