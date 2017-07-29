@@ -365,6 +365,7 @@ if (MEMGRAPH)
     set_property(TARGET ${MEMGRAPH_BUILD_NAME}
                  PROPERTY CXX_STANDARD ${cxx_standard})
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
+    add_custom_target(memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
 endif()
 
 # utility target to copy hardcoded queries

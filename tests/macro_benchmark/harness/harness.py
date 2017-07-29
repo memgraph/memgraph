@@ -38,7 +38,7 @@ class _QuerySuite:
     # what the QuerySuite can work with
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
                   "teardown", "common"}
-    summary = "Summary:\n{:>30}{:>30}{:>30}{:>30}{:>30}\n".format(
+    summary = "Macro benchmark summary:\n{:>30}{:>30}{:>30}{:>30}{:>30}\n".format(
             "scenario_name", "query_parsing_time", "query_planning_time",
             "query_plan_execution_time", WALL_TIME)
 
@@ -529,6 +529,8 @@ def main():
     for result in results:
         jail.store_data(result)
     print("\n\n{}\n".format(suite.summary))
+    with open(os.path.join(DIR_PATH, ".harness_summary"), "w") as f:
+        print(suite.summary, file=f)
 
 
 if __name__ == "__main__":
