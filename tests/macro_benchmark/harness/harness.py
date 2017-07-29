@@ -42,7 +42,8 @@ class _QuerySuite:
             "query_plan_execution_time", WALL_TIME)
 
     def __init__(self, args):
-        self.perf = Perf()
+        if not APOLLO:
+            self.perf = Perf()
         argp = ArgumentParser(description=__doc__)
         argp.add_argument("--perf", help="Run perf on memgraph binary.",
                           action="store_true")
