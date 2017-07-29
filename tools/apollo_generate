@@ -172,6 +172,16 @@ RUNS.append(generate_run("quality_assurance", commands = commands,
         "\.quality_assurance_status".format(
         BASE_DIR_NAME)))
 
+# macro benchmark tests
+macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
+stress_common = os.path.join(BASE_DIR, "tests", "stress", "common.py")
+infile = create_archive("macro_benchmark", [binary_path, binary_link_path,
+        macro_bench_path, stress_common, config_path], cwd = WORKSPACE_DIR)
+supervisor = "./{}/tests/macro_benchmark/harness/harness.py".format(BASE_DIR_NAME)
+args = "QuerySuite MemgraphRunner --groups aggregation"
+RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
+        arguments = args, infile = infile))
+
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
 store_metadata(OUTPUT_DIR, "runs", RUNS)

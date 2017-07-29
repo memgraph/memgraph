@@ -55,8 +55,9 @@ def _prepare_for_json(obj):
     return None
 
 
-def _print_dict(d):
-    print(json.dumps(_prepare_for_json(d), indent=2))
+def _print_dict(fname, d):
+    with open(fname, "a") as f:
+      f.write(json.dumps(_prepare_for_json(d), indent=2))
 
 
 def _run_query(args, query, self):
@@ -71,6 +72,7 @@ _run_query.__defaults__ = (_run_query,)
 def main():
     argp = connection_argument_parser()
     argp.add_argument("--num-workers", type=int, default=1)
+    argp.add_argument("--output", type=str)
 
     # Parse args and ensure that stdout is not polluted by argument parsing.
     try:
@@ -78,7 +80,7 @@ def main():
         with redirect_stderr(f):
             args = argp.parse_args()
     except:
-        _print_dict({RETURN_CODE: 1, ERROR_MSG: "Invalid cmd-line arguments"})
+        _print_dict(args.output, {RETURN_CODE: 1, ERROR_MSG: "Invalid cmd-line arguments"})
         sys.exit(1)
 
     queries = filter(lambda x: x.strip() != '', sys.stdin.read().split("\n"))
@@ -91,7 +93,7 @@ def main():
         end = time.time()
         delta_time = end - start
 
-    _print_dict({
+    _print_dict(args.output, {
         RETURN_CODE: 0,
         WALL_TIME: (None if not queries else delta_time),
         "metadatas": metadatas

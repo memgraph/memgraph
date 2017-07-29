@@ -14,7 +14,6 @@ from signal import *
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-TEMP_DIR = os.path.join(SCRIPT_DIR, ".temp")
 STORAGE_DIR = os.path.join(SCRIPT_DIR, ".storage")
 
 
@@ -48,11 +47,6 @@ class Process:
         # create exe list
         exe = [binary] + args
 
-        # temporary stdout and stderr files
-        stdout = self._temporary_file("stdout")
-        stderr = self._temporary_file("stderr")
-        self._files = [stdout, stderr]
-
         # set environment variables
         keys = ["PATH", "HOME", "USER", "LANG", "PWD"]
         for key in keys:
@@ -64,9 +58,7 @@ class Process:
 
         # start process
         self._proc = subprocess.Popen(exe, env = env, cwd = cwd,
-                stdin = open(stdin, "r"),
-                stdout = open(stdout, "w"),
-                stderr = open(stderr, "w"))
+                stdin = open(stdin, "r"))
 
     def run_and_wait(self, *args, **kwargs):
         check = kwargs.pop("check", True)
@@ -113,26 +105,11 @@ class Process:
         sys.stderr.write("WARNING: Trying to set memory for {} to "
                 "{}\n".format(str(self), memory))
 
-    # this currently isn't implemented in the real API
-    def get_stdout(self):
-        if self._proc == None or self._proc.returncode == None:
-            raise ProcessException
-        return self._files[0]
-
-    # this currently isn't implemented in the real API
-    def get_stderr(self):
-        if self._proc == None or self._proc.returncode == None:
-            raise ProcessException
-        return self._files[1]
-
     # WARNING: this won't be implemented in the real API
     def get_pid(self):
         if self._proc == None:
             raise ProcessException
         return self._proc.pid
-
-    def _temporary_file(self, name):
-        return os.path.join(TEMP_DIR, ".".join([name, str(uuid.uuid4()), "dat"]))
 
     def _set_usage(self, val, name, only_value = False):
         self._usage[name] = val
@@ -195,9 +172,6 @@ _thread.start()
 
 if not os.path.exists(STORAGE_DIR):
     os.mkdir(STORAGE_DIR)
-if os.path.exists(TEMP_DIR):
-    shutil.rmtree(TEMP_DIR)
-os.mkdir(TEMP_DIR)
 
 _storage_name = os.path.join(STORAGE_DIR, time.strftime("%Y%m%d%H%M%S") + ".json")
 _storage_file = open(_storage_name, "w")
@@ -208,7 +182,6 @@ def cleanup():
         if proc._proc == None: continue
         proc.send_signal(SIGKILL)
         proc.get_status()
-    shutil.rmtree(TEMP_DIR)
     _storage_file.close()
 
 # end of private methods ------------------------------------------------------

@@ -21,7 +21,8 @@ except:
     import jail_faker as jail
     APOLLO = False
 
-from bolt_client import WALL_TIME
+DIR_PATH = path.dirname(path.realpath(__file__))
+WALL_TIME = "wall_time"
 from perf import Perf
 
 log = logging.getLogger(__name__)
@@ -131,7 +132,7 @@ class _QuerySuite:
         """
         argp = ArgumentParser("QuerySuite.scenarios argument parser")
         argp.add_argument("--query-scenarios-root", default=path.join(
-            path.dirname(path.dirname(path.realpath(__file__))), "groups"),
+            DIR_PATH, "..", "groups"),
             dest="root")
         args, _ = argp.parse_known_args()
         log.info("Loading query scenarios from root: %s", args.root)
@@ -209,8 +210,7 @@ class _QuerySuite:
                 except:
                     pass
 
-        if not APOLLO:
-            pid = runner.start()
+        pid = runner.start()
         execute("setup")
 
         # warmup phase
@@ -316,7 +316,7 @@ class _BaseRunner:
         argp = ArgumentParser("RunnerArgumentParser")
         # TODO: These two options should be passed two database and client, not
         # only client as we are doing at the moment.
-        argp.add_argument("--RunnerUri", default="localhost:7687")
+        argp.add_argument("--RunnerUri", default="127.0.0.1:7687")
         argp.add_argument("--RunnerEncryptBolt", action="store_true")
         return argp
 
@@ -326,9 +326,12 @@ class _BaseRunner:
 
     def execute(self, queries, num_client_workers):
         self.log.debug("execute('%s')", str(queries))
-        client_args = [path.join(path.dirname(__file__), "bolt_client.py")]
-        client_args += ["--endpoint", self.args.RunnerUri]
+        client = path.join(DIR_PATH, "run_bolt_client")
+        client_args = ["--endpoint", self.args.RunnerUri]
         client_args += ["--num-workers", str(num_client_workers)]
+        output_fd, output = tempfile.mkstemp()
+        os.close(output_fd)
+        client_args += ["--output", output]
         if self.args.RunnerEncryptBolt:
             client_args.append("--ssl-enabled")
         queries_fd, queries_path = tempfile.mkstemp()
@@ -343,7 +346,7 @@ class _BaseRunner:
 
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
-            "python3", client_args, timeout=10000, stdin=queries_path)
+            client, client_args, timeout=600, stdin=queries_path)
         os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
@@ -352,12 +355,11 @@ class _BaseRunner:
                            "Failed with return_code %d and stderr:\n%s",
                            str(queries), return_code, stderr)
             raise Exception("BoltClient execution failed")
-        with open(self.bolt_client.get_stdout()) as f:
+        with open(output) as f:
             return json.loads(f.read())
 
     def stop(self):
         self.log.info("stop")
-        self.bolt_client.send_signal(jail.SIGKILL)
         self.bolt_client.wait()
         self.database_bin.send_signal(jail.SIGTERM)
         self.database_bin.wait()
@@ -375,12 +377,12 @@ class MemgraphRunner(_BaseRunner):
         self.log = logging.getLogger("MemgraphRunner")
         argp = self._get_argparser()
         argp.add_argument("--RunnerBin",
-                          default=os.path.join(os.path.dirname(__file__),
+                          default=os.path.join(DIR_PATH,
                                                "../../../build/memgraph"))
         argp.add_argument("--RunnerConfig",
-                          default=os.path.join(
-                              os.path.dirname(__file__),
-                              "../../../config/benchmarking.conf"))
+                          default=os.path.normpath(os.path.join(
+                              DIR_PATH,
+                              "../../../config/benchmarking.conf")))
         # parse args
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
@@ -394,7 +396,7 @@ class MemgraphRunner(_BaseRunner):
         environment = os.environ.copy()
         environment["MEMGRAPH_CONFIG"] = self.args.RunnerConfig
         self.database_bin.run(self.args.RunnerBin, env=environment,
-                              timeout=10000)
+                              timeout=600)
         # TODO change to a check via SIGUSR
         time.sleep(1.0)
         return self.database_bin.get_pid() if not APOLLO else None
@@ -407,12 +409,10 @@ class NeoRunner(_BaseRunner):
         argp = self._get_argparser()
         argp.add_argument(
             "--RunnerConfigDir",
-            default=path.join(path.dirname(path.realpath(__file__)),
-                              "neo4j_config"))
+            default=path.join(DIR_PATH, "neo4j_config"))
         argp.add_argument(
             "--RunnerHomeDir",
-            default=path.join(path.dirname(path.realpath(__file__)),
-                              "neo4j_home"))
+            default=path.join(DIR_PATH, "neo4j_home"))
         # parse args
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
@@ -430,7 +430,7 @@ class NeoRunner(_BaseRunner):
         if path.exists(neo4j_data_path):
             shutil.rmtree(neo4j_data_path)
         self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
-                              env=environment, timeout=10000)
+                              env=environment, timeout=600)
         # TODO change to a check via SIGUSR
         time.sleep(5.0)
         return self.database_bin.get_pid() if not APOLLO else None
