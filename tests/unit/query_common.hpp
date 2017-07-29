@@ -473,6 +473,7 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define COUNT(expr) \
   storage.Create<query::Aggregation>((expr), query::Aggregation::Op::COUNT)
 #define EQ(expr1, expr2) storage.Create<query::EqualOperator>((expr1), (expr2))
+#define NEQ(expr1, expr2) storage.Create<query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) storage.Create<query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))
 // Function call

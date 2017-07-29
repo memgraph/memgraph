@@ -182,6 +182,15 @@ std::vector<TypedValue> &TypedValue::Value<std::vector<TypedValue>>() {
   return list_v;
 }
 
+std::vector<TypedValue> &TypedValue::ValueList() {
+  return Value<std::vector<TypedValue>>();
+}
+
+const std::vector<TypedValue> &TypedValue::ValueList() const {
+  return Value<std::vector<TypedValue>>();
+}
+
+
 template <>
 std::map<std::string, TypedValue>
     &TypedValue::Value<std::map<std::string, TypedValue>>() {

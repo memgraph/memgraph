@@ -4,11 +4,13 @@
 
 #include <glog/logging.h>
 #include <algorithm>
+#include <deque>
 #include <experimental/optional>
 #include <memory>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
@@ -62,6 +64,7 @@ class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class Expand;
 class ExpandVariable;
+class ExpandBreadthFirst;
 class Filter;
 class Produce;
 class Delete;
@@ -87,8 +90,8 @@ class CreateIndex;
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
-    ExpandVariable, Filter, Produce, Delete, SetProperty, SetProperties,
-    SetLabels, RemoveProperty, RemoveLabels,
+    ExpandVariable, ExpandBreadthFirst, Filter, Produce, Delete, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
@@ -449,6 +452,32 @@ class ExpandCommon {
       decltype(std::declval<VertexAccessor>().out().begin());
 
  public:
+  /**
+   * Initializes common expansion parameters.
+   *
+   * Edge/Node existence are controlled with booleans. 'true'
+   * denotes that this expansion references an already
+   * Pulled node/edge, and should only be checked for equality
+   * during expansion.
+   *
+   * Expansion can be done from old or new state of the vertex
+   * the expansion originates from. This is controlled with a
+   * constructor argument.
+   *
+   * @param node_symbol Symbol pointing to the node to be expanded. This is
+   *    where the new node will be stored.
+   * @param edge_symbol Symbol for the edges to be expanded. This is where
+   *    a TypedValue containing a list of expanded edges will be stored.
+   * @param direction EdgeAtom::Direction determining the direction of edge
+   *    expansion. The direction is relative to the starting vertex for each
+   *    expansion.
+   * @param input Optional LogicalOperator that preceeds this one.
+   * @param input_symbol Symbol that points to a VertexAccessor in the Frame
+   *    that expansion should emanate from.
+   * @param existing_node If or not the node to be expanded is already present
+   *    in the Frame and should just be checked for equality.
+   * @param existing_edge Same like `existing_node`, but for edges.
+   */
   ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                EdgeAtom::Direction direction,
                const std::shared_ptr<LogicalOperator> &input,
@@ -503,30 +532,8 @@ class ExpandCommon {
 class Expand : public LogicalOperator, ExpandCommon {
  public:
   /**
-   * @brief Creates an expansion.
-   *
-   * Edge/Node existence is controlled via booleans. A true value
-   * simply denotes that this expansion references an already
-   * Pulled node/edge, and should only be checked for equalities
-   * during expansion.
-   *
-   * Expansion can be done from old or new state of the vertex
-   * the expansion originates from. This is controlled with a
-   * constructor argument.
-   *
-   * @param node_symbol Symbol pointing to the node to be expanded. This is
-   *    where the new node will be stored.
-   * @param edge_symbol Symbol for the edge to be expanded. This is where the
-   *    edge value will be stored.
-   * @param direction EdgeAtom::Direction determining the direction of edge
-   *    expansion. The direction is relative to the starting vertex (pointed by
-   *    `input_symbol`).
-   * @param input Optional LogicalOperator that preceeds this one.
-   * @param input_symbol Symbol that points to a VertexAccessor in the Frame
-   *    that expansion should emanate from.
-   * @param existing_node If or not the node to be expanded is already present
-   *    in the Frame and should just be checked for equality.
-   * @param existing_edge Same like `existing_node`, but for edges.
+   * Creates an expansion. All parameters are forwarded to @c ExpandCommon and
+   * are documented there.
    */
   using ExpandCommon::ExpandCommon;
 
@@ -577,7 +584,7 @@ class Expand : public LogicalOperator, ExpandCommon {
 };
 
 /**
- * @brief Variable-length expansion operator. For a node existing in
+ * Variable-length expansion operator. For a node existing in
  * the frame it expands a variable number of edges and places them
  * (in a list-type TypedValue), as well as the final destination node,
  * on the frame.
@@ -602,37 +609,16 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
 
  public:
   /**
-   * @brief Creates a variable-length expansion.
+   * Creates a variable-length expansion. Most params are forwarded
+   * to the @c ExpandCommon constructor, and are documented there.
    *
    * Expansion length bounds are both inclusive (as in Neo's Cypher
    * implementation).
    *
-   * Edge/Node existence is controlled via booleans. A true value
-   * simply denotes that this expansion references an already
-   * Pulled node/edge, and should only be checked for equalities
-   * during expansion.
-   *
-   * Expansion can be done from old or new state of the vertex
-   * the expansion originates from. This is controlled with a
-   * constructor argument.
-   *
-   * @param node_symbol Symbol pointing to the node to be expanded. This is
-   *    where the new node will be stored.
-   * @param edge_symbol Symbol for the edges to be expanded. This is where
-   *    a TypedValue containing a list of expanded edges will be stored.
-   * @param direction EdgeAtom::Direction determining the direction of edge
-   *    expansion. The direction is relative to the starting vertex for each
-   *    expansion.
    * @param lower_bound An optional indicator of the minimum number of edges
    *    that get expanded (inclusive).
-   * @param lower_bound An optional indicator of the maximum number of edges
+   * @param upper_bound An optional indicator of the maximum number of edges
    *    that get expanded (inclusive).
-   * @param input Optional LogicalOperator that preceeds this one.
-   * @param input_symbol Symbol that points to a VertexAccessor in the Frame
-   *    that expansion should emanate from.
-   * @param existing_node If or not the node to be expanded is already present
-   *    in the Frame and should just be checked for equality.
-   * @param existing_edge Same like `existing_node`, but for edges.
    */
   ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
                  EdgeAtom::Direction direction, Expression *lower_bound,
@@ -650,6 +636,98 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
   Expression *lower_bound_;
   Expression *upper_bound_;
 };
+
+/**
+ * Variable length breadth-first expansion operator. For a node existing in the
+ * frame it expands a variable number of edges and places them (in a list-type
+ * TypedValue), as well as the final destination node, on the frame.
+ *
+ * This class does not handle node/edge filtering based on properties, labels
+ * and edge types. However, it does handle filtering on existing node. Edge and
+ * vertex uniqueness are inherent to breadth-first expansion, due to filtering
+ * of already visited nodes.
+ *
+ * Most params are equivalent to @c ExpandCommon, and are documented there.
+ * Additional param documentation follows:
+ *
+ * @param max_depth Expression that controls the maximum allowed length of the
+ * expansion. Inclusive.
+ * @param inner_node_symbol For each expansion the node expanded into is
+ * assigned to this symbol so it can be evaulated by the 'where' expression.
+ * @param inner_edge_symbol Like `inner_node_symbol`
+ * @Param where An expression that controls whether an expansion is accepted or
+ * not. It can use the `inner` node and edge symbols. The expansion succeeds
+ * only if the expression evaluates to `true` for the expanded-into edge and
+ * node. `false` and `Null` prevent expansion, while any other value results in
+ * an exception.
+ */
+class ExpandBreadthFirst : public LogicalOperator {
+ public:
+  ExpandBreadthFirst(Symbol node_symbol, Symbol edge_list_symbol,
+                     EdgeAtom::Direction direction, Expression *max_depth,
+                     Symbol inner_node_symbol, Symbol inner_edge_symbol,
+                     Expression *where,
+                     const std::shared_ptr<LogicalOperator> &input,
+                     Symbol input_symbol, bool existing_node,
+                     GraphView graph_view = GraphView::AS_IS);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+ private:
+  class Cursor : public query::plan::Cursor {
+   public:
+    Cursor(const ExpandBreadthFirst &self, GraphDbAccessor &db);
+    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    void Reset() override;
+
+   private:
+    const ExpandBreadthFirst &self_;
+    GraphDbAccessor &db_;
+    const std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+    // maximum depth of the expansion. calculated on each pull
+    // from the input, the initial value is irrelevant.
+    int max_depth_{-1};
+
+    // maps vertices to the edge they got expanded from. it is an optional
+    // edge because the root does not get expanded from anything.
+    // contains visited vertices as well as those scheduled to be visited.
+    std::unordered_map<VertexAccessor,
+                       std::experimental::optional<EdgeAccessor>>
+        processed_;
+    // edge/vertex pairs we have yet to visit, for current and next depth
+    std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
+    std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
+  };
+
+  // info on what's getting expanded
+  const Symbol node_symbol_;
+  const Symbol edge_list_symbol_;
+
+  const EdgeAtom::Direction direction_;
+  Expression *max_depth_;
+
+  // symbols for a single node and edge that are currently getting expanded
+  const Symbol inner_node_symbol_;
+  const Symbol inner_edge_symbol_;
+  // a filtering expression for skipping expansions during expansion
+  // can refer to inner node and edges
+  Expression *where_;
+
+  // the input op and the symbol under which the op's result
+  // can be found in the frame
+  const std::shared_ptr<LogicalOperator> input_;
+  const Symbol input_symbol_;
+
+  // if the node symbol already exists on the frame and this expansion
+  // should just match it
+  bool existing_node_;
+
+  // from which state the input node should get expanded
+  const GraphView graph_view_;
+};
+
 /**
  * @brief Filter whose Pull returns true only when the given expression
  * evaluates into true.

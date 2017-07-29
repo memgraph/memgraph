@@ -459,6 +459,23 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_.release();
 }
 
+namespace {
+// Switch the given [Vertex/Edge]Accessor to the desired state.
+template <typename TAccessor>
+void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
+  switch (graph_view) {
+    case GraphView::NEW:
+      accessor.SwitchNew();
+      break;
+    case GraphView::OLD:
+      accessor.SwitchOld();
+      break;
+    case GraphView::AS_IS:
+      break;
+  }
+}
+}
+
 bool Expand::ExpandCursor::InitEdges(Frame &frame,
                                      const SymbolTable &symbol_table) {
   if (!input_cursor_->Pull(frame, symbol_table)) return false;
@@ -469,17 +486,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
   if (vertex_value.IsNull()) return false;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
-  // Switch the expansion origin vertex to the desired state.
-  switch (self_.graph_view_) {
-    case GraphView::NEW:
-      vertex.SwitchNew();
-      break;
-    case GraphView::OLD:
-      vertex.SwitchOld();
-      break;
-    case GraphView::AS_IS:
-      break;
-  }
+  SwitchAccessor(vertex, self_.graph_view_);
 
   auto direction = self_.direction_;
   if (direction == EdgeAtom::Direction::IN ||
@@ -515,12 +522,12 @@ bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
   }
 }
 
-ExpandVariable::ExpandVariable(
-    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
-    Expression *lower_bound,
-    Expression *upper_bound,
-    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, bool existing_edge, GraphView graph_view)
+ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
+                               EdgeAtom::Direction direction,
+                               Expression *lower_bound, Expression *upper_bound,
+                               const std::shared_ptr<LogicalOperator> &input,
+                               Symbol input_symbol, bool existing_node,
+                               bool existing_edge, GraphView graph_view)
     : ExpandCommon(node_symbol, edge_symbol, direction, input, input_symbol,
                    existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
@@ -574,6 +581,23 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
         wrapper(EdgeAtom::Direction::OUT, vertex.out()));
 
   return iter::chain.from_iterable(std::move(chain_elements));
+}
+
+/** A helper function for evaluating an expression that's an int.
+ *
+ * @param evaluator
+ * @param expr
+ * @param what - Name of what's getting evaluated. Used for user
+ * feedback (via exception) when the evaluated value is not an int.
+ */
+int64_t EvaluateInt(ExpressionEvaluator &evaluator, Expression *expr,
+                    const std::string &what) {
+  TypedValue value = expr->Accept(evaluator);
+  try {
+    return value.Value<int64_t>();
+  } catch (TypedValueException &e) {
+    throw QueryRuntimeException(what + " must be an int");
+  }
 }
 }  // annonymous namespace
 
@@ -650,30 +674,16 @@ class ExpandVariableCursor : public Cursor {
     if (vertex_value.IsNull()) return false;
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.Value<VertexAccessor>();
-    switch (self_.graph_view_) {
-      case GraphView::NEW:
-        vertex.SwitchNew();
-        break;
-      case GraphView::OLD:
-        vertex.SwitchOld();
-        break;
-      case GraphView::AS_IS:
-        break;
-    }
+    SwitchAccessor(vertex, self_.graph_view_);
 
     // evaluate the upper and lower bounds
     ExpressionEvaluator evaluator(frame, symbol_table, db_);
     auto calc_bound = [this, &evaluator](auto &bound) {
-      TypedValue value = bound->Accept(evaluator);
-      try {
-        auto return_value = value.Value<int64_t>();
-        if (return_value < 0)
-          throw QueryRuntimeException(
-              "Variable expansion bound must be positive or zero");
-        return return_value;
-      } catch (TypedValueException &e) {
-        throw QueryRuntimeException("Variable expansion bound must be an int");
-      }
+      auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+      if (value < 0)
+        throw QueryRuntimeException(
+            "Variable expansion bound must be positive or zero");
+      return value;
     };
 
     lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
@@ -836,6 +846,154 @@ class ExpandVariableCursor : public Cursor {
 
 std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) {
   return std::make_unique<ExpandVariableCursor>(*this, db);
+}
+
+ExpandBreadthFirst::ExpandBreadthFirst(
+    Symbol node_symbol, Symbol edge_list_symbol, EdgeAtom::Direction direction,
+    Expression *max_depth, Symbol inner_node_symbol, Symbol inner_edge_symbol,
+    Expression *where, const std::shared_ptr<LogicalOperator> &input,
+    Symbol input_symbol, bool existing_node, GraphView graph_view)
+    : node_symbol_(node_symbol),
+      edge_list_symbol_(edge_list_symbol),
+      direction_(direction),
+      max_depth_(max_depth),
+      inner_node_symbol_(inner_node_symbol),
+      inner_edge_symbol_(inner_edge_symbol),
+      where_(where),
+      input_(input),
+      input_symbol_(input_symbol),
+      existing_node_(existing_node),
+      graph_view_(graph_view) {}
+
+ACCEPT_WITH_INPUT(ExpandBreadthFirst)
+
+std::unique_ptr<Cursor> ExpandBreadthFirst::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<ExpandBreadthFirst::Cursor>(*this, db);
+}
+
+ExpandBreadthFirst::Cursor::Cursor(const ExpandBreadthFirst &self,
+                                   GraphDbAccessor &db)
+    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+bool ExpandBreadthFirst::Cursor::Pull(Frame &frame,
+                                      const SymbolTable &symbol_table) {
+  // evaulator for the filtering condition
+  ExpressionEvaluator evaluator(frame, symbol_table, db_, self_.graph_view_);
+
+  // for the given (edge, vertex) pair checks if they satisfy the
+  // "where" condition. if so, places them in the to_visit_ structure.
+  auto expand_pair = [this, &evaluator, &frame](EdgeAccessor edge,
+                                                VertexAccessor vertex) {
+    // if we already processed the given vertex it doesn't get expanded
+    if (processed_.find(vertex) != processed_.end()) return;
+
+    SwitchAccessor(edge, self_.graph_view_);
+    SwitchAccessor(vertex, self_.graph_view_);
+
+    // to evaluate the where expression we need the inner
+    // values on the frame
+    frame[self_.inner_edge_symbol_] = edge;
+    frame[self_.inner_node_symbol_] = vertex;
+    TypedValue result = self_.where_->Accept(evaluator);
+    switch (result.type()) {
+      case TypedValue::Type::Null:
+        // TODO review: is treating Null as false desired?
+        return;
+      case TypedValue::Type::Bool:
+        if (!result.Value<bool>()) return;
+        break;
+      default:
+        throw QueryRuntimeException(
+            "Expansion condition must be boolean or null");
+    }
+
+    to_visit_next_.emplace_back(edge, vertex);
+    processed_.emplace(vertex, edge);
+  };
+
+  // populates the to_visit_next_ structure with expansions
+  // from the given vertex. skips expansions that don't satisfy
+  // the "where" condition.
+  auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
+    if (self_.direction_ != EdgeAtom::Direction::IN)
+      for (const EdgeAccessor &edge : vertex.out())
+        expand_pair(edge, edge.to());
+    if (self_.direction_ != EdgeAtom::Direction::OUT)
+      for (const EdgeAccessor &edge : vertex.in())
+        expand_pair(edge, edge.from());
+  };
+
+  // do it all in a loop because we skip some elements
+  while (true) {
+    // if we have nothing to visit on the current depth, switch to next
+    if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
+
+    // if current is still empty, it means both are empty, so pull from input
+    if (to_visit_current_.empty()) {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      processed_.clear();
+
+      auto vertex_value = frame[self_.input_symbol_];
+      // it is possible that the vertex is Null due to optional matching
+      if (vertex_value.IsNull()) continue;
+      auto vertex = vertex_value.Value<VertexAccessor>();
+      SwitchAccessor(vertex, self_.graph_view_);
+      processed_.emplace(vertex, std::experimental::nullopt);
+      expand_from_vertex(vertex);
+      max_depth_ = EvaluateInt(evaluator, self_.max_depth_,
+                               "Max depth in breadth-first expansion");
+      if (max_depth_ < 1)
+        throw QueryRuntimeException(
+            "Max depth in breadth-first expansion must be greater then zero");
+
+      // go back to loop start and see if we expanded anything
+      continue;
+    }
+
+    // take the next expansion from the queue
+    std::pair<EdgeAccessor, VertexAccessor> expansion =
+        to_visit_current_.front();
+    to_visit_current_.pop_front();
+
+    // create the frame value for the edges
+    std::vector<TypedValue> edge_list{expansion.first};
+    auto last_vertex = expansion.second;
+    while (true) {
+      const EdgeAccessor &last_edge = edge_list.back().Value<EdgeAccessor>();
+      last_vertex =
+          last_edge.from() == last_vertex ? last_edge.to() : last_edge.from();
+      // origin_vertex must be in processed
+      const auto &previous_edge = processed_.find(last_vertex)->second;
+      if (!previous_edge) break;
+
+      edge_list.push_back(previous_edge.value());
+    }
+
+    // expand only if what we've just expanded is less then max depth
+    if (static_cast<int>(edge_list.size()) < max_depth_)
+      expand_from_vertex(expansion.second);
+
+    // place destination node on the frame, handle existence flag
+    if (self_.existing_node_) {
+      TypedValue &node = frame[self_.node_symbol_];
+      // due to optional matching the existing node could be null
+      if (node.IsNull() || (node != expansion.second).Value<bool>()) continue;
+    } else
+      frame[self_.node_symbol_] = expansion.second;
+
+    // place edges on the frame in the correct order
+    std::reverse(edge_list.begin(), edge_list.end());
+    frame[self_.edge_list_symbol_] = std::move(edge_list);
+
+    return true;
+  }
+}
+
+void ExpandBreadthFirst::Cursor::Reset() {
+  input_cursor_->Reset();
+  processed_.clear();
+  to_visit_next_.clear();
+  to_visit_current_.clear();
 }
 
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input,

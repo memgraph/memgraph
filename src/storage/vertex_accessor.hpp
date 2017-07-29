@@ -79,3 +79,12 @@ class VertexAccessor : public RecordAccessor<Vertex> {
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);
+
+// hash function for the vertex accessor
+namespace std {
+  template <> struct hash<VertexAccessor> {
+    size_t operator()(const VertexAccessor &v) const {
+      return v.temporary_id();
+    };
+  };
+}

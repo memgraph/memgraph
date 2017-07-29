@@ -130,6 +130,9 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   const T &Value() const;
 
+  std::vector<TypedValue> &ValueList();
+  const std::vector<TypedValue> &ValueList() const;
+
   /** Convenience function for checking if this TypedValue is Null */
   bool IsNull() const;
 

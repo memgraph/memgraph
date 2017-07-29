@@ -14,12 +14,14 @@
  * @param db_accessor A database accessor to create the record accessors with.
  */
 template <typename TAccessor, typename TIterable>
-auto make_accessor_iterator(const TIterable &records, GraphDbAccessor &db_accessor) {
-  return iter::imap([&db_accessor](auto vlist) {
-    return TAccessor(*vlist, db_accessor);
-    // note that here we iterate over records in REVERSED order
-    // this is necessary for DETACH DELETE (see GraphDbAccessor)
-    // which deletes items from relationship collections in a
-    // vertex accessor
-  }, iter::reversed(records));
+auto make_accessor_iterator(TIterable &&records, GraphDbAccessor &db_accessor) {
+  return iter::imap(
+      [&db_accessor](auto vlist) {
+        return TAccessor(*vlist, db_accessor);
+        // note that here we iterate over records in REVERSED order
+        // this is necessary for DETACH DELETE (see GraphDbAccessor)
+        // which deletes items from relationship collections in a
+        // vertex accessor
+      },
+      iter::reversed(std::forward<TIterable>(records)));
 }
