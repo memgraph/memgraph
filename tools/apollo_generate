@@ -173,14 +173,21 @@ RUNS.append(generate_run("quality_assurance", commands = commands,
         BASE_DIR_NAME)))
 
 # macro benchmark tests
+BUILD_RELEASE_DIR = os.path.join(BASE_DIR, "build_release")
+binary_release_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable",
+        "-type", "f", "-name", "memgraph*"], BUILD_RELEASE_DIR).split("\n")[0][2:]
+binary_release_path = os.path.join(BUILD_RELEASE_DIR, binary_release_name)
 macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
 stress_common = os.path.join(BASE_DIR, "tests", "stress", "common.py")
-infile = create_archive("macro_benchmark", [binary_path, binary_link_path,
-        macro_bench_path, stress_common, config_path], cwd = WORKSPACE_DIR)
+infile = create_archive("macro_benchmark", [binary_release_path,
+        macro_bench_path, stress_common, config_path],
+        cwd = WORKSPACE_DIR)
 supervisor = "./{}/tests/macro_benchmark/harness/harness.py".format(BASE_DIR_NAME)
-args = "QuerySuite MemgraphRunner --groups aggregation"
+args = "QuerySuite MemgraphRunner --groups aggregation --RunnerBin " + binary_release_path
+outfile_paths = "\./{}/tests/macro_benchmark/harness/\.harness_summary".format(
+        BASE_DIR_NAME)
 RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
-        arguments = args, infile = infile))
+        arguments = args, infile = infile, outfile_paths = outfile_paths))
 
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
