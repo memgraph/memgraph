@@ -1,0 +1,16 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR/../../"
+
+errfile="$DIR/.cppcheck_errors"
+
+files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '.(hpp|h|cpp)$' )
+cppcheck --enable=all --force --suppress=missingInclude -Isrc $files 2>"$errfile"
+
+cat "$errfile" >&2
+
+len="$( cat "$errfile" | wc -l )"
+if [ $len -gt 0 ]; then
+    echo -e "Cppcheck errors:\n$( cat "$errfile" )" > "$errfile"
+fi

@@ -92,6 +92,16 @@ ARCHIVES.append(generate_archive("Doxygen documentation", "doxygen_documentation
 
 # TODO: store user documentation to archive
 
+# cppcheck run
+cppcheck = os.path.join(BASE_DIR, "tools", "apollo", "cppcheck")
+check_dirs = list(map(lambda x: os.path.join(BASE_DIR, x), ["src", "tests",
+        "poc", ".git"])) + [cppcheck]
+archive = create_archive("cppcheck", check_dirs, WORKSPACE_DIR)
+cmd = os.path.relpath(cppcheck, WORKSPACE_DIR)
+outfile_paths = "\./" + cmd.replace("cppcheck", ".cppcheck_errors").replace(".", "\\.")
+RUNS.append(generate_run("cppcheck", commands = './{}'.format(cmd),
+        infile = archive, outfile_paths = outfile_paths))
+
 # ctest tests
 ctest_output = run_cmd(["ctest", "-N"], TESTS_DIR)
 tests = []
