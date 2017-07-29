@@ -86,4 +86,9 @@ cd tests/qa
 ./init
 cd ../..
 
+# setup macro benchmark
+cd tests/macro_benchmark
+./init
+cd ../..
+
 echo "Done installing dependencies for Memgraph"
