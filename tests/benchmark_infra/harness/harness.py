@@ -14,7 +14,13 @@ from collections import defaultdict
 import tempfile
 import shutil
 
-import jail_faker as jail
+try:
+    import jail
+    APOLLO = True
+except:
+    import jail_faker as jail
+    APOLLO = False
+
 from bolt_client import WALL_TIME
 from perf import Perf
 
@@ -202,7 +208,8 @@ class _QuerySuite:
                 except:
                     pass
 
-        pid = runner.start()
+        if not APOLLO:
+            pid = runner.start()
         execute("setup")
 
         # warmup phase
@@ -351,7 +358,7 @@ class _BaseRunner:
         self.log.info("stop")
         self.bolt_client.send_signal(jail.SIGKILL)
         self.bolt_client.wait()
-        self.database_bin.send_signal(jail.SIGKILL)
+        self.database_bin.send_signal(jail.SIGTERM)
         self.database_bin.wait()
 
 
@@ -377,7 +384,9 @@ class MemgraphRunner(_BaseRunner):
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.database_bin = jail.get_process()
+        self.database_bin.set_cpus([1])
         self.bolt_client = jail.get_process()
+        self.bolt_client.set_cpus([2, 3])
 
     def start(self):
         self.log.info("start")
@@ -387,7 +396,7 @@ class MemgraphRunner(_BaseRunner):
                               timeout=10000)
         # TODO change to a check via SIGUSR
         time.sleep(1.0)
-        return self.database_bin.get_pid()
+        return self.database_bin.get_pid() if not APOLLO else None
 
 
 class NeoRunner(_BaseRunner):
@@ -407,7 +416,9 @@ class NeoRunner(_BaseRunner):
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.database_bin = jail.get_process()
+        self.database_bin.set_cpus([1])
         self.bolt_client = jail.get_process()
+        self.bolt_client.set_cpus([2, 3])
 
     def start(self):
         self.log.info("start")
@@ -421,7 +432,7 @@ class NeoRunner(_BaseRunner):
                               env=environment, timeout=10000)
         # TODO change to a check via SIGUSR
         time.sleep(5.0)
-        return self.database_bin.get_pid()
+        return self.database_bin.get_pid() if not APOLLO else None
 
 
 def parse_known_args():
@@ -515,7 +526,7 @@ def main():
     run["runner_config"] = vars(runner.args)
     run.update(args.additional_run_fields)
     for result in results:
-        jail.store_data(json.dumps(result))
+        jail.store_data(result)
     print("\n\n{}\n".format(suite.summary))
 
 
