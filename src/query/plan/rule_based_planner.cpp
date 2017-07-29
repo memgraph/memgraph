@@ -1106,7 +1106,9 @@ std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage,
                     query_part->merge_matching.back());
-      } else if (dynamic_cast<With *>(clause)) {
+      } else if (dynamic_cast<With *>(clause) ||
+                 dynamic_cast<query::Unwind *>(clause)) {
+        // This query part is done, continue with a new one.
         query_parts.emplace_back(QueryPart{});
         query_part = &query_parts.back();
       } else if (dynamic_cast<Return *>(clause)) {

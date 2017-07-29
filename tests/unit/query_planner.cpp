@@ -1251,4 +1251,17 @@ TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
             ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, UnwindMatchVariable) {
+  // Test UNWIND [1,2,3] AS depth MATCH (n) -[r*d]-> (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r", Direction::OUT);
+  edge->has_range_ = true;
+  edge->lower_bound_ = IDENT("d");
+  edge->upper_bound_ = IDENT("d");
+  QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
+        MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectUnwind(), ExpectScanAll(), ExpectExpandVariable(),
+            ExpectProduce());
+}
+
 }  // namespace
