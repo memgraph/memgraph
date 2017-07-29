@@ -413,8 +413,26 @@ antlrcpp::Any CypherMainVisitor::visitPatternElementChain(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     CypherParser::RelationshipPatternContext *ctx) {
-  auto *edge = storage_.Create<EdgeAtom>();
-  if (ctx->relationshipDetail()) {
+  auto *edge = ctx->bfsDetail() ? storage_.Create<BreadthFirstAtom>()
+                                : storage_.Create<EdgeAtom>();
+  if (ctx->bfsDetail()) {
+    if (ctx->bfsDetail()->bfs_variable) {
+      std::string variable = ctx->bfsDetail()->bfs_variable->accept(this);
+      edge->identifier_ = storage_.Create<Identifier>(variable);
+      users_identifiers.insert(variable);
+    }
+    auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge);
+    std::string traversed_edge_variable =
+        ctx->bfsDetail()->traversed_edge->accept(this);
+    bf_atom->traversed_edge_identifier_ =
+        storage_.Create<Identifier>(traversed_edge_variable);
+    std::string next_node_variable = ctx->bfsDetail()->next_node->accept(this);
+    bf_atom->next_node_identifier_ =
+        storage_.Create<Identifier>(next_node_variable);
+    bf_atom->filter_expression_ =
+        ctx->bfsDetail()->expression()[0]->accept(this);
+    bf_atom->max_depth_ = ctx->bfsDetail()->expression()[1]->accept(this);
+  } else if (ctx->relationshipDetail()) {
     if (ctx->relationshipDetail()->variable()) {
       std::string variable =
           ctx->relationshipDetail()->variable()->accept(this);
@@ -462,6 +480,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
     CypherParser::RelationshipDetailContext *) {
+  debug_assert(false, "Should never be called. See documentation in hpp.");
+  return 0;
+}
+
+antlrcpp::Any CypherMainVisitor::visitBfsDetail(
+    CypherParser::BfsDetailContext *) {
   debug_assert(false, "Should never be called. See documentation in hpp.");
   return 0;
 }

@@ -878,8 +878,10 @@ class EdgeAtom : public PatternAtom {
       edge_atom->properties_[property.first] = property.second->Clone(storage);
     }
     edge_atom->has_range_ = has_range_;
-    edge_atom->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
-    edge_atom->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
+    edge_atom->lower_bound_ =
+        lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
+    edge_atom->upper_bound_ =
+        upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
     return edge_atom;
   }
 
@@ -895,6 +897,49 @@ class EdgeAtom : public PatternAtom {
   using PatternAtom::PatternAtom;
   EdgeAtom(int uid, Identifier *identifier, Direction direction)
       : PatternAtom(uid, identifier), direction_(direction) {}
+};
+
+class BreadthFirstAtom : public EdgeAtom {
+  // TODO: Reconsider inheriting from EdgeAtom, since only `direction_` is used.
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor) &&
+          traversed_edge_identifier_->Accept(visitor) &&
+          next_node_identifier_->Accept(visitor) &&
+          filter_expression_->Accept(visitor) && max_depth_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  BreadthFirstAtom *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<BreadthFirstAtom>(
+        identifier_->Clone(storage), direction_,
+        traversed_edge_identifier_->Clone(storage),
+        next_node_identifier_->Clone(storage),
+        filter_expression_->Clone(storage), max_depth_->Clone(storage));
+  }
+
+  Identifier *traversed_edge_identifier_ = nullptr;
+  Identifier *next_node_identifier_ = nullptr;
+  // Expression which evaluates to true in order to continue the BFS.
+  Expression *filter_expression_ = nullptr;
+  Expression *max_depth_ = nullptr;
+
+ protected:
+  using EdgeAtom::EdgeAtom;
+  BreadthFirstAtom(int uid, Identifier *identifier, Direction direction,
+                   Identifier *traversed_edge_identifier,
+                   Identifier *next_node_identifier,
+                   Expression *filter_expression, Expression *max_depth)
+      : EdgeAtom(uid, identifier, direction),
+        traversed_edge_identifier_(traversed_edge_identifier),
+        next_node_identifier_(next_node_identifier),
+        filter_expression_(filter_expression),
+        max_depth_(max_depth) {}
 };
 
 class Clause : public Tree {

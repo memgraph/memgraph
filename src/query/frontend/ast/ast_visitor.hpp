@@ -21,6 +21,7 @@ class With;
 class Pattern;
 class NodeAtom;
 class EdgeAtom;
+class BreadthFirstAtom;
 class PrimitiveLiteral;
 class ListLiteral;
 class OrOperator;
@@ -65,8 +66,8 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
     ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
     Function, All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind>;
+    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, CreateIndex>;
@@ -90,7 +91,8 @@ using TreeVisitor = ::utils::Visitor<
     ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
     ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
     Function, All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
+    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral,
+    CreateIndex>;
 
 }  // namespace query

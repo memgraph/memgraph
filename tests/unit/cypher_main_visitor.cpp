@@ -1400,4 +1400,26 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   EXPECT_TRUE(eq);
 }
 
+TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
+  TypeParam ast_generator(
+      "MATCH (n) -bfs[r](e, n|e.prop = 42, 10)-> (m) RETURN r");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *bfs = dynamic_cast<BreadthFirstAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(bfs);
+  EXPECT_EQ(bfs->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_EQ(bfs->identifier_->name_, "r");
+  EXPECT_EQ(bfs->traversed_edge_identifier_->name_, "e");
+  EXPECT_EQ(bfs->next_node_identifier_->name_, "n");
+  auto *max_depth = dynamic_cast<PrimitiveLiteral *>(bfs->max_depth_);
+  ASSERT_TRUE(max_depth);
+  EXPECT_EQ(max_depth->value_.Value<int64_t>(), 10U);
+  auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
+  ASSERT_TRUE(eq);
+}
+
 }

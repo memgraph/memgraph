@@ -110,11 +110,13 @@ nodePattern : '(' SP? ( variable SP? )? ( nodeLabels SP? )? ( properties SP? )? 
 
 patternElementChain : relationshipPattern SP? nodePattern ;
 
-relationshipPattern : ( leftArrowHead SP? dash SP? relationshipDetail? SP? dash SP? rightArrowHead )
-                    | ( leftArrowHead SP? dash SP? relationshipDetail? SP? dash )
-                    | ( dash SP? relationshipDetail? SP? dash SP? rightArrowHead )
-                    | ( dash SP? relationshipDetail? SP? dash )
+relationshipPattern : ( leftArrowHead SP? dash SP? ( bfsDetail | relationshipDetail )? SP? dash SP? rightArrowHead )
+                    | ( leftArrowHead SP? dash SP? ( bfsDetail | relationshipDetail )? SP? dash )
+                    | ( dash SP? ( bfsDetail | relationshipDetail )? SP? dash SP? rightArrowHead )
+                    | ( dash SP? ( bfsDetail | relationshipDetail )? SP? dash )
                     ;
+
+bfsDetail : BFS SP? ( '[' SP? ( bfs_variable=variable SP? )? ']' )? SP? '(' SP? traversed_edge=variable SP? ',' SP? next_node=variable SP? '|' SP? expression SP? ',' SP? expression SP? ')' ;
 
 relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? properties SP? ']'
                    | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? ( properties SP? )? ']'
@@ -444,6 +446,8 @@ TRUE : ( 'T' | 't' ) ( 'R' | 'r' ) ( 'U' | 'u' ) ( 'E' | 'e' )  ;
 FALSE : ( 'F' | 'f' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'S' | 's' ) ( 'E' | 'e' )  ;
 
 INDEX : ( 'I' | 'i') ( 'N' | 'n' ) ( 'D' | 'd' ) ( 'E' | 'e' ) ( 'X' | 'x' ) ;
+
+BFS : ( 'B' | 'b' ) ( 'F' | 'f' ) ( 'S' | 's' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

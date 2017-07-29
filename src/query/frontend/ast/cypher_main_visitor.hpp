@@ -269,6 +269,12 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipDetailContext *ctx) override;
 
   /**
+   * This should never be called. Everything is done directly in
+   * visitRelationshipPattern.
+   */
+  antlrcpp::Any visitBfsDetail(CypherParser::BfsDetailContext *ctx) override;
+
+  /**
    * @return vector<GraphDbTypes::EdgeType>
    */
   antlrcpp::Any visitRelationshipTypes(
