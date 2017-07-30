@@ -16,9 +16,9 @@ if [ "$mode" == diff ]; then
     flags=""
 else
     files=src/
-    flags="-j$THREADS"
+    flags="-j$THREADS -Isrc"
 fi
-cppcheck --enable=all --force --suppress=missingInclude $flags -Isrc $files 2>"$errfile"
+cppcheck --enable=all --force --suppress=missingInclude $flags $files 2>"$errfile"
 
 cat "$errfile" >&2
 
