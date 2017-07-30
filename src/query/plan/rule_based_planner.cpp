@@ -634,6 +634,16 @@ std::vector<Expansion> NormalizePatterns(
     if (edge->upper_bound_) {
       edge->upper_bound_->Accept(collector);
     }
+    if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge)) {
+      // Get used symbols inside bfs filter expression and max depth.
+      bf_atom->filter_expression_->Accept(collector);
+      bf_atom->max_depth_->Accept(collector);
+      // Remove symbols which are bound by the bfs itself.
+      collector.symbols_.erase(
+          symbol_table.at(*bf_atom->traversed_edge_identifier_));
+      collector.symbols_.erase(
+          symbol_table.at(*bf_atom->next_node_identifier_));
+    }
     expansions.emplace_back(Expansion{prev_node, edge, edge->direction_,
                                       collector.symbols_, current_node});
   };
@@ -837,7 +847,18 @@ LogicalOperator *PlanMatching(const Matching &matching,
       } else {
         context.new_symbols.emplace_back(edge_symbol);
       }
-      if (expansion.edge->has_range_) {
+      if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
+        const auto &traversed_edge_symbol =
+            symbol_table.at(*bf_atom->traversed_edge_identifier_);
+        const auto &next_node_symbol =
+            symbol_table.at(*bf_atom->next_node_identifier_);
+        last_op = new ExpandBreadthFirst(
+            node_symbol, edge_symbol, expansion.direction, bf_atom->max_depth_,
+            next_node_symbol, traversed_edge_symbol,
+            bf_atom->filter_expression_,
+            std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+            existing_node, context.graph_view);
+      } else if (expansion.edge->has_range_) {
         last_op = new ExpandVariable(
             node_symbol, edge_symbol, expansion.direction,
             expansion.edge->lower_bound_, expansion.edge->upper_bound_,

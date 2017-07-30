@@ -78,11 +78,13 @@ auto NextExpansion(const SymbolTable &symbol_table,
     if (expanded_symbols.find(node1_symbol) != expanded_symbols.end()) {
       return expansion_it;
     }
+    // Try expanding from node2 by flipping the expansion.
     auto *node2 = expansion_it->node2;
     if (node2 &&
         expanded_symbols.find(symbol_table.at(*node2->identifier_)) !=
-            expanded_symbols.end()) {
-      // We need to flip the expansion, since we want to expand from node2.
+            expanded_symbols.end() &&
+        // BFS must *not* be flipped. Doing that changes the BFS results.
+        !dynamic_cast<BreadthFirstAtom *>(expansion_it->edge)) {
       std::swap(expansion_it->node2, expansion_it->node1);
       if (expansion_it->direction != EdgeAtom::Direction::BOTH) {
         expansion_it->direction =

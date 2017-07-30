@@ -55,6 +55,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
+  PRE_VISIT(ExpandBreadthFirst);
   PRE_VISIT(Filter);
   PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
@@ -124,6 +125,7 @@ using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectExpandVariable = OpChecker<ExpandVariable>;
+using ExpectExpandBreadthFirst = OpChecker<ExpandBreadthFirst>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectSetProperty = OpChecker<SetProperty>;
@@ -1261,6 +1263,17 @@ TEST(TestLogicalPlanner, UnwindMatchVariable) {
   QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
         MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectUnwind(), ExpectScanAll(), ExpectExpandVariable(),
+            ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchBreadthFirst) {
+  // Test MATCH (n) -bfs[r](r, n|n, 10)-> (m) RETURN r
+  AstTreeStorage storage;
+  auto *bfs = storage.Create<query::BreadthFirstAtom>(
+      IDENT("r"), Direction::OUT, IDENT("r"), IDENT("n"), IDENT("n"),
+      LITERAL(10));
+  QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
             ExpectProduce());
 }
 
