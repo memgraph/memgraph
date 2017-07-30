@@ -1010,4 +1010,74 @@ TEST(TestSymbolGenerator, WithReturnAll) {
   EXPECT_NE(symbol_table.at(*all->identifier_), symbol_table.at(*ret_as_x));
 }
 
+TEST(TestSymbolGenerator, MatchBfsReturn) {
+  // Test MATCH (n) -bfs[r](r, n | r.prop, n.prop)-> (m) RETURN r AS r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = dba->property("prop");
+  AstTreeStorage storage;
+  auto *node_n = NODE("n");
+  auto *r_prop = PROPERTY_LOOKUP("r", prop);
+  auto *n_prop = PROPERTY_LOOKUP("n", prop);
+  auto *bfs =
+      storage.Create<BreadthFirstAtom>(IDENT("r"), EdgeAtom::Direction::OUT,
+                                       IDENT("r"), IDENT("n"), r_prop, n_prop);
+  auto *ret_r = IDENT("r");
+  auto *query =
+      QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))), RETURN(ret_r, AS("r")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 6);
+  EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
+  EXPECT_NE(symbol_table.at(*ret_r),
+            symbol_table.at(*bfs->traversed_edge_identifier_));
+  EXPECT_EQ(symbol_table.at(*bfs->traversed_edge_identifier_),
+            symbol_table.at(*r_prop->expression_));
+  EXPECT_NE(symbol_table.at(*node_n->identifier_),
+            symbol_table.at(*bfs->next_node_identifier_));
+  EXPECT_EQ(symbol_table.at(*node_n->identifier_),
+            symbol_table.at(*n_prop->expression_));
+}
+
+TEST(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
+  // Test MATCH (n) -bfs[r](e, n | r, 10)-> (m) RETURN r
+  AstTreeStorage storage;
+  auto *bfs = storage.Create<BreadthFirstAtom>(
+      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("r"),
+      LITERAL(10));
+  auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
+  // Test MATCH (a) -bfs[r](e, n | a, 10)-> (m) RETURN r
+  AstTreeStorage storage;
+  auto *node_a = NODE("a");
+  auto *bfs = storage.Create<BreadthFirstAtom>(
+      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("a"),
+      LITERAL(10));
+  auto *query = QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  EXPECT_EQ(symbol_table.at(*node_a->identifier_),
+            symbol_table.at(*bfs->filter_expression_));
+}
+
+TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
+  // Test MATCH (n) -bfs[r](e, n | m, 10)-> (m) RETURN r
+  AstTreeStorage storage;
+  auto *bfs = storage.Create<BreadthFirstAtom>(
+      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("m"),
+      LITERAL(10));
+  auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
 }  // namespace

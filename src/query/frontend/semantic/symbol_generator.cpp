@@ -270,23 +270,7 @@ bool SymbolGenerator::PostVisit(Aggregation &) {
 
 bool SymbolGenerator::PreVisit(All &all) {
   all.list_expression_->Accept(*this);
-  // Bind the new symbol after visiting the list expression. Keep the old symbol
-  // so it can be restored.
-  std::experimental::optional<Symbol> prev_symbol;
-  auto prev_symbol_it = scope_.symbols.find(all.identifier_->name_);
-  if (prev_symbol_it != scope_.symbols.end()) {
-    prev_symbol = prev_symbol_it->second;
-  }
-  symbol_table_[*all.identifier_] = CreateSymbol(all.identifier_->name_, true);
-  // Visit Where with the new symbol bound.
-  all.where_->Accept(*this);
-  // Restore the old symbol or just remove the newly bound if there was no
-  // symbol before.
-  if (prev_symbol) {
-    scope_.symbols[all.identifier_->name_] = *prev_symbol;
-  } else {
-    scope_.symbols.erase(all.identifier_->name_);
-  }
+  VisitWithIdentifiers(*all.where_, {all.identifier_});
   return false;
 }
 
@@ -376,6 +360,60 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
 bool SymbolGenerator::PostVisit(EdgeAtom &) {
   scope_.visiting_edge = nullptr;
   scope_.in_create_edge = false;
+  return true;
+}
+
+void SymbolGenerator::VisitWithIdentifiers(
+    Tree &tree, const std::vector<Identifier *> &identifiers) {
+  std::vector<std::pair<std::experimental::optional<Symbol>, Identifier *>>
+      prev_symbols;
+  // Collect previous symbols if they exist.
+  for (const auto &identifier : identifiers) {
+    std::experimental::optional<Symbol> prev_symbol;
+    auto prev_symbol_it = scope_.symbols.find(identifier->name_);
+    if (prev_symbol_it != scope_.symbols.end()) {
+      prev_symbol = prev_symbol_it->second;
+    }
+    symbol_table_[*identifier] = CreateSymbol(identifier->name_, true);
+    prev_symbols.emplace_back(prev_symbol, identifier);
+  }
+  // Visit the tree with the new symbols bound.
+  tree.Accept(*this);
+  // Restore back to previous symbols.
+  for (const auto &prev : prev_symbols) {
+    const auto &prev_symbol = prev.first;
+    const auto &identifier = prev.second;
+    if (prev_symbol) {
+      scope_.symbols[identifier->name_] = *prev_symbol;
+    } else {
+      scope_.symbols.erase(identifier->name_);
+    }
+  }
+}
+
+bool SymbolGenerator::PreVisit(BreadthFirstAtom &bf_atom) {
+  scope_.visiting_edge = &bf_atom;
+  if (scope_.in_create || scope_.in_merge) {
+    throw SemanticException("BFS cannot be used to create edges.");
+  }
+  // Visiting BFS filter and max_depth expressions is not a pattern.
+  scope_.in_pattern = false;
+  bf_atom.max_depth_->Accept(*this);
+  VisitWithIdentifiers(
+      *bf_atom.filter_expression_,
+      {bf_atom.traversed_edge_identifier_, bf_atom.next_node_identifier_});
+  scope_.in_pattern = true;
+  // XXX: Make BFS symbol be EdgeList.
+  bf_atom.has_range_ = true;
+  scope_.in_pattern_identifier = true;
+  bf_atom.identifier_->Accept(*this);
+  scope_.in_pattern_identifier = false;
+  bf_atom.has_range_ = false;
+  return false;
+}
+
+bool SymbolGenerator::PostVisit(BreadthFirstAtom &bf_atom) {
+  scope_.visiting_edge = nullptr;
   return true;
 }
 

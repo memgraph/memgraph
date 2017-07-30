@@ -53,6 +53,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(NodeAtom &) override;
   bool PreVisit(EdgeAtom &) override;
   bool PostVisit(EdgeAtom &) override;
+  bool PreVisit(BreadthFirstAtom &) override;
+  bool PostVisit(BreadthFirstAtom &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of
@@ -107,6 +109,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
                          Symbol::Type type = Symbol::Type::Any);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
+
+  void VisitWithIdentifiers(Tree &, const std::vector<Identifier *> &);
 
   SymbolTable &symbol_table_;
   Scope scope_;
