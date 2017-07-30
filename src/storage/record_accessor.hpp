@@ -1,6 +1,7 @@
 #pragma once
 
 #include "database/graph_db.hpp"
+#include "utils/total_ordering.hpp"
 //#include "database/graph_db_accessor.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
@@ -19,7 +20,7 @@ class GraphDbAccessor;
  * @tparam TRecord Type of record (MVCC Version) of the accessor.
  */
 template <typename TRecord>
-class RecordAccessor {
+class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
  public:
   /**
    * The GraphDbAccessor is friend to this accessor so it can
@@ -87,25 +88,16 @@ class RecordAccessor {
    * This should be used with care as it's comparing vlist_ pointer records and
    * not actual values inside RecordAccessors.
    */
-  friend bool operator<(const RecordAccessor &a, const RecordAccessor &b) {
-    debug_assert(a.db_accessor_ == b.db_accessor_,
-                 "Not in the same transaction.");  // assume the same
-                                                   // db_accessor / transaction
-    return a.vlist_ < b.vlist_;
+  bool operator<(const RecordAccessor &other) const {
+    debug_assert(db_accessor_ == other.db_accessor_,
+                 "Not in the same transaction.");
+    return vlist_ < other.vlist_;
   }
 
-  friend bool operator==(const RecordAccessor &a, const RecordAccessor &b) {
-    debug_assert(a.db_accessor_ == b.db_accessor_,
-                 "Not in the same transaction.");  // assume the same
-                                                   // db_accessor / transaction
-    return a.vlist_ == b.vlist_;
-  }
-
-  friend bool operator!=(const RecordAccessor &a, const RecordAccessor &b) {
-    debug_assert(a.db_accessor_ == b.db_accessor_,
-                 "Not in the same transaction.");  // assume the same
-                                                   // db_accessor / transaction
-    return !(a == b);
+  bool operator==(const RecordAccessor &other) const {
+    debug_assert(db_accessor_ == other.db_accessor_,
+                 "Not in the same transaction.");
+    return vlist_ == other.vlist_;
   }
 
   /**
