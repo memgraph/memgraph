@@ -5,8 +5,20 @@ cd "$DIR/../../"
 
 errfile="$DIR/.cppcheck_errors"
 
-files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '.(hpp|h|cpp)$' )
-cppcheck --enable=all --force --suppress=missingInclude -Isrc $files 2>"$errfile"
+if [ "$1" == "" ]; then
+    mode=diff
+else
+    mode=$1
+fi
+
+if [ "$mode" == diff ]; then
+    files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '.(hpp|h|cpp)$' )
+    flags=""
+else
+    files=src/
+    flags="-j$THREADS"
+fi
+cppcheck --enable=all --force --suppress=missingInclude $flags -Isrc $files 2>"$errfile"
 
 cat "$errfile" >&2
 

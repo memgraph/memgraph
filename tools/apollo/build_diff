@@ -3,7 +3,7 @@
 # From the manpage: "If the  -j  option is given without an argument, make will not limit the number of jobs that can run simultaneously."
 # That means that the whole build will be started simultaneously and IT WILL CRASH YOUR COMPUTER!
 
-cd ..
+cd ../..
 
 TIMEOUT=600 ./init
 bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
@@ -19,6 +19,6 @@ cd build_release
 cmake -DCMAKE_BUILD_TYPE=release ..
 TIMEOUT=1000 make -j$THREADS memgraph_link_target
 
-cd ../tools
+cd ../tools/apollo
 
-./apollo_generate
+./generate diff
