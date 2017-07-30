@@ -218,7 +218,7 @@ class _QuerySuite:
 
         # warmup phase
         for _ in range(min(scenario_config.get("iterations", 1),
-                           scenario_config.get("warmup", 3))):
+                           scenario_config.get("warmup", 2))):
             execute("itersetup")
             execute("run", scenario_config.get("num_client_workers", 1))
             execute("iterteardown")
@@ -238,13 +238,12 @@ class _QuerySuite:
                                  scenario_config.get("num_client_workers", 1))
             add_measurement(run_result, iteration, WALL_TIME)
             add_measurement(run_result, iteration, CPU_TIME)
-            if len(run_result.get("metadatas", [])) == 1:
-                add_measurement(run_result["metadatas"][0], iteration,
-                                "query_parsing_time")
-                add_measurement(run_result["metadatas"][0], iteration,
-                                "query_plan_execution_time")
-                add_measurement(run_result["metadatas"][0], iteration,
-                                "query_planning_time")
+            for measurement in ["query_parsing_time",
+                                "query_plan_execution_time",
+                                "query_planning_time"] :
+                for i in range(len(run_result.get("metadatas", []))):
+                    add_measurement(run_result["metadatas"][i], iteration,
+                                    measurement)
             execute("iterteardown")
 
         if self.perf:

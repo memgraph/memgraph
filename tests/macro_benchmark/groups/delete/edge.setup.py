@@ -1,3 +1,4 @@
-from setup import create_vertices
+from common import create_vertices
 
-create_vertices(500)
+print("CREATE INDEX ON :Label(id);")
+create_vertices(1000)

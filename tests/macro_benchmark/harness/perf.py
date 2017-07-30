@@ -28,5 +28,5 @@ class Perf():
 
 
     def stop(self):
-        self.perf_proc.send_signal(signal.SIGUSR1)
+        self.perf_proc.send_signal(signal.SIGINT)
         self.perf_proc.wait()

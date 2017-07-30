@@ -19,7 +19,7 @@ def create_edges(edge_count, vertex_count):
     matches = []
     merges = []
     for edge in range(edge_count):
-        matches.append("MATCH (a%d {id: %d}), (b%d {id: %d})" %
+        matches.append("MATCH (a%d :Label {id: %d}), (b%d :Label {id: %d})" %
             (edge, randint(0, vertex_count - 1),
              edge, randint(0, vertex_count - 1)))
         merges.append("CREATE (a%d)-[:Type]->(b%d)" % (edge, edge))
@@ -29,7 +29,3 @@ def create_edges(edge_count, vertex_count):
             print(";")
             matches = []
             merges = []
-
-
-if __name__ == '__main__':
-    raise Exception("This file is just for utilities, not for actual setup")
