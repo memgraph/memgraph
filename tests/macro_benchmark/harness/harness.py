@@ -23,6 +23,7 @@ except:
 
 DIR_PATH = path.dirname(path.realpath(__file__))
 WALL_TIME = "wall_time"
+CPU_TIME = "cpu_time"
 from perf import Perf
 
 log = logging.getLogger(__name__)
@@ -38,9 +39,11 @@ class _QuerySuite:
     # what the QuerySuite can work with
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
                   "teardown", "common"}
-    summary = "Macro benchmark summary:\n{:>30}{:>30}{:>30}{:>30}{:>30}\n".format(
-            "scenario_name", "query_parsing_time", "query_planning_time",
-            "query_plan_execution_time", WALL_TIME)
+    summary = "Macro benchmark summary:\n" \
+              "{:>27}{:>27}{:>27}{:>27}{:>27}{:>27}\n".format(
+                      "scenario_name", "query_parsing_time",
+                      "query_planning_time", "query_plan_execution_time",
+                      WALL_TIME, CPU_TIME)
 
     def __init__(self, args):
         if not APOLLO:
@@ -231,10 +234,10 @@ class _QuerySuite:
             # have to start and stop the client for each iteration, it would
             # most likely run faster
             execute("itersetup")
-            # TODO measure CPU time (expose it from the runner)
             run_result = execute("run",
                                  scenario_config.get("num_client_workers", 1))
             add_measurement(run_result, iteration, WALL_TIME)
+            add_measurement(run_result, iteration, CPU_TIME)
             if len(run_result.get("metadatas", [])) == 1:
                 add_measurement(run_result["metadatas"][0], iteration,
                                 "query_parsing_time")
@@ -256,14 +259,14 @@ class _QuerySuite:
 
     def append_scenario_summary(self, scenario_name, measurement_sums,
                                 num_iterations):
-        self.summary += "{:>30}".format(scenario_name)
+        self.summary += "{:>27}".format(scenario_name)
         for key in ("query_parsing_time", "query_planning_time",
-                    "query_plan_execution_time", WALL_TIME):
+                    "query_plan_execution_time", WALL_TIME, CPU_TIME):
             if key not in measurement_sums:
                 time = "-"
             else:
                 time = "{:.10f}".format(measurement_sums[key] / num_iterations)
-            self.summary += "{:>30}".format(time)
+            self.summary += "{:>27}".format(time)
         self.summary += "\n"
 
     def runners(self):
@@ -344,9 +347,11 @@ class _BaseRunner:
             os.remove(queries_path)
             raise Exception("Writing queries to temporary file failed")
 
+        cpu_time_start = self.database_bin.get_usage()["cpu"]
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
             client, client_args, timeout=600, stdin=queries_path)
+        cpu_time_end = self.database_bin.get_usage()["cpu"]
         os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
@@ -356,7 +361,9 @@ class _BaseRunner:
                            str(queries), return_code, stderr)
             raise Exception("BoltClient execution failed")
         with open(output) as f:
-            return json.loads(f.read())
+            data = json.loads(f.read())
+            data[CPU_TIME] = cpu_time_end - cpu_time_start
+            return data
 
     def stop(self):
         self.log.info("stop")
