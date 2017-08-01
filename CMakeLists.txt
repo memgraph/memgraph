@@ -219,7 +219,7 @@ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # needed to include configured files (plan_compiler_flags.hpp)
 set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)
 include_directories(${generated_headers_dir})
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs/glog/include)
+include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -301,7 +301,7 @@ set(memgraph_src_files
 
 # memgraph_lib and memgraph_pic depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt
-    antlr_opencypher_parser_lib dl ${CMAKE_SOURCE_DIR}/libs/glog/lib/libglog.a gflags)
+    antlr_opencypher_parser_lib dl ${GLOG_LIBRARY} gflags)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
@@ -329,7 +329,7 @@ add_subdirectory(tests)
 # -----------------------------------------------------------------------------
 
 add_custom_target(recursive_include_plan_template
-    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include ${libs_dir}/glog/include --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
+    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include ${GLOG_INCLUDE_DIR} --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
     DEPENDS ${src_dir}/query/plan_template_cpp
     SOURCES ${src_dir}/query/plan_template_cpp
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake

@@ -33,11 +33,16 @@ set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_SAVED})
 # doesn't detect gflags if we do `add_subdirectory`.
 include(ExternalProject)
 ExternalProject_Add(glog DEPENDS gflags
-  PREFIX ${CMAKE_SOURCE_DIR}/libs/glog
-  SOURCE_DIR ${CMAKE_SOURCE_DIR}/libs/glog
+  PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/glog
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glog
   CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
-             -DCMAKE_INSTALL_PREFIX=${CMAKE_SOURCE_DIR}/libs/glog
+             -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/glog
              -Dgflags_DIR=${CMAKE_CURRENT_BINARY_DIR}/gflags)
+set(GLOG_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/glog/lib/libglog.a CACHE FILEPATH
+    "Path to glog library" FORCE)
+set(GLOG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glog/include CACHE PATH
+    "Path to glog include directory" FORCE)
+mark_as_advanced(GLOG_LIBRARY GLOG_INCLUDE_DIR)
 
 # setup cppitertools
 # CLion compatiblity; the target won't be built
