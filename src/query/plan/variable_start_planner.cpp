@@ -123,8 +123,13 @@ std::vector<Expansion> ExpansionsFrom(
     auto next_it = NextExpansion(symbol_table, expanded_symbols,
                                  all_expansion_symbols, original_expansions);
     if (next_it == original_expansions.end()) {
-      // Pick a new starting expansion, since we cannot continue the chain.
-      next_it = original_expansions.begin();
+      // We could pick a new starting expansion, but to avoid runtime
+      // complexity, simply append the remaining expansions and return them.
+      // They should have a correct order, since the original expansions were
+      // verified during semantic analysis.
+      expansions.insert(expansions.end(), original_expansions.begin(),
+                        original_expansions.end());
+      return expansions;
     }
     expanded_symbols.insert(symbol_table.at(*next_it->node1->identifier_));
     if (next_it->node2) {
@@ -156,20 +161,92 @@ auto ExpansionNodes(const std::vector<Expansion> &expansions,
 
 // Generates n matchings, where n is the number of nodes to match. Each Matching
 // will have a different node as a starting node for expansion.
-std::vector<Matching> VaryMatchingStart(const Matching &matching,
-                                        const SymbolTable &symbol_table) {
-  if (matching.expansions.empty()) {
-    return std::vector<Matching>{matching};
-  }
-  const auto start_nodes = ExpansionNodes(matching.expansions, symbol_table);
-  std::vector<Matching> permutations;
-  for (const auto &start_node : start_nodes) {
-    permutations.emplace_back(
-        Matching{ExpansionsFrom(start_node, matching.expansions, symbol_table),
-                 matching.edge_symbols, matching.filters});
-  }
-  return permutations;
-}
+class VaryMatchingStart {
+ public:
+  VaryMatchingStart(const Matching &matching, const SymbolTable &symbol_table)
+      : matching_(matching),
+        symbol_table_(symbol_table),
+        nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
+
+  class iterator {
+   public:
+    typedef std::input_iterator_tag iterator_category;
+    typedef Matching value_type;
+    typedef long difference_type;
+    typedef const Matching &reference;
+    typedef const Matching *pointer;
+
+    iterator(VaryMatchingStart &self, bool is_done)
+        : self_(self),
+          // Use the original matching as the first matching, for the case when
+          // there are no nodes.
+          current_matching_(self.matching_) {
+      if (!self_.nodes_.empty()) {
+        // Overwrite the original matching with the new one by generating it
+        // from the first start node.
+        start_nodes_it_ = self_.nodes_.begin();
+        current_matching_ = Matching{
+            ExpansionsFrom(**start_nodes_it_, self_.matching_.expansions,
+                           self_.symbol_table_),
+            self_.matching_.edge_symbols, self_.matching_.filters};
+      }
+      debug_assert(
+          start_nodes_it_ || self_.nodes_.empty(),
+          "start_nodes_it_ should only be nullopt when self_.nodes_ is empty");
+      if (is_done) {
+        start_nodes_it_ = self.nodes_.end();
+      }
+    }
+
+    iterator &operator++() {
+      if (!start_nodes_it_) {
+        debug_assert(self_.nodes_.empty(),
+                     "start_nodes_it_ should only be nullopt when self_.nodes_ "
+                     "is empty");
+        start_nodes_it_ = self_.nodes_.end();
+      }
+      if (*start_nodes_it_ == self_.nodes_.end()) {
+        return *this;
+      }
+      const auto &start_node = *(*start_nodes_it_)++;
+      current_matching_ =
+          Matching{ExpansionsFrom(start_node, self_.matching_.expansions,
+                                  self_.symbol_table_),
+                   self_.matching_.edge_symbols, self_.matching_.filters};
+      return *this;
+    }
+
+    bool operator==(const iterator &other) const {
+      return &self_ == &other.self_ && start_nodes_it_ == other.start_nodes_it_;
+    }
+
+    bool operator!=(const iterator &other) const { return !(*this == other); }
+
+    reference operator*() const { return current_matching_; }
+    pointer operator->() const { return &current_matching_; }
+
+   private:
+    VaryMatchingStart &self_;
+    Matching current_matching_;
+    // Iterator over start nodes. Optional is used for differentiating the case
+    // when there are no start nodes vs. VaryMatchingStart::iterator itself
+    // being at the end. When there are no nodes, this iterator needs to produce
+    // a single result, which is the original matching passed in. Setting
+    // start_nodes_it_ to end signifies the end of our iteration.
+    std::experimental::optional<std::unordered_set<NodeAtom *, NodeSymbolHash,
+                                                   NodeSymbolEqual>::iterator>
+        start_nodes_it_;
+  };
+
+  auto begin() { return iterator(*this, false); }
+  auto end() { return iterator(*this, true); }
+
+ private:
+  friend class iterator;
+  const Matching &matching_;
+  const SymbolTable &symbol_table_;
+  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes_;
+};
 
 // Produces a Cartesian product among vectors between begin and end iterator.
 // For example:
@@ -301,7 +378,10 @@ auto VaryMultiMatchingStarts(const std::vector<Matching> &matchings,
                              const SymbolTable &symbol_table) {
   std::vector<std::vector<Matching>> variants;
   for (const auto &matching : matchings) {
-    variants.emplace_back(VaryMatchingStart(matching, symbol_table));
+    auto variant = iter::slice(VaryMatchingStart(matching, symbol_table), 0UL,
+                               FLAGS_query_max_plans);
+    variants.emplace_back(
+        std::vector<Matching>(variant.begin(), variant.end()));
   }
   return iter::slice(CartesianProduct<Matching>(std::move(variants)), 0UL,
                      FLAGS_query_max_plans);
