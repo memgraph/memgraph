@@ -1,0 +1,8 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+for i in {1..100}; do
+    ../../build/tests/manual/antlr_sigsegv || exit 1
+done
