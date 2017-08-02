@@ -21,6 +21,10 @@ import common
 
 log = logging.getLogger(__name__)
 
+# the label in the database that is indexed
+# used for matching vertices faster
+INDEXED_LABEL = "indexed_label"
+
 
 def rint(upper_exclusive):
     return random.randint(0, upper_exclusive - 1)
@@ -213,14 +217,14 @@ class GraphSession():
 
     def create_vertex(self):
         vertex_id = random_id()
-        self.execute("CREATE ({id: %r})" % vertex_id)
+        self.execute("CREATE (:%s {id: %r})" % (INDEXED_LABEL, vertex_id))
         self.v.append(vertex_id)
 
     def remove_vertex(self):
         vertex_id = self.v.random()
         result = self.execute(
-            "MATCH (n {id: %r}) OPTIONAL MATCH (n)-[r]-() "
-            "DETACH DELETE n RETURN n.id, labels(n), r.id" % vertex_id)
+            "MATCH (n:%s {id: %r}) OPTIONAL MATCH (n)-[r]-() "
+            "DETACH DELETE n RETURN n.id, labels(n), r.id" % (INDEXED_LABEL, vertex_id))
         if result:
             process_vertex_ids = set()
             for row in result:
@@ -230,7 +234,8 @@ class GraphSession():
                     process_vertex_ids.add(vertex_id)
                     self.v.remove(vertex_id)
                     for label in row['labels(n)']:
-                        self.graph.labels[label].remove(vertex_id)
+                        if (label != INDEXED_LABEL):
+                            self.graph.labels[label].remove(vertex_id)
                 # remove edge
                 edge_id = row['r.id']
                 if edge_id:
@@ -239,9 +244,9 @@ class GraphSession():
     def create_edge(self):
         eid = random_id()
         creation = self.execute(
-            "MATCH (from {id: %r}), (to {id: %r}) "
+            "MATCH (from:%s {id: %r}), (to:%s {id: %r}) "
             "CREATE (from)-[e:EdgeType {id: %r}]->(to) RETURN e" % (
-                self.v.random(), self.v.random(), eid))
+                INDEXED_LABEL, self.v.random(), INDEXED_LABEL, self.v.random(), eid))
         if creation:
             self.e.append(eid)
 
@@ -363,6 +368,7 @@ def main():
 
     # cleanup
     driver.session().run("MATCH (n) DETACH DELETE n").consume()
+    driver.session().run("CREATE INDEX ON :%s(id)" % INDEXED_LABEL).consume()
 
     if args.verify > 0:
         log.info("Creating veification session")
