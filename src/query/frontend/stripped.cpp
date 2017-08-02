@@ -76,7 +76,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // Convert tokens to strings, perform lowercasing and filtering, store
   // literals and nonaliased named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
-    const auto &token = tokens[i];
+    auto &token = tokens[i];
     // Position is calculated in query after stripping and whitespace
     // normalisation, not before. There will be twice as much tokens before
     // this one because space tokens will be inserted between every one we also
@@ -87,7 +87,8 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       case Token::UNMATCHED:
         debug_assert(false, "Shouldn't happen");
       case Token::KEYWORD: {
-        auto s = utils::ToLowerCase(token.second);
+        token.second = utils::ToLowerCase(token.second);
+        const auto &s = token.second;
         // We don't strip NULL, since it can appear in special expressions
         // like IS NULL and IS NOT NULL, but we strip true and false keywords.
         if (s == "true") {
@@ -134,7 +135,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // Store nonaliased named expressions in returns in named_exprs_.
   auto it = std::find_if(tokens.begin(), tokens.end(),
                          [](const std::pair<Token, std::string> &a) {
-                           return utils::ToLowerCase(a.second) == "return";
+                           return a.second == "return";
                          });
   // There is no RETURN so there is nothing to do here.
   if (it == tokens.end()) return;
@@ -146,7 +147,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   while (it != tokens.end() && it->first == Token::SPACE) {
     ++it;
   }
-  if (it != tokens.end() && utils::ToLowerCase(it->second) == "distinct") {
+  if (it != tokens.end() && it->second == "distinct") {
     ++it;
   }
 
@@ -170,11 +171,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     // list literal / function call.
     int num_open_braces = 0;
     int num_open_parantheses = 0;
-    for (; jt != tokens.end() &&
-           (jt->second != "," || num_open_braces || num_open_parantheses) &&
-           utils::ToLowerCase(jt->second) != "order" &&
-           utils::ToLowerCase(jt->second) != "skip" &&
-           utils::ToLowerCase(jt->second) != "limit";
+    for (;
+         jt != tokens.end() &&
+         (jt->second != "," || num_open_braces || num_open_parantheses) &&
+         jt->second != "order" && jt->second != "skip" && jt->second != "limit";
          ++jt) {
       if (jt->second == "(") {
         ++num_open_parantheses;
@@ -185,7 +185,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       } else if (jt->second == "]") {
         --num_open_braces;
       }
-      has_as |= utils::ToLowerCase(jt->second) == "as";
+      has_as |= jt->second == "as";
       if (jt->first != Token::SPACE) {
         last_non_space = jt;
       }
@@ -209,7 +209,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   }
 }
 
-std::string StrippedQuery::GetFirstUtf8Symbol(const char *_s) const {
+std::string GetFirstUtf8Symbol(const char *_s) {
   // According to
   // https://stackoverflow.com/questions/16260033/reinterpret-cast-between-char-and-stduint8-t-safe
   // this checks if casting from const char * to uint8_t is undefined behaviour.
@@ -242,6 +242,39 @@ std::string StrippedQuery::GetFirstUtf8Symbol(const char *_s) const {
   throw LexingException("Invalid character");
 }
 
+// Return codepoint of first utf8 symbol and its encoded length.
+std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
+  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+                "This library requires std::uint8_t to be implemented as "
+                "unsigned char.");
+  const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);
+  if ((*s >> 7) == 0x00) return {*s & 0x7f, 1};
+  if ((*s >> 5) == 0x06) {
+    auto *s1 = s + 1;
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    return {((*s & 0x1f) << 6) | (*s1 & 0x3f), 2};
+  }
+  if ((*s >> 4) == 0x0e) {
+    auto *s1 = s + 1;
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    auto *s2 = s + 2;
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    return {((*s & 0x0f) << 12) | ((*s1 & 0x3f) << 6) | (*s2 & 0x3f), 3};
+  }
+  if ((*s >> 3) == 0x1e) {
+    auto *s1 = s + 1;
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    auto *s2 = s + 2;
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    auto *s3 = s + 3;
+    if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character");
+    return {((*s & 0x07) << 18) | ((*s1 & 0x3f) << 12) | ((*s2 & 0x3f) << 6) |
+                (*s3 & 0x3f),
+            4};
+  }
+  throw LexingException("Invalid character");
+}
+
 // From here until end of file there are functions that calculate matches for
 // every possible token. Functions are more or less compatible with Cypher.g4
 // grammar. Unfortunately, they contain a lof of special cases and shouldn't
@@ -257,30 +290,11 @@ std::string StrippedQuery::GetFirstUtf8Symbol(const char *_s) const {
 //    ,  _.'/  `\<-- \<
 //     `^^^`     ^^   ^^
 int StrippedQuery::MatchKeyword(int start) const {
-  int match = 0;
-  for (const auto &s : kKeywords) {
-    int len = s.size();
-    if (len < match) continue;
-    if (start + len > static_cast<int>(original_.size())) continue;
-    int i = 0;
-    while (i < len && s[i] == tolower(original_[start + i])) {
-      ++i;
-    }
-    if (i == len) {
-      match = len;
-    }
-  }
-  return match;
+  return kKeywords.Match<tolower>(original_.c_str() + start);
 }
 
 int StrippedQuery::MatchSpecial(int start) const {
-  int match = 0;
-  for (const auto &s : kSpecialTokens) {
-    if (!original_.compare(start, s.size(), s)) {
-      match = std::max(match, static_cast<int>(s.size()));
-    }
-  }
-  return match;
+  return kSpecialTokens.Match(original_.c_str() + start);
 }
 
 int StrippedQuery::MatchString(int start) const {
@@ -413,13 +427,19 @@ int StrippedQuery::MatchEscapedName(int start) const {
 
 int StrippedQuery::MatchUnescapedName(int start) const {
   auto i = start;
-  auto s = GetFirstUtf8Symbol(original_.data() + i);
-  if (!kUnescapedNameAllowedStarts.count(s)) return 0;
-  i += s.size();
+  auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
+  if (got.first >= lexer_constants::kBitsetSize ||
+      !kUnescapedNameAllowedStarts[got.first]) {
+    return 0;
+  }
+  i += got.second;
   while (i < static_cast<int>(original_.size())) {
-    s = GetFirstUtf8Symbol(original_.data() + i);
-    if (!kUnescapedNameAllowedParts.count(s)) break;
-    i += s.size();
+    got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
+    if (got.first >= lexer_constants::kBitsetSize ||
+        !kUnescapedNameAllowedParts[got.first]) {
+      break;
+    }
+    i += got.second;
   }
   return i - start;
 }
@@ -434,9 +454,9 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   int comment_position = -1;
   while (i < len) {
     if (state == State::OUT) {
-      auto s = GetFirstUtf8Symbol(original_.data() + i);
-      if (kSpaceParts.count(s)) {
-        i += s.size();
+      auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
+      if (got.first < lexer_constants::kBitsetSize && kSpaceParts[got.first]) {
+        i += got.second;
       } else if (i + 1 < len && original_[i] == '/' &&
                  original_[i + 1] == '*') {
         comment_position = i;

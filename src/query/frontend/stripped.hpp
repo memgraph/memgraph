@@ -54,8 +54,6 @@ class StrippedQuery {
   HashType hash() const { return hash_; }
 
  private:
-  std::string GetFirstUtf8Symbol(const char *s) const;
-
   // Return len of matched keyword if something is matched, otherwise 0.
   int MatchKeyword(int start) const;
   int MatchString(int start) const;
