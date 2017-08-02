@@ -25,10 +25,10 @@ def parse_args():
     parser = connection_argument_parser()
 
     # specific
-    parser.add_argument('--no-workers', type=int,
+    parser.add_argument('--thread-count', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of concurrent workers.')
-    parser.add_argument('--no-vertices', type=int, default=100,
+    parser.add_argument('--vertex-count', type=int, default=100,
                         help='Number of created vertices.')
     parser.add_argument('--max-property-value', type=int, default=1000,
                         help='Maximum value of property - 1. A created node '
@@ -51,30 +51,30 @@ def create_worker(worker_id):
 
     :return: tuple (worker_id, create execution time, time unit)
     '''
-    assert args.no_vertices > 0, 'Number of vertices has to be positive int'
+    assert args.vertex_count > 0, 'Number of vertices has to be positive int'
 
     generated_xs = defaultdict(int)
     create_query = ''
     with argument_session(args) as session:
         # create vertices
         start_time = time.time()
-        for i in range(0, args.no_vertices):
+        for i in range(0, args.vertex_count):
             random_number = random.randint(0, args.max_property_value - 1)
             generated_xs[random_number] += 1
             create_query += 'CREATE (:Label_T%s {x: %s}) ' % \
                             (worker_id, random_number)
             # if full back or last item -> execute query
             if (i + 1) % args.create_pack_size == 0 or \
-                    i == args.no_vertices - 1:
+                    i == args.vertex_count - 1:
                 session.run(create_query).consume()
                 create_query = ''
         create_time = time.time()
         # check total count
         result_set = session.run('MATCH (n:Label_T%s) RETURN count(n) AS cnt' %
                                  worker_id).data()[0]
-        assert result_set['cnt'] == args.no_vertices, \
+        assert result_set['cnt'] == args.vertex_count, \
             'Create vertices Expected: %s Created: %s' % \
-            (args.no_vertices, result_set['cnt'])
+            (args.vertex_count, result_set['cnt'])
         # check count per property value
         for i, size in generated_xs.items():
             result_set = session.run('MATCH (n:Label_T%s {x: %s}) '
@@ -94,14 +94,14 @@ def create_handler():
         session.run("MATCH (n) DETACH DELETE n").consume()
 
         # concurrent create execution & tests
-        with multiprocessing.Pool(args.no_workers) as p:
+        with multiprocessing.Pool(args.thread_count) as p:
             for worker_id, create_time, time_unit in \
-                    p.map(create_worker, [i for i in range(args.no_workers)]):
+                    p.map(create_worker, [i for i in range(args.thread_count)]):
                 log.info('Worker ID: %s; Create time: %s%s' %
                          (worker_id, create_time, time_unit))
 
         # check total count
-        expected_total_count = args.no_workers * args.no_vertices
+        expected_total_count = args.thread_count * args.vertex_count
         total_count = session.run(
             'MATCH (n) RETURN count(n) AS cnt').data()[0]['cnt']
         assert total_count == expected_total_count, \

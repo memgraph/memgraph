@@ -91,4 +91,9 @@ cd tests/macro_benchmark
 ./init
 cd ../..
 
+# setup stress dependencies
+cd tests/stress
+./init
+cd ../..
+
 echo "Done installing dependencies for Memgraph"

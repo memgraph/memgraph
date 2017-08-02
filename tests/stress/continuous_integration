@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import argparse
+import json
+import multiprocessing
+import os
+import subprocess
+import sys
+
+# dataset calibrated for running on Apollo (approx. 1 min per test)
+SMALL_DATASET = [
+    {
+        "test": "bipartite.py",
+        "options": ["--u-count", "100", "--v-count", "100"],
+    },
+    {
+        "test": "create_match.py",
+        "options": ["--vertex-count", "40000", "--create-pack-size", "100"],
+    },
+    {
+        "test": "long_running.py",
+        "options": ["--vertex-count", "1000", "--edge-count", "1000", "--max-time", "2"],
+    },
+]
+
+# dataset calibrated for running on daily stress instance
+# bipartite and create_match run for approx. 15min
+# long_running runs for approx. 8h
+LARGE_DATASET = [
+    {
+        "test": "bipartite.py",
+        "options": ["--u-count", "300", "--v-count", "300"],
+    },
+    {
+        "test": "create_match.py",
+        "options": ["--vertex-count", "500000", "--create-pack-size", "500"],
+    },
+    {
+        "test": "long_running.py",
+        "options": ["--vertex-count", "100000", "--edge-count", "100000", "--max-time", "480"],
+    },
+]
+
+# paths
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(BASE_DIR, "build")
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+
+def run_test(args, test, options):
+    print("Running test '{}'".format(test))
+
+    # get number of threads
+    if "THREADS" in os.environ:
+        threads = os.environ["THREADS"]
+    else:
+        threads = multiprocessing.cpu_count()
+
+    # start memgraph
+    cwd = os.path.dirname(args.memgraph)
+    cmd = [args.memgraph, "--num-workers=" + str(threads)]
+    stdout = open("/dev/null", "w") if not args.verbose else None
+    proc_mg = subprocess.Popen(cmd, cwd = cwd, stdout = stdout,
+            env = {"MEMGRAPH_CONFIG": args.config})
+
+    # start test
+    cmd = [args.python, os.path.join(SCRIPT_DIR, test), "--thread-count",
+            str(threads)] + options
+    stderr = open("/dev/null", "w") if not args.verbose else None
+    ret_test = subprocess.run(cmd, cwd = SCRIPT_DIR, stderr = stderr)
+
+    # stop memgraph
+    proc_mg.terminate()
+    ret_mg = proc_mg.wait()
+
+    if ret_mg != 0:
+        raise Exception("Memgraph binary returned non-zero ({})!".format(
+                ret_mg))
+    if ret_test.returncode != 0:
+        raise Exception("Test '{}' binary returned non-zero ({})!".format(
+                test, ret_test.returncode))
+
+
+# parse arguments
+parser = argparse.ArgumentParser(description = "Run stress tests on Memgraph.")
+parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
+        "memgraph"))
+parser.add_argument("--config", default = os.path.join(CONFIG_DIR,
+        "stress.conf"))
+parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
+        "ve3", "bin", "python3"), type = str)
+parser.add_argument("--large-dataset", action = "store_const",
+        const = True, default = False)
+parser.add_argument("--verbose", action = "store_const",
+        const = True, default = False)
+args = parser.parse_args()
+
+# run tests
+dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
+for test in dataset:
+    run_test(args, **test)
+print("Done!")

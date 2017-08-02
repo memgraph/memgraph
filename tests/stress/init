@@ -1,0 +1,11 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+# setup virtual environment
+if [ ! -d "ve3" ]; then
+    virtualenv -p python3 ve3
+    source ve3/bin/activate
+    pip3 install -r requirements.txt
+fi
