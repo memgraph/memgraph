@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <random>
 #include <vector>
 
 #include <glog/logging.h>
@@ -11,10 +12,8 @@
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
-#include "database/dbms.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
-#include "query/engine.hpp"
 
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;
@@ -24,10 +23,11 @@ using socket_t = io::network::Socket;
 
 class TestOutputStream {};
 
+class TestData {};
+
 class TestSession {
  public:
-  TestSession(socket_t &&socket, Dbms &dbms,
-              QueryEngine<TestOutputStream> &query_engine)
+  TestSession(socket_t &&socket, TestData &data)
       : socket_(std::move(socket)) {
     event_.data.ptr = this;
   }
@@ -65,7 +65,7 @@ class TestSession {
 };
 
 using test_server_t =
-    communication::Server<TestSession, TestOutputStream, socket_t>;
+    communication::Server<TestSession, TestOutputStream, socket_t, TestData>;
 
 void server_start(void *serverptr, int num) {
   ((test_server_t *)serverptr)->Start(num);

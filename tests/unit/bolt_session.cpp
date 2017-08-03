@@ -11,15 +11,15 @@ DECLARE_bool(interpret);
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
 #define INIT_VARS                                          \
-  Dbms dbms;                                               \
   TestSocket socket(10);                                   \
-  QueryEngine<ResultStreamT> query_engine;                 \
-  SessionT session(std::move(socket), dbms, query_engine); \
+  SessionDataT session_data;                               \
+  SessionT session(std::move(socket), session_data);       \
   std::vector<uint8_t> &output = session.socket_.output;
 
 using ResultStreamT =
     communication::bolt::ResultStream<communication::bolt::Encoder<
         communication::bolt::ChunkedEncoderBuffer<TestSocket>>>;
+using SessionDataT = communication::bolt::SessionData<ResultStreamT>;
 using SessionT = communication::bolt::Session<TestSocket>;
 using StateT = communication::bolt::State;
 

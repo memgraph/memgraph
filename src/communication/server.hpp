@@ -9,9 +9,6 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include "database/dbms.hpp"
-#include "query/engine.hpp"
-
 #include "communication/worker.hpp"
 #include "io/network/event_listener.hpp"
 #include "utils/assert.hpp"
@@ -36,17 +33,17 @@ namespace communication {
  * @tparam OutputStream the server has to get the output stream as a template
            parameter because the output stream is templated
  * @tparam Socket the input/output socket that should be used
+ * @tparam SessionData the class with objects that will be forwarded to the session
  */
-template <typename Session, typename OutputStream, typename Socket>
+template <typename Session, typename OutputStream, typename Socket, typename SessionData>
 class Server
-    : public io::network::EventListener<Server<Session, OutputStream, Socket>> {
+    : public io::network::EventListener<Server<Session, OutputStream, Socket, SessionData>> {
   using Event = io::network::Epoll::Event;
 
  public:
-  Server(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
+  Server(Socket &&socket, SessionData &session_data)
       : socket_(std::forward<Socket>(socket)),
-        dbms_(dbms),
-        query_engine_(query_engine) {
+        session_data_(session_data) {
     event_.data.fd = socket_;
 
     // TODO: EPOLLET is hard to use -> figure out how should EPOLLET be used
@@ -61,8 +58,8 @@ class Server
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
-          std::make_unique<Worker<Session, OutputStream, Socket>>(
-              dbms_, query_engine_));
+          std::make_unique<Worker<Session, OutputStream, Socket, SessionData>>(
+              session_data_));
       workers_.back()->Start(alive_);
     }
     std::cout << "Server is fully armed and operational" << std::endl;
@@ -113,14 +110,13 @@ class Server
   void OnErrorEvent(Event &event) { close(event.data.fd); }
 
  private:
-  std::vector<typename Worker<Session, OutputStream, Socket>::uptr> workers_;
+  std::vector<typename Worker<Session, OutputStream, Socket, SessionData>::uptr> workers_;
   std::atomic<bool> alive_{true};
   int idx_{0};
 
   Socket socket_;
-  Dbms &dbms_;
-  QueryEngine<OutputStream> &query_engine_;
   Event event_;
+  SessionData &session_data_;
 };
 
 }  // namespace communication

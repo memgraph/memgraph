@@ -2,6 +2,7 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/encoder/encoder.hpp"
+#include "database/dbms.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"

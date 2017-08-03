@@ -24,6 +24,21 @@
 namespace communication::bolt {
 
 /**
+ * Bolt SessionData
+ *
+ * This class is responsible for holding references to Dbms and QueryEngine
+ * that are passed through the network server and worker to the session.
+ *
+ * @tparam OutputStream type of output stream (could be a bolt output stream or
+ *                      a test output stream)
+ */
+template <typename OutputStream>
+struct SessionData {
+  Dbms dbms;
+  QueryEngine<OutputStream> query_engine;
+};
+
+/**
  * Bolt Session
  *
  * This class is responsible for handling a single client connection.
@@ -37,8 +52,8 @@ class Session {
   using StreamBuffer = io::network::StreamBuffer;
 
  public:
-  Session(Socket &&socket, Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : socket_(std::move(socket)), dbms_(dbms), query_engine_(query_engine) {
+  Session(Socket &&socket, SessionData<OutputStream> &data)
+      : socket_(std::move(socket)), dbms_(data.dbms), query_engine_(data.query_engine) {
     event_.data.ptr = this;
   }
 

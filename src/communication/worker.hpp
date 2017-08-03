@@ -9,10 +9,6 @@
 
 #include <glog/logging.h>
 
-#include "database/dbms.hpp"
-#include "query/engine.hpp"
-
-#include "communication/bolt/v1/session.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/stream_reader.hpp"
 
@@ -33,19 +29,19 @@ namespace communication {
  * @tparam OutputStream the worker has to get the output stream as a template
            parameter because the output stream is templated
  * @tparam Socket the input/output socket that should be used
+ * @tparam SessionData the class with objects that will be forwarded to the session
  */
-template <typename Session, typename OutputStream, typename Socket>
+template <typename Session, typename OutputStream, typename Socket, typename SessionData>
 class Worker
 
-    : public io::network::StreamReader<Worker<Session, OutputStream, Socket>,
+    : public io::network::StreamReader<Worker<Session, OutputStream, Socket, SessionData>,
                                        Session> {
   using StreamBuffer = io::network::StreamBuffer;
 
  public:
-  using uptr = std::unique_ptr<Worker<Session, OutputStream, Socket>>;
+  using uptr = std::unique_ptr<Worker<Session, OutputStream, Socket, SessionData>>;
 
-  Worker(Dbms &dbms, QueryEngine<OutputStream> &query_engine)
-      : dbms_(dbms), query_engine_(query_engine) {}
+  Worker(SessionData &session_data) : session_data_(session_data) {}
 
   Session &OnConnect(Socket &&socket) {
     DLOG(INFO) << "Accepting connection on socket " << socket.id();
@@ -53,7 +49,7 @@ class Worker
     // TODO fix session lifecycle handling
     // dangling pointers are not cool :)
     // TODO attach currently active Db
-    return *(new Session(std::forward<Socket>(socket), dbms_, query_engine_));
+    return *(new Session(std::forward<Socket>(socket), session_data_));
   }
 
   void OnError(Session &session) {
@@ -101,7 +97,6 @@ class Worker
   }
 
  private:
-  Dbms &dbms_;
-  QueryEngine<OutputStream> &query_engine_;
+  SessionData &session_data_;
 };
 }

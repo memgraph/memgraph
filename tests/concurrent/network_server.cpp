@@ -26,9 +26,8 @@ TEST(Network, Server) {
   printf("ADDRESS: %s, PORT: %d\n", ep.address(), ep.port());
 
   // initialize server
-  Dbms dbms;
-  QueryEngine<TestOutputStream> query_engine;
-  test_server_t server(std::move(socket), dbms, query_engine);
+  TestData session_data;
+  test_server_t server(std::move(socket), session_data);
   serverptr = &server;
 
   // start server

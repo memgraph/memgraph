@@ -4,9 +4,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/dbms.hpp"
-#include "query/engine.hpp"
-
 #include "communication/bolt/v1/session.hpp"
 #include "communication/server.hpp"
 
@@ -26,8 +23,9 @@ using session_t = communication::bolt::Session<socket_t>;
 using result_stream_t =
     communication::bolt::ResultStream<communication::bolt::Encoder<
         communication::bolt::ChunkedEncoderBuffer<socket_t>>>;
+using session_data_t = communication::bolt::SessionData<result_stream_t>;
 using bolt_server_t =
-    communication::Server<session_t, result_stream_t, socket_t>;
+    communication::Server<session_t, result_stream_t, socket_t, session_data_t>;
 
 DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
 DEFINE_string(port, "7687", "Default port on which to listen.");
@@ -123,11 +121,11 @@ int main(int argc, char **argv) {
     LOG(FATAL) << "Cannot listen on socket!";
   }
 
-  Dbms dbms;
-  QueryEngine<result_stream_t> query_engine;
+  // Initialize bolt session data (Dbms and QueryEngine).
+  session_data_t session_data;
 
   // Initialize server.
-  bolt_server_t server(std::move(socket), dbms, query_engine);
+  bolt_server_t server(std::move(socket), session_data);
 
   // register SIGTERM handler
   SignalHandler::register_handler(Signal::Terminate,

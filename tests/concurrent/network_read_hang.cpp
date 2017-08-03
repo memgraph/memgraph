@@ -15,10 +15,8 @@
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
-#include "database/dbms.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
-#include "query/engine.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
 
@@ -27,10 +25,11 @@ using socket_t = io::network::Socket;
 
 class TestOutputStream {};
 
+class TestData {};
+
 class TestSession {
  public:
-  TestSession(socket_t &&socket, Dbms &dbms,
-              QueryEngine<TestOutputStream> &query_engine)
+  TestSession(socket_t &&socket, TestData &data)
       : socket_(std::move(socket)) {
     event_.data.ptr = this;
   }
@@ -53,7 +52,7 @@ class TestSession {
 };
 
 using test_server_t =
-    communication::Server<TestSession, TestOutputStream, socket_t>;
+    communication::Server<TestSession, TestOutputStream, socket_t, TestData>;
 
 test_server_t *serverptr;
 std::atomic<bool> run{true};
@@ -90,9 +89,8 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   printf("ADDRESS: %s, PORT: %d\n", ep.address(), ep.port());
 
   // initialize server
-  Dbms dbms;
-  QueryEngine<TestOutputStream> query_engine;
-  test_server_t server(std::move(socket), dbms, query_engine);
+  TestData data;
+  test_server_t server(std::move(socket), data);
   serverptr = &server;
 
   // start server

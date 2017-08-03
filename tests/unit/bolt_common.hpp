@@ -2,11 +2,11 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <random>
 #include <vector>
 
 #include <glog/logging.h>
 
-#include "database/dbms.hpp"
 #include "gtest/gtest.h"
 
 /**
