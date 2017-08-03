@@ -47,8 +47,12 @@ class Interpreter {
         }
 
         // stripped query -> AST
-        frontend::opencypher::Parser parser(query);
-        auto low_level_tree = parser.tree();
+        auto parser = [&] {
+          // Be careful about unlocking since parser can throw.
+          std::unique_lock<SpinLock>(antlr_lock_);
+          return std::make_unique<frontend::opencypher::Parser>(query);
+        }();
+        auto low_level_tree = parser->tree();
 
         // AST -> high level tree
         frontend::CypherMainVisitor visitor(ctx);
@@ -63,8 +67,13 @@ class Interpreter {
       auto it = ast_cache_accessor.find(stripped.hash());
       if (it == ast_cache_accessor.end()) {
         // stripped query -> AST
-        frontend::opencypher::Parser parser(stripped.query());
-        auto low_level_tree = parser.tree();
+        auto parser = [&] {
+          // Be careful about unlocking since parser can throw.
+          std::unique_lock<SpinLock>(antlr_lock_);
+          return std::make_unique<frontend::opencypher::Parser>(
+              stripped.query());
+        }();
+        auto low_level_tree = parser->tree();
 
         // AST -> high level tree
         frontend::CypherMainVisitor visitor(ctx);
@@ -185,6 +194,13 @@ class Interpreter {
 
  private:
   ConcurrentMap<HashType, CachedAst> ast_cache_;
+  // Antlr has singleton instance that is shared between threads. It is
+  // protected by locks inside of antlr. Unfortunately, they are not protected
+  // in a very good way. Once we have antlr version without race conditions we
+  // can remove this lock. This will probably never happen since antlr
+  // developers introduce more bugs in each version. Fortunately, we have cache
+  // so this lock probably won't impact performance much...
+  SpinLock antlr_lock_;
 };
 
 }  // namespace query
