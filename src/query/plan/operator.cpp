@@ -691,6 +691,7 @@ class ExpandVariableCursor : public Cursor {
                                       : std::numeric_limits<int64_t>::max();
 
     if (upper_bound_ > 0) {
+      SwitchAccessor(vertex, self_.graph_view_);
       edges_.emplace_back(ExpandFromVertex(vertex, self_.direction_));
       edges_it_.emplace_back(edges_.back().begin());
     }
@@ -828,6 +829,7 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
+        SwitchAccessor(current_vertex, self_.graph_view_);
         edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_));
         edges_it_.emplace_back(edges_.back().begin());
       }

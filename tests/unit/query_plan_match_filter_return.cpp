@@ -346,7 +346,8 @@ class QueryPlanExpandVariable : public testing::Test {
       int layer, EdgeAtom::Direction direction,
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
-      bool existing_edge, const std::string &node_to) {
+      bool existing_edge, const std::string &node_to,
+      GraphView graph_view = GraphView::AS_IS) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, storage.Create<query::LabelsTest>(
@@ -364,11 +365,11 @@ class QueryPlanExpandVariable : public testing::Test {
       };
       return std::make_shared<ExpandVariable>(
           n_to_sym, edge_sym, direction, convert(lower), convert(upper),
-          filter_op, n_from.sym_, false, existing_edge, GraphView::OLD);
+          filter_op, n_from.sym_, false, existing_edge, graph_view);
     } else
       return std::make_shared<Expand>(n_to_sym, edge_sym, direction, filter_op,
                                       n_from.sym_, false, existing_edge,
-                                      GraphView::OLD);
+                                      graph_view);
   }
 
   /* Creates an edge (in the frame and symbol table). Returns the symbol. */
@@ -548,6 +549,31 @@ TEST_F(QueryPlanExpandVariable, ExistingEdges) {
             (map_int{{1, 4 * 16}, {2, 12 * 16}}));
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, true),
             (map_int{{1, 4}, {2, 12}}));
+}
+
+TEST_F(QueryPlanExpandVariable, GraphState) {
+  auto test_expand = [&](GraphView graph_view) {
+    auto e = Edge("r", EdgeAtom::Direction::OUT);
+    return GetResults(AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
+                                               2, 2, e, false, "m", graph_view), e);
+  };
+
+  EXPECT_EQ(test_expand(GraphView::OLD), (map_int{{2, 8}}));
+
+  // add two vertices branching out from the second layer
+  for (VertexAccessor &vertex : dba->vertices(true))
+    if (vertex.has_label(labels[1])) {
+      auto new_vertex = dba->insert_vertex();
+      dba->insert_edge(vertex, new_vertex, dba->edge_type("some_type"));
+    }
+  ASSERT_EQ(CountIterable(dba->vertices(false)), 6);
+  ASSERT_EQ(CountIterable(dba->vertices(true)), 8);
+
+  EXPECT_EQ(test_expand(GraphView::OLD), (map_int{{2, 8}}));
+  EXPECT_EQ(test_expand(GraphView::NEW), (map_int{{2, 12}}));
+  dba->advance_command();
+  EXPECT_EQ(test_expand(GraphView::OLD), (map_int{{2, 12}}));
+  EXPECT_EQ(test_expand(GraphView::NEW), (map_int{{2, 12}}));
 }
 
 namespace std {
