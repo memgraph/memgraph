@@ -140,6 +140,10 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
    * an integer or double */
   bool IsNumeric() const;
 
+  /** Convenience function for checking if this TypedValue can be converted into
+   * PropertyValue */
+  bool IsPropertyValue() const;
+
   friend std::ostream &operator<<(std::ostream &stream, const TypedValue &prop);
 
  private:

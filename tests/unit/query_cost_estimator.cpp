@@ -24,6 +24,8 @@ class QueryCostEstimator : public ::testing::Test {
  protected:
   Dbms dbms;
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  GraphDbTypes::Label label = dba->label("label");
+  GraphDbTypes::Property property = dba->property("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -33,18 +35,26 @@ class QueryCostEstimator : public ::testing::Test {
   SymbolTable symbol_table_;
   int symbol_count = 0;
 
+  void SetUp() {
+    // create the index in the current db accessor and then swap it to a new one
+    dba->BuildIndex(label, property);
+    auto new_dba = dbms.active();
+    dba.swap(new_dba);
+  }
+
   Symbol NextSymbol() {
     return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++),
                                       true);
   }
 
-  /** Adds the given number of vertices to the DB, which
-   * the given number is labeled with the given label */
-  void AddVertices(int vertex_count, GraphDbTypes::Label label,
-                   int labeled_count) {
+  /** Adds the given number of vertices to the DB, of which
+   * the given numbers are labeled and have a property set. */
+  void AddVertices(int vertex_count, int labeled_count,
+                   int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
       auto vertex = dba->insert_vertex();
       if (i < labeled_count) vertex.add_label(label);
+      if (i < property_count) vertex.PropsSet(property, i);
     }
 
     dba->advance_command();
@@ -60,6 +70,18 @@ class QueryCostEstimator : public ::testing::Test {
   void MakeOp(TArgs... args) {
     last_op_ = std::make_shared<TLogicalOperator>(args...);
   }
+
+  template <typename TValue>
+  Expression *Literal(TValue value) {
+    return storage_.Create<PrimitiveLiteral>(value);
+  }
+
+  auto InclusiveBound(int bound) {
+    return std::experimental::make_optional(
+        utils::MakeBoundInclusive(Literal(bound)));
+  };
+
+  const std::experimental::nullopt_t nullopt = std::experimental::nullopt;
 };
 
 // multiply with 1 to avoid linker error (possibly fixed in CLang >= 3.81)
@@ -68,27 +90,84 @@ class QueryCostEstimator : public ::testing::Test {
 TEST_F(QueryCostEstimator, Once) { EXPECT_COST(0); }
 
 TEST_F(QueryCostEstimator, ScanAll) {
-  AddVertices(100, dba->label("Label"), 30);
+  AddVertices(100, 30, 20);
   MakeOp<ScanAll>(last_op_, NextSymbol());
   EXPECT_COST(100 * CostParam::kScanAll);
 }
 
 TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
-  GraphDbTypes::Label label = dba->label("Label");
-  AddVertices(100, label, 30);
+  AddVertices(100, 30, 20);
   MakeOp<ScanAllByLabel>(last_op_, NextSymbol(), label);
   EXPECT_COST(30 * CostParam::kScanAllByLabel);
 }
 
-TEST_F(QueryCostEstimator, ExpandCardinality) {
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueLiteral) {
+  AddVertices(100, 30, 20);
+  MakeOp<ScanAllByLabelPropertyValue>(last_op_, NextSymbol(), label, property,
+                                      Literal(12));
+  EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueExpr) {
+  AddVertices(100, 30, 20);
+  MakeOp<ScanAllByLabelPropertyValue>(
+      last_op_, NextSymbol(), label, property,
+      // once we make expression const-folding this test case will fail
+      storage_.Create<UnaryPlusOperator>(Literal(12)));
+  EXPECT_COST(20 * CardParam::kFilter *
+              CostParam::MakeScanAllByLabelPropertyValue);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpper) {
+  AddVertices(100, 30, 20);
+  MakeOp<ScanAllByLabelPropertyRange>(last_op_, NextSymbol(), label, property,
+                                      nullopt, InclusiveBound(12));
+  // cardinality estimation is exact for very small indexes
+  EXPECT_COST(13 * CostParam::MakeScanAllByLabelPropertyRange);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLower) {
+  AddVertices(100, 30, 20);
+  MakeOp<ScanAllByLabelPropertyRange>(last_op_, NextSymbol(), label, property,
+                                      InclusiveBound(17), nullopt);
+  // cardinality estimation is exact for very small indexes
+  EXPECT_COST(3 * CostParam::MakeScanAllByLabelPropertyRange);
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeNonLiteral) {
+  AddVertices(100, 30, 20);
+  auto bound = std::experimental::make_optional(
+      utils::MakeBoundInclusive(static_cast<Expression *>(
+          storage_.Create<UnaryPlusOperator>(Literal(12)))));
+  MakeOp<ScanAllByLabelPropertyRange>(last_op_, NextSymbol(), label, property,
+                                      bound, nullopt);
+  EXPECT_COST(20 * CardParam::kFilter *
+              CostParam::MakeScanAllByLabelPropertyRange);
+}
+
+TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, last_op_,
                  NextSymbol(), false, false);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
-// helper for testing an operations cost and cardinality
-// only for operations that first increment cost, then modify cardinality
-// intentially a macro (instead of function) for better test feedback
+TEST_F(QueryCostEstimator, ExpandVariable) {
+  MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
+                         nullptr, nullptr, last_op_, NextSymbol(), false,
+                         false);
+  EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
+}
+
+TEST_F(QueryCostEstimator, ExpandBreadthFirst) {
+  MakeOp<ExpandBreadthFirst>(
+      NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, Literal(3),
+      NextSymbol(), NextSymbol(), Literal(true), last_op_, NextSymbol(), false);
+  EXPECT_COST(CardParam::kExpandBreadthFirst * CostParam::kExpandBreadthFirst);
+}
+
+// Helper for testing an operations cost and cardinality.
+// Only for operations that first increment cost, then modify cardinality.
+// Intentially a macro (instead of function) for better test feedback.
 #define TEST_OP(OP, OP_COST_PARAM, OP_CARD_PARAM) \
   OP;                                             \
   EXPECT_COST(OP_COST_PARAM);                     \
@@ -96,8 +175,8 @@ TEST_F(QueryCostEstimator, ExpandCardinality) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TEST_F(QueryCostEstimator, Filter) {
-  TEST_OP(MakeOp<Filter>(last_op_, storage_.Create<PrimitiveLiteral>(true)),
-          CostParam::kFilter, CardParam::kFilter);
+  TEST_OP(MakeOp<Filter>(last_op_, Literal(true)), CostParam::kFilter,
+          CardParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {

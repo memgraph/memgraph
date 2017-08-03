@@ -265,6 +265,20 @@ bool TypedValue::IsNumeric() const {
   return type() == TypedValue::Type::Int || type() == TypedValue::Type::Double;
 }
 
+bool TypedValue::IsPropertyValue() const {
+  switch (type()) {
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::List:
+      return true;
+    default:
+    return false;
+  }
+}
+
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
   switch (type) {
     case TypedValue::Type::Null:
