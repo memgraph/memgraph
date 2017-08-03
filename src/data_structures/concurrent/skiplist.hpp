@@ -621,7 +621,7 @@ class SkipList : private Lockable<lock_t> {
       // now we need to estimate the count of elements equal to item
       // we'll do that by looking for the first element that is greater
       // than item, and counting how far we have to look
-
+      
       // first find the rightmost (highest) succ that has value == item
       int count_level = 0;
       for (int i = position_level; i >= 0; i--)
@@ -631,6 +631,10 @@ class SkipList : private Lockable<lock_t> {
         }
       count_level = std::min(count_level, count_max_level);
       succ = succs[count_level];
+
+      // it is possible that succ just became null (even though before
+      // it wasn't). that happens when item is lesser then all list elems
+      if (!succ) return std::make_pair(0, 0);
 
       // now expand to the right as long as element value == item
       // at the same time accumulate count

@@ -87,3 +87,24 @@ TEST(SkiplistPosAndCount, DefaultSpeedAndAccuracy) {
   // estimations are always absolutely accurate
   EXPECT_POS_COUNT(5000, 5000, 0, 0, 0);
 }
+
+#define EXPECT_FOR_OUT_OF_RANGE(skiplist_size, value)                   \
+  {                                                                     \
+    auto sl = SkiplistRange(skiplist_size);                             \
+    auto position_and_count = sl->access().position_and_count(value);   \
+    EXPECT_EQ(position_and_count.first, value < 0 ? 0 : skiplist_size); \
+    EXPECT_EQ(position_and_count.second, 0);                            \
+  }
+
+TEST(SkiplistPosAndCount, EdgeValues) {
+  // small list
+  EXPECT_FOR_OUT_OF_RANGE(100, -20);
+  EXPECT_FOR_OUT_OF_RANGE(100, -1);
+  EXPECT_FOR_OUT_OF_RANGE(100, 100);
+  EXPECT_FOR_OUT_OF_RANGE(100, 120);
+  // big list
+  EXPECT_FOR_OUT_OF_RANGE(100000, -20);
+  EXPECT_FOR_OUT_OF_RANGE(100000, -1);
+  EXPECT_FOR_OUT_OF_RANGE(100000, 100000);
+  EXPECT_FOR_OUT_OF_RANGE(100000, 100300);
+}
