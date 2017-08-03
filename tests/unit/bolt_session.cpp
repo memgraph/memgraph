@@ -8,6 +8,7 @@
 
 DECLARE_bool(interpret);
 
+// TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
 #define INIT_VARS                                          \
   Dbms dbms;                                               \
@@ -54,12 +55,33 @@ void WriteChunkHeader(SessionT &session, uint16_t len) {
 // Write bolt chunk tail (two zeros)
 void WriteChunkTail(SessionT &session) { WriteChunkHeader(session, 0); }
 
-// Check that the server responded with a failure message
+// Check that the server responded with a failure message.
 void CheckFailureMessage(std::vector<uint8_t> &output) {
   ASSERT_GE(output.size(), 6);
   // skip the first two bytes because they are the chunk header
   ASSERT_EQ(output[2], 0xB1);  // tiny struct 1
   ASSERT_EQ(output[3], 0x7F);  // signature failure
+  output.clear();
+}
+
+// Check that the server responded with a success message.
+void CheckSuccessMessage(std::vector<uint8_t> &output, bool clear = true) {
+  ASSERT_GE(output.size(), 6);
+  // skip the first two bytes because they are the chunk header
+  ASSERT_EQ(output[2], 0xB1);  // tiny struct 1
+  ASSERT_EQ(output[3], 0x70);  // signature success
+  if (clear) {
+    output.clear();
+  }
+}
+
+// Check that the server responded with a ignore message.
+void CheckIgnoreMessage(std::vector<uint8_t> &output) {
+  ASSERT_GE(output.size(), 6);
+  // skip the first two bytes because they are the chunk header
+  ASSERT_EQ(output[2], 0xB0);
+  ASSERT_EQ(output[3], 0x7E);  // signature ignore
+  output.clear();
 }
 
 // Execute and check a correct handshake
@@ -330,13 +352,11 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
     session.socket_.SetWriteSuccess(i == 0);
     ExecuteCommand(session, pullall_req, sizeof(pullall_req));
 
+    ASSERT_EQ(session.state_, StateT::Close);
+    ASSERT_FALSE(session.socket_.IsOpen());
     if (i == 0) {
-      ASSERT_EQ(session.state_, StateT::ErrorIdle);
-      ASSERT_TRUE(session.socket_.IsOpen());
       CheckFailureMessage(output);
     } else {
-      ASSERT_EQ(session.state_, StateT::Close);
-      ASSERT_FALSE(session.socket_.IsOpen());
       ASSERT_EQ(output.size(), 0);
     }
   }
@@ -440,11 +460,8 @@ TEST(BoltSession, ErrorRunAfterRun) {
   WriteRunRequest(session, "MATCH (n) RETURN n");
   session.Execute();
 
-  // Run after run fails, but we still keep results.
-  // TODO: actually we don't, but we should. Change state to ErrorResult once
-  // that is fixed.
-  ASSERT_EQ(session.state_, StateT::ErrorIdle);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_EQ(session.state_, StateT::Close);
+  ASSERT_FALSE(session.socket_.IsOpen());
 }
 
 TEST(BoltSession, ErrorCantCleanup) {
@@ -591,8 +608,8 @@ TEST(BoltSession, PartialChunk) {
 
   session.Execute();
 
-  ASSERT_EQ(session.state_, StateT::ErrorIdle);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_EQ(session.state_, StateT::Close);
+  ASSERT_FALSE(session.socket_.IsOpen());
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);
 }
@@ -611,6 +628,121 @@ TEST(BoltSession, InvalidChunk) {
   ASSERT_EQ(session.state_, StateT::Close);
   ASSERT_FALSE(session.socket_.IsOpen());
   CheckFailureMessage(output);
+}
+
+TEST(BoltSession, ExplicitTransactionValidQueries) {
+  // It is not really easy to check if we commited or aborted transaction except
+  // by faking GraphDb/TxEngine...
+  std::vector<std::string> transaction_ends = {"COMMIT", "ROLLBACK"};
+
+  for (const auto &transaction_end : transaction_ends) {
+    INIT_VARS;
+
+    ExecuteHandshake(session, output);
+    ExecuteInit(session, output);
+
+    WriteRunRequest(session, "BEGIN");
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Result);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Idle);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    WriteRunRequest(session, "MATCH (n) RETURN n");
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Result);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Idle);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    WriteRunRequest(session, transaction_end.c_str());
+    session.Execute();
+    ASSERT_FALSE(session.db_accessor_);
+    CheckSuccessMessage(output);
+    ASSERT_EQ(session.state_, StateT::Result);
+
+    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Idle);
+    ASSERT_FALSE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    ASSERT_TRUE(session.socket_.IsOpen());
+  }
+}
+
+TEST(BoltSession, ExplicitTransactionInvalidQuery) {
+  std::vector<std::string> transaction_ends = {"COMMIT", "ROLLBACK"};
+
+  for (const auto &transaction_end : transaction_ends) {
+    INIT_VARS;
+
+    ExecuteHandshake(session, output);
+    ExecuteInit(session, output);
+
+    WriteRunRequest(session, "BEGIN");
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Result);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::Idle);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    WriteRunRequest(session, "MATCH (");
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::ErrorWaitForRollback);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckFailureMessage(output);
+
+    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::ErrorWaitForRollback);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckIgnoreMessage(output);
+
+    ExecuteCommand(session, ackfailure_req, sizeof(ackfailure_req));
+    session.Execute();
+    ASSERT_EQ(session.state_, StateT::WaitForRollback);
+    ASSERT_TRUE(session.db_accessor_);
+    CheckSuccessMessage(output);
+
+    WriteRunRequest(session, transaction_end.c_str());
+    session.Execute();
+
+    if (transaction_end == "ROLLBACK") {
+      ASSERT_EQ(session.state_, StateT::Result);
+      ASSERT_FALSE(session.db_accessor_);
+      ASSERT_TRUE(session.socket_.IsOpen());
+      CheckSuccessMessage(output);
+
+      ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+      session.Execute();
+      ASSERT_EQ(session.state_, StateT::Idle);
+      ASSERT_FALSE(session.db_accessor_);
+      ASSERT_TRUE(session.socket_.IsOpen());
+      CheckSuccessMessage(output);
+
+    } else {
+      ASSERT_EQ(session.state_, StateT::Close);
+      ASSERT_FALSE(session.db_accessor_);
+      ASSERT_FALSE(session.socket_.IsOpen());
+      CheckFailureMessage(output);
+    }
+  }
 }
 
 int main(int argc, char **argv) {

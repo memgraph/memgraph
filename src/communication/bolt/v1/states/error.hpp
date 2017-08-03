@@ -27,26 +27,35 @@ State StateErrorRun(Session &session, State state) {
   DLOG(INFO) << fmt::format("Message signature is: 0x{:02X}",
                             underlying_cast(signature));
 
-  // clear the data buffer if it has any leftover data
+  // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();
 
   if (signature == Signature::AckFailure || signature == Signature::Reset) {
-    if (signature == Signature::AckFailure)
+    if (signature == Signature::AckFailure) {
       DLOG(INFO) << "AckFailure received";
-    else
+    } else {
       DLOG(INFO) << "Reset received";
+    }
 
     if (!session.encoder_.MessageSuccess()) {
       DLOG(WARNING) << "Couldn't send success message!";
       return State::Close;
     }
     if (signature == Signature::Reset) {
+      if (session.db_accessor_) {
+        session.Abort();
+      }
       return State::Idle;
     }
+
+    // We got AckFailure get back to right state.
     if (state == State::ErrorIdle) {
       return State::Idle;
+    } else if (state == State::ErrorWaitForRollback) {
+      return State::WaitForRollback;
+    } else {
+      permanent_assert(false, "Shouldn't happen");
     }
-    return State::Result;
   } else {
     uint8_t value = underlying_cast(marker);
 

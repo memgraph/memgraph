@@ -32,6 +32,12 @@ enum class State : uint8_t {
   Result,
 
   /**
+   * There was an acked error in explicitly started transaction, now we are
+   * waiting for "ROLLBACK" in RUN command.
+   */
+  WaitForRollback,
+
+  /**
    * This state handles errors, if client handles error response correctly next
    * state is Idle.
    */
@@ -39,9 +45,9 @@ enum class State : uint8_t {
 
   /**
    * This state handles errors, if client handles error response correctly next
-   * state is Result.
+   * state is WaitForRollback.
    */
-  ErrorResult,
+  ErrorWaitForRollback,
 
   /**
    * This is a 'virtual' state (it doesn't have a run function) which tells

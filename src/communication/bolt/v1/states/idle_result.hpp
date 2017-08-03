@@ -34,41 +34,93 @@ State HandleRun(Session &session, State state, Marker marker) {
     return State::Close;
   }
 
-  auto db_accessor = session.dbms_.active();
-  DLOG(INFO) << fmt::format("[ActiveDB] '{}'", db_accessor->name());
+  if (state == State::WaitForRollback) {
+    if (query.Value<std::string>() == "ROLLBACK") {
+      session.Abort();
+      // One MessageSuccess for RUN command should be flushed.
+      session.encoder_.MessageSuccess();
+      // One for PULL_ALL should be chunked.
+      session.encoder_.MessageSuccess({}, false);
+      return State::Result;
+    }
+    DLOG(WARNING) << "Expected RUN \"ROLLBACK\" not received!";
+    // Client could potentially recover if we move to error state, but we don't
+    // implement rollback of single command in transaction, only rollback of
+    // whole transaction so we can't continue in this transaction if we receive
+    // new RUN command.
+    return State::Close;
+  }
 
   if (state != State::Idle) {
-    // TODO: We shouldn't clear the buffer and move to ErrorIdle state, but send
-    // MessageFailure without sending data that is already in buffer and move to
-    // ErrorResult state.
-    session.encoder_buffer_.Clear();
-
-    // send failure message
-    bool unexpected_run_fail_sent = session.encoder_.MessageFailure(
-        {{"code", "Memgraph.QueryExecutionFail"},
-         {"message", "Unexpected RUN command"}});
-
+    // Client could potentially recover if we move to error state, but there is
+    // no legitimate situation in which well working client would end up in this
+    // situation.
     DLOG(WARNING) << "Unexpected RUN command!";
-    if (!unexpected_run_fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    } else {
-      return State::ErrorIdle;
-    }
+    return State::Close;
   }
 
   debug_assert(!session.encoder_buffer_.HasData(),
                "There should be no data to write in this state");
 
+  DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
+  bool in_explicit_transaction = false;
+  if (session.db_accessor_) {
+    // Transaction already exists.
+    in_explicit_transaction = true;
+  } else {
+    // Create new transaction.
+    session.db_accessor_ = session.dbms_.active();
+  }
+
+  DLOG(INFO) << fmt::format("[ActiveDB] '{}'", session.db_accessor_->name());
+
+  // If there was not explicitly started transaction before maybe we are
+  // starting one now.
+  if (!in_explicit_transaction && query.Value<std::string>() == "BEGIN") {
+    // Check if query string is "BEGIN". If it is then we should start
+    // transaction and wait for in-transaction queries.
+    // TODO: "BEGIN" is not defined by bolt protocol or opencypher so we should
+    // test if all drivers really denote transaction start with "BEGIN" string.
+    // Same goes for "ROLLBACK" and "COMMIT".
+    //
+    // One MessageSuccess for RUN command should be flushed.
+    session.encoder_.MessageSuccess();
+    // One for PULL_ALL should be chunked.
+    session.encoder_.MessageSuccess({}, false);
+    return State::Result;
+  }
+
+  if (in_explicit_transaction) {
+    if (query.Value<std::string>() == "COMMIT") {
+      session.Commit();
+      // One MessageSuccess for RUN command should be flushed.
+      session.encoder_.MessageSuccess();
+      // One for PULL_ALL should be chunked.
+      session.encoder_.MessageSuccess({}, false);
+      return State::Result;
+    } else if (query.Value<std::string>() == "ROLLBACK") {
+      session.Abort();
+      // One MessageSuccess for RUN command should be flushed.
+      session.encoder_.MessageSuccess();
+      // One for PULL_ALL should be chunked.
+      session.encoder_.MessageSuccess({}, false);
+      return State::Result;
+    }
+    session.db_accessor_->advance_command();
+  }
+
   try {
-    DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
     auto is_successfully_executed = session.query_engine_.Run(
-        query.Value<std::string>(), *db_accessor, session.output_stream_,
+        query.Value<std::string>(), *session.db_accessor_,
+        session.output_stream_,
         params.Value<std::map<std::string, query::TypedValue>>());
 
+    // TODO: once we remove compiler from query_engine we can change return type
+    // to void and not do this checks here.
     if (!is_successfully_executed) {
-      // abort transaction
-      db_accessor->abort();
+      if (!in_explicit_transaction) {
+        session.Abort();
+      }
 
       // clear any leftover messages in the buffer
       session.encoder_buffer_.Clear();
@@ -86,26 +138,33 @@ State HandleRun(Session &session, State state, Marker marker) {
       if (!exec_fail_sent) {
         DLOG(WARNING) << "Couldn't send failure message!";
         return State::Close;
-      } else {
-        return State::ErrorIdle;
       }
-    } else {
-      db_accessor->commit();
-      // The query engine has already stored all query data in the buffer.
-      // We should only send the first chunk now which is the success
-      // message which contains header data. The rest of this data (records
-      // and summary) will be sent after a PULL_ALL command from the client.
-      if (!session.encoder_buffer_.FlushFirstChunk()) {
-        DLOG(WARNING) << "Couldn't flush header data from the buffer!";
-        return State::Close;
+      if (in_explicit_transaction) {
+        // TODO: Neo4j only discards changes from last query and can possible
+        // continue. We can't discard changes from one or multiple commands in
+        // same transaction so we need to rollback whole transaction. One day
+        // we should probably support neo4j's way.
+        return State::ErrorWaitForRollback;
       }
-      return State::Result;
+      return State::ErrorIdle;
     }
 
+    if (!in_explicit_transaction) {
+      session.Commit();
+    }
+    // The query engine has already stored all query data in the buffer.
+    // We should only send the first chunk now which is the success
+    // message which contains header data. The rest of this data (records
+    // and summary) will be sent after a PULL_ALL command from the client.
+    if (!session.encoder_buffer_.FlushFirstChunk()) {
+      DLOG(WARNING) << "Couldn't flush header data from the buffer!";
+      return State::Close;
+    }
+    return State::Result;
+    // TODO: Remove duplication in error handling.
   } catch (const utils::BasicException &e) {
     // clear header success message
     session.encoder_buffer_.Clear();
-    db_accessor->abort();
     bool fail_sent = session.encoder_.MessageFailure(
         {{"code", "Memgraph.Exception"}, {"message", e.what()}});
     DLOG(WARNING) << fmt::format("Error message: {}", e.what());
@@ -113,12 +172,14 @@ State HandleRun(Session &session, State state, Marker marker) {
       DLOG(WARNING) << "Couldn't send failure message!";
       return State::Close;
     }
-    return State::ErrorIdle;
-
+    if (!in_explicit_transaction) {
+      session.Abort();
+      return State::ErrorIdle;
+    }
+    return State::ErrorWaitForRollback;
   } catch (const utils::StacktraceException &e) {
     // clear header success message
     session.encoder_buffer_.Clear();
-    db_accessor->abort();
     bool fail_sent = session.encoder_.MessageFailure(
         {{"code", "Memgraph.Exception"}, {"message", e.what()}});
     DLOG(WARNING) << fmt::format("Error message: {}", e.what());
@@ -127,12 +188,14 @@ State HandleRun(Session &session, State state, Marker marker) {
       DLOG(WARNING) << "Couldn't send failure message!";
       return State::Close;
     }
-    return State::ErrorIdle;
-
-  } catch (std::exception &e) {
+    if (!in_explicit_transaction) {
+      session.Abort();
+      return State::ErrorIdle;
+    }
+    return State::ErrorWaitForRollback;
+  } catch (const std::exception &e) {
     // clear header success message
     session.encoder_buffer_.Clear();
-    db_accessor->abort();
     bool fail_sent = session.encoder_.MessageFailure(
         {{"code", "Memgraph.Exception"},
          {"message",
@@ -143,10 +206,15 @@ State HandleRun(Session &session, State state, Marker marker) {
       DLOG(WARNING) << "Couldn't send failure message!";
       return State::Close;
     }
-    return State::ErrorIdle;
+    if (!in_explicit_transaction) {
+      session.Abort();
+      return State::ErrorIdle;
+    }
+    return State::ErrorWaitForRollback;
   }
 }
 
+// TODO: Get rid of duplications in PullAll/DiscardAll functions.
 template <typename Session>
 State HandlePullAll(Session &session, State state, Marker marker) {
   DLOG(INFO) << "[PullAll]";
@@ -156,21 +224,14 @@ State HandlePullAll(Session &session, State state, Marker marker) {
         underlying_cast(marker));
     return State::Close;
   }
+
   if (state != State::Result) {
-    // the buffer doesn't have data, return a failure message
-    bool data_fail_sent = session.encoder_.MessageFailure(
-        {{"code", "Memgraph.Exception"},
-         {"message",
-          "There is no data to "
-          "send, you have to execute a RUN command before a PULL_ALL!"}});
-    if (!data_fail_sent) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::ErrorIdle;
+    DLOG(WARNING) << "Unexpected PULL_ALL!";
+    // Same as `unexpected RUN` case.
+    return State::Close;
   }
-  // flush pending data to the client, the success message is streamed
-  // from the query engine, it contains statistics from the query run
+  // Flush pending data to the client, the success message is streamed
+  // from the query engine, it contains statistics from the query run.
   if (!session.encoder_buffer_.Flush()) {
     DLOG(WARNING) << "Couldn't flush data from the buffer!";
     return State::Close;
@@ -189,19 +250,11 @@ State HandleDiscardAll(Session &session, State state, Marker marker) {
   }
 
   if (state != State::Result) {
-    bool data_fail_discard = session.encoder_.MessageFailure(
-        {{"code", "Memgraph.Exception"},
-         {"message",
-          "There is no data to "
-          "discard, you have to execute a RUN command before a "
-          "DISCARD_ALL!"}});
-    if (!data_fail_discard) {
-      DLOG(WARNING) << "Couldn't send failure message!";
-      return State::Close;
-    }
-    return State::ErrorIdle;
+    DLOG(WARNING) << "Unexpected DISCARD_ALL!";
+    // Same as `unexpected RUN` case.
+    return State::Close;
   }
-  // clear all pending data and send a success message
+  // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message!";
@@ -233,6 +286,9 @@ State HandleReset(Session &session, State, Marker marker) {
     DLOG(WARNING) << "Couldn't send success message!";
     return State::Close;
   }
+  if (session.db_accessor_) {
+    session.Abort();
+  }
   return State::Idle;
 }
 
@@ -243,7 +299,7 @@ State HandleReset(Session &session, State, Marker marker) {
  * @param session the session that should be used for the run
  */
 template <typename Session>
-State StateIdleResultRun(Session &session, State state) {
+State StateExecutingRun(Session &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {

@@ -42,6 +42,11 @@ class Session {
     event_.data.ptr = this;
   }
 
+  ~Session() {
+    debug_assert(!db_accessor_,
+                 "Transaction should have already be closed in Close");
+  }
+
   /**
    * @return is the session in a valid state
    */
@@ -90,10 +95,11 @@ class Session {
           break;
         case State::Idle:
         case State::Result:
-          state_ = StateIdleResultRun(*this, state_);
+        case State::WaitForRollback:
+          state_ = StateExecutingRun(*this, state_);
           break;
         case State::ErrorIdle:
-        case State::ErrorResult:
+        case State::ErrorWaitForRollback:
           state_ = StateErrorRun(*this, state_);
           break;
         case State::Close:
@@ -136,7 +142,28 @@ class Session {
    */
   void Close() {
     DLOG(INFO) << "Closing session";
+    if (db_accessor_) {
+      Abort();
+    }
     this->socket_.Close();
+  }
+
+  /**
+   * Commits associated transaction.
+   */
+  void Commit() {
+    debug_assert(db_accessor_, "Commit called and there is no transaction");
+    db_accessor_->commit();
+    db_accessor_ = nullptr;
+  }
+
+  /**
+   * Aborts associated transaction.
+   */
+  void Abort() {
+    debug_assert(db_accessor_, "Abort called and there is no transaction");
+    db_accessor_->abort();
+    db_accessor_ = nullptr;
   }
 
   GraphDbAccessor ActiveDb() { return dbms_.active(); }
@@ -158,8 +185,9 @@ class Session {
   io::network::Epoll::Event event_;
   bool connected_{false};
   State state_{State::Handshake};
-  // Active transaction of the session, can be null.
-  tx::Transaction *transaction_;
+  // GraphDbAccessor of active transaction in the session, can be null if there
+  // is no associated transaction.
+  std::unique_ptr<GraphDbAccessor> db_accessor_;
 
  private:
   void ClientFailureInvalidData() {
@@ -167,6 +195,7 @@ class Session {
     state_ = State::Close;
     // don't care about the return status because this is always
     // called when we are about to close the connection to the client
+    encoder_buffer_.Clear();
     encoder_.MessageFailure({{"code", "Memgraph.InvalidData"},
                              {"message", "The client has sent invalid data!"}});
     // close the connection
