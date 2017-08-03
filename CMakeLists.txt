@@ -210,6 +210,9 @@ message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 # proof of concept
 option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
+# experimental
+option(EXPERIMENTAL "Build experimental binaries" OFF)
+message(STATUS "POC binaries: ${POC}")
 # tests
 option(HARDCODED_TARGETS "Make hardcoded query targets" ON)
 message(STATUS "Make hardcoded query targets: ${HARDCODED_TARGETS}")
@@ -321,6 +324,11 @@ add_dependencies(memgraph_lib generate_opencypher_parser
 # proof of concepts
 if (POC)
     add_subdirectory(poc)
+endif()
+
+# experimental
+if (EXPERIMENTAL)
+    add_subdirectory(experimental)
 endif()
 # -----------------------------------------------------------------------------
 

@@ -1,0 +1,7 @@
+*.out
+*.pyc
+main
+libs/
+*.cereal
+*.backup
+*.out

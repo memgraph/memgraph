@@ -1,0 +1,3 @@
+#!/bin/bash
+
+g++ -std=c++1y testmain.cpp -o testmain -lpthread

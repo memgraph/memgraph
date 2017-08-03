@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+libs_dir=$working_dir/libs
+if [ ! -d $libs_dir ]; then
+    mkdir $libs_dir
+fi
+
+cd $libs_dir
+git clone https://github.com/USCiLab/cereal.git
+cd $libs_dir/cereal
+git checkout v1.2.2

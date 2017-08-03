@@ -1,0 +1,434 @@
+(*
+ * Copyright (c) 2015-2016 "Neo Technology,"
+ * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *)
+Cypher = [SP], Statement, [[SP], ';'], [SP] ;
+
+Statement = Query ;
+
+Query = RegularQuery ;
+
+RegularQuery = SingleQuery, { [SP], Union } ;
+
+SingleQuery = Clause, { [SP], Clause } ;
+
+Union = ((U,N,I,O,N), SP, (A,L,L), [SP], SingleQuery)
+      | ((U,N,I,O,N), [SP], SingleQuery)
+      ;
+
+Clause = Match
+       | Unwind
+       | Merge
+       | Create
+       | Set
+       | Delete
+       | Remove
+       | With
+       | Return
+       ;
+
+Match = [(O,P,T,I,O,N,A,L), SP], (M,A,T,C,H), [SP], Pattern, [[SP], Where] ;
+
+Unwind = (U,N,W,I,N,D), [SP], Expression, SP, (A,S), SP, Variable ;
+
+Merge = (M,E,R,G,E), [SP], PatternPart, { SP, MergeAction } ;
+
+MergeAction = ((O,N), SP, (M,A,T,C,H), SP, Set)
+            | ((O,N), SP, (C,R,E,A,T,E), SP, Set)
+            ;
+
+Create = (C,R,E,A,T,E), [SP], Pattern ;
+
+Set = (S,E,T), [SP], SetItem, { ',', SetItem } ;
+
+SetItem = (PropertyExpression, [SP], '=', [SP], Expression)
+        | (Variable, [SP], '=', [SP], Expression)
+        | (Variable, [SP], '+=', [SP], Expression)
+        | (Variable, [SP], NodeLabels)
+        ;
+
+Delete = [(D,E,T,A,C,H), SP], (D,E,L,E,T,E), [SP], Expression, { [SP], ',', [SP], Expression } ;
+
+Remove = (R,E,M,O,V,E), SP, RemoveItem, { [SP], ',', [SP], RemoveItem } ;
+
+RemoveItem = (Variable, NodeLabels)
+           | PropertyExpression
+           ;
+
+With = (W,I,T,H), [[SP], (D,I,S,T,I,N,C,T)], SP, ReturnBody, [[SP], Where] ;
+
+Return = (R,E,T,U,R,N), [[SP], (D,I,S,T,I,N,C,T)], SP, ReturnBody ;
+
+ReturnBody = ReturnItems, [SP, Order], [SP, Skip], [SP, Limit] ;
+
+ReturnItems = ('*', { [SP], ',', [SP], ReturnItem })
+            | (ReturnItem, { [SP], ',', [SP], ReturnItem })
+            ;
+
+ReturnItem = (Expression, SP, (A,S), SP, Variable)
+           | Expression
+           ;
+
+Order = (O,R,D,E,R), SP, (B,Y), SP, SortItem, { ',', [SP], SortItem } ;
+
+Skip = (S,K,I,P), SP, Expression ;
+
+Limit = (L,I,M,I,T), SP, Expression ;
+
+SortItem = Expression, [[SP], ((A,S,C,E,N,D,I,N,G) | (A,S,C) | (D,E,S,C,E,N,D,I,N,G) | (D,E,S,C))] ;
+
+Where = (W,H,E,R,E), SP, Expression ;
+
+Pattern = PatternPart, { [SP], ',', [SP], PatternPart } ;
+
+PatternPart = (Variable, [SP], '=', [SP], AnonymousPatternPart)
+            | AnonymousPatternPart
+            ;
+
+AnonymousPatternPart = PatternElement ;
+
+PatternElement = (NodePattern, { [SP], PatternElementChain })
+               | ('(', PatternElement, ')')
+               ;
+
+NodePattern = '(', [SP], [Variable, [SP]], [NodeLabels, [SP]], [Properties, [SP]], ')' ;
+
+PatternElementChain = RelationshipPattern, [SP], NodePattern ;
+
+RelationshipPattern = (LeftArrowHead, [SP], Dash, [SP], [RelationshipDetail], [SP], Dash, [SP], RightArrowHead)
+                    | (LeftArrowHead, [SP], Dash, [SP], [RelationshipDetail], [SP], Dash)
+                    | (Dash, [SP], [RelationshipDetail], [SP], Dash, [SP], RightArrowHead)
+                    | (Dash, [SP], [RelationshipDetail], [SP], Dash)
+                    ;
+
+RelationshipDetail = '[', [SP], [Variable, [SP]], [RelationshipTypes, [SP]], [RangeLiteral], [Properties, [SP]], ']' ;
+
+Properties = MapLiteral
+           | Parameter
+           ;
+
+RelationshipTypes = ':', [SP], RelTypeName, { [SP], '|', [':'], [SP], RelTypeName } ;
+
+NodeLabels = NodeLabel, { [SP], NodeLabel } ;
+
+NodeLabel = ':', [SP], LabelName ;
+
+RangeLiteral = '*', [SP], [IntegerLiteral, [SP]], ['..', [SP], [IntegerLiteral, [SP]]] ;
+
+LabelName = SymbolicName ;
+
+RelTypeName = SymbolicName ;
+
+Expression = Expression12 ;
+
+Expression12 = Expression11, { SP, (O,R), SP, Expression11 } ;
+
+Expression11 = Expression10, { SP, (X,O,R), SP, Expression10 } ;
+
+Expression10 = Expression9, { SP, (A,N,D), SP, Expression9 } ;
+
+Expression9 = { (N,O,T), [SP] }, Expression8 ;
+
+Expression8 = Expression7, { [SP], PartialComparisonExpression } ;
+
+Expression7 = Expression6, { ([SP], '+', [SP], Expression6) | ([SP], '-', [SP], Expression6) } ;
+
+Expression6 = Expression5, { ([SP], '*', [SP], Expression5) | ([SP], '/', [SP], Expression5) | ([SP], '%', [SP], Expression5) } ;
+
+Expression5 = Expression4, { [SP], '^', [SP], Expression4 } ;
+
+Expression4 = { ('+' | '-'), [SP] }, Expression3 ;
+
+Expression3 = Expression2, { ([SP], '[', Expression, ']') | ([SP], '[', [Expression], '..', [Expression], ']') | ((([SP], '=~') | (SP, (I,N)) | (SP, (S,T,A,R,T,S), SP, (W,I,T,H)) | (SP, (E,N,D,S), SP, (W,I,T,H)) | (SP, (C,O,N,T,A,I,N,S))), [SP], Expression2) | (SP, (I,S), SP, (N,U,L,L)) | (SP, (I,S), SP, (N,O,T), SP, (N,U,L,L)) } ;
+
+Expression2 = Atom, { [SP], (PropertyLookup | NodeLabels) } ;
+
+Atom = Literal
+     | Parameter
+     | ((C,O,U,N,T), [SP], '(', [SP], '*', [SP], ')')
+     | ListComprehension
+     | PatternComprehension
+     | ((F,I,L,T,E,R), [SP], '(', [SP], FilterExpression, [SP], ')')
+     | ((E,X,T,R,A,C,T), [SP], '(', [SP], FilterExpression, [SP], [[SP], '|', Expression], ')')
+     | ((A,L,L), [SP], '(', [SP], FilterExpression, [SP], ')')
+     | ((A,N,Y), [SP], '(', [SP], FilterExpression, [SP], ')')
+     | ((N,O,N,E), [SP], '(', [SP], FilterExpression, [SP], ')')
+     | ((S,I,N,G,L,E), [SP], '(', [SP], FilterExpression, [SP], ')')
+     | RelationshipsPattern
+     | ParenthesizedExpression
+     | FunctionInvocation
+     | Variable
+     ;
+
+Literal = NumberLiteral
+        | StringLiteral
+        | BooleanLiteral
+        | (N,U,L,L)
+        | MapLiteral
+        | ListLiteral
+        ;
+
+BooleanLiteral = (T,R,U,E)
+               | (F,A,L,S,E)
+               ;
+
+ListLiteral = '[', [SP], [Expression, [SP], { ',', [SP], Expression, [SP] }], ']' ;
+
+PartialComparisonExpression = ('=', [SP], Expression7)
+                            | ('<>', [SP], Expression7)
+                            | ('!=', [SP], Expression7)
+                            | ('<', [SP], Expression7)
+                            | ('>', [SP], Expression7)
+                            | ('<=', [SP], Expression7)
+                            | ('>=', [SP], Expression7)
+                            ;
+
+ParenthesizedExpression = '(', [SP], Expression, [SP], ')' ;
+
+RelationshipsPattern = NodePattern, { [SP], PatternElementChain }- ;
+
+FilterExpression = IdInColl, [[SP], Where] ;
+
+IdInColl = Variable, SP, (I,N), SP, Expression ;
+
+FunctionInvocation = FunctionName, [SP], '(', [SP], [(D,I,S,T,I,N,C,T), [SP]], [Expression, [SP], { ',', [SP], Expression, [SP] }], ')' ;
+
+FunctionName = SymbolicName ;
+
+ListComprehension = '[', [SP], FilterExpression, [[SP], '|', [SP], Expression], [SP], ']' ;
+
+PatternComprehension = '[', [SP], [Variable, [SP], '=', [SP]], RelationshipsPattern, [SP], [(W,H,E,R,E), [SP], Expression, [SP]], '|', [SP], Expression, [SP], ']' ;
+
+PropertyLookup = '.', [SP], (PropertyKeyName) ;
+
+Variable = SymbolicName ;
+
+StringLiteral = ('"', { ANY - ('"' | '\') | EscapedChar }, '"')
+              | ("'", { ANY - ("'" | '\') | EscapedChar }, "'")
+              ;
+
+EscapedChar = '\', ('\' | "'" | '"' | (B) | (F) | (N) | (R) | (T) | ((U), 4 * HexDigit) | ((U), 8 * HexDigit)) ;
+
+NumberLiteral = DoubleLiteral
+              | IntegerLiteral
+              ;
+
+MapLiteral = '{', [SP], [PropertyKeyName, [SP], ':', [SP], Expression, [SP], { ',', [SP], PropertyKeyName, [SP], ':', [SP], Expression, [SP] }], '}' ;
+
+Parameter = '$', (SymbolicName | DecimalInteger) ;
+
+PropertyExpression = Atom, { [SP], PropertyLookup }- ;
+
+PropertyKeyName = SymbolicName ;
+
+IntegerLiteral = HexInteger
+               | OctalInteger
+               | DecimalInteger
+               ;
+
+HexInteger = '0x', { HexDigit }- ;
+
+DecimalInteger = ZeroDigit
+               | (NonZeroDigit, { Digit })
+               ;
+
+OctalInteger = ZeroDigit, { OctDigit }- ;
+
+HexLetter = (A)
+          | (B)
+          | (C)
+          | (D)
+          | (E)
+          | (F)
+          ;
+
+HexDigit = Digit
+         | HexLetter
+         ;
+
+Digit = ZeroDigit
+      | NonZeroDigit
+      ;
+
+NonZeroDigit = NonZeroOctDigit
+             | '8'
+             | '9'
+             ;
+
+NonZeroOctDigit = '1'
+                | '2'
+                | '3'
+                | '4'
+                | '5'
+                | '6'
+                | '7'
+                ;
+
+OctDigit = ZeroDigit
+         | NonZeroOctDigit
+         ;
+
+ZeroDigit = '0' ;
+
+DoubleLiteral = ExponentDecimalReal
+              | RegularDecimalReal
+              ;
+
+ExponentDecimalReal = ({ Digit }- | ({ Digit }-, '.', { Digit }-) | ('.', { Digit }-)), ((E) | (E)), ['-'], { Digit }- ;
+
+RegularDecimalReal = { Digit }, '.', { Digit }- ;
+
+SymbolicName = UnescapedSymbolicName
+             | EscapedSymbolicName
+             ;
+
+UnescapedSymbolicName = IdentifierStart, { IdentifierPart } ;
+
+(* Based on the unicode identifier and pattern syntax
+ *   (http://www.unicode.org/reports/tr31/)
+ * And extended with a few characters.
+ *)IdentifierStart = ID_Start
+                | '_'
+                | '‿'
+                | '⁀'
+                | '⁔'
+                | '︳'
+                | '︴'
+                | '﹍'
+                | '﹎'
+                | '﹏'
+                | '＿'
+                ;
+
+(* Based on the unicode identifier and pattern syntax
+ *   (http://www.unicode.org/reports/tr31/)
+ * And extended with a few characters.
+ *)IdentifierPart = ID_Continue
+               | Sc
+               ;
+
+(* Any character except "`", enclosed within `backticks`. Backticks are escaped with double backticks. *)EscapedSymbolicName = { '`', { ANY - ('`') }, '`' }- ;
+
+SP = { whitespace }- ;
+
+whitespace = SPACE
+           | TAB
+           | LF
+           | VT
+           | FF
+           | CR
+           | FS
+           | GS
+           | RS
+           | US
+           | ' '
+           | '᠎'
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | ' '
+           | '　'
+           | ' '
+           | ' '
+           | ' '
+           | Comment
+           ;
+
+Comment = ('/*', { ANY - ('*') | ('*', ANY - ('/')) }, '*/')
+        | ('//', { ANY - (LF | CR) }, [CR], (LF | EOI))
+        ;
+
+LeftArrowHead = '<'
+              | '⟨'
+              | '〈'
+              | '﹤'
+              | '＜'
+              ;
+
+RightArrowHead = '>'
+               | '⟩'
+               | '〉'
+               | '﹥'
+               | '＞'
+               ;
+
+Dash = '-'
+     | '­'
+     | '‐'
+     | '‑'
+     | '‒'
+     | '–'
+     | '—'
+     | '―'
+     | '−'
+     | '﹘'
+     | '﹣'
+     | '－'
+     ;
+
+A = 'A' | 'a' ;
+
+B = 'B' | 'b' ;
+
+C = 'C' | 'c' ;
+
+D = 'D' | 'd' ;
+
+E = 'E' | 'e' ;
+
+F = 'F' | 'f' ;
+
+G = 'G' | 'g' ;
+
+H = 'H' | 'h' ;
+
+I = 'I' | 'i' ;
+
+K = 'K' | 'k' ;
+
+L = 'L' | 'l' ;
+
+M = 'M' | 'm' ;
+
+N = 'N' | 'n' ;
+
+O = 'O' | 'o' ;
+
+P = 'P' | 'p' ;
+
+R = 'R' | 'r' ;
+
+S = 'S' | 's' ;
+
+T = 'T' | 't' ;
+
+U = 'U' | 'u' ;
+
+V = 'V' | 'v' ;
+
+W = 'W' | 'w' ;
+
+X = 'X' | 'x' ;
+
+Y = 'Y' | 'y' ;
