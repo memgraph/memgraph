@@ -25,7 +25,7 @@ using result_stream_t =
         communication::bolt::ChunkedEncoderBuffer<socket_t>>>;
 using session_data_t = communication::bolt::SessionData<result_stream_t>;
 using bolt_server_t =
-    communication::Server<session_t, result_stream_t, socket_t, session_data_t>;
+    communication::Server<session_t, socket_t, session_data_t>;
 
 DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
 DEFINE_string(port, "7687", "Default port on which to listen.");

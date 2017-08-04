@@ -30,14 +30,12 @@ namespace communication {
  * @tparam Session the server can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
- * @tparam OutputStream the server has to get the output stream as a template
-           parameter because the output stream is templated
  * @tparam Socket the input/output socket that should be used
  * @tparam SessionData the class with objects that will be forwarded to the session
  */
-template <typename Session, typename OutputStream, typename Socket, typename SessionData>
+template <typename Session, typename Socket, typename SessionData>
 class Server
-    : public io::network::EventListener<Server<Session, OutputStream, Socket, SessionData>> {
+    : public io::network::EventListener<Server<Session, Socket, SessionData>> {
   using Event = io::network::Epoll::Event;
 
  public:
@@ -58,7 +56,7 @@ class Server
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
-          std::make_unique<Worker<Session, OutputStream, Socket, SessionData>>(
+          std::make_unique<Worker<Session, Socket, SessionData>>(
               session_data_));
       workers_.back()->Start(alive_);
     }
@@ -110,7 +108,7 @@ class Server
   void OnErrorEvent(Event &event) { close(event.data.fd); }
 
  private:
-  std::vector<typename Worker<Session, OutputStream, Socket, SessionData>::uptr> workers_;
+  std::vector<typename Worker<Session, Socket, SessionData>::uptr> workers_;
   std::atomic<bool> alive_{true};
   int idx_{0};
 

@@ -26,20 +26,18 @@ namespace communication {
  * @tparam Session the worker can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
- * @tparam OutputStream the worker has to get the output stream as a template
-           parameter because the output stream is templated
  * @tparam Socket the input/output socket that should be used
  * @tparam SessionData the class with objects that will be forwarded to the session
  */
-template <typename Session, typename OutputStream, typename Socket, typename SessionData>
+template <typename Session, typename Socket, typename SessionData>
 class Worker
 
-    : public io::network::StreamReader<Worker<Session, OutputStream, Socket, SessionData>,
+    : public io::network::StreamReader<Worker<Session, Socket, SessionData>,
                                        Session> {
   using StreamBuffer = io::network::StreamBuffer;
 
  public:
-  using uptr = std::unique_ptr<Worker<Session, OutputStream, Socket, SessionData>>;
+  using uptr = std::unique_ptr<Worker<Session, Socket, SessionData>>;
 
   Worker(SessionData &session_data) : session_data_(session_data) {}
 

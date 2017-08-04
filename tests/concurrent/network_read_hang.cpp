@@ -23,8 +23,6 @@ static constexpr const char interface[] = "127.0.0.1";
 using endpoint_t = io::network::NetworkEndpoint;
 using socket_t = io::network::Socket;
 
-class TestOutputStream {};
-
 class TestData {};
 
 class TestSession {
@@ -51,8 +49,7 @@ class TestSession {
   io::network::Epoll::Event event_;
 };
 
-using test_server_t =
-    communication::Server<TestSession, TestOutputStream, socket_t, TestData>;
+using test_server_t = communication::Server<TestSession, socket_t, TestData>;
 
 test_server_t *serverptr;
 std::atomic<bool> run{true};

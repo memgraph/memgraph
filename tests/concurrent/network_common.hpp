@@ -21,8 +21,6 @@ static constexpr const int REPLY = 10;
 using endpoint_t = io::network::NetworkEndpoint;
 using socket_t = io::network::Socket;
 
-class TestOutputStream {};
-
 class TestData {};
 
 class TestSession {
@@ -64,8 +62,7 @@ class TestSession {
   io::network::Epoll::Event event_;
 };
 
-using test_server_t =
-    communication::Server<TestSession, TestOutputStream, socket_t, TestData>;
+using test_server_t = communication::Server<TestSession, socket_t, TestData>;
 
 void server_start(void *serverptr, int num) {
   ((test_server_t *)serverptr)->Start(num);
