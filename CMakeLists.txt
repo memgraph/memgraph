@@ -164,14 +164,6 @@ endif()
 
 # custom assert control parameters
 
-# Debug assert, if value is OFF debug asserts will be inactive.
-# Default value is ON.
-option(DEBUG_ASSERT "Enable debug assertions" ON)
-message(STATUS "DEBUG_ASSERT: ${DEBUG_ASSERT}")
-if(DEBUG_ASSERT)
-    add_definitions(-DDEBUG_ASSERT_ON)
-endif()
-
 # by default on custom assert only the message, filename and line number will be
 # printed on stderr, if STACKTRACE_ASSERT is ON the whole stacktrace is going to
 # be printed on stderr

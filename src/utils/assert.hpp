@@ -73,8 +73,8 @@
  * @def debug_assert(condition, message)
  * Check that the condition is satisfied, otherwise abort the program.
  *
- * This is like @c permanent_assert, but the @c DEBUG_ASSERT_ON define controls
- * whether this assertion is active. Without the define, @c debug_assert will do
+ * This is like @c permanent_assert, but the @c NDEBUG define controls
+ * whether this assertion is active. With this define, @c debug_assert will do
  * nothing. Therefore, this is more like the standard C @c assert facility and
  * it should be used as such. For example, validating pre and post conditions of
  * a function.
@@ -88,8 +88,8 @@
  * @def debug_fail(message)
  * Abort the program with given message.
  *
- * This is like @c permanent_fail, but the @c DEBUG_ASSERT_ON define controls
- * whether this assertion is active. Without the define, @c debug_fail will do
+ * This is like @c permanent_fail, but the @c NDEBUG define controls
+ * whether this assertion is active. With this define, @c debug_fail will do
  * nothing. This should be used like @c debug_assert, but when the condition
  * cannot be a simple expression.
  *
@@ -98,7 +98,7 @@
  * @sa permanent_fail
  */
 
-#ifdef DEBUG_ASSERT_ON
+#ifndef NDEBUG
 #define debug_assert(condition, message) permanent_assert(condition, message)
 #define debug_fail(message) permanent_fail(message)
 #else
