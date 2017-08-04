@@ -478,35 +478,39 @@ void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
 
 bool Expand::ExpandCursor::InitEdges(Frame &frame,
                                      const SymbolTable &symbol_table) {
-  if (!input_cursor_->Pull(frame, symbol_table)) return false;
+  // Input Vertex could be null if it is created by a failed optional match. In
+  // those cases we skip that input pull and continue with the next.
+  while (true) {
+    if (!input_cursor_->Pull(frame, symbol_table)) return false;
+    TypedValue &vertex_value = frame[self_.input_symbol_];
 
-  TypedValue &vertex_value = frame[self_.input_symbol_];
-  // Vertex could be null if it is created by a failed optional match, in such a
-  // case we should stop expanding.
-  if (vertex_value.IsNull()) return false;
-  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &vertex = vertex_value.Value<VertexAccessor>();
-  SwitchAccessor(vertex, self_.graph_view_);
+    // Null check due to possible failed optional match.
+    if (vertex_value.IsNull()) continue;
 
-  auto direction = self_.direction_;
-  if (direction == EdgeAtom::Direction::IN ||
-      direction == EdgeAtom::Direction::BOTH) {
-    in_edges_ = std::make_unique<InEdgeT>(vertex.in());
-    in_edges_it_ = std::make_unique<InEdgeIteratorT>(in_edges_->begin());
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    auto &vertex = vertex_value.Value<VertexAccessor>();
+    SwitchAccessor(vertex, self_.graph_view_);
+
+    auto direction = self_.direction_;
+    if (direction == EdgeAtom::Direction::IN ||
+        direction == EdgeAtom::Direction::BOTH) {
+      in_edges_ = std::make_unique<InEdgeT>(vertex.in());
+      in_edges_it_ = std::make_unique<InEdgeIteratorT>(in_edges_->begin());
+    }
+
+    if (direction == EdgeAtom::Direction::OUT ||
+        direction == EdgeAtom::Direction::BOTH) {
+      out_edges_ = std::make_unique<InEdgeT>(vertex.out());
+      out_edges_it_ = std::make_unique<InEdgeIteratorT>(out_edges_->begin());
+    }
+
+    // TODO add support for Front and Back expansion (when QueryPlanner
+    // will need it). For now only Back expansion (left to right) is
+    // supported
+    // TODO add support for named paths
+
+    return true;
   }
-
-  if (direction == EdgeAtom::Direction::OUT ||
-      direction == EdgeAtom::Direction::BOTH) {
-    out_edges_ = std::make_unique<InEdgeT>(vertex.out());
-    out_edges_it_ = std::make_unique<InEdgeIteratorT>(out_edges_->begin());
-  }
-
-  // TODO add support for Front and Back expansion (when QueryPlanner
-  // will need it). For now only Back expansion (left to right) is
-  // supported
-  // TODO add support for named paths
-
-  return true;
 }
 
 bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
@@ -666,41 +670,45 @@ class ExpandVariableCursor : public Cursor {
    * is exhausted.
    */
   bool PullInput(Frame &frame, const SymbolTable &symbol_table) {
-    if (!input_cursor_->Pull(frame, symbol_table)) return false;
+    // Input Vertex could be null if it is created by a failed optional match.
+    // In those cases we skip that input pull and continue with the next.
+    while (true) {
+      if (!input_cursor_->Pull(frame, symbol_table)) return false;
+      TypedValue &vertex_value = frame[self_.input_symbol_];
 
-    TypedValue &vertex_value = frame[self_.input_symbol_];
-    // Vertex could be null if it is created by a failed optional match, in
-    // such a case we should stop expanding.
-    if (vertex_value.IsNull()) return false;
-    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.Value<VertexAccessor>();
-    SwitchAccessor(vertex, self_.graph_view_);
+      // Null check due to possible failed optional match.
+      if (vertex_value.IsNull()) continue;
 
-    // evaluate the upper and lower bounds
-    ExpressionEvaluator evaluator(frame, symbol_table, db_);
-    auto calc_bound = [this, &evaluator](auto &bound) {
-      auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
-      if (value < 0)
-        throw QueryRuntimeException(
-            "Variable expansion bound must be positive or zero");
-      return value;
-    };
-
-    lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
-    upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_)
-                                      : std::numeric_limits<int64_t>::max();
-
-    if (upper_bound_ > 0) {
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.Value<VertexAccessor>();
       SwitchAccessor(vertex, self_.graph_view_);
-      edges_.emplace_back(ExpandFromVertex(vertex, self_.direction_));
-      edges_it_.emplace_back(edges_.back().begin());
+
+      // Evaluate the upper and lower bounds.
+      ExpressionEvaluator evaluator(frame, symbol_table, db_);
+      auto calc_bound = [this, &evaluator](auto &bound) {
+        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
+        if (value < 0)
+          throw QueryRuntimeException(
+              "Variable expansion bound must be positive or zero");
+        return value;
+      };
+
+      lower_bound_ = self_.lower_bound_ ? calc_bound(self_.lower_bound_) : 1;
+      upper_bound_ = self_.upper_bound_ ? calc_bound(self_.upper_bound_)
+                                        : std::numeric_limits<int64_t>::max();
+
+      if (upper_bound_ > 0) {
+        SwitchAccessor(vertex, self_.graph_view_);
+        edges_.emplace_back(ExpandFromVertex(vertex, self_.direction_));
+        edges_it_.emplace_back(edges_.back().begin());
+      }
+
+      // reset the frame value to an empty edge list
+      if (!self_.existing_edge_)
+        frame[self_.edge_symbol_] = std::vector<TypedValue>();
+
+      return true;
     }
-
-    // reset the frame value to an empty edge list
-    if (!self_.existing_edge_)
-      frame[self_.edge_symbol_] = std::vector<TypedValue>();
-
-    return true;
   }
 
   /**
