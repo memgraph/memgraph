@@ -6,107 +6,96 @@ void EventStream::Subscription::unsubscribe() {
 
 thread_local Reactor* current_reactor_ = nullptr;
 
-std::string EventQueue::LocalChannel::Hostname() {
+std::string Connector::LocalChannel::Hostname() {
   return system_->network().Hostname();
 }
 
-int32_t EventQueue::LocalChannel::Port() {
+int32_t Connector::LocalChannel::Port() {
   return system_->network().Port();
 }
 
-std::string EventQueue::LocalChannel::ReactorName() {
+std::string Connector::LocalChannel::ReactorName() {
   return reactor_name_;
 }
 
-std::string EventQueue::LocalChannel::Name() {
+std::string Connector::LocalChannel::Name() {
   return name_;
 }
 
-void EventQueue::LocalEventStream::Close() {
-  current_reactor_->Close(name_);
-}
-
-ConnectorT Reactor::Open(const std::string &channel_name) {
-  std::unique_lock<std::recursive_mutex> lock(*mutex_);
+std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::string &channel_name) {
+  std::unique_lock<std::mutex> lock(*mutex_);
   // TODO: Improve the check that the channel name does not exist in the
   // system.
   assert(connectors_.count(channel_name) == 0);
   auto it = connectors_.emplace(channel_name,
-    EventQueue::Params{system_, name_, channel_name, mutex_, cvar_}).first;
-  return ConnectorT(it->second.stream_, it->second.channel_);
+    std::make_shared<Connector>(Connector::Params{system_, name_, channel_name, mutex_, cvar_})).first;
+  it->second->self_ptr_ = it->second;
+  return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
 }
 
-ConnectorT Reactor::Open() {
-  std::unique_lock<std::recursive_mutex> lock(*mutex_);
+std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open() {
+  std::unique_lock<std::mutex> lock(*mutex_);
   do {
     std::string channel_name = "stream-" + std::to_string(channel_name_counter_++);
     if (connectors_.count(channel_name) == 0) {
-      // EventQueue &queue = connectors_[channel_name];
+      // Connector &queue = connectors_[channel_name];
       auto it = connectors_.emplace(channel_name,
-        EventQueue::Params{system_, name_, channel_name, mutex_, cvar_}).first;
-      return ConnectorT(it->second.stream_, it->second.channel_);
+        std::make_shared<Connector>(Connector::Params{system_, name_, channel_name, mutex_, cvar_})).first;
+      it->second->self_ptr_ = it->second;
+      return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
     }
   } while (true);
 }
 
 const std::shared_ptr<Channel> Reactor::FindChannel(
     const std::string &channel_name) {
-  std::unique_lock<std::recursive_mutex> lock(*mutex_);
+  std::unique_lock<std::mutex> lock(*mutex_);
   auto it_connector = connectors_.find(channel_name);
   if (it_connector == connectors_.end()) return nullptr;
-  return it_connector->second.channel_;
+  return it_connector->second->LockedOpenChannel();
 }
 
-void Reactor::Close(const std::string &s) {
-  std::unique_lock<std::recursive_mutex> lock(*mutex_);
+void Reactor::CloseConnector(const std::string &s) {
+  std::unique_lock<std::mutex> lock(*mutex_);
   auto it = connectors_.find(s);
   assert(it != connectors_.end());
-  LockedCloseInternal(it->second);
-  connectors_.erase(it); // this calls the EventQueue destructor that catches the mutex, ugh.
+  connectors_.erase(it);
 }
 
-void Reactor::LockedCloseInternal(EventQueue& event_queue) {
-  // TODO(zuza): figure this out! @@@@
-  std::cout << "Close Channel! Reactor name = " << name_ << " Channel name = " << event_queue.name_ << std::endl;
+void Reactor::CloseAllConnectors() {
+  std::unique_lock<std::mutex> lock(*mutex_);
+  connectors_.clear();
 }
 
 void Reactor::RunEventLoop() {
-  std::cout << "event loop is run!" << std::endl;
+  bool exit_event_loop = false;
+  
   while (true) {
-    // Clean up EventQueues without callbacks.
+    // Find (or wait) for the next Message.
+    MsgAndCbInfo msg_and_cb;
     {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
-      for (auto connectors_it = connectors_.begin(); connectors_it != connectors_.end(); ) {
-        EventQueue& event_queue = connectors_it->second;
-        if (event_queue.LockedCanBeClosed()) {
-          LockedCloseInternal(event_queue);
-          connectors_it = connectors_.erase(connectors_it); // This removes the element from the collection.
-        } else {
-          ++connectors_it;
-        }
-      }
-    }
-
-    // Process and wait for events to dispatch.
-    MsgAndCbInfo msgAndCb;
-    {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
-
-      // Exit the loop if there are no more EventQueues.
-      if (connectors_.empty()) {
-        return;
-      }
+      std::unique_lock<std::mutex> lock(*mutex_);
 
       while (true) {
-        msgAndCb = LockedGetPendingMessages(lock);
-        if (msgAndCb.first != nullptr) break;
+        // Exit the loop if there are no more Connectors.
+        if (connectors_.empty()) {
+          exit_event_loop = true;
+          break;
+        }
+
+        // Not fair because was taken earlier, talk to lion.
+        msg_and_cb = LockedGetPendingMessages(lock);
+        if (msg_and_cb.first != nullptr) break;
+
         cvar_->wait(lock);
       }
+
+      if (exit_event_loop) break;
     }
 
-    for (auto& cbAndSub : msgAndCb.second) {
+    for (auto& cbAndSub : msg_and_cb.second) {
       auto& cb = cbAndSub.first;
-      const Message& msg = *msgAndCb.first;
+      const Message& msg = *msg_and_cb.first;
       cb(msg, cbAndSub.second);
     }
   }
@@ -115,10 +104,10 @@ void Reactor::RunEventLoop() {
 /**
  * Checks if there is any nonempty EventStream.
  */
-auto Reactor::LockedGetPendingMessages(std::unique_lock<std::recursive_mutex> &lock) -> MsgAndCbInfo {
+auto Reactor::LockedGetPendingMessages(std::unique_lock<std::mutex> &lock) -> MsgAndCbInfo {
   // return type after because the scope Reactor:: is not searched before the name
   for (auto& connectors_key_value : connectors_) {
-    EventQueue& event_queue = connectors_key_value.second;
+    Connector& event_queue = *connectors_key_value.second;
     auto msg_ptr = event_queue.LockedPop(lock);
     if (msg_ptr == nullptr) continue;
     

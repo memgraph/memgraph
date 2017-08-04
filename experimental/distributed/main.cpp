@@ -12,7 +12,7 @@ const int NUM_WORKERS = 1;
 
 class Txn : public SenderMessage {
  public:
-  Txn(ChannelRefT channel, int64_t id) : SenderMessage(channel), id_(id) {}
+  Txn(std::shared_ptr<Channel> channel, int64_t id) : SenderMessage(channel), id_(id) {}
   int64_t id() const { return id_; }
 
   template <class Archive>
@@ -26,7 +26,7 @@ class Txn : public SenderMessage {
 
 class CreateNodeTxn : public Txn {
  public:
-  CreateNodeTxn(ChannelRefT channel, int64_t id) : Txn(channel, id) {}
+  CreateNodeTxn(std::shared_ptr<Channel> channel, int64_t id) : Txn(channel, id) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
@@ -36,7 +36,7 @@ class CreateNodeTxn : public Txn {
 
 class CountNodesTxn : public Txn {
  public:
-  CountNodesTxn(ChannelRefT channel, int64_t id) : Txn(channel, id) {}
+  CountNodesTxn(std::shared_ptr<Channel> channel, int64_t id) : Txn(channel, id) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
@@ -60,7 +60,7 @@ class CountNodesTxnResult : public Message {
 
 class CommitRequest : public SenderMessage {
  public:
-  CommitRequest(ChannelRefT sender, int64_t worker_id)
+  CommitRequest(std::shared_ptr<Channel> sender, int64_t worker_id)
       : SenderMessage(sender), worker_id_(worker_id) {}
   int64_t worker_id() { return worker_id_; }
 
@@ -75,7 +75,7 @@ class CommitRequest : public SenderMessage {
 
 class AbortRequest : public SenderMessage {
  public:
-  AbortRequest(ChannelRefT sender, int64_t worker_id)
+  AbortRequest(std::shared_ptr<Channel> sender, int64_t worker_id)
       : SenderMessage(sender), worker_id_(worker_id) {}
   int64_t worker_id() { return worker_id_; }
 
@@ -182,7 +182,7 @@ class Master : public Reactor {
       std::cerr << "unknown message\n";
       exit(1);
     }
-    Close(txn_channel_name);
+    CloseConnector(txn_channel_name);
   }
 
   void PerformCountNodes() {
@@ -194,7 +194,7 @@ class Master : public Reactor {
       channels_[w_id]->Send(
           std::make_unique<CountNodesTxn>(connector.second, xid));
 
-    std::vector<ChannelRefT> txn_channels;
+    std::vector<std::shared_ptr<Channel>> txn_channels;
     txn_channels.resize(NUM_WORKERS, nullptr);
     bool commit = true;
     for (int responds = 0; responds < NUM_WORKERS; ++responds) {
@@ -231,7 +231,7 @@ class Master : public Reactor {
       }
     }
 
-    Close(txn_channel_name);
+    CloseConnector(txn_channel_name);
     std::cout << "graph has " << count << " vertices" << std::endl;
   }
 
@@ -312,7 +312,7 @@ class Worker : public Reactor {
       std::cerr << "unknown message\n";
       exit(1);
     }
-    Close(GetTxnChannelName(txn->id()));
+    CloseConnector(GetTxnChannelName(txn->id()));
   }
 
   void HandleCountNodes(CountNodesTxn *txn) {
@@ -334,7 +334,7 @@ class Worker : public Reactor {
       std::cerr << "unknown message\n";
       exit(1);
     }
-    Close(GetTxnChannelName(txn->id()));
+    CloseConnector(GetTxnChannelName(txn->id()));
   }
 
   // TODO: Don't repeat code from Master.
@@ -350,7 +350,6 @@ class Worker : public Reactor {
 
   std::shared_ptr<Channel> master_channel_ = nullptr;
   int worker_id_;
-  // Storage storage_;
 };
 
 void ClientMain(System *system) {

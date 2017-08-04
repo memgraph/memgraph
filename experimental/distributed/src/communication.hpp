@@ -19,7 +19,7 @@ class Message;
 class EventStream;
 class Reactor;
 class System;
-class EventQueue;
+class Connector;
 
 extern thread_local Reactor* current_reactor_;
 
@@ -74,10 +74,10 @@ class EventStream {
    private:
     friend class Reactor;
 
-    Subscription(EventQueue& event_queue, uint64_t cb_uid) : event_queue_(event_queue) {
+    Subscription(Connector& event_queue, uint64_t cb_uid) : event_queue_(event_queue) {
       cb_uid_ = cb_uid;
     }
-    EventQueue& event_queue_;
+    Connector& event_queue_;
     uint64_t cb_uid_;
   };
   
@@ -87,11 +87,6 @@ class EventStream {
    * Register a callback that will be called whenever an event arrives.
    */
   virtual void OnEvent(Callback callback) = 0;
-
-  /**
-   * Close this event stream, disallowing further events from getting received.
-   */
-  virtual void Close() = 0;
 };
 
 /**
@@ -99,88 +94,51 @@ class EventStream {
  *
  * This class is an internal data structure that represents the state of the connector.
  * This class is not meant to be used by the clients of the messaging framework.
- * The EventQueue class wraps the event queue data structure, the mutex that protects
+ * The Connector class wraps the event queue data structure, the mutex that protects
  * concurrent access to the event queue, the local channel and the event stream.
- * The class is owned by the Reactor, but its LocalChannel can outlive it.
- * See the LocalChannel and LocalEventStream nested classes for further information.
+ * The class is owned by the Reactor. It gets closed when the owner reactor
+ * (the one that owns the read-end of a connector) removes/closes it.
  */
-class EventQueue {
+class Connector {
+ class Params;
+
  public:
-  friend class Reactor;
+  friend class Reactor; // to create a Params initialization object
   friend class EventStream::Subscription;
 
-  struct Params {
-    System* system;
-    std::string reactor_name;
-    std::string name;
-    std::shared_ptr<std::recursive_mutex> mutex;
-    std::shared_ptr<std::condition_variable_any> cvar;
-  };
-
-  EventQueue(Params params)
+  Connector(Params params)
       : system_(params.system),
-        reactor_name_(params.reactor_name),
         name_(params.name),
+        reactor_name_(params.reactor_name),
         mutex_(params.mutex),
-        cvar_(params.cvar) {}
+        cvar_(params.cvar),
+        stream_(mutex_, name_, this) {}
 
   /**
-   * The destructor locks the mutex of the EventQueue and sets queue pointer to null.
-   */
-  ~EventQueue() {
-    // Ugly: this is the ONLY thing that is allowed to lock this recursive mutex twice.
-    // This is because we can't make a locked and a unlocked version of the destructor.
-    std::unique_lock<std::recursive_mutex> lock(*mutex_);
-    stream_->queue_ = nullptr;
-    channel_->queue_ = nullptr;
-  }
-
-  void LockedPush(std::unique_lock<std::recursive_mutex> &, std::unique_ptr<Message> m) {
-    queue_.push(std::move(m));
-    cvar_->notify_one();
-  }
-
-  std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::recursive_mutex> &lock) {
-    std::unique_ptr<Message> m;
-    while (!(m = LockedRawPop())) {
-      cvar_->wait(lock);
-    }
-    return m;
-  }
-
-  std::unique_ptr<Message> LockedPop(std::unique_lock<std::recursive_mutex> &lock) {
-    return LockedRawPop();
-  }
-
-  void LockedOnEvent(EventStream::Callback callback) {
-    uint64_t cb_uid = next_cb_uid++;
-    callbacks_[cb_uid] = callback;
-  }
-
-  /**
-   * LocalChannel represents the channels to reactors living in the same reactor system.
+   * LocalChannel represents the channels to reactors living in the same reactor system (write-end of the connectors).
    *
    * Sending messages to the local channel requires acquiring the mutex.
-   * LocalChannel holds a pointer to the enclosing EventQueue object.
-   * The enclosing EventQueue object is destroyed when the reactor calls Close.
-   * When this happens, the pointer to the enclosing EventQueue object is set to null.
-   * After this, all the message sends on this channel are dropped.
+   * LocalChannel holds a (weak) pointer to the enclosing Connector object.
+   * Messages sent to a closed channel are ignored.
+   * There can be multiple LocalChannels refering to the same stream if needed.
    */
   class LocalChannel : public Channel {
    public:
-    friend class EventQueue;
+    friend class Connector;
 
-    LocalChannel(std::shared_ptr<std::recursive_mutex> mutex, std::string reactor_name,
-                 std::string name, EventQueue *queue, System *system)
+    LocalChannel(std::shared_ptr<std::mutex> mutex, std::string reactor_name,
+                 std::string name, std::weak_ptr<Connector> queue, System *system)
         : mutex_(mutex),
           reactor_name_(reactor_name),
           name_(name),
-          queue_(queue),
+          weak_queue_(queue),
           system_(system) {}
 
     virtual void Send(std::unique_ptr<Message> m) {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
-      if (queue_ != nullptr) {
+      std::shared_ptr<Connector> queue_ = weak_queue_.lock(); // Atomic, per the standard.
+      if (queue_) {
+        // We guarantee here that the Connector is not destroyed.
+        std::unique_lock<std::mutex> lock(*mutex_);
         queue_->LockedPush(lock, std::move(m));
       }
     }
@@ -194,27 +152,26 @@ class EventQueue {
     virtual std::string Name();
 
    private:
-    std::shared_ptr<std::recursive_mutex> mutex_;
+    std::shared_ptr<std::mutex> mutex_;
     std::string reactor_name_;
     std::string name_;
-    EventQueue *queue_;
+    std::weak_ptr<Connector> weak_queue_;
     System *system_;
   };
 
   /**
    * Implementation of the event stream.
    *
-   * After the enclosing EventQueue object is destroyed (by a call to Close),
-   * it is no longer legal to call any of the event stream methods.
+   * After the enclosing Connector object is destroyed (by a call to CloseChannel or Close).
    */
   class LocalEventStream : public EventStream {
    public:
-    friend class EventQueue;
+    friend class Connector;
 
-    LocalEventStream(std::shared_ptr<std::recursive_mutex> mutex, std::string name,
-      EventQueue *queue) : mutex_(mutex), name_(name), queue_(queue) {}
+    LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string name,
+      Connector *queue) : mutex_(mutex), name_(name), queue_(queue) {}
     std::unique_ptr<Message> AwaitEvent() {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
+      std::unique_lock<std::mutex> lock(*mutex_);
       if (queue_ != nullptr) {
         return queue_->LockedAwaitPop(lock);
       }
@@ -222,7 +179,7 @@ class EventQueue {
           "Cannot call method after connector was closed.");
     }
     std::unique_ptr<Message> PopEvent() {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
+      std::unique_lock<std::mutex> lock(*mutex_);
       if (queue_ != nullptr) {
         return queue_->LockedPop(lock);
       }
@@ -230,7 +187,7 @@ class EventQueue {
           "Cannot call method after connector was closed.");
     }
     void OnEvent(EventStream::Callback callback) {
-      std::unique_lock<std::recursive_mutex> lock(*mutex_);
+      std::unique_lock<std::mutex> lock(*mutex_);
       if (queue_ != nullptr) {
         queue_->LockedOnEvent(callback);
         return;
@@ -239,67 +196,97 @@ class EventQueue {
           "Cannot call method after connector was closed.");
     }
 
-    void Close();
-
    private:
-    std::shared_ptr<std::recursive_mutex> mutex_;
+    std::shared_ptr<std::mutex> mutex_;
     std::string name_;
-    EventQueue *queue_;
+    Connector *queue_;
+  };
+  
+  Connector(const Connector &other) = delete;
+  Connector(Connector &&other) = default;
+  Connector &operator=(const Connector &other) = delete;
+  Connector &operator=(Connector &&other) = default;
+
+private:
+  /**
+   * Initialization parameters to Connector.
+   * Warning: do not forget to initialize self_ptr_ individually. Private because it shouldn't be created outside of a Reactor.
+   */
+  struct Params {
+    System* system;
+    std::string reactor_name;
+    /**
+     * Connector name.
+     */
+    std::string name;
+    std::shared_ptr<std::mutex> mutex;
+    std::shared_ptr<std::condition_variable> cvar;
   };
 
- private:
+
+  void LockedPush(std::unique_lock<std::mutex> &, std::unique_ptr<Message> m) {
+    queue_.push(std::move(m));
+    // This is OK because there is only one Reactor (thread) that can wait on this Connector.
+    cvar_->notify_one();
+  }
+
+  std::shared_ptr<LocalChannel> LockedOpenChannel() {
+    assert(!self_ptr_.expired()); // TODO(zuza): fix this using this answer https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
+    return std::make_shared<LocalChannel>(mutex_, reactor_name_, name_, self_ptr_, system_);
+  }
+
+  std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
+    std::unique_ptr<Message> m;
+    while (!(m = LockedRawPop())) {
+      cvar_->wait(lock);
+    }
+    return m;
+  }
+
+  std::unique_ptr<Message> LockedPop(std::unique_lock<std::mutex> &lock) {
+    return LockedRawPop();
+  }
+
+  void LockedOnEvent(EventStream::Callback callback) {
+    uint64_t cb_uid = next_cb_uid++;
+    callbacks_[cb_uid] = callback;
+  }
+  
   std::unique_ptr<Message> LockedRawPop() {
     if (queue_.empty()) return nullptr;
     std::unique_ptr<Message> t = std::move(queue_.front());
     queue_.pop();
-    return std::move(t);
-  }
-
-  /**
-   * Should the owner close this EventQueue?
-   *
-   * Currently only checks if there are no more messages and all callbacks have unsubscribed?
-   * This assumes the event loop has been started.
-   */
-  bool LockedCanBeClosed() {
-    return callbacks_.empty() && queue_.empty();
+    return t;
   }
 
   void RemoveCbByUid(uint64_t uid) {
-    std::unique_lock<std::recursive_mutex> lock(*mutex_);
+    std::unique_lock<std::mutex> lock(*mutex_);
     size_t num_erased = callbacks_.erase(uid);
     assert(num_erased == 1);
-
-    // TODO(zuza): if no more callbacks, shut down the class (and the eventloop is started). First, figure out ownership of EventQueue?
   }
 
   System *system_;
   std::string name_;
   std::string reactor_name_;
-
   std::queue<std::unique_ptr<Message>> queue_;
   // Should only be locked once since it's used by a cond. var. Also caught in dctor, so must be recursive.
-  std::shared_ptr<std::recursive_mutex> mutex_; 
-  std::shared_ptr<std::condition_variable_any> cvar_;
-  std::shared_ptr<LocalEventStream> stream_ =
-    std::make_shared<LocalEventStream>(mutex_, name_, this);
-  std::shared_ptr<LocalChannel> channel_ =
-    std::make_shared<LocalChannel>(mutex_, reactor_name_, name_, this, system_);
+  std::shared_ptr<std::mutex> mutex_; 
+  std::shared_ptr<std::condition_variable> cvar_;
+  /** 
+   * A weak_ptr to itself.
+   *
+   * There are initialization problems with this, check Params.
+   */
+  std::weak_ptr<Connector> self_ptr_;
+  LocalEventStream stream_;
   std::unordered_map<uint64_t, EventStream::Callback> callbacks_;
   uint64_t next_cb_uid = 0;
-  
 };
-
-/**
- * Pair composed of read-end and write-end of a connection.
- */
-using ConnectorT = std::pair<std::shared_ptr<EventStream>, std::shared_ptr<Channel>>;
-using ChannelRefT = std::shared_ptr<Channel>;
 
 /**
  * A single unit of concurrent execution in the system.
  * 
- * E.g. one worker, one client. Owned by System.
+ * E.g. one worker, one client. Owned by System. Has a thread associated with it.
  */
 class Reactor {
  public:
@@ -307,31 +294,56 @@ class Reactor {
 
   Reactor(System *system, std::string name)
       : system_(system), name_(name), main_(Open("main")) {}
-
+  
   virtual ~Reactor() {}
 
   virtual void Run() = 0;
 
-  ConnectorT Open(const std::string &s);
-  ConnectorT Open();
+  std::pair<EventStream*, std::shared_ptr<Channel>> Open(const std::string &s);
+  std::pair<EventStream*, std::shared_ptr<Channel>> Open();
   const std::shared_ptr<Channel> FindChannel(const std::string &channel_name);
-  void Close(const std::string &s);
 
+  /**
+   * Close a connector by name.
+   *
+   * Should only be called from the Reactor thread.
+   */
+  void CloseConnector(const std::string &s);
+
+  /**
+   * close all connectors (typically during shutdown).
+   *
+   * Should only be called from the Reactor thread.
+   */
+  void CloseAllConnectors();
+
+  Reactor(const Reactor &other) = delete;
+  Reactor(Reactor &&other) = default;
+  Reactor &operator=(const Reactor &other) = delete;
+  Reactor &operator=(Reactor &&other) = default;
+  
  protected:
   System *system_;
   std::string name_;
   /*
-   * Locks all Reactor data, including all EventQueue's in connectors_.
+   * Locks all Reactor data, including all Connector's in connectors_.
    *
    * This should be a shared_ptr because LocalChannel can outlive Reactor.
    */
-  std::shared_ptr<std::recursive_mutex> mutex_ =
-      std::make_shared<std::recursive_mutex>();
-  std::shared_ptr<std::condition_variable_any> cvar_ =
-      std::make_shared<std::condition_variable_any>();
-  std::unordered_map<std::string, EventQueue> connectors_;
+  std::shared_ptr<std::mutex> mutex_ =
+      std::make_shared<std::mutex>();
+  std::shared_ptr<std::condition_variable> cvar_ =
+      std::make_shared<std::condition_variable>();
+
+  /**
+   * List of connectors of a reactor indexed by name.
+   *
+   * While the connectors are owned by the reactor, a shared_ptr to solve the circular reference problem
+   * between Channels and EventStreams.
+   */
+  std::unordered_map<std::string, std::shared_ptr<Connector>> connectors_;
   int64_t channel_name_counter_{0};
-  ConnectorT main_;
+  std::pair<EventStream*, std::shared_ptr<Channel>> main_;
 
  private:
   typedef std::pair<std::unique_ptr<Message>,
@@ -342,10 +354,8 @@ class Reactor {
    */
   void RunEventLoop();
 
-  void LockedCloseInternal(EventQueue& event_queue);
-
   // TODO: remove proof of locking evidence ?!
-  MsgAndCbInfo LockedGetPendingMessages(std::unique_lock<std::recursive_mutex> &lock);
+  MsgAndCbInfo LockedGetPendingMessages(std::unique_lock<std::mutex> &lock);
 };
 
 /**
@@ -437,9 +447,9 @@ class Message {
  */
 class SenderMessage : public Message {
  public:
-  SenderMessage(ChannelRefT sender) : sender_(sender) {}
+  SenderMessage(std::shared_ptr<Channel> sender) : sender_(sender) {}
 
-  ChannelRefT sender() { return sender_; }
+  std::shared_ptr<Channel> sender() { return sender_; }
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -447,7 +457,7 @@ class SenderMessage : public Message {
   }
 
  private:
-  ChannelRefT sender_;
+  std::shared_ptr<Channel> sender_;
 };
 
 /**
@@ -534,7 +544,7 @@ class System {
   }
 
   std::recursive_mutex mutex_;
-  // TODO: Replace with a map to a reactor EventQueue map to have more granular
+  // TODO: Replace with a map to a reactor Connector map to have more granular
   // locking.
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
