@@ -16,6 +16,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
+#include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
 
 // TODO: Remove ast_cache flag and add flag that limits cache size.
@@ -49,7 +50,7 @@ class Interpreter {
         // stripped query -> AST
         auto parser = [&] {
           // Be careful about unlocking since parser can throw.
-          std::unique_lock<SpinLock>(antlr_lock_);
+          std::unique_lock<SpinLock> guard(antlr_lock_);
           return std::make_unique<frontend::opencypher::Parser>(query);
         }();
         auto low_level_tree = parser->tree();
@@ -69,7 +70,7 @@ class Interpreter {
         // stripped query -> AST
         auto parser = [&] {
           // Be careful about unlocking since parser can throw.
-          std::unique_lock<SpinLock>(antlr_lock_);
+          std::unique_lock<SpinLock> guard(antlr_lock_);
           return std::make_unique<frontend::opencypher::Parser>(
               stripped.query());
         }();
