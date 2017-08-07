@@ -19,16 +19,20 @@ std::string Connector::LocalChannel::ReactorName() {
 }
 
 std::string Connector::LocalChannel::Name() {
-  return name_;
+  return connector_name_;
 }
 
-std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::string &channel_name) {
+void Connector::LocalEventStream::Close() {
+  current_reactor_->CloseConnector(connector_name_);
+}
+
+std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::string &connector_name) {
   std::unique_lock<std::mutex> lock(*mutex_);
   // TODO: Improve the check that the channel name does not exist in the
   // system.
-  assert(connectors_.count(channel_name) == 0);
-  auto it = connectors_.emplace(channel_name,
-    std::make_shared<Connector>(Connector::Params{system_, name_, channel_name, mutex_, cvar_})).first;
+  assert(connectors_.count(connector_name) == 0);
+  auto it = connectors_.emplace(connector_name,
+    std::make_shared<Connector>(Connector::Params{system_, name_, connector_name, mutex_, cvar_})).first;
   it->second->self_ptr_ = it->second;
   return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
 }
@@ -36,11 +40,11 @@ std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::strin
 std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open() {
   std::unique_lock<std::mutex> lock(*mutex_);
   do {
-    std::string channel_name = "stream-" + std::to_string(channel_name_counter_++);
-    if (connectors_.count(channel_name) == 0) {
-      // Connector &queue = connectors_[channel_name];
-      auto it = connectors_.emplace(channel_name,
-        std::make_shared<Connector>(Connector::Params{system_, name_, channel_name, mutex_, cvar_})).first;
+    std::string connector_name = "stream-" + std::to_string(connector_name_counter_++);
+    if (connectors_.count(connector_name) == 0) {
+      // Connector &queue = connectors_[connector_name];
+      auto it = connectors_.emplace(connector_name,
+        std::make_shared<Connector>(Connector::Params{system_, name_, connector_name, mutex_, cvar_})).first;
       it->second->self_ptr_ = it->second;
       return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
     }
@@ -69,7 +73,7 @@ void Reactor::CloseAllConnectors() {
 
 void Reactor::RunEventLoop() {
   bool exit_event_loop = false;
-  
+
   while (true) {
     // Find (or wait) for the next Message.
     MsgAndCbInfo msg_and_cb;
@@ -110,7 +114,7 @@ auto Reactor::LockedGetPendingMessages(std::unique_lock<std::mutex> &lock) -> Ms
     Connector& event_queue = *connectors_key_value.second;
     auto msg_ptr = event_queue.LockedPop(lock);
     if (msg_ptr == nullptr) continue;
-    
+
     std::vector<std::pair<EventStream::Callback, EventStream::Subscription> > cb_info;
     for (auto& callbacks_key_value : event_queue.callbacks_) {
       uint64_t uid = callbacks_key_value.first;

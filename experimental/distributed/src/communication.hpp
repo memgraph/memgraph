@@ -50,7 +50,7 @@ class Channel {
  * Read-end of a Connector (between two reactors).
  */
 class EventStream {
- public:  
+ public:
   /**
    * Blocks until a message arrives.
    */
@@ -62,7 +62,9 @@ class EventStream {
   virtual std::unique_ptr<Message> PopEvent() = 0;
 
   /**
-   * Subscription Service. Lightweight object (can copy by value).
+   * Subscription Service.
+   *
+   * Unsubscribe from a callback. Lightweight object (can copy by value).
    */
   class Subscription {
    public:
@@ -80,13 +82,23 @@ class EventStream {
     Connector& event_queue_;
     uint64_t cb_uid_;
   };
-  
+
   typedef std::function<void(const Message&, Subscription&)> Callback;
 
   /**
    * Register a callback that will be called whenever an event arrives.
    */
   virtual void OnEvent(Callback callback) = 0;
+
+
+  /**
+   * Close this event stream, disallowing further events from getting received.
+   *
+   * Any subsequent call after Close() to any function will be result in undefined
+   * behavior (invalid pointer dereference). Can only be called from the thread
+   * associated with the Reactor.
+   */
+  virtual void Close() = 0;
 };
 
 /**
@@ -100,7 +112,7 @@ class EventStream {
  * (the one that owns the read-end of a connector) removes/closes it.
  */
 class Connector {
- class Params;
+ struct Params;
 
  public:
   friend class Reactor; // to create a Params initialization object
@@ -108,11 +120,11 @@ class Connector {
 
   Connector(Params params)
       : system_(params.system),
-        name_(params.name),
+        connector_name_(params.connector_name),
         reactor_name_(params.reactor_name),
         mutex_(params.mutex),
         cvar_(params.cvar),
-        stream_(mutex_, name_, this) {}
+        stream_(mutex_, connector_name_, this) {}
 
   /**
    * LocalChannel represents the channels to reactors living in the same reactor system (write-end of the connectors).
@@ -127,10 +139,10 @@ class Connector {
     friend class Connector;
 
     LocalChannel(std::shared_ptr<std::mutex> mutex, std::string reactor_name,
-                 std::string name, std::weak_ptr<Connector> queue, System *system)
+                 std::string connector_name, std::weak_ptr<Connector> queue, System *system)
         : mutex_(mutex),
           reactor_name_(reactor_name),
-          name_(name),
+          connector_name_(connector_name),
           weak_queue_(queue),
           system_(system) {}
 
@@ -154,7 +166,7 @@ class Connector {
    private:
     std::shared_ptr<std::mutex> mutex_;
     std::string reactor_name_;
-    std::string name_;
+    std::string connector_name_;
     std::weak_ptr<Connector> weak_queue_;
     System *system_;
   };
@@ -168,40 +180,28 @@ class Connector {
    public:
     friend class Connector;
 
-    LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string name,
-      Connector *queue) : mutex_(mutex), name_(name), queue_(queue) {}
+    LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string connector_name,
+      Connector *queue) : mutex_(mutex), connector_name_(connector_name), queue_(queue) {}
     std::unique_ptr<Message> AwaitEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
-      if (queue_ != nullptr) {
-        return queue_->LockedAwaitPop(lock);
-      }
-      throw std::runtime_error(
-          "Cannot call method after connector was closed.");
+      return queue_->LockedAwaitPop(lock);
     }
     std::unique_ptr<Message> PopEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
-      if (queue_ != nullptr) {
-        return queue_->LockedPop(lock);
-      }
-      throw std::runtime_error(
-          "Cannot call method after connector was closed.");
+      return queue_->LockedPop(lock);
     }
     void OnEvent(EventStream::Callback callback) {
       std::unique_lock<std::mutex> lock(*mutex_);
-      if (queue_ != nullptr) {
-        queue_->LockedOnEvent(callback);
-        return;
-      }
-      throw std::runtime_error(
-          "Cannot call method after connector was closed.");
+      queue_->LockedOnEvent(callback);
     }
+    void Close();
 
    private:
     std::shared_ptr<std::mutex> mutex_;
-    std::string name_;
+    std::string connector_name_;
     Connector *queue_;
   };
-  
+
   Connector(const Connector &other) = delete;
   Connector(Connector &&other) = default;
   Connector &operator=(const Connector &other) = delete;
@@ -215,10 +215,7 @@ private:
   struct Params {
     System* system;
     std::string reactor_name;
-    /**
-     * Connector name.
-     */
-    std::string name;
+    std::string connector_name;
     std::shared_ptr<std::mutex> mutex;
     std::shared_ptr<std::condition_variable> cvar;
   };
@@ -232,7 +229,7 @@ private:
 
   std::shared_ptr<LocalChannel> LockedOpenChannel() {
     assert(!self_ptr_.expired()); // TODO(zuza): fix this using this answer https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
-    return std::make_shared<LocalChannel>(mutex_, reactor_name_, name_, self_ptr_, system_);
+    return std::make_shared<LocalChannel>(mutex_, reactor_name_, connector_name_, self_ptr_, system_);
   }
 
   std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
@@ -251,7 +248,7 @@ private:
     uint64_t cb_uid = next_cb_uid++;
     callbacks_[cb_uid] = callback;
   }
-  
+
   std::unique_ptr<Message> LockedRawPop() {
     if (queue_.empty()) return nullptr;
     std::unique_ptr<Message> t = std::move(queue_.front());
@@ -266,13 +263,13 @@ private:
   }
 
   System *system_;
-  std::string name_;
+  std::string connector_name_;
   std::string reactor_name_;
   std::queue<std::unique_ptr<Message>> queue_;
   // Should only be locked once since it's used by a cond. var. Also caught in dctor, so must be recursive.
-  std::shared_ptr<std::mutex> mutex_; 
+  std::shared_ptr<std::mutex> mutex_;
   std::shared_ptr<std::condition_variable> cvar_;
-  /** 
+  /**
    * A weak_ptr to itself.
    *
    * There are initialization problems with this, check Params.
@@ -285,7 +282,7 @@ private:
 
 /**
  * A single unit of concurrent execution in the system.
- * 
+ *
  * E.g. one worker, one client. Owned by System. Has a thread associated with it.
  */
 class Reactor {
@@ -294,7 +291,7 @@ class Reactor {
 
   Reactor(System *system, std::string name)
       : system_(system), name_(name), main_(Open("main")) {}
-  
+
   virtual ~Reactor() {}
 
   virtual void Run() = 0;
@@ -321,7 +318,7 @@ class Reactor {
   Reactor(Reactor &&other) = default;
   Reactor &operator=(const Reactor &other) = delete;
   Reactor &operator=(Reactor &&other) = default;
-  
+
  protected:
   System *system_;
   std::string name_;
@@ -342,7 +339,7 @@ class Reactor {
    * between Channels and EventStreams.
    */
   std::unordered_map<std::string, std::shared_ptr<Connector>> connectors_;
-  int64_t channel_name_counter_{0};
+  int64_t connector_name_counter_{0};
   std::pair<EventStream*, std::shared_ptr<Channel>> main_;
 
  private:
