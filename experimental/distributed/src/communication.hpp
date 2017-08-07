@@ -13,7 +13,23 @@
 #include <tuple>
 #include <unordered_map>
 
+#include <gflags/gflags.h>
+
+#include "protocol.hpp"
+
+#include "cereal/archives/binary.hpp"
 #include "cereal/types/base_class.hpp"
+#include "cereal/types/memory.hpp"
+#include "cereal/types/polymorphic.hpp"
+#include "cereal/types/string.hpp"
+#include "cereal/types/utility.hpp"  // utility has to be included because of std::pair
+#include "cereal/types/vector.hpp"
+
+#include "communication/server.hpp"
+#include "threading/sync/spinlock.hpp"
+
+DECLARE_string(address);
+DECLARE_int32(port);
 
 class Message;
 class EventStream;
@@ -30,9 +46,9 @@ class Channel {
  public:
   virtual void Send(std::unique_ptr<Message>) = 0;
 
-  virtual std::string Hostname() = 0;
+  virtual std::string Address() = 0;
 
-  virtual int32_t Port() = 0;
+  virtual uint16_t Port() = 0;
 
   virtual std::string ReactorName() = 0;
 
@@ -42,7 +58,7 @@ class Channel {
 
   template <class Archive>
   void serialize(Archive &archive) {
-    archive(Hostname(), Port(), ReactorName(), Name());
+    archive(Address(), Port(), ReactorName(), Name());
   }
 };
 
@@ -155,9 +171,9 @@ class Connector {
       }
     }
 
-    virtual std::string Hostname();
+    virtual std::string Address();
 
-    virtual int32_t Port();
+    virtual uint16_t Port();
 
     virtual std::string ReactorName();
 
@@ -356,44 +372,58 @@ class Reactor {
 };
 
 /**
- * Configuration service.
- */
-class Config {
- public:
-  Config(System *system) : system_(system) {}
-
-  std::string GetString(std::string key) {
-    // TODO: Use configuration lib.
-    assert(key == "hostname");
-    return "localhost";
-  }
-
-  int32_t GetInt(std::string key) {
-    // TODO: Use configuration lib.
-    assert(key == "port");
-    return 8080;
-  }
- private:
-  System *system_;
-};
-
-/**
  * Networking service.
  */
 class Network {
+ private:
+  using Endpoint = Protocol::Endpoint;
+  using Socket = Protocol::Socket;
+  using NetworkServer = communication::Server<Protocol::Session,
+                                              Protocol::Socket, Protocol::Data>;
+
+  struct NetworkMessage {
+    NetworkMessage()
+        : address(""), port(0), reactor(""), channel(""), message(nullptr) {}
+
+    NetworkMessage(std::string _address, uint16_t _port, std::string _reactor,
+                   std::string _channel, std::unique_ptr<Message> _message)
+        : address(_address),
+          port(_port),
+          reactor(_reactor),
+          channel(_channel),
+          message(std::move(_message)) {}
+
+    NetworkMessage(NetworkMessage &&nm)
+        : address(nm.address),
+          port(nm.port),
+          reactor(nm.reactor),
+          channel(nm.channel),
+          message(std::move(nm.message)) {}
+
+    std::string address;
+    uint16_t port;
+    std::string reactor;
+    std::string channel;
+    std::unique_ptr<Message> message;
+  };
+
  public:
   Network(System *system);
 
-  std::string Hostname() { return hostname_; }
+  // client functions
 
-  int32_t Port() { return port_; }
-
-  std::shared_ptr<Channel> Resolve(std::string hostname, int32_t port) {
-    // TODO: Synchronously resolve and return channel.
+  std::shared_ptr<Channel> Resolve(std::string address, uint16_t port,
+                                   std::string reactor_name,
+                                   std::string channel_name) {
+    if (Protocol::SendMessage(address, port, reactor_name, channel_name,
+                              nullptr)) {
+      return std::make_shared<RemoteChannel>(this, address, port, reactor_name,
+                                             channel_name);
+    }
     return nullptr;
   }
 
-  std::shared_ptr<EventStream> AsyncResolve(std::string hostname, int32_t port,
+  std::shared_ptr<EventStream> AsyncResolve(std::string address, uint16_t port,
                                             int32_t retries,
                                             std::chrono::seconds cooldown) {
     // TODO: Asynchronously resolve channel, and return an event stream
@@ -401,31 +431,139 @@ class Network {
     return nullptr;
   }
 
+  void StartClient(int worker_count) {
+    LOG(INFO) << "Starting " << worker_count << " client workers";
+    for (int i = 0; i < worker_count; ++i) {
+      pool_.push_back(std::thread([worker_count, this]() {
+        while (this->client_run_) {
+          this->mutex_.lock();
+          if (!this->queue_.empty()) {
+            NetworkMessage nm(std::move(this->queue_.front()));
+            this->queue_.pop();
+            this->mutex_.unlock();
+            // TODO: store success
+            bool success =
+                Protocol::SendMessage(nm.address, nm.port, nm.reactor,
+                                      nm.channel, std::move(nm.message));
+            std::cout << "Network client message send status: " << success << std::endl;
+          } else {
+            this->mutex_.unlock();
+          }
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+      }));
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+  }
+
+  void StopClient() {
+    while (true) {
+      std::lock_guard<SpinLock> lock(mutex_);
+      if (queue_.empty()) {
+        break;
+      }
+    }
+    client_run_ = false;
+    for (int i = 0; i < pool_.size(); ++i) {
+      pool_[i].join();
+    }
+  }
+
   class RemoteChannel : public Channel {
    public:
-    RemoteChannel() {}
+    RemoteChannel(Network *network, std::string address, uint16_t port,
+                  std::string reactor, std::string channel)
+        : network_(network),
+          address_(address),
+          port_(port),
+          reactor_(reactor),
+          channel_(channel) {}
 
-    virtual std::string Hostname() {
-      throw std::runtime_error("Unimplemented.");
-    }
+    virtual std::string Address() { return address_; }
 
-    virtual int32_t Port() { throw std::runtime_error("Unimplemented."); }
+    virtual uint16_t Port() { return port_; }
 
-    virtual std::string ReactorName() {
-      throw std::runtime_error("Unimplemented.");
-    }
+    virtual std::string ReactorName() { return reactor_; }
 
-    virtual std::string Name() { throw std::runtime_error("Unimplemented."); }
+    virtual std::string Name() { return channel_; }
 
     virtual void Send(std::unique_ptr<Message> message) {
-      // TODO: Implement.
+      network_->mutex_.lock();
+      network_->queue_.push(NetworkMessage(address_, port_, reactor_, channel_,
+                                           std::move(message)));
+      network_->mutex_.unlock();
     }
+
+   private:
+    Network *network_;
+    std::string address_;
+    uint16_t port_;
+    std::string reactor_;
+    std::string channel_;
   };
+
+  // server functions
+
+  std::string Address() { return FLAGS_address; }
+
+  uint16_t Port() { return FLAGS_port; }
+
+  void StartServer(int workers_count) {
+    if (server_ != nullptr) {
+      LOG(FATAL) << "Tried to start a running server!";
+    }
+
+    // Initialize endpoint.
+    Endpoint endpoint;
+    try {
+      endpoint = Endpoint(FLAGS_address.c_str(), FLAGS_port);
+    } catch (io::network::NetworkEndpointException &e) {
+      LOG(FATAL) << e.what();
+    }
+
+    // Initialize socket.
+    Socket socket;
+    if (!socket.Bind(endpoint)) {
+      LOG(FATAL) << "Cannot bind to socket on " << FLAGS_address << " at "
+                 << FLAGS_port;
+    }
+    if (!socket.SetNonBlocking()) {
+      LOG(FATAL) << "Cannot set socket to non blocking!";
+    }
+    if (!socket.Listen(1024)) {
+      LOG(FATAL) << "Cannot listen on socket!";
+    }
+
+    // Initialize server
+    server_ =
+        std::make_unique<NetworkServer>(std::move(socket), protocol_data_);
+
+    // Start server
+    thread_ = std::thread(
+        [workers_count, this]() { this->server_->Start(workers_count); });
+  }
+
+  void StopServer() {
+    if (server_ != nullptr) {
+      server_->Shutdown();
+      server_ = nullptr;
+    }
+    thread_.join();
+  }
 
  private:
   System *system_;
-  std::string hostname_;
-  int32_t port_;
+
+  // client variables
+  SpinLock mutex_;
+  std::vector<std::thread> pool_;
+  std::queue<NetworkMessage> queue_;
+  std::atomic<bool> client_run_{true};
+
+  // server variables
+  std::thread thread_;
+  Protocol::Data protocol_data_;
+  std::unique_ptr<NetworkServer> server_{nullptr};
 };
 
 /**
@@ -444,44 +582,29 @@ class Message {
  */
 class SenderMessage : public Message {
  public:
-  SenderMessage(std::shared_ptr<Channel> sender) : sender_(sender) {}
+  SenderMessage();
+  SenderMessage(std::string reactor, std::string channel);
 
-  std::shared_ptr<Channel> sender() { return sender_; }
+  std::string Address() const;
+  uint16_t Port() const;
+  std::string ReactorName() const;
+  std::string ChannelName() const;
+
+  std::shared_ptr<Channel> GetChannelToSender(System *system) const;
 
   template <class Archive>
   void serialize(Archive &ar) {
-    ar(sender_);
+    ar(cereal::virtual_base_class<Message>(this), address_, port_,
+       reactor_, channel_);
   }
 
  private:
-  std::shared_ptr<Channel> sender_;
+  std::string address_;
+  uint16_t port_;
+  std::string reactor_;
+  std::string channel_;
 };
-
-/**
- * Serialization service.
- */
-class Serialization {
- public:
-  using SerializedT = std::pair<char *, int64_t>;
-
-  Serialization(System *system) : system_(system) {}
-
-  SerializedT serialize(const Message &) {
-    SerializedT serialized;
-    throw std::runtime_error("Not yet implemented (Serialization::serialized)");
-    return serialized;
-  }
-
-  Message deserialize(const SerializedT &) {
-    Message message;
-    throw std::runtime_error(
-        "Not yet implemented (Serialization::deserialize)");
-    return message;
-  }
-
- private:
-  System *system_;
-};
+CEREAL_REGISTER_TYPE(SenderMessage);
 
 /**
  * Global placeholder for all reactors in the system. Alive through the entire process lifetime.
@@ -492,9 +615,14 @@ class System {
  public:
   friend class Reactor;
 
-  System() : config_(this), network_(this), serialization_(this) {}
+  System() : network_(this) {}
 
   void operator=(const System &) = delete;
+
+  void StartServices() {
+    network_.StartClient(4);
+    network_.StartServer(4);
+  }
 
   template <class ReactorType, class... Args>
   const std::shared_ptr<Channel> Spawn(const std::string &name,
@@ -525,13 +653,11 @@ class System {
       auto &thread = key_value.second.second;
       thread.join();
     }
+    network_.StopClient();
+    network_.StopServer();
   }
 
-  Config &config() { return config_; }
-
   Network &network() { return network_; }
-
-  Serialization &serialization() { return serialization_; }
 
  private:
   void StartReactor(Reactor& reactor) {
@@ -546,7 +672,5 @@ class System {
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
       reactors_;
-  Config config_;
   Network network_;
-  Serialization serialization_;
 };

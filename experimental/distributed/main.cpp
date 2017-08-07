@@ -12,7 +12,7 @@ const int NUM_WORKERS = 1;
 
 class Txn : public SenderMessage {
  public:
-  Txn(std::shared_ptr<Channel> channel, int64_t id) : SenderMessage(channel), id_(id) {}
+  Txn(std::string reactor, std::string channel, int64_t id) : SenderMessage(reactor, channel), id_(id) {}
   int64_t id() const { return id_; }
 
   template <class Archive>
@@ -26,7 +26,7 @@ class Txn : public SenderMessage {
 
 class CreateNodeTxn : public Txn {
  public:
-  CreateNodeTxn(std::shared_ptr<Channel> channel, int64_t id) : Txn(channel, id) {}
+  CreateNodeTxn(std::string reactor, std::string channel, int64_t id) : Txn(reactor, channel, id) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
@@ -36,7 +36,7 @@ class CreateNodeTxn : public Txn {
 
 class CountNodesTxn : public Txn {
  public:
-  CountNodesTxn(std::shared_ptr<Channel> channel, int64_t id) : Txn(channel, id) {}
+  CountNodesTxn(std::string reactor, std::string channel, int64_t id) : Txn(reactor, channel, id) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
@@ -60,8 +60,8 @@ class CountNodesTxnResult : public Message {
 
 class CommitRequest : public SenderMessage {
  public:
-  CommitRequest(std::shared_ptr<Channel> sender, int64_t worker_id)
-      : SenderMessage(sender), worker_id_(worker_id) {}
+  CommitRequest(std::string reactor, std::string channel, int64_t worker_id)
+      : SenderMessage(reactor, channel), worker_id_(worker_id) {}
   int64_t worker_id() { return worker_id_; }
 
   template <class Archive>
@@ -75,8 +75,8 @@ class CommitRequest : public SenderMessage {
 
 class AbortRequest : public SenderMessage {
  public:
-  AbortRequest(std::shared_ptr<Channel> sender, int64_t worker_id)
-      : SenderMessage(sender), worker_id_(worker_id) {}
+  AbortRequest(std::string reactor, std::string channel, int64_t worker_id)
+      : SenderMessage(reactor, channel), worker_id_(worker_id) {}
   int64_t worker_id() { return worker_id_; }
 
   template <class Archive>
@@ -137,6 +137,12 @@ class Master : public Reactor {
       if (Query *query = dynamic_cast<Query *>(m.get())) {
         ProcessQuery(query);
         break;  // process only the first query
+      } else if (SenderMessage *msg = dynamic_cast<SenderMessage *>(m.get())) {
+        std::cout << "SenderMessage received!" << std::endl;
+        std::cout << "    Address: " << msg->Address() << std::endl;
+        std::cout << "       Port: " << msg->Port() << std::endl;
+        std::cout << "    Reactor: " << msg->ReactorName() << std::endl;
+        std::cout << "    Channel: " << msg->ChannelName() << std::endl;
       } else {
         std::cerr << "unknown message\n";
         exit(1);
@@ -171,13 +177,13 @@ class Master : public Reactor {
     auto stream = connector.first;
 
     auto create_node_txn =
-        std::make_unique<CreateNodeTxn>(connector.second, xid);
+        std::make_unique<CreateNodeTxn>("master", "main", xid);
     channels_[worker_id]->Send(std::move(create_node_txn));
     auto m = stream->AwaitEvent();
     if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
-      req->sender()->Send(std::make_unique<CommitDirective>());
+      req->GetChannelToSender(system_)->Send(std::make_unique<CommitDirective>());
     } else if (AbortRequest *req = dynamic_cast<AbortRequest *>(m.get())) {
-      req->sender()->Send(std::make_unique<AbortDirective>());
+      req->GetChannelToSender(system_)->Send(std::make_unique<AbortDirective>());
     } else {
       std::cerr << "unknown message\n";
       exit(1);
@@ -192,7 +198,7 @@ class Master : public Reactor {
     auto stream = connector.first;
     for (int w_id = 0; w_id < NUM_WORKERS; ++w_id)
       channels_[w_id]->Send(
-          std::make_unique<CountNodesTxn>(connector.second, xid));
+          std::make_unique<CountNodesTxn>("master", "main", xid));
 
     std::vector<std::shared_ptr<Channel>> txn_channels;
     txn_channels.resize(NUM_WORKERS, nullptr);
@@ -200,10 +206,10 @@ class Master : public Reactor {
     for (int responds = 0; responds < NUM_WORKERS; ++responds) {
       auto m = stream->AwaitEvent();
       if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
-        txn_channels[req->worker_id()] = req->sender();
+        txn_channels[req->worker_id()] = req->GetChannelToSender(system_);
         commit &= true;
       } else if (AbortRequest *req = dynamic_cast<AbortRequest *>(m.get())) {
-        txn_channels[req->worker_id()] = req->sender();
+        txn_channels[req->worker_id()] = req->GetChannelToSender(system_);
         commit = false;
       } else {
         std::cerr << "unknown message\n";
@@ -299,10 +305,10 @@ class Worker : public Reactor {
   void HandleCreateNode(CreateNodeTxn *txn) {
     auto connector = Open(GetTxnChannelName(txn->id()));
     auto stream = connector.first;
-    auto masterChannel = txn->sender();
+    auto masterChannel = txn->GetChannelToSender(system_);
     // TODO: Do the actual commit.
     masterChannel->Send(
-        std::make_unique<CommitRequest>(connector.second, worker_id_));
+        std::make_unique<CommitRequest>("master", "main", worker_id_));
     auto m = stream->AwaitEvent();
     if (dynamic_cast<CommitDirective *>(m.get())) {
       // TODO: storage_.CreateNode();
@@ -318,13 +324,13 @@ class Worker : public Reactor {
   void HandleCountNodes(CountNodesTxn *txn) {
     auto connector = Open(GetTxnChannelName(txn->id()));
     auto stream = connector.first;
-    auto masterChannel = txn->sender();
+    auto masterChannel = txn->GetChannelToSender(system_);
 
     // TODO: Fix this hack -- use the storage.
     int num = 123;
 
     masterChannel->Send(
-        std::make_unique<CommitRequest>(connector.second, worker_id_));
+        std::make_unique<CommitRequest>("master", "main", worker_id_));
     auto m = stream->AwaitEvent();
     if (dynamic_cast<CommitDirective *>(m.get())) {
       masterChannel->Send(std::make_unique<CountNodesTxnResult>(num));
@@ -372,8 +378,12 @@ void ClientMain(System *system) {
   }
 }
 
-int main() {
+
+int main(int argc, char *argv[]) {
+  //google::InitGoogleLogging(argv[0]);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   System system;
+  system.StartServices();
   system.Spawn<Master>("master");
   std::thread client(ClientMain, &system);
   for (int i = 0; i < NUM_WORKERS; ++i)
