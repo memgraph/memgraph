@@ -10,9 +10,26 @@
 
 #include "communication.hpp"
 
+TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
+  struct Master : public Reactor {
+    Master(System *system, std::string name) : Reactor(system, name) {}
+    virtual void Run() {
+      Open("channel");
+      ASSERT_THROW(Open("channel"), std::runtime_error);
+      CloseConnector("main");
+      CloseConnector("channel");
+    }
+  };
+
+  System system;
+  system.Spawn<Master>("master");
+  system.AwaitShutdown();
+}
+
+
 TEST(ConnectorSetUpTest, CheckMainChannelIsSet) {
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}    
+    Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
       while (!(channel = system_->FindChannel("worker", "main")))
