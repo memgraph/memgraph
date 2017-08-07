@@ -78,12 +78,3 @@ TEST(DynamicBitset, ConstBitset) {
   dbs.set(17);
   const_accepting(dbs);
 }
-
-TEST(DynamicBitset, GroupAcrossBlockFail) {
-  DynamicBitset<uint8_t> db;
-  // groups must be aligned to block_t
-  db.set(8, 1);
-  EXPECT_DEATH(db.at(7, 2), "Invalid index");
-  EXPECT_DEATH(db.set(7, 2), "Invalid index");
-  EXPECT_DEATH(db.clear(7, 2), "Invalid index");
-}

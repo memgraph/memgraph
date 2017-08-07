@@ -330,7 +330,8 @@ class LabelPropertyIndex {
   int64_t Count(const Key &key) {
     auto index = GetKeyStorage(key);
     permanent_assert(index != nullptr, "Index doesn't exist.");
-    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+    permanent_assert(ready_for_use_.access().contains(key),
+                     "Index not yet ready.");
     return index->access().size();
   }
 

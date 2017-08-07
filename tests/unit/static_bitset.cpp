@@ -1,6 +1,6 @@
-#include "data_structures/bitset/static_bitset.hpp"
 #include <gmock/gmock.h>
 #include <vector>
+#include "data_structures/bitset/static_bitset.hpp"
 #include "gtest/gtest-spi.h"
 #include "gtest/gtest.h"
 
@@ -56,22 +56,6 @@ TEST(StaticBitset, SetAndReadBit) {
   bitset.Set(4);
   EXPECT_EQ(bitset.At(4), true);
   EXPECT_EQ(bitset.At(3), false);
-}
-
-TEST(StaticBitset, SetOutOfRange) {
-  const int n = 50;
-  Bitset<char> bitset(n);
-  EXPECT_DEATH(bitset.Set(-1), "Invalid bit location.");
-  EXPECT_DEATH(bitset.Set(150), "Invalid bit location.");
-  bitset.Set(49);
-}
-
-TEST(StaticBitset, AtOutOfRange) {
-  const int n = 50;
-  Bitset<char> bitset(n);
-  bitset.Set(33);
-  EXPECT_DEATH(bitset.At(150), "Invalid bit location.");
-  EXPECT_DEATH(bitset.At(-1), "Invalid bit location.");
 }
 
 int main(int argc, char **argv) {

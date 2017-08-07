@@ -110,11 +110,11 @@ int64_t GraphDbAccessor::vertices_count(
   const LabelPropertyIndex::Key key(label, property);
   debug_assert(db_.label_property_index_.IndexExists(key),
                "Index doesn't exist.");
-  debug_assert(lower || upper, "At least one bound must be provided");
-  debug_assert(
+  permanent_assert(lower || upper, "At least one bound must be provided");
+  permanent_assert(
       !lower || lower.value().value().type() != PropertyValue::Type::Null,
       "Null value is not a valid index bound");
-  debug_assert(
+  permanent_assert(
       !upper || upper.value().value().type() != PropertyValue::Type::Null,
       "Null value is not a valid index bound");
 

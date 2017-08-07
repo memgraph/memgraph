@@ -554,8 +554,10 @@ TEST_F(QueryPlanExpandVariable, ExistingEdges) {
 TEST_F(QueryPlanExpandVariable, GraphState) {
   auto test_expand = [&](GraphView graph_view) {
     auto e = Edge("r", EdgeAtom::Direction::OUT);
-    return GetResults(AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
-                                               2, 2, e, false, "m", graph_view), e);
+    return GetResults(
+        AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, 2,
+                                 2, e, false, "m", graph_view),
+        e);
   };
 
   EXPECT_EQ(test_expand(GraphView::OLD), (map_int{{2, 8}}));
@@ -1438,15 +1440,6 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       check(value_a, Bound::Type::INCLUSIVE, value_b, Bound::Type::INCLUSIVE,
             {});
     }
-
-  // it's not allowed to have Null as a bound, we assert against that
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-  EXPECT_DEATH(check(TypedValue::Null, Bound::Type::INCLUSIVE, 0,
-                     Bound::Type::INCLUSIVE, {}),
-               "Null value is not a valid index bound");
-  EXPECT_DEATH(check(0, Bound::Type::INCLUSIVE, TypedValue::Null,
-                     Bound::Type::INCLUSIVE, {}),
-               "Null value is not a valid index bound");
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {

@@ -4,8 +4,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "database/graph_db_accessor.hpp"
 #include "database/dbms.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "utils/bound.hpp"
 
 using testing::UnorderedElementsAreArray;
@@ -103,8 +103,6 @@ TEST_F(GraphDbAccessorIndex, EdgeTypeCount) {
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   AddVertex(0);
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-  EXPECT_DEATH(dba->vertices_count(label, property), "Index doesn't exist.");
 
   Commit();
   dba->BuildIndex(label, property);

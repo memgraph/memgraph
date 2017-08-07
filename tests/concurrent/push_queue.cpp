@@ -59,9 +59,6 @@ TEST_F(IntQueue, IteratorPrefixIncrement) {
   auto it = cpq.begin();
   EXPECT_EQ(*(++it), 1);
   EXPECT_EQ(*it, 1);
-  ++it;
-  ++it;
-  EXPECT_DEATH(++it, "Prefix");
 }
 
 TEST_F(IntQueue, IteratorPostfixIncrement) {
@@ -69,9 +66,6 @@ TEST_F(IntQueue, IteratorPostfixIncrement) {
   auto it = cpq.begin();
   EXPECT_EQ(*it++, 2);
   EXPECT_EQ(*it, 1);
-  it++;
-  it++;
-  EXPECT_DEATH(it++, "Postfix");
 }
 
 TEST_F(IntQueue, IteratorEquality) {
@@ -170,8 +164,7 @@ TEST(ConcurrentPushQueue, RvalueLvalueElements) {
   std::string lvalue("lvalue");
   cpq.push(lvalue);
   std::vector<std::string> expected;
-  for (auto &elem : cpq)
-    expected.emplace_back(elem);
+  for (auto &elem : cpq) expected.emplace_back(elem);
   EXPECT_THAT(expected, ::testing::ElementsAre("lvalue", "rvalue"));
 }
 
