@@ -93,7 +93,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
     Worker(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
-      std::unique_ptr<Message> m_uptr = stream->AwaitEvent().second;
+      std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
       CloseConnector("main");
       MessageInt* msg = dynamic_cast<MessageInt *>(m_uptr.get());
       ASSERT_NE(msg, nullptr);
@@ -133,7 +133,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     Worker(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
-      std::unique_ptr<Message> m_uptr = stream->AwaitEvent().second;
+      std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
       CloseConnector("main");
       MessageInt* msg = dynamic_cast<MessageInt *>(m_uptr.get());
       ASSERT_NE(msg, nullptr);

@@ -43,7 +43,7 @@ class ChatServer : public Reactor {
     auto chat = Open("chat").first;
 
     while (true) {
-      auto m = chat->AwaitEvent().second;
+      auto m = chat->AwaitEvent();
       if (ChatACK *ack = dynamic_cast<ChatACK *>(m.get())) {
         std::cout << "Received ACK from " << ack->Address() << ":"
                   << ack->Port() << " -> '" << ack->Message() << "'"

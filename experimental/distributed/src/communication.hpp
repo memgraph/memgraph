@@ -71,12 +71,14 @@ class EventStream {
   /**
    * Blocks until a message arrives.
    */
-  virtual std::pair<std::type_index, std::unique_ptr<Message>> AwaitEvent() = 0;
+  virtual std::pair<std::type_index, std::unique_ptr<Message>> AwaitTypedEvent() = 0;
+  std::unique_ptr<Message> AwaitEvent() { return AwaitTypedEvent().second; }
 
   /**
    * Polls if there is a message available, returning null if there is none.
    */
-  virtual std::pair<std::type_index, std::unique_ptr<Message>> PopEvent() = 0;
+  virtual std::pair<std::type_index, std::unique_ptr<Message>> PopTypedEvent() = 0;
+  std::unique_ptr<Message> PopEvent() { return PopTypedEvent().second; }
 
   /**
    * Subscription Service.
@@ -200,11 +202,11 @@ class Connector {
 
     LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string connector_name,
       Connector *queue) : mutex_(mutex), connector_name_(connector_name), queue_(queue) {}
-    std::pair<std::type_index, std::unique_ptr<Message>> AwaitEvent() {
+    std::pair<std::type_index, std::unique_ptr<Message>> AwaitTypedEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
       return queue_->LockedAwaitPop(lock);
     }
-    std::pair<std::type_index, std::unique_ptr<Message>> PopEvent() {
+    std::pair<std::type_index, std::unique_ptr<Message>> PopTypedEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
       return queue_->LockedPop();
     }
