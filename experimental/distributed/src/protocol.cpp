@@ -64,7 +64,7 @@ void Session::Execute() {
     return;
   }
 
-  channel->SendHelper(typeid(nullptr), std::move(message));
+  channel->Send(std::move(message));
 
   SendSuccess(true);
 }

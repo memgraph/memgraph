@@ -176,9 +176,7 @@ class Master : public Reactor {
     auto connector = Open(txn_channel_name);
     auto stream = connector.first;
 
-    auto create_node_txn =
-        std::make_unique<CreateNodeTxn>("master", "main", xid);
-    channels_[worker_id]->SendHelper(typeid(nullptr), std::move(create_node_txn));
+    channels_[worker_id]->Send<CreateNodeTxn>("master", "main", xid);
     auto m = stream->AwaitEvent();
     if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
       req->GetChannelToSender(system_)->Send<CommitDirective>();
@@ -306,8 +304,7 @@ class Worker : public Reactor {
     auto stream = connector.first;
     auto masterChannel = txn->GetChannelToSender(system_);
     // TODO: Do the actual commit.
-    masterChannel->SendHelper(typeid(nullptr),
-        std::make_unique<CommitRequest>("master", "main", worker_id_));
+    masterChannel->Send<CommitRequest>("master", "main", worker_id_);
     auto m = stream->AwaitEvent();
     if (dynamic_cast<CommitDirective *>(m.get())) {
       // TODO: storage_.CreateNode();
@@ -328,11 +325,10 @@ class Worker : public Reactor {
     // TODO: Fix this hack -- use the storage.
     int num = 123;
 
-    masterChannel->SendHelper(typeid(nullptr),
-        std::make_unique<CommitRequest>("master", "main", worker_id_));
+    masterChannel->Send<CommitRequest>("master", "main", worker_id_);
     auto m = stream->AwaitEvent();
     if (dynamic_cast<CommitDirective *>(m.get())) {
-      masterChannel->SendHelper(typeid(nullptr), std::make_unique<CountNodesTxnResult>(num));
+      masterChannel->Send<CountNodesTxnResult>(num);
     } else if (dynamic_cast<AbortDirective *>(m.get())) {
       // send nothing
     } else {
@@ -370,9 +366,9 @@ void ClientMain(System *system) {
     std::getline(std::cin, s);
     if (s == "quit") {
       active = false;
-      channel->SendHelper(typeid(nullptr), std::make_unique<Quit>());
+      channel->Send<Quit>();
     } else {
-      channel->SendHelper(typeid(nullptr), std::make_unique<Query>(s));
+      channel->Send<Query>(s);
     }
   }
 }

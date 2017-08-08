@@ -508,7 +508,7 @@ class Network {
 
     virtual std::string Name() { return channel_; }
 
-    virtual void SendHelper(const std::type_index &tidx, std::unique_ptr<Message> message) {
+    virtual void SendHelper(const std::type_index& tidx, std::unique_ptr<Message> message) {
       network_->mutex_.lock();
       network_->queue_.push(NetworkMessage(address_, port_, reactor_, channel_,
                                            std::move(message)));

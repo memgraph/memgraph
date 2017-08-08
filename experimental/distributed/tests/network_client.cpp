@@ -7,8 +7,7 @@ int main(int argc, char *argv[]) {
   auto channel = system.network().Resolve("127.0.0.1", 10000, "master", "main");
   std::cout << channel << std::endl;
   if (channel != nullptr) {
-    auto message = std::make_unique<SenderMessage>("master", "main");
-    channel->SendHelper(typeid(SenderMessage), std::move(message));
+    channel->Send<SenderMessage>("master", "main");
   }
   system.network().StopClient();
   return 0;
