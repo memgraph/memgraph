@@ -118,7 +118,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
   // add a few nodes to the database
   GraphDbTypes::Label label = dba->label("Label");
-  GraphDbTypes::Property property = dba->property("Property");
+  auto property = PROPERTY_PAIR("Property");
   auto v1 = dba->insert_vertex();
   auto v2 = dba->insert_vertex();
   auto v3 = dba->insert_vertex();
@@ -132,10 +132,10 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   v2.add_label(label);
   v3.add_label(label);
   // v1 and v4 will have the right properties
-  v1.PropsSet(property, 42);
-  v2.PropsSet(property, 1);
-  v4.PropsSet(property, 42);
-  v5.PropsSet(property, 1);
+  v1.PropsSet(property.second, 42);
+  v2.PropsSet(property.second, 1);
+  v4.PropsSet(property.second, 42);
+  v5.PropsSet(property.second, 1);
   dba->advance_command();
 
   AstTreeStorage storage;
@@ -593,9 +593,12 @@ struct hash<std::pair<int, int>> {
 class QueryPlanExpandBreadthFirst : public testing::Test {
  protected:
   Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> dba_ = dbms_.active();
-  GraphDbTypes::Property prop = dba_->property("property");
-  GraphDbTypes::EdgeType edge_type = dba_->edge_type("edge_type");
+  // style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
+  // macro requirements
+  std::unique_ptr<GraphDbAccessor> dba = dbms_.active();
+  std::pair<std::string, GraphDbTypes::Property> prop =
+      PROPERTY_PAIR("property");
+  GraphDbTypes::EdgeType edge_type = dba->edge_type("edge_type");
 
   // make 4 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
@@ -614,13 +617,13 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
 
   void SetUp() {
     for (int i = 0; i < 4; i++) {
-      v.push_back(dba_->insert_vertex());
-      v.back().PropsSet(prop, i);
+      v.push_back(dba->insert_vertex());
+      v.back().PropsSet(prop.second, i);
     }
 
     auto add_edge = [&](int from, int to) {
-      EdgeAccessor edge = dba_->insert_edge(v[from], v[to], edge_type);
-      edge.PropsSet(prop, from * 10 + to);
+      EdgeAccessor edge = dba->insert_edge(v[from], v[to], edge_type);
+      edge.PropsSet(prop.second, from * 10 + to);
       e.emplace(std::make_pair(from, to), edge);
     };
 
@@ -631,7 +634,7 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
     add_edge(3, 2);
     add_edge(2, 2);
 
-    dba_->advance_command();
+    dba->advance_command();
     for (auto &vertex : v) vertex.Reconstruct();
     for (auto &edge : e) edge.second.Reconstruct();
   }
@@ -664,7 +667,7 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
         graph_view);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(*dba_);
+    auto cursor = last_op->MakeCursor(*dba);
     std::vector<std::pair<std::vector<EdgeAccessor>, VertexAccessor>> results;
     while (cursor->Pull(frame, symbol_table)) {
       results.emplace_back(std::vector<EdgeAccessor>(),
@@ -678,7 +681,7 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
 
   template <typename TAccessor>
   auto GetProp(const TAccessor &accessor) {
-    return accessor.PropsAt(prop).template Value<int64_t>();
+    return accessor.PropsAt(prop.second).template Value<int64_t>();
   }
 
   Expression *PropNe(Symbol symbol, int value) {
@@ -757,14 +760,14 @@ TEST_F(QueryPlanExpandBreadthFirst, GraphState) {
   };
   EXPECT_EQ(ExpandSize(GraphView::OLD), 3);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 3);
-  auto new_vertex = dba_->insert_vertex();
-  new_vertex.PropsSet(prop, 4);
-  dba_->insert_edge(v[3], new_vertex, edge_type);
-  EXPECT_EQ(CountIterable(dba_->vertices(false)), 4);
-  EXPECT_EQ(CountIterable(dba_->vertices(true)), 5);
+  auto new_vertex = dba->insert_vertex();
+  new_vertex.PropsSet(prop.second, 4);
+  dba->insert_edge(v[3], new_vertex, edge_type);
+  EXPECT_EQ(CountIterable(dba->vertices(false)), 4);
+  EXPECT_EQ(CountIterable(dba->vertices(true)), 5);
   EXPECT_EQ(ExpandSize(GraphView::OLD), 3);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
-  dba_->advance_command();
+  dba->advance_command();
   EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
 }
@@ -1129,17 +1132,17 @@ TEST(QueryPlan, EdgeFilter) {
     edge_types.push_back(dba->edge_type("et" + std::to_string(j)));
   std::vector<VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) vertices.push_back(dba->insert_vertex());
-  GraphDbTypes::Property prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("property");
   std::vector<EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
     edges.push_back(
         dba->insert_edge(vertices[0], vertices[i + 1], edge_types[i % 2]));
     switch (i % 3) {
       case 0:
-        edges.back().PropsSet(prop, 42);
+        edges.back().PropsSet(prop.second, 42);
         break;
       case 1:
-        edges.back().PropsSet(prop, 100);
+        edges.back().PropsSet(prop.second, 100);
         break;
       default:
         break;
@@ -1179,7 +1182,7 @@ TEST(QueryPlan, EdgeFilter) {
 
   EXPECT_EQ(1, test_filter());
   // test that edge filtering always filters on old state
-  for (auto &edge : edges) edge.PropsSet(prop, 42);
+  for (auto &edge : edges) edge.PropsSet(prop.second, 42);
   EXPECT_EQ(1, test_filter());
   dba->advance_command();
   EXPECT_EQ(3, test_filter());
@@ -1230,9 +1233,9 @@ TEST(QueryPlan, Filter) {
   auto dba = dbms.active();
 
   // add a 6 nodes with property 'prop', 2 have true as value
-  GraphDbTypes::Property property = dba->property("Property");
+  auto property = PROPERTY_PAIR("property");
   for (int i = 0; i < 6; ++i)
-    dba->insert_vertex().PropsSet(property, i % 3 == 0);
+    dba->insert_vertex().PropsSet(property.second, i % 3 == 0);
   dba->insert_vertex();  // prop not set, gives NULL
   dba->advance_command();
 

@@ -218,10 +218,11 @@ class ExpectOptional : public OpChecker<Optional> {
 class ExpectScanAllByLabelPropertyValue
     : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
-  ExpectScanAllByLabelPropertyValue(GraphDbTypes::Label label,
-                                    GraphDbTypes::Property property,
-                                    query::Expression *expression)
-      : label_(label), property_(property), expression_(expression) {}
+  ExpectScanAllByLabelPropertyValue(
+      GraphDbTypes::Label label,
+      const std::pair<std::string, GraphDbTypes::Property> &prop_pair,
+      query::Expression *expression)
+      : label_(label), property_(prop_pair.second), expression_(expression) {}
 
   void ExpectOp(ScanAllByLabelPropertyValue &scan_all,
                 const SymbolTable &) override {
@@ -801,13 +802,13 @@ TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
   // Test MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
-  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto m_prop = PROPERTY_LOOKUP("m", prop.second);
   node_n->properties_[prop] = m_prop;
   auto node_m = NODE("m");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[prop] = n_prop;
   QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n"));
   // We expect both ScanAll to come before filters (2 are joined into one),
@@ -915,10 +916,9 @@ TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
   // Test UNWIND [1] AS i MERGE (n {prop: i})
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
-  node_n->properties_[prop] = IDENT("i");
+  node_n->properties_[PROPERTY_PAIR("prop")] = IDENT("i");
   QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n)));
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
@@ -961,6 +961,18 @@ TEST(TestLogicalPlanner, ListLiteralAggregationReturn) {
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by")));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MapLiteralAggregationReturn) {
+  // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
+  AstTreeStorage storage; Dbms dbms;
+  auto dba = dbms.active();
+  auto sum = SUM(LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum}), AS("result"), group_by_literal,
+               AS("group_by")));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1011,14 +1023,14 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
   Dbms dbms;
   auto dba = dbms.active();
   auto label = dba->label("label");
-  auto property = dba->property("property");
-  auto not_indexed = dba->property("not_indexed");
+  auto property = PROPERTY_PAIR("property");
+  auto not_indexed = PROPERTY_PAIR("not_indexed");
   auto vertex = dba->insert_vertex();
   vertex.add_label(label);
-  vertex.PropsSet(property, 42);
+  vertex.PropsSet(property.second, 42);
   dba->commit();
   dba = dbms.active();
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property.second);
   dba = dbms.active();
   auto node = NODE("n", label);
   auto lit_42 = LITERAL(42);
@@ -1038,9 +1050,9 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
   Dbms dbms;
   auto dba = dbms.active();
   auto label = dba->label("label");
-  auto property = dba->property("property");
-  auto not_indexed = dba->property("not_indexed");
-  dba->BuildIndex(label, property);
+  auto property = PROPERTY_PAIR("property");
+  auto not_indexed = PROPERTY_PAIR("not_indexed");
+  dba->BuildIndex(label, property.second);
   dba = dbms.active();
   auto node = NODE("n");
   auto lit_42 = LITERAL(42);
@@ -1063,8 +1075,8 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   Dbms dbms;
   auto dba = dbms.active();
   auto label = dba->label("label");
-  auto property = dba->property("property");
-  dba->BuildIndex(label, property);
+  auto property = PROPERTY_PAIR("property");
+  dba->BuildIndex(label, property.second);
   dba = dbms.active();
   auto lit_42 = LITERAL(42);
   QUERY(MATCH(PATTERN(NODE("n", label))),
@@ -1093,10 +1105,10 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
   dba->commit();
   dba = dbms.active();
   ASSERT_EQ(dba->vertices_count(label, property), 1);
-  auto better = dba->property("better");
-  dba->BuildIndex(label, better);
+  auto better = PROPERTY_PAIR("better");
+  dba->BuildIndex(label, better.second);
   dba = dbms.active();
-  ASSERT_EQ(dba->vertices_count(label, better), 0);
+  ASSERT_EQ(dba->vertices_count(label, better.second), 0);
   auto lit_42 = LITERAL(42);
   QUERY(MATCH(PATTERN(NODE("n", label))),
         WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
@@ -1116,11 +1128,11 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
   auto dba = dbms.active();
   auto label1 = dba->label("label1");
   auto label2 = dba->label("label2");
-  auto prop1 = dba->property("prop1");
-  auto prop2 = dba->property("prop2");
-  dba->BuildIndex(label1, prop1);
+  auto prop1 = PROPERTY_PAIR("prop1");
+  auto prop2 = PROPERTY_PAIR("prop2");
+  dba->BuildIndex(label1, prop1.second);
   dba = dbms.active();
-  dba->BuildIndex(label2, prop2);
+  dba->BuildIndex(label2, prop2.second);
   dba = dbms.active();
   AstTreeStorage storage;
   auto lit_1 = LITERAL(1);
@@ -1243,7 +1255,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
   Dbms dbms;
   auto dba = dbms.active();
   auto type = dba->edge_type("type");
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r", type);
   edge->has_range_ = true;

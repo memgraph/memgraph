@@ -210,7 +210,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitProperties(CypherParser::PropertiesContext *ctx) override;
 
   /**
-   * @return unordered_map<GraphDbTypes::Property, Expression*>
+   * @return map<std::string, Expression*>
    */
   antlrcpp::Any visitMapLiteral(CypherParser::MapLiteralContext *ctx) override;
 

@@ -25,25 +25,33 @@ using testing::Pair;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
 
+// Base class for all test types
+class Base {
+ public:
+  Base(const std::string &query) : query_string_(query) {}
+  Dbms dbms_;
+  std::unique_ptr<GraphDbAccessor> db_accessor_ = dbms_.active();
+  Context context_{Config{}, *db_accessor_};
+  std::string query_string_;
+
+  auto Prop(const std::string &prop_name) {
+    return db_accessor_->property(prop_name);
+  }
+
+  auto PropPair(const std::string &prop_name) {
+    return std::make_pair(prop_name, Prop(prop_name));
+  }
+};
+
 // This generator uses ast constructed by parsing the query.
-class AstGenerator {
+class AstGenerator : public Base {
  public:
   AstGenerator(const std::string &query)
-      : dbms_(),
-        db_accessor_(dbms_.active()),
-        context_(Config{}, *db_accessor_),
-        query_string_(query),
-        parser_(query),
-        visitor_(context_),
-        query_([&]() {
+      : Base(query), parser_(query), visitor_(context_), query_([&]() {
           visitor_.visit(parser_.tree());
           return visitor_.query();
         }()) {}
 
-  Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> db_accessor_;
-  Context context_;
-  std::string query_string_;
   ::frontend::opencypher::Parser parser_;
   CypherMainVisitor visitor_;
   Query *query_;
@@ -63,37 +71,26 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
 // This generator clones parsed ast and uses that one.
 // Original ast is cleared after cloning to ensure that cloned ast doesn't reuse
 // any data from original ast.
-class ClonedAstGenerator {
+class ClonedAstGenerator : public Base {
  public:
   ClonedAstGenerator(const std::string &query)
-      : dbms_(),
-        db_accessor_(dbms_.active()),
-        context_(Config{}, *db_accessor_),
-        query_string_(query),
-        query_([&]() {
+      : Base(query), query_([&]() {
           ::frontend::opencypher::Parser parser(query);
           CypherMainVisitor visitor(context_);
           visitor.visit(parser.tree());
           return visitor.query()->Clone(storage);
         }()) {}
 
-  Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> db_accessor_;
-  Context context_;
-  std::string query_string_;
   AstTreeStorage storage;
   Query *query_;
 };
 
 // This generator strips ast, clones it and then plugs stripped out literals in
 // the same way it is done in ast cacheing in interpreter.
-class CachedAstGenerator {
+class CachedAstGenerator : public Base {
  public:
   CachedAstGenerator(const std::string &query)
-      : dbms_(),
-        db_accessor_(dbms_.active()),
-        context_(Config{}, *db_accessor_),
-        query_string_(query),
+      : Base(query),
         storage_([&]() {
           StrippedQuery stripped(query_string_);
           ::frontend::opencypher::Parser parser(stripped.query());
@@ -104,10 +101,6 @@ class CachedAstGenerator {
         }()),
         query_(storage_.query()) {}
 
-  Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> db_accessor_;
-  Context context_;
-  std::string query_string_;
   AstTreeStorage storage_;
   Query *query_;
 };
@@ -742,6 +735,31 @@ TYPED_TEST(CypherMainVisitorTest, ListLiteral) {
   EXPECT_EQ(elem_2->value_.type(), TypedValue::Type::String);
 }
 
+TYPED_TEST(CypherMainVisitorTest, MapLiteral) {
+  TypeParam ast_generator("RETURN {a: 1, b: 'bla', c: [1, {a: 42}]}");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *map_literal = dynamic_cast<MapLiteral *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(map_literal);
+  ASSERT_EQ(3, map_literal->elements_.size());
+  auto *elem_0 = dynamic_cast<PrimitiveLiteral *>(
+      map_literal->elements_[ast_generator.PropPair("a")]);
+  ASSERT_TRUE(elem_0);
+  EXPECT_EQ(elem_0->value_.type(), TypedValue::Type::Int);
+  auto *elem_1 = dynamic_cast<PrimitiveLiteral *>(
+      map_literal->elements_[ast_generator.PropPair("b")]);
+  ASSERT_TRUE(elem_1);
+  EXPECT_EQ(elem_1->value_.type(), TypedValue::Type::String);
+  auto *elem_2 = dynamic_cast<ListLiteral *>(
+      map_literal->elements_[ast_generator.PropPair("c")]);
+  ASSERT_TRUE(elem_2);
+  EXPECT_EQ(2, elem_2->elements_.size());
+  auto *elem_2_1 = dynamic_cast<MapLiteral *>(elem_2->elements_[1]);
+  ASSERT_TRUE(elem_2_1);
+  EXPECT_EQ(1, elem_2_1->elements_.size());
+}
+
 TYPED_TEST(CypherMainVisitorTest, NodePattern) {
   TypeParam ast_generator(
       "MATCH (:label1:label2:label3 {a : 5, b : 10}) RETURN 1");
@@ -764,7 +782,7 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
                                  ast_generator.db_accessor_->label("label1"),
                                  ast_generator.db_accessor_->label("label2"),
                                  ast_generator.db_accessor_->label("label3")));
-  std::unordered_map<GraphDbTypes::Property, int64_t> properties;
+  std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
   for (auto x : node->properties_) {
     auto *literal = dynamic_cast<PrimitiveLiteral *>(x.second);
     ASSERT_TRUE(literal);
@@ -772,9 +790,8 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
     properties[x.first] = literal->value_.Value<int64_t>();
   }
   EXPECT_THAT(properties,
-              UnorderedElementsAre(
-                  Pair(ast_generator.db_accessor_->property("a"), 5),
-                  Pair(ast_generator.db_accessor_->property("b"), 10)));
+              UnorderedElementsAre(Pair(ast_generator.PropPair("a"), 5),
+                                   Pair(ast_generator.PropPair("b"), 10)));
 }
 
 TYPED_TEST(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
@@ -858,7 +875,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
                            ast_generator.db_accessor_->edge_type("type2")));
-  std::unordered_map<GraphDbTypes::Property, int64_t> properties;
+  std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
   for (auto x : edge->properties_) {
     auto *literal = dynamic_cast<PrimitiveLiteral *>(x.second);
     ASSERT_TRUE(literal);
@@ -866,9 +883,8 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
     properties[x.first] = literal->value_.Value<int64_t>();
   }
   EXPECT_THAT(properties,
-              UnorderedElementsAre(
-                  Pair(ast_generator.db_accessor_->property("a"), 5),
-                  Pair(ast_generator.db_accessor_->property("b"), 10)));
+              UnorderedElementsAre(Pair(ast_generator.PropPair("a"), 5),
+                                   Pair(ast_generator.PropPair("b"), 10)));
 }
 
 TYPED_TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
@@ -995,8 +1011,8 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
   EXPECT_TRUE(edge->has_range_);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
-  auto prop = ast_generator.db_accessor_->property("prop");
-  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(
+      edge->properties_[ast_generator.PropPair("prop")]);
   EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
 }
 
@@ -1011,8 +1027,8 @@ TYPED_TEST(CypherMainVisitorTest,
   EXPECT_TRUE(edge->has_range_);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
-  auto prop = ast_generator.db_accessor_->property("prop");
-  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(
+      edge->properties_[ast_generator.PropPair("prop")]);
   EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.db_accessor_->edge_type("edge_type");
@@ -1031,8 +1047,8 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
   auto upper_bound = dynamic_cast<PrimitiveLiteral *>(edge->upper_bound_);
   ASSERT_TRUE(upper_bound);
   EXPECT_EQ(upper_bound->value_.Value<int64_t>(), 2);
-  auto prop = ast_generator.db_accessor_->property("prop");
-  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(edge->properties_[prop]);
+  auto prop_literal = dynamic_cast<PrimitiveLiteral *>(
+      edge->properties_[ast_generator.PropPair("prop")]);
   EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
 }
 
@@ -1421,5 +1437,4 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
   ASSERT_TRUE(eq);
 }
-
 }

@@ -499,34 +499,54 @@ TEST(ExpressionEvaluator, IsNullOperator) {
   ASSERT_EQ(val2.Value<bool>(), true);
 }
 
-TEST(ExpressionEvaluator, PropertyLookup) {
+class ExpressionEvaluatorPropertyLookup : public testing::Test {
+ protected:
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
   Dbms dbms;
-  auto dba = dbms.active();
+  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  std::pair<std::string, GraphDbTypes::Property> prop_age =
+      PROPERTY_PAIR("age");
+  std::pair<std::string, GraphDbTypes::Property> prop_height =
+      PROPERTY_PAIR("height");
+  Expression *identifier = storage.Create<Identifier>("element");
+  Symbol symbol = eval.symbol_table.CreateSymbol("element", true);
+
+  void SetUp() { eval.symbol_table[*identifier] = symbol; }
+
+  auto Value(std::pair<std::string, GraphDbTypes::Property> property) {
+    auto *op = storage.Create<PropertyLookup>(identifier, property);
+    return op->Accept(eval.eval);
+  }
+};
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = dba->insert_vertex();
-  v1.PropsSet(dba->property("age"), 10);
-  auto *identifier = storage.Create<Identifier>("n");
-  auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
-  eval.symbol_table[*identifier] = node_symbol;
-  eval.frame[node_symbol] = v1;
-  {
-    auto *op = storage.Create<PropertyLookup>(identifier, dba->property("age"));
-    auto value = op->Accept(eval.eval);
-    EXPECT_EQ(value.Value<int64_t>(), 10);
-  }
-  {
-    auto *op =
-        storage.Create<PropertyLookup>(identifier, dba->property("height"));
-    auto value = op->Accept(eval.eval);
-    EXPECT_TRUE(value.IsNull());
-  }
-  {
-    eval.frame[node_symbol] = TypedValue::Null;
-    auto *op = storage.Create<PropertyLookup>(identifier, dba->property("age"));
-    auto value = op->Accept(eval.eval);
-    EXPECT_TRUE(value.IsNull());
-  }
+  v1.PropsSet(prop_age.second, 10);
+  eval.frame[symbol] = v1;
+  EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto e12 = dba->insert_edge(v1, v2, dba->edge_type("edge_type"));
+  e12.PropsSet(prop_age.second, 10);
+  eval.frame[symbol] = e12;
+  EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
+  eval.frame[symbol] = TypedValue::Null;
+  EXPECT_TRUE(Value(prop_age).IsNull());
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
+  eval.frame[symbol] = std::map<std::string, TypedValue>{{prop_age.first, 10}};
+  EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
 }
 
 TEST(ExpressionEvaluator, LabelsTest) {
@@ -1041,5 +1061,4 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
   eval.symbol_table[*all->identifier_] = x_sym;
   EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
 }
-
 }

@@ -249,9 +249,12 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       case TypedValue::Type::Edge:
         return expression_result.Value<EdgeAccessor>().PropsAt(
             property_lookup.property_);
-      case TypedValue::Type::Map:
-        // TODO implement me
-        throw utils::NotYetImplemented("property lookup on map");
+      case TypedValue::Type::Map: {
+        auto &map = expression_result.Value<std::map<std::string, TypedValue>>();
+        auto found = map.find(property_lookup.property_name_);
+        if (found == map.end()) return TypedValue::Null;
+        return found->second;
+      }
       default:
         throw QueryRuntimeException(
             "Expected Node, Edge or Map for property lookup");
@@ -308,6 +311,13 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_)
       result.emplace_back(expression->Accept(*this));
+    return result;
+  }
+
+  TypedValue Visit(MapLiteral &literal) override {
+    std::map<std::string, TypedValue> result;
+    for (const auto &pair : literal.elements_)
+      result.emplace(pair.first.first, pair.second->Accept(*this));
     return result;
   }
 

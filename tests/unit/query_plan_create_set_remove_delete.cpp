@@ -27,7 +27,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   auto dba = dbms.active();
 
   GraphDbTypes::Label label = dba->label("Person");
-  GraphDbTypes::Property property = dba->label("age");
+  auto property = PROPERTY_PAIR("prop");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -48,7 +48,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     EXPECT_EQ(vertex.labels().size(), 1);
     EXPECT_EQ(*vertex.labels().begin(), label);
     EXPECT_EQ(vertex.Properties().size(), 1);
-    auto prop_eq = vertex.PropsAt(property) == TypedValue(42);
+    auto prop_eq = vertex.PropsAt(property.second) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.Value<bool>());
   }
@@ -61,7 +61,7 @@ TEST(QueryPlan, CreateReturn) {
   auto dba = dbms.active();
 
   GraphDbTypes::Label label = dba->label("Person");
-  GraphDbTypes::Property property = dba->label("age");
+  auto property = PROPERTY_PAIR("property");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -103,7 +103,7 @@ TEST(QueryPlan, CreateExpand) {
 
   GraphDbTypes::Label label_node_1 = dba->label("Node1");
   GraphDbTypes::Label label_node_2 = dba->label("Node2");
-  GraphDbTypes::Property property = dba->label("prop");
+  auto property = PROPERTY_PAIR("property");
   GraphDbTypes::EdgeType edge_type = dba->label("edge_type");
 
   SymbolTable symbol_table;
@@ -143,7 +143,8 @@ TEST(QueryPlan, CreateExpand) {
 
     EXPECT_EQ(CountIterable(dba->vertices(false)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e, expected_edges_created);
+    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e,
+              expected_edges_created);
   };
 
   test_create_path(false, 2, 1);
@@ -154,10 +155,10 @@ TEST(QueryPlan, CreateExpand) {
     GraphDbTypes::Label label = vertex.labels()[0];
     if (label == label_node_1) {
       // node created by first op
-      EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 1);
+      EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 1);
     } else if (label == label_node_2) {
       // node create by expansion
-      EXPECT_EQ(vertex.PropsAt(property).Value<int64_t>(), 2);
+      EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 2);
     } else {
       // should not happen
       FAIL();
@@ -165,7 +166,7 @@ TEST(QueryPlan, CreateExpand) {
 
     for (EdgeAccessor edge : dba->edges(false)) {
       EXPECT_EQ(edge.edge_type(), edge_type);
-      EXPECT_EQ(edge.PropsAt(property).Value<int64_t>(), 3);
+      EXPECT_EQ(edge.PropsAt(property.second).Value<int64_t>(), 3);
     }
   }
 }
@@ -241,7 +242,8 @@ TEST(QueryPlan, MatchCreateExpand) {
 
     EXPECT_EQ(CountIterable(dba->vertices(false)) - before_v,
               expected_nodes_created);
-    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e, expected_edges_created);
+    EXPECT_EQ(CountIterable(dba->edges(false)) - before_e,
+              expected_edges_created);
   };
 
   test_create_path(false, 3, 3);
@@ -378,10 +380,10 @@ TEST(QueryPlan, DeleteReturn) {
   auto dba = dbms.active();
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba->insert_vertex();
-    va.PropsSet(prop, 42);
+    va.PropsSet(prop.second, 42);
   }
 
   dba->advance_command();
@@ -688,8 +690,8 @@ TEST(QueryPlan, NodeFilterSet) {
   auto dba = dbms.active();
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba->insert_vertex();
-  auto prop = dba->property("prop");
-  v1.PropsSet(prop, 42);
+  auto prop = PROPERTY_PAIR("property");
+  v1.PropsSet(prop.second, 42);
   auto v2 = dba->insert_vertex();
   auto v3 = dba->insert_vertex();
   auto edge_type = dba->edge_type("Edge");
@@ -718,7 +720,7 @@ TEST(QueryPlan, NodeFilterSet) {
   EXPECT_EQ(2, PullAll(set, *dba, symbol_table));
   dba->advance_command();
   v1.Reconstruct();
-  auto prop_eq = v1.PropsAt(prop) == TypedValue(42 + 2);
+  auto prop_eq = v1.PropsAt(prop.second) == TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(prop_eq.Value<bool>());
 }
@@ -728,8 +730,8 @@ TEST(QueryPlan, FilterRemove) {
   auto dba = dbms.active();
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba->insert_vertex();
-  auto prop = dba->property("prop");
-  v1.PropsSet(prop, 42);
+  auto prop = PROPERTY_PAIR("property");
+  v1.PropsSet(prop.second, 42);
   auto v2 = dba->insert_vertex();
   auto v3 = dba->insert_vertex();
   auto edge_type = dba->edge_type("Edge");
@@ -756,7 +758,7 @@ TEST(QueryPlan, FilterRemove) {
   EXPECT_EQ(2, PullAll(rem, *dba, symbol_table));
   dba->advance_command();
   v1.Reconstruct();
-  EXPECT_EQ(v1.PropsAt(prop).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Null);
 }
 
 TEST(QueryPlan, SetRemove) {
@@ -802,7 +804,7 @@ TEST(QueryPlan, Merge) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("property");
   auto n = MakeScanAll(storage, symbol_table, "n");
 
   // merge_match branch
@@ -825,12 +827,12 @@ TEST(QueryPlan, Merge) {
   v2.Reconstruct();
   v3.Reconstruct();
 
-  ASSERT_EQ(v1.PropsAt(prop).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v1.PropsAt(prop).Value<int64_t>(), 1);
-  ASSERT_EQ(v2.PropsAt(prop).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v2.PropsAt(prop).Value<int64_t>(), 1);
-  ASSERT_EQ(v3.PropsAt(prop).type(), PropertyValue::Type::Int);
-  ASSERT_EQ(v3.PropsAt(prop).Value<int64_t>(), 2);
+  ASSERT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v1.PropsAt(prop.second).Value<int64_t>(), 1);
+  ASSERT_EQ(v2.PropsAt(prop.second).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v2.PropsAt(prop.second).Value<int64_t>(), 1);
+  ASSERT_EQ(v3.PropsAt(prop.second).type(), PropertyValue::Type::Int);
+  ASSERT_EQ(v3.PropsAt(prop.second).Value<int64_t>(), 2);
 }
 
 TEST(QueryPlan, MergeNoInput) {
@@ -859,7 +861,7 @@ TEST(QueryPlan, SetPropertyOnNull) {
   auto dba = dbms.active();
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
   auto literal = LITERAL(42);
   auto n_prop = storage.Create<PropertyLookup>(null, prop);
@@ -909,7 +911,7 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   auto dba = dbms.active();
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
   auto n_prop = storage.Create<PropertyLookup>(null, prop);
   auto once = std::make_shared<Once>();

@@ -107,8 +107,7 @@ TEST(TestSymbolGenerator, CreatePropertyUnbound) {
   auto node = NODE("anon");
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
-  node->properties_[prop] = IDENT("x");
+  node->properties_[PROPERTY_PAIR("prop")] = IDENT("x");
   auto query_ast = QUERY(CREATE(PATTERN(node)));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
@@ -401,10 +400,9 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   Dbms dbms;
   auto dba = dbms.active();
   auto r_type = dba->edge_type("r");
-  auto prop = dba->property("prop");
   AstTreeStorage storage;
   auto n_prop = NODE("n");
-  n_prop->properties_[prop] = LITERAL(42);
+  n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
   auto query = QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::OUT), n_prop)));
   SymbolTable symbol_table;
@@ -468,11 +466,11 @@ TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   // Test MATCH (n) CREATE (m {prop: n.prop})
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
   auto node_m = NODE("m");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[prop] = n_prop;
   auto query = QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m)));
   SymbolTable symbol_table;
@@ -757,13 +755,13 @@ TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
   // MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
-  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto m_prop = PROPERTY_LOOKUP("m", prop.second);
   node_n->properties_[prop] = m_prop;
   auto node_m = NODE("m");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[prop] = n_prop;
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
@@ -852,10 +850,10 @@ TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   // Test MATCH (n) -[r {prop: n.prop}]- (m) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   edge->properties_[prop] = n_prop;
   auto node_n = NODE("n");
   auto query = QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
@@ -971,10 +969,10 @@ TEST(TestSymbolGenerator, MatchPropertySameIdentifier) {
   // matched symbol is obtained.
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_n->properties_[prop] = n_prop;
   auto query = QUERY(MATCH(PATTERN(node_n)), RETURN("n"));
   SymbolTable symbol_table;

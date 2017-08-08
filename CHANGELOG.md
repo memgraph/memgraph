@@ -5,6 +5,7 @@
 ### Major Features and Improvements
 
 * Support for variable length path `MATCH`.
+* Support for map literal.
 * Support for `all` function in openCypher.
 * User specified transaction execution timeout.
 * Support for query parameters (except for parameters in place of property maps).

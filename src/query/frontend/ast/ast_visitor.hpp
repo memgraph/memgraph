@@ -24,6 +24,7 @@ class EdgeAtom;
 class BreadthFirstAtom;
 class PrimitiveLiteral;
 class ListLiteral;
+class MapLiteral;
 class OrOperator;
 class XorOperator;
 class AndOperator;
@@ -64,10 +65,10 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
     GreaterEqualOperator, InListOperator, ListIndexingOperator,
     ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
-    Function, All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind>;
+    ListLiteral, MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest,
+    Aggregation, Function, All, Create, Match, Return, With, Pattern, NodeAtom,
+    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, CreateIndex>;
@@ -89,10 +90,10 @@ using TreeVisitor = ::utils::Visitor<
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
     GreaterEqualOperator, InListOperator, ListIndexingOperator,
     ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    ListLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation,
-    Function, All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral,
-    CreateIndex>;
+    ListLiteral, MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest,
+    Aggregation, Function, All, Create, Match, Return, With, Pattern, NodeAtom,
+    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, Identifier,
+    PrimitiveLiteral, CreateIndex>;
 
 }  // namespace query

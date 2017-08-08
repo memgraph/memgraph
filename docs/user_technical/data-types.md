@@ -34,3 +34,11 @@ types. Following is a table of supported data types.
  `Integer` | An integer number.
  `Float`   | A floating-point number, i.e. a real number.
  `List`    | A list containing any number of property values of any supported type. It can be used to store multiple values under a single property name.
+
+Note that even though map literals are supported in openCypher queries, they can't be stored in the graph. For example, the following query is legal:
+
+     MATCH (n:Person) RETURN {name: n.name, age: n.age}
+
+However, the next query is not:
+
+     MATCH (n:Person {name: "John"}) SET n.address = {city: "London", street: "Fleet St."}

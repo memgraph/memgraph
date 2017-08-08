@@ -286,6 +286,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(MapLiteral &map_literal) override {
+    debug_assert(
+        map_literal.elements_.size() <= has_aggregation_.size(),
+        "Expected has_aggregation_ flags as much as there are map elements.");
+    bool has_aggr = false;
+    auto it = has_aggregation_.end();
+    std::advance(it, -map_literal.elements_.size());
+    while (it != has_aggregation_.end()) {
+      has_aggr = has_aggr || *it;
+      it = has_aggregation_.erase(it);
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
   bool PostVisit(All &all) override {
     // Remove the symbol which is bound by all, because we are only interested
     // in free (unbound) symbols.
@@ -1034,7 +1049,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
             symbol_table.CreateSymbol(identifier->name_, false);
       } else {
         // Store a PropertyFilter on the value of the property.
-        property_filters_[symbol][prop_pair.first].emplace_back(
+        property_filters_[symbol][prop_pair.first.second].emplace_back(
             PropertyFilter{collector.symbols_, prop_pair.second});
       }
       // Create an equality expression and store it in all_filters_.

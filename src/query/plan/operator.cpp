@@ -94,7 +94,7 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame,
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::NEW);
   for (auto &kv : self_.node_atom_->properties_)
-    PropsSetChecked(new_node, kv.first, kv.second->Accept(evaluator));
+    PropsSetChecked(new_node, kv.first.second, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.node_atom_->identifier_)] = new_node;
 }
 
@@ -171,7 +171,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     auto node = db_.insert_vertex();
     for (auto label : self_.node_atom_->labels_) node.add_label(label);
     for (auto kv : self_.node_atom_->properties_)
-      PropsSetChecked(node, kv.first, kv.second->Accept(evaluator));
+      PropsSetChecked(node, kv.first.second, kv.second->Accept(evaluator));
     auto symbol = symbol_table.at(*self_.node_atom_->identifier_);
     frame[symbol] = node;
     return frame[symbol].Value<VertexAccessor>();
@@ -184,7 +184,7 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   EdgeAccessor edge =
       db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
   for (auto kv : self_.edge_atom_->properties_)
-    PropsSetChecked(edge, kv.first, kv.second->Accept(evaluator));
+    PropsSetChecked(edge, kv.first.second, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 

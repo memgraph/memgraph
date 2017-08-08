@@ -580,6 +580,38 @@ class ListLiteral : public BaseLiteral {
       : BaseLiteral(uid), elements_(elements) {}
 };
 
+class MapLiteral : public BaseLiteral {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto pair : elements_)
+        if (!pair.second->Accept(visitor)) break;
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  MapLiteral *Clone(AstTreeStorage &storage) const override {
+    auto *map = storage.Create<MapLiteral>();
+    for (auto pair : elements_)
+      map->elements_.emplace(pair.first, pair.second->Clone(storage));
+    return map;
+  }
+
+  // maps (property_name, property) to expressions
+  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+      elements_;
+
+ protected:
+  MapLiteral(int uid) : BaseLiteral(uid) {}
+  MapLiteral(int uid,
+             const std::map<std::pair<std::string, GraphDbTypes::Property>,
+                            Expression *> &elements)
+      : BaseLiteral(uid), elements_(elements) {}
+};
+
 class Identifier : public Expression {
   friend class AstTreeStorage;
 
@@ -614,23 +646,27 @@ class PropertyLookup : public Expression {
 
   PropertyLookup *Clone(AstTreeStorage &storage) const override {
     return storage.Create<PropertyLookup>(expression_->Clone(storage),
-                                          property_);
+                                          property_name_, property_);
   }
 
   Expression *expression_ = nullptr;
-  GraphDbTypes::Property property_ = nullptr;
-  // TODO potential problem: property lookups are allowed on both map literals
-  // and records, but map literals have strings as keys and records have
-  // GraphDbTypes::Property
-  //
-  // possible solution: store both string and GraphDbTypes::Property here and
-  // choose
-  // between the two depending on Expression result
+  std::string property_name_;
+  GraphDbTypes::Property property_;
 
  protected:
   PropertyLookup(int uid, Expression *expression,
+                 const std::string &property_name,
                  GraphDbTypes::Property property)
-      : Expression(uid), expression_(expression), property_(property) {}
+      : Expression(uid),
+        expression_(expression),
+        property_name_(property_name),
+        property_(property) {}
+  PropertyLookup(int uid, Expression *expression,
+                 std::pair<std::string, GraphDbTypes::Property> property)
+      : Expression(uid),
+        expression_(expression),
+        property_name_(property.first),
+        property_(property.second) {}
 };
 
 class LabelsTest : public Expression {
@@ -838,8 +874,10 @@ class NodeAtom : public PatternAtom {
   }
 
   std::vector<GraphDbTypes::Label> labels_;
+  // maps (property_name, property) to an expression
   // TODO: change to unordered_map
-  std::map<GraphDbTypes::Property, Expression *> properties_;
+  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+      properties_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -887,8 +925,10 @@ class EdgeAtom : public PatternAtom {
 
   Direction direction_ = Direction::BOTH;
   std::vector<GraphDbTypes::EdgeType> edge_types_;
+  // maps (property_name, property) to an expression
   // TODO: change to unordered_map
-  std::map<GraphDbTypes::Property, Expression *> properties_;
+  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+      properties_;
   bool has_range_ = false;
   Expression *lower_bound_ = nullptr;
   Expression *upper_bound_ = nullptr;

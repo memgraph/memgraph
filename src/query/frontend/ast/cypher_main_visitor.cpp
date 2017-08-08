@@ -5,8 +5,8 @@
 #include <codecvt>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -177,9 +177,10 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
  */
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(
     CypherParser::CreateIndexContext *ctx) {
+  std::pair<std::string, GraphDbTypes::Property> key =
+      ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
-      ctx_.db_accessor_.label(ctx->labelName()->accept(this)),
-      ctx->propertyKeyName()->accept(this));
+      ctx_.db_accessor_.label(ctx->labelName()->accept(this)), key.second);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
@@ -274,7 +275,8 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(
     node->properties_ =
         ctx->properties()
             ->accept(this)
-            .as<std::map<GraphDbTypes::Property, Expression *>>();
+            .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
+                         Expression *>>();
   }
   return node;
 }
@@ -303,9 +305,10 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     CypherParser::MapLiteralContext *ctx) {
-  std::map<GraphDbTypes::Property, Expression *> map;
+  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *> map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
-    GraphDbTypes::Property key = ctx->propertyKeyName()[i]->accept(this);
+    std::pair<std::string, GraphDbTypes::Property> key =
+        ctx->propertyKeyName()[i]->accept(this);
     Expression *value = ctx->expression()[i]->accept(this);
     if (!map.insert({key, value}).second) {
       throw SemanticException("Same key can't appear twice in map literal");
@@ -324,7 +327,8 @@ antlrcpp::Any CypherMainVisitor::visitListLiteral(
 
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
     CypherParser::PropertyKeyNameContext *ctx) {
-  return ctx_.db_accessor_.property(visitChildren(ctx));
+  const std::string key_name = visitChildren(ctx);
+  return std::make_pair(key_name, ctx_.db_accessor_.property(key_name));
 }
 
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(
@@ -450,7 +454,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
           ctx->relationshipDetail()
               ->properties()
               ->accept(this)
-              .as<std::map<GraphDbTypes::Property, Expression *>>();
+              .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
+                           Expression *>>();
     }
     if (ctx->relationshipDetail()->rangeLiteral()) {
       edge->has_range_ = true;
@@ -751,8 +756,9 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(
     CypherParser::Expression2bContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
+    std::pair<std::string, GraphDbTypes::Property> key = lookup->accept(this);
     auto property_lookup =
-        storage_.Create<PropertyLookup>(expression, lookup->accept(this));
+        storage_.Create<PropertyLookup>(expression, key.first, key.second);
     expression = property_lookup;
   }
   return expression;
@@ -826,8 +832,11 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     return static_cast<BaseLiteral *>(storage_.Create<ListLiteral>(
         ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
   } else {
-    // TODO: Implement map literal.
-    throw utils::NotYetImplemented("map literal");
+    return static_cast<BaseLiteral *>(storage_.Create<MapLiteral>(
+        ctx->mapLiteral()
+            ->accept(this)
+            .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
+                         Expression *>>()));
   }
   return visitChildren(ctx);
 }
@@ -1014,8 +1023,9 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
     CypherParser::PropertyExpressionContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
+    std::pair<std::string, GraphDbTypes::Property> key = lookup->accept(this);
     auto property_lookup =
-        storage_.Create<PropertyLookup>(expression, lookup->accept(this));
+        storage_.Create<PropertyLookup>(expression, key.first, key.second);
     expression = property_lookup;
   }
   // It is guaranteed by grammar that there is at least one propertyLookup.
