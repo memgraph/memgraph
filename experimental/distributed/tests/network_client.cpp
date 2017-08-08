@@ -8,7 +8,7 @@ int main(int argc, char *argv[]) {
   std::cout << channel << std::endl;
   if (channel != nullptr) {
     auto message = std::make_unique<SenderMessage>("master", "main");
-    channel->Send(typeid(SenderMessage), std::move(message));
+    channel->SendHelper(typeid(SenderMessage), std::move(message));
   }
   system.network().StopClient();
   return 0;

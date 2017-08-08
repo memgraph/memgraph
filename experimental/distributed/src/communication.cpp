@@ -3,7 +3,7 @@
 DEFINE_string(address, "127.0.0.1", "Network server bind address");
 DEFINE_int32(port, 10000, "Network server bind port");
 
-void EventStream::Subscription::unsubscribe() {
+void EventStream::Subscription::unsubscribe() const {
   event_queue_.RemoveCb(*this);
 }
 

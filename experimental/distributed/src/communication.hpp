@@ -11,8 +11,9 @@
 #include <stdexcept>
 #include <thread>
 #include <tuple>
-#include <unordered_map>
 #include <typeindex>
+#include <unordered_map>
+#include <utility>
 
 #include <gflags/gflags.h>
 
@@ -45,7 +46,18 @@ extern thread_local Reactor* current_reactor_;
  */
 class Channel {
  public:
-  virtual void Send(const std::type_index&, std::unique_ptr<Message>) = 0;
+  /**
+   * Construct and send the message to the channel.
+   */
+  template<typename MsgType, typename... Args>
+  void Send(Args&&... args) {
+    SendHelper(typeid(MsgType), std::unique_ptr<Message>(new MsgType(std::forward<Args>(args)...)));
+  }
+
+  template<typename MsgType>
+  void Send(std::unique_ptr<MsgType>&& msg_ptr) {
+    SendHelper(typeid(MsgType), std::move(msg_ptr));
+  }
 
   virtual std::string Address() = 0;
 
@@ -61,6 +73,8 @@ class Channel {
   void serialize(Archive &archive) {
     archive(Address(), Port(), ReactorName(), Name());
   }
+
+  virtual void SendHelper(const std::type_index&, std::unique_ptr<Message>) = 0;
 };
 
 /**
@@ -90,7 +104,7 @@ class EventStream {
     /**
      * Unsubscribe. Call only once.
      */
-    void unsubscribe();
+    void unsubscribe() const;
 
    private:
     friend class Reactor;
@@ -104,7 +118,7 @@ class EventStream {
     uint64_t cb_uid_;
   };
 
-  typedef std::function<void(const Message&, Subscription&)> Callback;
+  typedef std::function<void(const Message&, const Subscription&)> Callback;
 
   /**
    * Register a callback that will be called whenever an event arrives.
@@ -166,7 +180,7 @@ class Connector {
           weak_queue_(queue),
           system_(system) {}
 
-    virtual void Send(const std::type_index& tidx, std::unique_ptr<Message> m) {
+    virtual void SendHelper(const std::type_index& tidx, std::unique_ptr<Message> m) {
       std::shared_ptr<Connector> queue_ = weak_queue_.lock(); // Atomic, per the standard.
       if (queue_) {
         // We guarantee here that the Connector is not destroyed.
@@ -494,7 +508,7 @@ class Network {
 
     virtual std::string Name() { return channel_; }
 
-    virtual void Send(const std::type_index &tidx, std::unique_ptr<Message> message) {
+    virtual void SendHelper(const std::type_index &tidx, std::unique_ptr<Message> message) {
       network_->mutex_.lock();
       network_->queue_.push(NetworkMessage(address_, port_, reactor_, channel_,
                                            std::move(message)));

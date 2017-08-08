@@ -54,7 +54,7 @@ class ChatServer : public Reactor {
                   << std::endl;
         auto channel = msg->GetChannelToSender(system_);
         if (channel != nullptr) {
-          channel->Send(typeid(nullptr),
+          channel->SendHelper(typeid(nullptr),
                         std::make_unique<ChatACK>("server", "chat", msg->Message()));
         }
       } else {
@@ -81,7 +81,7 @@ class ChatClient : public Reactor {
       auto channel =
           system_->network().Resolve(address, port, "server", "chat");
       if (channel != nullptr) {
-        channel->Send(typeid(nullptr), std::make_unique<ChatMessage>("server", "chat", message));
+        channel->SendHelper(typeid(nullptr), std::make_unique<ChatMessage>("server", "chat", message));
       } else {
         std::cerr << "Couldn't resolve that server!" << std::endl;
       }
