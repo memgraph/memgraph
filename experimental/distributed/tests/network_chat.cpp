@@ -43,7 +43,7 @@ class ChatServer : public Reactor {
     auto chat = Open("chat").first;
 
     while (true) {
-      auto m = chat->AwaitEvent();
+      auto m = chat->AwaitEvent().second;
       if (ChatACK *ack = dynamic_cast<ChatACK *>(m.get())) {
         std::cout << "Received ACK from " << ack->Address() << ":"
                   << ack->Port() << " -> '" << ack->Message() << "'"
@@ -54,8 +54,8 @@ class ChatServer : public Reactor {
                   << std::endl;
         auto channel = msg->GetChannelToSender(system_);
         if (channel != nullptr) {
-          channel->Send(
-              std::make_unique<ChatACK>("server", "chat", msg->Message()));
+          channel->Send(typeid(nullptr),
+                        std::make_unique<ChatACK>("server", "chat", msg->Message()));
         }
       } else {
         std::cerr << "Unknown message received!\n";
@@ -81,7 +81,7 @@ class ChatClient : public Reactor {
       auto channel =
           system_->network().Resolve(address, port, "server", "chat");
       if (channel != nullptr) {
-        channel->Send(std::make_unique<ChatMessage>("server", "chat", message));
+        channel->Send(typeid(nullptr), std::make_unique<ChatMessage>("server", "chat", message));
       } else {
         std::cerr << "Couldn't resolve that server!" << std::endl;
       }

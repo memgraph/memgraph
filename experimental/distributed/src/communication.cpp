@@ -4,7 +4,7 @@ DEFINE_string(address, "127.0.0.1", "Network server bind address");
 DEFINE_int32(port, 10000, "Network server bind port");
 
 void EventStream::Subscription::unsubscribe() {
-  event_queue_.RemoveCbByUid(cb_uid_);
+  event_queue_.RemoveCb(*this);
 }
 
 thread_local Reactor* current_reactor_ = nullptr;
@@ -87,6 +87,7 @@ void Reactor::RunEventLoop() {
       std::unique_lock<std::mutex> lock(*mutex_);
 
       while (true) {
+
         // Exit the loop if there are no more Connectors.
         if (connectors_.empty()) {
           exit_event_loop = true;
@@ -94,7 +95,7 @@ void Reactor::RunEventLoop() {
         }
 
         // Not fair because was taken earlier, talk to lion.
-        msg_and_cb = LockedGetPendingMessages(lock);
+        msg_and_cb = LockedGetPendingMessages();
         if (msg_and_cb.first != nullptr) break;
 
         cvar_->wait(lock);
@@ -114,20 +115,25 @@ void Reactor::RunEventLoop() {
 /**
  * Checks if there is any nonempty EventStream.
  */
-auto Reactor::LockedGetPendingMessages(std::unique_lock<std::mutex> &lock) -> MsgAndCbInfo {
+auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
   // return type after because the scope Reactor:: is not searched before the name
   for (auto& connectors_key_value : connectors_) {
     Connector& event_queue = *connectors_key_value.second;
-    auto msg_ptr = event_queue.LockedPop(lock);
-    if (msg_ptr == nullptr) continue;
+    auto msg_ptr = event_queue.LockedPop();
+    if (msg_ptr.second == nullptr) continue;
+    const std::type_index& tidx = msg_ptr.first;
 
     std::vector<std::pair<EventStream::Callback, EventStream::Subscription> > cb_info;
-    for (auto& callbacks_key_value : event_queue.callbacks_) {
-      uint64_t uid = callbacks_key_value.first;
-      EventStream::Callback cb = callbacks_key_value.second;
-      cb_info.emplace_back(cb, EventStream::Subscription(event_queue, uid));
+    auto msg_type_cb_iter = event_queue.callbacks_.find(msg_ptr.first);
+    if (msg_type_cb_iter != event_queue.callbacks_.end()) { // There is a callback for this type.
+      for (auto& tidx_cb_key_value : msg_type_cb_iter->second) {
+        uint64_t uid = tidx_cb_key_value.first;
+        EventStream::Callback cb = tidx_cb_key_value.second;
+        cb_info.emplace_back(cb, EventStream::Subscription(event_queue, tidx, uid));
+      }
     }
-    return make_pair(std::move(msg_ptr), cb_info);
+
+    return MsgAndCbInfo(std::move(msg_ptr.second), std::move(cb_info));
   }
 
   return MsgAndCbInfo(nullptr, {});

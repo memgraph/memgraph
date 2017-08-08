@@ -17,8 +17,6 @@ BASE_FLAGS = [
     '-I/usr/lib/',
     '-I/usr/include/',
     '-I./src',
-    '-I./experimental/distributed/src',
-    '-I./experimental/distributed/libs/cereal/include',
     '-I./include',
     '-I./libs/fmt',
     '-I./libs/yaml-cpp',
@@ -30,7 +28,9 @@ BASE_FLAGS = [
     '-I./libs',
     '-I./libs/rapidcheck/include',
     '-I./libs/antlr4/runtime/Cpp/runtime/src',
-    '-I./build/libs/gflags/include'
+    '-I./build/libs/gflags/include',
+    '-I./experimental/distributed/src',
+    '-I./experimental/distributed/libs/cereal/include'
 ]
 
 SOURCE_EXTENSIONS = [

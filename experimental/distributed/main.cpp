@@ -133,7 +133,7 @@ class Master : public Reactor {
 
     std::cout << "Master is active" << std::endl;
     while (true) {
-      auto m = stream->AwaitEvent();
+      auto m = stream->AwaitEvent().second;
       if (Query *query = dynamic_cast<Query *>(m.get())) {
         ProcessQuery(query);
         break;  // process only the first query
@@ -149,7 +149,7 @@ class Master : public Reactor {
       }
     }
 
-    stream->OnEvent([this](const Message &msg, EventStream::Subscription& subscription) {
+    stream->OnEvent(typeid(Message), [this](const Message &msg, EventStream::Subscription& subscription) {
       std::cout << "Processing Query via Callback" << std::endl;
       const Query &query =
           dynamic_cast<const Query &>(msg);  // exception bad_cast
@@ -178,12 +178,12 @@ class Master : public Reactor {
 
     auto create_node_txn =
         std::make_unique<CreateNodeTxn>("master", "main", xid);
-    channels_[worker_id]->Send(std::move(create_node_txn));
-    auto m = stream->AwaitEvent();
+    channels_[worker_id]->Send(typeid(nullptr), std::move(create_node_txn));
+    auto m = stream->AwaitEvent().second;
     if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
-      req->GetChannelToSender(system_)->Send(std::make_unique<CommitDirective>());
+      req->GetChannelToSender(system_)->Send(typeid(nullptr), std::make_unique<CommitDirective>());
     } else if (AbortRequest *req = dynamic_cast<AbortRequest *>(m.get())) {
-      req->GetChannelToSender(system_)->Send(std::make_unique<AbortDirective>());
+      req->GetChannelToSender(system_)->Send(typeid(nullptr), std::make_unique<AbortDirective>());
     } else {
       std::cerr << "unknown message\n";
       exit(1);
@@ -197,14 +197,14 @@ class Master : public Reactor {
     auto connector = Open(txn_channel_name);
     auto stream = connector.first;
     for (int w_id = 0; w_id < NUM_WORKERS; ++w_id)
-      channels_[w_id]->Send(
+      channels_[w_id]->Send(typeid(nullptr),
           std::make_unique<CountNodesTxn>("master", "main", xid));
 
     std::vector<std::shared_ptr<Channel>> txn_channels;
     txn_channels.resize(NUM_WORKERS, nullptr);
     bool commit = true;
     for (int responds = 0; responds < NUM_WORKERS; ++responds) {
-      auto m = stream->AwaitEvent();
+      auto m = stream->AwaitEvent().second;
       if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
         txn_channels[req->worker_id()] = req->GetChannelToSender(system_);
         commit &= true;
@@ -219,15 +219,15 @@ class Master : public Reactor {
 
     if (commit) {
       for (int w_id = 0; w_id < NUM_WORKERS; ++w_id)
-        txn_channels[w_id]->Send(std::make_unique<CommitDirective>());
+        txn_channels[w_id]->Send(typeid(nullptr), std::make_unique<CommitDirective>());
     } else {
       for (int w_id = 0; w_id < NUM_WORKERS; ++w_id)
-        txn_channels[w_id]->Send(std::make_unique<AbortDirective>());
+        txn_channels[w_id]->Send(typeid(nullptr), std::make_unique<AbortDirective>());
     }
 
     int64_t count = 0;
     for (int responds = 0; responds < NUM_WORKERS; ++responds) {
-      auto m = stream->AwaitEvent();
+      auto m = stream->AwaitEvent().second;
       if (CountNodesTxnResult *cnt =
               dynamic_cast<CountNodesTxnResult *>(m.get())) {
         count += cnt->count();
@@ -280,7 +280,7 @@ class Worker : public Reactor {
     auto stream = main_.first;
     FindMaster();
     while (true) {
-      auto m = stream->AwaitEvent();
+      auto m = stream->AwaitEvent().second;
       if (Txn *txn = dynamic_cast<Txn *>(m.get())) {
         HandleTransaction(txn);
       } else {
@@ -307,9 +307,9 @@ class Worker : public Reactor {
     auto stream = connector.first;
     auto masterChannel = txn->GetChannelToSender(system_);
     // TODO: Do the actual commit.
-    masterChannel->Send(
+    masterChannel->Send(typeid(nullptr),
         std::make_unique<CommitRequest>("master", "main", worker_id_));
-    auto m = stream->AwaitEvent();
+    auto m = stream->AwaitEvent().second;
     if (dynamic_cast<CommitDirective *>(m.get())) {
       // TODO: storage_.CreateNode();
     } else if (dynamic_cast<AbortDirective *>(m.get())) {
@@ -329,11 +329,11 @@ class Worker : public Reactor {
     // TODO: Fix this hack -- use the storage.
     int num = 123;
 
-    masterChannel->Send(
+    masterChannel->Send(typeid(nullptr),
         std::make_unique<CommitRequest>("master", "main", worker_id_));
-    auto m = stream->AwaitEvent();
+    auto m = stream->AwaitEvent().second;
     if (dynamic_cast<CommitDirective *>(m.get())) {
-      masterChannel->Send(std::make_unique<CountNodesTxnResult>(num));
+      masterChannel->Send(typeid(nullptr), std::make_unique<CountNodesTxnResult>(num));
     } else if (dynamic_cast<AbortDirective *>(m.get())) {
       // send nothing
     } else {
@@ -371,9 +371,9 @@ void ClientMain(System *system) {
     std::getline(std::cin, s);
     if (s == "quit") {
       active = false;
-      channel->Send(std::make_unique<Quit>());
+      channel->Send(typeid(nullptr), std::make_unique<Quit>());
     } else {
-      channel->Send(std::make_unique<Query>(s));
+      channel->Send(typeid(nullptr), std::make_unique<Query>(s));
     }
   }
 }

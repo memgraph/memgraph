@@ -12,6 +12,7 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include <typeindex>
 
 #include <gflags/gflags.h>
 
@@ -44,7 +45,7 @@ extern thread_local Reactor* current_reactor_;
  */
 class Channel {
  public:
-  virtual void Send(std::unique_ptr<Message>) = 0;
+  virtual void Send(const std::type_index&, std::unique_ptr<Message>) = 0;
 
   virtual std::string Address() = 0;
 
@@ -70,12 +71,12 @@ class EventStream {
   /**
    * Blocks until a message arrives.
    */
-  virtual std::unique_ptr<Message> AwaitEvent() = 0;
+  virtual std::pair<std::type_index, std::unique_ptr<Message>> AwaitEvent() = 0;
 
   /**
    * Polls if there is a message available, returning null if there is none.
    */
-  virtual std::unique_ptr<Message> PopEvent() = 0;
+  virtual std::pair<std::type_index, std::unique_ptr<Message>> PopEvent() = 0;
 
   /**
    * Subscription Service.
@@ -91,11 +92,13 @@ class EventStream {
 
    private:
     friend class Reactor;
+    friend class Connector;
 
-    Subscription(Connector& event_queue, uint64_t cb_uid) : event_queue_(event_queue) {
-      cb_uid_ = cb_uid;
-    }
+    Subscription(Connector& event_queue, std::type_index tidx, uint64_t cb_uid)
+      : event_queue_(event_queue), tidx_(tidx), cb_uid_(cb_uid) { }
+
     Connector& event_queue_;
+    std::type_index tidx_;
     uint64_t cb_uid_;
   };
 
@@ -104,8 +107,7 @@ class EventStream {
   /**
    * Register a callback that will be called whenever an event arrives.
    */
-  virtual void OnEvent(Callback callback) = 0;
-
+  virtual void OnEvent(std::type_index tidx, Callback callback) = 0;
 
   /**
    * Close this event stream, disallowing further events from getting received.
@@ -162,12 +164,12 @@ class Connector {
           weak_queue_(queue),
           system_(system) {}
 
-    virtual void Send(std::unique_ptr<Message> m) {
+    virtual void Send(const std::type_index& tidx, std::unique_ptr<Message> m) {
       std::shared_ptr<Connector> queue_ = weak_queue_.lock(); // Atomic, per the standard.
       if (queue_) {
         // We guarantee here that the Connector is not destroyed.
         std::unique_lock<std::mutex> lock(*mutex_);
-        queue_->LockedPush(lock, std::move(m));
+        queue_->LockedPush(tidx, std::move(m));
       }
     }
 
@@ -198,17 +200,17 @@ class Connector {
 
     LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string connector_name,
       Connector *queue) : mutex_(mutex), connector_name_(connector_name), queue_(queue) {}
-    std::unique_ptr<Message> AwaitEvent() {
+    std::pair<std::type_index, std::unique_ptr<Message>> AwaitEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
       return queue_->LockedAwaitPop(lock);
     }
-    std::unique_ptr<Message> PopEvent() {
+    std::pair<std::type_index, std::unique_ptr<Message>> PopEvent() {
       std::unique_lock<std::mutex> lock(*mutex_);
-      return queue_->LockedPop(lock);
+      return queue_->LockedPop();
     }
-    void OnEvent(EventStream::Callback callback) {
+    void OnEvent(std::type_index tidx, Callback callback) {
       std::unique_lock<std::mutex> lock(*mutex_);
-      queue_->LockedOnEvent(callback);
+      queue_->LockedOnEvent(tidx, callback);
     }
     void Close();
 
@@ -237,8 +239,8 @@ private:
   };
 
 
-  void LockedPush(std::unique_lock<std::mutex> &, std::unique_ptr<Message> m) {
-    queue_.push(std::move(m));
+  void LockedPush(const std::type_index& tidx, std::unique_ptr<Message> m) {
+    queue_.emplace(tidx, std::move(m));
     // This is OK because there is only one Reactor (thread) that can wait on this Connector.
     cvar_->notify_one();
   }
@@ -248,40 +250,43 @@ private:
     return std::make_shared<LocalChannel>(mutex_, reactor_name_, connector_name_, self_ptr_, system_);
   }
 
-  std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
-    std::unique_ptr<Message> m;
-    while (!(m = LockedRawPop())) {
-      cvar_->wait(lock);
+  std::pair<std::type_index, std::unique_ptr<Message>> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
+    while (true) {
+      std::pair<std::type_index, std::unique_ptr<Message>> m = LockedRawPop();
+      if (!m.second) {
+        cvar_->wait(lock);
+      } else {
+        return m;
+      }
     }
-    return m;
   }
 
-  std::unique_ptr<Message> LockedPop(std::unique_lock<std::mutex> &lock) {
+  std::pair<std::type_index, std::unique_ptr<Message>> LockedPop() {
     return LockedRawPop();
   }
 
-  void LockedOnEvent(EventStream::Callback callback) {
+  void LockedOnEvent(std::type_index tidx, EventStream::Callback callback) {
     uint64_t cb_uid = next_cb_uid++;
-    callbacks_[cb_uid] = callback;
+    callbacks_[tidx][cb_uid] = callback;
   }
 
-  std::unique_ptr<Message> LockedRawPop() {
-    if (queue_.empty()) return nullptr;
-    std::unique_ptr<Message> t = std::move(queue_.front());
+  std::pair<std::type_index, std::unique_ptr<Message>> LockedRawPop() {
+    if (queue_.empty()) return std::pair<std::type_index, std::unique_ptr<Message>>{typeid(nullptr), nullptr};
+    std::pair<std::type_index, std::unique_ptr<Message> > t = std::move(queue_.front());
     queue_.pop();
     return t;
   }
 
-  void RemoveCbByUid(uint64_t uid) {
+  void RemoveCb(const EventStream::Subscription& subscription) {
     std::unique_lock<std::mutex> lock(*mutex_);
-    size_t num_erased = callbacks_.erase(uid);
+    size_t num_erased = callbacks_[subscription.tidx_].erase(subscription.cb_uid_);
     assert(num_erased == 1);
   }
 
   System *system_;
   std::string connector_name_;
   std::string reactor_name_;
-  std::queue<std::unique_ptr<Message>> queue_;
+  std::queue<std::pair<std::type_index, std::unique_ptr<Message>>> queue_;
   // Should only be locked once since it's used by a cond. var. Also caught in dctor, so must be recursive.
   std::shared_ptr<std::mutex> mutex_;
   std::shared_ptr<std::condition_variable> cvar_;
@@ -292,7 +297,7 @@ private:
    */
   std::weak_ptr<Connector> self_ptr_;
   LocalEventStream stream_;
-  std::unordered_map<uint64_t, EventStream::Callback> callbacks_;
+  std::unordered_map<std::type_index, std::unordered_map<uint64_t, EventStream::Callback> > callbacks_;
   uint64_t next_cb_uid = 0;
 };
 
@@ -368,7 +373,7 @@ class Reactor {
   void RunEventLoop();
 
   // TODO: remove proof of locking evidence ?!
-  MsgAndCbInfo LockedGetPendingMessages(std::unique_lock<std::mutex> &lock);
+  MsgAndCbInfo LockedGetPendingMessages();
 };
 
 /**
@@ -487,7 +492,7 @@ class Network {
 
     virtual std::string Name() { return channel_; }
 
-    virtual void Send(std::unique_ptr<Message> message) {
+    virtual void Send(const std::type_index &tidx, std::unique_ptr<Message> message) {
       network_->mutex_.lock();
       network_->queue_.push(NetworkMessage(address_, port_, reactor_, channel_,
                                            std::move(message)));

@@ -84,7 +84,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
       std::shared_ptr<Channel> channel;
       while (!(channel = system_->FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::seconds(1));
-      channel->Send(std::make_unique<MessageInt>(123));
+      channel->Send(typeid(nullptr), std::make_unique<MessageInt>(123));
       CloseConnector("main"); // Write-end doesn't need to be closed because it's in RAII.
     }
   };
@@ -93,7 +93,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
     Worker(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
-      std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
+      std::unique_ptr<Message> m_uptr = stream->AwaitEvent().second;
       CloseConnector("main");
       MessageInt* msg = dynamic_cast<MessageInt *>(m_uptr.get());
       ASSERT_NE(msg, nullptr);
@@ -120,11 +120,11 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
       std::shared_ptr<Channel> channel;
       while (!(channel = system_->FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::seconds(1));
-      channel->Send(std::make_unique<MessageInt>(101));
-      channel->Send(std::make_unique<MessageInt>(102));
+      channel->Send(typeid(nullptr), std::make_unique<MessageInt>(101));
+      channel->Send(typeid(nullptr), std::make_unique<MessageInt>(102));
       std::this_thread::sleep_for(std::chrono::seconds(1));
-      channel->Send(std::make_unique<MessageInt>(103)); // these ones should be ignored
-      channel->Send(std::make_unique<MessageInt>(104));
+      channel->Send(typeid(nullptr), std::make_unique<MessageInt>(103)); // these ones should be ignored
+      channel->Send(typeid(nullptr), std::make_unique<MessageInt>(104));
       CloseConnector("main"); // Write-end doesn't need to be closed because it's in RAII.
     }
   };
@@ -133,11 +133,80 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     Worker(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
-      std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
+      std::unique_ptr<Message> m_uptr = stream->AwaitEvent().second;
       CloseConnector("main");
       MessageInt* msg = dynamic_cast<MessageInt *>(m_uptr.get());
       ASSERT_NE(msg, nullptr);
       ASSERT_EQ(msg->x, 101);
+    }
+  };
+
+  System system;
+  system.Spawn<Master>("master");
+  system.Spawn<Worker>("worker");
+  system.AwaitShutdown();
+}
+
+
+TEST(SimpleSendTest, OnEvent) {
+  struct MessageInt : public Message {
+    MessageInt(int xx) : x(xx) {}
+    int x;
+  };
+  struct MessageChar : public Message {
+    MessageChar(char xx) : x(xx) {}
+    char x;
+  };
+
+
+  struct Master : public Reactor {
+    Master(System *system, std::string name) : Reactor(system, name) {}
+    virtual void Run() {
+      std::shared_ptr<Channel> channel;
+      while (!(channel = system_->FindChannel("worker", "main")))
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+      channel->Send(typeid(MessageInt), std::make_unique<MessageInt>(101));
+      channel->Send(typeid(MessageChar), std::make_unique<MessageChar>('a'));
+      channel->Send(typeid(MessageInt), std::make_unique<MessageInt>(103)); // these ones should be ignored
+      channel->Send(typeid(MessageChar), std::make_unique<MessageChar>('b'));
+      CloseConnector("main"); // Write-end doesn't need to be closed because it's in RAII.
+    }
+  };
+
+  struct Worker : public Reactor {
+    Worker(System *system, std::string name) : Reactor(system, name) {}
+
+    struct EndMessage : Message {};
+    int correct_vals = 0;
+
+    virtual void Run() {
+      EventStream* stream = main_.first;
+      correct_vals = 0;
+
+      stream->OnEvent(typeid(MessageInt), [this](const Message& msg, EventStream::Subscription& subscription) {
+          const MessageInt& msgint = dynamic_cast<const MessageInt&>(msg);
+          std::cout << "msg has int " << msgint.x << std::endl;
+          ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
+          ++correct_vals;
+          main_.second->Send(typeid(EndMessage), std::make_unique<EndMessage>());
+        });
+
+      stream->OnEvent(typeid(MessageChar), [this](const Message& msg, EventStream::Subscription& subscription) {
+          const MessageChar& msgchar = dynamic_cast<const MessageChar&>(msg);
+          std::cout << "msg has char " << msgchar.x << std::endl;
+
+          ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
+          ++correct_vals;
+          main_.second->Send(typeid(EndMessage), std::make_unique<EndMessage>());
+        });
+
+      stream->OnEvent(typeid(EndMessage), [this](const Message&, EventStream::Subscription&) {
+          ASSERT_LE(correct_vals, 4);
+          if (correct_vals == 4) {
+            CloseConnector("main");
+          }
+        });
     }
   };
 
