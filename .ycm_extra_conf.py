@@ -49,6 +49,9 @@ HEADER_EXTENSIONS = [
     '.hh'
 ]
 
+# set the working directory of YCMD to be this file
+os.chdir(os.path.dirname(os.path.realpath(__file__)))
+
 def IsHeaderFile(filename):
     extension = os.path.splitext(filename)[1]
     return extension in HEADER_EXTENSIONS
