@@ -546,9 +546,8 @@ class Network {
   void StopServer() {
     if (server_ != nullptr) {
       server_->Shutdown();
-      server_ = nullptr;
+      thread_.join();
     }
-    thread_.join();
   }
 
  private:

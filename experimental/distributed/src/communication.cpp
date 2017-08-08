@@ -33,7 +33,6 @@ std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::strin
   std::unique_lock<std::mutex> lock(*mutex_);
   // TODO: Improve the check that the channel name does not exist in the
   // system.
-  assert(connectors_.count(connector_name) == 0);
   if (connectors_.count(connector_name) != 0) {
     throw std::runtime_error("Connector with name " + connector_name
         + "already exists");

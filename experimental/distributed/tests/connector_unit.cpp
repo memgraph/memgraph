@@ -10,6 +10,21 @@
 
 #include "communication.hpp"
 
+TEST(SystemTest, ReturnWithoutThrowing) {
+  struct Master : public Reactor {
+    Master(System *system, std::string name) : Reactor(system, name) {}
+    virtual void Run() {
+      CloseConnector("main");
+    }
+  };
+
+  System system;
+  ASSERT_NO_THROW(system.StartServices());
+  ASSERT_NO_THROW(system.Spawn<Master>("master"));
+  ASSERT_NO_THROW(system.AwaitShutdown());
+}
+
+
 TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
   struct Master : public Reactor {
     Master(System *system, std::string name) : Reactor(system, name) {}
