@@ -129,9 +129,8 @@ TEST(SimpleSendTest, OneCallback) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent(typeid(MessageInt), [this](const Message& msg, const EventStream::Subscription&) {
-          const MessageInt& msgint = dynamic_cast<const MessageInt&>(msg);
-          ASSERT_EQ(msgint.x, 888);
+      stream->OnEvent<MessageInt>([this](const MessageInt& msg, const EventStream::Subscription&) {
+          ASSERT_EQ(msg.x, 888);
           CloseConnector("main");
         });
     }
@@ -221,16 +220,14 @@ TEST(MultipleSendTest, UnsubscribeService) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent(typeid(MessageInt), [this](const Message& msg, const EventStream::Subscription& subscription) {
-          const MessageInt& msgint = dynamic_cast<const MessageInt&>(msg);
+      stream->OnEvent<MessageInt>([this](const MessageInt& msgint, const EventStream::Subscription& subscription) {
           ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
           ++num_msgs_received;
           if (msgint.x == 66) {
             subscription.unsubscribe(); // receive only two of them
           }
         });
-      stream->OnEvent(typeid(MessageChar), [this](const Message& msg, const EventStream::Subscription& subscription) {
-          const MessageChar& msgchar = dynamic_cast<const MessageChar&>(msg);
+      stream->OnEvent<MessageChar>([this](const MessageChar& msgchar, const EventStream::Subscription& subscription) {
           char c = msgchar.x;
           ++num_msgs_received;
           ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
@@ -284,22 +281,19 @@ TEST(MultipleSendTest, OnEvent) {
       EventStream* stream = main_.first;
       correct_vals = 0;
 
-      stream->OnEvent(typeid(MessageInt), [this](const Message& msg, const EventStream::Subscription&) {
-          const MessageInt& msgint = dynamic_cast<const MessageInt&>(msg);
+      stream->OnEvent<MessageInt>([this](const MessageInt& msgint, const EventStream::Subscription&) {
           ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
           ++correct_vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent(typeid(MessageChar), [this](const Message& msg, const EventStream::Subscription&) {
-          const MessageChar& msgchar = dynamic_cast<const MessageChar&>(msg);
-
+      stream->OnEvent<MessageChar>([this](const MessageChar& msgchar, const EventStream::Subscription&) {
           ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
           ++correct_vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent(typeid(EndMessage), [this](const Message&, const EventStream::Subscription&) {
+      stream->OnEvent<EndMessage>([this](const EndMessage&, const EventStream::Subscription&) {
           ASSERT_LE(correct_vals, 4);
           if (correct_vals == 4) {
             CloseConnector("main");

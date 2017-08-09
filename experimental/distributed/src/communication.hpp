@@ -118,12 +118,17 @@ class EventStream {
     uint64_t cb_uid_;
   };
 
-  typedef std::function<void(const Message&, const Subscription&)> Callback;
-
   /**
    * Register a callback that will be called whenever an event arrives.
    */
-  virtual void OnEvent(std::type_index tidx, Callback callback) = 0;
+  template<typename MsgType>
+  void OnEvent(std::function<void(const MsgType&, const Subscription&)>&& cb) {
+    OnEventHelper(typeid(MsgType), [cb = move(cb)](const Message& general_msg,
+                                                   const Subscription& subscription) {
+        const MsgType& correct_msg = dynamic_cast<const MsgType&>(general_msg);
+        cb(correct_msg, subscription);
+      });
+  }
 
   /**
    * Close this event stream, disallowing further events from getting received.
@@ -133,6 +138,12 @@ class EventStream {
    * associated with the Reactor.
    */
   virtual void Close() = 0;
+
+  typedef std::function<void(const Message&, const Subscription&)> Callback;
+
+private:
+
+  virtual void OnEventHelper(std::type_index tidx, Callback callback) = 0;
 };
 
 /**
@@ -224,9 +235,9 @@ class Connector {
       std::unique_lock<std::mutex> lock(*mutex_);
       return queue_->LockedPop();
     }
-    void OnEvent(std::type_index tidx, Callback callback) {
+    void OnEventHelper(std::type_index tidx, Callback callback) {
       std::unique_lock<std::mutex> lock(*mutex_);
-      queue_->LockedOnEvent(tidx, callback);
+      queue_->LockedOnEventHelper(tidx, callback);
     }
     void Close();
 
@@ -281,7 +292,7 @@ private:
     return LockedRawPop();
   }
 
-  void LockedOnEvent(std::type_index tidx, EventStream::Callback callback) {
+  void LockedOnEventHelper(std::type_index tidx, EventStream::Callback callback) {
     uint64_t cb_uid = next_cb_uid++;
     callbacks_[tidx][cb_uid] = callback;
   }

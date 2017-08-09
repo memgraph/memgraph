@@ -149,7 +149,7 @@ class Master : public Reactor {
       }
     }
 
-    stream->OnEvent(typeid(Message), [this](const Message &msg, const EventStream::Subscription& subscription) {
+    stream->OnEvent<Message>([this](const Message &msg, const EventStream::Subscription& subscription) {
       std::cout << "Processing Query via Callback" << std::endl;
       const Query &query =
           dynamic_cast<const Query &>(msg);  // exception bad_cast
