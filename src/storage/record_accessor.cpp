@@ -80,7 +80,7 @@ bool RecordAccessor<TRecord>::Reconstruct() {
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
-  db_accessor().update(*this);
+  db_accessor().Update(*this);
   debug_assert(new_ != nullptr, "RecordAccessor.new_ is null after update");
   return *new_;
 }
@@ -97,7 +97,7 @@ void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
                                       PropertyValue value) {
   Vertex &vertex = update();
   vertex.properties_.set(key, value);
-  this->db_accessor().update_property_index(key, *this, &vertex);
+  this->db_accessor().UpdatePropertyIndex(key, *this, &vertex);
 }
 template <>
 void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,

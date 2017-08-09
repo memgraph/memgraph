@@ -337,7 +337,7 @@ TEST(TestLogicalPlanner, CreateExpand) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto relationship = dba->edge_type("relationship");
+  auto relationship = dba->EdgeType("relationship");
   QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand());
@@ -355,7 +355,7 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto relationship = dba->edge_type("rel");
+  auto relationship = dba->EdgeType("rel");
   QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m")),
       PATTERN(NODE("l"))));
@@ -368,7 +368,7 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto relationship = dba->edge_type("relationship");
+  auto relationship = dba->EdgeType("relationship");
   QUERY(MATCH(PATTERN(NODE("n"))),
         CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT),
                        NODE("m"))));
@@ -380,7 +380,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
+  auto label = dba->Label("label");
   QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n"));
   CheckPlan(storage, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
 }
@@ -390,7 +390,7 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto relationship = dba->edge_type("relationship");
+  auto relationship = dba->EdgeType("relationship");
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", relationship), NODE("m"))),
         RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
@@ -402,7 +402,7 @@ TEST(TestLogicalPlanner, MatchWhereReturn) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto property = dba->property("property");
+  auto property = dba->Property("property");
   QUERY(MATCH(PATTERN(NODE("n"))),
         WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectProduce());
@@ -420,8 +420,8 @@ TEST(TestLogicalPlanner, MatchNodeSet) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
-  auto label = dba->label("label");
+  auto prop = dba->Property("prop");
+  auto label = dba->Label("label");
   QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
         SET("n", IDENT("n")), SET("n", {label}));
   CheckPlan(storage, ExpectScanAll(), ExpectSetProperty(),
@@ -433,8 +433,8 @@ TEST(TestLogicalPlanner, MatchRemove) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
-  auto label = dba->label("label");
+  auto prop = dba->Property("prop");
+  auto label = dba->Label("label");
   QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP("n", prop)),
         REMOVE("n", {label}));
   CheckPlan(storage, ExpectScanAll(), ExpectRemoveProperty(),
@@ -534,7 +534,7 @@ TEST(TestLogicalPlanner, MatchWithWhereReturn) {
   // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
         WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN("new"));
@@ -547,8 +547,8 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r = dba->edge_type("r");
-  auto p = dba->edge_type("p");
+  auto r = dba->EdgeType("r");
+  auto p = dba->EdgeType("p");
   AstTreeStorage storage;
   QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::OUT), NODE("m")),
                PATTERN(NODE("n"), EDGE("p", p, Direction::OUT), NODE("l"))));
@@ -561,7 +561,7 @@ TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
   //      RETURN sum AS result
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto literal = LITERAL(42);
@@ -576,8 +576,8 @@ TEST(TestLogicalPlanner, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop1 = dba->property("prop1");
-  auto prop2 = dba->property("prop2");
+  auto prop1 = dba->Property("prop1");
+  auto prop2 = dba->Property("prop2");
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
   auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
@@ -591,7 +591,7 @@ TEST(TestLogicalPlanner, CreateWithSum) {
   // Test CREATE (n) WITH SUM(n.prop) AS sum
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
@@ -610,7 +610,7 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
+  auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
   QUERY(
       MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
@@ -652,7 +652,7 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
@@ -670,7 +670,7 @@ TEST(TestLogicalPlanner, MatchReturnOrderBy) {
   // Test MATCH (n) RETURN n ORDER BY n.prop
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP("n", prop)));
   QUERY(MATCH(PATTERN(NODE("n"))), ret);
@@ -682,8 +682,8 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
-  auto r_type = dba->edge_type("r");
+  auto prop = dba->Property("prop");
+  auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
   auto new_prop = PROPERTY_LOOKUP("new", prop);
@@ -721,8 +721,8 @@ TEST(TestLogicalPlanner, MatchMerge) {
   //      RETURN n AS n
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
-  auto prop = dba->property("prop");
+  auto r_type = dba->EdgeType("r");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
   auto query =
@@ -751,7 +751,7 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
   // Test MATCH (n) OPTIONAL MATCH (n) -[r]- (m) WHERE m.prop < 42 RETURN r
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"))),
         OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -784,7 +784,7 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   // Test CREATE (n) WITH DISTINCT SUM(n.prop) AS s WHERE s < 42 RETURN s
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
@@ -821,7 +821,7 @@ TEST(TestLogicalPlanner, MatchWhereBeforeExpand) {
   // Test MATCH (n) -[r]- (m) WHERE n.prop < 42 RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
@@ -834,7 +834,7 @@ TEST(TestLogicalPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         MATCH(PATTERN(NODE("l"))),
@@ -849,7 +849,7 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
   // Test MATCH (n) -[r]- (m) OPTIONAL MATCH (l) WHERE n.prop < 42 RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         OPTIONAL_MATCH(PATTERN(NODE("l"))),
@@ -866,7 +866,7 @@ TEST(TestLogicalPlanner, MatchReturnAsterisk) {
   // Test MATCH (n) -[e]- (m) RETURN *, m.prop
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
   ret->body_.all_identifiers = true;
@@ -887,7 +887,7 @@ TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
   // Test MATCH (n) RETURN *, SUM(n.prop) AS s
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto ret = RETURN(sum, AS("s"));
@@ -967,7 +967,8 @@ TEST(TestLogicalPlanner, ListLiteralAggregationReturn) {
 
 TEST(TestLogicalPlanner, MapLiteralAggregationReturn) {
   // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
-  AstTreeStorage storage; Dbms dbms;
+  AstTreeStorage storage;
+  Dbms dbms;
   auto dba = dbms.active();
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
@@ -1007,11 +1008,11 @@ TEST(TestLogicalPlanner, ListSliceAggregationReturn) {
 }
 
 TEST(TestLogicalPlanner, CreateIndex) {
-  // Test CREATE INDEX ON :label(property)
+  // Test CREATE INDEX ON :Label(property)
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
-  auto property = dba->property("property");
+  auto label = dba->Label("label");
+  auto property = dba->Property("property");
   AstTreeStorage storage;
   QUERY(CREATE_INDEX_ON(label, property));
   CheckPlan(storage, ExpectCreateIndex(label, property));
@@ -1022,13 +1023,13 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
+  auto label = dba->Label("label");
   auto property = PROPERTY_PAIR("property");
   auto not_indexed = PROPERTY_PAIR("not_indexed");
-  auto vertex = dba->insert_vertex();
+  auto vertex = dba->InsertVertex();
   vertex.add_label(label);
   vertex.PropsSet(property.second, 42);
-  dba->commit();
+  dba->Commit();
   dba = dbms.active();
   dba->BuildIndex(label, property.second);
   dba = dbms.active();
@@ -1049,7 +1050,7 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
+  auto label = dba->Label("label");
   auto property = PROPERTY_PAIR("property");
   auto not_indexed = PROPERTY_PAIR("not_indexed");
   dba->BuildIndex(label, property.second);
@@ -1074,7 +1075,7 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
+  auto label = dba->Label("label");
   auto property = PROPERTY_PAIR("property");
   dba->BuildIndex(label, property.second);
   dba = dbms.active();
@@ -1093,22 +1094,22 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
   AstTreeStorage storage;
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
-  auto property = dba->property("property");
+  auto label = dba->Label("label");
+  auto property = dba->Property("property");
   dba->BuildIndex(label, property);
   dba = dbms.active();
   // Add a vertex with :label+property combination, so that the best
   // :label+better remains empty and thus better choice.
-  auto vertex = dba->insert_vertex();
+  auto vertex = dba->InsertVertex();
   vertex.add_label(label);
   vertex.PropsSet(property, 1);
-  dba->commit();
+  dba->Commit();
   dba = dbms.active();
-  ASSERT_EQ(dba->vertices_count(label, property), 1);
+  ASSERT_EQ(dba->VerticesCount(label, property), 1);
   auto better = PROPERTY_PAIR("better");
   dba->BuildIndex(label, better.second);
   dba = dbms.active();
-  ASSERT_EQ(dba->vertices_count(label, better.second), 0);
+  ASSERT_EQ(dba->VerticesCount(label, better.second), 0);
   auto lit_42 = LITERAL(42);
   QUERY(MATCH(PATTERN(NODE("n", label))),
         WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
@@ -1126,8 +1127,8 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
   //      RETURN n, m
   Dbms dbms;
   auto dba = dbms.active();
-  auto label1 = dba->label("label1");
-  auto label2 = dba->label("label2");
+  auto label1 = dba->Label("label1");
+  auto label2 = dba->Label("label2");
   auto prop1 = PROPERTY_PAIR("prop1");
   auto prop2 = PROPERTY_PAIR("prop2");
   dba->BuildIndex(label1, prop1.second);
@@ -1155,8 +1156,8 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
   // REL_OP is one of: `<`, `<=`, `>`, `>=`
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
-  auto property = dba->property("property");
+  auto label = dba->Label("label");
+  auto property = dba->Property("property");
   dba->BuildIndex(label, property);
   dba = dbms.active();
   AstTreeStorage storage;
@@ -1204,8 +1205,8 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
   // Test MATCH (n: label) WHERE n.property = n.property RETURN n
   Dbms dbms;
   auto dba = dbms.active();
-  auto label = dba->label("label");
-  auto property = dba->property("property");
+  auto label = dba->Label("label");
+  auto property = dba->Property("property");
   dba->BuildIndex(label, property);
   dba = dbms.active();
   AstTreeStorage storage;
@@ -1254,7 +1255,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
   // Test MATCH (n) -[r :type * {prop: 42}]-> (m) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
-  auto type = dba->edge_type("type");
+  auto type = dba->EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r", type);

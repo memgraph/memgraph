@@ -18,7 +18,7 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
   // not a duplicate label, add it
   Vertex &vertex = update();
   vertex.labels_.emplace_back(label);
-  this->db_accessor().update_label_indices(label, *this, &vertex);
+  this->db_accessor().UpdateLabelIndices(label, *this, &vertex);
   return true;
 }
 
@@ -44,11 +44,11 @@ const std::vector<GraphDbTypes::Label> &VertexAccessor::labels() const {
 std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
   os << "V(";
   PrintIterable(os, va.labels(), ":", [&](auto &stream, auto label) {
-    stream << va.db_accessor().label_name(label);
+    stream << va.db_accessor().LabelName(label);
   });
   os << " {";
   PrintIterable(os, va.Properties(), ", ", [&](auto &stream, const auto &pair) {
-    stream << va.db_accessor().property_name(pair.first) << ": " << pair.second;
+    stream << va.db_accessor().PropertyName(pair.first) << ": " << pair.second;
   });
   return os << "})";
 }

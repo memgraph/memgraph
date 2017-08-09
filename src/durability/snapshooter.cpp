@@ -44,11 +44,11 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     }
     encoder.WriteList(label_property_vector);
 
-    for (const auto &vertex : db_accessor_.vertices(false)) {
+    for (const auto &vertex : db_accessor_.Vertices(false)) {
       encoder.WriteVertex(vertex);
       vertex_num++;
     }
-    for (const auto &edge : db_accessor_.edges(false)) {
+    for (const auto &edge : db_accessor_.Edges(false)) {
       encoder.WriteEdge(edge);
       edge_num++;
     }

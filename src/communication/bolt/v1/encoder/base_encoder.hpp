@@ -116,13 +116,13 @@ class BaseEncoder {
     const auto &labels = vertex.labels();
     WriteTypeSize(labels.size(), MarkerList);
     for (const auto &label : labels)
-      WriteString(vertex.db_accessor().label_name(label));
+      WriteString(vertex.db_accessor().LabelName(label));
 
     // write properties
     const auto &props = vertex.Properties();
     WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
-      WriteString(vertex.db_accessor().property_name(prop.first));
+      WriteString(vertex.db_accessor().PropertyName(prop.first));
       WriteTypedValue(prop.second);
     }
   }
@@ -136,13 +136,13 @@ class BaseEncoder {
     WriteUInt(edge.to().temporary_id());
 
     // write type
-    WriteString(edge.db_accessor().edge_type_name(edge.edge_type()));
+    WriteString(edge.db_accessor().EdgeTypeName(edge.EdgeType()));
 
     // write properties
     const auto &props = edge.Properties();
     WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
-      WriteString(edge.db_accessor().property_name(prop.first));
+      WriteString(edge.db_accessor().PropertyName(prop.first));
       WriteTypedValue(prop.second);
     }
   }

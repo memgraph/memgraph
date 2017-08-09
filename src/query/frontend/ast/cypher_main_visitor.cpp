@@ -180,7 +180,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
   std::pair<std::string, GraphDbTypes::Property> key =
       ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
-      ctx_.db_accessor_.label(ctx->labelName()->accept(this)), key.second);
+      ctx_.db_accessor_.Label(ctx->labelName()->accept(this)), key.second);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
@@ -285,7 +285,7 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(
     CypherParser::NodeLabelsContext *ctx) {
   std::vector<GraphDbTypes::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    labels.push_back(ctx_.db_accessor_.label(node_label->accept(this)));
+    labels.push_back(ctx_.db_accessor_.Label(node_label->accept(this)));
   }
   return labels;
 }
@@ -328,7 +328,7 @@ antlrcpp::Any CypherMainVisitor::visitListLiteral(
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
     CypherParser::PropertyKeyNameContext *ctx) {
   const std::string key_name = visitChildren(ctx);
-  return std::make_pair(key_name, ctx_.db_accessor_.property(key_name));
+  return std::make_pair(key_name, ctx_.db_accessor_.Property(key_name));
 }
 
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(
@@ -499,7 +499,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     CypherParser::RelationshipTypesContext *ctx) {
   std::vector<GraphDbTypes::EdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(ctx_.db_accessor_.edge_type(edge_type->accept(this)));
+    types.push_back(ctx_.db_accessor_.EdgeType(edge_type->accept(this)));
   }
   return types;
 }

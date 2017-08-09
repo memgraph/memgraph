@@ -24,8 +24,8 @@ class QueryCostEstimator : public ::testing::Test {
  protected:
   Dbms dbms;
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
-  GraphDbTypes::Label label = dba->label("label");
-  GraphDbTypes::Property property = dba->property("property");
+  GraphDbTypes::Label label = dba->Label("label");
+  GraphDbTypes::Property property = dba->Property("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -52,12 +52,12 @@ class QueryCostEstimator : public ::testing::Test {
   void AddVertices(int vertex_count, int labeled_count,
                    int property_count = 0) {
     for (int i = 0; i < vertex_count; i++) {
-      auto vertex = dba->insert_vertex();
+      auto vertex = dba->InsertVertex();
       if (i < labeled_count) vertex.add_label(label);
       if (i < property_count) vertex.PropsSet(property, i);
     }
 
-    dba->advance_command();
+    dba->AdvanceCommand();
   }
 
   auto Cost() {

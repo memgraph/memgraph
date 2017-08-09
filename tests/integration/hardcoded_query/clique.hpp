@@ -39,8 +39,8 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
   // TODO dgleich: this code is very inefficient as it first makes a copy
   // of all the vertices/edges, and filters aftwarwards. I warned about this
   // happening in code review!!!
-  auto vertices_iterator = db_accessor.vertices(false);
-  auto edge_iterator = db_accessor.edges(false);
+  auto vertices_iterator = db_accessor.Vertices(false);
+  auto edge_iterator = db_accessor.Edges(false);
   std::vector<VertexAccessor> vertices(vertices_iterator.begin(),
                                        vertices_iterator.end());
   std::vector<EdgeAccessor> edges(edge_iterator.begin(), edge_iterator.end());
@@ -50,15 +50,15 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
 
   int profile_index = -1;
   for (int i = 0; i < (int)vertices.size(); ++i) {
-    if (vertices[i].has_label(db_accessor.label("garment")))
+    if (vertices[i].has_label(db_accessor.Label("garment")))
       vertices_indexed.push_back(&vertices[i]);
     if (query_type == CliqueQuery::SCORE_AND_LIMIT &&
-        vertices[i].has_label(db_accessor.label("profile"))) {
-      auto has_prop = vertices[i].PropsAt(db_accessor.property("profile_id")) ==
+        vertices[i].has_label(db_accessor.Label("profile"))) {
+      auto has_prop = vertices[i].PropsAt(db_accessor.Property("profile_id")) ==
                       args.At(0).second;
       if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
-      has_prop = vertices[i].PropsAt(db_accessor.property("partner_id")) ==
+      has_prop = vertices[i].PropsAt(db_accessor.Property("partner_id")) ==
                  args.At(1).second;
       if (has_prop.type() == query::TypedValue::Type::Null) continue;
       if (has_prop.Value<bool>() == false) continue;
@@ -66,8 +66,8 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     }
   }
   for (int i = 0; i < (int)edges.size(); ++i) {
-    if (edges[i].edge_type() == db_accessor.edge_type("default_outfit") ||
-        edges[i].edge_type() == db_accessor.edge_type("score"))
+    if (edges[i].EdgeType() == db_accessor.EdgeType("default_outfit") ||
+        edges[i].EdgeType() == db_accessor.EdgeType("score"))
       edges_indexed.push_back(&edges[i]);
   }
   const int n = vertices_indexed.size();
@@ -99,7 +99,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
    */
   auto update = [&db_accessor, &query](Bitset<int64_t> &bitset, auto &&edges) {
     for (auto e : edges) {
-      if (e.edge_type() != db_accessor.edge_type("default_outfit")) continue;
+      if (e.EdgeType() != db_accessor.EdgeType("default_outfit")) continue;
       const int from = query(e.from());
       const int to = query(e.to());
       if (from == -1 || to == -1) continue;
@@ -120,7 +120,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
   for (int i = 0; i < n; ++i) {
     const VertexAccessor v = *vertices_indexed[i];
     auto cmp_res =
-        v.PropsAt(db_accessor.property("garment_id")) ==
+        v.PropsAt(db_accessor.Property("garment_id")) ==
         args.At(query_type == CliqueQuery::SCORE_AND_LIMIT ? 8 : 0).second;
     if (cmp_res.type() != query::TypedValue::Type::Bool) continue;
     if (cmp_res.Value<bool>() != true) continue;
@@ -188,7 +188,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
       auto edge = get_edge(vertices[profile_index], *vertices_indexed[x]);
       if (edge == nullptr) continue;
       auto prop =
-          query::TypedValue(edge->PropsAt(db_accessor.property("score")));
+          query::TypedValue(edge->PropsAt(db_accessor.Property("score")));
       if (prop.type() == query::TypedValue::Type::Int)
         res += prop.Value<int64_t>();
     }
@@ -209,7 +209,7 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
     std::vector<query::TypedValue> result;
     for (auto x : results[i]) {
       result.push_back(vertices_indexed[x]
-                           ->PropsAt(db_accessor.property("garment_id"))
+                           ->PropsAt(db_accessor.Property("garment_id"))
                            .Value<int64_t>());
     }
     if (query_type == CliqueQuery::SCORE_AND_LIMIT)

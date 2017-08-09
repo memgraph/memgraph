@@ -24,7 +24,7 @@ class EdgeAccessor : public RecordAccessor<Edge> {
    * Returns the edge type.
    * @return
    */
-  GraphDbTypes::EdgeType edge_type() const;
+  GraphDbTypes::EdgeType EdgeType() const;
 
   /**
    * Returns an accessor to the originating Vertex of this edge.

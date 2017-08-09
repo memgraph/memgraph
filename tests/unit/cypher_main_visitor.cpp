@@ -35,7 +35,7 @@ class Base {
   std::string query_string_;
 
   auto Prop(const std::string &prop_name) {
-    return db_accessor_->property(prop_name);
+    return db_accessor_->Property(prop_name);
   }
 
   auto PropPair(const std::string &prop_name) {
@@ -133,7 +133,7 @@ TYPED_TEST(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_EQ(property_lookup->property_,
-            ast_generator.db_accessor_->property("x"));
+            ast_generator.db_accessor_->Property("x"));
 }
 
 TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
@@ -148,8 +148,8 @@ TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_->label("x"),
-                          ast_generator.db_accessor_->label("y")));
+              ElementsAre(ast_generator.db_accessor_->Label("x"),
+                          ast_generator.db_accessor_->Label("y")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
@@ -162,7 +162,7 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_->label("l-$\"'ab`e``l")));
+              ElementsAre(ast_generator.db_accessor_->Label("l-$\"'ab`e``l")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
@@ -179,7 +179,7 @@ TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   EXPECT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_->label("a")));
+              ElementsAre(ast_generator.db_accessor_->Label("a")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
@@ -779,9 +779,9 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
             CypherMainVisitor::kAnonPrefix + std::to_string(1));
   EXPECT_FALSE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre(
-                                 ast_generator.db_accessor_->label("label1"),
-                                 ast_generator.db_accessor_->label("label2"),
-                                 ast_generator.db_accessor_->label("label3")));
+                                 ast_generator.db_accessor_->Label("label1"),
+                                 ast_generator.db_accessor_->Label("label2"),
+                                 ast_generator.db_accessor_->Label("label3")));
   std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
   for (auto x : node->properties_) {
     auto *literal = dynamic_cast<PrimitiveLiteral *>(x.second);
@@ -873,8 +873,8 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::IN);
   EXPECT_THAT(
       edge->edge_types_,
-      UnorderedElementsAre(ast_generator.db_accessor_->edge_type("type1"),
-                           ast_generator.db_accessor_->edge_type("type2")));
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
   for (auto x : edge->properties_) {
     auto *literal = dynamic_cast<PrimitiveLiteral *>(x.second);
@@ -1031,7 +1031,7 @@ TYPED_TEST(CypherMainVisitorTest,
       edge->properties_[ast_generator.PropPair("prop")]);
   EXPECT_EQ(prop_literal->value_.Value<int64_t>(), 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
-  auto edge_type = ast_generator.db_accessor_->edge_type("edge_type");
+  auto edge_type = ast_generator.db_accessor_->EdgeType("edge_type");
   EXPECT_EQ(edge->edge_types_[0], edge_type);
 }
 
@@ -1155,7 +1155,7 @@ TYPED_TEST(CypherMainVisitorTest, Set) {
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
     ASSERT_EQ(set_property->property_lookup_->property_,
-              ast_generator.db_accessor_->property("x"));
+              ast_generator.db_accessor_->Property("x"));
     auto *identifier2 = dynamic_cast<Identifier *>(set_property->expression_);
     ASSERT_EQ(identifier2->name_, "b");
   }
@@ -1190,8 +1190,8 @@ TYPED_TEST(CypherMainVisitorTest, Set) {
     ASSERT_TRUE(set_labels->identifier_);
     ASSERT_EQ(set_labels->identifier_->name_, "g");
     ASSERT_THAT(set_labels->labels_,
-                UnorderedElementsAre(ast_generator.db_accessor_->label("h"),
-                                     ast_generator.db_accessor_->label("i")));
+                UnorderedElementsAre(ast_generator.db_accessor_->Label("h"),
+                                     ast_generator.db_accessor_->Label("i")));
   }
 }
 
@@ -1209,7 +1209,7 @@ TYPED_TEST(CypherMainVisitorTest, Remove) {
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
     ASSERT_EQ(remove_property->property_lookup_->property_,
-              ast_generator.db_accessor_->property("x"));
+              ast_generator.db_accessor_->Property("x"));
   }
   {
     auto *remove_labels = dynamic_cast<RemoveLabels *>(query->clauses_[1]);
@@ -1217,8 +1217,8 @@ TYPED_TEST(CypherMainVisitorTest, Remove) {
     ASSERT_TRUE(remove_labels->identifier_);
     ASSERT_EQ(remove_labels->identifier_->name_, "g");
     ASSERT_THAT(remove_labels->labels_,
-                UnorderedElementsAre(ast_generator.db_accessor_->label("h"),
-                                     ast_generator.db_accessor_->label("i")));
+                UnorderedElementsAre(ast_generator.db_accessor_->Label("h"),
+                                     ast_generator.db_accessor_->Label("i")));
   }
 }
 
@@ -1395,9 +1395,9 @@ TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
   ASSERT_EQ(query->clauses_.size(), 1U);
   auto *create_index = dynamic_cast<CreateIndex *>(query->clauses_[0]);
   ASSERT_TRUE(create_index);
-  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->label("mirko"));
+  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->Label("mirko"));
   ASSERT_EQ(create_index->property_,
-            ast_generator.db_accessor_->property("slavko"));
+            ast_generator.db_accessor_->Property("slavko"));
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnAll) {

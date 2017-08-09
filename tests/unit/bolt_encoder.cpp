@@ -167,8 +167,8 @@ TEST(BoltEncoder, VertexAndEdge) {
   // create vertex
   Dbms dbms;
   auto db_accessor = dbms.active();
-  auto va1 = db_accessor->insert_vertex();
-  auto va2 = db_accessor->insert_vertex();
+  auto va1 = db_accessor->InsertVertex();
+  auto va2 = db_accessor->InsertVertex();
   std::string l1("label1"), l2("label2");
   va1.add_label(&l1);
   va1.add_label(&l2);
@@ -179,7 +179,7 @@ TEST(BoltEncoder, VertexAndEdge) {
 
   // create edge
   std::string et("edgetype");
-  auto ea = db_accessor->insert_edge(va1, va2, &et);
+  auto ea = db_accessor->InsertEdge(va1, va2, &et);
   std::string p3("prop3"), p4("prop4");
   PropertyValue pv3(42), pv4(1234);
   ea.PropsSet(&p3, pv3);

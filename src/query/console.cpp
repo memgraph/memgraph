@@ -142,7 +142,7 @@ void query::Repl(Dbms &dbms) {
       ResultStreamFaker results;
       interpeter.Interpret(command, *dba, results, {});
       PrintResults(results);
-      dba->commit();
+      dba->Commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::LexingException &e) {

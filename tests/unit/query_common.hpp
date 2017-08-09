@@ -102,12 +102,12 @@ auto GetPropertyLookup(AstTreeStorage &storage,
                        const std::string &name,
                        GraphDbTypes::Property property) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
-                                        dba->property_name(property), property);
+                                        dba->PropertyName(property), property);
 }
 auto GetPropertyLookup(AstTreeStorage &storage,
                        std::unique_ptr<GraphDbAccessor> &dba, Expression *expr,
                        GraphDbTypes::Property property) {
-  return storage.Create<PropertyLookup>(expr, dba->property_name(property),
+  return storage.Create<PropertyLookup>(expr, dba->PropertyName(property),
                                         property);
 }
 auto GetPropertyLookup(
@@ -449,7 +449,7 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
       std::map<std::pair<std::string, GraphDbTypes::Property>, \
                query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
-  std::make_pair(property_name, dba->property(property_name))
+  std::make_pair(property_name, dba->Property(property_name))
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))

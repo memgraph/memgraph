@@ -10,7 +10,6 @@
 #include "gtest/gtest.h"
 #include <rapidcheck/gtest.h>
 
-
 /**
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph
@@ -31,8 +30,8 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   auto dba = dbms.active();
 
   for (auto label : vertex_labels) {
-    auto vertex_accessor = dba->insert_vertex();
-    vertex_accessor.add_label(dba->label(label));
+    auto vertex_accessor = dba->InsertVertex();
+    vertex_accessor.add_label(dba->Label(label));
     vertex_label_map.insert({vertex_accessor, label});
     vertices.push_back(vertex_accessor);
   }
@@ -40,23 +39,23 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   for (auto type : edge_types) {
     auto from = vertices[*rc::gen::inRange(0, vertices_num)];
     auto to = vertices[*rc::gen::inRange(0, vertices_num)];
-    auto edge_accessor = dba->insert_edge(from, to, dba->edge_type(type));
+    auto edge_accessor = dba->InsertEdge(from, to, dba->EdgeType(type));
     edge_type_map.insert({edge_accessor, type});
   }
 
-  dba->advance_command();
+  dba->AdvanceCommand();
 
   int edges_num_check = 0;
   int vertices_num_check = 0;
-  for (const auto &vertex : dba->vertices(false)) {
+  for (const auto &vertex : dba->Vertices(false)) {
     auto label = vertex_label_map.at(vertex);
     RC_ASSERT(vertex.labels().size() == 1);
     RC_ASSERT(*vertex.labels()[0] == label);
     vertices_num_check++;
   }
-  for (const auto &edge : dba->edges(false)) {
+  for (const auto &edge : dba->Edges(false)) {
     auto type = edge_type_map.at(edge);
-    RC_ASSERT(*edge.edge_type() == type);
+    RC_ASSERT(*edge.EdgeType() == type);
     edges_num_check++;
   }
   RC_ASSERT(vertices_num_check == vertices_num);

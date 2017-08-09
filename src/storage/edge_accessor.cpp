@@ -4,7 +4,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 
-GraphDbTypes::EdgeType EdgeAccessor::edge_type() const {
+GraphDbTypes::EdgeType EdgeAccessor::EdgeType() const {
   return current().edge_type_;
 }
 
@@ -20,10 +20,10 @@ bool EdgeAccessor::is_cycle() const {
 }
 
 std::ostream &operator<<(std::ostream &os, const EdgeAccessor &ea) {
-  os << "E[" << ea.db_accessor().edge_type_name(ea.edge_type());
+  os << "E[" << ea.db_accessor().EdgeTypeName(ea.EdgeType());
   os << " {";
   PrintIterable(os, ea.Properties(), ", ", [&](auto &stream, const auto &pair) {
-    stream << ea.db_accessor().property_name(pair.first) << ": " << pair.second;
+    stream << ea.db_accessor().PropertyName(pair.first) << ": " << pair.second;
   });
   return os << "}]";
 }

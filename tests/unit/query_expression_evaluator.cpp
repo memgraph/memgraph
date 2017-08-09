@@ -521,7 +521,7 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
 };
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-  auto v1 = dba->insert_vertex();
+  auto v1 = dba->InsertVertex();
   v1.PropsSet(prop_age.second, 10);
   eval.frame[symbol] = v1;
   EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
@@ -529,9 +529,9 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto e12 = dba->insert_edge(v1, v2, dba->edge_type("edge_type"));
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("edge_type"));
   e12.PropsSet(prop_age.second, 10);
   eval.frame[symbol] = e12;
   EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
@@ -554,18 +554,18 @@ TEST(ExpressionEvaluator, LabelsTest) {
   NoContextExpressionEvaluator eval;
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.add_label(dba->label("ANIMAL"));
-  v1.add_label(dba->label("DOG"));
-  v1.add_label(dba->label("NICE_DOG"));
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("ANIMAL"));
+  v1.add_label(dba->Label("DOG"));
+  v1.add_label(dba->Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
   eval.symbol_table[*identifier] = node_symbol;
   eval.frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
-        identifier, std::vector<GraphDbTypes::Label>{dba->label("DOG"),
-                                                     dba->label("ANIMAL")});
+        identifier, std::vector<GraphDbTypes::Label>{dba->Label("DOG"),
+                                                     dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
@@ -573,7 +573,7 @@ TEST(ExpressionEvaluator, LabelsTest) {
     auto *op = storage.Create<LabelsTest>(
         identifier,
         std::vector<GraphDbTypes::Label>{
-            dba->label("DOG"), dba->label("BAD_DOG"), dba->label("ANIMAL")});
+            dba->Label("DOG"), dba->Label("BAD_DOG"), dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -582,7 +582,7 @@ TEST(ExpressionEvaluator, LabelsTest) {
     auto *op = storage.Create<LabelsTest>(
         identifier,
         std::vector<GraphDbTypes::Label>{
-            dba->label("DOG"), dba->label("BAD_DOG"), dba->label("ANIMAL")});
+            dba->Label("DOG"), dba->Label("BAD_DOG"), dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -593,9 +593,9 @@ TEST(ExpressionEvaluator, EdgeTypeTest) {
   NoContextExpressionEvaluator eval;
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("TYPE1"));
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("TYPE1"));
   auto *identifier = storage.Create<Identifier>("e");
   auto edge_symbol = eval.symbol_table.CreateSymbol("e", true);
   eval.symbol_table[*identifier] = edge_symbol;
@@ -603,15 +603,15 @@ TEST(ExpressionEvaluator, EdgeTypeTest) {
   {
     auto *op = storage.Create<EdgeTypeTest>(
         identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->edge_type("TYPE0"), dba->edge_type("TYPE1"),
-                        dba->edge_type("TYPE2")});
+                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE1"),
+                        dba->EdgeType("TYPE2")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
   {
     auto *op = storage.Create<EdgeTypeTest>(
         identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->edge_type("TYPE0"), dba->edge_type("TYPE2")});
+                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE2")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -619,7 +619,7 @@ TEST(ExpressionEvaluator, EdgeTypeTest) {
     eval.frame[edge_symbol] = TypedValue::Null;
     auto *op = storage.Create<EdgeTypeTest>(
         identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->edge_type("TYPE0"), dba->edge_type("TYPE2")});
+                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE2")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -673,14 +673,14 @@ TEST(ExpressionEvaluator, FunctionEndNode) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.add_label(dba->label("label1"));
-  auto v2 = dba->insert_vertex();
-  v2.add_label(dba->label("label2"));
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("t"));
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("label1"));
+  auto v2 = dba->InsertVertex();
+  v2.add_label(dba->Label("label2"));
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("ENDNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba->label("label2")));
+                  .has_label(dba->Label("label2")));
   ASSERT_THROW(EvaluateFunction("ENDNODE", {2}), QueryRuntimeException);
 }
 
@@ -702,13 +702,13 @@ TEST(ExpressionEvaluator, FunctionProperties) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.PropsSet(dba->property("height"), 5);
-  v1.PropsSet(dba->property("age"), 10);
-  auto v2 = dba->insert_vertex();
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("type1"));
-  e.PropsSet(dba->property("height"), 3);
-  e.PropsSet(dba->property("age"), 15);
+  auto v1 = dba->InsertVertex();
+  v1.PropsSet(dba->Property("height"), 5);
+  v1.PropsSet(dba->Property("age"), 10);
+  auto v2 = dba->InsertVertex();
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
+  e.PropsSet(dba->Property("height"), 3);
+  e.PropsSet(dba->Property("age"), 15);
 
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
@@ -757,14 +757,14 @@ TEST(ExpressionEvaluator, FunctionStartNode) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.add_label(dba->label("label1"));
-  auto v2 = dba->insert_vertex();
-  v2.add_label(dba->label("label2"));
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("t"));
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("label1"));
+  auto v2 = dba->InsertVertex();
+  v2.add_label(dba->Label("label2"));
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("STARTNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba->label("label1")));
+                  .has_label(dba->Label("label1")));
   ASSERT_THROW(EvaluateFunction("STARTNODE", {2}), QueryRuntimeException);
 }
 
@@ -774,11 +774,11 @@ TEST(ExpressionEvaluator, FunctionDegree) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto v3 = dba->insert_vertex();
-  auto e12 = dba->insert_edge(v1, v2, dba->edge_type("t"));
-  dba->insert_edge(v3, v2, dba->edge_type("t"));
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("DEGREE", {v1}).Value<int64_t>(), 1);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v2}).Value<int64_t>(), 2);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v3}).Value<int64_t>(), 1);
@@ -831,11 +831,11 @@ TEST(ExpressionEvaluator, FunctionType) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.add_label(dba->label("label1"));
-  auto v2 = dba->insert_vertex();
-  v2.add_label(dba->label("label2"));
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("type1"));
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("label1"));
+  auto v2 = dba->InsertVertex();
+  v2.add_label(dba->Label("label2"));
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
   ASSERT_EQ(EvaluateFunction("TYPE", {e}).Value<std::string>(), "type1");
   ASSERT_THROW(EvaluateFunction("TYPE", {2}), QueryRuntimeException);
 }
@@ -846,9 +846,9 @@ TEST(ExpressionEvaluator, FunctionLabels) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v = dba->insert_vertex();
-  v.add_label(dba->label("label1"));
-  v.add_label(dba->label("label2"));
+  auto v = dba->InsertVertex();
+  v.add_label(dba->Label("label1"));
+  v.add_label(dba->Label("label2"));
   std::vector<std::string> labels;
   auto _labels =
       EvaluateFunction("LABELS", {v}).Value<std::vector<TypedValue>>();
@@ -890,13 +890,13 @@ TEST(ExpressionEvaluator, FunctionKeys) {
             TypedValue::Type::Null);
   Dbms dbms;
   auto dba = dbms.active();
-  auto v1 = dba->insert_vertex();
-  v1.PropsSet(dba->property("height"), 5);
-  v1.PropsSet(dba->property("age"), 10);
-  auto v2 = dba->insert_vertex();
-  auto e = dba->insert_edge(v1, v2, dba->edge_type("type1"));
-  e.PropsSet(dba->property("width"), 3);
-  e.PropsSet(dba->property("age"), 15);
+  auto v1 = dba->InsertVertex();
+  v1.PropsSet(dba->Property("height"), 5);
+  v1.PropsSet(dba->Property("age"), 10);
+  auto v2 = dba->InsertVertex();
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
+  e.PropsSet(dba->Property("width"), 3);
+  e.PropsSet(dba->Property("age"), 15);
 
   auto prop_keys_to_string = [](TypedValue t) {
     std::vector<std::string> keys;

@@ -18,15 +18,15 @@ bool run_general_query(GraphDbAccessor &db_accessor, const Parameters &args,
                        Stream &stream, const std::string &general_label) {
   std::vector<std::string> headers{std::string("g")};
   stream.Header(headers);
-  for (auto vertex : db_accessor.vertices(false)) {
-    if (vertex.has_label(db_accessor.label("garment"))) {
+  for (auto vertex : db_accessor.Vertices(false)) {
+    if (vertex.has_label(db_accessor.Label("garment"))) {
       query::TypedValue prop =
-          vertex.PropsAt(db_accessor.property("garment_id"));
+          vertex.PropsAt(db_accessor.Property("garment_id"));
       if (prop.type() == query::TypedValue::Type::Null) continue;
       query::TypedValue cmp = prop == args.At(0).second;
       if (cmp.type() != query::TypedValue::Type::Bool) continue;
       if (cmp.Value<bool>() != true) continue;
-      vertex.add_label(db_accessor.label(general_label));
+      vertex.add_label(db_accessor.Label(general_label));
       std::vector<query::TypedValue> result{query::TypedValue(vertex)};
       stream.Result(result);
     }

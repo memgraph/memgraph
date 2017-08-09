@@ -53,7 +53,9 @@ class Session {
 
  public:
   Session(Socket &&socket, SessionData<OutputStream> &data)
-      : socket_(std::move(socket)), dbms_(data.dbms), query_engine_(data.query_engine) {
+      : socket_(std::move(socket)),
+        dbms_(data.dbms),
+        query_engine_(data.query_engine) {
     event_.data.ptr = this;
   }
 
@@ -168,7 +170,7 @@ class Session {
    */
   void Commit() {
     debug_assert(db_accessor_, "Commit called and there is no transaction");
-    db_accessor_->commit();
+    db_accessor_->Commit();
     db_accessor_ = nullptr;
   }
 
@@ -177,7 +179,7 @@ class Session {
    */
   void Abort() {
     debug_assert(db_accessor_, "Abort called and there is no transaction");
-    db_accessor_->abort();
+    db_accessor_->Abort();
     db_accessor_ = nullptr;
   }
 

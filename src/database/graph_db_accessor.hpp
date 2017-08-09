@@ -66,11 +66,11 @@ class GraphDbAccessor {
    *
    * @return See above.
    */
-  VertexAccessor insert_vertex();
+  VertexAccessor InsertVertex();
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing
-   * or incoming edges, it is not deleted. See `detach_remove_vertex` if you
+   * or incoming edges, it is not deleted. See `DetachRemoveVertex` if you
    * want to remove a vertex regardless of connectivity.
    *
    * If the vertex has already been deleted by the current transaction+command,
@@ -79,7 +79,7 @@ class GraphDbAccessor {
    * @param vertex_accessor Accessor to vertex.
    * @return  If or not the vertex was deleted.
    */
-  bool remove_vertex(VertexAccessor &vertex_accessor);
+  bool RemoveVertex(VertexAccessor &vertex_accessor);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing
@@ -87,7 +87,7 @@ class GraphDbAccessor {
    *
    * @param vertex_accessor  Accessor to a vertex.
    */
-  void detach_remove_vertex(VertexAccessor &vertex_accessor);
+  void DetachRemoveVertex(VertexAccessor &vertex_accessor);
 
   /**
    * Returns iterable over accessors to all the vertices in the graph
@@ -98,7 +98,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  auto vertices(bool current_state) {
+  auto Vertices(bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
@@ -127,7 +127,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto vertices(const GraphDbTypes::Label &label, bool current_state) {
+  auto Vertices(const GraphDbTypes::Label &label, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return iter::imap(
         [this, current_state](auto vlist) {
@@ -147,7 +147,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto vertices(const GraphDbTypes::Label &label,
+  auto Vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     debug_assert(db_.label_property_index_.IndexExists(
@@ -173,7 +173,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto vertices(const GraphDbTypes::Label &label,
+  auto Vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property,
                 const PropertyValue &value, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
@@ -216,7 +216,7 @@ class GraphDbAccessor {
    * @return iterable collection of record accessors
    * satisfy the bounds and are visible to the current transaction.
    */
-  auto vertices(
+  auto Vertices(
       const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
@@ -240,15 +240,15 @@ class GraphDbAccessor {
    * @param type Edge type.
    * @return  An accessor to the edge.
    */
-  EdgeAccessor insert_edge(VertexAccessor &from, VertexAccessor &to,
-                           GraphDbTypes::EdgeType type);
+  EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
+                          GraphDbTypes::EdgeType type);
 
   /**
    * Removes an edge from the graph.
    *
    * @param edge_accessor  The accessor to an edge.
    */
-  void remove_edge(EdgeAccessor &edge_accessor);
+  void RemoveEdge(EdgeAccessor &edge_accessor);
 
   /**
    * Returns iterable over accessors to all the edges in the graph
@@ -259,7 +259,7 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  auto edges(bool current_state) {
+  auto Edges(bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
 
     // wrap version lists into accessors, which will look for visible versions
@@ -289,7 +289,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
+  auto Edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return iter::imap([this, current_state](
                           auto vlist) { return EdgeAccessor(*vlist, *this); },
@@ -342,48 +342,7 @@ class GraphDbAccessor {
    * @param property - property to build for
    */
   void BuildIndex(const GraphDbTypes::Label &label,
-                  const GraphDbTypes::Property &property) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-
-    const LabelPropertyIndex::Key key(label, property);
-    if (db_.label_property_index_.CreateIndex(key) == false) {
-      throw IndexExistsException(
-          "Index is either being created by another transaction or already "
-          "exists.");
-    }
-    // Everything that happens after the line above ended will be added to the
-    // index automatically, but we still have to add to index everything that
-    // happened earlier. We have to first wait for every transaction that
-    // happend before, or a bit later than CreateIndex to end.
-    {
-      auto wait_transaction = db_.tx_engine_.Begin();
-      for (auto id : wait_transaction->snapshot()) {
-        if (id == transaction_->id_) continue;
-        while (wait_transaction->engine_.clog().is_active(id))
-          // TODO reconsider this constant, currently rule-of-thumb chosen
-          std::this_thread::sleep_for(std::chrono::microseconds(100));
-      }
-      wait_transaction->Commit();
-    }
-
-    // This transaction surely sees everything that happened before CreateIndex.
-    auto transaction = db_.tx_engine_.Begin();
-
-    for (auto vertex_vlist : db_.vertices_.access()) {
-      auto vertex_record = vertex_vlist->find(*transaction);
-      // Check if visible record exists, if it exists apply function on it.
-      if (vertex_record == nullptr) continue;
-      db_.label_property_index_.UpdateOnLabelProperty(vertex_vlist,
-                                                      vertex_record);
-    }
-    // Commit transaction as we finished applying method on newest visible
-    // records.
-    transaction->Commit();
-    // After these two operations we are certain that everything is contained in
-    // the index under the assumption that this transaction contained no
-    // vertex/edge insert/update before this method was invoked.
-    db_.label_property_index_.IndexFinishedBuilding(key);
-  }
+                  const GraphDbTypes::Property &property);
 
   /**
    * @brief - Returns true if the given label+property index already exists and
@@ -408,13 +367,13 @@ class GraphDbAccessor {
    * Return approximate number of all vertices in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */
-  int64_t vertices_count() const;
+  int64_t VerticesCount() const;
 
   /*
    * Return approximate number of all edges in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */
-  int64_t edges_count() const;
+  int64_t EdgesCount() const;
 
   /**
    * Return approximate number of vertices under indexes with the given label.
@@ -422,7 +381,7 @@ class GraphDbAccessor {
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  int64_t vertices_count(const GraphDbTypes::Label &label) const;
+  int64_t VerticesCount(const GraphDbTypes::Label &label) const;
 
   /**
    * Return approximate number of vertices under indexes with the given label
@@ -433,8 +392,8 @@ class GraphDbAccessor {
    * @return number of vertices with the given label, fails if no such
    * label+property index exists.
    */
-  int64_t vertices_count(const GraphDbTypes::Label &label,
-                         const GraphDbTypes::Property &property) const;
+  int64_t VerticesCount(const GraphDbTypes::Label &label,
+                        const GraphDbTypes::Property &property) const;
 
   /**
    * Returns approximate number of vertices that have the given label
@@ -442,9 +401,9 @@ class GraphDbAccessor {
    *
    * Assumes that an index for that (label, property) exists.
    */
-  int64_t vertices_count(const GraphDbTypes::Label &label,
-                         const GraphDbTypes::Property &property,
-                         const PropertyValue &value) const;
+  int64_t VerticesCount(const GraphDbTypes::Label &label,
+                        const GraphDbTypes::Property &property,
+                        const PropertyValue &value) const;
 
   /**
    * Returns approximate number of vertices that have the given label
@@ -455,7 +414,7 @@ class GraphDbAccessor {
    *
    * Assumes that an index for that (label, property) exists.
    */
-  int64_t vertices_count(
+  int64_t VerticesCount(
       const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
@@ -467,13 +426,13 @@ class GraphDbAccessor {
    * @param edge_type - edge_type to check for
    * @return number of edges with the given edge_type
    */
-  int64_t edges_count(const GraphDbTypes::EdgeType &edge_type) const;
+  int64_t EdgesCount(const GraphDbTypes::EdgeType &edge_type) const;
 
   /**
    * Obtains the Label for the label's name.
    * @return  See above.
    */
-  GraphDbTypes::Label label(const std::string &label_name);
+  GraphDbTypes::Label Label(const std::string &label_name);
 
   /**
    * Obtains the label name (a string) for the given label.
@@ -481,13 +440,13 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  const std::string &label_name(const GraphDbTypes::Label label) const;
+  const std::string &LabelName(const GraphDbTypes::Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
-  GraphDbTypes::EdgeType edge_type(const std::string &edge_type_name);
+  GraphDbTypes::EdgeType EdgeType(const std::string &edge_type_name);
 
   /**
    * Obtains the edge type name (a string) for the given edge type.
@@ -495,14 +454,13 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  const std::string &edge_type_name(
-      const GraphDbTypes::EdgeType edge_type) const;
+  const std::string &EdgeTypeName(const GraphDbTypes::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
    * @return  See above.
    */
-  GraphDbTypes::Property property(const std::string &property_name);
+  GraphDbTypes::Property Property(const std::string &property_name);
 
   /**
    * Obtains the property name (a string) for the given property.
@@ -510,22 +468,22 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  const std::string &property_name(const GraphDbTypes::Property property) const;
+  const std::string &PropertyName(const GraphDbTypes::Property property) const;
 
   /**
    * Advances transaction's command id by 1.
    */
-  void advance_command();
+  void AdvanceCommand();
 
   /**
    * Commit transaction.
    */
-  void commit();
+  void Commit();
 
   /**
    * Abort transaction.
    */
-  void abort();
+  void Abort();
 
   /**
    * Return true if transaction is hinted to abort.
@@ -566,7 +524,7 @@ class GraphDbAccessor {
    * @args accessor whose record to update if possible.
    */
   template <typename TRecord>
-  void update(RecordAccessor<TRecord> &accessor) {
+  void Update(RecordAccessor<TRecord> &accessor) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     // can't update a deleted record if:
     // - we only have old_ and it hasn't been deleted
@@ -592,9 +550,9 @@ class GraphDbAccessor {
    * @param vertex_accessor - vertex_accessor to insert
    * @param vertex - vertex record to insert
    */
-  void update_label_indices(const GraphDbTypes::Label &label,
-                            const VertexAccessor &vertex_accessor,
-                            const Vertex *const vertex);
+  void UpdateLabelIndices(const GraphDbTypes::Label &label,
+                          const VertexAccessor &vertex_accessor,
+                          const Vertex *const vertex);
 
   /**
    * Insert this edge into corresponding edge_type index.
@@ -602,9 +560,9 @@ class GraphDbAccessor {
    * @param edge_accessor - edge_accessor to insert
    * @param edge - edge record to insert
    */
-  void update_edge_type_index(const GraphDbTypes::EdgeType &edge_type,
-                              const EdgeAccessor &edge_accessor,
-                              const Edge *const edge);
+  void UpdateEdgeTypeIndex(const GraphDbTypes::EdgeType &edge_type,
+                           const EdgeAccessor &edge_accessor,
+                           const Edge *const edge);
 
   /**
    * Insert this vertex into corresponding any label + 'property' index.
@@ -613,9 +571,9 @@ class GraphDbAccessor {
    * @param record_accessor - record_accessor to insert
    * @param vertex - vertex to insert
    */
-  void update_property_index(const GraphDbTypes::Property &property,
-                             const RecordAccessor<Vertex> &record_accessor,
-                             const Vertex *const vertex);
+  void UpdatePropertyIndex(const GraphDbTypes::Property &property,
+                           const RecordAccessor<Vertex> &record_accessor,
+                           const Vertex *const vertex);
   GraphDb &db_;
 
   /** The current transaction */

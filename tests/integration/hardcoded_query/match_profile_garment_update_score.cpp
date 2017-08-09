@@ -23,31 +23,31 @@ class CPUPlan : public PlanInterface<Stream> {
     std::vector<std::string> headers{std::string("s")};
     stream.Header(headers);
     auto profile = [&db_accessor, &args](const VertexAccessor &v) -> bool {
-      TypedValue prop = v.PropsAt(db_accessor.property("profile_id"));
+      TypedValue prop = v.PropsAt(db_accessor.Property("profile_id"));
       if (prop.type() == TypedValue::Type::Null) return false;
       auto cmp = prop == args.At(0).second;
       if (cmp.type() != TypedValue::Type::Bool) return false;
       if (cmp.Value<bool>() != true) return false;
 
-      TypedValue prop2 = v.PropsAt(db_accessor.property("partner_id"));
+      TypedValue prop2 = v.PropsAt(db_accessor.Property("partner_id"));
       if (prop2.type() == TypedValue::Type::Null) return false;
       auto cmp2 = prop2 == args.At(1).second;
       if (cmp2.type() != TypedValue::Type::Bool) return false;
       return cmp2.Value<bool>();
     };
     auto garment = [&db_accessor, &args](const VertexAccessor &v) -> bool {
-      TypedValue prop = v.PropsAt(db_accessor.property("garment_id"));
+      TypedValue prop = v.PropsAt(db_accessor.Property("garment_id"));
       if (prop.type() == TypedValue::Type::Null) return false;
       auto cmp = prop == args.At(2).second;
       if (cmp.type() != TypedValue::Type::Bool) return false;
       return cmp.Value<bool>();
     };
-    for (auto edge : db_accessor.edges(false)) {
+    for (auto edge : db_accessor.Edges(false)) {
       auto from = edge.from();
       auto to = edge.to();
-      if (edge.edge_type() != db_accessor.edge_type("score")) continue;
+      if (edge.EdgeType() != db_accessor.EdgeType("score")) continue;
       if ((profile(from) && garment(to)) || (profile(to) && garment(from))) {
-        edge.PropsSet(db_accessor.property("score"), args.At(3).second);
+        edge.PropsSet(db_accessor.Property("score"), args.At(3).second);
         edge.SwitchNew();
         std::vector<TypedValue> result{TypedValue(edge)};
         stream.Result(result);

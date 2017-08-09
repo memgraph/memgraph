@@ -51,12 +51,12 @@ void CreateSmallGraph(Dbms &dbms) {
   auto dba = dbms.active();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va1 = dba->insert_vertex();
-  auto va2 = dba->insert_vertex();
-  dba->insert_edge(va1, va2, dba->edge_type("likes"));
-  auto va3 = dba->insert_vertex();
-  dba->insert_edge(va3, va2, dba->edge_type("hates"));
-  dba->commit();
+  auto va1 = dba->InsertVertex();
+  auto va2 = dba->InsertVertex();
+  dba->InsertEdge(va1, va2, dba->EdgeType("likes"));
+  auto va3 = dba->InsertVertex();
+  dba->InsertEdge(va3, va2, dba->EdgeType("hates"));
+  dba->Commit();
 }
 
 void CreateBigGraph(Dbms &dbms) {
@@ -65,17 +65,17 @@ void CreateBigGraph(Dbms &dbms) {
   // every vertex hash label "label" and property "prop" with value "prop"
   // every relationship has type "type" and property "prop" with value "prop"
   auto dba = dbms.active();
-  auto va_middle = dba->insert_vertex();
-  va_middle.add_label(dba->label("label"));
-  va_middle.PropsSet(dba->property("prop"), "prop");
+  auto va_middle = dba->InsertVertex();
+  va_middle.add_label(dba->Label("label"));
+  va_middle.PropsSet(dba->Property("prop"), "prop");
   for (int i = 1; i < 1000; ++i) {
-    auto va = dba->insert_vertex();
-    va.add_label(dba->label("label"));
-    va.PropsSet(dba->property("prop"), "prop");
-    auto ea = dba->insert_edge(va, va_middle, dba->edge_type("type"));
-    ea.PropsSet(dba->property("prop"), "prop");
+    auto va = dba->InsertVertex();
+    va.add_label(dba->Label("label"));
+    va.PropsSet(dba->Property("prop"), "prop");
+    auto ea = dba->InsertEdge(va, va_middle, dba->EdgeType("type"));
+    ea.PropsSet(dba->Property("prop"), "prop");
   }
-  dba->commit();
+  dba->Commit();
 }
 
 void TakeSnapshot(Dbms &dbms, int max_retained_snapshots_) {
@@ -166,14 +166,14 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
 
   auto dba = dbms_recover.active();
   int64_t vertex_count = 0;
-  for (const auto &vertex : dba->vertices(false)) {
+  for (const auto &vertex : dba->Vertices(false)) {
     vertices.push_back(vertex);
     vertex_count++;
   }
   EXPECT_EQ(vertex_count, 3);
 
   int64_t edge_count = 0;
-  for (const auto &edge : dba->edges(false)) {
+  for (const auto &edge : dba->Edges(false)) {
     EXPECT_NE(vertices.end(),
               std::find(vertices.begin(), vertices.end(), edge.to()));
     EXPECT_NE(vertices.end(),
@@ -206,11 +206,11 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
 
   auto dba_get = dbms_recover.active();
   int64_t vertex_count = 0;
-  for (const auto &vertex : dba_get->vertices(false)) {
+  for (const auto &vertex : dba_get->Vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
-    EXPECT_TRUE(vertex.has_label(dba_get->label("label")));
+    EXPECT_TRUE(vertex.has_label(dba_get->Label("label")));
     query::TypedValue prop =
-        query::TypedValue(vertex.PropsAt(dba_get->property("prop")));
+        query::TypedValue(vertex.PropsAt(dba_get->Property("prop")));
     query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
     EXPECT_TRUE((prop == expected_prop).Value<bool>());
     vertex_count++;
@@ -218,24 +218,24 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
   EXPECT_EQ(vertex_count, 1000);
 
   int64_t edge_count = 0;
-  for (const auto &edge : dba_get->edges(false)) {
-    EXPECT_EQ(edge.edge_type(), dba_get->edge_type("type"));
+  for (const auto &edge : dba_get->Edges(false)) {
+    EXPECT_EQ(edge.EdgeType(), dba_get->EdgeType("type"));
     query::TypedValue prop =
-        query::TypedValue(edge.PropsAt(dba_get->property("prop")));
+        query::TypedValue(edge.PropsAt(dba_get->Property("prop")));
     query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
     EXPECT_TRUE((prop == expected_prop).Value<bool>());
     edge_count++;
   }
   EXPECT_EQ(edge_count, 999);
-  dba_get->commit();
+  dba_get->Commit();
 }
 
 TEST_F(RecoveryTest, TestLabelPropertyIndexRecovery) {
   // Creates snapshot of the graph with indices.
   Dbms dbms;
   auto dba = dbms.active();
-  dba->BuildIndex(dba->label("label"), dba->property("prop"));
-  dba->commit();
+  dba->BuildIndex(dba->Label("label"), dba->Property("prop"));
+  dba->Commit();
   CreateBigGraph(dbms);
   TakeSnapshot(dbms, max_retained_snapshots_);
   std::string snapshot = GetLatestSnapshot();
@@ -248,15 +248,15 @@ TEST_F(RecoveryTest, TestLabelPropertyIndexRecovery) {
 
   auto dba_get = dbms_recover.active();
   EXPECT_EQ(dba_get->GetIndicesKeys().size(), 1);
-  EXPECT_TRUE(dba_get->LabelPropertyIndexExists(dba_get->label("label"),
-                                                dba_get->property("prop")));
+  EXPECT_TRUE(dba_get->LabelPropertyIndexExists(dba_get->Label("label"),
+                                                dba_get->Property("prop")));
 
   int64_t vertex_count = 0;
-  for (const auto &vertex : dba_get->vertices(false)) {
+  for (const auto &vertex : dba_get->Vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
-    EXPECT_TRUE(vertex.has_label(dba_get->label("label")));
+    EXPECT_TRUE(vertex.has_label(dba_get->Label("label")));
     query::TypedValue prop =
-        query::TypedValue(vertex.PropsAt(dba_get->property("prop")));
+        query::TypedValue(vertex.PropsAt(dba_get->Property("prop")));
     query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
     EXPECT_TRUE((prop == expected_prop).Value<bool>());
     vertex_count++;
@@ -264,16 +264,16 @@ TEST_F(RecoveryTest, TestLabelPropertyIndexRecovery) {
   EXPECT_EQ(vertex_count, 1000);
 
   int64_t edge_count = 0;
-  for (const auto &edge : dba_get->edges(false)) {
-    EXPECT_EQ(edge.edge_type(), dba_get->edge_type("type"));
+  for (const auto &edge : dba_get->Edges(false)) {
+    EXPECT_EQ(edge.EdgeType(), dba_get->EdgeType("type"));
     query::TypedValue prop =
-        query::TypedValue(edge.PropsAt(dba_get->property("prop")));
+        query::TypedValue(edge.PropsAt(dba_get->Property("prop")));
     query::TypedValue expected_prop = query::TypedValue(PropertyValue("prop"));
     EXPECT_TRUE((prop == expected_prop).Value<bool>());
     edge_count++;
   }
   EXPECT_EQ(edge_count, 999);
-  dba_get->commit();
+  dba_get->Commit();
 }
 
 int main(int argc, char **argv) {

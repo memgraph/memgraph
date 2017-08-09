@@ -20,15 +20,15 @@ class CPUPlan : public PlanInterface<Stream> {
            Stream &stream) {
     std::vector<std::string> headers{std::string("p")};
     stream.Header(headers);
-    for (auto vertex : db_accessor.vertices(false)) {
-      if (vertex.has_label(db_accessor.label("profile"))) {
-        TypedValue prop = vertex.PropsAt(db_accessor.property("profile_id"));
+    for (auto vertex : db_accessor.Vertices(false)) {
+      if (vertex.has_label(db_accessor.Label("profile"))) {
+        TypedValue prop = vertex.PropsAt(db_accessor.Property("profile_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
         auto cmp = prop == args.At(0).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
         if (cmp.Value<bool>() != true) continue;
 
-        TypedValue prop2 = vertex.PropsAt(db_accessor.property("partner_id"));
+        TypedValue prop2 = vertex.PropsAt(db_accessor.Property("partner_id"));
         if (prop2.type() == TypedValue::Type::Null) continue;
         auto cmp2 = prop2 == args.At(1).second;
         if (cmp2.type() != TypedValue::Type::Bool) continue;

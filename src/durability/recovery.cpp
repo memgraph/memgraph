@@ -6,10 +6,10 @@ bool Recovery::Recover(const fs::path &snapshot_file,
                        GraphDbAccessor &db_accessor) {
   if (!fs::exists(snapshot_file)) return false;
   if (!Decode(snapshot_file, db_accessor)) {
-    db_accessor.abort();
+    db_accessor.Abort();
     return false;
   }
-  db_accessor.commit();
+  db_accessor.Commit();
   return true;
 }
 
@@ -34,8 +34,8 @@ bool Recovery::Decode(const fs::path &snapshot_file,
   for (int i = 0; i < label_property_vector.size(); i += 2) {
     auto label = label_property_vector[i].Value<std::string>();
     auto property = label_property_vector[i + 1].Value<std::string>();
-    db_accessor.BuildIndex(db_accessor.label(label),
-                           db_accessor.property(property));
+    db_accessor.BuildIndex(db_accessor.Label(label),
+                           db_accessor.Property(property));
   }
 
   for (int64_t i = 0; i < summary.vertex_num_; ++i) {
@@ -44,12 +44,12 @@ bool Recovery::Decode(const fs::path &snapshot_file,
       buffer.Close();
       return false;
     }
-    auto vertex_accessor = db_accessor.insert_vertex();
+    auto vertex_accessor = db_accessor.InsertVertex();
     for (const auto &label : vertex.labels) {
-      vertex_accessor.add_label(db_accessor.label(label));
+      vertex_accessor.add_label(db_accessor.Label(label));
     }
     for (const auto &property_pair : vertex.properties) {
-      vertex_accessor.PropsSet(db_accessor.property(property_pair.first),
+      vertex_accessor.PropsSet(db_accessor.Property(property_pair.first),
                                property_pair.second);
     }
     vertices.insert({vertex.id, vertex_accessor});
@@ -66,11 +66,11 @@ bool Recovery::Decode(const fs::path &snapshot_file,
       buffer.Close();
       return false;
     }
-    auto edge_accessor = db_accessor.insert_edge(
-        it_from->second, it_to->second, db_accessor.edge_type(edge.type));
+    auto edge_accessor = db_accessor.InsertEdge(
+        it_from->second, it_to->second, db_accessor.EdgeType(edge.type));
 
     for (const auto &property_pair : edge.properties)
-      edge_accessor.PropsSet(db_accessor.property(property_pair.first),
+      edge_accessor.PropsSet(db_accessor.Property(property_pair.first),
                              property_pair.second);
   }
 

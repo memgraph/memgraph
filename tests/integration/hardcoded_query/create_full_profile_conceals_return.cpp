@@ -19,11 +19,11 @@ class CPUPlan : public PlanInterface<Stream> {
  public:
   bool run(GraphDbAccessor &db_accessor, const Parameters &args,
            Stream &stream) {
-    auto v = db_accessor.insert_vertex();
-    v.PropsSet(db_accessor.property("profile_id"), args.At(0).second);
-    v.PropsSet(db_accessor.property("partner_id"), args.At(1).second);
-    v.PropsSet(db_accessor.property("conceals"), args.At(2).second);
-    v.add_label(db_accessor.label("profile"));
+    auto v = db_accessor.InsertVertex();
+    v.PropsSet(db_accessor.Property("profile_id"), args.At(0).second);
+    v.PropsSet(db_accessor.Property("partner_id"), args.At(1).second);
+    v.PropsSet(db_accessor.Property("conceals"), args.At(2).second);
+    v.add_label(db_accessor.Label("profile"));
     std::vector<std::string> headers{std::string("p")};
     stream.Header(headers);
     std::vector<TypedValue> result{TypedValue(v)};

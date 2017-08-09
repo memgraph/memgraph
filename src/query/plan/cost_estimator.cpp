@@ -5,14 +5,14 @@
 namespace query::plan {
 
 bool CostEstimator::PostVisit(ScanAll &) {
-  cardinality_ *= db_accessor_.vertices_count();
+  cardinality_ *= db_accessor_.VerticesCount();
   // ScanAll performs some work for every element that is produced
   IncrementCost(CostParam::kScanAll);
   return true;
 }
 
 bool CostEstimator::PostVisit(ScanAllByLabel &scan_all_by_label) {
-  cardinality_ *= db_accessor_.vertices_count(scan_all_by_label.label());
+  cardinality_ *= db_accessor_.VerticesCount(scan_all_by_label.label());
   // ScanAll performs some work for every element that is produced
   IncrementCost(CostParam::kScanAllByLabel);
   return true;
@@ -32,12 +32,12 @@ bool CostEstimator::PostVisit(ScanAllByLabelPropertyValue &logical_op) {
   double factor = 1.0;
   if (property_value)
     // get the exact influence based on ScanAll(label, property, value)
-    factor = db_accessor_.vertices_count(
+    factor = db_accessor_.VerticesCount(
         logical_op.label(), logical_op.property(), property_value.value());
   else
     // estimate the influence as ScanAll(label, property) * filtering
     factor =
-        db_accessor_.vertices_count(logical_op.label(), logical_op.property()) *
+        db_accessor_.VerticesCount(logical_op.label(), logical_op.property()) *
         CardParam::kFilter;
 
   cardinality_ *= factor;
@@ -70,12 +70,12 @@ bool CostEstimator::PostVisit(ScanAllByLabelPropertyRange &logical_op) {
   int64_t factor = 1;
   if (upper || lower)
     // if we have either Bound<PropertyValue>, use the value index
-    factor = db_accessor_.vertices_count(logical_op.label(),
-                                         logical_op.property(), lower, upper);
+    factor = db_accessor_.VerticesCount(logical_op.label(),
+                                        logical_op.property(), lower, upper);
   else
     // no values, but we still have the label
     factor =
-        db_accessor_.vertices_count(logical_op.label(), logical_op.property());
+        db_accessor_.VerticesCount(logical_op.label(), logical_op.property());
 
   // if we failed to take either bound from the op into account, then apply
   // the filtering constant to the factor

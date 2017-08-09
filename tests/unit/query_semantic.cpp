@@ -172,7 +172,7 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
   Dbms dbms;
   auto dba = dbms.active();
-  auto relationship = dba->edge_type("relationship");
+  auto relationship = dba->EdgeType("relationship");
   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      CREATE(PATTERN(NODE("n"), EDGE("r", relationship,
                                                     EdgeAtom::Direction::OUT),
@@ -210,8 +210,8 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   // CREATE (n) -[r :rel1 | :rel2]-> (m)
   Dbms dbms;
   auto dba = dbms.active();
-  auto rel1 = dba->edge_type("rel1");
-  auto rel2 = dba->edge_type("rel2");
+  auto rel1 = dba->EdgeType("rel1");
+  auto rel2 = dba->EdgeType("rel2");
   auto edge = EDGE("r", rel1, EdgeAtom::Direction::OUT);
   edge->edge_types_.emplace_back(rel2);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
@@ -226,7 +226,7 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   // CREATE (n) -[r :rel1]- (m)
   Dbms dbms;
   auto dba = dbms.active();
-  auto rel1 = dba->edge_type("rel1");
+  auto rel1 = dba->EdgeType("rel1");
   auto query = QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", rel1), NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -307,7 +307,7 @@ TEST(TestSymbolGenerator, MatchWithWhere) {
   // Test MATCH (old) WITH old AS n WHERE n.prop < 42
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto node = NODE("old");
   auto old_ident = IDENT("old");
@@ -332,7 +332,7 @@ TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto query =
       QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
@@ -346,8 +346,8 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
-  auto p_type = dba->edge_type("p");
+  auto r_type = dba->EdgeType("r");
+  auto p_type = dba->EdgeType("p");
   AstTreeStorage storage;
   auto node_n1 = NODE("n");
   auto edge_r = EDGE("r", r_type, EdgeAtom::Direction::OUT);
@@ -383,8 +383,8 @@ TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
-  auto label = dba->label("label");
+  auto r_type = dba->EdgeType("r");
+  auto label = dba->Label("label");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -399,7 +399,7 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   // Test CREATE (n) -[r :r]-> (n {prop: 42})
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
+  auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
   auto n_prop = NODE("n");
   n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
@@ -414,7 +414,7 @@ TEST(TestSymbolGenerator, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto node = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
@@ -438,7 +438,7 @@ TEST(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -452,7 +452,7 @@ TEST(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
@@ -487,7 +487,7 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   // Test CREATE (n), (n) -[r :r]-> (n)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
+  auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
@@ -508,7 +508,7 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   // Test MATCH (n) WITH n AS m CREATE (m) -[r :r]-> (m)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
+  auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
@@ -655,7 +655,7 @@ TEST(TestSymbolGenerator, MergeVariableError) {
   {
     Dbms dbms;
     auto dba = dbms.active();
-    auto rel = dba->edge_type("rel");
+    auto rel = dba->EdgeType("rel");
     AstTreeStorage storage;
     auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                        MERGE(PATTERN(NODE("a"), EDGE("r", rel), NODE("b"))));
@@ -680,8 +680,8 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   //      ON CREATE SET m.prop = 42 RETURN r AS r
   Dbms dbms;
   auto dba = dbms.active();
-  auto rel = dba->edge_type("rel");
-  auto prop = dba->property("prop");
+  auto rel = dba->EdgeType("rel");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
@@ -786,7 +786,7 @@ TEST(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   // MATCH (n) -[e]- (m) WITH * RETURN *, n.prop
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto ret = RETURN(n_prop, AS("n.prop"));
@@ -834,8 +834,8 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
   Dbms dbms;
   auto dba = dbms.active();
-  auto r_type = dba->edge_type("r");
-  auto label = dba->label("label");
+  auto r_type = dba->EdgeType("r");
+  auto label = dba->Label("label");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -870,7 +870,7 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m), (l) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r");
   edge->has_range_ = true;
@@ -894,7 +894,7 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m) MATCH (l) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r");
   edge->has_range_ = true;
@@ -952,7 +952,7 @@ TEST(TestSymbolGenerator, VariablePathSameIdentifier) {
   // variable expansion itself.
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r", EdgeAtom::Direction::OUT);
   edge->has_range_ = true;
@@ -1012,7 +1012,7 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   // Test MATCH (n) -bfs[r](r, n | r.prop, n.prop)-> (m) RETURN r AS r
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP("r", prop);

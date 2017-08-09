@@ -87,7 +87,7 @@ void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
 
 void CreateNode::CreateNodeCursor::Create(Frame &frame,
                                           const SymbolTable &symbol_table) {
-  auto new_node = db_.insert_vertex();
+  auto new_node = db_.InsertVertex();
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
   // Evaluator should use the latest accessors, as modified in this query, when
@@ -168,7 +168,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     return dest_node_value.Value<VertexAccessor>();
   } else {
     // the node does not exist, it needs to be created
-    auto node = db_.insert_vertex();
+    auto node = db_.InsertVertex();
     for (auto label : self_.node_atom_->labels_) node.add_label(label);
     for (auto kv : self_.node_atom_->properties_)
       PropsSetChecked(node, kv.first.second, kv.second->Accept(evaluator));
@@ -182,7 +182,7 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
     VertexAccessor &from, VertexAccessor &to, Frame &frame,
     const SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
   EdgeAccessor edge =
-      db_.insert_edge(from, to, self_.edge_atom_->edge_types_[0]);
+      db_.InsertEdge(from, to, self_.edge_atom_->edge_types_[0]);
   for (auto kv : self_.edge_atom_->properties_)
     PropsSetChecked(edge, kv.first.second, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
@@ -246,7 +246,7 @@ ACCEPT_WITH_INPUT(ScanAll)
 
 std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
   auto vertices = [this, &db](Frame &, const SymbolTable &) {
-    return db.vertices(graph_view_ == GraphView::NEW);
+    return db.Vertices(graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
@@ -261,7 +261,7 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
   auto vertices = [this, &db](Frame &, const SymbolTable &) {
-    return db.vertices(label_, graph_view_ == GraphView::NEW);
+    return db.Vertices(label_, graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
@@ -304,7 +304,7 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
           return std::experimental::make_optional(utils::Bound<PropertyValue>(
               bound.value().value()->Accept(evaluator), bound.value().type()));
         };
-    return db.vertices(label_, property_, convert(lower_bound()),
+    return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
@@ -339,7 +339,7 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
       TypedValue value = self_.expression()->Accept(evaluator);
       if (value.IsNull()) return Pull(frame, symbol_table);
       try {
-        vertices_.emplace(db_.vertices(self_.label(), self_.property(), value,
+        vertices_.emplace(db_.Vertices(self_.label(), self_.property(), value,
                                        self_.graph_view() == GraphView::NEW));
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.",
@@ -367,7 +367,7 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
   GraphDbAccessor &db_;
   const std::unique_ptr<Cursor> input_cursor_;
   std::experimental::optional<decltype(
-      db_.vertices(self_.label(), self_.property(), TypedValue::Null, false))>
+      db_.Vertices(self_.label(), self_.property(), TypedValue::Null, false))>
       vertices_;
   std::experimental::optional<decltype(vertices_.value().begin())> vertices_it_;
 };
@@ -1112,7 +1112,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // delete edges first
   for (TypedValue &expression_result : expression_results)
     if (expression_result.type() == TypedValue::Type::Edge)
-      db_.remove_edge(expression_result.Value<EdgeAccessor>());
+      db_.RemoveEdge(expression_result.Value<EdgeAccessor>());
 
   // delete vertices
   for (TypedValue &expression_result : expression_results)
@@ -1122,8 +1122,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
         va.SwitchNew();  //  necessary because an edge deletion could have
                          //  updated
         if (self_.detach_)
-          db_.detach_remove_vertex(va);
-        else if (!db_.remove_vertex(va))
+          db_.DetachRemoveVertex(va);
+        else if (!db_.RemoveVertex(va))
           throw QueryRuntimeException(
               "Failed to remove vertex because of it's existing "
               "connections. Consider using DETACH DELETE.");
@@ -1248,7 +1248,7 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
       break;
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.Value<std::map<std::string, TypedValue>>())
-        PropsSetChecked(record, db_.property(kv.first), kv.second);
+        PropsSetChecked(record, db_.Property(kv.first), kv.second);
       break;
     }
     default:
@@ -1517,7 +1517,7 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
     cache_it_ = cache_.begin();
 
     if (self_.advance_command_) {
-      db_.advance_command();
+      db_.AdvanceCommand();
       for (auto &row : cache_)
         for (auto &col : row) ReconstructTypedValue(col);
     }

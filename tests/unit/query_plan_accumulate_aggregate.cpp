@@ -34,14 +34,14 @@ TEST(QueryPlan, Accumulate) {
   auto check = [&](bool accumulate) {
     Dbms dbms;
     auto dba = dbms.active();
-    auto prop = dba->property("x");
+    auto prop = dba->Property("x");
 
-    auto v1 = dba->insert_vertex();
+    auto v1 = dba->InsertVertex();
     v1.PropsSet(prop, 0);
-    auto v2 = dba->insert_vertex();
+    auto v2 = dba->InsertVertex();
     v2.PropsSet(prop, 0);
-    dba->insert_edge(v1, v2, dba->edge_type("T"));
-    dba->advance_command();
+    dba->InsertEdge(v1, v2, dba->EdgeType("T"));
+    dba->AdvanceCommand();
 
     AstTreeStorage storage;
     SymbolTable symbol_table;
@@ -151,7 +151,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
  protected:
   Dbms dbms;
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
-  GraphDbTypes::Property prop = dba->property("prop");
+  GraphDbTypes::Property prop = dba->Property("prop");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -160,13 +160,13 @@ class QueryPlanAggregateOps : public ::testing::Test {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
-    dba->insert_vertex().PropsSet(prop, 5);
-    dba->insert_vertex().PropsSet(prop, 7);
-    dba->insert_vertex().PropsSet(prop, 12);
+    dba->InsertVertex().PropsSet(prop, 5);
+    dba->InsertVertex().PropsSet(prop, 7);
+    dba->InsertVertex().PropsSet(prop, 12);
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
-    dba->insert_vertex();
-    dba->advance_command();
+    dba->InsertVertex();
+    dba->AdvanceCommand();
   }
 
   auto AggregationResults(bool with_group_by,
@@ -301,11 +301,10 @@ TEST(QueryPlan, AggregateGroupByValues) {
   group_by_vals.emplace_back(std::vector<TypedValue>{1, 2.0});
 
   // generate a lot of vertices and set props on them
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
   for (int i = 0; i < 1000; ++i)
-    dba->insert_vertex().PropsSet(prop,
-                                  group_by_vals[i % group_by_vals.size()]);
-  dba->advance_command();
+    dba->InsertVertex().PropsSet(prop, group_by_vals[i % group_by_vals.size()]);
+  dba->AdvanceCommand();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -339,16 +338,16 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  auto prop1 = dba->property("prop1");
-  auto prop2 = dba->property("prop2");
-  auto prop3 = dba->property("prop3");
+  auto prop1 = dba->Property("prop1");
+  auto prop2 = dba->Property("prop2");
+  auto prop3 = dba->Property("prop3");
   for (int i = 0; i < 2 * 3 * 5; ++i) {
-    auto v = dba->insert_vertex();
+    auto v = dba->InsertVertex();
     v.PropsSet(prop1, (bool)(i % 2));
     v.PropsSet(prop2, i % 3);
     v.PropsSet(prop3, "value" + std::to_string(i % 5));
   }
-  dba->advance_command();
+  dba->AdvanceCommand();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -400,7 +399,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
 
   Dbms dbms;
   auto dba = dbms.active();
-  auto prop = dba->property("prop");
+  auto prop = dba->Property("prop");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -426,23 +425,23 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(0, count());
 
   // one vertex, no property set
-  dba->insert_vertex();
-  dba->advance_command();
+  dba->InsertVertex();
+  dba->AdvanceCommand();
   EXPECT_EQ(0, count());
 
   // one vertex, property set
-  for (VertexAccessor va : dba->vertices(false)) va.PropsSet(prop, 42);
-  dba->advance_command();
+  for (VertexAccessor va : dba->Vertices(false)) va.PropsSet(prop, 42);
+  dba->AdvanceCommand();
   EXPECT_EQ(1, count());
 
   // two vertices, one with property set
-  dba->insert_vertex();
-  dba->advance_command();
+  dba->InsertVertex();
+  dba->AdvanceCommand();
   EXPECT_EQ(1, count());
 
   // two vertices, both with property set
-  for (VertexAccessor va : dba->vertices(false)) va.PropsSet(prop, 42);
-  dba->advance_command();
+  for (VertexAccessor va : dba->Vertices(false)) va.PropsSet(prop, 42);
+  dba->AdvanceCommand();
   EXPECT_EQ(2, count());
 }
 
@@ -453,12 +452,12 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  auto v1 = dba->insert_vertex();
-  auto prop_string = dba->property("string");
+  auto v1 = dba->InsertVertex();
+  auto prop_string = dba->Property("string");
   v1.PropsSet(prop_string, "johhny");
-  auto prop_int = dba->property("int");
+  auto prop_int = dba->Property("int");
   v1.PropsSet(prop_int, 12);
-  dba->advance_command();
+  dba->AdvanceCommand();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -508,13 +507,13 @@ TEST(QueryPlan, AggregateTypes) {
   Dbms dbms;
   auto dba = dbms.active();
 
-  auto p1 = dba->property("p1");  // has only string props
-  dba->insert_vertex().PropsSet(p1, "string");
-  dba->insert_vertex().PropsSet(p1, "str2");
-  auto p2 = dba->property("p2");  // combines int and bool
-  dba->insert_vertex().PropsSet(p2, 42);
-  dba->insert_vertex().PropsSet(p2, true);
-  dba->advance_command();
+  auto p1 = dba->Property("p1");  // has only string props
+  dba->InsertVertex().PropsSet(p1, "string");
+  dba->InsertVertex().PropsSet(p1, "str2");
+  auto p2 = dba->Property("p2");  // combines int and bool
+  dba->InsertVertex().PropsSet(p2, 42);
+  dba->InsertVertex().PropsSet(p2, true);
+  dba->AdvanceCommand();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;

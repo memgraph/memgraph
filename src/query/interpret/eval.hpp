@@ -250,7 +250,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         return expression_result.Value<EdgeAccessor>().PropsAt(
             property_lookup.property_);
       case TypedValue::Type::Map: {
-        auto &map = expression_result.Value<std::map<std::string, TypedValue>>();
+        auto &map =
+            expression_result.Value<std::map<std::string, TypedValue>>();
         auto found = map.find(property_lookup.property_name_);
         if (found == map.end()) return TypedValue::Null;
         return found->second;
@@ -287,7 +288,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         return TypedValue::Null;
       case TypedValue::Type::Edge: {
         auto real_edge_type =
-            expression_result.Value<EdgeAccessor>().edge_type();
+            expression_result.Value<EdgeAccessor>().EdgeType();
         for (const auto edge_type : edge_type_test.edge_types_) {
           if (edge_type == real_edge_type) {
             return true;

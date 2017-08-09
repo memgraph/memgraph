@@ -101,7 +101,7 @@ TypedValue Properties(const std::vector<TypedValue> &args,
   auto get_properties = [&](const auto &record_accessor) {
     std::map<std::string, TypedValue> properties;
     for (const auto &property : record_accessor.Properties()) {
-      properties[db_accessor.property_name(property.first)] = property.second;
+      properties[db_accessor.PropertyName(property.first)] = property.second;
     }
     return properties;
   };
@@ -247,8 +247,7 @@ TypedValue Type(const std::vector<TypedValue> &args,
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::Edge:
-      return db_accessor.edge_type_name(
-          args[0].Value<EdgeAccessor>().edge_type());
+      return db_accessor.EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType());
     default:
       throw QueryRuntimeException("type called with incompatible type");
   }
@@ -262,7 +261,7 @@ TypedValue Keys(const std::vector<TypedValue> &args,
   auto get_keys = [&](const auto &record_accessor) {
     std::vector<TypedValue> keys;
     for (const auto &property : record_accessor.Properties()) {
-      keys.push_back(db_accessor.property_name(property.first));
+      keys.push_back(db_accessor.PropertyName(property.first));
     }
     return keys;
   };
@@ -289,7 +288,7 @@ TypedValue Labels(const std::vector<TypedValue> &args,
     case TypedValue::Type::Vertex: {
       std::vector<TypedValue> labels;
       for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
-        labels.push_back(db_accessor.label_name(label));
+        labels.push_back(db_accessor.LabelName(label));
       }
       return labels;
     }

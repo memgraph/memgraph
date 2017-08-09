@@ -106,7 +106,7 @@ State HandleRun(Session &session, State state, Marker marker) {
       session.encoder_.MessageSuccess({}, false);
       return State::Result;
     }
-    session.db_accessor_->advance_command();
+    session.db_accessor_->AdvanceCommand();
   }
 
   try {

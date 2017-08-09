@@ -713,8 +713,8 @@ const GraphDbTypes::Label &FindBestLabelIndex(
                "Trying to find the best label without any labels.");
   return *std::min_element(labels.begin(), labels.end(),
                            [&db](const auto &label1, const auto &label2) {
-                             return db.vertices_count(label1) <
-                                    db.vertices_count(label2);
+                             return db.VerticesCount(label1) <
+                                    db.VerticesCount(label2);
                            });
 }
 
@@ -744,8 +744,8 @@ bool FindBestLabelPropertyIndex(
     for (const auto &prop_pair : property_filters) {
       const auto &property = prop_pair.first;
       if (db.LabelPropertyIndexExists(label, property)) {
-        auto vertices_count = db.vertices_count(label, property);
-        if (vertices_count < min_count) {
+        auto VerticesCount = db.VerticesCount(label, property);
+        if (VerticesCount < min_count) {
           for (const auto &prop_filter : prop_pair.second) {
             if (prop_filter.used_symbols.find(symbol) !=
                 prop_filter.used_symbols.end()) {
@@ -759,7 +759,7 @@ bool FindBestLabelPropertyIndex(
               // Take the first property filter which uses bound symbols.
               best_label = label;
               best_property = {property, prop_filter};
-              min_count = vertices_count;
+              min_count = VerticesCount;
               found = true;
               break;
             }

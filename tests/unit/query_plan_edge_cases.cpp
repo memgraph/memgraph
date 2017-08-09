@@ -17,7 +17,7 @@ class QueryExecution : public testing::Test {
   /** Commits the current transaction and refreshes the db_
    * variable to hold a new accessor with a new transaction */
   void Commit() {
-    db_->commit();
+    db_->Commit();
     auto next_db = dbms_.active();
     db_.swap(next_db);
   }
@@ -47,7 +47,9 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
     return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") +
                    (desc ? "DESC " : "") +
                    "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
-                   "MATCH (d)-" + (variable ? "[*1]" : "") + "->(f:Food) "
+                   "MATCH (d)-" +
+                   (variable ? "[*1]" : "") +
+                   "->(f:Food) "
                    "RETURN p, d, f")
         .size();
   };

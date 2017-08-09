@@ -22,9 +22,9 @@ class CPUPlan : public PlanInterface<Stream> {
     std::vector<std::string> headers{std::string("r")};
     stream.Header(headers);
     std::vector<VertexAccessor> g1_set, g2_set;
-    for (auto g1 : db_accessor.vertices(false)) {
-      if (g1.has_label(db_accessor.label("garment"))) {
-        TypedValue prop = g1.PropsAt(db_accessor.property("garment_id"));
+    for (auto g1 : db_accessor.Vertices(false)) {
+      if (g1.has_label(db_accessor.Label("garment"))) {
+        TypedValue prop = g1.PropsAt(db_accessor.Property("garment_id"));
         if (prop.type() == TypedValue::Type::Null) continue;
         auto cmp = prop == args.At(0).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
@@ -32,9 +32,9 @@ class CPUPlan : public PlanInterface<Stream> {
         g1_set.push_back(g1);
       }
     }
-    for (auto g2 : db_accessor.vertices(false)) {
-      if (g2.has_label(db_accessor.label("garment"))) {
-        auto prop = g2.PropsAt(db_accessor.property("garment_id"));
+    for (auto g2 : db_accessor.Vertices(false)) {
+      if (g2.has_label(db_accessor.Label("garment"))) {
+        auto prop = g2.PropsAt(db_accessor.Property("garment_id"));
         if (prop.type() == PropertyValue::Type::Null) continue;
         auto cmp = prop == args.At(1).second;
         if (cmp.type() != TypedValue::Type::Bool) continue;
@@ -44,8 +44,8 @@ class CPUPlan : public PlanInterface<Stream> {
     }
     for (auto g1 : g1_set)
       for (auto g2 : g2_set) {
-        EdgeAccessor e = db_accessor.insert_edge(
-            g1, g2, db_accessor.edge_type("default_outfit"));
+        EdgeAccessor e = db_accessor.InsertEdge(
+            g1, g2, db_accessor.EdgeType("default_outfit"));
         std::vector<TypedValue> result{TypedValue(e)};
         stream.Result(result);
       }

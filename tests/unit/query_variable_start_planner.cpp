@@ -82,10 +82,10 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   // Make a graph (v1) -[:r]-> (v2)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  dba->insert_edge(v1, v2, dba->edge_type("r"));
-  dba->advance_command();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  dba->InsertEdge(v1, v2, dba->EdgeType("r"));
+  dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   AstTreeStorage storage;
   QUERY(
@@ -102,12 +102,12 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto v3 = dba->insert_vertex();
-  dba->insert_edge(v1, v2, dba->edge_type("r"));
-  dba->insert_edge(v2, v3, dba->edge_type("r"));
-  dba->advance_command();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  dba->InsertEdge(v1, v2, dba->EdgeType("r"));
+  dba->InsertEdge(v2, v3, dba->EdgeType("r"));
+  dba->AdvanceCommand();
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
     AstTreeStorage storage;
@@ -139,12 +139,12 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto v3 = dba->insert_vertex();
-  dba->insert_edge(v1, v2, dba->edge_type("r"));
-  dba->insert_edge(v2, v3, dba->edge_type("r"));
-  dba->advance_command();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  dba->InsertEdge(v1, v2, dba->EdgeType("r"));
+  dba->InsertEdge(v2, v3, dba->EdgeType("r"));
+  dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
   AstTreeStorage storage;
   QUERY(
@@ -166,11 +166,11 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   // Graph (v1) -[:r]-> (v2)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  auto r_type = dba->edge_type("r");
-  dba->insert_edge(v1, v2, r_type);
-  dba->advance_command();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto r_type = dba->EdgeType("r");
+  dba->InsertEdge(v1, v2, r_type);
+  dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
   AstTreeStorage storage;
@@ -192,10 +192,10 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   // Graph (v1) -[:r]-> (v2)
-  auto v1 = dba->insert_vertex();
-  auto v2 = dba->insert_vertex();
-  dba->insert_edge(v1, v2, dba->edge_type("r"));
-  dba->advance_command();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  dba->InsertEdge(v1, v2, dba->EdgeType("r"));
+  dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
   AstTreeStorage storage;
   QUERY(

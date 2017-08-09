@@ -1,5 +1,5 @@
-#include "database/creation_exception.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "database/creation_exception.hpp"
 
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
@@ -12,25 +12,25 @@ GraphDbAccessor::GraphDbAccessor(GraphDb &db)
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
-    this->abort();
+    this->Abort();
   }
 }
 
 const std::string &GraphDbAccessor::name() const { return db_.name_; }
 
-void GraphDbAccessor::advance_command() {
+void GraphDbAccessor::AdvanceCommand() {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   transaction_->engine_.Advance(transaction_->id_);
 }
 
-void GraphDbAccessor::commit() {
+void GraphDbAccessor::Commit() {
   debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
   transaction_->Commit();
   commited_ = true;
 }
 
-void GraphDbAccessor::abort() {
+void GraphDbAccessor::Abort() {
   debug_assert(!commited_ && !aborted_,
                "Already aborted or commited transaction.");
   transaction_->Abort();
@@ -42,7 +42,7 @@ bool GraphDbAccessor::should_abort() const {
   return transaction_->should_abort();
 }
 
-VertexAccessor GraphDbAccessor::insert_vertex() {
+VertexAccessor GraphDbAccessor::InsertVertex() {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
 
   // create a vertex
@@ -53,16 +53,60 @@ VertexAccessor GraphDbAccessor::insert_vertex() {
   throw CreationException("Unable to create a Vertex.");
 }
 
-void GraphDbAccessor::update_label_indices(
-    const GraphDbTypes::Label &label, const VertexAccessor &vertex_accessor,
-    const Vertex *const vertex) {
+void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
+                                 const GraphDbTypes::Property &property) {
+  debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+
+  const LabelPropertyIndex::Key key(label, property);
+  if (db_.label_property_index_.CreateIndex(key) == false) {
+    throw IndexExistsException(
+        "Index is either being created by another transaction or already "
+        "exists.");
+  }
+  // Everything that happens after the line above ended will be added to the
+  // index automatically, but we still have to add to index everything that
+  // happened earlier. We have to first wait for every transaction that
+  // happend before, or a bit later than CreateIndex to end.
+  {
+    auto wait_transaction = db_.tx_engine_.Begin();
+    for (auto id : wait_transaction->snapshot()) {
+      if (id == transaction_->id_) continue;
+      while (wait_transaction->engine_.clog().is_active(id))
+        // TODO reconsider this constant, currently rule-of-thumb chosen
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    wait_transaction->Commit();
+  }
+
+  // This transaction surely sees everything that happened before CreateIndex.
+  auto transaction = db_.tx_engine_.Begin();
+
+  for (auto vertex_vlist : db_.vertices_.access()) {
+    auto vertex_record = vertex_vlist->find(*transaction);
+    // Check if visible record exists, if it exists apply function on it.
+    if (vertex_record == nullptr) continue;
+    db_.label_property_index_.UpdateOnLabelProperty(vertex_vlist,
+                                                    vertex_record);
+  }
+  // Commit transaction as we finished applying method on newest visible
+  // records.
+  transaction->Commit();
+  // After these two operations we are certain that everything is contained in
+  // the index under the assumption that this transaction contained no
+  // vertex/edge insert/update before this method was invoked.
+  db_.label_property_index_.IndexFinishedBuilding(key);
+}
+
+void GraphDbAccessor::UpdateLabelIndices(const GraphDbTypes::Label &label,
+                                         const VertexAccessor &vertex_accessor,
+                                         const Vertex *const vertex) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   this->db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
   this->db_.label_property_index_.UpdateOnLabel(label, vertex_accessor.vlist_,
                                                 vertex);
 }
 
-void GraphDbAccessor::update_property_index(
+void GraphDbAccessor::UpdatePropertyIndex(
     const GraphDbTypes::Property &property,
     const RecordAccessor<Vertex> &record_accessor, const Vertex *const vertex) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
@@ -70,18 +114,17 @@ void GraphDbAccessor::update_property_index(
       property, record_accessor.vlist_, vertex);
 }
 
-int64_t GraphDbAccessor::vertices_count() const {
+int64_t GraphDbAccessor::VerticesCount() const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return db_.vertices_.access().size();
 }
 
-int64_t GraphDbAccessor::vertices_count(
-    const GraphDbTypes::Label &label) const {
+int64_t GraphDbAccessor::VerticesCount(const GraphDbTypes::Label &label) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return db_.labels_index_.Count(label);
 }
 
-int64_t GraphDbAccessor::vertices_count(
+int64_t GraphDbAccessor::VerticesCount(
     const GraphDbTypes::Label &label,
     const GraphDbTypes::Property &property) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
@@ -91,9 +134,9 @@ int64_t GraphDbAccessor::vertices_count(
   return db_.label_property_index_.Count(key);
 }
 
-int64_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label,
-                                        const GraphDbTypes::Property &property,
-                                        const PropertyValue &value) const {
+int64_t GraphDbAccessor::VerticesCount(const GraphDbTypes::Label &label,
+                                       const GraphDbTypes::Property &property,
+                                       const PropertyValue &value) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   const LabelPropertyIndex::Key key(label, property);
   debug_assert(db_.label_property_index_.IndexExists(key),
@@ -101,7 +144,7 @@ int64_t GraphDbAccessor::vertices_count(const GraphDbTypes::Label &label,
   return db_.label_property_index_.PositionAndCount(key, value).second;
 }
 
-int64_t GraphDbAccessor::vertices_count(
+int64_t GraphDbAccessor::VerticesCount(
     const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
     const std::experimental::optional<utils::Bound<PropertyValue>> lower,
     const std::experimental::optional<utils::Bound<PropertyValue>> upper)
@@ -144,7 +187,7 @@ int64_t GraphDbAccessor::vertices_count(
   }
 }
 
-bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
+bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   vertex_accessor.SwitchNew();
   // it's possible the vertex was removed already in this transaction
@@ -158,19 +201,19 @@ bool GraphDbAccessor::remove_vertex(VertexAccessor &vertex_accessor) {
   return true;
 }
 
-void GraphDbAccessor::detach_remove_vertex(VertexAccessor &vertex_accessor) {
+void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   vertex_accessor.SwitchNew();
-  for (auto edge_accessor : vertex_accessor.in()) remove_edge(edge_accessor);
+  for (auto edge_accessor : vertex_accessor.in()) RemoveEdge(edge_accessor);
   vertex_accessor.SwitchNew();
-  for (auto edge_accessor : vertex_accessor.out()) remove_edge(edge_accessor);
-  if (!remove_vertex(vertex_accessor))
+  for (auto edge_accessor : vertex_accessor.out()) RemoveEdge(edge_accessor);
+  if (!RemoveVertex(vertex_accessor))
     permanent_fail("Unable to remove vertex after all edges detached");
 }
 
-EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
-                                          VertexAccessor &to,
-                                          GraphDbTypes::EdgeType edge_type) {
+EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
+                                         VertexAccessor &to,
+                                         GraphDbTypes::EdgeType edge_type) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   // create an edge
   auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, *from.vlist_,
@@ -190,26 +233,26 @@ EdgeAccessor GraphDbAccessor::insert_edge(VertexAccessor &from,
   if (success) {
     // This has to be here because there is no additional method for setting
     // edge type.
-    update_edge_type_index(edge_type, edge_accessor, &edge_accessor.current());
+    UpdateEdgeTypeIndex(edge_type, edge_accessor, &edge_accessor.current());
     return edge_accessor;
   }
 
   throw CreationException("Unable to create an Edge.");
 }
 
-void GraphDbAccessor::update_edge_type_index(
+void GraphDbAccessor::UpdateEdgeTypeIndex(
     const GraphDbTypes::EdgeType &edge_type, const EdgeAccessor &edge_accessor,
     const Edge *const edge) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 
-int64_t GraphDbAccessor::edges_count() const {
+int64_t GraphDbAccessor::EdgesCount() const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return db_.edges_.access().size();
 }
 
-int64_t GraphDbAccessor::edges_count(
+int64_t GraphDbAccessor::EdgesCount(
     const GraphDbTypes::EdgeType &edge_type) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return db_.edge_types_index_.Count(edge_type);
@@ -227,7 +270,7 @@ void swap_out_edge(std::vector<mvcc::VersionList<Edge> *> &edges,
   edges.pop_back();
 }
 
-void GraphDbAccessor::remove_edge(EdgeAccessor &edge_accessor) {
+void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   // it's possible the edge was removed already in this transaction
   // due to it getting matched multiple times by some patterns
@@ -239,36 +282,36 @@ void GraphDbAccessor::remove_edge(EdgeAccessor &edge_accessor) {
   edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
 }
 
-GraphDbTypes::Label GraphDbAccessor::label(const std::string &label_name) {
+GraphDbTypes::Label GraphDbAccessor::Label(const std::string &label_name) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return &(*db_.labels_.access().insert(label_name).first);
 }
 
-const std::string &GraphDbAccessor::label_name(
+const std::string &GraphDbAccessor::LabelName(
     const GraphDbTypes::Label label) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return *label;
 }
 
-GraphDbTypes::EdgeType GraphDbAccessor::edge_type(
+GraphDbTypes::EdgeType GraphDbAccessor::EdgeType(
     const std::string &edge_type_name) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return &(*db_.edge_types_.access().insert(edge_type_name).first);
 }
 
-const std::string &GraphDbAccessor::edge_type_name(
+const std::string &GraphDbAccessor::EdgeTypeName(
     const GraphDbTypes::EdgeType edge_type) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return *edge_type;
 }
 
-GraphDbTypes::Property GraphDbAccessor::property(
+GraphDbTypes::Property GraphDbAccessor::Property(
     const std::string &property_name) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return &(*db_.properties_.access().insert(property_name).first);
 }
 
-const std::string &GraphDbAccessor::property_name(
+const std::string &GraphDbAccessor::PropertyName(
     const GraphDbTypes::Property property) const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return *property;

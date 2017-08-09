@@ -48,12 +48,12 @@ void CreateSnapshot() {
   auto dba = dbms.active();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va1 = dba->insert_vertex();
-  auto va2 = dba->insert_vertex();
-  dba->insert_edge(va1, va2, dba->edge_type("likes"));
-  auto va3 = dba->insert_vertex();
-  dba->insert_edge(va3, va2, dba->edge_type("hates"));
-  dba->advance_command();
+  auto va1 = dba->InsertVertex();
+  auto va2 = dba->InsertVertex();
+  dba->InsertEdge(va1, va2, dba->EdgeType("likes"));
+  auto va3 = dba->InsertVertex();
+  dba->InsertEdge(va3, va2, dba->EdgeType("hates"));
+  dba->AdvanceCommand();
 
   Snapshooter snapshooter;
   EXPECT_EQ(snapshooter.MakeSnapshot(*dba.get(),
@@ -70,14 +70,14 @@ void RecoverDbms() {
   std::vector<EdgeAccessor> edges;
 
   int vertex_count = 0;
-  for (auto const &vertex : dba->vertices(false)) {
+  for (auto const &vertex : dba->Vertices(false)) {
     vertices.push_back(vertex);
     vertex_count++;
   }
   EXPECT_EQ(vertex_count, 3);
 
   int edge_count = 0;
-  for (auto const &edge : dba->edges(false)) {
+  for (auto const &edge : dba->Edges(false)) {
     EXPECT_NE(vertices.end(),
               std::find(vertices.begin(), vertices.end(), edge.to()));
     EXPECT_NE(vertices.end(),
