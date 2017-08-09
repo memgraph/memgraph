@@ -487,6 +487,17 @@ Feature: Functions
             | n    | a | b |
             | null | 3 | 2 |
 
+    Scenario: Degree test:
+        When executing query:
+            """
+            CREATE (a)-[:Type]->(b)<-[:Type]-(c)
+            RETURN DEGREE(a) AS da, DEGREE(b) AS db, DEGREE(null) AS dn
+            """
+        Then the result should be:
+            | da | db | dn   |
+            | 1  | 2  | null |
+
+
     Scenario: Last test:
         When executing query:
             """

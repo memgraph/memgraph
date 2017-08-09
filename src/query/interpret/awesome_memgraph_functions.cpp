@@ -153,6 +153,22 @@ TypedValue StartNode(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   }
 }
 
+TypedValue Degree(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("degree requires one argument");
+  }
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex: {
+      auto &vertex = args[0].Value<VertexAccessor>();
+      return static_cast<int64_t>(vertex.out_degree() + vertex.in_degree());
+    }
+    default:
+      throw QueryRuntimeException("degree called with incompatible type");
+  }
+}
+
 TypedValue ToBoolean(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("toBoolean requires one argument");
@@ -492,6 +508,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "PROPERTIES") return Properties;
   if (function_name == "SIZE") return Size;
   if (function_name == "STARTNODE") return StartNode;
+  if (function_name == "DEGREE") return Degree;
   if (function_name == "TOBOOLEAN") return ToBoolean;
   if (function_name == "TOFLOAT") return ToFloat;
   if (function_name == "TOINTEGER") return ToInteger;

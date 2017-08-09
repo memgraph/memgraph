@@ -404,6 +404,7 @@ functions.
  `coalesce`   | Returns the first non null argument.
  `startNode`  | Returns the starting node of an edge.
  `endNode`    | Returns the destination node of an edge.
+ `degree`     | Returns the number of edges (both incoming and outgoing) of a node.
  `head`       | Returns the first element of a list.
  `last`       | Returns the last element of a list.
  `properties` | Returns the properties of a node or an edge.

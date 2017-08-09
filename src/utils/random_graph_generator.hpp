@@ -151,6 +151,7 @@ class RandomGraphGenerator {
     auto property = dba->property(prop_name);
     for (VertexAccessor va : dba->vertices(false))
       if (predicate(va)) va.PropsSet(property, value_generator());
+    dba->commit();
   }
 
  private:

@@ -768,6 +768,24 @@ TEST(ExpressionEvaluator, FunctionStartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE", {2}), QueryRuntimeException);
 }
 
+TEST(ExpressionEvaluator, FunctionDegree) {
+  ASSERT_THROW(EvaluateFunction("DEGREE", {}), QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("DEGREE", {TypedValue::Null}).type(),
+            TypedValue::Type::Null);
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->insert_vertex();
+  auto v2 = dba->insert_vertex();
+  auto v3 = dba->insert_vertex();
+  auto e12 = dba->insert_edge(v1, v2, dba->edge_type("t"));
+  dba->insert_edge(v3, v2, dba->edge_type("t"));
+  ASSERT_EQ(EvaluateFunction("DEGREE", {v1}).Value<int64_t>(), 1);
+  ASSERT_EQ(EvaluateFunction("DEGREE", {v2}).Value<int64_t>(), 2);
+  ASSERT_EQ(EvaluateFunction("DEGREE", {v3}).Value<int64_t>(), 1);
+  ASSERT_THROW(EvaluateFunction("DEGREE", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("DEGREE", {e12}), QueryRuntimeException);
+}
+
 TEST(ExpressionEvaluator, FunctionToBoolean) {
   ASSERT_THROW(EvaluateFunction("TOBOOLEAN", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {TypedValue::Null}).type(),
