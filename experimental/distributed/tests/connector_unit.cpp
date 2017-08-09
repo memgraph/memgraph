@@ -308,6 +308,51 @@ TEST(MultipleSendTest, OnEvent) {
   system.AwaitShutdown();
 }
 
+TEST(MultipleSendTest, Chaining) {
+  struct MessageInt : public Message {
+    MessageInt(int xx) : x(xx) {}
+    int x;
+  };
+
+  struct Master : public Reactor {
+    Master(System *system, std::string name) : Reactor(system, name) {}
+    virtual void Run() {
+      std::shared_ptr<Channel> channel;
+      while (!(channel = system_->FindChannel("worker", "main")))
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      channel->Send<MessageInt>(55);
+      channel->Send<MessageInt>(66);
+      channel->Send<MessageInt>(77);
+      CloseConnector("main");
+    }
+  };
+
+  struct Worker : public Reactor {
+    Worker(System *system, std::string name) : Reactor(system, name) {}
+
+    virtual void Run() {
+      EventStream* stream = main_.first;
+
+      stream->OnEventOnce()
+        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+            ASSERT_EQ(msg.x, 55);
+          })
+        .ChainOnce<MessageInt>([](const MessageInt& msg) {
+            ASSERT_EQ(msg.x, 66);
+          })
+        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+            ASSERT_EQ(msg.x, 77);
+            CloseConnector("main");
+          });
+    }
+  };
+
+  System system;
+  system.Spawn<Master>("master");
+  system.Spawn<Worker>("worker");
+  system.AwaitShutdown();
+}
+
 
 
 
