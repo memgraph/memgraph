@@ -30,8 +30,8 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
                          GraphDbAccessor &db_accessor_) {
   try {
     FileWriterBuffer buffer;
-    // BaseEncoder encodes graph elements. Flag true is for storing vertex IDs.
-    communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer, true);
+    // BaseEncoder encodes graph elements.
+    communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer);
     int64_t vertex_num = 0, edge_num = 0;
     buffer.Open(snapshot_file);
 

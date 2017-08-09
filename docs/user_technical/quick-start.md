@@ -251,3 +251,9 @@ Memgraph processes.
 Secure connections are not supported in alpha. For this reason each client
 driver needs to be configured not to use encryption. Consult driver-specific
 guides for details.
+
+
+#### Node and edge IDs
+Unique node and edge IDs are returned by the Bolt protocol to the client. In Memgraph
+these IDs are not guaranteed to be persistent during the whole database lifetime. They
+should never be used for any client side logic outside a single query/transaction scope.

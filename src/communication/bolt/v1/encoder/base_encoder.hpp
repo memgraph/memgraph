@@ -10,33 +10,18 @@
 namespace communication::bolt {
 
 /**
- * Bolt BaseEncoder.
- * Has public interfaces for writing Bolt encoded data.
- * Supported types are: Null, Bool, Int, Double,
- * String, List, Map, Vertex, Edge
+ * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
+ * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex, Edge
  *
- * This class has a dual purpose. The first is streaming of bolt data to
- * network clients. The second is streaming to disk in the database snapshotter.
- * The two usages are changed depending on the encode_ids boolean flag.
- * If encode_ids is set to false (it's default value) then the encoder encodes
- * normal bolt network client data. If encode_ids is set to true then the
- * encoder encodes data for the database snapshotter.
- * In the normal mode (encode_ids == false) the encoder doesn't output object
- * IDs but instead it outputs fixed zeros. In the snapshotter mode it outputs
- * temporary IDs obtained from the objects.
- *
- * Also note that currently expansion across the graph is not allowed during
- * streaming, if an update has happened in the same transaction command.
- * Attempting to do so crashes the DB. That's another reason why we encode
- * IDs (expansion from edges) only in the snapshotter.
+ * This class has a dual purpose. The first is streaming of bolt data to network
+ * clients. The second is streaming to disk in the database snapshotter.
  *
  * @tparam Buffer the output buffer that should be used
  */
 template <typename Buffer>
 class BaseEncoder {
  public:
-  BaseEncoder(Buffer &buffer, bool encode_ids = false)
-      : buffer_(buffer), encode_ids_(encode_ids) {}
+  BaseEncoder(Buffer &buffer) : buffer_(buffer) {}
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
@@ -125,17 +110,7 @@ class BaseEncoder {
   void WriteVertex(const VertexAccessor &vertex) {
     WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
     WriteRAW(underlying_cast(Signature::Node));
-
-    if (encode_ids_) {
-      // IMPORTANT: this is used only in the database snapshotter!
-      WriteUInt(vertex.temporary_id());
-    } else {
-      // IMPORTANT: here we write a hardcoded 0 because we don't
-      // use internal IDs, but need to give something to Bolt
-      // note that OpenCypher has no id(x) function, so the client
-      // should not be able to do anything with this value anyway
-      WriteInt(0);
-    }
+    WriteUInt(vertex.temporary_id());
 
     // write labels
     const auto &labels = vertex.labels();
@@ -156,20 +131,9 @@ class BaseEncoder {
     WriteRAW(underlying_cast(Marker::TinyStruct) + 5);
     WriteRAW(underlying_cast(Signature::Relationship));
 
-    if (encode_ids_) {
-      // IMPORTANT: this is used only in the database snapshotter!
-      WriteUInt(edge.temporary_id());
-      WriteUInt(edge.from().temporary_id());
-      WriteUInt(edge.to().temporary_id());
-    } else {
-      // IMPORTANT: here we write a hardcoded 0 because we don't
-      // use internal IDs, but need to give something to Bolt
-      // note that OpenCypher has no id(x) function, so the client
-      // should not be able to do anything with this value anyway
-      WriteInt(0);
-      WriteInt(0);
-      WriteInt(0);
-    }
+    WriteUInt(edge.temporary_id());
+    WriteUInt(edge.from().temporary_id());
+    WriteUInt(edge.to().temporary_id());
 
     // write type
     WriteString(edge.db_accessor().edge_type_name(edge.edge_type()));
@@ -225,7 +189,6 @@ class BaseEncoder {
 
  protected:
   Buffer &buffer_;
-  bool encode_ids_;
 
  private:
   void WriteUInt(const uint64_t &value) {

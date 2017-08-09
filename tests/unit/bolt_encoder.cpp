@@ -45,6 +45,15 @@ void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
   ASSERT_EQ(len, size);
 }
 
+void CheckInt(std::vector<uint8_t> &output, int64_t value) {
+  TestSocket socket(20);
+  TestBuffer encoder_buffer(socket);
+  communication::bolt::BaseEncoder<TestBuffer> bolt_encoder(encoder_buffer);
+  std::vector<uint8_t> &encoded = socket.output;
+  bolt_encoder.WriteInt(value);
+  CheckOutput(output, encoded.data(), encoded.size(), false);
+}
+
 void CheckRecordHeader(std::vector<uint8_t> &v, uint64_t size) {
   CheckOutput(v, (const uint8_t *)"\xB1\x71", 2, false);
   CheckTypeSize(v, LIST, size);
@@ -56,6 +65,7 @@ communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
 std::vector<uint8_t> &output = socket.output;
 
 TEST(BoltEncoder, NullAndBool) {
+  output.clear();
   std::vector<TypedValue> vals;
   vals.push_back(TypedValue::Null);
   vals.push_back(TypedValue(true));
@@ -67,6 +77,7 @@ TEST(BoltEncoder, NullAndBool) {
 
 TEST(BoltEncoder, Int) {
   int N = 28;
+  output.clear();
   std::vector<TypedValue> vals;
   for (int i = 0; i < N; ++i) vals.push_back(TypedValue(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
@@ -78,6 +89,7 @@ TEST(BoltEncoder, Int) {
 
 TEST(BoltEncoder, Double) {
   int N = 4;
+  output.clear();
   std::vector<TypedValue> vals;
   for (int i = 0; i < N; ++i) vals.push_back(TypedValue(double_decoded[i]));
   bolt_encoder.MessageRecord(vals);
@@ -87,6 +99,7 @@ TEST(BoltEncoder, Double) {
 }
 
 TEST(BoltEncoder, String) {
+  output.clear();
   std::vector<TypedValue> vals;
   for (uint64_t i = 0; i < sizes_num; ++i)
     vals.push_back(TypedValue(std::string((const char *)data, sizes[i])));
@@ -100,6 +113,7 @@ TEST(BoltEncoder, String) {
 }
 
 TEST(BoltEncoder, List) {
+  output.clear();
   std::vector<TypedValue> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
     std::vector<TypedValue> val;
@@ -120,6 +134,7 @@ TEST(BoltEncoder, List) {
 }
 
 TEST(BoltEncoder, Map) {
+  output.clear();
   std::vector<TypedValue> vals;
   uint8_t buff[10];
   for (int i = 0; i < sizes_num; ++i) {
@@ -147,6 +162,8 @@ TEST(BoltEncoder, Map) {
 }
 
 TEST(BoltEncoder, VertexAndEdge) {
+  output.clear();
+
   // create vertex
   Dbms dbms;
   auto db_accessor = dbms.active();
@@ -174,11 +191,25 @@ TEST(BoltEncoder, VertexAndEdge) {
   vals.push_back(TypedValue(va2));
   vals.push_back(TypedValue(ea));
   bolt_encoder.MessageRecord(vals);
-  CheckOutput(output, vertexedge_encoded, 74);
+
+  // The vertexedge_encoded testdata has hardcoded zeros for IDs,
+  // and Memgraph now encodes IDs so we need to check the output
+  // part by part.
+  CheckOutput(output, vertexedge_encoded, 5, false);
+  CheckInt(output, va1.temporary_id());
+  CheckOutput(output, vertexedge_encoded + 6, 34, false);
+  CheckInt(output, va2.temporary_id());
+  CheckOutput(output, vertexedge_encoded + 41, 4, false);
+  CheckInt(output, ea.temporary_id());
+  CheckInt(output, va1.temporary_id());
+  CheckInt(output, va2.temporary_id());
+  CheckOutput(output, vertexedge_encoded + 48, 26);
 }
 
 TEST(BoltEncoder, BoltV1ExampleMessages) {
   // this test checks example messages from: http://boltprotocol.org/v1/
+
+  output.clear();
 
   // record message
   std::vector<TypedValue> rvals;
