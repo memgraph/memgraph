@@ -249,11 +249,11 @@ class LabelPropertyIndex {
     debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
 
     auto type = [](const auto &bound) { return bound.value().value().type(); };
-    debug_assert(lower || upper, "At least one bound must be provided");
-    debug_assert(!lower || type(lower) != PropertyValue::Type::Null,
-                 "Null value is not a valid index bound");
-    debug_assert(!upper || type(upper) != PropertyValue::Type::Null,
-                 "Null value is not a valid index bound");
+    permanent_assert(lower || upper, "At least one bound must be provided");
+    permanent_assert(!lower || type(lower) != PropertyValue::Type::Null,
+                     "Null value is not a valid index bound");
+    permanent_assert(!upper || type(upper) != PropertyValue::Type::Null,
+                     "Null value is not a valid index bound");
 
     // helper function for creating a bound with an IndexElement
     auto make_index_bound = [](const auto &optional_bound, bool bottom) {

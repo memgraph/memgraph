@@ -180,8 +180,8 @@ class GraphDbAccessor {
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
-    debug_assert(value.type() != PropertyValue::Type::Null,
-                 "Can't query index for propery value type null.");
+    permanent_assert(value.type() != PropertyValue::Type::Null,
+                     "Can't query index for propery value type null.");
     return iter::imap([this, current_state](
                           auto vlist) { return VertexAccessor(*vlist, *this); },
                       db_.label_property_index_.GetVlists(

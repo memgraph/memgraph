@@ -82,7 +82,6 @@ TEST_F(IntQueue, IteratorEnd) {
   EXPECT_NE(it, cpq.end());
   for (int i = 0; i < 5; i++) it++;
   EXPECT_EQ(it, cpq.end());
-  EXPECT_DEATH(*it, "Dereferencing");
 }
 
 TEST_F(IntQueue, IteratorCopy) {
