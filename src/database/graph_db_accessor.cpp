@@ -1,11 +1,12 @@
-#include "database/graph_db_accessor.hpp"
 #include "database/creation_exception.hpp"
+#include "database/graph_db_accessor.hpp"
 
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/assert.hpp"
+#include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db), transaction_(db.tx_engine_.Begin()) {}
@@ -63,6 +64,21 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
         "Index is either being created by another transaction or already "
         "exists.");
   }
+
+  {
+    // switch the build_in_progress to true
+    bool expected = false;
+    if (!db_.index_build_in_progress_.compare_exchange_strong(expected, true))
+      throw IndexBuildInProgressException();
+  }
+  // on function exit switch the build_in_progress to false
+  utils::OnScopeExit on_exit([this] {
+    bool expected = true;
+    bool success =
+        db_.index_build_in_progress_.compare_exchange_strong(expected, false);
+    debug_assert(success, "BuildIndexInProgress flag was not set during build");
+  });
+
   // Everything that happens after the line above ended will be added to the
   // index automatically, but we still have to add to index everything that
   // happened earlier. We have to first wait for every transaction that

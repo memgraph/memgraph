@@ -4,12 +4,27 @@
 
 ### Major Features and Improvements
 
-* Support for variable length path `MATCH`.
-* Support for map literal.
-* Support for `all` function in openCypher.
+### Bug Fixes and Other Changes
+
+## v0.7.0
+
+### Major Features and Improvements
+
+* Variable length path `MATCH`.
+* Explicitly started transactions (multi-query transactions).
+* Map literal.
+* Query parameters (except for parameters in place of property maps).
+* `all` function in openCypher.
+* `degree` function in openCypher.
 * User specified transaction execution timeout.
-* Support for query parameters (except for parameters in place of property maps).
-* `degree` function added.
+
+### Bug Fixes and Other Changes
+
+* Concurrent `BUILD INDEX` deadlock now returns an error to the client.
+* A `MATCH` preceeded by `OPTIONAL MATCH` expansion inconsistencies.
+* High concurrency Antlr parsing bug.
+* Indexing improvements.
+* Query stripping and caching speedups.
 
 ## v0.6.0
 

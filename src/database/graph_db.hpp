@@ -71,7 +71,6 @@ class GraphDb {
   tx::Engine tx_engine_;
 
   // database name
-  // TODO consider if this is even necessary
   const std::string name_;
 
   // main storage for the graph
@@ -100,6 +99,12 @@ class GraphDb {
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
   LabelPropertyIndex label_property_index_;
+
+  // Flag indicating if index building is in progress. Memgraph does not support
+  // concurrent index builds on the same database (transaction engine), so we
+  // reject index builds if there is one in progress. See
+  // GraphDbAccessor::BuildIndex.
+  std::atomic<bool> index_build_in_progress_{false};
 
   // snapshooter
   Snapshooter snapshooter_;

@@ -21,6 +21,13 @@ class IndexExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+/** Thrown when attempting to build indexes concurrently */
+class IndexBuildInProgressException : public utils::BasicException {
+ public:
+  IndexBuildInProgressException()
+      : utils::BasicException("Concurrent index build on the same database") {}
+};
+
 /**
  * An accessor for the database object: exposes functions
  * for operating on the database. All the functions in
@@ -337,6 +344,9 @@ class GraphDbAccessor {
    * Build index throws if an index for the given (label, property) already
    * exists (even if it's being built by a concurrent transaction and is not yet
    * ready for use).
+   *
+   * It also throws if there is another index being built concurrently on the
+   * same database this accessor is for.
    *
    * @param label - label to build for
    * @param property - property to build for

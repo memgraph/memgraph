@@ -1,5 +1,6 @@
 #include <experimental/optional>
 #include <memory>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -134,6 +135,44 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
   for (int i = 0; i < 14; ++i) AddVertex(0);
   EXPECT_EQ(dba->VerticesCount(label, property), 14);
   EXPECT_EQ(Count(dba->Vertices(label, property)), 14);
+}
+
+TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
+  Dbms dbms;
+  auto dba = dbms.active();
+
+  // We need to build indices in other threads.
+  auto build_index_async = [&dbms](int &success, int index) {
+    std::thread([&dbms, &success, index]() {
+      auto dba = dbms.active();
+      try {
+        dba->BuildIndex(dba->Label("l" + std::to_string(index)),
+                        dba->Property("p" + std::to_string(index)));
+        dba->Commit();
+        success = 1;
+      } catch (IndexBuildInProgressException &) {
+        dba->Abort();
+        success = 0;
+      }
+    }).detach();
+  };
+
+  int build_1_success = -1;
+  build_index_async(build_1_success, 1);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  // First index build should now be inside the BuildIndex function waiting for
+  // dba to commit. A second built attempt should fail.
+  int build_2_success = -1;
+  build_index_async(build_2_success, 2);
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  EXPECT_EQ(build_1_success, -1);
+  EXPECT_EQ(build_2_success, 0);
+
+  // End dba and expect that first build index finished successfully.
+  dba->Commit();
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  EXPECT_EQ(build_1_success, 1);
 }
 
 #define EXPECT_WITH_MARGIN(x, center) \
