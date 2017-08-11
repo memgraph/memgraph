@@ -5,7 +5,7 @@
 #include <fmt/format.h>
 #include <stdexcept>
 
-#include "utils/auto_scope.hpp"
+#include "utils/on_scope_exit.hpp"
 
 class Stacktrace {
  public:
@@ -28,7 +28,7 @@ class Stacktrace {
 
     // will this leak if backtrace_symbols throws?
     char **symbols = nullptr;
-    Auto(free(symbols));
+    utils::OnScopeExit on_exit([&symbols]() { free(symbols); });
 
     symbols = backtrace_symbols(addresses, depth);
 

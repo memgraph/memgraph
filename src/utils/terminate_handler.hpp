@@ -1,6 +1,5 @@
 #pragma once
 
-#include "utils/auto_scope.hpp"
 #include "utils/stacktrace.hpp"
 
 #include <execinfo.h>

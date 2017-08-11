@@ -3,7 +3,7 @@
 #include <memory>
 #include <vector>
 
-#include "utils/auto_scope.hpp"
+#include "utils/on_scope_exit.hpp"
 
 /* @brief Allocates blocks of block_size and stores
  * the pointers on allocated blocks inside a vector.
@@ -41,7 +41,8 @@ class BlockAllocator {
     if (unused_.size() == 0) unused_.emplace_back();
 
     auto ptr = unused_.back().data;
-    Auto(unused_.pop_back());
+    // TODO is it necessary to use OnScopeExit here? ptr is copied by value, right?
+    utils::OnScopeExit on_exit([this]() { unused_.pop_back(); });
     return ptr;
   }
 
