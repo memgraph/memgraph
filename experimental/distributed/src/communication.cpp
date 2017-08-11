@@ -120,11 +120,11 @@ auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
   for (auto& connectors_key_value : connectors_) {
     Connector& event_queue = *connectors_key_value.second;
     auto msg_ptr = event_queue.LockedPop();
-    if (msg_ptr.second == nullptr) continue;
-    const std::type_index& tidx = msg_ptr.first;
+    if (msg_ptr == nullptr) continue;
+    std::type_index tidx = msg_ptr->GetTypeIndex();
 
     std::vector<std::pair<EventStream::Callback, EventStream::Subscription> > cb_info;
-    auto msg_type_cb_iter = event_queue.callbacks_.find(msg_ptr.first);
+    auto msg_type_cb_iter = event_queue.callbacks_.find(tidx);
     if (msg_type_cb_iter != event_queue.callbacks_.end()) { // There is a callback for this type.
       for (auto& tidx_cb_key_value : msg_type_cb_iter->second) {
         uint64_t uid = tidx_cb_key_value.first;
@@ -133,7 +133,7 @@ auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
       }
     }
 
-    return MsgAndCbInfo(std::move(msg_ptr.second), std::move(cb_info));
+    return MsgAndCbInfo(std::move(msg_ptr), std::move(cb_info));
   }
 
   return MsgAndCbInfo(nullptr, {});
