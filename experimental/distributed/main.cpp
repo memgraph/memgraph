@@ -253,7 +253,7 @@ class Master : public Reactor {
       for (int64_t w_id = 0; w_id < NUM_WORKERS; ++w_id) {
         if (channels_[w_id] == nullptr) {
           // TODO: Resolve worker channel using the network service.
-          channels_[w_id] = system_->FindChannel(GetWorkerName(w_id), "main");
+          channels_[w_id] = system_->FindLocalChannel(GetWorkerName(w_id), "main");
           if (channels_[w_id] != nullptr) ++workers_found;
         }
       }
@@ -345,7 +345,7 @@ class Worker : public Reactor {
 
   void FindMaster() {
     // TODO: Replace with network service and channel resolution.
-    while (!(master_channel_ = system_->FindChannel("master", "main")))
+    while (!(master_channel_ = system_->FindLocalChannel("master", "main")))
       std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
@@ -356,7 +356,7 @@ class Worker : public Reactor {
 void ClientMain(System *system) {
   std::shared_ptr<Channel> channel = nullptr;
   // TODO: Replace this with network channel resolution.
-  while (!(channel = system->FindChannel("master", "main")))
+  while (!(channel = system->FindLocalChannel("master", "main")))
     std::this_thread::sleep_for(std::chrono::seconds(1));
   std::cout << "I/O Client Main active" << std::endl;
 

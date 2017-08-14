@@ -161,7 +161,7 @@ std::shared_ptr<Channel> SenderMessage::GetChannelToSender(
     System *system) const {
   if (address_ == system->network().Address() &&
       port_ == system->network().Port()) {
-    return system->FindChannel(reactor_, channel_);
+    return system->FindLocalChannel(reactor_, channel_);
   }
   return system->network().Resolve(address_, port_, reactor_, channel_);
 }

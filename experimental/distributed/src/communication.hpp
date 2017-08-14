@@ -716,6 +716,8 @@ CEREAL_REGISTER_TYPE(SenderMessage);
  * E.g. holds set of reactors, channels for all reactors.
  */
 class System {
+  using Location = std::pair<std::string, uint16_t>;
+
  public:
   friend class Reactor;
 
@@ -744,13 +746,32 @@ class System {
     return nullptr;
   }
 
-  const std::shared_ptr<Channel> FindChannel(const std::string &reactor_name,
+  const std::shared_ptr<Channel> FindLocalChannel(const std::string &reactor_name,
                                              const std::string &channel_name) {
     std::unique_lock<std::recursive_mutex> lock(mutex_);
     auto it_reactor = reactors_.find(reactor_name);
     if (it_reactor == reactors_.end()) return nullptr;
     return it_reactor->second.first->FindChannel(channel_name);
   }
+
+  /** Register process id to the given location. */
+  void RegisterProcess(int64_t id, const std::string& address, uint16_t port) {
+    processes_[id] = Location(address, port);
+  }
+
+  /** Finds channel using process's id. */
+  const std::shared_ptr<Channel> FindChannel(int64_t process_id,
+                                             const std::string &reactor_name,
+                                             const std::string &channel_name) {
+    const auto& location = processes_.at(process_id);
+    if (network().Address() == location.first &&
+        network().Port() == location.second)
+      return FindLocalChannel(reactor_name, channel_name);
+    return network().Resolve(location.first, location.second, reactor_name,
+                             channel_name);
+  }
+
+  const auto& Processes() { return processes_; }
 
   void AwaitShutdown() {
     for (auto &key_value : reactors_) {
@@ -776,5 +797,6 @@ class System {
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
       reactors_;
+  std::unordered_map<int64_t, Location> processes_;
   Network network_;
 };

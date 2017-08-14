@@ -48,7 +48,7 @@ TEST(ConnectorSetUpTest, CheckMainChannelIsSet) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseConnector("main");
@@ -59,7 +59,7 @@ TEST(ConnectorSetUpTest, CheckMainChannelIsSet) {
     Worker(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("master", "main")))
+      while (!(channel = system_->FindLocalChannel("master", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseConnector("main");
@@ -83,7 +83,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(123);
       CloseConnector("main"); // Write-end doesn't need to be closed because it's in RAII.
@@ -118,7 +118,7 @@ TEST(SimpleSendTest, OneCallback) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(888);
       CloseConnector("main");
@@ -154,7 +154,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(101);
       channel->Send<MessageInt>(102); // should be ignored
@@ -236,7 +236,7 @@ TEST(MultipleSendTest, UnsubscribeService) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(55);
       channel->Send<MessageInt>(66);
@@ -299,7 +299,7 @@ TEST(MultipleSendTest, OnEvent) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       channel->Send<MessageInt>(101);
@@ -357,7 +357,7 @@ TEST(MultipleSendTest, Chaining) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(55);
       channel->Send<MessageInt>(66);
@@ -408,7 +408,7 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageChar>('a');
       channel->Send<MessageInt>(55);
@@ -457,7 +457,7 @@ TEST(MultipleSendTest, ProcessManyMessages) {
     Master(System *system, std::string name) : Reactor(system, name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = system_->FindLocalChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));

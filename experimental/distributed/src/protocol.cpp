@@ -37,7 +37,7 @@ void Session::Execute() {
     std::cout << "Reactor: " << reactor_ << "; Channel: " << channel_
               << std::endl;
 
-    auto channel = system_->FindChannel(reactor_, channel_);
+    auto channel = system_->FindLocalChannel(reactor_, channel_);
     SendSuccess(channel != nullptr);
 
     handshake_done_ = true;
@@ -58,7 +58,7 @@ void Session::Execute() {
   iarchive(message);
   buffer_.Shift(len_data);
 
-  auto channel = system_->FindChannel(reactor_, channel_);
+  auto channel = system_->FindLocalChannel(reactor_, channel_);
   if (channel == nullptr) {
     SendSuccess(false);
     return;
