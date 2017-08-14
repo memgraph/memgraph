@@ -1,3 +1,6 @@
+// command to run:
+// gnome-terminal --tab -e './network_chat --port 10000 --minloglevel 2' --tab -e './network_chat --port 10001 --minloglevel 2'
+
 #include "communication.hpp"
 
 class ChatMessage : public SenderMessage {
@@ -42,25 +45,21 @@ class ChatServer : public Reactor {
 
     auto chat = Open("chat").first;
 
-    while (true) {
-      auto m = chat->AwaitEvent();
-      if (ChatACK *ack = dynamic_cast<ChatACK *>(m.get())) {
-        std::cout << "Received ACK from " << ack->Address() << ":"
-                  << ack->Port() << " -> '" << ack->Message() << "'"
+    chat->OnEvent<ChatACK>([](const ChatACK& ack, const EventStream::Subscription&) {
+        std::cout << "Received ACK from " << ack.Address() << ":"
+                  << ack.Port() << " -> '" << ack.Message() << "'"
                   << std::endl;
-      } else if (ChatMessage *msg = dynamic_cast<ChatMessage *>(m.get())) {
-        std::cout << "Received message from " << msg->Address() << ":"
-                  << msg->Port() << " -> '" << msg->Message() << "'"
+      });
+
+    chat->OnEvent<ChatMessage>([this](const ChatMessage& msg, const EventStream::Subscription&) {
+        std::cout << "Received message from " << msg.Address() << ":"
+                  << msg.Port() << " -> '" << msg.Message() << "'"
                   << std::endl;
-        auto channel = msg->GetChannelToSender(system_);
+        auto channel = msg.GetChannelToSender(system_);
         if (channel != nullptr) {
-          channel->Send<ChatACK>("server", "chat", msg->Message());
+          channel->Send<ChatACK>("server", "chat", msg.Message());
         }
-      } else {
-        std::cerr << "Unknown message received!\n";
-        exit(1);
-      }
-    }
+      });
   }
 };
 
