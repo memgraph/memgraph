@@ -33,33 +33,8 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
   // Pause of -1 means we shouldn't run the GC.
   if (FLAGS_gc_cycle_sec != -1) {
-    gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec), [this]() {
-      // main garbage collection logic
-      // see wiki documentation for logic explanation
-      const auto snapshot = this->tx_engine_.GcSnapshot();
-      {
-        // This can be run concurrently
-        this->gc_vertices_.Run(snapshot, this->tx_engine_);
-        this->gc_edges_.Run(snapshot, this->tx_engine_);
-      }
-      // This has to be run sequentially after gc because gc modifies
-      // version_lists and changes the oldest visible record, on which Refresh
-      // depends.
-      {
-        // This can be run concurrently
-        this->labels_index_.Refresh(snapshot, this->tx_engine_);
-        this->edge_types_index_.Refresh(snapshot, this->tx_engine_);
-      }
-      // we free expired objects with snapshot.back(), which is
-      // the ID of the oldest active transaction (or next active, if there
-      // are no currently active). that's legal because that was the
-      // last possible transaction that could have obtained pointers
-      // to those records
-      this->edge_record_deleter_.FreeExpiredObjects(snapshot.back());
-      this->vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
-      this->edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
-      this->vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
-    });
+    gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec),
+                      [this]() { CollectGarbage(); });
   }
 
   RecoverDatabase(snapshot_db_dir);
@@ -113,6 +88,35 @@ void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
                  << std::endl;
     }
   }
+}
+
+void GraphDb::CollectGarbage() {
+  // main garbage collection logic
+  // see wiki documentation for logic explanation
+  const auto snapshot = this->tx_engine_.GcSnapshot();
+  {
+    // This can be run concurrently
+    this->gc_vertices_.Run(snapshot, this->tx_engine_);
+    this->gc_edges_.Run(snapshot, this->tx_engine_);
+  }
+  // This has to be run sequentially after gc because gc modifies
+  // version_lists and changes the oldest visible record, on which Refresh
+  // depends.
+  {
+    // This can be run concurrently
+    this->labels_index_.Refresh(snapshot, this->tx_engine_);
+    this->edge_types_index_.Refresh(snapshot, this->tx_engine_);
+    this->label_property_index_.Refresh(snapshot, this->tx_engine_);
+  }
+  // we free expired objects with snapshot.back(), which is
+  // the ID of the oldest active transaction (or next active, if there
+  // are no currently active). that's legal because that was the
+  // last possible transaction that could have obtained pointers
+  // to those records
+  this->edge_record_deleter_.FreeExpiredObjects(snapshot.back());
+  this->vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
+  this->edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
+  this->vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
 }
 
 GraphDb::~GraphDb() {

@@ -67,6 +67,11 @@ class GraphDb {
    */
   void RecoverDatabase(const fs::path &snapshot_db_path);
 
+  /**
+   * Collects garbage.
+   */
+  void CollectGarbage();
+
   /** transaction engine related to this database */
   tx::Engine tx_engine_;
 
