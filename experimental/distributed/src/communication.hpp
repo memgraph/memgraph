@@ -754,16 +754,16 @@ class System {
     return it_reactor->second.first->FindChannel(channel_name);
   }
 
-  /** Register process id to the given location. */
-  void RegisterProcess(int64_t id, const std::string& address, uint16_t port) {
-    processes_[id] = Location(address, port);
+  /** Register memgraph node's id to the given location. */
+  void RegisterMemgraphNode(int64_t id, const std::string& address, uint16_t port) {
+    mnodes_[id] = Location(address, port);
   }
 
-  /** Finds channel using process's id. */
-  const std::shared_ptr<Channel> FindChannel(int64_t process_id,
+  /** Finds channel using memgrpah node's id. */
+  const std::shared_ptr<Channel> FindChannel(int64_t mnid,
                                              const std::string &reactor_name,
                                              const std::string &channel_name) {
-    const auto& location = processes_.at(process_id);
+    const auto& location = mnodes_.at(mnid);
     if (network().Address() == location.first &&
         network().Port() == location.second)
       return FindLocalChannel(reactor_name, channel_name);
@@ -771,7 +771,7 @@ class System {
                              channel_name);
   }
 
-  const auto& Processes() { return processes_; }
+  const auto& Processes() { return mnodes_; }
 
   void AwaitShutdown() {
     for (auto &key_value : reactors_) {
@@ -797,6 +797,6 @@ class System {
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
       reactors_;
-  std::unordered_map<int64_t, Location> processes_;
+  std::unordered_map<int64_t, Location> mnodes_;
   Network network_;
 };
