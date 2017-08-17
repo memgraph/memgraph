@@ -205,7 +205,6 @@ class EventStream {
   typedef std::function<void(const Message&, const Subscription&)> Callback;
 
 private:
-
   virtual void OnEventHelper(std::type_index tidx, Callback callback) = 0;
 };
 
@@ -227,8 +226,7 @@ class Connector {
   friend class EventStream::Subscription;
 
   Connector(Params params)
-      : system_(params.system),
-        connector_name_(params.connector_name),
+      : connector_name_(params.connector_name),
         reactor_name_(params.reactor_name),
         mutex_(params.mutex),
         cvar_(params.cvar),
@@ -247,12 +245,11 @@ class Connector {
     friend class Connector;
 
     LocalChannel(std::shared_ptr<std::mutex> mutex, std::string reactor_name,
-                 std::string connector_name, std::weak_ptr<Connector> queue, System *system)
+                 std::string connector_name, std::weak_ptr<Connector> queue)
         : mutex_(mutex),
           reactor_name_(reactor_name),
           connector_name_(connector_name),
-          weak_queue_(queue),
-          system_(system) {}
+          weak_queue_(queue) {}
 
     virtual void Send(std::unique_ptr<Message> m) {
       std::shared_ptr<Connector> queue_ = weak_queue_.lock(); // Atomic, per the standard.
@@ -276,7 +273,6 @@ class Connector {
     std::string reactor_name_;
     std::string connector_name_;
     std::weak_ptr<Connector> weak_queue_;
-    System *system_;
   };
 
   /**
@@ -321,7 +317,6 @@ private:
    * Warning: do not forget to initialize self_ptr_ individually. Private because it shouldn't be created outside of a Reactor.
    */
   struct Params {
-    System* system;
     std::string reactor_name;
     std::string connector_name;
     std::shared_ptr<std::mutex> mutex;
@@ -337,7 +332,7 @@ private:
 
   std::shared_ptr<LocalChannel> LockedOpenChannel() {
     assert(!self_ptr_.expired()); // TODO(zuza): fix this using this answer https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
-    return std::make_shared<LocalChannel>(mutex_, reactor_name_, connector_name_, self_ptr_, system_);
+    return std::make_shared<LocalChannel>(mutex_, reactor_name_, connector_name_, self_ptr_);
   }
 
   std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
@@ -373,7 +368,6 @@ private:
     assert(num_erased == 1);
   }
 
-  System *system_;
   std::string connector_name_;
   std::string reactor_name_;
   std::queue<std::unique_ptr<Message>> queue_;
@@ -681,6 +675,8 @@ class Message {
   }
 };
 
+class Distributed;
+
 /**
  * Message that includes the sender channel used to respond.
  */
@@ -694,7 +690,8 @@ class SenderMessage : public Message {
   std::string ReactorName() const;
   std::string ChannelName() const;
 
-  std::shared_ptr<Channel> GetChannelToSender(System *system) const;
+  std::shared_ptr<Channel> GetChannelToSender(System *system,
+                                              Distributed *distributed = nullptr) const;
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -716,19 +713,15 @@ CEREAL_REGISTER_TYPE(SenderMessage);
  * E.g. holds set of reactors, channels for all reactors.
  */
 class System {
-  using Location = std::pair<std::string, uint16_t>;
-
  public:
   friend class Reactor;
 
-  System() : network_(this) {}
+  System() {}
 
-  void operator=(const System &) = delete;
-
-  void StartServices() {
-    network_.StartClient(4);
-    network_.StartServer(4);
-  }
+  System(const System &) = delete;
+  System(System &&) = delete;
+  System &operator=(const System &) = delete;
+  System &operator=(System &&) = delete;
 
   template <class ReactorType, class... Args>
   const std::shared_ptr<Channel> Spawn(const std::string &name,
@@ -746,7 +739,7 @@ class System {
     return nullptr;
   }
 
-  const std::shared_ptr<Channel> FindLocalChannel(const std::string &reactor_name,
+  const std::shared_ptr<Channel> FindChannel(const std::string &reactor_name,
                                              const std::string &channel_name) {
     std::unique_lock<std::recursive_mutex> lock(mutex_);
     auto it_reactor = reactors_.find(reactor_name);
@@ -754,35 +747,12 @@ class System {
     return it_reactor->second.first->FindChannel(channel_name);
   }
 
-  /** Register memgraph node's id to the given location. */
-  void RegisterMemgraphNode(int64_t id, const std::string& address, uint16_t port) {
-    mnodes_[id] = Location(address, port);
-  }
-
-  /** Finds channel using memgrpah node's id. */
-  const std::shared_ptr<Channel> FindChannel(int64_t mnid,
-                                             const std::string &reactor_name,
-                                             const std::string &channel_name) {
-    const auto& location = mnodes_.at(mnid);
-    if (network().Address() == location.first &&
-        network().Port() == location.second)
-      return FindLocalChannel(reactor_name, channel_name);
-    return network().Resolve(location.first, location.second, reactor_name,
-                             channel_name);
-  }
-
-  const auto& Processes() { return mnodes_; }
-
   void AwaitShutdown() {
     for (auto &key_value : reactors_) {
       auto &thread = key_value.second.second;
       thread.join();
     }
-    network_.StopClient();
-    network_.StopServer();
   }
-
-  Network &network() { return network_; }
 
  private:
   void StartReactor(Reactor& reactor) {
@@ -797,6 +767,83 @@ class System {
   std::unordered_map<std::string,
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
       reactors_;
-  std::unordered_map<int64_t, Location> mnodes_;
+};
+
+
+/**
+ * Message that will arrive on a stream returned by Distributed::FindChannel
+ * once and if the channel is successfully resolved.
+ */
+class ChannelResolvedMessage : public Message {
+ public:
+  ChannelResolvedMessage() {}
+  ChannelResolvedMessage(std::shared_ptr<Channel> channel)
+    : Message(), channel_(channel) {}
+
+  std::shared_ptr<Channel> channel() const { return channel_; }
+
+ private:
+  std::shared_ptr<Channel> channel_;
+};
+
+/**
+ * Placeholder for all functionality related to non-local communication
+ * E.g. resolve remote channels by memgraph node id, etc.
+ */
+class Distributed {
+ public:
+  Distributed(System &system) : system_(system), network_(&system) {}
+
+  Distributed(const Distributed &) = delete;
+  Distributed(Distributed &&) = delete;
+  Distributed &operator=(const Distributed &) = delete;
+  Distributed &operator=(Distributed &&) = delete;
+
+  void StartServices() {
+    network_.StartClient(4);
+    network_.StartServer(4);
+  }
+
+  void StopServices() {
+    network_.StopClient();
+    network_.StopServer();
+  }
+
+  // TODO: Implement remote Spawn.
+
+  /**
+   * Resolves remote channel.
+   *
+   * TODO: Provide asynchronous implementation of this function.
+   *
+   * @return EventStream on which message will arrive once channel is resolved.
+   * @warning It can only be called from local Reactor.
+   */
+  EventStream* FindChannel(const std::string &address,
+                           uint16_t port,
+                           const std::string &reactor_name,
+                           const std::string &channel_name) {
+    std::shared_ptr<Channel> channel = nullptr;
+    while (!(channel = network_.Resolve(address, port, reactor_name, channel_name)))
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto stream_channel = current_reactor_->Open();
+    stream_channel.second->Send<ChannelResolvedMessage>(channel);
+    return stream_channel.first;
+  }
+
+  System &system() { return system_; }
+  Network &network() { return network_; }
+
+ protected:
+  System &system_;
   Network network_;
+};
+
+class DistributedReactor : public Reactor {
+ public:
+  DistributedReactor(System *system, std::string name, Distributed &distributed)
+    : Reactor(system, name), distributed_(distributed) {}
+
+ protected:
+  Distributed &distributed_;
 };

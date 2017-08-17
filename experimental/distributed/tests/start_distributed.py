@@ -4,7 +4,7 @@
 import os
 
 command = 'gnome-terminal'
-program = './distributed'
+program = './distributed_test'
 config_filename = 'config'
 flags = ' --minloglevel 2'
 

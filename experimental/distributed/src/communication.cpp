@@ -10,11 +10,11 @@ void EventStream::Subscription::unsubscribe() const {
 thread_local Reactor* current_reactor_ = nullptr;
 
 std::string Connector::LocalChannel::Address() {
-  return system_->network().Address();
+  return FLAGS_address;
 }
 
 uint16_t Connector::LocalChannel::Port() {
-  return system_->network().Port();
+  return FLAGS_port;
 }
 
 std::string Connector::LocalChannel::ReactorName() {
@@ -38,7 +38,7 @@ std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::strin
         + "already exists");
   }
   auto it = connectors_.emplace(connector_name,
-    std::make_shared<Connector>(Connector::Params{system_, name_, connector_name, mutex_, cvar_})).first;
+    std::make_shared<Connector>(Connector::Params{name_, connector_name, mutex_, cvar_})).first;
   it->second->self_ptr_ = it->second;
   return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
 }
@@ -50,7 +50,7 @@ std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open() {
     if (connectors_.count(connector_name) == 0) {
       // Connector &queue = connectors_[connector_name];
       auto it = connectors_.emplace(connector_name,
-        std::make_shared<Connector>(Connector::Params{system_, name_, connector_name, mutex_, cvar_})).first;
+        std::make_shared<Connector>(Connector::Params{name_, connector_name, mutex_, cvar_})).first;
       it->second->self_ptr_ = it->second;
       return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
     }
@@ -158,10 +158,11 @@ std::string SenderMessage::ReactorName() const { return reactor_; }
 std::string SenderMessage::ChannelName() const { return channel_; }
 
 std::shared_ptr<Channel> SenderMessage::GetChannelToSender(
-    System *system) const {
-  if (address_ == system->network().Address() &&
-      port_ == system->network().Port()) {
-    return system->FindLocalChannel(reactor_, channel_);
+    System *system, Distributed *distributed) const {
+  if (address_ == FLAGS_address && port_ == FLAGS_port) {
+    return system->FindChannel(reactor_, channel_);
   }
-  return system->network().Resolve(address_, port_, reactor_, channel_);
+  if (distributed)
+    return distributed->network().Resolve(address_, port_, reactor_, channel_);
+  assert(false);
 }
