@@ -70,6 +70,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     token_strings.push_back(new_value);
   };
 
+  // Copy original tokens because we need to use original case in named
+  // expressions and keywords in tokens will be lowercased in the next loop.
+  auto original_tokens = tokens;
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
 
@@ -192,9 +195,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     }
     if (!has_as) {
       // Named expression is not aliased. Save string disregarding leading and
-      // trailing whitespaces.
+      // trailing whitespaces. Use original_tokens in which case of the keywords
+      // is not lowercased.
       std::string s;
-      for (auto kt = it; kt != last_non_space + 1; ++kt) {
+      auto begin_token = it - tokens.begin() + original_tokens.begin();
+      auto end_token =
+          last_non_space - tokens.begin() + original_tokens.begin() + 1;
+      for (auto kt = begin_token; kt != end_token; ++kt) {
         s += kt->second;
       }
       named_exprs_[position_mapping[it - tokens.begin()]] = s;

@@ -6,6 +6,8 @@
 
 ### Bug Fixes and Other Changes
 
+* Keywords appearing in header (named expressions) keep original case.
+
 ## v0.7.0
 
 ### Major Features and Improvements

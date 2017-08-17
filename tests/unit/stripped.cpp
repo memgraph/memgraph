@@ -299,4 +299,12 @@ TEST(QueryStripper, Parameters) {
               UnorderedElementsAre(Pair(2, "$123"), Pair(7, "$pero"),
                                    Pair(12, "$`mirko ``slavko`")));
 }
+
+TEST(QueryStripper, KeywordInNamedExpression) {
+  StrippedQuery stripped("RETURN CoUnT(n)");
+  EXPECT_EQ(stripped.literals().size(), 0);
+  EXPECT_EQ(stripped.query(), "return count ( n )");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "CoUnT(n)")));
+}
 }
