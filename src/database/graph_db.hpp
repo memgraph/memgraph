@@ -115,9 +115,9 @@ class GraphDb {
   Snapshooter snapshooter_;
 
   // Schedulers
-  Scheduler<std::mutex> gc_scheduler_;
-  Scheduler<std::mutex> snapshot_creator_;
+  Scheduler gc_scheduler_;
+  Scheduler snapshot_creator_;
   // Periodically wakes up and hints to transactions that are running for a long
   // time to stop their execution.
-  Scheduler<std::mutex> transaction_killer_;
+  Scheduler transaction_killer_;
 };

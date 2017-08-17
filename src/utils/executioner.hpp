@@ -84,6 +84,6 @@ class Executioner {
   int64_t count_{0};
   std::mutex execute_mutex_;
   std::mutex update_mutex_;
-  Scheduler<std::mutex> scheduler_;
+  Scheduler scheduler_;
   std::vector<std::pair<int, std::function<void()>>> id_job_pairs_;
 };

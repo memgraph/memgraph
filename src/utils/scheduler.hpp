@@ -13,7 +13,6 @@
  * mutex class TMutex which is used to synchronize threads. Default template
  * value is std::mutex.
  */
-template <typename TMutex = std::mutex>
 class Scheduler {
  public:
   Scheduler() {}
@@ -74,7 +73,7 @@ class Scheduler {
   /**
    * Mutex used to synchronize threads using condition variable.
    */
-  TMutex mutex_;
+  std::mutex mutex_;
 
   /**
    * Condition variable is used to stop waiting until the end of the

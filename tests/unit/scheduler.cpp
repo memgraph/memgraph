@@ -15,7 +15,7 @@ TEST(Scheduler, TestFunctionExecuting) {
     EXPECT_EQ(y.load(), x.load());
     x++;
   }};
-  Scheduler<> scheduler;
+  Scheduler scheduler;
   scheduler.Run(std::chrono::seconds(1), func);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(980));
