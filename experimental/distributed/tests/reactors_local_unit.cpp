@@ -9,7 +9,7 @@
 #include <vector>
 #include <future>
 
-#include "communication.hpp"
+#include "reactors_local.hpp"
 
 TEST(SystemTest, ReturnWithoutThrowing) {
   struct Master : public Reactor {
@@ -478,7 +478,7 @@ TEST(MultipleSendTest, ProcessManyMessages) {
       EventStream* stream = main_.first;
       vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const Message& msg, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const Message&, const EventStream::Subscription&) {
           ++vals;
           main_.second->Send<EndMessage>();
         });

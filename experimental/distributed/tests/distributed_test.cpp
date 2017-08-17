@@ -1,9 +1,9 @@
 #include <iostream>
 #include <fstream>
 
-#include "communication.hpp"
+#include "reactors_distributed.hpp"
 
-DEFINE_int64(my_mnid, 0, "Memgraph node id");
+DEFINE_int64(my_mnid, 0, "Memgraph node id"); // TODO(zuza): this should be assigned by the leader once in the future
 DEFINE_string(config_filename, "", "File containing list of all processes");
 
 class MemgraphDistributed : public Distributed {

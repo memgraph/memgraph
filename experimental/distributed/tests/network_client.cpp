@@ -1,4 +1,4 @@
-#include "communication.hpp"
+#include "reactors_distributed.hpp"
 
 int main(int argc, char *argv[]) {
   google::InitGoogleLogging(argv[0]);

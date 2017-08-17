@@ -1,7 +1,7 @@
 // command to run:
 // gnome-terminal --tab -e './network_chat --port 10000 --minloglevel 2' --tab -e './network_chat --port 10001 --minloglevel 2'
 
-#include "communication.hpp"
+#include "reactors_distributed.hpp"
 
 class ChatMessage : public SenderMessage {
  public:

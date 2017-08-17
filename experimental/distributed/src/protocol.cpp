@@ -1,7 +1,7 @@
 #include <sstream>
 
 #include "protocol.hpp"
-#include "communication.hpp"
+#include "reactors_distributed.hpp"
 
 #include "glog/logging.h"
 

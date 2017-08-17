@@ -6,7 +6,7 @@
 #include <thread>
 #include <vector>
 
-#include "communication.hpp"
+#include "reactors_distributed.hpp"
 
 const int NUM_WORKERS = 1;
 
