@@ -1,62 +1,66 @@
 #pragma once
 
+#include "utils/hashing/fnv.hpp"
+
 #include <cstdint>
 #include <vector>
 
-/** A globally defined identifier. Defines a worker
- * and the sequence number on that worker */
-class GlobalId {
+/**
+ * Globally unique id (in the entire distributed system) of a vertex.
+ *
+ * It is identified by a pair of a (original memgraph node, local vertex id)
+ */
+class UniqueVid {
  public:
-  GlobalId(int64_t worker_id, int64_t sequence_number)
-      : worker_id_(worker_id), sequence_number_(sequence_number) {}
-  // TODO perhaps make members const and replace instead of changing
-  // when migrating nodes
-  int64_t worker_id_;
-  int64_t sequence_number_;
+  UniqueVid(int64_t orig_mnid, int64_t vid)
+    : orig_mnid_(orig_mnid), vid_(vid) {}
+  /** Original Memgraph node the vertex was created **/
+  int64_t orig_mnid_;
 
-  bool operator==(const GlobalId &other) const {
-    return worker_id_ == other.worker_id_ &&
-           sequence_number_ == other.sequence_number_;
+  /** Original vertex id it was assigned on creation. **/
+  int64_t vid_;
+
+  bool operator==(const UniqueVid &other) const {
+    return orig_mnid_ == other.orig_mnid_ &&
+           vid_ == other.vid_;
   }
 
-  bool operator!=(const GlobalId &other) const { return !(*this == other); }
+  bool operator!=(const UniqueVid &other) const { return !(*this == other); }
 };
 
-/** Defines a location in the system where something can be found.
- * Something can be found on some worker, for some Id */
-class GlobalAddress {
+/**
+ * Specifies where a vertex is in the distributed system.
+ */
+class GlobalVertAddress {
  public:
-  GlobalAddress(int64_t worker_id, GlobalId id)
-      : worker_id_(worker_id), id_(id) {}
-  // TODO perhaps make members const and replace instead of changing
-  // when migrating nodes
-  int64_t worker_id_;
-  GlobalId id_;
+  GlobalVertAddress(int64_t cur_mnid, const UniqueVid &uvid)
+      : cur_mnid_(cur_mnid), uvid_(uvid) {}
 
-  bool operator==(const GlobalAddress &other) const {
-    return worker_id_ == other.worker_id_ && id_ == other.id_;
+  /** The current Memgraph node where the vertex is **/
+  int64_t cur_mnid_;
+  UniqueVid uvid_;
+
+  bool operator==(const GlobalVertAddress &other) const {
+    return cur_mnid_ == other.cur_mnid_ && uvid_ == other.uvid_;
   }
 
-  bool operator!=(const GlobalAddress &other) const {
+  bool operator!=(const GlobalVertAddress &other) const {
     return !(*this == other);
   }
 };
 
 namespace std {
 template <>
-struct hash<GlobalId> {
-  size_t operator()(const GlobalId &id) const {
-    return id.sequence_number_ << 4 ^ id.worker_id_;
+struct hash<UniqueVid> {
+  size_t operator()(const UniqueVid &uid) const {
+    return HashCombine<decltype(uid.orig_mnid_), decltype(uid.vid_)>()(uid.orig_mnid_, uid.vid_);
   }
 };
 
 template <>
-struct hash<GlobalAddress> {
-  size_t operator()(const GlobalAddress &ga) const {
-    return gid_hash(ga.id_) << 4 ^ ga.worker_id_;
+struct hash<GlobalVertAddress> {
+  size_t operator()(const GlobalVertAddress &ga) const {
+    return HashCombine<decltype(ga.cur_mnid_), decltype(ga.uvid_)>()(ga.cur_mnid_, ga.uvid_);
   }
-
- private:
-  std::hash<GlobalId> gid_hash{};
 };
 }

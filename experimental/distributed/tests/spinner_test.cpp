@@ -12,16 +12,16 @@
 void PrintStatistics(const Distributed &distributed) {
   using std::cout;
   using std::endl;
-  for (const Worker &worker : distributed) {
-    cout << "  Worker " << worker.id_ << ":";
-    cout << " #nodes = " << worker.NodeCount();
+  for (const ShardedStorage &mnode : distributed) {
+    cout << "  ShardedStorage " << mnode.mnid_ << ":";
+    cout << " #vertices = " << mnode.VertexCount();
     int64_t edge_count{0};
-    for (const auto &gid_node_pair : worker) {
-      edge_count += gid_node_pair.second.edges_in().size();
-      edge_count += gid_node_pair.second.edges_out().size();
+    for (const auto &gid_vertex_pair : mnode) {
+      edge_count += gid_vertex_pair.second.edges_in().size();
+      edge_count += gid_vertex_pair.second.edges_out().size();
     }
     cout << ", #edges = " << edge_count;
-    cout << ", #cuts = " << worker.BoundaryEdgeCount() << endl;
+    cout << ", #cuts = " << mnode.BoundaryEdgeCount() << endl;
   }
 }
 
@@ -33,8 +33,8 @@ void PrintStatistics(const Distributed &distributed) {
  *   https://snap.stanford.edu/data/facebook_combined.txt.gz
  *   add number of vertices and edges in the first line of that file
  */
-Distributed ReadGraph(std::string filename, int worker_count) {
-  Distributed distributed(worker_count);
+Distributed ReadGraph(std::string filename, int mnode_count) {
+  Distributed distributed(mnode_count);
 
   std::fstream fs;
   fs.open(filename, std::fstream::in);
@@ -43,17 +43,17 @@ Distributed ReadGraph(std::string filename, int worker_count) {
   int vertex_count, edge_count;
   fs >> vertex_count >> edge_count;
 
-  // assign vertices to random workers
-  std::vector<GlobalAddress> nodes;
+  // assign vertices to random mnodes
+  std::vector<GlobalVertAddress> vertices;
   for (int i = 0; i < vertex_count; ++i)
-    nodes.emplace_back(distributed.MakeNode(rand() % worker_count));
+    vertices.emplace_back(distributed.MakeVertex(rand() % mnode_count));
 
   // add edges
   for (int i = 0; i < edge_count; ++i) {
     size_t u, v;
     fs >> u >> v;
-    assert(u < nodes.size() && v < nodes.size());
-    distributed.MakeEdge(nodes[u], nodes[v]);
+    assert(u < vertices.size() && v < vertices.size());
+    distributed.MakeEdge(vertices[u], vertices[v]);
   }
   fs.close();
   return distributed;

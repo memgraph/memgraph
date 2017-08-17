@@ -36,76 +36,76 @@ auto MaxRandom(const std::vector<double> &scores) {
 }
 
 /**
- * Returns the index of the best (highest scored) worker
- * for the given node. If there are multiple workers with
- * the best score, node prefers to remain on the same worker
+ * Returns the index of the best (highest scored) mnode
+ * for the given vertex. If there are multiple mnodes with
+ * the best score, vertex prefers to remain on the same mnode
  * (if among the best), or one is chosen at random.
  *
  * @param distributed - the distributed system.
- * @param node - the node which is being evaluated.
- * @param penalties - a vector of penalties (per worker).
- * @param current_worker - the worker on which the given
- *  node is currently residing.
+ * @param vertex - the vertex which is being evaluated.
+ * @param penalties - a vector of penalties (per mnode).
+ * @param current_mnode - the mnode on which the given
+ *  vertex is currently residing.
  * @return - std::pair<int, std::vector<double>> which is a
- * pair of (best worker, score_per_worker).
+ * pair of (best mnode, score_per_mnode).
  */
-auto BestWorker(const Distributed &distributed, const Node &node,
-                const std::vector<double> &penalties, int current_worker) {
-  // scores per worker
-  std::vector<double> scores(distributed.WorkerCount(), 0.0);
+auto BestMnode(const Distributed &distributed, const Vertex &vertex,
+                const std::vector<double> &penalties, int current_mnode) {
+  // scores per mnode
+  std::vector<double> scores(distributed.MnodeCount(), 0.0);
 
-  for (auto &edge : node.edges_in()) scores[edge.worker_id_] += 1.0;
-  for (auto &edge : node.edges_out()) scores[edge.worker_id_] += 1.0;
+  for (auto &edge : vertex.edges_in()) scores[edge.cur_mnid_] += 1.0;
+  for (auto &edge : vertex.edges_out()) scores[edge.cur_mnid_] += 1.0;
 
-  for (int worker = 0; worker < distributed.WorkerCount(); ++worker) {
-    // normalize contribution of worker over neighbourhood size
-    scores[worker] /= node.edges_out().size() + node.edges_in().size();
+  for (int mnode = 0; mnode < distributed.MnodeCount(); ++mnode) {
+    // normalize contribution of mnode over neighbourhood size
+    scores[mnode] /= vertex.edges_out().size() + vertex.edges_in().size();
     // add balancing penalty
-    scores[worker] -= penalties[worker];
+    scores[mnode] -= penalties[mnode];
   }
 
   // pick the best destination, but prefer to stay if you can
   size_t destination = MaxRandom(scores);
-  if (scores[current_worker] == scores[destination])
-    destination = current_worker;
+  if (scores[current_mnode] == scores[destination])
+    destination = current_mnode;
 
   return std::make_pair(destination, scores);
 }
 
-/** Indication if Spinner worker penality is calculated based on
- * vertex or edge worker cardinalities */
+/** Indication if Spinner mnode penality is calculated based on
+ * vertex or edge mnode cardinalities */
 enum class PenaltyType { Vertex, Edge };
 
-/** Calcualtes Spinner penalties for workers in the given
+/** Calcualtes Spinner penalties for mnodes in the given
  * distributed system. */
 auto Penalties(const Distributed &distributed,
                PenaltyType penalty_type = PenaltyType::Edge) {
   std::vector<double> penalties;
   int64_t total_count{0};
 
-  for (const auto &worker : distributed) {
-    int64_t worker_count{0};
+  for (const auto &mnode : distributed) {
+    int64_t mnode_count{0};
     switch (penalty_type) {
       case PenaltyType::Vertex:
-        worker_count += worker.NodeCount();
+        mnode_count += mnode.VertexCount();
         break;
       case PenaltyType::Edge:
-        for (const auto &node_kv : worker) {
-          // Spinner counts the edges on a worker as the sum
-          // of degrees of nodes on that worker. In that sense
+        for (const auto &vertex_kv : mnode) {
+          // Spinner counts the edges on a mnode as the sum
+          // of degrees of vertices on that mnode. In that sense
           // both incoming and outgoing edges are individually
           // added...
-          worker_count += node_kv.second.edges_out().size();
-          worker_count += node_kv.second.edges_in().size();
+          mnode_count += vertex_kv.second.edges_out().size();
+          mnode_count += vertex_kv.second.edges_in().size();
         }
         break;
     }
-    total_count += worker_count;
-    penalties.emplace_back(worker_count);
+    total_count += mnode_count;
+    penalties.emplace_back(mnode_count);
   }
 
   for (auto &penalty : penalties)
-    penalty /= c * total_count / distributed.WorkerCount();
+    penalty /= c * total_count / distributed.MnodeCount();
 
   return penalties;
 }
@@ -117,31 +117,31 @@ void PerformSpinnerStep(Distributed &distributed) {
   // here a strategy can be injected for limiting
   // the number of movements performed in one step.
   // limiting could be based on (for example):
-  //  - limiting the number of movements per worker
+  //  - limiting the number of movements per mnode
   //  - limiting only to movements that are above
   //    a treshold (score improvement or something)
-  //  - not executing on all the workers (also prevents
+  //  - not executing on all the mnodes (also prevents
   //    oscilations)
   //
   // in the first implementation just accumulate all
   // the movements and execute together.
 
-  // relocation info: contains the address of the Node
-  // that needs to relocate and it's destination worker
-  std::vector<std::pair<GlobalAddress, int>> movements;
+  // relocation info: contains the address of the Vertex
+  // that needs to relocate and it's destination mnode
+  std::vector<std::pair<GlobalVertAddress, int>> movements;
 
-  for (const Worker &worker : distributed)
-    for (const auto &gid_node_pair : worker) {
-      // (best destination, scores) pair for node
+  for (const ShardedStorage &mnode : distributed)
+    for (const auto &gid_vertex_pair : mnode) {
+      // (best destination, scores) pair for vertex
       std::pair<int, std::vector<double>> destination_scores =
-          BestWorker(distributed, gid_node_pair.second, penalties, worker.id_);
-      if (destination_scores.first != worker.id_)
-        movements.emplace_back(GlobalAddress(worker.id_, gid_node_pair.first),
+          BestMnode(distributed, gid_vertex_pair.second, penalties, mnode.mnid_);
+      if (destination_scores.first != mnode.mnid_)
+        movements.emplace_back(GlobalVertAddress(mnode.mnid_, gid_vertex_pair.first),
                                destination_scores.first);
     }
 
   // execute movements. it is likely that in the real system
   // this will need to happen as a single db transaction
-  for (const auto &m : movements) distributed.MoveNode(m.first, m.second);
+  for (const auto &m : movements) distributed.MoveVertex(m.first, m.second);
 }
 }  // namespace spinner

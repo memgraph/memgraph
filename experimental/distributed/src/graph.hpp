@@ -8,155 +8,157 @@
 
 enum class EdgeType { OUTGOING, INCOMING };
 
-/** A node in the graph. Has incoming and outgoing edges which
- * are defined as global addresses of other nodes */
-class Node {
+/** A vertex in the graph. Has incoming and outgoing edges which
+ * are defined as global addresses of other vertices */
+class Vertex {
  public:
-  Node(const GlobalId &id) : id_(id) {}
+  Vertex(const UniqueVid &id) : id_(id) {}
 
   const auto &id() const { return id_; };
   const auto &edges_out() const { return edges_out_; }
   const auto &edges_in() const { return edges_in_; }
 
-  void AddConnection(EdgeType edge_type, const GlobalAddress &gad) {
+  void AddConnection(EdgeType edge_type, const GlobalVertAddress &gad) {
     (edge_type == EdgeType::INCOMING ? edges_in_ : edges_out_)
         .emplace_back(gad);
   }
 
-  /** Changes all old_address edges to have the new_worker */
-  void RedirectEdges(const GlobalAddress old_address, size_t new_worker) {
+  /** Changes all old_address edges to have the new Memgraph node id */
+  void RedirectEdges(const GlobalVertAddress& old_address, int64_t new_mnid) {
     for (auto &address : edges_in_)
-      if (address == old_address) address.worker_id_ = new_worker;
+      if (address == old_address) address.cur_mnid_ = new_mnid;
     for (auto &address : edges_out_)
-      if (address == old_address) address.worker_id_ = new_worker;
+      if (address == old_address) address.cur_mnid_ = new_mnid;
   }
 
  private:
-  // TODO remove id_ from Node if not necessary
-  GlobalId id_;
+  UniqueVid id_;
 
-  // global addresses of nodes this node is connected to
-  std::vector<GlobalAddress> edges_out_;
-  std::vector<GlobalAddress> edges_in_;
+  // global addresses of vertices this vertex is connected to
+  std::vector<GlobalVertAddress> edges_out_;
+  std::vector<GlobalVertAddress> edges_in_;
 };
 
-/** A worker / shard in the distributed system */
-class Worker {
+/**
+ * A storage that doesn't assume everything is in-memory.
+ */
+class ShardedStorage {
  public:
-  // unique worker ID. uniqueness is ensured by the worker
-  // owner (the Distributed class)
-  const int64_t id_;
+  // Unique Memgraph node ID. Uniqueness is ensured by the (distributed) system.
+  const int64_t mnid_;
 
-  Worker(int64_t id) : id_(id) {}
+  ShardedStorage(int64_t mnid) : mnid_(mnid) {}
 
-  int64_t NodeCount() const { return nodes_.size(); }
+  int64_t VertexCount() const { return vertices_.size(); }
 
-  /** Gets a node. */
-  Node &GetNode(const GlobalId &gid) {
-    auto found = nodes_.find(gid);
-    assert(found != nodes_.end());
+  /** Gets a vertex. */
+  Vertex &GetVertex(const UniqueVid &gid) {
+    auto found = vertices_.find(gid);
+    assert(found != vertices_.end());
     return found->second;
   }
 
-  /** Returns the number of edges that cross from this
-   * graph / worker into another one */
+  /**
+   * Returns the number of edges that cross from this
+   * node into another one
+   */
   int64_t BoundaryEdgeCount() const {
     int64_t count = 0;
     auto count_f = [this, &count](const auto &edges) {
-      for (const GlobalAddress &address : edges)
-        if (address.worker_id_ != id_) count++;
+      for (const GlobalVertAddress &address : edges)
+        if (address.cur_mnid_ != mnid_) count++;
     };
-    for (const auto &node : nodes_) {
-      count_f(node.second.edges_out());
-      count_f(node.second.edges_in());
+    for (const auto &vertex : vertices_) {
+      count_f(vertex.second.edges_out());
+      count_f(vertex.second.edges_in());
     }
 
     return count;
   }
 
-  /** Creates a new node on this worker. Returns it's global id */
-  const GlobalId &MakeNode() {
-    GlobalId new_id(id_, next_node_sequence_++);
-    auto new_node = nodes_.emplace(std::make_pair(new_id, Node(new_id)));
-    return new_node.first->first;
+  /** Creates a new vertex on this node. Returns its global id */
+  const UniqueVid &MakeVertex() {
+    UniqueVid new_id(mnid_, next_vertex_sequence_++);
+    auto new_vertex = vertices_.emplace(std::make_pair(new_id, Vertex(new_id)));
+    return new_vertex.first->first;
   };
 
-  /** Places the existing node on this worker */
-  void PlaceNode(const GlobalId &gid, const Node &node) {
-    nodes_.emplace(gid, node);
+  /** Places the existing vertex on this node */
+  void PlaceVertex(const UniqueVid &gid, const Vertex &vertex) {
+    vertices_.emplace(gid, vertex);
   }
 
-  /** Removes the node with the given ID from this worker */
-  void RemoveNode(const GlobalId &gid) { nodes_.erase(gid); }
+  /** Removes the vertex with the given ID from this node */
+  void RemoveVertex(const UniqueVid &gid) { vertices_.erase(gid); }
 
-  auto begin() const { return nodes_.begin(); }
+  auto begin() const { return vertices_.begin(); }
 
-  auto end() const { return nodes_.end(); }
+  auto end() const { return vertices_.end(); }
 
  private:
-  // counter of sequences numbers of nodes created on this worker
-  int64_t next_node_sequence_{0};
+  // counter of sequences numbers of vertices created on this node
+  int64_t next_vertex_sequence_{0};
 
-  // node storage of this worker
-  std::unordered_map<GlobalId, Node> nodes_;
+  // vertex storage of this node
+  std::unordered_map<UniqueVid, Vertex> vertices_;
 };
 
 /**
- * A distributed system consisting of mulitple workers.
+ * A distributed system consisting of mulitple nodes.
  * For the time being it's not modelling a distributed
  * system correctly in terms of message passing (as opposed
- * to operating on workers and their data directly).
+ * to operating on nodes and their data directly).
  */
 class Distributed {
  public:
-  /** Creates a distributed with the given number of workers */
-  Distributed(int initial_worker_count = 0) {
-    for (int worker_id = 0; worker_id < initial_worker_count; worker_id++)
-      AddWorker();
+  /** Creates a distributed with the given number of nodes */
+  Distributed(int initial_mnode_count = 0) {
+    for (int mnode_id = 0; mnode_id < initial_mnode_count; mnode_id++)
+      AddMnode();
   }
 
-  int64_t AddWorker() {
-    int64_t new_worker_id = workers_.size();
-    workers_.emplace_back(new_worker_id);
-    return new_worker_id;
+  int64_t AddMnode() {
+    int64_t new_mnode_id = mnodes_.size();
+    mnodes_.emplace_back(new_mnode_id);
+    return new_mnode_id;
   }
 
-  int WorkerCount() const { return workers_.size(); }
+  int MnodeCount() const { return mnodes_.size(); }
 
-  auto &GetWorker(int64_t worker_id) { return workers_[worker_id]; }
+  auto &GetMnode(int64_t mnode_id) { return mnodes_[mnode_id]; }
 
-  GlobalAddress MakeNode(int64_t worker_id) {
-    return {worker_id, workers_[worker_id].MakeNode()};
+  GlobalVertAddress MakeVertex(int64_t mnid) {
+    return {mnid, mnodes_[mnid].MakeVertex()};
   }
 
-  Node &GetNode(const GlobalAddress &address) {
-    return workers_[address.worker_id_].GetNode(address.id_);
+  Vertex &GetVertex(const GlobalVertAddress &address) {
+    return mnodes_[address.cur_mnid_].GetVertex(address.uvid_);
   }
 
-  /** Moves a node with the given global id to the given worker */
-  void MoveNode(const GlobalAddress &gid, int64_t destination) {
-    const Node &node = GetNode(gid);
+  /** Moves a vertex with the given global id to the given mnode */
+  void MoveVertex(const GlobalVertAddress &gad, int64_t destination) {
+    const Vertex &vertex = GetVertex(gad);
 
-    // make sure that all edges to and from the node are updated
-    for (auto &edge : node.edges_in())
-      GetNode(edge).RedirectEdges(gid, destination);
-    for (auto &edge : node.edges_out())
-      GetNode(edge).RedirectEdges(gid, destination);
+    // make sure that all edges to and from the vertex are updated
+    for (auto &edge : vertex.edges_in())
+      GetVertex(edge).RedirectEdges(gad, destination);
+    for (auto &edge : vertex.edges_out())
+      GetVertex(edge).RedirectEdges(gad, destination);
 
-    // change node destination
-    workers_[destination].PlaceNode(gid.id_, node);
-    workers_[gid.worker_id_].RemoveNode(gid.id_);
+    // change vertex destination
+    mnodes_[destination].PlaceVertex(gad.uvid_, vertex);
+    mnodes_[gad.cur_mnid_].RemoveVertex(gad.uvid_);
   }
 
-  void MakeEdge(const GlobalAddress &from, const GlobalAddress &to) {
-    GetNode(from).AddConnection(EdgeType::OUTGOING, to);
-    GetNode(to).AddConnection(EdgeType::INCOMING, from);
+  void MakeEdge(const GlobalVertAddress &from, const GlobalVertAddress &to) {
+    GetVertex(from).AddConnection(EdgeType::OUTGOING, to);
+    GetVertex(to).AddConnection(EdgeType::INCOMING, from);
   }
 
-  auto begin() const { return workers_.begin(); }
+  auto begin() const { return mnodes_.begin(); }
 
-  auto end() const { return workers_.end(); }
+  auto end() const { return mnodes_.end(); }
 
  private:
-  std::vector<Worker> workers_;
+  std::vector<ShardedStorage> mnodes_;
 };
