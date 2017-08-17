@@ -1,0 +1,10 @@
+#!/bin/bash
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# TODO: add arguments --previous-version & --next-version
+# TODO: validate version format
+# TODO: if version isn't updated bundle can't succeed
+# TODO: integrate with bundle
+
+sed -i "s@$1@$2@g" ${working_dir}/installation.md

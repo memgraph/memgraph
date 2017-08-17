@@ -25,18 +25,6 @@ allow deletion of created indices.
 Although we have implemented the most common features of the openCypher query
 language, there are other useful features we are still working on.
 
-#### Map Literals
-
-This feature would enable using ad-hoc property maps. For example, updating
-multiple properties on an existing node:
-
-    MATCH (node) SET node = { name: "Lamp", price: 100, color: "blue" }
-
-Note that the same can be achieved with the current support but in a longer
-way:
-
-    MATCH (node) SET node.name = "Lamp", node.price = 100, node.color = "blue"
-
 #### Named Paths
 
 It would be useful to store paths that match a pattern into a variable. This
