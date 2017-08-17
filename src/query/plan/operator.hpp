@@ -551,13 +551,13 @@ class Expand : public LogicalOperator, ExpandCommon {
     const std::unique_ptr<Cursor> input_cursor_;
     GraphDbAccessor &db_;
 
-    // the iterable over edges and the current edge iterator are referenced via
-    // unique pointers because they can not be initialized in the constructor of
-    // this class. They are initialized once for each pull from the input
-    std::unique_ptr<InEdgeT> in_edges_;
-    std::unique_ptr<InEdgeIteratorT> in_edges_it_;
-    std::unique_ptr<OutEdgeT> out_edges_;
-    std::unique_ptr<OutEdgeIteratorT> out_edges_it_;
+    // The iterable over edges and the current edge iterator are referenced via
+    // optional because they can not be initialized in the constructor of
+    // this class. They are initialized once for each pull from the input.
+    std::experimental::optional<InEdgeT> in_edges_;
+    std::experimental::optional<InEdgeIteratorT> in_edges_it_;
+    std::experimental::optional<OutEdgeT> out_edges_;
+    std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
 
     bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
 

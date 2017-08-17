@@ -453,10 +453,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
 
 void Expand::ExpandCursor::Reset() {
   input_cursor_->Reset();
-  in_edges_.release();
-  in_edges_it_.release();
-  out_edges_.release();
-  out_edges_it_.release();
+  in_edges_ = std::experimental::nullopt;
+  in_edges_it_ = std::experimental::nullopt;
+  out_edges_ = std::experimental::nullopt;
+  out_edges_it_ = std::experimental::nullopt;
 }
 
 namespace {
@@ -494,14 +494,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
     auto direction = self_.direction_;
     if (direction == EdgeAtom::Direction::IN ||
         direction == EdgeAtom::Direction::BOTH) {
-      in_edges_ = std::make_unique<InEdgeT>(vertex.in());
-      in_edges_it_ = std::make_unique<InEdgeIteratorT>(in_edges_->begin());
+      in_edges_.emplace(vertex.in());
+      in_edges_it_.emplace(in_edges_->begin());
     }
 
     if (direction == EdgeAtom::Direction::OUT ||
         direction == EdgeAtom::Direction::BOTH) {
-      out_edges_ = std::make_unique<InEdgeT>(vertex.out());
-      out_edges_it_ = std::make_unique<InEdgeIteratorT>(out_edges_->begin());
+      out_edges_.emplace(vertex.out());
+      out_edges_it_.emplace(out_edges_->begin());
     }
 
     // TODO add support for Front and Back expansion (when QueryPlanner
