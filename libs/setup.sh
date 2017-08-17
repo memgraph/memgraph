@@ -15,11 +15,12 @@ git checkout ${antlr4_tag}
 cd ..
 
 # cppitertools
-git clone https://github.com/ryanhaining/cppitertools.git
+# Use our fork that uses experimental/optional instead of unique_ptr in
+# DerefHolder. Once we move memgraph to c++17 we can use cpp17 branch from
+# original repo.
+git clone https://github.com/memgraph/cppitertools.git
 cd cppitertools
-cppitertools_tag="394cc4debcd037db199551546b6fbc3ea3066722" # master 7 Oct 2016
-# because last release was v0.2 and at the point when
-# the lib was added master had 104 commits more than v0.2
+cppitertools_tag="4231e0bc6fba2737b2a7a8a1576cf06186b0de6a" # experimental_optional 17 Aug 2017
 git checkout ${cppitertools_tag}
 cd ..
 
