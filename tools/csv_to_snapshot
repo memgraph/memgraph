@@ -165,6 +165,7 @@ class BoltEncoder:
                 return
             else:
                 raise
+        properties['id'] = node_id.id
         self._write(self._NODE_MARKER)
         self.write_int(id_)
         self.write_list(labels)
