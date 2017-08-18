@@ -25,9 +25,12 @@ def parse_args():
     parser = connection_argument_parser()
 
     # specific
-    parser.add_argument('--thread-count', type=int,
+    parser.add_argument('--worker-count', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of concurrent workers.')
+    parser.add_argument("--logging", default="INFO",
+                        choices=["INFO", "DEBUG", "WARNING", "ERROR"],
+                        help="Logging level")
     parser.add_argument('--vertex-count', type=int, default=100,
                         help='Number of created vertices.')
     parser.add_argument('--max-property-value', type=int, default=1000,
@@ -94,14 +97,14 @@ def create_handler():
         session.run("MATCH (n) DETACH DELETE n").consume()
 
         # concurrent create execution & tests
-        with multiprocessing.Pool(args.thread_count) as p:
+        with multiprocessing.Pool(args.worker_count) as p:
             for worker_id, create_time, time_unit in \
-                    p.map(create_worker, [i for i in range(args.thread_count)]):
+                    p.map(create_worker, [i for i in range(args.worker_count)]):
                 log.info('Worker ID: %s; Create time: %s%s' %
                          (worker_id, create_time, time_unit))
 
         # check total count
-        expected_total_count = args.thread_count * args.vertex_count
+        expected_total_count = args.worker_count * args.vertex_count
         total_count = session.run(
             'MATCH (n) RETURN count(n) AS cnt').data()[0]['cnt']
         assert total_count == expected_total_count, \
@@ -110,5 +113,7 @@ def create_handler():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=args.logging)
+    if args.logging != "DEBUG":
+        logging.getLogger("neo4j").setLevel(logging.WARNING)
     create_handler()

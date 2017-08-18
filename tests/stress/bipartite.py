@@ -20,9 +20,12 @@ def parse_args():
     :return: parsed arguments
     '''
     parser = connection_argument_parser()
-    parser.add_argument('--thread-count', type=int,
+    parser.add_argument('--worker-count', type=int,
                         default=multiprocessing.cpu_count(),
                         help='Number of concurrent workers.')
+    parser.add_argument("--logging", default="INFO",
+                        choices=["INFO", "DEBUG", "WARNING", "ERROR"],
+                        help="Logging level")
     parser.add_argument('--u-count', type=int, default=100,
                         help='Size of U set in the bipartite graph.')
     parser.add_argument('--v-count', type=int, default=100,
@@ -135,7 +138,7 @@ def execution_handler():
             vertices_create_end_time - cleanup_end_time)
 
         # concurrent create execution & tests
-        with multiprocessing.Pool(args.thread_count) as p:
+        with multiprocessing.Pool(args.worker_count) as p:
             create_edges_start_time = time.time()
             for worker_id, create_time, time_unit, no_failures in \
                     p.map(create_u_v_edges, [i for i in range(args.u_count)]):
@@ -195,7 +198,9 @@ def execution_handler():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=args.logging)
+    if args.logging != "DEBUG":
+        logging.getLogger("neo4j").setLevel(logging.WARNING)
     output_data.add_status("stress_test_name", "bipartite")
     output_data.add_status("number_of_vertices", args.u_count + args.v_count)
     output_data.add_status("number_of_edges", args.u_count * args.v_count)
@@ -203,4 +208,5 @@ if __name__ == '__main__':
     output_data.add_status("edge_batching", args.edge_batching)
     output_data.add_status("edge_batch_size", args.edge_batch_size)
     execution_handler()
-    output_data.dump()
+    if args.logging in ["DEBUG", "INFO"]:
+        output_data.dump()

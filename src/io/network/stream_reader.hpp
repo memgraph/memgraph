@@ -22,9 +22,6 @@ class StreamReader : public StreamListener<Derived, Stream> {
     Socket s;
     if (!socket.Accept(&s)) return false;
 
-    std::cout << fmt::format("Client {}:{} connected.", s.endpoint().address(),
-                             s.endpoint().port())
-              << std::endl;
     DLOG(INFO) << fmt::format(
         "Accepted a connection: socket {}, address '{}', family {}, port {}",
         s.id(), s.endpoint().address(), s.endpoint().family(),

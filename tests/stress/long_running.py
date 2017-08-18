@@ -277,11 +277,11 @@ class GraphSession():
 def runner(params):
     num, args = params
     driver = common.argument_driver(args)
-    graph = Graph(args.vertex_count // args.thread_count,
-                  args.edge_count // args.thread_count)
+    graph = Graph(args.vertex_count // args.worker_count,
+                  args.edge_count // args.worker_count)
     log.info("Starting query runner process")
     session = GraphSession(num, graph, driver.session())
-    session.run_loop(args.vertex_batch, args.max_queries // args.thread_count,
+    session.run_loop(args.vertex_batch, args.max_queries // args.worker_count,
                      args.max_time, args.verify)
     log.info("Runner %d executed %d queries", num, session.executed_queries)
     driver.close()
@@ -307,8 +307,8 @@ def parse_args():
                       help="Maximum execution time in minutes")
     argp.add_argument("--verify", type=int, default=0,
                       help="Interval (seconds) between checking local info")
-    argp.add_argument("--thread-count", type=int, default=1,
-                      help="The number of threads that operate on the graph "
+    argp.add_argument("--worker-count", type=int, default=1,
+                      help="The number of workers that operate on the graph "
                       "independently")
     return argp.parse_args()
 
@@ -323,13 +323,13 @@ def main():
     # cleanup and create indexes
     driver = common.argument_driver(args)
     driver.session().run("MATCH (n) DETACH DELETE n").consume()
-    for i in range(args.thread_count):
+    for i in range(args.worker_count):
         label = INDEX_FORMAT.format(i)
         driver.session().run("CREATE INDEX ON :%s(id)" % label).consume()
     driver.close()
 
-    params = [(i, args) for i in range(args.thread_count)]
-    with multiprocessing.Pool(args.thread_count) as p:
+    params = [(i, args) for i in range(args.worker_count)]
+    with multiprocessing.Pool(args.worker_count) as p:
         p.map(runner, params, 1)
 
     log.info("All query runners done")

@@ -160,7 +160,6 @@ class List : Lockable<SpinLock> {
     // garbage collector traverses this list and therefore it will become
     // deletable
     if (it.prev == nullptr) {
-      std::cout << "prev null" << std::endl;
       return false;
     }
 

@@ -70,7 +70,7 @@ class Worker
   }
 
   void OnClose(Session &session) {
-    std::cout << fmt::format("Client {}:{} closed the connection.",
+    LOG(INFO) << fmt::format("Client {}:{} closed the connection.",
                              session.socket_.endpoint().address(),
                              session.socket_.endpoint().port())
               << std::endl;
