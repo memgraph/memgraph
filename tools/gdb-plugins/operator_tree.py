@@ -37,11 +37,17 @@ def _smart_ptr_pointee(smart_ptr):
 
 def _get_operator_input(operator):
     '''Returns the input operator of given operator, if it has any.'''
-    if 'input_' not in [f.name for f in operator.type.fields()]:
+    types_to_process = [operator.type]
+    all_fields = []
+    while types_to_process:
+        for field in types_to_process.pop().fields():
+            if field.is_base_class:
+                types_to_process.append(field.type)
+            else:
+                all_fields.append(field)
+    if "input_" not in [f.name for f in all_fields]:
         return None
     input_addr = _smart_ptr_pointee(operator['input_'])
-    if input_addr == 0:
-        return None
     pointer_type = _logical_operator_type().pointer()
     input_op = gdb.Value(input_addr).cast(pointer_type).dereference()
     return input_op.cast(input_op.dynamic_type)
