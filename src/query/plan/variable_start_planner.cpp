@@ -208,7 +208,13 @@ class VaryMatchingStart {
       if (*start_nodes_it_ == self_.nodes_.end()) {
         return *this;
       }
-      const auto &start_node = *(*start_nodes_it_)++;
+      ++*start_nodes_it_;
+      // start_nodes_it_ can become equal to `end` and we shouldn't dereference
+      // iterator in that case.
+      if (*start_nodes_it_ == self_.nodes_.end()) {
+        return *this;
+      }
+      const auto &start_node = **start_nodes_it_;
       current_matching_ =
           Matching{ExpansionsFrom(start_node, self_.matching_.expansions,
                                   self_.symbol_table_),
