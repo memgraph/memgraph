@@ -31,8 +31,8 @@ template <class TNode>
 class SkipListGC {
  public:
   explicit SkipListGC() {
-    executor_job_id_ = GetExecutioner().RegisterJob(
-        std::bind(&SkipListGC::GarbageCollect, this));
+    executor_job_id_ =
+        GetExecutioner().RegisterJob([this]() { GarbageCollect(); });
   }
 
   ~SkipListGC() {
