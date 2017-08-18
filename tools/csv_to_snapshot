@@ -71,11 +71,12 @@ class Hasher:
                             .format(type(data).__name__))
         for byte in data:
             self._hash = self._hash * self._PRIME + byte + 1
+            self._hash %= 2**64  # Make hash fit in uint64_t
 
     def digest(self):
         '''Return the digest value as an int (which fits in uint64_t) and
         *not* as bytes. (This is different from hashlib objects.)'''
-        return self._hash % (2**64)
+        return self._hash
 
 
 class BoltEncoder:
@@ -129,8 +130,9 @@ class BoltEncoder:
 
     def write_str(self, value):
         self._write(self._STRING32_MARKER)
-        self._write(self._UINT32_STRUCT.pack(len(value)))
-        self._write(value.encode('utf-8'))
+        data = value.encode('utf-8')
+        self._write(self._UINT32_STRUCT.pack(len(data)))
+        self._write(data)
 
     def write_list(self, values):
         self._write(self._LIST32_MARKER)
@@ -264,7 +266,7 @@ def write_node_row(node_row, array_delimiter, encoder):
 def convert_nodes(node_filenames, csv_delimiter, array_delimiter, encoder):
     node_count = 0
     for node_filename in node_filenames:
-        with open(node_filename) as node_file:
+        with open(node_filename, newline='', encoding='utf-8') as node_file:
             nodes = csv.DictReader(node_file, delimiter=csv_delimiter)
             for node in nodes:
                 write_node_row(node, array_delimiter, encoder)
@@ -307,7 +309,8 @@ def convert_relationships(relationship_filenames, csv_delimiter,
                           array_delimiter, encoder):
     relationship_count = 0
     for relationship_filename in relationship_filenames:
-        with open(relationship_filename) as relationship_file:
+        with open(relationship_filename, newline='', encoding='utf-8') as \
+                relationship_file:
             relationships = csv.DictReader(relationship_file,
                                            delimiter=csv_delimiter)
             for relationship in relationships:
