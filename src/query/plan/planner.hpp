@@ -22,7 +22,7 @@ struct Expansion {
   /// @c EdgeAtom during plan generation.
   EdgeAtom::Direction direction = EdgeAtom::Direction::BOTH;
   /// Set of symbols found inside the range expressions of a variable path edge.
-  std::unordered_set<Symbol> symbols_in_range;
+  std::unordered_set<Symbol> symbols_in_range{};
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
@@ -40,8 +40,8 @@ class Filters {
     /// Expression which when evaluated produces the value a property must
     /// equal.
     Expression *expression = nullptr;
-    std::experimental::optional<Bound> lower_bound;
-    std::experimental::optional<Bound> upper_bound;
+    std::experimental::optional<Bound> lower_bound{};
+    std::experimental::optional<Bound> upper_bound{};
   };
 
   /// All filter expressions that should be generated.
@@ -122,7 +122,7 @@ struct QueryPart {
   /// @brief All `MATCH` clauses merged into one @c Matching.
   Matching matching;
   /// @brief Each `OPTIONAL MATCH` converted to @c Matching.
-  std::vector<Matching> optional_matching;
+  std::vector<Matching> optional_matching{};
   /// @brief @c Matching for each `MERGE` clause.
   ///
   /// Storing the normalized pattern of a @c Merge does not preclude storing the
@@ -132,9 +132,9 @@ struct QueryPart {
   ///
   /// Since @c Merge is contained in `remaining_clauses`, this vector contains
   /// matching in the same order as @c Merge appears.
-  std::vector<Matching> merge_matching;
+  std::vector<Matching> merge_matching{};
   /// @brief All the remaining clauses (without @c Match).
-  std::vector<Clause *> remaining_clauses;
+  std::vector<Clause *> remaining_clauses{};
 };
 
 /// @brief Context which contains variables commonly used during planning.
@@ -158,7 +158,7 @@ struct PlanningContext {
   /// read a symbol or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and
   /// write) the first `n`, but the latter `n` would only read the already
   /// written information.
-  std::unordered_set<Symbol> bound_symbols;
+  std::unordered_set<Symbol> bound_symbols{};
 };
 
 /// @brief Planner which uses hardcoded rules to produce operators.

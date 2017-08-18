@@ -184,7 +184,7 @@ struct MatchContext {
   // Determines whether the match should see the new graph state or not.
   GraphView graph_view = GraphView::OLD;
   // All the newly established symbols in match.
-  std::vector<Symbol> new_symbols;
+  std::vector<Symbol> new_symbols{};
 };
 
 auto GenFilters(LogicalOperator *last_op,
@@ -639,7 +639,7 @@ LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
 std::vector<Expansion> NormalizePatterns(
     const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
-  auto ignore_node = [&](auto *node) {};
+  auto ignore_node = [&](auto *) {};
   auto collect_expansion = [&](auto *prev_node, auto *edge,
                                auto *current_node) {
     UsedSymbolsCollector collector(symbol_table);
@@ -739,13 +739,14 @@ bool FindBestLabelPropertyIndex(
     return true;
   };
   bool found = false;
-  size_t min_count = std::numeric_limits<size_t>::max();
+  auto min_count = std::numeric_limits<decltype(db.VerticesCount(
+      GraphDbTypes::Label{}, GraphDbTypes::Property{}))>::max();
   for (const auto &label : labels) {
     for (const auto &prop_pair : property_filters) {
       const auto &property = prop_pair.first;
       if (db.LabelPropertyIndexExists(label, property)) {
-        auto VerticesCount = db.VerticesCount(label, property);
-        if (VerticesCount < min_count) {
+        auto vertices_count = db.VerticesCount(label, property);
+        if (vertices_count < min_count) {
           for (const auto &prop_filter : prop_pair.second) {
             if (prop_filter.used_symbols.find(symbol) !=
                 prop_filter.used_symbols.end()) {
@@ -759,7 +760,7 @@ bool FindBestLabelPropertyIndex(
               // Take the first property filter which uses bound symbols.
               best_label = label;
               best_property = {property, prop_filter};
-              min_count = VerticesCount;
+              min_count = vertices_count;
               found = true;
               break;
             }
@@ -1081,8 +1082,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     }
     add_properties_filter(node);
   };
-  auto add_expand_filter = [&](NodeAtom *prev_node, EdgeAtom *edge,
-                               NodeAtom *node) {
+  auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
     if (!edge->edge_types_.empty()) {
       if (edge->has_range_) {
