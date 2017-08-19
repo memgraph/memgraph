@@ -26,3 +26,4 @@ $PIP install neo4j-driver
 # execute test
 $PYTHON basic.py
 $PYTHON max_query_length.py
+$PYTHON transactions.py
