@@ -15,6 +15,9 @@ namespace communication::bolt {
 
 template <typename Session>
 State HandleRun(Session &session, State state, Marker marker) {
+  const std::map<std::string, query::TypedValue> kEmptyFields = {
+      {"fields", std::vector<query::TypedValue>{}}};
+
   if (marker != Marker::TinyStruct2) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct2 marker, but received 0x{:02X}!",
@@ -38,7 +41,7 @@ State HandleRun(Session &session, State state, Marker marker) {
     if (query.Value<std::string>() == "ROLLBACK") {
       session.Abort();
       // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess();
+      session.encoder_.MessageSuccess(kEmptyFields);
       // One for PULL_ALL should be chunked.
       session.encoder_.MessageSuccess({}, false);
       return State::Result;
@@ -84,7 +87,7 @@ State HandleRun(Session &session, State state, Marker marker) {
     // Same goes for "ROLLBACK" and "COMMIT".
     //
     // One MessageSuccess for RUN command should be flushed.
-    session.encoder_.MessageSuccess();
+    session.encoder_.MessageSuccess(kEmptyFields);
     // One for PULL_ALL should be chunked.
     session.encoder_.MessageSuccess({}, false);
     return State::Result;
@@ -94,14 +97,14 @@ State HandleRun(Session &session, State state, Marker marker) {
     if (query.Value<std::string>() == "COMMIT") {
       session.Commit();
       // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess();
+      session.encoder_.MessageSuccess(kEmptyFields);
       // One for PULL_ALL should be chunked.
       session.encoder_.MessageSuccess({}, false);
       return State::Result;
     } else if (query.Value<std::string>() == "ROLLBACK") {
       session.Abort();
       // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess();
+      session.encoder_.MessageSuccess(kEmptyFields);
       // One for PULL_ALL should be chunked.
       session.encoder_.MessageSuccess({}, false);
       return State::Result;
