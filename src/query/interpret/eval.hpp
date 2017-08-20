@@ -123,6 +123,22 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return op.expression2_->Accept(*this);
   }
 
+  TypedValue Visit(IfOperator &if_operator) override {
+    auto condition = if_operator.condition_->Accept(*this);
+    if (condition.IsNull()) {
+      return if_operator.then_expression_->Accept(*this);
+    }
+    if (condition.type() != TypedValue::Type::Bool) {
+      // At the moment IfOperator is used only in CASE construct.
+      throw QueryRuntimeException(
+          "'CASE' expected boolean expression, but got {}", condition.type());
+    }
+    if (condition.Value<bool>()) {
+      return if_operator.then_expression_->Accept(*this);
+    }
+    return if_operator.else_expression_->Accept(*this);
+  }
+
   TypedValue Visit(InListOperator &in_list) override {
     auto literal = in_list.expression1_->Accept(*this);
     auto _list = in_list.expression2_->Accept(*this);

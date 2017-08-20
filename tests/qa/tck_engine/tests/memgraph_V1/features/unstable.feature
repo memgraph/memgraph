@@ -59,7 +59,7 @@ Feature: Unstable
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -73,7 +73,7 @@ Feature: Unstable
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -87,7 +87,7 @@ Feature: Unstable
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -105,4 +105,3 @@ Feature: Unstable
         Then the result should be:
             | n                   |
             | 2.718281828459045   |
-

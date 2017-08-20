@@ -478,6 +478,10 @@ a dictionary and convert them to strings before running a query:
 To use parameters with some other driver please consult appropriate
 documentation.
 
+#### CASE
+
+TODO
+
 ### Differences
 
 Although we try to implement openCypher query language as closely to the

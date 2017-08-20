@@ -47,6 +47,7 @@ class GreaterEqualOperator;
 class InListOperator;
 class ListIndexingOperator;
 class ListSlicingOperator;
+class IfOperator;
 class Delete;
 class Where;
 class SetProperty;
@@ -64,11 +65,11 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
     GreaterEqualOperator, InListOperator, ListIndexingOperator,
-    ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    ListLiteral, MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest,
-    Aggregation, Function, All, Create, Match, Return, With, Pattern, NodeAtom,
-    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
-    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
+    EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,
+    Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, CreateIndex>;
@@ -89,11 +90,11 @@ using TreeVisitor = ::utils::Visitor<
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
     GreaterEqualOperator, InListOperator, ListIndexingOperator,
-    ListSlicingOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    ListLiteral, MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest,
-    Aggregation, Function, All, Create, Match, Return, With, Pattern, NodeAtom,
-    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
-    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, Identifier,
-    PrimitiveLiteral, CreateIndex>;
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
+    EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,
+    Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind,
+    Identifier, PrimitiveLiteral, CreateIndex>;
 
 }  // namespace query

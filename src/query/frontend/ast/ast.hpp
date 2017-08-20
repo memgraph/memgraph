@@ -447,6 +447,45 @@ class ListSlicingOperator : public Expression {
         upper_bound_(upper_bound) {}
 };
 
+class IfOperator : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      condition_->Accept(visitor) && then_expression_->Accept(visitor) &&
+          else_expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  IfOperator *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<IfOperator>(condition_->Clone(storage),
+                                      then_expression_->Clone(storage),
+                                      else_expression_->Clone(storage));
+  }
+
+  // None of the expressions should be nullptrs. If there is no else_expression
+  // you probably want to make it NULL PrimitiveLiteral.
+  Expression *condition_;
+  Expression *then_expression_;
+  Expression *else_expression_;
+
+ protected:
+  IfOperator(int uid, Expression *condition, Expression *then_expression,
+             Expression *else_expression)
+      : Expression(uid),
+        condition_(condition),
+        then_expression_(then_expression),
+        else_expression_(else_expression) {
+    debug_assert(
+        condition_ != nullptr && then_expression_ != nullptr &&
+            else_expression_ != nullptr,
+        "clause_, then_expression_ and else_expression_ can't be nullptr");
+  }
+};
+
 class NotOperator : public UnaryOperator {
   friend class AstTreeStorage;
 

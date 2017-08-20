@@ -522,6 +522,19 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::PropertyExpressionContext *ctx) override;
 
   /**
+   * @return IfOperator*
+   */
+  antlrcpp::Any visitCaseExpression(
+      CypherParser::CaseExpressionContext *ctx) override;
+
+  /**
+   * Never call this. Ast generation for this production is done in
+   * @c visitCaseExpression.
+   */
+  antlrcpp::Any visitCaseAlternatives(
+      CypherParser::CaseAlternativesContext *ctx) override;
+
+  /**
    * @return With*
    */
   antlrcpp::Any visitWith(CypherParser::WithContext *ctx) override;

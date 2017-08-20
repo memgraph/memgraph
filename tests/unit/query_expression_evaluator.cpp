@@ -459,6 +459,39 @@ TEST(ExpressionEvaluator, ListSlicingOperator) {
   }
 }
 
+TEST(ExpressionEvaluator, IfOperator) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto *then_expression = storage.Create<PrimitiveLiteral>(10);
+  auto *else_expression = storage.Create<PrimitiveLiteral>(20);
+  {
+    auto *condition_true =
+        storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2),
+                                      storage.Create<PrimitiveLiteral>(2));
+    auto *op = storage.Create<IfOperator>(condition_true, then_expression,
+                                          else_expression);
+    auto value = op->Accept(eval.eval);
+    ASSERT_EQ(value.Value<int64_t>(), 10);
+  }
+  {
+    auto *condition_false =
+        storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2),
+                                      storage.Create<PrimitiveLiteral>(3));
+    auto *op = storage.Create<IfOperator>(condition_false, then_expression,
+                                          else_expression);
+    auto value = op->Accept(eval.eval);
+    ASSERT_EQ(value.Value<int64_t>(), 20);
+  }
+  {
+    auto *condition_exception =
+        storage.Create<AdditionOperator>(storage.Create<PrimitiveLiteral>(2),
+                                         storage.Create<PrimitiveLiteral>(3));
+    auto *op = storage.Create<IfOperator>(condition_exception, then_expression,
+                                          else_expression);
+    ASSERT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
+}
+
 TEST(ExpressionEvaluator, NotOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;

@@ -4,6 +4,8 @@
 
 ### Major Features and Improvements
 
+* CASE construct (without aggregations)
+
 ### Bug Fixes and Other Changes
 
 * Keywords appearing in header (named expressions) keep original case.

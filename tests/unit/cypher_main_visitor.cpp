@@ -541,6 +541,76 @@ TYPED_TEST(CypherMainVisitorTest, InWithListIndexing) {
   EXPECT_TRUE(list_index);
 }
 
+TYPED_TEST(CypherMainVisitorTest, CaseGenericForm) {
+  TypeParam ast_generator(
+      "RETURN CASE WHEN n < 10 THEN 1 WHEN n > 10 THEN 2 END");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *if_operator = dynamic_cast<IfOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(if_operator);
+  auto *condition = dynamic_cast<LessOperator *>(if_operator->condition_);
+  ASSERT_TRUE(condition);
+  auto *then_expression =
+      dynamic_cast<PrimitiveLiteral *>(if_operator->then_expression_);
+  ASSERT_TRUE(then_expression);
+  ASSERT_EQ(then_expression->value_.Value<int64_t>(), 1);
+
+  auto *if_operator2 =
+      dynamic_cast<IfOperator *>(if_operator->else_expression_);
+  ASSERT_TRUE(if_operator2);
+  auto *condition2 = dynamic_cast<GreaterOperator *>(if_operator2->condition_);
+  ASSERT_TRUE(condition2);
+  auto *then_expression2 =
+      dynamic_cast<PrimitiveLiteral *>(if_operator2->then_expression_);
+  ASSERT_TRUE(then_expression2);
+  ASSERT_EQ(then_expression2->value_.Value<int64_t>(), 2);
+  auto *else_expression2 =
+      dynamic_cast<PrimitiveLiteral *>(if_operator2->else_expression_);
+  ASSERT_TRUE(else_expression2);
+  ASSERT_TRUE(else_expression2->value_.IsNull());
+}
+
+TYPED_TEST(CypherMainVisitorTest, CaseGenericFormElse) {
+  TypeParam ast_generator("RETURN CASE WHEN n < 10 THEN 1 ELSE 2 END");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *if_operator = dynamic_cast<IfOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  auto *condition = dynamic_cast<LessOperator *>(if_operator->condition_);
+  ASSERT_TRUE(condition);
+  auto *then_expression =
+      dynamic_cast<PrimitiveLiteral *>(if_operator->then_expression_);
+  ASSERT_EQ(then_expression->value_.Value<int64_t>(), 1);
+  auto *else_expression =
+      dynamic_cast<PrimitiveLiteral *>(if_operator->else_expression_);
+  ASSERT_TRUE(else_expression);
+  ASSERT_EQ(else_expression->value_.Value<int64_t>(), 2);
+}
+
+TYPED_TEST(CypherMainVisitorTest, CaseSimpleForm) {
+  TypeParam ast_generator("RETURN CASE 5 WHEN 10 THEN 1 END");
+  auto *query = ast_generator.query_;
+  auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
+  auto *if_operator = dynamic_cast<IfOperator *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  auto *condition = dynamic_cast<EqualOperator *>(if_operator->condition_);
+  ASSERT_TRUE(condition);
+  auto *expr1 = dynamic_cast<PrimitiveLiteral *>(condition->expression1_);
+  ASSERT_TRUE(expr1);
+  ASSERT_EQ(expr1->value_.Value<int64_t>(), 5);
+  auto *expr2 = dynamic_cast<PrimitiveLiteral *>(condition->expression2_);
+  ASSERT_TRUE(expr2);
+  ASSERT_EQ(expr2->value_.Value<int64_t>(), 10);
+  auto *then_expression =
+      dynamic_cast<PrimitiveLiteral *>(if_operator->then_expression_);
+  ASSERT_EQ(then_expression->value_.Value<int64_t>(), 1);
+  auto *else_expression =
+      dynamic_cast<PrimitiveLiteral *>(if_operator->else_expression_);
+  ASSERT_TRUE(else_expression);
+  ASSERT_TRUE(else_expression->value_.IsNull());
+}
+
 TYPED_TEST(CypherMainVisitorTest, IsNull) {
   TypeParam ast_generator("RETURN 2 iS NulL");
   auto *query = ast_generator.query_;

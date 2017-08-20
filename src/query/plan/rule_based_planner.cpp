@@ -352,6 +352,23 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return false;
   }
 
+  bool PreVisit(IfOperator &if_operator) override {
+    if_operator.condition_->Accept(*this);
+    bool has_aggr = has_aggregation_.back();
+    has_aggregation_.pop_back();
+    if_operator.then_expression_->Accept(*this);
+    has_aggr = has_aggr || has_aggregation_.back();
+    has_aggregation_.pop_back();
+    if_operator.else_expression_->Accept(*this);
+    has_aggr = has_aggr || has_aggregation_.back();
+    has_aggregation_.pop_back();
+    has_aggregation_.emplace_back(has_aggr);
+    // TODO: Once we allow aggregations here, insert appropriate stuff in
+    // group_by.
+    debug_assert(!has_aggr, "Currently aggregations in CASE are not allowed");
+    return false;
+  }
+
   bool PostVisit(Function &function) override {
     debug_assert(function.arguments_.size() <= has_aggregation_.size(),
                  "Expected has_aggregation_ flags as much as there are "

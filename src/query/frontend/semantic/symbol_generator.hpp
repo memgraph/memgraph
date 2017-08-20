@@ -44,6 +44,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
   bool PreVisit(Aggregation &) override;
   bool PostVisit(Aggregation &) override;
+  bool PreVisit(IfOperator &) override;
+  bool PostVisit(IfOperator &) override;
   bool PreVisit(All &) override;
 
   // Pattern and its subparts.
@@ -94,6 +96,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     // Match. Identifiers created by naming vertices, edges and paths are *not*
     // stored in here.
     std::vector<Identifier *> identifiers_in_match;
+    // Number of nested IfOperators.
+    int num_if_operators{0};
   };
 
   bool HasSymbol(const std::string &name);

@@ -82,4 +82,3 @@ struct hash<query::Symbol> {
 };
 
 }  // namespace std
-

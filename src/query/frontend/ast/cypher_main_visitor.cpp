@@ -797,6 +797,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
         storage_.Create<All>(ident, list_expr, where));
+  } else if (ctx->caseExpression()) {
+    return static_cast<Expression *>(ctx->caseExpression()->accept(this));
   }
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
@@ -1030,6 +1032,36 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
   }
   // It is guaranteed by grammar that there is at least one propertyLookup.
   return dynamic_cast<PropertyLookup *>(expression);
+}
+
+antlrcpp::Any CypherMainVisitor::visitCaseExpression(
+    CypherParser::CaseExpressionContext *ctx) {
+  Expression *test_expression =
+      ctx->test ? ctx->test->accept(this).as<Expression *>() : nullptr;
+  auto alternatives = ctx->caseAlternatives();
+  // Reverse alternatives so that tree of IfOperators can be built bottom-up.
+  std::reverse(alternatives.begin(), alternatives.end());
+  Expression *else_expression =
+      ctx->else_expression
+          ? ctx->else_expression->accept(this).as<Expression *>()
+          : storage_.Create<PrimitiveLiteral>(TypedValue::Null);
+  for (auto *alternative : alternatives) {
+    Expression *condition =
+        test_expression
+            ? storage_.Create<EqualOperator>(
+                  test_expression, alternative->when_expression->accept(this))
+            : alternative->when_expression->accept(this).as<Expression *>();
+    Expression *then_expression = alternative->then_expression->accept(this);
+    else_expression = storage_.Create<IfOperator>(condition, then_expression,
+                                                  else_expression);
+  }
+  return else_expression;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(
+    CypherParser::CaseAlternativesContext *) {
+  debug_fail("Should never be called. See documentation in hpp.");
+  return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitWith(CypherParser::WithContext *ctx) {

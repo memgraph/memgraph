@@ -14,6 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/*
+ * When changing this grammar make sure to update constants in
+ * src/query/frontend/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
+ * and bitsets) and src/query/frontend/ast/named_antlr_tokens.hpp if needed.
+ */
+
 grammar Cypher;
 
 cypher : SP? statement ( SP? ';' )? SP? EOF ;
@@ -174,6 +181,7 @@ expression2b : atom ( SP? propertyLookup )* ;
 
 atom : literal
      | parameter
+     | caseExpression
      | ( COUNT SP? '(' SP? '*' SP? ')' )
      | listComprehension
      | patternComprehension
@@ -231,6 +239,10 @@ listComprehension : '[' SP? filterExpression ( SP? '|' SP? expression )? SP? ']'
 patternComprehension : '[' SP? ( variable SP? '=' SP? )? relationshipsPattern SP? ( WHERE SP? expression SP? )? '|' SP? expression SP? ']' ;
 
 propertyLookup : '.' SP? ( propertyKeyName ) ;
+
+caseExpression : ( ( CASE ( SP? caseAlternatives )+ ) | ( CASE SP? test=expression ( SP? caseAlternatives )+ ) ) ( SP? ELSE SP? else_expression=expression )? SP? END ;
+
+caseAlternatives : WHEN SP? when_expression=expression SP? THEN SP? then_expression=expression ;
 
 variable : symbolicName ;
 
@@ -348,6 +360,11 @@ symbolicName : UnescapedSymbolicName
              | CONTAINS
              | IS
              | CYPHERNULL
+             | CASE
+             | WHEN
+             | THEN
+             | ELSE
+             | END
              | COUNT
              | FILTER
              | EXTRACT
@@ -428,6 +445,16 @@ CONTAINS : ( 'C' | 'c' ) ( 'O' | 'o' ) ( 'N' | 'n' ) ( 'T' | 't' ) ( 'A' | 'a' )
 IS : ( 'I' | 'i' ) ( 'S' | 's' )  ;
 
 CYPHERNULL : ( 'N' | 'n' ) ( 'U' | 'u' ) ( 'L' | 'l' ) ( 'L' | 'l' )  ;
+
+CASE : ( 'C' | 'c' ) ( 'A' | 'a' ) ( 'S' | 's' ) ( 'E' | 'e' )  ;
+
+ELSE : ( 'E' | 'e' ) ( 'L' | 'l' ) ( 'S' | 's' ) ( 'E' | 'e' )  ;
+
+END : ( 'E' | 'e' ) ( 'N' | 'n' ) ( 'D' | 'd' )  ;
+
+WHEN : ( 'W' | 'w' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'N' | 'n' )  ;
+
+THEN : ( 'T' | 't' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'N' | 'n' )  ;
 
 COUNT : ( 'C' | 'c' ) ( 'O' | 'o' ) ( 'U' | 'u' ) ( 'N' | 'n' ) ( 'T' | 't' )  ;
 

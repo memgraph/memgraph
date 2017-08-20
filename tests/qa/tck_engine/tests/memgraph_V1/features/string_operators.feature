@@ -4,7 +4,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -20,7 +20,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -36,7 +36,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -50,7 +50,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -65,7 +65,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'E"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'E"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -82,7 +82,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -98,7 +98,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -112,7 +112,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -127,7 +127,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -143,7 +143,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"}) 
+            CREATE(a{name: "ai'M'e"}), (b{name: "AiMe"}), (c{name: "aime"})
             """
         When executing query:
             """
@@ -159,7 +159,7 @@ Feature: String operators
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -169,12 +169,12 @@ Feature: String operators
             """
         Then an error should be raised
 
-    
+
     Scenario: Contains test5
         Given an empty graph
         And having executed
             """
-            CREATE(a{name: 1}), (b{name: 2}), (c{name: null}) 
+            CREATE(a{name: 1}), (b{name: 2}), (c{name: null})
             """
         When executing query:
             """
@@ -183,4 +183,3 @@ Feature: String operators
             return n.name
             """
         Then an error should be raised
-

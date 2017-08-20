@@ -254,6 +254,17 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
         "Using aggregation functions inside aggregation functions is not "
         "allowed");
   }
+  if (scope_.num_if_operators) {
+    // Neo allows aggregations here and produces very interesting behaviors.
+    // To simplify implementation at this moment we decided to completely
+    // disallow aggregations inside of the CASE.
+    // However, in some cases aggregation makes perfect sense, for example:
+    //    CASE count(n) WHEN 10 THEN "YES" ELSE "NO" END.
+    // TODO: Rethink of allowing aggregations in some parts of the CASE
+    // construct.
+    throw SemanticException(
+        "Using aggregation functions inside of CASE is not allowed");
+  }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
   symbol_table_[aggr] =
@@ -265,6 +276,16 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
 
 bool SymbolGenerator::PostVisit(Aggregation &) {
   scope_.in_aggregation = false;
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(IfOperator &) {
+  ++scope_.num_if_operators;
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(IfOperator &) {
+  --scope_.num_if_operators;
   return true;
 }
 
@@ -412,7 +433,7 @@ bool SymbolGenerator::PreVisit(BreadthFirstAtom &bf_atom) {
   return false;
 }
 
-bool SymbolGenerator::PostVisit(BreadthFirstAtom &bf_atom) {
+bool SymbolGenerator::PostVisit(BreadthFirstAtom &) {
   scope_.visiting_edge = nullptr;
   return true;
 }
