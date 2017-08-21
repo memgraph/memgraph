@@ -527,7 +527,7 @@ bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
 }
 
 ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                               EdgeAtom::Direction direction,
+                               EdgeAtom::Direction direction, bool is_reverse,
                                Expression *lower_bound, Expression *upper_bound,
                                const std::shared_ptr<LogicalOperator> &input,
                                Symbol input_symbol, bool existing_node,
@@ -535,7 +535,8 @@ ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
     : ExpandCommon(node_symbol, edge_symbol, direction, input, input_symbol,
                    existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
-      upper_bound_(upper_bound) {}
+      upper_bound_(upper_bound),
+      is_reverse_(is_reverse) {}
 
 bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
                                               Frame &frame) const {
@@ -746,8 +747,10 @@ class ExpandVariableCursor : public Cursor {
       if (edges_on_frame.size() < edges_.size())
         return EdgePlacementResult::MISMATCH;
 
+      int last_edge_index =
+          self_.is_reverse_ ? 0 : static_cast<int>(edges_.size()) - 1;
       EdgeAccessor &edge_on_frame =
-          edges_on_frame[edges_.size() - 1].Value<EdgeAccessor>();
+          edges_on_frame[last_edge_index].Value<EdgeAccessor>();
       if (edge_on_frame != new_edge) return EdgePlacementResult::MISMATCH;
 
       // the new_edge matches the corresponding frame element
@@ -763,8 +766,20 @@ class ExpandVariableCursor : public Cursor {
       // it is possible that there already exists an edge on the frame for
       // this level. if so first remove it
       debug_assert(edges_.size() > 0, "Edges are empty");
-      edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size() - 1));
-      edges_on_frame.emplace_back(new_edge);
+      if (self_.is_reverse_) {
+        // TODO: This is innefficient, we should look into replacing
+        // vector with something else for TypedValue::List.
+        size_t diff = edges_on_frame.size() -
+                      std::min(edges_on_frame.size(), edges_.size() - 1U);
+        if (diff > 0U)
+          edges_on_frame.erase(edges_on_frame.begin(),
+                               edges_on_frame.begin() + diff);
+        edges_on_frame.insert(edges_on_frame.begin(), new_edge);
+      } else {
+        edges_on_frame.resize(
+            std::min(edges_on_frame.size(), edges_.size() - 1U));
+        edges_on_frame.emplace_back(new_edge);
+      }
       return EdgePlacementResult::YIELD;
     }
   }
@@ -803,8 +818,18 @@ class ExpandVariableCursor : public Cursor {
       // elements as edges_ due to edge-uniqueness (when a whole layer
       // gets exhausted but no edges are valid). for that reason only
       // pop from edges_on_frame if they contain enough elements
-      if (!self_.existing_edge_)
-        edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
+      if (!self_.existing_edge_) {
+        if (self_.is_reverse_) {
+          auto diff = edges_on_frame.size() -
+                      std::min(edges_on_frame.size(), edges_.size());
+          if (diff > 0) {
+            edges_on_frame.erase(edges_on_frame.begin(),
+                                 edges_on_frame.begin() + diff);
+          }
+        } else {
+          edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
+        }
+      }
 
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator

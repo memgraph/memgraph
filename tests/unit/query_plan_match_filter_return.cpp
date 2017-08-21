@@ -337,6 +337,9 @@ class QueryPlanExpandVariable : public testing::Test {
    * ops and plain Expand (depending on template param).
    * When creating plain Expand the bound arguments (lower, upper) are ignored.
    *
+   * @param is_reverse Set to true if ExpandVariable should produce the list of
+   * edges in reverse order. As if ExpandVariable starts from `node_to` and ends
+   * with `node_from`.
    * @return the last created logical op.
    */
   template <typename TExpansionOperator>
@@ -346,12 +349,13 @@ class QueryPlanExpandVariable : public testing::Test {
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
       bool existing_edge, const std::string &node_to,
-      GraphView graph_view = GraphView::AS_IS) {
+      GraphView graph_view = GraphView::AS_IS, bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_, storage.Create<query::LabelsTest>(
-                        n_from.node_->identifier_,
-                        std::vector<GraphDbTypes::Label>{labels[layer]}));
+        n_from.op_,
+        storage.Create<query::LabelsTest>(
+            n_from.node_->identifier_,
+            std::vector<GraphDbTypes::Label>{labels[layer]}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -363,8 +367,9 @@ class QueryPlanExpandVariable : public testing::Test {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
       return std::make_shared<ExpandVariable>(
-          n_to_sym, edge_sym, direction, convert(lower), convert(upper),
-          filter_op, n_from.sym_, false, existing_edge, graph_view);
+          n_to_sym, edge_sym, direction, is_reverse, convert(lower),
+          convert(upper), filter_op, n_from.sym_, false, existing_edge,
+          graph_view);
     } else
       return std::make_shared<Expand>(n_to_sym, edge_sym, direction, filter_op,
                                       n_from.sym_, false, existing_edge,
@@ -404,43 +409,59 @@ class QueryPlanExpandVariable : public testing::Test {
 TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction,
                          std::experimental::optional<size_t> lower,
-                         std::experimental::optional<size_t> upper) {
+                         std::experimental::optional<size_t> upper,
+                         bool reverse) {
     auto e = Edge("r", direction);
-    return GetResults(AddMatch<ExpandVariable>(nullptr, "n", layer, direction,
-                                               lower, upper, e, false, "m"),
-                      e);
+    return GetResults(
+        AddMatch<ExpandVariable>(nullptr, "n", layer, direction, lower, upper,
+                                 e, false, "m", GraphView::AS_IS, reverse),
+        e);
   };
 
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, 0), (map_int{{0, 2}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 0), (map_int{{0, 2}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, 0), (map_int{{0, 2}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, 1), (map_int{}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1), (map_int{{1, 4}}));
-  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, 1), (map_int{{1, 4}}));
-  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, 1), (map_int{{1, 4}}));
-  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, 1), (map_int{{1, 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2), (map_int{{2, 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3), (map_int{{2, 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 2),
-            (map_int{{1, 4}, {2, 8}}));
+  for (int reverse = 0; reverse < 2; ++reverse) {
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, 0, reverse),
+              (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 0, reverse),
+              (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, 0, reverse),
+              (map_int{{0, 2}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, 1, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, reverse),
+              (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, 1, reverse),
+              (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, 1, reverse),
+              (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, 1, reverse),
+              (map_int{{1, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, reverse),
+              (map_int{{2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, reverse),
+              (map_int{{2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 2, reverse),
+              (map_int{{1, 4}, {2, 8}}));
 
-  // the following tests also check edge-uniqueness (cyphermorphisim)
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2),
-            (map_int{{1, 4}, {2, 12}}));
-  EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4),
-            (map_int{{4, 24}}));
+    // the following tests also check edge-uniqueness (cyphermorphisim)
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, reverse),
+              (map_int{{1, 4}, {2, 12}}));
+    EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4, reverse),
+              (map_int{{4, 24}}));
 
-  // default bound values (lower default is 1, upper default is inf)
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0), (map_int{}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1),
-            (map_int{{1, 4}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2),
-            (map_int{{1, 4}, {2, 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt),
-            (map_int{{7, 24}, {8, 24}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt),
-            (map_int{{8, 24}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt), (map_int{}));
+    // default bound values (lower default is 1, upper default is inf)
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0, reverse),
+              (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1, reverse),
+              (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2, reverse),
+              (map_int{{1, 4}, {2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt, reverse),
+              (map_int{{7, 24}, {8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt, reverse),
+              (map_int{{8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt, reverse),
+              (map_int{}));
+  }
 }
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {

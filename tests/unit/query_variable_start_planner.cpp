@@ -211,4 +211,28 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   });
 }
 
+TEST(TestVariableStartPlanner, MatchVariableExpand) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto r1 = dba->InsertEdge(v1, v2, dba->EdgeType("r1"));
+  auto r2 = dba->InsertEdge(v2, v3, dba->EdgeType("r2"));
+  dba->AdvanceCommand();
+  // Test MATCH (n) -[r*]-> (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r", Direction::OUT);
+  edge->has_range_ = true;
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  // We expect to get a single column with the following rows:
+  TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
+  TypedValue r2_list(std::vector<TypedValue>{r2});         // [r2]
+  TypedValue r1_r2_list(std::vector<TypedValue>{r1, r2});  // [r1, r2]
+  CheckPlansProduce(2, storage, *dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}});
+  });
+}
+
 }  // namespace

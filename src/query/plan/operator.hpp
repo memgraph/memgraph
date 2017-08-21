@@ -615,14 +615,17 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
    * Expansion length bounds are both inclusive (as in Neo's Cypher
    * implementation).
    *
+   * @param is_reverse Set to `true` if the edges written on frame should expand
+   *    from `node_symbol` to `input_symbol`. Opposed to the usual expanding
+   *    from `input_symbol` to `node_symbol`.
    * @param lower_bound An optional indicator of the minimum number of edges
    *    that get expanded (inclusive).
    * @param upper_bound An optional indicator of the maximum number of edges
    *    that get expanded (inclusive).
    */
   ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                 EdgeAtom::Direction direction, Expression *lower_bound,
-                 Expression *upper_bound,
+                 EdgeAtom::Direction direction, bool is_reverse,
+                 Expression *lower_bound, Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, bool existing_node, bool existing_edge,
                  GraphView graph_view = GraphView::AS_IS);
@@ -635,6 +638,9 @@ class ExpandVariable : public LogicalOperator, ExpandCommon {
   // both are optional, defaults are (1, inf)
   Expression *lower_bound_;
   Expression *upper_bound_;
+  // True if the path should be written as expanding from node_symbol to
+  // input_symbol.
+  bool is_reverse_;
 };
 
 /**

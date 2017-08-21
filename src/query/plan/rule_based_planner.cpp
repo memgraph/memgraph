@@ -877,6 +877,7 @@ LogicalOperator *PlanMatching(const Matching &matching,
       } else if (expansion.edge->has_range_) {
         last_op = new ExpandVariable(
             node_symbol, edge_symbol, expansion.direction,
+            expansion.direction != expansion.edge->direction_,
             expansion.edge->lower_bound_, expansion.edge->upper_bound_,
             std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
             existing_node, existing_edge, context.graph_view);
