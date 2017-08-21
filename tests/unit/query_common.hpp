@@ -36,10 +36,11 @@ namespace query {
 
 namespace test_common {
 
-auto ToInt64List(const TypedValue &t) {
-  std::vector<int64_t> list;
+template <typename T>
+auto ToList(const TypedValue &t) {
+  std::vector<T> list;
   for (auto x : t.Value<std::vector<TypedValue>>()) {
-    list.push_back(x.Value<int64_t>());
+    list.push_back(x.Value<T>());
   }
   return list;
 };
@@ -111,14 +112,14 @@ auto GetPropertyLookup(AstTreeStorage &storage,
                                         property);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &dba,
+    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &,
     const std::string &name,
     const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &dba,
+    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &,
     Expression *expr,
     const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
@@ -218,7 +219,7 @@ auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstTreeStorage &, ReturnBody &body,
                     NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
 }
@@ -228,26 +229,26 @@ void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
   auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
   body.named_expressions.emplace_back(named_expr);
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Limit limit) {
+void FillReturnBody(AstTreeStorage &, ReturnBody &body, Limit limit) {
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Skip skip,
+void FillReturnBody(AstTreeStorage &, ReturnBody &body, Skip skip,
                     Limit limit = Limit{}) {
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, OrderBy order_by,
+void FillReturnBody(AstTreeStorage &, ReturnBody &body, OrderBy order_by,
                     Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, OrderBy order_by,
+void FillReturnBody(AstTreeStorage &, ReturnBody &body, OrderBy order_by,
                     Skip skip, Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Expression *expr,
+void FillReturnBody(AstTreeStorage &, ReturnBody &body, Expression *expr,
                     NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.

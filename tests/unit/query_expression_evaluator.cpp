@@ -21,7 +21,7 @@ using namespace query;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 using testing::ElementsAre;
-using query::test_common::ToInt64List;
+using query::test_common::ToList;
 
 namespace {
 
@@ -898,22 +898,23 @@ TEST(ExpressionEvaluator, FunctionRange) {
   EXPECT_THROW(EvaluateFunction("RANGE", {1, TypedValue::Null, 1.3}),
                QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("RANGE", {1, 2, 0}), QueryRuntimeException);
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {1, 3})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {1, 3})),
               ElementsAre(1, 2, 3));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {-1, 5, 2})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {-1, 5, 2})),
               ElementsAre(-1, 1, 3, 5));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 10, 3})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {2, 10, 3})),
               ElementsAre(2, 5, 8));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 2, 2})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {2, 2, 2})),
               ElementsAre(2));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {3, 0, 5})), ElementsAre());
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {5, 1, -2})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {3, 0, 5})),
+              ElementsAre());
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {5, 1, -2})),
               ElementsAre(5, 3, 1));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {6, 1, -2})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {6, 1, -2})),
               ElementsAre(6, 4, 2));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {2, 2, -3})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {2, 2, -3})),
               ElementsAre(2));
-  EXPECT_THAT(ToInt64List(EvaluateFunction("RANGE", {-2, 4, -1})),
+  EXPECT_THAT(ToList<int64_t>(EvaluateFunction("RANGE", {-2, 4, -1})),
               ElementsAre());
 }
 

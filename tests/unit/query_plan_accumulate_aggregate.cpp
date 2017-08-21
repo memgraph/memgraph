@@ -22,7 +22,7 @@
 using namespace query;
 using namespace query::plan;
 using testing::UnorderedElementsAre;
-using query::test_common::ToInt64List;
+using query::test_common::ToList;
 
 TEST(QueryPlan, Accumulate) {
   // simulate the following two query execution on an empty db
@@ -217,7 +217,7 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   EXPECT_FLOAT_EQ(results[0][5].Value<double>(), 24 / 3.0);
   // collect
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_THAT(ToInt64List(results[0][6]), UnorderedElementsAre(5, 7, 12));
+  EXPECT_THAT(ToList<int64_t>(results[0][6]), UnorderedElementsAre(5, 7, 12));
 }
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
@@ -267,7 +267,7 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   EXPECT_TRUE(results[0][5].IsNull());
   // collect
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_THAT(ToInt64List(results[0][6]), UnorderedElementsAre());
+  EXPECT_THAT(ToList<int64_t>(results[0][6]), UnorderedElementsAre());
 }
 
 TEST(QueryPlan, AggregateGroupByValues) {
