@@ -1,4 +1,3 @@
-import io
 import re
 
 import gdb
@@ -9,6 +8,39 @@ def _logical_operator_type():
     # This is a function, because the type may appear during gdb runtime.
     # Therefore, we cannot assign it on import.
     return gdb.lookup_type('query::plan::LogicalOperator')
+
+
+def _iter_fields_and_base_classes(value):
+    '''Iterate all fields of value.type'''
+    types_to_process = [value.type]
+    while types_to_process:
+        for field in types_to_process.pop().fields():
+            if field.is_base_class:
+                types_to_process.append(field.type)
+            yield field
+
+
+def _fields(value):
+    '''Return a list of value.type fields.'''
+    return [f for f in _iter_fields_and_base_classes(value)
+            if not f.is_base_class]
+
+
+def _has_field(value, field_name):
+    '''Return True if value.type has a field named field_name.'''
+    return field_name in [f.name for f in _fields(value)]
+
+
+def _base_classes(value):
+    '''Return a list of base classes for value.type.'''
+    return [f for f in _iter_fields_and_base_classes(value)
+            if f.is_base_class]
+
+
+def _is_instance(value, type_):
+    '''Return True if value is an instance of type.'''
+    return value.type == type_ or \
+            type_ in [base.type for base in _base_classes(value)]
 
 
 # Pattern for matching std::unique_ptr<T, Deleter> and std::shared_ptr<T>
@@ -26,30 +58,23 @@ def _is_smart_ptr(maybe_smart_ptr, type_name=None):
 
 
 def _smart_ptr_pointee(smart_ptr):
-    '''Returns the address of the pointed to object in shared_ptr/unique_ptr.'''
+    '''Returns the pointer to object in shared_ptr/unique_ptr.'''
     # This function may not be needed when gdb adds dereferencing
     # shared_ptr/unique_ptr via Python API.
-    with io.StringIO() as string_io:
-        print(smart_ptr, file=string_io)
-        addr = string_io.getvalue().split()[-1]
-        return int(addr, base=16)
+    if _has_field(smart_ptr, '_M_ptr'):
+        # shared_ptr
+        return smart_ptr['_M_ptr']
+    if _has_field(smart_ptr, '_M_t') and \
+            _has_field(smart_ptr['_M_t'], '_M_head_impl'):
+        # unique_ptr
+        return smart_ptr['_M_t']['_M_head_impl']
 
 
 def _get_operator_input(operator):
     '''Returns the input operator of given operator, if it has any.'''
-    types_to_process = [operator.type]
-    all_fields = []
-    while types_to_process:
-        for field in types_to_process.pop().fields():
-            if field.is_base_class:
-                types_to_process.append(field.type)
-            else:
-                all_fields.append(field)
-    if "input_" not in [f.name for f in all_fields]:
+    if not _has_field(operator, 'input_'):
         return None
-    input_addr = _smart_ptr_pointee(operator['input_'])
-    pointer_type = _logical_operator_type().pointer()
-    input_op = gdb.Value(input_addr).cast(pointer_type).dereference()
+    input_op = _smart_ptr_pointee(operator['input_']).dereference()
     return input_op.cast(input_op.dynamic_type)
 
 
@@ -67,18 +92,10 @@ class PrintOperatorTree(gdb.Command):
             raise gdb.GdbError(*e.args)
         logical_operator_type = _logical_operator_type()
         if _is_smart_ptr(operator, 'query::plan::LogicalOperator'):
-            pointee = gdb.Value(_smart_ptr_pointee(operator))
-            if pointee == 0:
-                raise gdb.GdbError("Expected a '%s', but got nullptr" %
-                                   logical_operator_type)
-            operator = \
-                pointee.cast(logical_operator_type.pointer()).dereference()
-        elif operator.type == logical_operator_type.pointer():
+            operator = _smart_ptr_pointee(operator).dereference()
+        elif operator.type.code == gdb.TYPE_CODE_PTR:
             operator = operator.dereference()
-        # Currently, gdb doesn't provide API to check if the dynamic_type is
-        # subtype of a base type. So, this check will fail, for example if we
-        # get 'query::plan::ScanAll'. The user can avoid this by up-casting.
-        if operator.type != logical_operator_type:
+        if not _is_instance(operator, logical_operator_type):
             raise gdb.GdbError("Expected a '%s', but got '%s'" %
                                (logical_operator_type, operator.type))
         next_op = operator.cast(operator.dynamic_type)
