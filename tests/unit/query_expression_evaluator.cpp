@@ -1047,6 +1047,12 @@ TEST(ExpressionEvaluator, FunctionPi) {
   ASSERT_DOUBLE_EQ(EvaluateFunction("PI", {}).Value<double>(), M_PI);
 }
 
+TEST(ExpressionEvaluator, FunctionRand) {
+  ASSERT_THROW(EvaluateFunction("RAND", {1}), QueryRuntimeException);
+  ASSERT_GE(EvaluateFunction("RAND", {}).Value<double>(), 0.0);
+  ASSERT_LT(EvaluateFunction("RAND", {}).Value<double>(), 1.0);
+}
+
 TEST(ExpressionEvaluator, FunctionStartsWith) {
   EXPECT_THROW(EvaluateFunction(kStartsWith, {}), QueryRuntimeException);
   EXPECT_TRUE(EvaluateFunction(kStartsWith, {"a", TypedValue::Null}).IsNull());

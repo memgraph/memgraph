@@ -440,6 +440,7 @@ functions.
  `sign`       | Applies the signum function to a given number and returns the result. The signum of positive numbers is 1, of negative -1 and for 0 returns 0.
  `e`          | Returns the base of the natural logarithm.
  `pi`         | Returns the constant *pi*.
+ `rand`       | Returns a random floating point number between 0 (inclusive) and 1 (exclusive).
  `startsWith` | Check if the first argument starts with the second.
  `endsWith`   | Check if the first argument ends with the second.
  `contains`   | Check if the first argument has an element which is equal to the second argument.

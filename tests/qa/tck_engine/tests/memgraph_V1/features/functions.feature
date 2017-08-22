@@ -616,6 +616,15 @@ Feature: Functions
             | n                   |
             | 3.141592653589793   |
 
+    Scenario: Rand test:
+        When executing query:
+            """
+            WITH rand() as r RETURN r >= 0.0 AND r < 1.0 as result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
     Scenario: All test 01:
         When executing query:
             """

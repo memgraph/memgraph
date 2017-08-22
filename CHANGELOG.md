@@ -5,6 +5,7 @@
 ### Major Features and Improvements
 
 * CASE construct (without aggregations)
+* rand() function added
 
 ### Bug Fixes and Other Changes
 

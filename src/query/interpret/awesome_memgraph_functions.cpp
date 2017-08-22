@@ -453,6 +453,13 @@ TypedValue Pi(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   return M_PI;
 }
 
+TypedValue Rand(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
+  if (args.size() != 0U) {
+    throw QueryRuntimeException("rand shouldn't be called with arguments");
+  }
+  return dba.Rand();
+}
+
 template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
 TypedValue StringMatchOperator(const std::vector<TypedValue> &args,
                                GraphDbAccessor &) {
@@ -534,6 +541,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "SIGN") return Sign;
   if (function_name == "E") return E;
   if (function_name == "PI") return Pi;
+  if (function_name == "RAND") return Rand;
   if (function_name == kStartsWith) return StartsWith;
   if (function_name == kEndsWith) return EndsWith;
   if (function_name == kContains) return Contains;

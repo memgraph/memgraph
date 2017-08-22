@@ -6,6 +6,7 @@
 #pragma once
 
 #include <experimental/optional>
+#include <random>
 
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
@@ -552,6 +553,11 @@ class GraphDbAccessor {
     if (!accessor.new_) accessor.new_ = accessor.vlist_->update(*transaction_);
   }
 
+  /**
+   * Returns a uniformly random-generated number from the [0, 1) interval.
+   */
+  double Rand();
+
  private:
   /**
    * Insert this vertex into corresponding label and label+property (if it
@@ -584,6 +590,7 @@ class GraphDbAccessor {
   void UpdatePropertyIndex(const GraphDbTypes::Property &property,
                            const RecordAccessor<Vertex> &record_accessor,
                            const Vertex *const vertex);
+
   GraphDb &db_;
 
   /** The current transaction */
@@ -591,4 +598,8 @@ class GraphDbAccessor {
 
   bool commited_{false};
   bool aborted_{false};
+
+  // Random number generation stuff.
+  std::mt19937 pseudo_rand_gen_;
+  std::uniform_real_distribution<> rand_dist_{0, 1};
 };
