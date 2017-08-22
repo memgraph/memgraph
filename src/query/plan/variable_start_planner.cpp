@@ -1,6 +1,7 @@
 #include "query/plan/planner.hpp"
 
 #include <limits>
+#include <queue>
 
 #include "cppitertools/slice.hpp"
 #include "gflags/gflags.h"
@@ -17,7 +18,7 @@ namespace {
 
 class NodeSymbolHash {
  public:
-  NodeSymbolHash(const SymbolTable &symbol_table)
+  explicit NodeSymbolHash(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
   size_t operator()(const NodeAtom *node_atom) const {
@@ -30,11 +31,11 @@ class NodeSymbolHash {
 
 class NodeSymbolEqual {
  public:
-  NodeSymbolEqual(const SymbolTable &symbol_table)
+  explicit NodeSymbolEqual(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
-  size_t operator()(const NodeAtom *node_atom1,
-                    const NodeAtom *node_atom2) const {
+  bool operator()(const NodeAtom *node_atom1,
+                  const NodeAtom *node_atom2) const {
     return symbol_table_.at(*node_atom1->identifier_) ==
            symbol_table_.at(*node_atom2->identifier_);
   }
@@ -43,14 +44,20 @@ class NodeSymbolEqual {
   const SymbolTable &symbol_table_;
 };
 
-// Finds the next Expansion which has one of its nodes among the already
-// expanded symbols. The function may modify expansions, by flipping their nodes
-// and direction. This is done, so that the return iterator always points to the
-// expansion whose node1 is the already expanded one, while node2 may not be.
-auto NextExpansion(const SymbolTable &symbol_table,
-                   const std::unordered_set<Symbol> &expanded_symbols,
-                   const std::unordered_set<Symbol> &all_expansion_symbols,
-                   std::vector<Expansion> &expansions) {
+// Add applicable expansions for `node_symbol` to `next_expansions`. These
+// expansions are removed from `node_symbol_to_expansions`, while
+// `seen_expansions` and `expanded_symbols` are populated with new data.
+void AddNextExpansions(
+    const Symbol &node_symbol, const Matching &matching,
+    const SymbolTable &symbol_table,
+    std::unordered_set<Symbol> &expanded_symbols,
+    std::unordered_map<Symbol, std::set<int>> &node_symbol_to_expansions,
+    std::unordered_set<int> &seen_expansions,
+    std::queue<Expansion> &next_expansions) {
+  auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
+  if (node_to_expansions_it == node_symbol_to_expansions.end()) {
+    return;
+  }
   // Returns true if the expansion is a regular expand or if it is a variable
   // path expand, but with bound symbols used inside the range expression.
   auto can_expand = [&](auto &expansion) {
@@ -60,84 +67,103 @@ auto NextExpansion(const SymbolTable &symbol_table,
       // therefore bound. If the symbols are not found in the whole expansion,
       // then the semantic analysis should guarantee that the symbols have been
       // bound long before we expand.
-      if (all_expansion_symbols.find(range_symbol) !=
-              all_expansion_symbols.end() &&
+      if (matching.expansion_symbols.find(range_symbol) !=
+              matching.expansion_symbols.end() &&
           expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
         return false;
       }
     }
     return true;
   };
-  auto expansion_it = expansions.begin();
-  for (; expansion_it != expansions.end(); ++expansion_it) {
-    if (!can_expand(*expansion_it)) {
+  auto &node_expansions = node_to_expansions_it->second;
+  auto node_expansions_it = node_expansions.begin();
+  while (node_expansions_it != node_to_expansions_it->second.end()) {
+    auto expansion_id = *node_expansions_it;
+    if (seen_expansions.find(expansion_id) != seen_expansions.end()) {
+      // Skip and erase seen (already expanded) expansions.
+      node_expansions_it = node_expansions.erase(node_expansions_it);
       continue;
     }
-    const auto &node1_symbol =
-        symbol_table.at(*expansion_it->node1->identifier_);
-    if (expanded_symbols.find(node1_symbol) != expanded_symbols.end()) {
-      return expansion_it;
+    auto expansion = matching.expansions[expansion_id];
+    if (!can_expand(expansion)) {
+      // Skip but save expansions which need other symbols for later.
+      ++node_expansions_it;
+      continue;
     }
-    // Try expanding from node2 by flipping the expansion.
-    auto *node2 = expansion_it->node2;
-    if (node2 &&
-        expanded_symbols.find(symbol_table.at(*node2->identifier_)) !=
-            expanded_symbols.end() &&
+    if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
+      // We are not expanding from node1, so flip the expansion.
+      debug_assert(
+          expansion.node2 &&
+              symbol_table.at(*expansion.node2->identifier_) == node_symbol,
+          "Expected node_symbol to be bound in node2");
+      if (!dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
-        !dynamic_cast<BreadthFirstAtom *>(expansion_it->edge)) {
-      std::swap(expansion_it->node2, expansion_it->node1);
-      if (expansion_it->direction != EdgeAtom::Direction::BOTH) {
-        expansion_it->direction =
-            expansion_it->direction == EdgeAtom::Direction::IN
-                ? EdgeAtom::Direction::OUT
-                : EdgeAtom::Direction::IN;
+        std::swap(expansion.node1, expansion.node2);
+        if (expansion.direction != EdgeAtom::Direction::BOTH) {
+          expansion.direction = expansion.direction == EdgeAtom::Direction::IN
+                                    ? EdgeAtom::Direction::OUT
+                                    : EdgeAtom::Direction::IN;
+        }
       }
-      return expansion_it;
     }
+    seen_expansions.insert(expansion_id);
+    expanded_symbols.insert(symbol_table.at(*expansion.node1->identifier_));
+    if (expansion.edge) {
+      expanded_symbols.insert(symbol_table.at(*expansion.edge->identifier_));
+      expanded_symbols.insert(symbol_table.at(*expansion.node2->identifier_));
+    }
+    next_expansions.emplace(std::move(expansion));
+    node_expansions_it = node_expansions.erase(node_expansions_it);
   }
-  return expansion_it;
+  if (node_expansions.empty()) {
+    node_symbol_to_expansions.erase(node_to_expansions_it);
+  }
 }
 
 // Generates expansions emanating from the start_node by forming a chain. When
 // the chain can no longer be continued, a different starting node is picked
 // among remaining expansions and the process continues. This is done until all
-// original_expansions are used.
-std::vector<Expansion> ExpansionsFrom(
-    const NodeAtom *start_node, std::vector<Expansion> original_expansions,
-    const SymbolTable &symbol_table) {
-  std::vector<Expansion> expansions;
+// matching.expansions are used.
+std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node,
+                                      const Matching &matching,
+                                      const SymbolTable &symbol_table) {
+  // Make a copy of node_symbol_to_expansions, because we will modify it as
+  // expansions are chained.
+  auto node_symbol_to_expansions = matching.node_symbol_to_expansions;
+  std::unordered_set<int> seen_expansions;
+  std::queue<Expansion> next_expansions;
   std::unordered_set<Symbol> expanded_symbols(
       {symbol_table.at(*start_node->identifier_)});
-  std::unordered_set<Symbol> all_expansion_symbols;
-  for (const auto &expansion : original_expansions) {
-    all_expansion_symbols.insert(
-        symbol_table.at(*expansion.node1->identifier_));
-    if (expansion.edge) {
-      all_expansion_symbols.insert(
-          symbol_table.at(*expansion.edge->identifier_));
-      all_expansion_symbols.insert(
-          symbol_table.at(*expansion.node2->identifier_));
+  auto add_next_expansions = [&](const auto *node) {
+    AddNextExpansions(symbol_table.at(*node->identifier_), matching,
+                      symbol_table, expanded_symbols, node_symbol_to_expansions,
+                      seen_expansions, next_expansions);
+  };
+  add_next_expansions(start_node);
+  // Potential optimization: expansions and next_expansions could be merge into
+  // a single vector and an index could be used to determine from which should
+  // additional expansions be added.
+  std::vector<Expansion> expansions;
+  while (!next_expansions.empty()) {
+    auto expansion = next_expansions.front();
+    next_expansions.pop();
+    expansions.emplace_back(expansion);
+    add_next_expansions(expansion.node1);
+    if (expansion.node2) {
+      add_next_expansions(expansion.node2);
     }
   }
-  while (!original_expansions.empty()) {
-    auto next_it = NextExpansion(symbol_table, expanded_symbols,
-                                 all_expansion_symbols, original_expansions);
-    if (next_it == original_expansions.end()) {
-      // We could pick a new starting expansion, but to avoid runtime
-      // complexity, simply append the remaining expansions and return them.
-      // They should have a correct order, since the original expansions were
-      // verified during semantic analysis.
-      expansions.insert(expansions.end(), original_expansions.begin(),
-                        original_expansions.end());
-      return expansions;
+  if (!node_symbol_to_expansions.empty()) {
+    // We could pick a new starting expansion, but to avoid runtime
+    // complexity, simply append the remaining expansions. They should have the
+    // correct order, since the original expansions were verified during
+    // semantic analysis.
+    for (int i = 0; i < matching.expansions.size(); ++i) {
+      if (seen_expansions.find(i) != seen_expansions.end()) {
+        continue;
+      }
+      expansions.emplace_back(matching.expansions[i]);
     }
-    expanded_symbols.insert(symbol_table.at(*next_it->node1->identifier_));
-    if (next_it->node2) {
-      expanded_symbols.insert(symbol_table.at(*next_it->edge->identifier_));
-      expanded_symbols.insert(symbol_table.at(*next_it->node2->identifier_));
-    }
-    expansions.emplace_back(*next_it);
-    original_expansions.erase(next_it);
   }
   return expansions;
 }
@@ -178,17 +204,17 @@ class VaryMatchingStart {
 
     iterator(VaryMatchingStart &self, bool is_done)
         : self_(self),
-          // Use the original matching as the first matching, for the case when
-          // there are no nodes.
+          // Use the original matching as the first matching. We are only
+          // interested in changing the expansions part, so the remaining fields
+          // should stay the same. This also produces a matching for the case
+          // when there are no nodes.
           current_matching_(self.matching_) {
       if (!self_.nodes_.empty()) {
-        // Overwrite the original matching with the new one by generating it
-        // from the first start node.
+        // Overwrite the original matching expansions with the new ones by
+        // generating it from the first start node.
         start_nodes_it_ = self_.nodes_.begin();
-        current_matching_ = Matching{
-            ExpansionsFrom(**start_nodes_it_, self_.matching_.expansions,
-                           self_.symbol_table_),
-            self_.matching_.edge_symbols, self_.matching_.filters};
+        current_matching_.expansions = ExpansionsFrom(
+            **start_nodes_it_, self_.matching_, self_.symbol_table_);
       }
       debug_assert(
           start_nodes_it_ || self_.nodes_.empty(),
@@ -215,10 +241,8 @@ class VaryMatchingStart {
         return *this;
       }
       const auto &start_node = **start_nodes_it_;
-      current_matching_ =
-          Matching{ExpansionsFrom(start_node, self_.matching_.expansions,
-                                  self_.symbol_table_),
-                   self_.matching_.edge_symbols, self_.matching_.filters};
+      current_matching_.expansions =
+          ExpansionsFrom(start_node, self_.matching_, self_.symbol_table_);
       return *this;
     }
 

@@ -235,4 +235,59 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   });
 }
 
+TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto id = dba->Property("id");
+  // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
+  auto v1 = dba->InsertVertex();
+  v1.PropsSet(id, 1);
+  auto v2 = dba->InsertVertex();
+  v2.PropsSet(id, 2);
+  auto v3 = dba->InsertVertex();
+  v3.PropsSet(id, 3);
+  auto r1 = dba->InsertEdge(v1, v2, dba->EdgeType("r1"));
+  auto r2 = dba->InsertEdge(v2, v3, dba->EdgeType("r2"));
+  dba->AdvanceCommand();
+  // Test MATCH (n) -[r*..n.id]-> (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r", Direction::OUT);
+  edge->has_range_ = true;
+  edge->upper_bound_ = PROPERTY_LOOKUP("n", id);
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  // We expect to get a single column with the following rows:
+  TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1] (v1 -[*..1]-> v2)
+  TypedValue r2_list(std::vector<TypedValue>{r2});  // [r2] (v2 -[*..2]-> v3)
+  CheckPlansProduce(2, storage, *dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r2_list}});
+  });
+}
+
+TEST(TestVariableStartPlanner, MatchBfs) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto id = dba->Property("id");
+  // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
+  auto v1 = dba->InsertVertex();
+  v1.PropsSet(id, 1);
+  auto v2 = dba->InsertVertex();
+  v2.PropsSet(id, 2);
+  auto v3 = dba->InsertVertex();
+  v3.PropsSet(id, 3);
+  auto r1 = dba->InsertEdge(v1, v2, dba->EdgeType("r1"));
+  dba->InsertEdge(v2, v3, dba->EdgeType("r2"));
+  dba->AdvanceCommand();
+  // Test MATCH (n) -bfs[r](r, n|n.id <> 3, 10)-> (m) RETURN r
+  AstTreeStorage storage;
+  auto *bfs = storage.Create<query::BreadthFirstAtom>(
+      IDENT("r"), Direction::OUT, IDENT("r"), IDENT("n"),
+      NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3)), LITERAL(10));
+  QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  // We expect to get a single column with the following rows:
+  TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1]
+  CheckPlansProduce(2, storage, *dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}});
+  });
+}
+
 }  // namespace

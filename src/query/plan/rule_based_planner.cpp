@@ -128,7 +128,7 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
 // Collects symbols from identifiers found in visited AST nodes.
 class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  public:
-  UsedSymbolsCollector(const SymbolTable &symbol_table)
+  explicit UsedSymbolsCollector(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
   using HierarchicalTreeVisitor::PreVisit;
@@ -702,15 +702,29 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
+    // Matching may already have some expansions, so offset our index.
+    const int expansion_ix = matching.expansions.size();
+    // Map node1 symbol to expansion
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+    // Add node1 to all symbols.
+    matching.expansion_symbols.insert(node1_sym);
     if (expansion.edge) {
-      edge_symbols.insert(symbol_table.at(*expansion.edge->identifier_));
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      // Fill edge symbols for Cyphermorphism.
+      edge_symbols.insert(edge_sym);
+      // Map node2 symbol to expansion
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      // Add edge and node2 to all symbols
+      matching.expansion_symbols.insert(edge_sym);
+      matching.expansion_symbols.insert(node2_sym);
     }
+    matching.expansions.push_back(expansion);
   }
   if (!edge_symbols.empty()) {
     matching.edge_symbols.emplace_back(edge_symbols);
   }
-  matching.expansions.insert(matching.expansions.end(), expansions.begin(),
-                             expansions.end());
   for (auto *pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
   }

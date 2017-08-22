@@ -99,6 +99,10 @@ struct Matching {
   std::vector<std::unordered_set<Symbol>> edge_symbols;
   /// Information on used filter expressions while matching.
   Filters filters;
+  /// Maps node symbols to expansions which bind them.
+  std::unordered_map<Symbol, std::set<int>> node_symbol_to_expansions{};
+  /// All node and edge symbols across all expansions (from all matches).
+  std::unordered_set<Symbol> expansion_symbols{};
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
@@ -166,7 +170,7 @@ struct PlanningContext {
 /// @sa MakeLogicalPlan
 class RuleBasedPlanner {
  public:
-  RuleBasedPlanner(PlanningContext &context) : context_(context) {}
+  explicit RuleBasedPlanner(PlanningContext &context) : context_(context) {}
 
   /// @brief The result of plan generation is the root of the generated operator
   /// tree.
@@ -187,7 +191,7 @@ class RuleBasedPlanner {
 /// @sa MakeLogicalPlan
 class VariableStartPlanner {
  public:
-  VariableStartPlanner(PlanningContext &context) : context_(context) {}
+  explicit VariableStartPlanner(PlanningContext &context) : context_(context) {}
 
   /// @brief The result of plan generation is a vector of roots to multiple
   /// generated operator trees.
