@@ -93,9 +93,9 @@ void Reactor::RunEventLoop() {
       if (exit_event_loop) break;
     }
 
-    for (auto& cbAndSub : msg_and_cb.second) {
-      auto& cb = cbAndSub.first;
-      const Message& msg = *msg_and_cb.first;
+    for (auto &cbAndSub : msg_and_cb.second) {
+      auto &cb = cbAndSub.first;
+      const Message &msg = *msg_and_cb.first;
       cb(msg, cbAndSub.second);
     }
   }
@@ -106,8 +106,8 @@ void Reactor::RunEventLoop() {
  */
 auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
   // return type after because the scope Reactor:: is not searched before the name
-  for (auto& connectors_key_value : connectors_) {
-    Connector& event_queue = *connectors_key_value.second;
+  for (auto &connectors_key_value : connectors_) {
+    Connector &event_queue = *connectors_key_value.second;
     auto msg_ptr = event_queue.LockedPop();
     if (msg_ptr == nullptr) continue;
     std::type_index tidx = msg_ptr->GetTypeIndex();
@@ -115,7 +115,7 @@ auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
     std::vector<std::pair<EventStream::Callback, EventStream::Subscription> > cb_info;
     auto msg_type_cb_iter = event_queue.callbacks_.find(tidx);
     if (msg_type_cb_iter != event_queue.callbacks_.end()) { // There is a callback for this type.
-      for (auto& tidx_cb_key_value : msg_type_cb_iter->second) {
+      for (auto &tidx_cb_key_value : msg_type_cb_iter->second) {
         uint64_t uid = tidx_cb_key_value.first;
         EventStream::Callback cb = tidx_cb_key_value.second;
         cb_info.emplace_back(cb, EventStream::Subscription(event_queue, tidx, uid));

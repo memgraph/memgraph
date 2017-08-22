@@ -69,7 +69,7 @@ class Network {
   };
 
  public:
-  Network(System *system);
+  Network();
 
   // client functions
 
@@ -213,8 +213,6 @@ class Network {
   }
 
  private:
-  System *system_;
-
   // client variables
   SpinLock mutex_;
   std::vector<std::thread> pool_;
@@ -242,8 +240,7 @@ class SenderMessage : public Message {
   std::string ReactorName() const;
   std::string ChannelName() const;
 
-  std::shared_ptr<Channel> GetChannelToSender(System *system,
-                                              Distributed *distributed = nullptr) const;
+  std::shared_ptr<Channel> GetChannelToSender(Distributed *distributed = nullptr) const;
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -282,7 +279,7 @@ class ChannelResolvedMessage : public Message {
  */
 class Distributed {
  public:
-  Distributed(System &system) : system_(system), network_(&system) {}
+  Distributed() {}
 
   Distributed(const Distributed &) = delete;
   Distributed(Distributed &&) = delete;
@@ -321,19 +318,17 @@ class Distributed {
     return stream_channel.first;
   }
 
-  System &system() { return system_; }
   Network &network() { return network_; }
 
  protected:
-  System &system_;
   Network network_;
 };
 
 
 class DistributedReactor : public Reactor {
  public:
-  DistributedReactor(System *system, std::string name, Distributed &distributed)
-    : Reactor(system, name), distributed_(distributed) {}
+  DistributedReactor(std::string name, Distributed &distributed)
+    : Reactor(name), distributed_(distributed) {}
 
  protected:
   Distributed &distributed_;

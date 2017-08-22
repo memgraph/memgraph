@@ -13,13 +13,13 @@
 
 TEST(SystemTest, ReturnWithoutThrowing) {
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       CloseConnector("main");
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   ASSERT_NO_THROW(system.Spawn<Master>("master"));
   ASSERT_NO_THROW(system.AwaitShutdown());
 }
@@ -27,7 +27,7 @@ TEST(SystemTest, ReturnWithoutThrowing) {
 
 TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       Open("channel");
       ASSERT_THROW(Open("channel"), std::runtime_error);
@@ -36,7 +36,7 @@ TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.AwaitShutdown();
 }
@@ -44,10 +44,10 @@ TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
 
 TEST(ConnectorSetUpTest, CheckMainChannelIsSet) {
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseConnector("main");
@@ -55,17 +55,17 @@ TEST(ConnectorSetUpTest, CheckMainChannelIsSet) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("master", "main")))
+      while (!(channel = System::GetInstance().FindChannel("master", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseConnector("main");
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -79,10 +79,10 @@ TEST(SimpleSendTest, OneSimpleSend) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(123);
       CloseConnector("main"); // Write-end doesn't need to be closed because it's in RAII.
@@ -90,7 +90,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
       std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
@@ -101,7 +101,7 @@ TEST(SimpleSendTest, OneSimpleSend) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -114,10 +114,10 @@ TEST(SimpleSendTest, OneCallback) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(888);
       CloseConnector("main");
@@ -125,18 +125,18 @@ TEST(SimpleSendTest, OneCallback) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt& msg, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msg, const EventStream::Subscription&) {
           ASSERT_EQ(msg.x, 888);
           CloseConnector("main");
         });
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -150,10 +150,10 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(101);
       channel->Send<MessageInt>(102); // should be ignored
@@ -165,7 +165,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
       EventStream* stream = main_.first;
       std::unique_ptr<Message> m_uptr = stream->AwaitEvent();
@@ -176,7 +176,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -190,12 +190,12 @@ TEST(SimpleSendTest, DuringFirstEvent) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name, std::promise<int> p) : Reactor(system, name), p_(std::move(p)) {}
+    Master(std::string name, std::promise<int> p) : Reactor(name), p_(std::move(p)) {}
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const Message& msg, const EventStream::Subscription& subscription) {
-        const MessageInt& msgint = dynamic_cast<const MessageInt&>(msg);
+      stream->OnEvent<MessageInt>([this](const Message &msg, const EventStream::Subscription &subscription) {
+        const MessageInt &msgint = dynamic_cast<const MessageInt&>(msg);
         if (msgint.x == 101)
           FindChannel("main")->Send<MessageInt>(102);
         if (msgint.x == 102) {
@@ -211,7 +211,7 @@ TEST(SimpleSendTest, DuringFirstEvent) {
     std::promise<int> p_;
   };
 
-  System system;
+  System &system = System::GetInstance();
   std::promise<int> p;
   auto f = p.get_future();
   system.Spawn<Master>("master", std::move(p));
@@ -232,10 +232,10 @@ TEST(MultipleSendTest, UnsubscribeService) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(55);
       channel->Send<MessageInt>(66);
@@ -251,21 +251,21 @@ TEST(MultipleSendTest, UnsubscribeService) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
 
     int num_msgs_received = 0;
 
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt& msgint, const EventStream::Subscription& subscription) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const EventStream::Subscription &subscription) {
           ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
           ++num_msgs_received;
           if (msgint.x == 66) {
             subscription.unsubscribe(); // receive only two of them
           }
         });
-      stream->OnEvent<MessageChar>([this](const MessageChar& msgchar, const EventStream::Subscription& subscription) {
+      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const EventStream::Subscription &subscription) {
           char c = msgchar.x;
           ++num_msgs_received;
           ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
@@ -277,7 +277,7 @@ TEST(MultipleSendTest, UnsubscribeService) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -295,10 +295,10 @@ TEST(MultipleSendTest, OnEvent) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       channel->Send<MessageInt>(101);
@@ -310,7 +310,7 @@ TEST(MultipleSendTest, OnEvent) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
 
     struct EndMessage : Message {};
     int correct_vals = 0;
@@ -319,13 +319,13 @@ TEST(MultipleSendTest, OnEvent) {
       EventStream* stream = main_.first;
       correct_vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt& msgint, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const EventStream::Subscription&) {
           ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
           ++correct_vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent<MessageChar>([this](const MessageChar& msgchar, const EventStream::Subscription&) {
+      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const EventStream::Subscription&) {
           ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
           ++correct_vals;
           main_.second->Send<EndMessage>();
@@ -340,7 +340,7 @@ TEST(MultipleSendTest, OnEvent) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -353,10 +353,10 @@ TEST(MultipleSendTest, Chaining) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageInt>(55);
       channel->Send<MessageInt>(66);
@@ -366,26 +366,26 @@ TEST(MultipleSendTest, Chaining) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
 
     virtual void Run() {
       EventStream* stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
             ASSERT_EQ(msg.x, 55);
           })
-        .ChainOnce<MessageInt>([](const MessageInt& msg) {
+        .ChainOnce<MessageInt>([](const MessageInt &msg) {
             ASSERT_EQ(msg.x, 66);
           })
-        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
             ASSERT_EQ(msg.x, 77);
             CloseConnector("main");
           });
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -404,10 +404,10 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel->Send<MessageChar>('a');
       channel->Send<MessageInt>(55);
@@ -418,26 +418,26 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
 
     virtual void Run() {
       EventStream* stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
             ASSERT_EQ(msg.x, 55);
           })
-        .ChainOnce<MessageChar>([](const MessageChar& msg) {
+        .ChainOnce<MessageChar>([](const MessageChar &msg) {
             ASSERT_EQ(msg.x, 'b');
           })
-        .ChainOnce<MessageInt>([this](const MessageInt& msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
             ASSERT_EQ(msg.x, 77);
             CloseConnector("main");
           });
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
@@ -453,10 +453,10 @@ TEST(MultipleSendTest, ProcessManyMessages) {
   };
 
   struct Master : public Reactor {
-    Master(System *system, std::string name) : Reactor(system, name) {}
+    Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<Channel> channel;
-      while (!(channel = system_->FindChannel("worker", "main")))
+      while (!(channel = System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
@@ -469,7 +469,7 @@ TEST(MultipleSendTest, ProcessManyMessages) {
   };
 
   struct Worker : public Reactor {
-    Worker(System *system, std::string name) : Reactor(system, name) {}
+    Worker(std::string name) : Reactor(name) {}
 
     struct EndMessage : Message {};
     int vals = 0;
@@ -492,7 +492,7 @@ TEST(MultipleSendTest, ProcessManyMessages) {
     }
   };
 
-  System system;
+  System &system = System::GetInstance();
   system.Spawn<Master>("master");
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();

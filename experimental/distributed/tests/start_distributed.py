@@ -6,7 +6,7 @@ import os
 command = 'gnome-terminal'
 program = './distributed_test'
 config_filename = 'config'
-flags = ' --minloglevel 2'
+flags = '--minloglevel=2'
 
 f = open(config_filename, 'r')
 for line in f:
@@ -14,8 +14,9 @@ for line in f:
   my_mnid = data[0]
   address = data[1]
   port = data[2]
-  call = program + flags + ' --my_mnid ' + my_mnid + ' --address ' + address +\
-         ' --port ' + port + ' --config_filename ' + config_filename
-  command += " --tab -e '" + call + "'"
+  call = "{} {} --my_mnid {} --address {} --port {} --config_filename={}".format(
+    program, flags, my_mnid, address, port, config_filename)
+  command += " --tab -e '{}'".format(call)
 
+print(command)
 os.system(command)

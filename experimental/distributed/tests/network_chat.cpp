@@ -38,8 +38,8 @@ CEREAL_REGISTER_TYPE(ChatACK);
 
 class ChatServer : public DistributedReactor {
  public:
-  ChatServer(System *system, std::string name, Distributed &distributed)
-    : DistributedReactor(system, name, distributed) {}
+  ChatServer(std::string name, Distributed &distributed)
+    : DistributedReactor(name, distributed) {}
 
   virtual void Run() {
     std::cout << "ChatServer is active" << std::endl;
@@ -56,7 +56,7 @@ class ChatServer : public DistributedReactor {
         std::cout << "Received message from " << msg.Address() << ":"
                   << msg.Port() << " -> '" << msg.Message() << "'"
                   << std::endl;
-        auto channel = msg.GetChannelToSender(system_);
+        auto channel = msg.GetChannelToSender();
         if (channel != nullptr) {
           channel->Send<ChatACK>("server", "chat", msg.Message());
         }
@@ -66,8 +66,8 @@ class ChatServer : public DistributedReactor {
 
 class ChatClient : public DistributedReactor {
  public:
-  ChatClient(System *system, std::string name, Distributed &distributed)
-    : DistributedReactor(system, name, distributed) {}
+  ChatClient(std::string name, Distributed &distributed)
+    : DistributedReactor(name, distributed) {}
 
   virtual void Run() {
     std::cout << "ChatClient is active" << std::endl;
@@ -91,8 +91,8 @@ class ChatClient : public DistributedReactor {
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  System system;
-  Distributed distributed(system);
+  System& system = System::GetInstance();
+  Distributed distributed;
   distributed.StartServices();
   system.Spawn<ChatServer>("server", distributed);
   system.Spawn<ChatClient>("client", distributed);

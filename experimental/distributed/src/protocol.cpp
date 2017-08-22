@@ -7,14 +7,14 @@
 
 namespace Protocol {
 
-Session::Session(Socket &&socket, Data &data)
-    : socket_(std::move(socket)), system_(data.system) {
+Session::Session(Socket &&socket, Data &)
+    : socket_(std::move(socket)) {
   event_.data.ptr = this;
 }
 
 bool Session::Alive() const { return alive_; }
 
-std::string Session::GetString(SizeT len) {
+std::string Session::GetStringAndShift(SizeT len) {
   std::string ret(reinterpret_cast<char *>(buffer_.data()), len);
   buffer_.Shift(len);
   return ret;
@@ -22,30 +22,34 @@ std::string Session::GetString(SizeT len) {
 
 void Session::Execute() {
   if (!handshake_done_) {
-    SizeT len_reactor = GetLength();
-    SizeT len_channel = GetLength(2);
+    // Note: this function can be multiple times before the buffer has the full packet.
+    //   We currently have to check for this case and return without shifting the buffer.
+    //   In other words, only shift anything from the buffer if you can read the entire (sub)message.
 
-    if (len_reactor == 0 || len_channel == 0) return;
-    if (buffer_.size() < len_reactor + len_channel) return;
+    if (buffer_.size() < 2 * sizeof(SizeT)) return;
+    SizeT len_reactor = GetLength();
+    SizeT len_channel = GetLength(sizeof(SizeT));
+
+    if (buffer_.size() < 2 * sizeof(SizeT) + len_reactor + len_channel) return;
 
     // remove the length bytes from the buffer
     buffer_.Shift(2 * sizeof(SizeT));
 
-    reactor_ = GetString(len_reactor);
-    channel_ = GetString(len_channel);
+    reactor_ = GetStringAndShift(len_reactor);
+    channel_ = GetStringAndShift(len_channel);
 
-    std::cout << "Reactor: " << reactor_ << "; Channel: " << channel_
-              << std::endl;
+    DLOG(INFO) << "Reactor: " << reactor_ << "; Channel: " << channel_
+               << std::endl;
 
-    auto channel = system_->FindChannel(reactor_, channel_);
+    auto channel = System::GetInstance().FindChannel(reactor_, channel_);
     SendSuccess(channel != nullptr);
 
     handshake_done_ = true;
   }
 
+  if (buffer_.size() < sizeof(SizeT)) return;
   SizeT len_data = GetLength();
-  if (len_data == 0) return;
-  if (buffer_.size() < len_data) return;
+  if (buffer_.size() < sizeof(SizeT) + len_data) return;
 
   // remove the length bytes from the buffer
   buffer_.Shift(sizeof(SizeT));
@@ -58,14 +62,13 @@ void Session::Execute() {
   iarchive(message);
   buffer_.Shift(len_data);
 
-  auto channel = system_->FindChannel(reactor_, channel_);
+  auto channel = System::GetInstance().FindChannel(reactor_, channel_);
   if (channel == nullptr) {
     SendSuccess(false);
     return;
   }
 
   channel->Send(std::move(message));
-
   SendSuccess(true);
 }
 
@@ -79,7 +82,6 @@ void Session::Close() {
 }
 
 SizeT Session::GetLength(int offset) {
-  if (buffer_.size() - offset < sizeof(SizeT)) return 0;
   SizeT ret = *reinterpret_cast<SizeT *>(buffer_.data() + offset);
   return ret;
 }

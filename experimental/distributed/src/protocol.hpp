@@ -7,7 +7,6 @@
 #include "io/network/stream_buffer.hpp"
 
 class Message;
-class System;
 
 /**
  * @brief Protocol
@@ -53,11 +52,10 @@ using SizeT = uint16_t;
 /**
  * Distributed Protocol Data
  *
- * This class is responsible for holding a pointer to System.
+ * This typically holds living data shared by all sessions. Currently empty.
  */
 struct Data {
-  Data(System *_system) : system(_system) {}
-  System *system;
+  // empty
 };
 
 /**
@@ -110,7 +108,7 @@ class Session {
 
  private:
   SizeT GetLength(int offset = 0);
-  std::string GetString(SizeT len);
+  std::string GetStringAndShift(SizeT len);
   bool SendSuccess(bool success);
 
   bool alive_{true};
@@ -119,8 +117,6 @@ class Session {
   std::string channel_{""};
 
   Buffer buffer_;
-
-  System *system_;
 };
 
 /**

@@ -80,6 +80,10 @@ class EventStream {
   virtual std::unique_ptr<Message> PopEvent() = 0;
 
   /**
+   * Get the name of the connector.
+   */
+  virtual const std::string &ConnectorName() = 0;
+  /**
    * Subscription Service.
    *
    * Unsubscribe from a callback. Lightweight object (can copy by value).
@@ -95,10 +99,10 @@ class EventStream {
     friend class Reactor;
     friend class Connector;
 
-    Subscription(Connector& event_queue, std::type_index tidx, uint64_t cb_uid)
+    Subscription(Connector &event_queue, std::type_index tidx, uint64_t cb_uid)
       : event_queue_(event_queue), tidx_(tidx), cb_uid_(cb_uid) { }
 
-    Connector& event_queue_;
+    Connector &event_queue_;
     std::type_index tidx_;
     uint64_t cb_uid_;
   };
@@ -107,10 +111,10 @@ class EventStream {
    * Register a callback that will be called whenever an event arrives.
    */
   template<typename MsgType>
-  void OnEvent(std::function<void(const MsgType&, const Subscription&)>&& cb) {
-    OnEventHelper(typeid(MsgType), [cb = move(cb)](const Message& general_msg,
-                                                   const Subscription& subscription) {
-        const MsgType& correct_msg = dynamic_cast<const MsgType&>(general_msg);
+  void OnEvent(std::function<void(const MsgType&, const Subscription&)> &&cb) {
+    OnEventHelper(typeid(MsgType), [cb = move(cb)](const Message &general_msg,
+                                                   const Subscription &subscription) {
+        const MsgType &correct_msg = dynamic_cast<const MsgType&>(general_msg);
         cb(correct_msg, subscription);
       });
   }
@@ -149,16 +153,16 @@ class EventStream {
    */
   class OnEventOnceChainer {
    public:
-    OnEventOnceChainer(EventStream& event_stream) : event_stream_(event_stream) {}
+    OnEventOnceChainer(EventStream &event_stream) : event_stream_(event_stream) {}
     ~OnEventOnceChainer() {
       InstallCallbacks();
     }
 
     template<typename MsgType>
-    OnEventOnceChainer& ChainOnce(std::function<void(const MsgType&)>&& cb) {
+    OnEventOnceChainer &ChainOnce(std::function<void(const MsgType&)> &&cb) {
       std::function<void(const Message&, const Subscription&)> wrap =
-        [cb = std::move(cb)](const Message& general_msg, const Subscription& subscription) {
-          const MsgType& correct_msg = dynamic_cast<const MsgType&>(general_msg);
+        [cb = std::move(cb)](const Message &general_msg, const Subscription &subscription) {
+          const MsgType &correct_msg = dynamic_cast<const MsgType&>(general_msg);
           subscription.unsubscribe();
           cb(correct_msg); // Warning: this can close the Channel, be careful what you put after it!
       };
@@ -178,7 +182,7 @@ class EventStream {
         tmp_cb = [cb = std::move(cbs_[i].second),
                   next_type,
                   next_cb = std::move(next_cb),
-                  es_ptr = &this->event_stream_](const Message& msg, const Subscription& subscription) {
+                  es_ptr = &this->event_stream_](const Message &msg, const Subscription &subscription) {
           cb(msg, subscription);
           if (next_cb != nullptr) {
             es_ptr->OnEventHelper(next_type, std::move(next_cb));
@@ -191,7 +195,7 @@ class EventStream {
       event_stream_.OnEventHelper(next_type, std::move(next_cb));
     }
 
-    EventStream& event_stream_;
+    EventStream &event_stream_;
     std::vector<std::pair<std::type_index, std::function<void(const Message&, const Subscription&)>>> cbs_;
   };
   typedef std::function<void(const Message&, const Subscription&)> Callback;
@@ -286,6 +290,9 @@ class Connector {
       std::unique_lock<std::mutex> lock(*mutex_);
       queue_->LockedOnEventHelper(tidx, callback);
     }
+    const std::string &ConnectorName() {
+      return queue_->connector_name_;
+    }
     void Close();
 
    private:
@@ -350,7 +357,7 @@ private:
     return t;
   }
 
-  void RemoveCb(const EventStream::Subscription& subscription) {
+  void RemoveCb(const EventStream::Subscription &subscription) {
     std::unique_lock<std::mutex> lock(*mutex_);
     size_t num_erased = callbacks_[subscription.tidx_].erase(subscription.cb_uid_);
     assert(num_erased == 1);
@@ -382,8 +389,8 @@ class Reactor {
  public:
   friend class System;
 
-  Reactor(System *system, std::string name)
-      : system_(system), name_(name), main_(Open("main")) {}
+  Reactor(std::string name)
+      : name_(name), main_(Open("main")) {}
 
   virtual ~Reactor() {}
 
@@ -407,13 +414,17 @@ class Reactor {
    */
   void CloseAllConnectors();
 
+  /**
+   * Get Reactor name
+   */
+  const std::string &name() { return name_; }
+
   Reactor(const Reactor &other) = delete;
   Reactor(Reactor &&other) = default;
   Reactor &operator=(const Reactor &other) = delete;
   Reactor &operator=(Reactor &&other) = default;
 
  protected:
-  System *system_;
   std::string name_;
   /*
    * Locks all Reactor data, including all Connector's in connectors_.
@@ -450,27 +461,32 @@ class Reactor {
 
 
 /**
- * Global placeholder for all reactors in the system. Alive through the entire process lifetime.
+ * Global placeholder for all reactors in the system.
  *
  * E.g. holds set of reactors, channels for all reactors.
+ * Alive through the entire process lifetime.
+ * Singleton class. Created automatically.
  */
 class System {
  public:
   friend class Reactor;
 
-  System() {}
-
-  System(const System &) = delete;
-  System(System &&) = delete;
-  System &operator=(const System &) = delete;
-  System &operator=(System &&) = delete;
+  /**
+   * Get the (singleton) instance of System.
+   *
+   * More info: https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
+   */
+  static System &GetInstance() {
+    static System system; // guaranteed to be destroyed, initialized on first use
+    return system;
+  }
 
   template <class ReactorType, class... Args>
   const std::shared_ptr<Channel> Spawn(const std::string &name,
                                        Args &&... args) {
     std::unique_lock<std::recursive_mutex> lock(mutex_);
     auto *raw_reactor =
-        new ReactorType(this, name, std::forward<Args>(args)...);
+        new ReactorType(name, std::forward<Args>(args)...);
     std::unique_ptr<Reactor> reactor(raw_reactor);
     // Capturing a pointer isn't ideal, I would prefer to capture a Reactor&, but not sure how to do it.
     std::thread reactor_thread(
@@ -494,10 +510,17 @@ class System {
       auto &thread = key_value.second.second;
       thread.join();
     }
+    reactors_.clear(); // for testing, since System is a singleton now
   }
 
  private:
-  void StartReactor(Reactor& reactor) {
+  System() {}
+  System(const System &) = delete;
+  System(System &&) = delete;
+  System &operator=(const System &) = delete;
+  System &operator=(System &&) = delete;
+
+  void StartReactor(Reactor &reactor) {
     current_reactor_ = &reactor;
     reactor.Run();
     reactor.RunEventLoop();  // Activate callbacks.

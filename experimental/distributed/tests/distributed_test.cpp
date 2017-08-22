@@ -1,7 +1,9 @@
+#include "reactors_distributed.hpp"
+
 #include <iostream>
 #include <fstream>
 
-#include "reactors_distributed.hpp"
+#include <glog/logging.h>
 
 DEFINE_int64(my_mnid, 0, "Memgraph node id"); // TODO(zuza): this should be assigned by the leader once in the future
 DEFINE_string(config_filename, "", "File containing list of all processes");
@@ -11,10 +13,10 @@ class MemgraphDistributed : public Distributed {
   using Location = std::pair<std::string, uint16_t>;
 
  public:
-  MemgraphDistributed(System &system) : Distributed(system) {}
+  MemgraphDistributed(System &system) : Distributed() {}
 
   /** Register memgraph node id to the given location. */
-  void RegisterMemgraphNode(int64_t mnid, const std::string& address, uint16_t port) {
+  void RegisterMemgraphNode(int64_t mnid, const std::string &address, uint16_t port) {
     std::unique_lock<std::recursive_mutex> lock(mutex_);
     mnodes_[mnid] = Location(address, port);
   }
@@ -23,7 +25,7 @@ class MemgraphDistributed : public Distributed {
                            const std::string &reactor,
                            const std::string &channel) {
     std::unique_lock<std::recursive_mutex> lock(mutex_);
-    const auto& location = mnodes_.at(mnid);
+    const auto &location = mnodes_.at(mnid);
     return Distributed::FindChannel(location.first, location.second, reactor, channel);
   }
 
@@ -47,45 +49,70 @@ class MemgraphDistributed : public Distributed {
  * @return Pair (master mnid, list of worker's id).
  */
 std::pair<int64_t, std::vector<int64_t>>
-ParseConfigAndRegister(const std::string& filename,
-                       MemgraphDistributed& distributed) {
+  ParseConfigAndRegister(const std::string &filename,
+                         MemgraphDistributed &distributed) {
   std::ifstream file(filename, std::ifstream::in);
   assert(file.good());
   int64_t master_mnid;
   std::vector<int64_t> worker_mnids;
   int64_t mnid;
-	std::string address;
-	uint16_t port;
-	file >> master_mnid >> address >> port;
-	distributed.RegisterMemgraphNode(master_mnid, address, port);
+  std::string address;
+  uint16_t port;
+  file >> master_mnid >> address >> port;
+  distributed.RegisterMemgraphNode(master_mnid, address, port);
   while (file.good()) {
-		file >> mnid >> address >> port;
+    file >> mnid >> address >> port;
     if (file.eof())
       break ;
     distributed.RegisterMemgraphNode(mnid, address, port);
     worker_mnids.push_back(mnid);
-	}
-	file.close();
-	return std::make_pair(master_mnid, worker_mnids);
+  }
+  file.close();
+  return std::make_pair(master_mnid, worker_mnids);
 }
 
-
+/**
+ * Interface to the Memgraph distributed system.
+ *
+ * E.g. get channel to other Memgraph nodes.
+ */
 class MemgraphReactor : public Reactor {
  public:
-  MemgraphReactor(System* system, std::string name,
-                     MemgraphDistributed &distributed)
-    : Reactor(system, name), distributed_(distributed) {}
+  MemgraphReactor(std::string name,
+                  MemgraphDistributed &distributed)
+    : Reactor(name), distributed_(distributed) {}
 
  protected:
   MemgraphDistributed &distributed_;
 };
 
+/**
+ * Sends a text message and has a return address.
+ */
+class TextMessage : public SenderMessage {
+public:
+  TextMessage(std::string reactor, std::string channel, std::string s)
+    : SenderMessage(reactor, channel), text(s) {}
+
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(cereal::virtual_base_class<SenderMessage>(this), text);
+  }
+
+  std::string text;
+
+protected:
+  friend class cereal::access;
+  TextMessage() {} // Cereal needs access to a default constructor.
+};
+CEREAL_REGISTER_TYPE(TextMessage);
+
 
 class Master : public MemgraphReactor {
  public:
-  Master(System* system, std::string name, MemgraphDistributed &distributed,
-         int64_t mnid, std::vector<int64_t>&& worker_mnids)
-    : MemgraphReactor(system, name, distributed), mnid_(mnid),
+  Master(std::string name, MemgraphDistributed &distributed,
+         int64_t mnid, std::vector<int64_t> &&worker_mnids)
+    : MemgraphReactor(name, distributed), mnid_(mnid),
       worker_mnids_(std::move(worker_mnids)) {}
 
   virtual void Run() {
@@ -93,9 +120,11 @@ class Master : public MemgraphReactor {
               << ":" << distributed_.network().Port() << std::endl;
 
     auto stream = main_.first;
-    stream->OnEvent<SenderMessage>([this](const SenderMessage &msg,
-                                          const EventStream::Subscription& subscription) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << "\n";
+
+    // wait until every worker sends a SenderMessage back, then close
+    stream->OnEvent<TextMessage>([this](const TextMessage &msg,
+                                          const EventStream::Subscription &subscription) {
+      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
       ++workers_seen;
       if (workers_seen == worker_mnids_.size()) {
         subscription.unsubscribe();
@@ -107,11 +136,12 @@ class Master : public MemgraphReactor {
       }
     });
 
+    // send a TextMessage to each worker
     for (auto wmnid : worker_mnids_) {
       auto stream = distributed_.FindChannel(wmnid, "worker", "main");
       stream->OnEventOnce()
         .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg){
-          msg.channel()->Send<SenderMessage>("master", "main");
+          msg.channel()->Send<TextMessage>("master", "main", "hi from master");
           stream->Close();
         });
     }
@@ -125,9 +155,9 @@ class Master : public MemgraphReactor {
 
 class Worker : public MemgraphReactor {
  public:
-  Worker(System* system, std::string name, MemgraphDistributed &distributed,
+  Worker(std::string name, MemgraphDistributed &distributed,
          int64_t mnid, int64_t master_mnid)
-      : MemgraphReactor(system, name, distributed), mnid_(mnid),
+      : MemgraphReactor(name, distributed), mnid_(mnid),
         master_mnid_(master_mnid) {}
 
   virtual void Run() {
@@ -135,20 +165,18 @@ class Worker : public MemgraphReactor {
               << ":" << distributed_.network().Port() << std::endl;
 
     auto stream = main_.first;
+    // wait until master sends us a TextMessage, then reply back and close
     stream->OnEventOnce()
-      .ChainOnce<SenderMessage>([this](const SenderMessage &msg) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << "\n";
+      .ChainOnce<TextMessage>([this](const TextMessage &msg) {
+      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
+
+      msg.GetChannelToSender(&distributed_)
+        ->Send<TextMessage>("worker", "main", "hi from worker");
+
       // Sleep for a while so we can read output in the terminal.
       std::this_thread::sleep_for(std::chrono::seconds(4));
       CloseConnector("main");
     });
-
-    auto remote_stream = distributed_.FindChannel(master_mnid_, "master", "main");
-    remote_stream->OnEventOnce()
-      .ChainOnce<ChannelResolvedMessage>([this, remote_stream](const ChannelResolvedMessage &msg){
-        msg.channel()->Send<SenderMessage>("worker", "main");
-        remote_stream->Close();
-      });
   }
 
  protected:
@@ -158,9 +186,10 @@ class Worker : public MemgraphReactor {
 
 
 int main(int argc, char *argv[]) {
+  google::InitGoogleLogging(argv[0]);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  System system;
+  System &system = System::GetInstance();
   MemgraphDistributed distributed(system);
   auto mnids = ParseConfigAndRegister(FLAGS_config_filename, distributed);
   distributed.StartServices();

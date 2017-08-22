@@ -3,7 +3,7 @@
 DEFINE_string(address, "127.0.0.1", "Network server bind address");
 DEFINE_int32(port, 10000, "Network server bind port");
 
-Network::Network(System *system) : system_(system), protocol_data_(system_) {}
+Network::Network() {}
 
 /**
  * SenderMessage implementation.
@@ -22,9 +22,9 @@ std::string SenderMessage::ReactorName() const { return reactor_; }
 std::string SenderMessage::ChannelName() const { return channel_; }
 
 std::shared_ptr<Channel> SenderMessage::GetChannelToSender(
-    System *system, Distributed *distributed) const {
+    Distributed *distributed) const {
   if (address_ == FLAGS_address && port_ == FLAGS_port) {
-    return system->FindChannel(reactor_, channel_);
+    return System::GetInstance().FindChannel(reactor_, channel_);
   }
   if (distributed)
     return distributed->network().Resolve(address_, port_, reactor_, channel_);
