@@ -465,7 +465,7 @@ class Reactor {
  *
  * E.g. holds set of reactors, channels for all reactors.
  * Alive through the entire process lifetime.
- * Singleton class. Created automatically.
+ * Singleton class. Created automatically on first use.
  */
 class System {
  public:

@@ -21,12 +21,12 @@ uint16_t SenderMessage::Port() const { return port_; }
 std::string SenderMessage::ReactorName() const { return reactor_; }
 std::string SenderMessage::ChannelName() const { return channel_; }
 
-std::shared_ptr<Channel> SenderMessage::GetChannelToSender(
-    Distributed *distributed) const {
+std::shared_ptr<Channel> SenderMessage::GetChannelToSender() const {
   if (address_ == FLAGS_address && port_ == FLAGS_port) {
     return System::GetInstance().FindChannel(reactor_, channel_);
+  } else {
+    // TODO(zuza): we should probably assert here if services have been already started.
+    return Distributed::GetInstance().network().Resolve(address_, port_, reactor_, channel_);
   }
-  if (distributed)
-    return distributed->network().Resolve(address_, port_, reactor_, channel_);
   assert(false);
 }

@@ -13,7 +13,15 @@ class MemgraphDistributed : public Distributed {
   using Location = std::pair<std::string, uint16_t>;
 
  public:
-  MemgraphDistributed(System &system) : Distributed() {}
+  /**
+   * Get the (singleton) instance of MemgraphDistributed.
+   *
+   * More info: https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
+   */
+  static MemgraphDistributed &GetInstance() {
+    static MemgraphDistributed distributed; // guaranteed to be destroyed, initialized on first use
+    return distributed;
+  }
 
   /** Register memgraph node id to the given location. */
   void RegisterMemgraphNode(int64_t mnid, const std::string &address, uint16_t port) {
@@ -29,9 +37,17 @@ class MemgraphDistributed : public Distributed {
     return Distributed::FindChannel(location.first, location.second, reactor, channel);
   }
 
+ protected:
+  MemgraphDistributed() {}
+
  private:
   std::recursive_mutex mutex_;
   std::unordered_map<int64_t, Location> mnodes_;
+
+  MemgraphDistributed(const MemgraphDistributed &) = delete;
+  MemgraphDistributed(MemgraphDistributed &&) = delete;
+  MemgraphDistributed &operator=(const MemgraphDistributed &) = delete;
+  MemgraphDistributed &operator=(MemgraphDistributed &&) = delete;
 };
 
 /**
@@ -49,8 +65,7 @@ class MemgraphDistributed : public Distributed {
  * @return Pair (master mnid, list of worker's id).
  */
 std::pair<int64_t, std::vector<int64_t>>
-  ParseConfigAndRegister(const std::string &filename,
-                         MemgraphDistributed &distributed) {
+  ParseConfigAndRegister(const std::string &filename) {
   std::ifstream file(filename, std::ifstream::in);
   assert(file.good());
   int64_t master_mnid;
@@ -59,6 +74,7 @@ std::pair<int64_t, std::vector<int64_t>>
   std::string address;
   uint16_t port;
   file >> master_mnid >> address >> port;
+  MemgraphDistributed &distributed = MemgraphDistributed::GetInstance();
   distributed.RegisterMemgraphNode(master_mnid, address, port);
   while (file.good()) {
     file >> mnid >> address >> port;
@@ -70,21 +86,6 @@ std::pair<int64_t, std::vector<int64_t>>
   file.close();
   return std::make_pair(master_mnid, worker_mnids);
 }
-
-/**
- * Interface to the Memgraph distributed system.
- *
- * E.g. get channel to other Memgraph nodes.
- */
-class MemgraphReactor : public Reactor {
- public:
-  MemgraphReactor(std::string name,
-                  MemgraphDistributed &distributed)
-    : Reactor(name), distributed_(distributed) {}
-
- protected:
-  MemgraphDistributed &distributed_;
-};
 
 /**
  * Sends a text message and has a return address.
@@ -108,16 +109,16 @@ protected:
 CEREAL_REGISTER_TYPE(TextMessage);
 
 
-class Master : public MemgraphReactor {
+class Master : public Reactor {
  public:
-  Master(std::string name, MemgraphDistributed &distributed,
-         int64_t mnid, std::vector<int64_t> &&worker_mnids)
-    : MemgraphReactor(name, distributed), mnid_(mnid),
+  Master(std::string name, int64_t mnid, std::vector<int64_t> &&worker_mnids)
+    : Reactor(name), mnid_(mnid),
       worker_mnids_(std::move(worker_mnids)) {}
 
   virtual void Run() {
-    std::cout << "Master (" << mnid_ << ") @ " << distributed_.network().Address()
-              << ":" << distributed_.network().Port() << std::endl;
+    MemgraphDistributed &distributed = MemgraphDistributed::GetInstance();
+    std::cout << "Master (" << mnid_ << ") @ " << distributed.network().Address()
+              << ":" << distributed.network().Port() << std::endl;
 
     auto stream = main_.first;
 
@@ -138,7 +139,7 @@ class Master : public MemgraphReactor {
 
     // send a TextMessage to each worker
     for (auto wmnid : worker_mnids_) {
-      auto stream = distributed_.FindChannel(wmnid, "worker", "main");
+      auto stream = distributed.FindChannel(wmnid, "worker", "main");
       stream->OnEventOnce()
         .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg){
           msg.channel()->Send<TextMessage>("master", "main", "hi from master");
@@ -153,16 +154,16 @@ class Master : public MemgraphReactor {
   std::vector<int64_t> worker_mnids_;
 };
 
-class Worker : public MemgraphReactor {
+class Worker : public Reactor {
  public:
-  Worker(std::string name, MemgraphDistributed &distributed,
-         int64_t mnid, int64_t master_mnid)
-      : MemgraphReactor(name, distributed), mnid_(mnid),
+  Worker(std::string name, int64_t mnid, int64_t master_mnid)
+      : Reactor(name), mnid_(mnid),
         master_mnid_(master_mnid) {}
 
   virtual void Run() {
-    std::cout << "Worker (" << mnid_ << ") @ " << distributed_.network().Address()
-              << ":" << distributed_.network().Port() << std::endl;
+    MemgraphDistributed &distributed = MemgraphDistributed::GetInstance();
+    std::cout << "Worker (" << mnid_ << ") @ " << distributed.network().Address()
+              << ":" << distributed.network().Port() << std::endl;
 
     auto stream = main_.first;
     // wait until master sends us a TextMessage, then reply back and close
@@ -170,7 +171,7 @@ class Worker : public MemgraphReactor {
       .ChainOnce<TextMessage>([this](const TextMessage &msg) {
       std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
 
-      msg.GetChannelToSender(&distributed_)
+      msg.GetChannelToSender()
         ->Send<TextMessage>("worker", "main", "hi from worker");
 
       // Sleep for a while so we can read output in the terminal.
@@ -190,13 +191,13 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   System &system = System::GetInstance();
-  MemgraphDistributed distributed(system);
-  auto mnids = ParseConfigAndRegister(FLAGS_config_filename, distributed);
+  MemgraphDistributed& distributed = MemgraphDistributed::GetInstance();
+  auto mnids = ParseConfigAndRegister(FLAGS_config_filename);
   distributed.StartServices();
   if (FLAGS_my_mnid == mnids.first)
-    system.Spawn<Master>("master", distributed, FLAGS_my_mnid, std::move(mnids.second));
+    system.Spawn<Master>("master", FLAGS_my_mnid, std::move(mnids.second));
   else
-    system.Spawn<Worker>("worker", distributed, FLAGS_my_mnid, mnids.first);
+    system.Spawn<Worker>("worker", FLAGS_my_mnid, mnids.first);
   system.AwaitShutdown();
   distributed.StopServices();
 

@@ -225,8 +225,6 @@ class Network {
   std::unique_ptr<NetworkServer> server_{nullptr};
 };
 
-class Distributed;
-
 /**
  * Message that includes the sender channel used to respond.
  */
@@ -240,7 +238,7 @@ class SenderMessage : public Message {
   std::string ReactorName() const;
   std::string ChannelName() const;
 
-  std::shared_ptr<Channel> GetChannelToSender(Distributed *distributed = nullptr) const;
+  std::shared_ptr<Channel> GetChannelToSender() const;
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -274,17 +272,23 @@ class ChannelResolvedMessage : public Message {
 };
 
 /**
- * Placeholder for all functionality related to non-local communication
+ * Placeholder for all functionality related to non-local communication.
+ *
  * E.g. resolve remote channels by memgraph node id, etc.
+ * Alive through the entire process lifetime.
+ * Singleton class. Created automatically on first use.
  */
 class Distributed {
  public:
-  Distributed() {}
-
-  Distributed(const Distributed &) = delete;
-  Distributed(Distributed &&) = delete;
-  Distributed &operator=(const Distributed &) = delete;
-  Distributed &operator=(Distributed &&) = delete;
+  /**
+   * Get the (singleton) instance of Distributed.
+   *
+   * More info: https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
+   */
+  static Distributed &GetInstance() {
+    static Distributed distributed; // guaranteed to be destroyed, initialized on first use
+    return distributed;
+  }
 
   void StartServices() {
     network_.StartClient(4);
@@ -321,15 +325,13 @@ class Distributed {
   Network &network() { return network_; }
 
  protected:
+  Distributed() {}
+
   Network network_;
-};
 
-
-class DistributedReactor : public Reactor {
- public:
-  DistributedReactor(std::string name, Distributed &distributed)
-    : Reactor(name), distributed_(distributed) {}
-
- protected:
-  Distributed &distributed_;
+ private:
+  Distributed(const Distributed &) = delete;
+  Distributed(Distributed &&) = delete;
+  Distributed &operator=(const Distributed &) = delete;
+  Distributed &operator=(Distributed &&) = delete;
 };
