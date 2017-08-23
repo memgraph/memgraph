@@ -101,7 +101,7 @@ if [[ "${skip_compile}" == true ]]; then
 else
     ${working_dir}/build_interpreter --build-type Release --version ${version}
 fi
- 
+
 ## build package (docker image)
 cd ${working_dir}
 package_name=`ls -t -d memgraph_*/ | head -1 | sed 's/.$//'`
