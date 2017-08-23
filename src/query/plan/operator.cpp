@@ -1202,6 +1202,12 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
       break;
+    case TypedValue::Type::Map:
+      // Semantically modifying a map makes sense, but it's not supported due to
+      // all the copying we do (when PropertyValue -> TypedValue and in
+      // ExpressionEvaluator). So even though we set a map property here, that
+      // is never visible to the user and it's not stored.
+      // TODO: fix above described bug
     default:
       throw QueryRuntimeException(
           "Properties can only be set on Vertices and Edges");

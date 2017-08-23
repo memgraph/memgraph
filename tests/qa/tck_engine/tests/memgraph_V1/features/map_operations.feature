@@ -10,12 +10,19 @@ Feature: Map operators
             | {a: 1, b: 'bla', c: [1, 2], d: {a: 42}} |
 
 
-  Scenario: Storing a map property fails
+  Scenario: Storing a map property
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({prop: {x: 1, y: true, z: "bla"}})
+            """
         When executing query:
             """
-            CREATE (n {property: {a: 1, b: 2}})
+            MATCH (n) RETURN n.prop
             """
-	Then an error should be raised
+        Then the result should be:
+            | n.prop                    |
+            | {x: 1, y: true, z: 'bla'} |
 
 
   Scenario: A property lookup on a map literal

@@ -446,6 +446,19 @@ class LabelPropertyIndex {
             return lexicographical_compare(va.begin(), va.end(), vb.begin(),
                                            vb.end(), Less);
           }
+          case PropertyValue::Type::Map: {
+            auto ma = a.Value<std::map<std::string, PropertyValue>>();
+            auto mb = b.Value<std::map<std::string, PropertyValue>>();
+            if (ma.size() != mb.size()) return ma.size() < mb.size();
+            const auto cmp = [](const auto &a, const auto &b) {
+              if (a.first != b.first)
+                return a.first < b.first;
+              else
+                return Less(a.second, b.second);
+            };
+            return lexicographical_compare(ma.begin(), ma.end(), mb.begin(),
+                                           mb.end(), cmp);
+          }
           default:
             permanent_fail("Unimplemented type operator.");
         }
@@ -482,12 +495,13 @@ class LabelPropertyIndex {
   };
 
   /**
-   * @brief - Insert value, vlist, vertex into corresponding index (key) if the
-   * index exists.
+   * @brief - Insert value, vlist, vertex into corresponding index (key) if
+   * the index exists.
    * @param index - into which index to add
    * @param value - value which to add
    * @param vlist - pointer to vlist entry to add
-   * @param vertex - pointer to vertex record entry to add (contained in vlist)
+   * @param vertex - pointer to vertex record entry to add (contained in
+   * vlist)
    */
   void Insert(SkipList<IndexEntry> &index, const PropertyValue &value,
               mvcc::VersionList<Vertex> *const vlist,

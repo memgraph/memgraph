@@ -4,8 +4,9 @@
 
 ### Major Features and Improvements
 
-* CASE construct (without aggregations)
-* rand() function added
+* CASE construct (without aggregations).
+* `rand` function added.
+* Maps can now be stored as vertex/edge properties.
 
 ### Bug Fixes and Other Changes
 

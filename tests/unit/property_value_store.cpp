@@ -6,8 +6,8 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/property_value_store.hpp"
 #include "storage/property_value.hpp"
+#include "storage/property_value_store.hpp"
 
 using std::string;
 
@@ -108,8 +108,9 @@ TEST(PropertyValueStore, Accept) {
   int count_props = 0;
   int count_finish = 0;
 
-  auto handler =
-      [&](const uint32_t, const PropertyValue&) { count_props += 1; };
+  auto handler = [&](const uint32_t, const PropertyValue &) {
+    count_props += 1;
+  };
   auto finish = [&]() { count_finish += 1; };
 
   PropertyValueStore<uint32_t> props;
@@ -147,4 +148,24 @@ TEST(PropertyValueStore, InsertRetrieveList) {
   EXPECT_EQ(l[3].type(), PropertyValue::Type::String);
   EXPECT_EQ(l[3].Value<std::string>(), "something");
   EXPECT_EQ(l[4].type(), PropertyValue::Type::Null);
+}
+
+TEST(PropertyValueStore, InsertRetrieveMap) {
+  PropertyValueStore<> props;
+  props.set(0, std::map<std::string, PropertyValue>{
+                   {"a", 1}, {"b", true}, {"c", "something"}});
+
+  auto p = props.at(0);
+  EXPECT_EQ(p.type(), PropertyValue::Type::Map);
+  auto m = p.Value<std::map<std::string, PropertyValue>>();
+  EXPECT_EQ(m.size(), 3);
+  auto get = [&m](const std::string &prop_name) {
+    return m.find(prop_name)->second;
+  };
+  EXPECT_EQ(get("a").type(), PropertyValue::Type::Int);
+  EXPECT_EQ(get("a").Value<int64_t>(), 1);
+  EXPECT_EQ(get("b").type(), PropertyValue::Type::Bool);
+  EXPECT_EQ(get("b").Value<bool>(), true);
+  EXPECT_EQ(get("c").type(), PropertyValue::Type::String);
+  EXPECT_EQ(get("c").Value<std::string>(), "something");
 }

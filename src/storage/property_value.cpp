@@ -49,7 +49,16 @@ std::vector<PropertyValue> PropertyValue::Value<std::vector<PropertyValue>>()
   return *list_v;
 }
 
-PropertyValue::PropertyValue(const PropertyValue& other) : type_(other.type_) {
+template <>
+std::map<std::string, PropertyValue>
+PropertyValue::Value<std::map<std::string, PropertyValue>>() const {
+  if (type_ != PropertyValue::Type::Map) {
+    throw PropertyValueException("Incompatible template param and type");
+  }
+  return *map_v;
+}
+
+PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
   switch (other.type_) {
     case PropertyValue::Type::Null:
       return;
@@ -70,15 +79,20 @@ PropertyValue::PropertyValue(const PropertyValue& other) : type_(other.type_) {
       this->double_v = other.double_v;
       return;
 
-    case PropertyValue::Type::List:
+    case Type::List:
       new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(other.list_v);
+      return;
+
+    case Type::Map:
+      new (&map_v)
+          std::shared_ptr<std::map<std::string, PropertyValue>>(other.map_v);
       return;
   }
 
   permanent_fail("Unsupported PropertyValue::Type");
 }
 
-std::ostream& operator<<(std::ostream& os, const PropertyValue::Type type) {
+std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
   switch (type) {
     case PropertyValue::Type::Null:
       return os << "null";
@@ -92,11 +106,13 @@ std::ostream& operator<<(std::ostream& os, const PropertyValue::Type type) {
       return os << "double";
     case PropertyValue::Type::List:
       return os << "list";
+    case PropertyValue::Type::Map:
+      return os << "map";
   }
   permanent_fail("Unsupported PropertyValue::Type");
 }
 
-std::ostream& operator<<(std::ostream& os, const PropertyValue& value) {
+std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
   switch (value.type_) {
     case PropertyValue::Type::Null:
       return os << "Null";
@@ -110,15 +126,22 @@ std::ostream& operator<<(std::ostream& os, const PropertyValue& value) {
       return os << value.Value<double>();
     case PropertyValue::Type::List:
       os << "[";
-      for (const auto& x : value.Value<std::vector<PropertyValue>>()) {
+      for (const auto &x : value.Value<std::vector<PropertyValue>>()) {
         os << x << ",";
       }
       return os << "]";
+    case PropertyValue::Type::Map:
+      os << "{";
+      for (const auto &kv :
+           value.Value<std::map<std::string, PropertyValue>>()) {
+        os << kv.first << ": " << kv.second << ",";
+      }
+      return os << "}";
   }
   permanent_fail("Unsupported PropertyValue::Type");
 }
 
-PropertyValue& PropertyValue::operator=(const PropertyValue& other) {
+PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
   this->~PropertyValue();
   type_ = other.type_;
 
@@ -139,6 +162,10 @@ PropertyValue& PropertyValue::operator=(const PropertyValue& other) {
         return *this;
       case PropertyValue::Type::List:
         new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(other.list_v);
+        return *this;
+      case PropertyValue::Type::Map:
+        new (&map_v)
+            std::shared_ptr<std::map<std::string, PropertyValue>>(other.map_v);
         return *this;
     }
   }
@@ -162,6 +189,9 @@ PropertyValue::~PropertyValue() {
       return;
     case Type::List:
       list_v.~shared_ptr<std::vector<PropertyValue>>();
+      return;
+    case Type::Map:
+      map_v.~shared_ptr<std::map<std::string, PropertyValue>>();
       return;
   }
   permanent_fail("Unsupported PropertyValue::Type");

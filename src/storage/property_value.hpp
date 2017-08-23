@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,7 +24,7 @@ class PropertyValue {
 
  public:
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned { Null, String, Bool, Int, Double, List };
+  enum class Type : unsigned { Null, String, Bool, Int, Double, List, Map };
 
   // single static reference to Null, used whenever Null should be returned
   static const PropertyValue Null;
@@ -53,6 +54,11 @@ class PropertyValue {
   PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
     new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(
         new std::vector<PropertyValue>(value));
+  }
+  PropertyValue(const std::map<std::string, PropertyValue> &value)
+      : type_(Type::Map) {
+    new (&map_v) std::shared_ptr<std::map<std::string, PropertyValue>>(
+        new std::map<std::string, PropertyValue>(value));
   }
 
   // assignment op
@@ -86,6 +92,7 @@ class PropertyValue {
     // We support lists of values of different types, neo4j supports lists of
     // values of the same type.
     std::shared_ptr<std::vector<PropertyValue>> list_v;
+    std::shared_ptr<std::map<std::string, PropertyValue>> map_v;
   };
 
   /**

@@ -286,8 +286,25 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
     expected_property_value[40 + i] = vertex_accessor.PropsAt(property);
   }
 
+  // Maps. Declare a vector in the expected order, then shuffle when setting on
+  // vertices.
+  std::vector<std::map<std::string, PropertyValue>> maps{
+      {{"b", 12}},
+      {{"b", 12}, {"a", 77}},
+      {{"a", 77}, {"c", 0}},
+      {{"a", 78}, {"b", 12}}};
+  expected_property_value.insert(expected_property_value.end(), maps.begin(),
+                                 maps.end());
+  auto shuffled = maps;
+  std::random_shuffle(shuffled.begin(), shuffled.end());
+  for (const auto &map : shuffled) {
+    auto vertex_accessor = dba->InsertVertex();
+    vertex_accessor.add_label(label);
+    vertex_accessor.PropsSet(property, map);
+  }
+
   EXPECT_EQ(Count(dba->Vertices(label, property, false)), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 50);
+  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 54);
 
   int cnt = 0;
   for (auto vertex : dba->Vertices(label, property, true)) {
@@ -319,6 +336,20 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
         EXPECT_EQ(received_value.size(), 1);
         EXPECT_EQ(received_value[0].Value<int64_t>(),
                   expected_value[0].Value<int64_t>());
+        break;
+      }
+      case PropertyValue::Type::Map: {
+        auto received_value =
+            property_value.Value<std::map<std::string, PropertyValue>>();
+        auto expected_value =
+            expected_property_value[cnt]
+                .Value<std::map<std::string, PropertyValue>>();
+        EXPECT_EQ(received_value.size(), expected_value.size());
+        for (const auto &kv : expected_value) {
+          auto found = expected_value.find(kv.first);
+          EXPECT_NE(found, expected_value.end());
+          EXPECT_EQ(kv.second.Value<int64_t>(), found->second.Value<int64_t>());
+        }
         break;
       }
       case PropertyValue::Type::Null:

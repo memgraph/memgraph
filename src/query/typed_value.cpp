@@ -33,11 +33,18 @@ TypedValue::TypedValue(const PropertyValue &value) {
       type_ = Type::String;
       new (&string_v) std::string(value.Value<std::string>());
       return;
-    case PropertyValue::Type::List:
+    case PropertyValue::Type::List: {
       type_ = Type::List;
       auto vec = value.Value<std::vector<PropertyValue>>();
       new (&list_v) std::vector<TypedValue>(vec.begin(), vec.end());
       return;
+    }
+    case PropertyValue::Type::Map: {
+      type_ = Type::Map;
+      auto map = value.Value<std::map<std::string, PropertyValue>>();
+      new (&map_v) std::map<std::string, TypedValue>(map.begin(), map.end());
+      return;
+    }
   }
   permanent_fail("Unsupported type");
 }
@@ -57,10 +64,14 @@ TypedValue::operator PropertyValue() const {
     case TypedValue::Type::List:
       return PropertyValue(
           std::vector<PropertyValue>(list_v.begin(), list_v.end()));
+    case TypedValue::Type::Map:
+      return PropertyValue(
+          std::map<std::string, PropertyValue>(map_v.begin(), map_v.end()));
     default:
-      throw TypedValueException(
-          "Unsupported conversion from TypedValue to PropertyValue");
+      break;
   }
+  throw TypedValueException(
+      "Unsupported conversion from TypedValue to PropertyValue");
 }
 
 // TODO: Refactor this. Value<bool> should be ValueBool. If we do it in that way
@@ -190,7 +201,6 @@ const std::vector<TypedValue> &TypedValue::ValueList() const {
   return Value<std::vector<TypedValue>>();
 }
 
-
 template <>
 std::map<std::string, TypedValue>
     &TypedValue::Value<std::map<std::string, TypedValue>>() {
@@ -273,9 +283,10 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Double:
     case Type::String:
     case Type::List:
+    case Type::Map:
       return true;
     default:
-    return false;
+      return false;
   }
 }
 
