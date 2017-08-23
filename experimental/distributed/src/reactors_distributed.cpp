@@ -6,22 +6,22 @@ DEFINE_int32(port, 10000, "Network server bind port");
 Network::Network() {}
 
 /**
- * SenderMessage implementation.
+ * ReturnAddressMsg implementation.
  */
-SenderMessage::SenderMessage() {}
+ReturnAddressMsg::ReturnAddressMsg() {}
 
-SenderMessage::SenderMessage(std::string reactor, std::string channel)
+ReturnAddressMsg::ReturnAddressMsg(std::string reactor, std::string channel)
     : address_(FLAGS_address),
       port_(FLAGS_port),
       reactor_(reactor),
       channel_(channel) {}
 
-std::string SenderMessage::Address() const { return address_; }
-uint16_t SenderMessage::Port() const { return port_; }
-std::string SenderMessage::ReactorName() const { return reactor_; }
-std::string SenderMessage::ChannelName() const { return channel_; }
+std::string ReturnAddressMsg::Address() const { return address_; }
+uint16_t ReturnAddressMsg::Port() const { return port_; }
+std::string ReturnAddressMsg::ReactorName() const { return reactor_; }
+std::string ReturnAddressMsg::ChannelName() const { return channel_; }
 
-std::shared_ptr<Channel> SenderMessage::GetChannelToSender() const {
+std::shared_ptr<ChannelWriter> ReturnAddressMsg::GetReturnChannelWriter() const {
   if (address_ == FLAGS_address && port_ == FLAGS_port) {
     return System::GetInstance().FindChannel(reactor_, channel_);
   } else {

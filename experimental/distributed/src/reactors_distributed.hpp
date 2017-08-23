@@ -73,12 +73,12 @@ class Network {
 
   // client functions
 
-  std::shared_ptr<Channel> Resolve(std::string address, uint16_t port,
+  std::shared_ptr<ChannelWriter> Resolve(std::string address, uint16_t port,
                                    std::string reactor_name,
                                    std::string channel_name) {
     if (Protocol::SendMessage(address, port, reactor_name, channel_name,
                               nullptr)) {
-      return std::make_shared<RemoteChannel>(this, address, port, reactor_name,
+      return std::make_shared<RemoteChannelWriter>(this, address, port, reactor_name,
                                              channel_name);
     }
     return nullptr;
@@ -131,9 +131,9 @@ class Network {
     }
   }
 
-  class RemoteChannel : public Channel {
+  class RemoteChannelWriter : public ChannelWriter {
    public:
-    RemoteChannel(Network *network, std::string address, uint16_t port,
+    RemoteChannelWriter(Network *network, std::string address, uint16_t port,
                   std::string reactor, std::string channel)
         : network_(network),
           address_(address),
@@ -228,17 +228,17 @@ class Network {
 /**
  * Message that includes the sender channel used to respond.
  */
-class SenderMessage : public Message {
+class ReturnAddressMsg : public Message {
  public:
-  SenderMessage();
-  SenderMessage(std::string reactor, std::string channel);
+  ReturnAddressMsg();
+  ReturnAddressMsg(std::string reactor, std::string channel);
 
   std::string Address() const;
   uint16_t Port() const;
   std::string ReactorName() const;
   std::string ChannelName() const;
 
-  std::shared_ptr<Channel> GetChannelToSender() const;
+  std::shared_ptr<ChannelWriter> GetReturnChannelWriter() const;
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -252,7 +252,7 @@ class SenderMessage : public Message {
   std::string reactor_;
   std::string channel_;
 };
-CEREAL_REGISTER_TYPE(SenderMessage);
+CEREAL_REGISTER_TYPE(ReturnAddressMsg);
 
 
 /**
@@ -262,13 +262,13 @@ CEREAL_REGISTER_TYPE(SenderMessage);
 class ChannelResolvedMessage : public Message {
  public:
   ChannelResolvedMessage() {}
-  ChannelResolvedMessage(std::shared_ptr<Channel> channel)
-    : Message(), channel_(channel) {}
+  ChannelResolvedMessage(std::shared_ptr<ChannelWriter> channel_writer)
+    : Message(), channel_writer_(channel_writer) {}
 
-  std::shared_ptr<Channel> channel() const { return channel_; }
+  std::shared_ptr<ChannelWriter> channelWriter() const { return channel_writer_; }
 
  private:
-  std::shared_ptr<Channel> channel_;
+  std::shared_ptr<ChannelWriter> channel_writer_;
 };
 
 /**
@@ -315,11 +315,11 @@ class Distributed final {
                            uint16_t port,
                            const std::string &reactor_name,
                            const std::string &channel_name) {
-    std::shared_ptr<Channel> channel = nullptr;
-    while (!(channel = network_.Resolve(address, port, reactor_name, channel_name)))
+    std::shared_ptr<ChannelWriter> channel_writer = nullptr;
+    while (!(channel_writer = network_.Resolve(address, port, reactor_name, channel_name)))
       std::this_thread::sleep_for(std::chrono::milliseconds(200));
     auto stream_channel = current_reactor_->Open();
-    stream_channel.second->Send<ChannelResolvedMessage>(channel);
+    stream_channel.second->Send<ChannelResolvedMessage>(channel_writer);
     return stream_channel.first;
   }
 

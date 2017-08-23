@@ -12,14 +12,14 @@
 
 // const int NUM_WORKERS = 1;
 
-// class Txn : public SenderMessage {
+// class Txn : public ReturnAddressMsg {
 //  public:
-//   Txn(std::string reactor, std::string channel, int64_t id) : SenderMessage(reactor, channel), id_(id) {}
+//   Txn(std::string reactor, std::string channel, int64_t id) : ReturnAddressMsg(reactor, channel), id_(id) {}
 //   int64_t id() const { return id_; }
 
 //   template <class Archive>
 //   void serialize(Archive &archive) {
-//     archive(cereal::base_class<SenderMessage>(this), id_);
+//     archive(cereal::base_class<ReturnAddressMsg>(this), id_);
 //   }
 
 //  private:
@@ -60,30 +60,30 @@
 //   int64_t count_;
 // };
 
-// class CommitRequest : public SenderMessage {
+// class CommitRequest : public ReturnAddressMsg {
 //  public:
 //   CommitRequest(std::string reactor, std::string channel, int64_t worker_id)
-//       : SenderMessage(reactor, channel), worker_id_(worker_id) {}
+//       : ReturnAddressMsg(reactor, channel), worker_id_(worker_id) {}
 //   int64_t worker_id() { return worker_id_; }
 
 //   template <class Archive>
 //   void serialize(Archive &archive) {
-//     archive(cereal::base_class<SenderMessage>(this), worker_id_);
+//     archive(cereal::base_class<ReturnAddressMsg>(this), worker_id_);
 //   }
 
 //  private:
 //   int64_t worker_id_;
 // };
 
-// class AbortRequest : public SenderMessage {
+// class AbortRequest : public ReturnAddressMsg {
 //  public:
 //   AbortRequest(std::string reactor, std::string channel, int64_t worker_id)
-//       : SenderMessage(reactor, channel), worker_id_(worker_id) {}
+//       : ReturnAddressMsg(reactor, channel), worker_id_(worker_id) {}
 //   int64_t worker_id() { return worker_id_; }
 
 //   template <class Archive>
 //   void serialize(Archive &archive) {
-//     archive(cereal::base_class<SenderMessage>(this), worker_id_);
+//     archive(cereal::base_class<ReturnAddressMsg>(this), worker_id_);
 //   }
 
 //  private:
@@ -139,8 +139,8 @@
 //       if (Query *query = dynamic_cast<Query *>(m.get())) {
 //         ProcessQuery(query);
 //         break;  // process only the first query
-//       } else if (SenderMessage *msg = dynamic_cast<SenderMessage *>(m.get())) {
-//         std::cout << "SenderMessage received!" << std::endl;
+//       } else if (ReturnAddressMsg *msg = dynamic_cast<ReturnAddressMsg *>(m.get())) {
+//         std::cout << "ReturnAddressMsg received!" << std::endl;
 //         std::cout << "    Address: " << msg->Address() << std::endl;
 //         std::cout << "       Port: " << msg->Port() << std::endl;
 //         std::cout << "    Reactor: " << msg->ReactorName() << std::endl;
@@ -175,27 +175,27 @@
 //     int worker_id = rand() % NUM_WORKERS;
 //     int64_t xid = GetTransactionId();
 //     std::string txn_channel_name = GetTxnName(xid);
-//     auto connector = Open(txn_channel_name);
-//     auto stream = connector.first;
+//     auto channel = Open(txn_channel_name);
+//     auto stream = channel.first;
 
 //     channels_[worker_id]->Send<CreateNodeTxn>("master", "main", xid);
 //     auto m = stream->AwaitEvent();
 //     if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
-//       req->GetChannelToSender(system_)->Send<CommitDirective>();
+//       req->GetReturnChannelWriter(system_)->Send<CommitDirective>();
 //     } else if (AbortRequest *req = dynamic_cast<AbortRequest *>(m.get())) {
-//       req->GetChannelToSender(system_)->Send<AbortDirective>();
+//       req->GetReturnChannelWriter(system_)->Send<AbortDirective>();
 //     } else {
 //       std::cerr << "unknown message\n";
 //       exit(1);
 //     }
-//     CloseConnector(txn_channel_name);
+//     CloseChannel(txn_channel_name);
 //   }
 
 //   void PerformCountNodes() {
 //     int64_t xid = GetTransactionId();
 //     std::string txn_channel_name = GetTxnName(xid);
-//     auto connector = Open(txn_channel_name);
-//     auto stream = connector.first;
+//     auto channel = Open(txn_channel_name);
+//     auto stream = channel.first;
 //     for (int w_id = 0; w_id < NUM_WORKERS; ++w_id)
 //       channels_[w_id]->Send<CountNodesTxn>("master", "main", xid);
 
@@ -205,10 +205,10 @@
 //     for (int responds = 0; responds < NUM_WORKERS; ++responds) {
 //       auto m = stream->AwaitEvent();
 //       if (CommitRequest *req = dynamic_cast<CommitRequest *>(m.get())) {
-//         txn_channels[req->worker_id()] = req->GetChannelToSender(system_);
+//         txn_channels[req->worker_id()] = req->GetReturnChannelWriter(system_);
 //         commit &= true;
 //       } else if (AbortRequest *req = dynamic_cast<AbortRequest *>(m.get())) {
-//         txn_channels[req->worker_id()] = req->GetChannelToSender(system_);
+//         txn_channels[req->worker_id()] = req->GetReturnChannelWriter(system_);
 //         commit = false;
 //       } else {
 //         std::cerr << "unknown message\n";
@@ -236,7 +236,7 @@
 //       }
 //     }
 
-//     CloseConnector(txn_channel_name);
+//     CloseChannel(txn_channel_name);
 //     std::cout << "graph has " << count << " vertices" << std::endl;
 //   }
 
@@ -302,9 +302,9 @@
 //   }
 
 //   void HandleCreateNode(CreateNodeTxn *txn) {
-//     auto connector = Open(GetTxnChannelName(txn->id()));
-//     auto stream = connector.first;
-//     auto masterChannel = txn->GetChannelToSender(system_);
+//     auto channel = Open(GetTxnChannelName(txn->id()));
+//     auto stream = channel.first;
+//     auto masterChannel = txn->GetReturnChannelWriter(system_);
 //     // TODO: Do the actual commit.
 //     masterChannel->Send<CommitRequest>("master", "main", worker_id_);
 //     auto m = stream->AwaitEvent();
@@ -316,13 +316,13 @@
 //       std::cerr << "unknown message\n";
 //       exit(1);
 //     }
-//     CloseConnector(GetTxnChannelName(txn->id()));
+//     CloseChannel(GetTxnChannelName(txn->id()));
 //   }
 
 //   void HandleCountNodes(CountNodesTxn *txn) {
-//     auto connector = Open(GetTxnChannelName(txn->id()));
-//     auto stream = connector.first;
-//     auto masterChannel = txn->GetChannelToSender(system_);
+//     auto channel = Open(GetTxnChannelName(txn->id()));
+//     auto stream = channel.first;
+//     auto masterChannel = txn->GetReturnChannelWriter(system_);
 
 //     // TODO: Fix this hack -- use the storage.
 //     int num = 123;
@@ -337,7 +337,7 @@
 //       std::cerr << "unknown message\n";
 //       exit(1);
 //     }
-//     CloseConnector(GetTxnChannelName(txn->id()));
+//     CloseChannel(GetTxnChannelName(txn->id()));
 //   }
 
 //   // TODO: Don't repeat code from Master.

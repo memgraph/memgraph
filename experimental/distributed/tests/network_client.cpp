@@ -7,7 +7,7 @@ int main(int argc, char *argv[]) {
   auto channel = distributed.network().Resolve("127.0.0.1", 10000, "master", "main");
   std::cout << channel << std::endl;
   if (channel != nullptr) {
-    channel->Send<SenderMessage>("master", "main");
+    channel->Send<ReturnAddressMsg>("master", "main");
   }
   distributed.network().StopClient();
   return 0;

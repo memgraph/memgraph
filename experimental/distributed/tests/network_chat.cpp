@@ -3,18 +3,18 @@
 
 #include "reactors_distributed.hpp"
 
-class ChatMessage : public SenderMessage {
+class ChatMessage : public ReturnAddressMsg {
  public:
-  ChatMessage() : SenderMessage(), message_("") {}
+  ChatMessage() : ReturnAddressMsg(), message_("") {}
 
   ChatMessage(std::string reactor, std::string channel, std::string message)
-      : SenderMessage(reactor, channel), message_(message) {}
+      : ReturnAddressMsg(reactor, channel), message_(message) {}
 
   std::string Message() const { return message_; }
 
   template <class Archive>
   void serialize(Archive &ar) {
-    ar(cereal::base_class<SenderMessage>(this), message_);
+    ar(cereal::base_class<ReturnAddressMsg>(this), message_);
   }
 
  private:
@@ -56,7 +56,7 @@ class ChatServer : public Reactor {
         std::cout << "Received message from " << msg.Address() << ":"
                   << msg.Port() << " -> '" << msg.Message() << "'"
                   << std::endl;
-        auto channel = msg.GetChannelToSender();
+        auto channel = msg.GetReturnChannelWriter();
         if (channel != nullptr) {
           channel->Send<ChatACK>("server", "chat", msg.Message());
         }

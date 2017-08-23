@@ -6,64 +6,64 @@ void EventStream::Subscription::unsubscribe() const {
 
 thread_local Reactor* current_reactor_ = nullptr;
 
-std::string Connector::LocalChannel::ReactorName() {
+std::string Channel::LocalChannelWriter::ReactorName() {
   return reactor_name_;
 }
 
-std::string Connector::LocalChannel::Name() {
-  return connector_name_;
+std::string Channel::LocalChannelWriter::Name() {
+  return channel_name_;
 }
 
-void Connector::LocalEventStream::Close() {
-  current_reactor_->CloseConnector(connector_name_);
+void Channel::LocalEventStream::Close() {
+  current_reactor_->CloseChannel(channel_name_);
 }
 
-std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open(const std::string &connector_name) {
+std::pair<EventStream*, std::shared_ptr<ChannelWriter>> Reactor::Open(const std::string &channel_name) {
   std::unique_lock<std::mutex> lock(*mutex_);
   // TODO: Improve the check that the channel name does not exist in the
   // system.
-  if (connectors_.count(connector_name) != 0) {
-    throw std::runtime_error("Connector with name " + connector_name
+  if (channels_.count(channel_name) != 0) {
+    throw std::runtime_error("Channel with name " + channel_name
         + "already exists");
   }
-  auto it = connectors_.emplace(connector_name,
-    std::make_shared<Connector>(Connector::Params{name_, connector_name, mutex_, cvar_})).first;
+  auto it = channels_.emplace(channel_name,
+    std::make_shared<Channel>(Channel::Params{name_, channel_name, mutex_, cvar_})).first;
   it->second->self_ptr_ = it->second;
   return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
 }
 
-std::pair<EventStream*, std::shared_ptr<Channel>> Reactor::Open() {
+std::pair<EventStream*, std::shared_ptr<ChannelWriter>> Reactor::Open() {
   std::unique_lock<std::mutex> lock(*mutex_);
   do {
-    std::string connector_name = "stream-" + std::to_string(connector_name_counter_++);
-    if (connectors_.count(connector_name) == 0) {
-      // Connector &queue = connectors_[connector_name];
-      auto it = connectors_.emplace(connector_name,
-        std::make_shared<Connector>(Connector::Params{name_, connector_name, mutex_, cvar_})).first;
+    std::string channel_name = "stream-" + std::to_string(channel_name_counter_++);
+    if (channels_.count(channel_name) == 0) {
+      // Channel &queue = channels_[channel_name];
+      auto it = channels_.emplace(channel_name,
+        std::make_shared<Channel>(Channel::Params{name_, channel_name, mutex_, cvar_})).first;
       it->second->self_ptr_ = it->second;
       return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
     }
   } while (true);
 }
 
-const std::shared_ptr<Channel> Reactor::FindChannel(
+const std::shared_ptr<ChannelWriter> Reactor::FindChannel(
     const std::string &channel_name) {
   std::unique_lock<std::mutex> lock(*mutex_);
-  auto it_connector = connectors_.find(channel_name);
-  if (it_connector == connectors_.end()) return nullptr;
-  return it_connector->second->LockedOpenChannel();
+  auto it_channel = channels_.find(channel_name);
+  if (it_channel == channels_.end()) return nullptr;
+  return it_channel->second->LockedOpenChannel();
 }
 
-void Reactor::CloseConnector(const std::string &s) {
+void Reactor::CloseChannel(const std::string &s) {
   std::unique_lock<std::mutex> lock(*mutex_);
-  auto it = connectors_.find(s);
-  assert(it != connectors_.end());
-  connectors_.erase(it);
+  auto it = channels_.find(s);
+  assert(it != channels_.end());
+  channels_.erase(it);
 }
 
-void Reactor::CloseAllConnectors() {
+void Reactor::CloseAllChannels() {
   std::unique_lock<std::mutex> lock(*mutex_);
-  connectors_.clear();
+  channels_.clear();
 }
 
 void Reactor::RunEventLoop() {
@@ -77,8 +77,8 @@ void Reactor::RunEventLoop() {
 
       while (true) {
 
-        // Exit the loop if there are no more Connectors.
-        if (connectors_.empty()) {
+        // Exit the loop if there are no more Channels.
+        if (channels_.empty()) {
           exit_event_loop = true;
           break;
         }
@@ -106,8 +106,8 @@ void Reactor::RunEventLoop() {
  */
 auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
   // return type after because the scope Reactor:: is not searched before the name
-  for (auto &connectors_key_value : connectors_) {
-    Connector &event_queue = *connectors_key_value.second;
+  for (auto &channels_key_value : channels_) {
+    Channel &event_queue = *channels_key_value.second;
     auto msg_ptr = event_queue.LockedPop();
     if (msg_ptr == nullptr) continue;
     std::type_index tidx = msg_ptr->GetTypeIndex();

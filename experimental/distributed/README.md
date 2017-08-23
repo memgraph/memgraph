@@ -9,9 +9,9 @@ This subdirectory structure implements distributed infrastructure of Memgraph.
 * Node: a computer that performs (distributed) work.
 * Vertex: an abstract graph concept.
 * Reactor: a unit of concurrent execution, lives on its own thread.
-* Connector: a (one-way) communication abstraction between Reactors. The reactors can be on the same machine or on different processes.
-* EventStream: read-end of a connector, is owned by exactly one Reactor/thread.
-* Channel: write-end of a connector, can be owned (wrote into) by multiple threads.
+* Channel: a (one-way) communication abstraction between Reactors. The reactors can be on the same machine or on different processes.
+* EventStream: read-end of a channel, is owned by exactly one Reactor/thread.
+* ChannelWriter: write-end of a channel, can be owned (wrote into) by multiple threads.
 
 ## conventions
 

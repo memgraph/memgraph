@@ -90,14 +90,14 @@ std::pair<int64_t, std::vector<int64_t>>
 /**
  * Sends a text message and has a return address.
  */
-class TextMessage : public SenderMessage {
+class TextMessage : public ReturnAddressMsg {
 public:
   TextMessage(std::string reactor, std::string channel, std::string s)
-    : SenderMessage(reactor, channel), text(s) {}
+    : ReturnAddressMsg(reactor, channel), text(s) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
-    archive(cereal::virtual_base_class<SenderMessage>(this), text);
+    archive(cereal::virtual_base_class<ReturnAddressMsg>(this), text);
   }
 
   std::string text;
@@ -124,7 +124,7 @@ class Master : public Reactor {
 
     auto stream = main_.first;
 
-    // wait until every worker sends a SenderMessage back, then close
+    // wait until every worker sends a ReturnAddressMsg back, then close
     stream->OnEvent<TextMessage>([this](const TextMessage &msg,
                                           const EventStream::Subscription &subscription) {
       std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
@@ -135,7 +135,7 @@ class Master : public Reactor {
         // (start_distributed.py runs each process in a new tab which is
         //  closed immediately after process has finished)
         std::this_thread::sleep_for(std::chrono::seconds(4));
-        CloseConnector("main");
+        CloseChannel("main");
       }
     });
 
@@ -144,7 +144,7 @@ class Master : public Reactor {
       auto stream = memgraph.FindChannel(wmnid, "worker", "main");
       stream->OnEventOnce()
         .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg){
-          msg.channel()->Send<TextMessage>("master", "main", "hi from master");
+          msg.channelWriter()->Send<TextMessage>("master", "main", "hi from master");
           stream->Close();
         });
     }
@@ -174,12 +174,12 @@ class Worker : public Reactor {
       .ChainOnce<TextMessage>([this](const TextMessage &msg) {
       std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
 
-      msg.GetChannelToSender()
+      msg.GetReturnChannelWriter()
         ->Send<TextMessage>("worker", "main", "hi from worker");
 
       // Sleep for a while so we can read output in the terminal.
       std::this_thread::sleep_for(std::chrono::seconds(4));
-      CloseConnector("main");
+      CloseChannel("main");
     });
   }
 
