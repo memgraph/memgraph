@@ -36,19 +36,19 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   }
 };
 
-BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
-  auto query = "MATCH (s:Start) return s";
-  auto dba = dbms_->active();
-  while (state.KeepRunning()) {
-    ResultStreamFaker results;
-    interpeter_.Interpret(query, *dba, results, {});
-  }
-}
-
-BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
-    ->RangeMultiplier(1024)
-    ->Range(1, 1 << 20)
-    ->Unit(benchmark::kMillisecond);
+// BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
+//   auto query = "MATCH (s:Start) return s";
+//   auto dba = dbms_->active();
+//   while (state.KeepRunning()) {
+//     ResultStreamFaker results;
+//     interpeter_.Interpret(query, *dba, results, {});
+//   }
+// }
+// 
+// BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
+//     ->RangeMultiplier(1024)
+//     ->Range(1, 1 << 20)
+//     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Start) WITH s MATCH (s)--(d) RETURN count(d)";
