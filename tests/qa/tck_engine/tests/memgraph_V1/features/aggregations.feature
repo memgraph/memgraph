@@ -250,3 +250,18 @@ Feature: Aggregations
         Then the result should be (ignoring element order for lists)
             | n                 |
             | [0, true, 'asdf'] |
+
+    Scenario: Collect test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({k: "a", v: 3}), ({k: "b", v: 1}), ({k: "c", v: 2})
+            """
+        When executing query:
+            """
+            MATCH (a) RETURN collect(a.k + "_key", a.v + 10) AS n
+            """
+        Then the result should be
+            | n                                 |
+            | {a_key: 13, b_key: 11, c_key: 12} |
+

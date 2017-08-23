@@ -352,10 +352,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
-    aggregations_.emplace_back(aggr.expression_, aggr.op_, symbol);
-    // aggregation expression_ is optional in COUNT(*), so it's possible the
-    // has_aggregation_ stack is empty
-    if (aggr.expression_)
+    aggregations_.emplace_back(Aggregate::Element{
+        aggr.expression1_, aggr.expression2_, aggr.op_, symbol});
+    // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP uses
+    // two expressions, so we can have 0, 1 or 2 elements on the
+    // has_aggregation_stack for this Aggregation expression.
+    if (aggr.op_ == Aggregation::Op::COLLECT_MAP)
+      has_aggregation_.pop_back();
+    if (aggr.expression1_)
       has_aggregation_.back() = true;
     else
       has_aggregation_.emplace_back(true);

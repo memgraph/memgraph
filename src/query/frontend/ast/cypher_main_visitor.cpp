@@ -785,7 +785,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     // visitFunctionInvocation with other aggregations. This is visible in
     // functionInvocation and atom producions in opencypher grammar.
     return static_cast<Expression *>(
-        storage_.Create<Aggregation>(nullptr, Aggregation::Op::COUNT));
+        storage_.Create<Aggregation>(nullptr, nullptr, Aggregation::Op::COUNT));
   } else if (ctx->ALL()) {
     auto *ident = storage_.Create<Identifier>(ctx->filterExpression()
                                                   ->idInColl()
@@ -874,30 +874,36 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
   }
   if (expressions.size() == 1U) {
     if (function_name == Aggregation::kCount) {
-      return static_cast<Expression *>(
-          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::COUNT));
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], nullptr, Aggregation::Op::COUNT));
     }
     if (function_name == Aggregation::kMin) {
-      return static_cast<Expression *>(
-          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::MIN));
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], nullptr, Aggregation::Op::MIN));
     }
     if (function_name == Aggregation::kMax) {
-      return static_cast<Expression *>(
-          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::MAX));
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], nullptr, Aggregation::Op::MAX));
     }
     if (function_name == Aggregation::kSum) {
-      return static_cast<Expression *>(
-          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::SUM));
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], nullptr, Aggregation::Op::SUM));
     }
     if (function_name == Aggregation::kAvg) {
-      return static_cast<Expression *>(
-          storage_.Create<Aggregation>(expressions[0], Aggregation::Op::AVG));
+      return static_cast<Expression *>(storage_.Create<Aggregation>(
+          expressions[0], nullptr, Aggregation::Op::AVG));
     }
     if (function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(storage_.Create<Aggregation>(
-          expressions[0], Aggregation::Op::COLLECT));
+          expressions[0], nullptr, Aggregation::Op::COLLECT_LIST));
     }
   }
+
+  if (expressions.size() == 2U && function_name == Aggregation::kCollect) {
+    return static_cast<Expression *>(storage_.Create<Aggregation>(
+        expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP));
+  }
+
   auto function = NameToFunction(function_name);
   if (!function)
     throw SemanticException("Function '{}' doesn't exist.", function_name);

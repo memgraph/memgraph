@@ -18,7 +18,6 @@
 #include "query_common.hpp"
 
 using namespace query;
-using testing::Pair;
 using testing::UnorderedElementsAre;
 using testing::ElementsAre;
 using query::test_common::ToList;
@@ -661,7 +660,7 @@ TEST(ExpressionEvaluator, EdgeTypeTest) {
 TEST(ExpressionEvaluator, Aggregation) {
   AstTreeStorage storage;
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
-                                          Aggregation::Op::COUNT);
+                                          nullptr, Aggregation::Op::COUNT);
   SymbolTable symbol_table;
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   symbol_table[*aggr] = aggr_sym;
@@ -751,9 +750,11 @@ TEST(ExpressionEvaluator, FunctionProperties) {
     return properties;
   };
   ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {v1})),
-              UnorderedElementsAre(Pair("height", 5), Pair("age", 10)));
+              UnorderedElementsAre(testing::Pair("height", 5),
+                                   testing::Pair("age", 10)));
   ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {e})),
-              UnorderedElementsAre(Pair("height", 3), Pair("age", 15)));
+              UnorderedElementsAre(testing::Pair("height", 3),
+                                   testing::Pair("age", 15)));
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {2}), QueryRuntimeException);
 }
 

@@ -25,6 +25,7 @@
 
 #include <utility>
 #include <vector>
+#include <map>
 
 #include "database/dbms.hpp"
 #include "database/graph_db_datatypes.hpp"
@@ -43,6 +44,14 @@ auto ToList(const TypedValue &t) {
     list.push_back(x.Value<T>());
   }
   return list;
+};
+
+template <typename TElement>
+auto ToMap(const TypedValue &t) {
+  std::map<std::string, TElement> map;
+  for (const auto &kv : t.Value<std::map<std::string, TypedValue>>())
+    map.emplace(kv.first, kv.second.Value<TElement>());
+  return map;
 };
 
 // Custom types for ORDER BY, SKIP, LIMIT, ON MATCH and ON CREATE expressions,
@@ -497,10 +506,12 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::GreaterOperator>((expr1), (expr2))
 #define GREATER_EQ(expr1, expr2) \
   storage.Create<query::GreaterEqualOperator>((expr1), (expr2))
-#define SUM(expr) \
-  storage.Create<query::Aggregation>((expr), query::Aggregation::Op::SUM)
-#define COUNT(expr) \
-  storage.Create<query::Aggregation>((expr), query::Aggregation::Op::COUNT)
+#define SUM(expr)                                     \
+  storage.Create<query::Aggregation>((expr), nullptr, \
+                                     query::Aggregation::Op::SUM)
+#define COUNT(expr)                                   \
+  storage.Create<query::Aggregation>((expr), nullptr, \
+                                     query::Aggregation::Op::COUNT)
 #define EQ(expr1, expr2) storage.Create<query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) \
   storage.Create<query::NotEqualOperator>((expr1), (expr2))

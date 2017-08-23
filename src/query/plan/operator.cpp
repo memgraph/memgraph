@@ -1587,12 +1587,12 @@ Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 namespace {
-/** Returns the default TypedValue for an Aggregation operation.
+/** Returns the default TypedValue for an Aggregation element.
  * This value is valid both for returning when where are no inputs
  * to the aggregation op, and for initializing an aggregation result
  * when there are */
-TypedValue DefaultAggregationOpValue(Aggregation::Op op) {
-  switch (op) {
+TypedValue DefaultAggregationOpValue(const Aggregate::Element &element) {
+  switch (element.op) {
     case Aggregation::Op::COUNT:
       return TypedValue(0);
     case Aggregation::Op::SUM:
@@ -1600,8 +1600,10 @@ TypedValue DefaultAggregationOpValue(Aggregation::Op op) {
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
       return TypedValue::Null;
-    case Aggregation::Op::COLLECT:
+    case Aggregation::Op::COLLECT_LIST:
       return TypedValue(std::vector<TypedValue>());
+    case Aggregation::Op::COLLECT_MAP:
+      return TypedValue(std::map<std::string, TypedValue>());
   }
 }
 }
@@ -1618,7 +1620,7 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame,
     if (aggregation_.empty() && self_.group_by_.empty()) {
       // place default aggregation values on the frame
       for (const auto &elem : self_.aggregations_)
-        frame[std::get<2>(elem)] = DefaultAggregationOpValue(std::get<1>(elem));
+        frame[elem.output_sym] = DefaultAggregationOpValue(elem);
       // place null as remember values on the frame
       for (const Symbol &remember_sym : self_.remember_)
         frame[remember_sym] = TypedValue::Null;
@@ -1631,7 +1633,7 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame,
   // place aggregation values on the frame
   auto aggregation_values_it = aggregation_it_->second.values_.begin();
   for (const auto &aggregation_elem : self_.aggregations_)
-    frame[std::get<2>(aggregation_elem)] = *aggregation_values_it++;
+    frame[aggregation_elem.output_sym] = *aggregation_values_it++;
 
   // place remember values on the frame
   auto remember_values_it = aggregation_it_->second.remember_.begin();
@@ -1650,7 +1652,7 @@ void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
 
   // calculate AVG aggregations (so far they have only been summed)
   for (int pos = 0; pos < static_cast<int>(self_.aggregations_.size()); ++pos) {
-    if (std::get<1>(self_.aggregations_[pos]) != Aggregation::Op::AVG) continue;
+    if (self_.aggregations_[pos].op != Aggregation::Op::AVG) continue;
     for (auto &kv : aggregation_) {
       AggregationValue &agg_value = kv.second;
       int count = agg_value.counts_[pos];
@@ -1680,8 +1682,7 @@ void Aggregate::AggregateCursor::EnsureInitialized(
   if (agg_value.values_.size() > 0) return;
 
   for (const auto &agg_elem : self_.aggregations_)
-    agg_value.values_.emplace_back(
-        DefaultAggregationOpValue(std::get<1>(agg_elem)));
+    agg_value.values_.emplace_back(DefaultAggregationOpValue(agg_elem));
   agg_value.counts_.resize(self_.aggregations_.size(), 0);
 
   for (const Symbol &remember_sym : self_.remember_)
@@ -1706,7 +1707,7 @@ void Aggregate::AggregateCursor::Update(
        count_it++, value_it++, agg_elem_it++) {
     // COUNT(*) is the only case where input expression is optional
     // handle it here
-    auto input_expr_ptr = std::get<0>(*agg_elem_it);
+    auto input_expr_ptr = agg_elem_it->value;
     if (!input_expr_ptr) {
       *count_it += 1;
       *value_it = *count_it;
@@ -1717,8 +1718,7 @@ void Aggregate::AggregateCursor::Update(
 
     // Aggregations skip Null input values.
     if (input_value.IsNull()) continue;
-
-    const auto &agg_op = std::get<1>(*agg_elem_it);
+    const auto &agg_op = agg_elem_it->op;
     *count_it += 1;
     if (*count_it == 1) {
       // first value, nothing to aggregate. check type, set and continue.
@@ -1736,8 +1736,15 @@ void Aggregate::AggregateCursor::Update(
         case Aggregation::Op::COUNT:
           *value_it = 1;
           break;
-        case Aggregation::Op::COLLECT:
-          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+        case Aggregation::Op::COLLECT_LIST:
+            value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+            break;
+        case Aggregation::Op::COLLECT_MAP:
+            auto key = agg_elem_it->key->Accept(evaluator);
+            if (key.type() != TypedValue::Type::String)
+              throw QueryRuntimeException("Map key must be a string");
+            value_it->Value<std::map<std::string, TypedValue>>().emplace(
+                key.Value<std::string>(), input_value);
           break;
       }
       continue;
@@ -1781,8 +1788,15 @@ void Aggregate::AggregateCursor::Update(
         EnsureOkForAvgSum(input_value);
         *value_it = *value_it + input_value;
         break;
-      case Aggregation::Op::COLLECT:
-        value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+      case Aggregation::Op::COLLECT_LIST:
+          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+          break;
+      case Aggregation::Op::COLLECT_MAP:
+          auto key = agg_elem_it->key->Accept(evaluator);
+          if (key.type() != TypedValue::Type::String)
+            throw QueryRuntimeException("Map key must be a string");
+          value_it->Value<std::map<std::string, TypedValue>>().emplace(
+              key.Value<std::string>(), input_value);
         break;
     }  // end switch over Aggregation::Op enum
   }    // end loop over all aggregations

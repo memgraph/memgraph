@@ -797,11 +797,11 @@ class Function : public Expression {
       : Expression(uid), function_(function), arguments_(arguments) {}
 };
 
-class Aggregation : public UnaryOperator {
+class Aggregation : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:
-  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT };
+  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP };
   static const constexpr char *const kCount = "COUNT";
   static const constexpr char *const kMin = "MIN";
   static const constexpr char *const kMax = "MAX";
@@ -812,26 +812,31 @@ class Aggregation : public UnaryOperator {
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      if (expression_) {
-        expression_->Accept(visitor);
-      }
+      if (expression1_) expression1_->Accept(visitor);
+      if (expression2_) expression2_->Accept(visitor);
     }
     return visitor.PostVisit(*this);
   }
 
   Aggregation *Clone(AstTreeStorage &storage) const override {
     return storage.Create<Aggregation>(
-        expression_ ? expression_->Clone(storage) : nullptr, op_);
+        expression1_ ? expression1_->Clone(storage) : nullptr,
+        expression2_ ? expression2_->Clone(storage) : nullptr, op_);
   }
 
   Op op_;
 
  protected:
-  Aggregation(int uid, Expression *expression, Op op)
-      : UnaryOperator(uid, expression), op_(op) {
+  /** Aggregation's first expression is the value being aggregated. The second
+   * expression is the key used only in COLLECT_MAP. */
+  Aggregation(int uid, Expression *expression1, Expression *expression2, Op op)
+      : BinaryOperator(uid, expression1, expression2), op_(op) {
     // COUNT without expression denotes COUNT(*) in cypher.
-    debug_assert(expression || op == Aggregation::Op::COUNT,
+    debug_assert(expression1 || op == Aggregation::Op::COUNT,
                  "All aggregations, except COUNT require expression");
+    debug_assert(expression2 == nullptr ^ op == Aggregation::Op::COLLECT_MAP,
+                 "The second expression is obligatory in COLLECT_MAP and "
+                 "invalid otherwise");
   }
 };
 

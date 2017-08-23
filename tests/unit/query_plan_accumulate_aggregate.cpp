@@ -23,6 +23,7 @@ using namespace query;
 using namespace query::plan;
 using testing::UnorderedElementsAre;
 using query::test_common::ToList;
+using query::test_common::ToMap;
 
 TEST(QueryPlan, Accumulate) {
   // simulate the following two query execution on an empty db
@@ -129,12 +130,16 @@ std::shared_ptr<Produce> MakeAggregationProduce(
         symbol_table.CreateSymbol("aggregation", true);
     symbol_table[*named_expr] =
         symbol_table.CreateSymbol("named_expression", true);
-    aggregates.emplace_back(*aggr_inputs_it++, aggr_op,
-                            symbol_table[*named_expr->expression_]);
+    // the key expression is only used in COLLECT_MAP
+    Expression *key_expr_ptr =
+        aggr_op == Aggregation::Op::COLLECT_MAP ? LITERAL("key") : nullptr;
+    aggregates.emplace_back(
+        Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op,
+                           symbol_table[*named_expr->expression_]});
   }
 
-  // Produce will also evaluate group_by expressions
-  // and return them after the aggregations
+  // Produce will also evaluate group_by expressions and return them after the
+  // aggregations.
   for (auto group_by_expr : group_by_exprs) {
     auto named_expr = NEXPR("", group_by_expr);
     named_expressions.push_back(named_expr);
@@ -146,7 +151,7 @@ std::shared_ptr<Produce> MakeAggregationProduce(
   return std::make_shared<Produce>(aggregation, named_expressions);
 }
 
-/** Test fixture for all the aggregation ops in one return */
+/** Test fixture for all the aggregation ops in one return. */
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
   Dbms dbms;
@@ -174,13 +179,14 @@ class QueryPlanAggregateOps : public ::testing::Test {
                               Aggregation::Op::COUNT, Aggregation::Op::COUNT,
                               Aggregation::Op::MIN, Aggregation::Op::MAX,
                               Aggregation::Op::SUM, Aggregation::Op::AVG,
-                              Aggregation::Op::COLLECT}) {
+                              Aggregation::Op::COLLECT_LIST,
+                              Aggregation::Op::COLLECT_MAP}) {
     // match all nodes and perform aggregations
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP("n", prop);
     symbol_table[*n_p->expression_] = n.sym_;
 
-    std::vector<Expression *> aggregation_expressions(7, n_p);
+    std::vector<Expression *> aggregation_expressions(ops.size(), n_p);
     std::vector<Expression *> group_bys;
     if (with_group_by) group_bys.push_back(n_p);
     aggregation_expressions[0] = nullptr;
@@ -196,7 +202,7 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   auto results = AggregationResults(false);
 
   ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 7);
+  ASSERT_EQ(results[0].size(), 8);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][0].Value<int64_t>(), 4);
@@ -215,9 +221,15 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   // avg
   ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
   EXPECT_FLOAT_EQ(results[0][5].Value<double>(), 24 / 3.0);
-  // collect
+  // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
   EXPECT_THAT(ToList<int64_t>(results[0][6]), UnorderedElementsAre(5, 7, 12));
+  // collect map
+  ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
+  auto map = ToMap<int64_t>(results[0][7]);
+  ASSERT_EQ(map.size(), 1);
+  EXPECT_EQ(map.begin()->first, "key");
+  EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
 }
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
@@ -242,7 +254,11 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
     EXPECT_EQ(results.size(), 0);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::COLLECT});
+    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
+    EXPECT_EQ(results.size(), 0);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
     EXPECT_EQ(results.size(), 0);
   }
 }
@@ -250,7 +266,7 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
 TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   auto results = AggregationResults(false);
   ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 7);
+  ASSERT_EQ(results[0].size(), 8);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][0].Value<int64_t>(), 0);
@@ -265,17 +281,18 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   EXPECT_TRUE(results[0][4].IsNull());
   // avg
   EXPECT_TRUE(results[0][5].IsNull());
-  // collect
+  // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_THAT(ToList<int64_t>(results[0][6]), UnorderedElementsAre());
+  EXPECT_EQ(ToList<int64_t>(results[0][6]).size(), 0);
+  // collect map
+  ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
+  EXPECT_EQ(ToMap<int64_t>(results[0][7]).size(), 0);
 }
 
 TEST(QueryPlan, AggregateGroupByValues) {
-  // tests that distinct groups are aggregated properly
-  // for values of all types
-  // also test the "remember" part of the Aggregation API
-  // as final results are obtained via a property lookup of
-  // a remembered node
+  // Tests that distinct groups are aggregated properly for values of all types.
+  // Also test the "remember" part of the Aggregation API as final results are
+  // obtained via a property lookup of a remembered node.
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -475,7 +492,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
     CollectProduce(produce.get(), symbol_table, *dba);
   };
 
-  // everything except for COUNT fails on a Vertex
+  // everything except for COUNT and COLLECT fails on a Vertex
   aggregate(n_id, Aggregation::Op::COUNT);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
@@ -497,6 +514,8 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   aggregate(n_prop_int, Aggregation::Op::MAX);
   aggregate(n_prop_int, Aggregation::Op::AVG);
   aggregate(n_prop_int, Aggregation::Op::SUM);
+  aggregate(n_prop_int, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_prop_int, Aggregation::Op::COLLECT_MAP);
 }
 
 TEST(QueryPlan, AggregateTypes) {
@@ -530,9 +549,11 @@ TEST(QueryPlan, AggregateTypes) {
     CollectProduce(produce.get(), symbol_table, *dba);
   };
 
-  // everything except for COUNT fails on a Vertex
+  // everything except for COUNT and COLLECT fails on a Vertex
   auto n_id = n_p1->expression_;
   aggregate(n_id, Aggregation::Op::COUNT);
+  aggregate(n_id, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_id, Aggregation::Op::COLLECT_MAP);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
@@ -540,13 +561,17 @@ TEST(QueryPlan, AggregateTypes) {
 
   // on strings AVG and SUM fail
   aggregate(n_p1, Aggregation::Op::COUNT);
+  aggregate(n_p1, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_p1, Aggregation::Op::COLLECT_MAP);
   aggregate(n_p1, Aggregation::Op::MIN);
   aggregate(n_p1, Aggregation::Op::MAX);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
 
-  // combination of int and bool, everything except count fails
+  // combination of int and bool, everything except COUNT and COLLECT fails
   aggregate(n_p2, Aggregation::Op::COUNT);
+  aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);

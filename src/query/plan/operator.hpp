@@ -1146,9 +1146,15 @@ struct TypedValueListEqual {
 class Aggregate : public LogicalOperator {
  public:
   /** @brief An aggregation element, contains:
-   * (input data expression, type of aggregation, output symbol).
+   * (input data expression, key expression - only used in COLLECT_MAP, type of
+   * aggregation, output symbol).
    */
-  using Element = std::tuple<Expression *, Aggregation::Op, Symbol>;
+  struct Element {
+    Expression *value;
+    Expression *key;
+    Aggregation::Op op;
+    Symbol output_sym;
+  };
 
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
             const std::vector<Element> &aggregations,

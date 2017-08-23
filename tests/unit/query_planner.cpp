@@ -168,9 +168,10 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     for (const auto &aggr_elem : op.aggregations()) {
       ASSERT_NE(aggr_it, aggregations_.end());
       auto aggr = *aggr_it++;
-      auto expected =
-          std::make_tuple(aggr->expression_, aggr->op_, symbol_table.at(*aggr));
-      EXPECT_EQ(expected, aggr_elem);
+      EXPECT_EQ(aggr_elem.value, aggr->expression1_);
+      EXPECT_EQ(aggr_elem.key, aggr->expression2_);
+      EXPECT_EQ(aggr_elem.op, aggr->op_);
+      EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
     }
     EXPECT_EQ(aggr_it, aggregations_.end());
     auto got_group_by = std::unordered_set<query::Expression *>(

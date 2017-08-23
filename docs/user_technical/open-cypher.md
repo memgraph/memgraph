@@ -190,15 +190,23 @@ openCypher has functions for aggregating data. Memgraph currently supports
 the following aggregating functions.
 
   * `avg`, for calculating the average.
-  * `collect`, for collecting multiple values into a single list.
+  * `collect`, for collecting multiple values into a single list or map. If given a single expression values are collected into a list. If given two expressions, values are collected into a map where the first expression denotes map keys (must be string values) and the second expression denotes map values.
   * `count`, for counting the resulting values.
   * `max`, for calculating the maximum result.
   * `min`, for calculating the minimum result.
   * `sum`, for getting the sum of numeric results.
 
-Example, calculating the average age.
+Example, calculating the average age:
 
     MATCH (n :Person) RETURN avg(n.age) AS averageAge
+
+Collecting items into a list:
+
+    MATCH (n :Person) RETURN collect(n.name) AS list_of_names
+
+Collecting items into a map:
+
+    MATCH (n :Person) RETURN collect(n.name, n.age) AS map_name_to_age
 
 Click
 [here](https://neo4j.com/docs/developer-manual/current/cypher/functions/aggregating/)
