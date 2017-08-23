@@ -466,8 +466,9 @@ class Reactor {
  * E.g. holds set of reactors, channels for all reactors.
  * Alive through the entire process lifetime.
  * Singleton class. Created automatically on first use.
+ * Final (can't extend) because it's a singleton. Please be careful if you're changing this.
  */
-class System {
+class System final {
  public:
   friend class Reactor;
 

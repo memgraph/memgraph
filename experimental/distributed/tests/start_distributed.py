@@ -6,7 +6,7 @@ import os
 command = 'gnome-terminal'
 program = './distributed_test'
 config_filename = 'config'
-flags = '--minloglevel=2'
+flags = '-alsologtostderr --minloglevel=2'
 
 f = open(config_filename, 'r')
 for line in f:

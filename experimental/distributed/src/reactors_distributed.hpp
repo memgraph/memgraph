@@ -107,7 +107,7 @@ class Network {
             bool success =
                 Protocol::SendMessage(nm.address, nm.port, nm.reactor,
                                       nm.channel, std::move(nm.message));
-            std::cout << "Network client message send status: " << success << std::endl;
+            DLOG(INFO) << "Network client message send status: " << success << std::endl;
           } else {
             this->mutex_.unlock();
           }
@@ -277,8 +277,9 @@ class ChannelResolvedMessage : public Message {
  * E.g. resolve remote channels by memgraph node id, etc.
  * Alive through the entire process lifetime.
  * Singleton class. Created automatically on first use.
+ * Final (can't extend) because it's a singleton. Please be careful if you're changing this.
  */
-class Distributed {
+class Distributed final {
  public:
   /**
    * Get the (singleton) instance of Distributed.
