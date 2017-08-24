@@ -4,8 +4,12 @@ void EventStream::Subscription::Unsubscribe() const {
   event_queue_.RemoveCb(*this);
 }
 
-void EventStream::Subscription::Close() const {
+void EventStream::Subscription::CloseChannel() const {
   event_queue_.Close();
+}
+
+const std::string& EventStream::Subscription::ChannelName() const {
+  return event_queue_.channel_name_;
 }
 
 thread_local Reactor* current_reactor_ = nullptr;

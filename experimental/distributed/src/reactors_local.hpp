@@ -115,7 +115,12 @@ class EventStream {
     /**
      * Close the stream. Convenience method.
      */
-    void Close() const;
+    void CloseChannel() const;
+
+    /**
+     * Get the name of the channel the message is delivered to.
+     */
+    const std::string& ChannelName() const;
 
    private:
     friend class Reactor;

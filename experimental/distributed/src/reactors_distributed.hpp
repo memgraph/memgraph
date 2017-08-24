@@ -234,7 +234,10 @@ class Network {
  */
 class ReturnAddressMsg : public Message {
  public:
-  ReturnAddressMsg();
+  /* The return address is on the current reactor, specified channel */
+  ReturnAddressMsg(std::string channel);
+
+  /* The return address is on a specified reactor/channel */
   ReturnAddressMsg(std::string reactor, std::string channel);
 
   std::string Address() const;
@@ -244,11 +247,15 @@ class ReturnAddressMsg : public Message {
 
   std::shared_ptr<ChannelWriter> GetReturnChannelWriter() const;
 
-  template <class Archive>
+  template<class Archive>
   void serialize(Archive &ar) {
     ar(cereal::virtual_base_class<Message>(this), address_, port_,
        reactor_, channel_);
   }
+
+ protected:
+  friend class cereal::access;
+  ReturnAddressMsg(); // Cereal needs access to a default constructor.
 
  private:
   std::string address_;

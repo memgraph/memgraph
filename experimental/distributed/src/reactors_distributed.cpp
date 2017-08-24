@@ -10,6 +10,9 @@ Network::Network() {}
  */
 ReturnAddressMsg::ReturnAddressMsg() {}
 
+ReturnAddressMsg::ReturnAddressMsg(std::string channel)
+    : ReturnAddressMsg(current_reactor_->name(), channel) {}
+
 ReturnAddressMsg::ReturnAddressMsg(std::string reactor, std::string channel)
     : address_(FLAGS_address),
       port_(FLAGS_port),
