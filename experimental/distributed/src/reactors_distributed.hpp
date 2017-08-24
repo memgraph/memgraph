@@ -95,6 +95,8 @@ class Network {
   /** Start a threadpool that dispatches the messages from the (outgoing) queue to the sockets */
   void StartClient(int worker_count) {
     LOG(INFO) << "Starting " << worker_count << " client workers";
+    client_run_ = true;
+
     for (int i = 0; i < worker_count; ++i) {
       pool_.push_back(std::thread([worker_count, this]() {
         while (this->client_run_) {
@@ -129,6 +131,7 @@ class Network {
     for (size_t i = 0; i < pool_.size(); ++i) {
       pool_[i].join();
     }
+    pool_.clear();
   }
 
   class RemoteChannelWriter : public ChannelWriter {
@@ -209,6 +212,7 @@ class Network {
     if (server_ != nullptr) {
       server_->Shutdown();
       thread_.join();
+      server_ = nullptr;
     }
   }
 
@@ -217,7 +221,7 @@ class Network {
   SpinLock mutex_;
   std::vector<std::thread> pool_;
   std::queue<NetworkMessage> queue_;
-  std::atomic<bool> client_run_{true};
+  std::atomic<bool> client_run_;
 
   // server variables
   std::thread thread_;

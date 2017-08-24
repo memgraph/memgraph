@@ -126,11 +126,11 @@ class Master : public Reactor {
 
     // wait until every worker sends a ReturnAddressMsg back, then close
     stream->OnEvent<TextMessage>([this](const TextMessage &msg,
-                                          const EventStream::Subscription &subscription) {
+                                          const Subscription &subscription) {
       std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
       ++workers_seen;
       if (workers_seen == worker_mnids_.size()) {
-        subscription.unsubscribe();
+        subscription.Unsubscribe();
         // Sleep for a while so we can read output in the terminal.
         // (start_distributed.py runs each process in a new tab which is
         //  closed immediately after process has finished)
@@ -143,7 +143,7 @@ class Master : public Reactor {
     for (auto wmnid : worker_mnids_) {
       auto stream = memgraph.FindChannel(wmnid, "worker", "main");
       stream->OnEventOnce()
-        .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg){
+        .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg, const Subscription&){
           msg.channelWriter()->Send<TextMessage>("master", "main", "hi from master");
           stream->Close();
         });
@@ -171,7 +171,7 @@ class Worker : public Reactor {
     auto stream = main_.first;
     // wait until master sends us a TextMessage, then reply back and close
     stream->OnEventOnce()
-      .ChainOnce<TextMessage>([this](const TextMessage &msg) {
+      .ChainOnce<TextMessage>([this](const TextMessage &msg, const Subscription&) {
       std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
 
       msg.GetReturnChannelWriter()

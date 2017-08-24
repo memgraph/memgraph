@@ -1,7 +1,11 @@
 #include "reactors_local.hpp"
 
-void EventStream::Subscription::unsubscribe() const {
+void EventStream::Subscription::Unsubscribe() const {
   event_queue_.RemoveCb(*this);
+}
+
+void EventStream::Subscription::Close() const {
+  event_queue_.Close();
 }
 
 thread_local Reactor* current_reactor_ = nullptr;
@@ -14,7 +18,9 @@ std::string Channel::LocalChannelWriter::Name() {
   return channel_name_;
 }
 
-void Channel::LocalEventStream::Close() {
+void Channel::Close() {
+  // TODO(zuza): there will be major problems if a reactor tries to close a stream that isn't theirs
+  //   luckily this should never happen if the framework is used as expected.
   current_reactor_->CloseChannel(channel_name_);
 }
 
@@ -59,11 +65,7 @@ void Reactor::CloseChannel(const std::string &s) {
   auto it = channels_.find(s);
   assert(it != channels_.end());
   channels_.erase(it);
-}
-
-void Reactor::CloseAllChannels() {
-  std::unique_lock<std::mutex> lock(*mutex_);
-  channels_.clear();
+  cvar_->notify_all();
 }
 
 void Reactor::RunEventLoop() {
@@ -76,16 +78,15 @@ void Reactor::RunEventLoop() {
       std::unique_lock<std::mutex> lock(*mutex_);
 
       while (true) {
+        // Not fair because was taken earlier, talk to lion.
+        msg_and_cb = LockedGetPendingMessages();
+        if (msg_and_cb.first != nullptr) break;
 
         // Exit the loop if there are no more Channels.
         if (channels_.empty()) {
           exit_event_loop = true;
           break;
         }
-
-        // Not fair because was taken earlier, talk to lion.
-        msg_and_cb = LockedGetPendingMessages();
-        if (msg_and_cb.first != nullptr) break;
 
         cvar_->wait(lock);
       }
@@ -112,13 +113,13 @@ auto Reactor::LockedGetPendingMessages() -> MsgAndCbInfo {
     if (msg_ptr == nullptr) continue;
     std::type_index tidx = msg_ptr->GetTypeIndex();
 
-    std::vector<std::pair<EventStream::Callback, EventStream::Subscription> > cb_info;
+    std::vector<std::pair<EventStream::Callback, Subscription> > cb_info;
     auto msg_type_cb_iter = event_queue.callbacks_.find(tidx);
     if (msg_type_cb_iter != event_queue.callbacks_.end()) { // There is a callback for this type.
       for (auto &tidx_cb_key_value : msg_type_cb_iter->second) {
         uint64_t uid = tidx_cb_key_value.first;
         EventStream::Callback cb = tidx_cb_key_value.second;
-        cb_info.emplace_back(cb, EventStream::Subscription(event_queue, tidx, uid));
+        cb_info.emplace_back(cb, Subscription(event_queue, tidx, uid));
       }
     }
 

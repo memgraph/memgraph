@@ -69,8 +69,8 @@ class ChannelWriter {
  */
 class EventStream {
  public:
-  class Subscription;
   class OnEventOnceChainer;
+  class Subscription;
 
   /**
    * Register a callback that will be called whenever an event arrives.
@@ -99,6 +99,7 @@ class EventStream {
    * Get the name of the channel.
    */
   virtual const std::string &ChannelName() = 0;
+
   /**
    * Subscription Service.
    *
@@ -109,7 +110,12 @@ class EventStream {
     /**
      * Unsubscribe. Call only once.
      */
-    void unsubscribe() const;
+    void Unsubscribe() const;
+
+    /**
+     * Close the stream. Convenience method.
+     */
+    void Close() const;
 
    private:
     friend class Reactor;
@@ -151,12 +157,12 @@ class EventStream {
     }
 
     template<typename MsgType>
-    OnEventOnceChainer &ChainOnce(std::function<void(const MsgType&)> &&cb) {
+    OnEventOnceChainer &ChainOnce(std::function<void(const MsgType&, const Subscription&)> &&cb) {
       std::function<void(const Message&, const Subscription&)> wrap =
         [cb = std::move(cb)](const Message &general_msg, const Subscription &subscription) {
           const MsgType &correct_msg = dynamic_cast<const MsgType&>(general_msg);
-          subscription.unsubscribe();
-          cb(correct_msg); // Warning: this can close the Channel, be careful what you put after it!
+          subscription.Unsubscribe();
+          cb(correct_msg, subscription); // Warning: this can close the Channel, be careful what you put after it!
       };
       cbs_.emplace_back(typeid(MsgType), std::move(wrap));
       return *this;
@@ -196,6 +202,8 @@ private:
   virtual void OnEventHelper(std::type_index tidx, Callback callback) = 0;
 };
 
+using Subscription = EventStream::Subscription; // To write less.
+
 /**
  * Implementation of a channel.
  *
@@ -218,7 +226,7 @@ class Channel {
         reactor_name_(params.reactor_name),
         mutex_(params.mutex),
         cvar_(params.cvar),
-        stream_(mutex_, channel_name_, this) {}
+        stream_(mutex_, this) {}
 
   /**
    * LocalChannelWriter represents the channels to reactors living in the same reactor system (write-end of the channels).
@@ -268,26 +276,31 @@ class Channel {
    public:
     friend class Channel;
 
-    LocalEventStream(std::shared_ptr<std::mutex> mutex, std::string channel_name,
-      Channel *queue) : mutex_(mutex), channel_name_(channel_name), queue_(queue) {}
-    std::unique_ptr<Message> AwaitEvent() {
-      std::unique_lock<std::mutex> lock(*mutex_);
-      return queue_->LockedAwaitPop(lock);
-    }
+    LocalEventStream(std::shared_ptr<std::mutex> mutex, Channel *queue) : mutex_(mutex), queue_(queue) {}
+
     void OnEventHelper(std::type_index tidx, Callback callback) {
       std::unique_lock<std::mutex> lock(*mutex_);
       queue_->LockedOnEventHelper(tidx, callback);
     }
+
     const std::string &ChannelName() {
       return queue_->channel_name_;
     }
-    void Close();
+
+    void Close() {
+      queue_->Close();
+    }
 
    private:
     std::shared_ptr<std::mutex> mutex_;
     std::string channel_name_;
     Channel *queue_;
   };
+
+  /**
+   * Close the channel. Must be called from the reactor that owns the channel.
+   */
+  void Close();
 
   Channel(const Channel &other) = delete;
   Channel(Channel &&other) = default;
@@ -316,17 +329,6 @@ private:
   std::shared_ptr<LocalChannelWriter> LockedOpenChannel() {
     assert(!self_ptr_.expired()); // TODO(zuza): fix this using this answer https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
     return std::make_shared<LocalChannelWriter>(mutex_, reactor_name_, channel_name_, self_ptr_);
-  }
-
-  std::unique_ptr<Message> LockedAwaitPop(std::unique_lock<std::mutex> &lock) {
-    while (true) {
-      std::unique_ptr<Message> m = LockedRawPop();
-      if (!m) {
-        cvar_->wait(lock);
-      } else {
-        return m;
-      }
-    }
   }
 
   std::unique_ptr<Message> LockedPop() {
@@ -394,13 +396,6 @@ class Reactor {
    * Should only be called from the Reactor thread.
    */
   void CloseChannel(const std::string &s);
-
-  /**
-   * close all channels (typically during shutdown).
-   *
-   * Should only be called from the Reactor thread.
-   */
-  void CloseAllChannels();
 
   /**
    * Get Reactor name

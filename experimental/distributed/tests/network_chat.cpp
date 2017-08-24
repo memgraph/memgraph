@@ -46,13 +46,13 @@ class ChatServer : public Reactor {
 
     auto chat = Open("chat").first;
 
-    chat->OnEvent<ChatACK>([](const ChatACK& ack, const EventStream::Subscription&) {
+    chat->OnEvent<ChatACK>([](const ChatACK& ack, const Subscription&) {
         std::cout << "Received ACK from " << ack.Address() << ":"
                   << ack.Port() << " -> '" << ack.Message() << "'"
                   << std::endl;
       });
 
-    chat->OnEvent<ChatMessage>([this](const ChatMessage& msg, const EventStream::Subscription&) {
+    chat->OnEvent<ChatMessage>([this](const ChatMessage& msg, const Subscription&) {
         std::cout << "Received message from " << msg.Address() << ":"
                   << msg.Port() << " -> '" << msg.Message() << "'"
                   << std::endl;

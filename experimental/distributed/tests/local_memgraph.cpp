@@ -151,12 +151,12 @@
 //       }
 //     }
 
-//     stream->OnEvent<Message>([this](const Message &msg, const EventStream::Subscription& subscription) {
+//     stream->OnEvent<Message>([this](const Message &msg, const Subscription& subscription) {
 //       std::cout << "Processing Query via Callback" << std::endl;
 //       const Query &query =
 //           dynamic_cast<const Query &>(msg);  // exception bad_cast
 //       ProcessQuery(&query);
-//       subscription.unsubscribe();
+//       subscription.Unsubscribe();
 //     });
 //   }
 

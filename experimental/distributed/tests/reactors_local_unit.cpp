@@ -92,7 +92,7 @@ TEST(SimpleSendTest, OneCallback) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msg, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msg, const Subscription&) {
           ASSERT_EQ(msg.x, 888);
           CloseChannel("main");
         });
@@ -132,7 +132,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt& msg, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const MessageInt& msg, const Subscription&) {
           CloseChannel("main");
           ASSERT_EQ(msg.x, 101);
         });
@@ -156,12 +156,12 @@ TEST(SimpleSendTest, DuringFirstEvent) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const Message &msg, const EventStream::Subscription &subscription) {
+      stream->OnEvent<MessageInt>([this](const Message &msg, const Subscription &subscription) {
         const MessageInt &msgint = dynamic_cast<const MessageInt&>(msg);
         if (msgint.x == 101)
           FindChannel("main")->Send<MessageInt>(102);
         if (msgint.x == 102) {
-          subscription.unsubscribe();
+          subscription.Unsubscribe();
           CloseChannel("main");
           p_.set_value(777);
         }
@@ -220,19 +220,19 @@ TEST(MultipleSendTest, UnsubscribeService) {
     virtual void Run() {
       EventStream* stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const EventStream::Subscription &subscription) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const Subscription &subscription) {
           ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
           ++num_msgs_received;
           if (msgint.x == 66) {
-            subscription.unsubscribe(); // receive only two of them
+            subscription.Unsubscribe(); // receive only two of them
           }
         });
-      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const EventStream::Subscription &subscription) {
+      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const Subscription &subscription) {
           char c = msgchar.x;
           ++num_msgs_received;
           ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
           if (num_msgs_received == 5) {
-            subscription.unsubscribe();
+            subscription.Unsubscribe();
             CloseChannel("main");
           }
         });
@@ -281,19 +281,19 @@ TEST(MultipleSendTest, OnEvent) {
       EventStream* stream = main_.first;
       correct_vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const Subscription&) {
           ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
           ++correct_vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const EventStream::Subscription&) {
+      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const Subscription&) {
           ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
           ++correct_vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent<EndMessage>([this](const EndMessage&, const EventStream::Subscription&) {
+      stream->OnEvent<EndMessage>([this](const EndMessage&, const Subscription&) {
           ASSERT_LE(correct_vals, 4);
           if (correct_vals == 4) {
             CloseChannel("main");
@@ -334,13 +334,13 @@ TEST(MultipleSendTest, Chaining) {
       EventStream* stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 55);
           })
-        .ChainOnce<MessageInt>([](const MessageInt &msg) {
+        .ChainOnce<MessageInt>([](const MessageInt &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 66);
           })
-        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 77);
             CloseChannel("main");
           });
@@ -386,13 +386,13 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
       EventStream* stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 55);
           })
-        .ChainOnce<MessageChar>([](const MessageChar &msg) {
+        .ChainOnce<MessageChar>([](const MessageChar &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 'b');
           })
-        .ChainOnce<MessageInt>([this](const MessageInt &msg) {
+        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
             ASSERT_EQ(msg.x, 77);
             CloseChannel("main");
           });
@@ -440,12 +440,12 @@ TEST(MultipleSendTest, ProcessManyMessages) {
       EventStream* stream = main_.first;
       vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const Message&, const EventStream::Subscription&) {
+      stream->OnEvent<MessageInt>([this](const Message&, const Subscription&) {
           ++vals;
           main_.second->Send<EndMessage>();
         });
 
-      stream->OnEvent<EndMessage>([this](const Message&, const EventStream::Subscription&) {
+      stream->OnEvent<EndMessage>([this](const Message&, const Subscription&) {
           ASSERT_LE(vals, num_tests);
           if (vals == num_tests) {
             CloseChannel("main");
