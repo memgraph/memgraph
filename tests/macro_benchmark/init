@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-
-if [ ! -d ve3 ]; then
-    virtualenv -p python3 ve3 || exit 1
-    source ve3/bin/activate
-    pip install -r requirements.txt || exit 1
-    deactivate
-fi

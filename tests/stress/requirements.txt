@@ -1,6 +1,1 @@
-appdirs==1.4.3
 neo4j-driver==1.3.0
-packaging==16.8
-pkg-resources==0.0.0
-pyparsing==2.2.0
-six==1.10.0

@@ -1,4 +1,22 @@
-#!/bin/bash
+#!/bin/bash -e
+
+required_pkgs=(git arcanist # source code control
+               cmake clang-3.8 llvm-3.8 pkg-config # build system
+               curl wget # for downloading libs
+               uuid-dev default-jre-headless # required by antlr
+               libreadline-dev # for memgraph console
+               python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+              )
+
+optional_pkgs=(clang-format # source code formatting
+               doxygen graphviz # source documentation generators
+               php-cli # for user technical documentation generators
+              )
+
+use_sudo=0
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
 
 function print_help () {
     echo "Usage: $0 [OPTION]"
@@ -8,16 +26,24 @@ function print_help () {
     echo -e "  -h\tdisplay this help and exit"
 }
 
-required_pkgs=(git cmake clang-3.8 llvm-3.8 doxygen
-               wget # for downloading libs, e.g. antlr
-               uuid-dev default-jre-headless # required by antlr
-              )
+function setup_virtualenv () {
+    pushd $1 > /dev/null
+    echo "Setting up virtualenv for: $1"
 
-optional_pkgs=(clang-format-3.8 # source code formatting
-               libreadline-dev # for Memgraph CLI
-              )
+    # remove old virtualenv
+    if [ -d ve3 ]; then
+        rm -rf ve3
+    fi
 
-use_sudo=0
+    # create new virtualenv
+    virtualenv -p python3 ve3 || exit 1
+    source ve3/bin/activate
+    pip install -i http://deps.memgraph.io:3141/root/pypi \
+                --trusted-host deps.memgraph.io -r requirements.txt || exit 1
+    deactivate
+
+    popd > /dev/null
+}
 
 if [[ $# -gt 1 ]]; then
     print_help
@@ -82,18 +108,12 @@ cd libs
 cd ..
 
 # setup qa dependencies
-cd tests/qa
-./init
-cd ../..
+setup_virtualenv tests/qa
 
 # setup macro benchmark
-cd tests/macro_benchmark
-./init
-cd ../..
+setup_virtualenv tests/macro_benchmark
 
 # setup stress dependencies
-cd tests/stress
-./init
-cd ../..
+setup_virtualenv tests/stress
 
 echo "Done installing dependencies for Memgraph"
