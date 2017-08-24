@@ -62,6 +62,22 @@ class ChunkedDecoderBuffer {
   }
 
   /**
+   * Peeks data from the internal buffer.
+   * Reads data, but doesn't remove it from the buffer.
+   *
+   * @param data a pointer to where the data should be read
+   * @param len the length of data that should be read
+   * @param offset offset from the beginning of the data
+   * @returns true if exactly len of data was copied into data,
+   *          false otherwise
+   */
+  bool Peek(uint8_t *data, size_t len, size_t offset = 0) {
+    if (len + offset > size_ - pos_) return false;
+    memcpy(data, &data_[pos_ + offset], len);
+    return true;
+  }
+
+  /**
    * Gets a chunk from the underlying raw data buffer.
    * When getting a chunk this function validates the chunk.
    * If the chunk isn't yet finished the function just returns false.

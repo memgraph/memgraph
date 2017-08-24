@@ -109,20 +109,22 @@ TEST_F(RecoveryTest, TestEncoding) {
   snapshot::Summary summary;
   buffer.Open(snapshot, summary);
 
-  query::TypedValue tv;
-  decoder.ReadTypedValue(&tv);
+  communication::bolt::DecodedValue dv;
+  decoder.ReadValue(&dv);
 
   std::vector<int64_t> ids;
   std::vector<std::string> edge_types;
   for (int i = 0; i < summary.vertex_num_; ++i) {
-    communication::bolt::DecodedVertex vertex;
-    decoder.ReadVertex(&vertex);
+    communication::bolt::DecodedValue vertex_dv;
+    decoder.ReadValue(&vertex_dv);
+    auto &vertex = vertex_dv.ValueVertex();
     ids.push_back(vertex.id);
   }
   std::vector<int> from, to;
   for (int i = 0; i < summary.edge_num_; ++i) {
-    communication::bolt::DecodedEdge edge;
-    decoder.ReadEdge(&edge);
+    communication::bolt::DecodedValue edge_dv;
+    decoder.ReadValue(&edge_dv);
+    auto &edge = edge_dv.ValueEdge();
     from.push_back(edge.from);
     to.push_back(edge.to);
     edge_types.push_back(edge.type);

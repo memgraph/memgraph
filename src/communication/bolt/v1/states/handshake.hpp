@@ -7,9 +7,6 @@
 
 namespace communication::bolt {
 
-static constexpr uint8_t preamble[4] = {0x60, 0x60, 0xB0, 0x17};
-static constexpr uint8_t protocol[4] = {0x00, 0x00, 0x00, 0x01};
-
 /**
  * Handshake state run function
  * This function runs everything to make a Bolt handshake with the client.
@@ -17,7 +14,7 @@ static constexpr uint8_t protocol[4] = {0x00, 0x00, 0x00, 0x01};
  */
 template <typename Session>
 State StateHandshakeRun(Session &session) {
-  auto precmp = memcmp(session.buffer_.data(), preamble, sizeof(preamble));
+  auto precmp = memcmp(session.buffer_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
     DLOG(WARNING) << "Received a wrong preamble!";
     return State::Close;
@@ -27,7 +24,7 @@ State StateHandshakeRun(Session &session) {
   // make sense to check which version the client prefers
   // this will change in the future
 
-  if (!session.socket_.Write(protocol, sizeof(protocol))) {
+  if (!session.socket_.Write(kProtocol, sizeof(kProtocol))) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }

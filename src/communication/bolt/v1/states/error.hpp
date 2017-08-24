@@ -4,6 +4,7 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "query/typed_value.hpp"
 
@@ -69,9 +70,9 @@ State StateErrorRun(Session &session, State state) {
 
     // we need to clean up all parameters from this command
     value &= 0x0F;  // the length is stored in the lower nibble
-    query::TypedValue tv;
+    DecodedValue dv;
     for (int i = 0; i < value; ++i) {
-      if (!session.decoder_.ReadTypedValue(&tv)) {
+      if (!session.decoder_.ReadValue(&dv)) {
         DLOG(WARNING) << fmt::format("Couldn't clean up parameter {} / {}!", i,
                                      value);
         return State::Close;

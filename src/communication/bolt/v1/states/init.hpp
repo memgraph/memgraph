@@ -4,6 +4,7 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "utils/likely.hpp"
@@ -45,22 +46,19 @@ State StateInitRun(Session &session) {
     // return State::Close;
   }
 
-  query::TypedValue client_name;
-  if (!session.decoder_.ReadTypedValue(&client_name,
-                                       query::TypedValue::Type::String)) {
+  DecodedValue client_name;
+  if (!session.decoder_.ReadValue(&client_name, DecodedValue::Type::String)) {
     DLOG(WARNING) << "Couldn't read client name!";
     return State::Close;
   }
 
-  query::TypedValue metadata;
-  if (!session.decoder_.ReadTypedValue(&metadata,
-                                       query::TypedValue::Type::Map)) {
+  DecodedValue metadata;
+  if (!session.decoder_.ReadValue(&metadata, DecodedValue::Type::Map)) {
     DLOG(WARNING) << "Couldn't read metadata!";
     return State::Close;
   }
 
-  LOG(INFO) << fmt::format("Client connected '{}'",
-                           client_name.Value<std::string>())
+  LOG(INFO) << fmt::format("Client connected '{}'", client_name.ValueString())
             << std::endl;
 
   if (!session.encoder_.MessageSuccess()) {

@@ -6,6 +6,7 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
@@ -25,20 +26,19 @@ State HandleRun(Session &session, State state, Marker marker) {
     return State::Close;
   }
 
-  query::TypedValue query, params;
-  if (!session.decoder_.ReadTypedValue(&query,
-                                       query::TypedValue::Type::String)) {
+  DecodedValue query, params;
+  if (!session.decoder_.ReadValue(&query, DecodedValue::Type::String)) {
     DLOG(WARNING) << "Couldn't read query string!";
     return State::Close;
   }
 
-  if (!session.decoder_.ReadTypedValue(&params, query::TypedValue::Type::Map)) {
+  if (!session.decoder_.ReadValue(&params, DecodedValue::Type::Map)) {
     DLOG(WARNING) << "Couldn't read parameters!";
     return State::Close;
   }
 
   if (state == State::WaitForRollback) {
-    if (query.Value<std::string>() == "ROLLBACK") {
+    if (query.ValueString() == "ROLLBACK") {
       session.Abort();
       // One MessageSuccess for RUN command should be flushed.
       session.encoder_.MessageSuccess(kEmptyFields);
@@ -65,7 +65,7 @@ State HandleRun(Session &session, State state, Marker marker) {
   debug_assert(!session.encoder_buffer_.HasData(),
                "There should be no data to write in this state");
 
-  DLOG(INFO) << fmt::format("[Run] '{}'", query.Value<std::string>());
+  DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
   bool in_explicit_transaction = false;
   if (session.db_accessor_) {
     // Transaction already exists.
@@ -79,7 +79,7 @@ State HandleRun(Session &session, State state, Marker marker) {
 
   // If there was not explicitly started transaction before maybe we are
   // starting one now.
-  if (!in_explicit_transaction && query.Value<std::string>() == "BEGIN") {
+  if (!in_explicit_transaction && query.ValueString() == "BEGIN") {
     // Check if query string is "BEGIN". If it is then we should start
     // transaction and wait for in-transaction queries.
     // TODO: "BEGIN" is not defined by bolt protocol or opencypher so we should
@@ -94,14 +94,14 @@ State HandleRun(Session &session, State state, Marker marker) {
   }
 
   if (in_explicit_transaction) {
-    if (query.Value<std::string>() == "COMMIT") {
+    if (query.ValueString() == "COMMIT") {
       session.Commit();
       // One MessageSuccess for RUN command should be flushed.
       session.encoder_.MessageSuccess(kEmptyFields);
       // One for PULL_ALL should be chunked.
       session.encoder_.MessageSuccess({}, false);
       return State::Result;
-    } else if (query.Value<std::string>() == "ROLLBACK") {
+    } else if (query.ValueString() == "ROLLBACK") {
       session.Abort();
       // One MessageSuccess for RUN command should be flushed.
       session.encoder_.MessageSuccess(kEmptyFields);
@@ -113,10 +113,12 @@ State HandleRun(Session &session, State state, Marker marker) {
   }
 
   try {
-    auto is_successfully_executed = session.query_engine_.Run(
-        query.Value<std::string>(), *session.db_accessor_,
-        session.output_stream_,
-        params.Value<std::map<std::string, query::TypedValue>>());
+    auto &params_map = params.ValueMap();
+    std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
+                                                       params_map.end());
+    auto is_successfully_executed =
+        session.query_engine_.Run(query.ValueString(), *session.db_accessor_,
+                                  session.output_stream_, params_tv);
 
     // TODO: once we remove compiler from query_engine we can change return type
     // to void and not do this checks here.

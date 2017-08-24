@@ -5,6 +5,9 @@
 
 namespace communication::bolt {
 
+static constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
+static constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
+
 enum class Signature : uint8_t {
   Init = 0x01,
   AckFailure = 0x0E,
@@ -39,6 +42,9 @@ enum class Marker : uint8_t {
   //   marker == Marker::TinyStruct1
   TinyStruct1 = 0xB1,
   TinyStruct2 = 0xB2,
+  TinyStruct3 = 0xB3,
+  TinyStruct4 = 0xB4,
+  TinyStruct5 = 0xB5,
 
   Null = 0xC0,
   Float64 = 0xC1,

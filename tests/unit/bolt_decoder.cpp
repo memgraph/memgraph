@@ -6,7 +6,7 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "query/typed_value.hpp"
 
-using query::TypedValue;
+using communication::bolt::DecodedValue;
 
 constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
@@ -44,49 +44,49 @@ using DecoderT = communication::bolt::Decoder<TestDecoderBuffer>;
 TEST(BoltDecoder, NullAndBool) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
-  TypedValue tv;
+  DecodedValue dv;
 
   // test null
   buffer.Write((const uint8_t *)"\xC0", 1);
-  ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-  ASSERT_EQ(tv.type(), TypedValue::Type::Null);
+  ASSERT_EQ(decoder.ReadValue(&dv), true);
+  ASSERT_EQ(dv.type(), DecodedValue::Type::Null);
 
   // test true
   buffer.Write((const uint8_t *)"\xC3", 1);
-  ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-  ASSERT_EQ(tv.type(), TypedValue::Type::Bool);
-  ASSERT_EQ(tv.Value<bool>(), true);
+  ASSERT_EQ(decoder.ReadValue(&dv), true);
+  ASSERT_EQ(dv.type(), DecodedValue::Type::Bool);
+  ASSERT_EQ(dv.ValueBool(), true);
 
   // test false
   buffer.Write((const uint8_t *)"\xC2", 1);
-  ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-  ASSERT_EQ(tv.type(), TypedValue::Type::Bool);
-  ASSERT_EQ(tv.Value<bool>(), false);
+  ASSERT_EQ(decoder.ReadValue(&dv), true);
+  ASSERT_EQ(dv.type(), DecodedValue::Type::Bool);
+  ASSERT_EQ(dv.ValueBool(), false);
 }
 
 TEST(BoltDecoder, Int) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  TypedValue tv;
+  DecodedValue dv;
 
   // test invalid marker
   buffer.Clear();
   buffer.Write((uint8_t *)"\xCD", 1);  // 0xCD is reserved in the protocol
-  ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv), false);
 
   for (int i = 0; i < 28; ++i) {
     // test missing data
     buffer.Clear();
     buffer.Write(int_encoded[i], int_encoded_len[i] - 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test all ok
     buffer.Clear();
     buffer.Write(int_encoded[i], int_encoded_len[i]);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-    ASSERT_EQ(tv.type(), TypedValue::Type::Int);
-    ASSERT_EQ(tv.Value<int64_t>(), int_decoded[i]);
+    ASSERT_EQ(decoder.ReadValue(&dv), true);
+    ASSERT_EQ(dv.type(), DecodedValue::Type::Int);
+    ASSERT_EQ(dv.ValueInt(), int_decoded[i]);
   }
 }
 
@@ -94,20 +94,20 @@ TEST(BoltDecoder, Double) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  TypedValue tv;
+  DecodedValue dv;
 
   for (int i = 0; i < 4; ++i) {
     // test missing data
     buffer.Clear();
     buffer.Write(double_encoded[i], 8);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test all ok
     buffer.Clear();
     buffer.Write(double_encoded[i], 9);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-    ASSERT_EQ(tv.type(), TypedValue::Type::Double);
-    ASSERT_EQ(tv.Value<double>(), double_decoded[i]);
+    ASSERT_EQ(decoder.ReadValue(&dv), true);
+    ASSERT_EQ(dv.type(), DecodedValue::Type::Double);
+    ASSERT_EQ(dv.ValueDouble(), double_decoded[i]);
   }
 }
 
@@ -115,7 +115,7 @@ TEST(BoltDecoder, String) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  TypedValue tv;
+  DecodedValue dv;
 
   uint8_t headers[][6] = {"\x8F", "\xD0\x0F", "\xD1\x00\x0F",
                           "\xD2\x00\x00\x00\x0F"};
@@ -125,21 +125,21 @@ TEST(BoltDecoder, String) {
     // test missing data in header
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i] - 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test missing elements
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     buffer.Write(data, 14);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test all ok
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     buffer.Write(data, 15);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-    ASSERT_EQ(tv.type(), TypedValue::Type::String);
-    std::string &str = tv.Value<std::string>();
+    ASSERT_EQ(decoder.ReadValue(&dv), true);
+    ASSERT_EQ(dv.type(), DecodedValue::Type::String);
+    std::string &str = dv.ValueString();
     for (int j = 0; j < 15; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
   }
 }
@@ -148,7 +148,7 @@ TEST(BoltDecoder, List) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  TypedValue tv;
+  DecodedValue dv;
 
   uint8_t headers[][6] = {"\x9F", "\xD4\x0F", "\xD5\x00\x0F",
                           "\xD6\x00\x00\x00\x0F"};
@@ -158,23 +158,23 @@ TEST(BoltDecoder, List) {
     // test missing data in header
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i] - 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test missing elements
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     for (uint8_t j = 0; j < 14; ++j) buffer.Write(&j, 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test all ok
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     for (uint8_t j = 0; j < 15; ++j) buffer.Write(&j, 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-    ASSERT_EQ(tv.type(), TypedValue::Type::List);
-    std::vector<TypedValue> &val = tv.Value<std::vector<TypedValue>>();
+    ASSERT_EQ(decoder.ReadValue(&dv), true);
+    ASSERT_EQ(dv.type(), DecodedValue::Type::List);
+    std::vector<DecodedValue> &val = dv.ValueList();
     ASSERT_EQ(val.size(), 15);
-    for (int j = 0; j < 15; ++j) EXPECT_EQ(val[j].Value<int64_t>(), j);
+    for (int j = 0; j < 15; ++j) EXPECT_EQ(val[j].ValueInt(), j);
   }
 }
 
@@ -182,7 +182,7 @@ TEST(BoltDecoder, Map) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  TypedValue tv;
+  DecodedValue dv;
 
   uint8_t headers[][6] = {"\xAF", "\xD8\x0F", "\xD9\x00\x0F",
                           "\xDA\x00\x00\x00\x0F"};
@@ -195,20 +195,20 @@ TEST(BoltDecoder, Map) {
     // test missing data in header
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i] - 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test wrong index type
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     buffer.Write(&wrong_index, 1);
     buffer.Write(&wrong_index, 1);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test missing element data
     buffer.Clear();
     buffer.Write(headers[i], headers_len[i]);
     buffer.Write(index, 2);
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test missing elements
     buffer.Clear();
@@ -217,7 +217,7 @@ TEST(BoltDecoder, Map) {
       buffer.Write(index, 2);
       buffer.Write(&j, 1);
     }
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test elements with same index
     buffer.Clear();
@@ -226,7 +226,7 @@ TEST(BoltDecoder, Map) {
       buffer.Write(index, 2);
       buffer.Write(&j, 1);
     }
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), false);
+    ASSERT_EQ(decoder.ReadValue(&dv), false);
 
     // test all ok
     buffer.Clear();
@@ -237,16 +237,15 @@ TEST(BoltDecoder, Map) {
       buffer.Write(&tmp, 1);
       buffer.Write(&j, 1);
     }
-    ASSERT_EQ(decoder.ReadTypedValue(&tv), true);
-    ASSERT_EQ(tv.type(), TypedValue::Type::Map);
-    std::map<std::string, TypedValue> &val =
-        tv.Value<std::map<std::string, TypedValue>>();
+    ASSERT_EQ(decoder.ReadValue(&dv), true);
+    ASSERT_EQ(dv.type(), DecodedValue::Type::Map);
+    std::map<std::string, DecodedValue> &val = dv.ValueMap();
     ASSERT_EQ(val.size(), 15);
     for (int j = 0; j < 15; ++j) {
       char tmp_chr = 'a' + j;
-      TypedValue tmp_tv = val[std::string(1, tmp_chr)];
-      EXPECT_EQ(tmp_tv.type(), TypedValue::Type::Int);
-      EXPECT_EQ(tmp_tv.Value<int64_t>(), j);
+      DecodedValue tmp_dv = val[std::string(1, tmp_chr)];
+      EXPECT_EQ(tmp_dv.type(), DecodedValue::Type::Int);
+      EXPECT_EQ(tmp_dv.ValueInt(), j);
     }
   }
 }
@@ -255,7 +254,7 @@ TEST(BoltDecoder, Vertex) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  communication::bolt::DecodedVertex dv;
+  DecodedValue dv;
 
   uint8_t header[] = "\xB3\x4E";
   uint8_t wrong_header[] = "\x00\x00";
@@ -267,31 +266,31 @@ TEST(BoltDecoder, Vertex) {
   // test missing signature
   buffer.Clear();
   buffer.Write(wrong_header, 1);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test wrong marker
   buffer.Clear();
   buffer.Write(wrong_header, 2);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test wrong signature
   buffer.Clear();
   buffer.Write(header, 1);
   buffer.Write(wrong_header, 1);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test ID wrong type
   buffer.Clear();
   buffer.Write(header, 2);
   buffer.Write(test_str, 2);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test labels wrong outer type
   buffer.Clear();
   buffer.Write(header, 2);
   buffer.Write(test_int, 1);
   buffer.Write(test_int, 1);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test labels wrong inner type
   buffer.Clear();
@@ -299,7 +298,7 @@ TEST(BoltDecoder, Vertex) {
   buffer.Write(test_int, 1);
   buffer.Write(test_list, 1);
   buffer.Write(test_int, 1);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test properties wrong outer type
   buffer.Clear();
@@ -307,7 +306,7 @@ TEST(BoltDecoder, Vertex) {
   buffer.Write(test_int, 1);
   buffer.Write(test_list, 1);
   buffer.Write(test_str, 2);
-  ASSERT_EQ(decoder.ReadVertex(&dv), false);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), false);
 
   // test all ok
   buffer.Clear();
@@ -318,17 +317,18 @@ TEST(BoltDecoder, Vertex) {
   buffer.Write(test_map, 1);
   buffer.Write(test_str, 2);
   buffer.Write(test_int, 1);
-  ASSERT_EQ(decoder.ReadVertex(&dv), true);
-  ASSERT_EQ(dv.id, 1);
-  ASSERT_EQ(dv.labels[0], std::string("a"));
-  ASSERT_EQ(dv.properties[std::string("a")].Value<int64_t>(), 1);
+  ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), true);
+  auto &vertex = dv.ValueVertex();
+  ASSERT_EQ(vertex.id, 1);
+  ASSERT_EQ(vertex.labels[0], std::string("a"));
+  ASSERT_EQ(vertex.properties[std::string("a")].ValueInt(), 1);
 }
 
 TEST(BoltDecoder, Edge) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
-  communication::bolt::DecodedEdge de;
+  DecodedValue de;
 
   uint8_t header[] = "\xB5\x52";
   uint8_t wrong_header[] = "\x00\x00";
@@ -341,31 +341,31 @@ TEST(BoltDecoder, Edge) {
   // test missing signature
   buffer.Clear();
   buffer.Write(wrong_header, 1);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test wrong marker
   buffer.Clear();
   buffer.Write(wrong_header, 2);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test wrong signature
   buffer.Clear();
   buffer.Write(header, 1);
   buffer.Write(wrong_header, 1);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test ID wrong type
   buffer.Clear();
   buffer.Write(header, 2);
   buffer.Write(test_str, 2);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test from_id wrong type
   buffer.Clear();
   buffer.Write(header, 2);
   buffer.Write(test_int1, 1);
   buffer.Write(test_str, 2);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test to_id wrong type
   buffer.Clear();
@@ -373,7 +373,7 @@ TEST(BoltDecoder, Edge) {
   buffer.Write(test_int1, 1);
   buffer.Write(test_int2, 1);
   buffer.Write(test_str, 2);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test type wrong type
   buffer.Clear();
@@ -382,7 +382,7 @@ TEST(BoltDecoder, Edge) {
   buffer.Write(test_int2, 1);
   buffer.Write(test_int3, 1);
   buffer.Write(test_int1, 1);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test properties wrong outer type
   buffer.Clear();
@@ -392,7 +392,7 @@ TEST(BoltDecoder, Edge) {
   buffer.Write(test_int3, 1);
   buffer.Write(test_str, 2);
   buffer.Write(test_int1, 1);
-  ASSERT_EQ(decoder.ReadEdge(&de), false);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), false);
 
   // test all ok
   buffer.Clear();
@@ -404,12 +404,13 @@ TEST(BoltDecoder, Edge) {
   buffer.Write(test_map, 1);
   buffer.Write(test_str, 2);
   buffer.Write(test_int1, 1);
-  ASSERT_EQ(decoder.ReadEdge(&de), true);
-  ASSERT_EQ(de.id, 1);
-  ASSERT_EQ(de.from, 2);
-  ASSERT_EQ(de.to, 3);
-  ASSERT_EQ(de.type, std::string("a"));
-  ASSERT_EQ(de.properties[std::string("a")].Value<int64_t>(), 1);
+  ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), true);
+  auto &edge = de.ValueEdge();
+  ASSERT_EQ(edge.id, 1);
+  ASSERT_EQ(edge.from, 2);
+  ASSERT_EQ(edge.to, 3);
+  ASSERT_EQ(edge.type, std::string("a"));
+  ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
 }
 
 int main(int argc, char **argv) {

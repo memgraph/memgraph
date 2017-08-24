@@ -5,40 +5,16 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "query/typed_value.hpp"
 #include "utils/bswap.hpp"
 #include "utils/underlying_cast.hpp"
 
 namespace communication::bolt {
 
 /**
- * Structure used when reading a Vertex with the decoder.
- * The decoder writes data into this structure.
- */
-struct DecodedVertex {
-  int64_t id;
-  std::vector<std::string> labels;
-  std::map<std::string, query::TypedValue> properties;
-};
-
-/**
- * Structure used when reading an Edge with the decoder.
- * The decoder writes data into this structure.
- */
-struct DecodedEdge {
-  int64_t id;
-  int64_t from;
-  int64_t to;
-  std::string type;
-  std::map<std::string, query::TypedValue> properties;
-};
-
-/**
  * Bolt Decoder.
  * Has public interfaces for reading Bolt encoded data.
- * Supports reading: TypedValue (without Vertex, Edge and Path),
- *                   Vertex, Edge
  *
  * @tparam Buffer the input buffer that should be used
  */
@@ -48,20 +24,20 @@ class Decoder {
   Decoder(Buffer &buffer) : buffer_(buffer) {}
 
   /**
-   * Reads a TypedValue from the available data in the buffer.
-   * This function tries to read a TypedValue from the available data.
+   * Reads a DecodedValue from the available data in the buffer.
+   * This function tries to read a DecodedValue from the available data.
    *
-   * @param data pointer to a TypedValue where the read data should be stored
+   * @param data pointer to a DecodedValue where the read data should be stored
    * @returns true if data has been written to the data pointer,
    *          false otherwise
    */
-  bool ReadTypedValue(query::TypedValue *data) {
+  bool ReadValue(DecodedValue *data) {
     uint8_t value;
 
-    DLOG(INFO) << "[ReadTypedValue] Start";
+    DLOG(INFO) << "[ReadValue] Start";
 
     if (!buffer_.Read(&value, 1)) {
-      DLOG(WARNING) << "[ReadTypedValue] Marker data missing!";
+      DLOG(WARNING) << "[ReadValue] Marker data missing!";
       return false;
     }
 
@@ -99,6 +75,12 @@ class Decoder {
       case Marker::Map32:
         return ReadMap(marker, data);
 
+      case Marker::TinyStruct3:
+        return ReadVertex(marker, data);
+
+      case Marker::TinyStruct5:
+        return ReadEdge(marker, data);
+
       default:
         if ((value & 0xF0) == underlying_cast(Marker::TinyString)) {
           return ReadString(marker, data);
@@ -114,21 +96,21 @@ class Decoder {
   }
 
   /**
-   * Reads a TypedValue from the available data in the buffer and checks
+   * Reads a DecodedValue from the available data in the buffer and checks
    * whether the read data type matches the supplied data type.
    *
-   * @param data pointer to a TypedValue where the read data should be stored
+   * @param data pointer to a DecodedValue where the read data should be stored
    * @param type the expected type that should be read
    * @returns true if data has been written to the data pointer and the type
    *          matches the expected type, false otherwise
    */
-  bool ReadTypedValue(query::TypedValue *data, query::TypedValue::Type type) {
-    if (!ReadTypedValue(data)) {
-      DLOG(WARNING) << "[ReadTypedValue] ReadTypedValue call failed!";
+  bool ReadValue(DecodedValue *data, DecodedValue::Type type) {
+    if (!ReadValue(data)) {
+      DLOG(WARNING) << "[ReadValue] ReadValue call failed!";
       return false;
     }
     if (data->type() != type) {
-      DLOG(WARNING) << "[ReadTypedValue] Typed value has wrong type!";
+      DLOG(WARNING) << "[ReadValue] Decoded value has wrong type!";
       return false;
     }
     return true;
@@ -159,164 +141,32 @@ class Decoder {
     return true;
   }
 
-  /**
-   * Reads a Vertex from the available data in the buffer.
-   * This function tries to read a Vertex from the available data.
-   *
-   * @param data pointer to a DecodedVertex where the data should be stored
-   * @returns true if data has been written into the data pointer,
-   *          false otherwise
-   */
-  bool ReadVertex(DecodedVertex *data) {
-    uint8_t value[2];
-    query::TypedValue tv;
-
-    DLOG(INFO) << "[ReadVertex] Start";
-
-    if (!buffer_.Read(value, 2)) {
-      DLOG(WARNING) << "[ReadVertex] Missing marker and/or signature data!";
-      return false;
-    }
-
-    // check header
-    if (value[0] != underlying_cast(Marker::TinyStruct) + 3) {
-      DLOG(WARNING) << "[ReadVertex] Received invalid marker " << value[0];
-      return false;
-    }
-    if (value[1] != underlying_cast(Signature::Node)) {
-      DLOG(WARNING) << "[ReadVertex] Received invalid signature " << value[1];
-      return false;
-    }
-
-    // read ID
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
-      DLOG(WARNING) << "[ReadVertex] Couldn't read ID!";
-      return false;
-    }
-    data->id = tv.Value<int64_t>();
-
-    // read labels
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::List)) {
-      DLOG(WARNING) << "[ReadVertex] Couldn't read labels!";
-      return false;
-    }
-    auto &labels = tv.Value<std::vector<query::TypedValue>>();
-    data->labels.resize(labels.size());
-    for (size_t i = 0; i < labels.size(); ++i) {
-      if (labels[i].type() != query::TypedValue::Type::String) {
-        DLOG(WARNING) << "[ReadVertex] Label has wrong type!";
-        return false;
-      }
-      data->labels[i] = labels[i].Value<std::string>();
-    }
-
-    // read properties
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Map)) {
-      DLOG(WARNING) << "[ReadVertex] Couldn't read properties!";
-      return false;
-    }
-    data->properties = tv.Value<std::map<std::string, query::TypedValue>>();
-
-    DLOG(INFO) << "[ReadVertex] Success";
-
-    return true;
-  }
-
-  /**
-   * Reads an Edge from the available data in the buffer.
-   * This function tries to read an Edge from the available data.
-   *
-   * @param data pointer to a DecodedEdge where the data should be stored
-   * @returns true if data has been written into the data pointer,
-   *          false otherwise
-   */
-  bool ReadEdge(DecodedEdge *data) {
-    uint8_t value[2];
-    query::TypedValue tv;
-
-    DLOG(INFO) << "[ReadEdge] Start";
-
-    if (!buffer_.Read(value, 2)) {
-      DLOG(WARNING) << "[ReadEdge] Missing marker and/or signature data!";
-      return false;
-    }
-
-    // check header
-    if (value[0] != underlying_cast(Marker::TinyStruct) + 5) {
-      DLOG(WARNING) << "[ReadEdge] Received invalid marker " << value[0];
-      return false;
-    }
-    if (value[1] != underlying_cast(Signature::Relationship)) {
-      DLOG(WARNING) << "[ReadEdge] Received invalid signature " << value[1];
-      return false;
-    }
-
-    // read ID
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
-      DLOG(WARNING) << "[ReadEdge] couldn't read ID!";
-      return false;
-    }
-    data->id = tv.Value<int64_t>();
-
-    // read from
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
-      DLOG(WARNING) << "[ReadEdge] Couldn't read from_id!";
-      return false;
-    }
-    data->from = tv.Value<int64_t>();
-
-    // read to
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Int)) {
-      DLOG(WARNING) << "[ReadEdge] Couldn't read to_id!";
-      return false;
-    }
-    data->to = tv.Value<int64_t>();
-
-    // read type
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::String)) {
-      DLOG(WARNING) << "[ReadEdge] Couldn't read type!";
-      return false;
-    }
-    data->type = tv.Value<std::string>();
-
-    // read properties
-    if (!ReadTypedValue(&tv, query::TypedValue::Type::Map)) {
-      DLOG(WARNING) << "[ReadEdge] Couldn't read properties!";
-      return false;
-    }
-    data->properties = tv.Value<std::map<std::string, query::TypedValue>>();
-
-    DLOG(INFO) << "ReadEdge] Success";
-
-    return true;
-  }
-
  protected:
   Buffer &buffer_;
 
  private:
-  bool ReadNull(const Marker &marker, query::TypedValue *data) {
+  bool ReadNull(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadNull] Start";
     debug_assert(marker == Marker::Null, "Received invalid marker!");
-    *data = query::TypedValue::Null;
+    *data = DecodedValue();
     DLOG(INFO) << "[ReadNull] Success";
     return true;
   }
 
-  bool ReadBool(const Marker &marker, query::TypedValue *data) {
+  bool ReadBool(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadBool] Start";
     debug_assert(marker == Marker::False || marker == Marker::True,
                  "Received invalid marker!");
     if (marker == Marker::False) {
-      *data = query::TypedValue(false);
+      *data = DecodedValue(false);
     } else {
-      *data = query::TypedValue(true);
+      *data = DecodedValue(true);
     }
     DLOG(INFO) << "[ReadBool] Success";
     return true;
   }
 
-  bool ReadInt(const Marker &marker, query::TypedValue *data) {
+  bool ReadInt(const Marker &marker, DecodedValue *data) {
     uint8_t value = underlying_cast(marker);
     bool success = true;
     int64_t ret;
@@ -362,13 +212,13 @@ class Decoder {
       return false;
     }
     if (success) {
-      *data = query::TypedValue(ret);
+      *data = DecodedValue(ret);
       DLOG(INFO) << "[ReadInt] Success";
     }
     return success;
   }
 
-  bool ReadDouble(const Marker marker, query::TypedValue *data) {
+  bool ReadDouble(const Marker marker, DecodedValue *data) {
     uint64_t value;
     double ret;
     DLOG(INFO) << "[ReadDouble] Start";
@@ -379,7 +229,7 @@ class Decoder {
     }
     value = bswap(value);
     ret = *reinterpret_cast<double *>(&value);
-    *data = query::TypedValue(ret);
+    *data = DecodedValue(ret);
     DLOG(INFO) << "[ReadDouble] Success";
     return true;
   }
@@ -422,7 +272,7 @@ class Decoder {
     }
   }
 
-  bool ReadString(const Marker &marker, query::TypedValue *data) {
+  bool ReadString(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadString] Start";
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
@@ -434,32 +284,32 @@ class Decoder {
       DLOG(WARNING) << "[ReadString] Missing data!";
       return false;
     }
-    *data = query::TypedValue(
-        std::string(reinterpret_cast<char *>(ret.get()), size));
+    *data =
+        DecodedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
     DLOG(INFO) << "[ReadString] Success";
     return true;
   }
 
-  bool ReadList(const Marker &marker, query::TypedValue *data) {
+  bool ReadList(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadList] Start";
     auto size = ReadTypeSize(marker, MarkerList);
     if (size == -1) {
       DLOG(WARNING) << "[ReadList] Couldn't get size!";
       return false;
     }
-    std::vector<query::TypedValue> ret(size);
+    std::vector<DecodedValue> ret(size);
     for (int64_t i = 0; i < size; ++i) {
-      if (!ReadTypedValue(&ret[i])) {
+      if (!ReadValue(&ret[i])) {
         DLOG(WARNING) << "[ReadList] Couldn't read element " << i;
         return false;
       }
     }
-    *data = query::TypedValue(ret);
+    *data = DecodedValue(ret);
     DLOG(INFO) << "[ReadList] Success";
     return true;
   }
 
-  bool ReadMap(const Marker &marker, query::TypedValue *data) {
+  bool ReadMap(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadMap] Start";
     auto size = ReadTypeSize(marker, MarkerMap);
     if (size == -1) {
@@ -467,25 +317,25 @@ class Decoder {
       return false;
     }
 
-    query::TypedValue tv;
+    DecodedValue dv;
     std::string str;
-    std::map<std::string, query::TypedValue> ret;
+    std::map<std::string, DecodedValue> ret;
     for (int64_t i = 0; i < size; ++i) {
-      if (!ReadTypedValue(&tv)) {
+      if (!ReadValue(&dv)) {
         DLOG(WARNING) << "[ReadMap] Couldn't read index " << i;
         return false;
       }
-      if (tv.type() != query::TypedValue::Type::String) {
+      if (dv.type() != DecodedValue::Type::String) {
         DLOG(WARNING) << "[ReadMap] Index " << i << " isn't a string!";
         return false;
       }
-      str = tv.Value<std::string>();
+      str = dv.ValueString();
 
-      if (!ReadTypedValue(&tv)) {
+      if (!ReadValue(&dv)) {
         DLOG(WARNING) << "[ReadMap] Couldn't read element " << i;
         return false;
       }
-      ret.insert(std::make_pair(str, tv));
+      ret.insert(std::make_pair(str, dv));
     }
     if (ret.size() != size) {
       DLOG(WARNING)
@@ -493,8 +343,132 @@ class Decoder {
       return false;
     }
 
-    *data = query::TypedValue(ret);
+    *data = DecodedValue(ret);
     DLOG(INFO) << "[ReadMap] Success";
+    return true;
+  }
+
+  bool ReadVertex(const Marker &marker, DecodedValue *data) {
+    uint8_t value;
+    DecodedValue dv;
+    DecodedVertex vertex;
+
+    DLOG(INFO) << "[ReadVertex] Start";
+
+    if (!buffer_.Read(&value, 1)) {
+      DLOG(WARNING) << "[ReadVertex] Missing marker and/or signature data!";
+      return false;
+    }
+
+    // check header
+    if (marker != Marker::TinyStruct3) {
+      DLOG(WARNING) << "[ReadVertex] Received invalid marker "
+                    << (uint64_t)underlying_cast(marker);
+      return false;
+    }
+    if (value != underlying_cast(Signature::Node)) {
+      DLOG(WARNING) << "[ReadVertex] Received invalid signature " << value;
+      return false;
+    }
+
+    // read ID
+    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+      DLOG(WARNING) << "[ReadVertex] Couldn't read ID!";
+      return false;
+    }
+    vertex.id = dv.ValueInt();
+
+    // read labels
+    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+      DLOG(WARNING) << "[ReadVertex] Couldn't read labels!";
+      return false;
+    }
+    auto &labels = dv.ValueList();
+    vertex.labels.resize(labels.size());
+    for (size_t i = 0; i < labels.size(); ++i) {
+      if (labels[i].type() != DecodedValue::Type::String) {
+        DLOG(WARNING) << "[ReadVertex] Label has wrong type!";
+        return false;
+      }
+      vertex.labels[i] = labels[i].ValueString();
+    }
+
+    // read properties
+    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+      DLOG(WARNING) << "[ReadVertex] Couldn't read properties!";
+      return false;
+    }
+    vertex.properties = dv.ValueMap();
+
+    *data = DecodedValue(vertex);
+
+    DLOG(INFO) << "[ReadVertex] Success";
+
+    return true;
+  }
+
+  bool ReadEdge(const Marker &marker, DecodedValue *data) {
+    uint8_t value;
+    DecodedValue dv;
+    DecodedEdge edge;
+
+    DLOG(INFO) << "[ReadEdge] Start";
+
+    if (!buffer_.Read(&value, 1)) {
+      DLOG(WARNING) << "[ReadEdge] Missing marker and/or signature data!";
+      return false;
+    }
+
+    // check header
+    if (marker != Marker::TinyStruct5) {
+      DLOG(WARNING) << "[ReadEdge] Received invalid marker "
+                    << (uint64_t)underlying_cast(marker);
+      return false;
+    }
+    if (value != underlying_cast(Signature::Relationship)) {
+      DLOG(WARNING) << "[ReadEdge] Received invalid signature " << value;
+      return false;
+    }
+
+    // read ID
+    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+      DLOG(WARNING) << "[ReadEdge] couldn't read ID!";
+      return false;
+    }
+    edge.id = dv.ValueInt();
+
+    // read from
+    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+      DLOG(WARNING) << "[ReadEdge] Couldn't read from_id!";
+      return false;
+    }
+    edge.from = dv.ValueInt();
+
+    // read to
+    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+      DLOG(WARNING) << "[ReadEdge] Couldn't read to_id!";
+      return false;
+    }
+    edge.to = dv.ValueInt();
+
+    // read type
+    if (!ReadValue(&dv, DecodedValue::Type::String)) {
+      DLOG(WARNING) << "[ReadEdge] Couldn't read type!";
+      return false;
+    }
+    edge.type = dv.ValueString();
+
+    // read properties
+    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+      DLOG(WARNING) << "[ReadEdge] Couldn't read properties!";
+      return false;
+    }
+    edge.properties = dv.ValueMap();
+
+    *data = DecodedValue(edge);
+
+    DLOG(INFO) << "[ReadEdge] Success";
+
     return true;
   }
 };
