@@ -1,5 +1,4 @@
-# Unfortunately I don't know how to force CMake to copy this script to
-# the test folder so for now you will have to do it yourself.
+# Automatically copied to the build/ directory during Makefile (configured by cmake)
 
 import os
 
