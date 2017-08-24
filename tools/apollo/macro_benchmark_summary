@@ -1,0 +1,111 @@
+#!/usr/bin/python3
+import os
+import sys
+
+def convert2float(val):
+    try:
+        return float(val)
+    except:
+        return val
+
+def parse_file(fname):
+    with open(fname) as f:
+        data = f.readlines()
+    ret = []
+    for row in data:
+        row = row.strip()
+        if row == "": continue
+        ret.append(list(map(convert2float, row.split())))
+    return ret
+
+def strip_integers(row):
+    return list(filter(lambda x: type(x) == str, row))
+
+def find_item(data, header, row):
+    headers = data[0]
+    row = strip_integers(row)
+    pos_x = -1
+    for i in range(len(data)):
+        s = strip_integers(data[i])
+        if s != row: continue
+        pos_x = i
+        break
+    if pos_x == -1: return None
+    pos_y = -1
+    for j in range(len(headers)):
+        if headers[j] != header: continue
+        pos_y = j
+        break
+    if pos_y == -1: return None
+    return data[pos_x][pos_y]
+
+def compare_values(data_cur, data_prev):
+    ret = []
+    headers = data_cur[0]
+    for i in range(len(data_cur)):
+        ret.append([])
+        row_cur = data_cur[i]
+        for j in range(len(row_cur)):
+            item_cur = row_cur[j]
+            if type(item_cur) == str:
+                item = " ".join(item_cur.split("_")).capitalize()
+            else:
+                item_prev = find_item(data_prev, headers[j], row_cur)
+                if item_prev != None:
+                    if item_prev != 0.0:
+                        diff = (item_cur - item_prev) / item_prev
+                    else:
+                        diff = 0.0
+                    if diff < -0.05:
+                        sign = " {icon arrow-down color=green}"
+                    elif diff > 0.05:
+                        sign = " {icon arrow-up color=red}"
+                    else:
+                        sign = ""
+                    item = "{:.9f} //({:+.2%})//{}".format(item_cur, diff, sign)
+                else:
+                    item = "{:.9f} //(new)// {{icon plus color=blue}}".format(item_cur)
+            ret[i].append(item)
+    return ret
+
+def generate_remarkup(data):
+    ret = "==== Macro benchmark summary: ====\n\n"
+    ret += "<table>\n"
+    for row in data:
+        ret += "  <tr>\n"
+        for item in row:
+            if row == data[0]:
+                fmt = "    <th>{}</th>\n"
+            else:
+                fmt = "    <td>{}</td>\n"
+            ret += fmt.format(item)
+        ret += "  </tr>\n"
+    ret += "</table>\n"
+    return ret
+
+if len(sys.argv) > 4 or len(sys.argv) < 3:
+    print("usage: {} current_values previous_values output_file".format(sys.argv[0]))
+    print("    output_file is optional, if not specified the script outputs")
+    print("    to stdout, if set to '-' then it overwrites current_values")
+    sys.exit(1)
+
+if len(sys.argv) == 4:
+    infile_cur, infile_prev, outfile = sys.argv[1:]
+else:
+    infile_cur, infile_prev = sys.argv[1:]
+    outfile = ""
+
+data_cur = parse_file(infile_cur)
+data_prev = parse_file(infile_prev)
+
+markup = generate_remarkup(compare_values(data_cur, data_prev))
+
+if outfile == "":
+    sys.stdout.write(markup)
+    sys.exit(0)
+
+if outfile == "-":
+    outfile = infile_cur
+
+with open(outfile, "w") as f:
+    f.write(generate_remarkup(compare_values(data_cur, data_prev)))

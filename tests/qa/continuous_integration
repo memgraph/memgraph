@@ -8,7 +8,7 @@ everything which is needed for the CI environment.
 List of responsibilities:
     * execute default suites
     * terminate execution if any of internal scenarios fails
-    * creates the report file that is needed by the Jenkins plugin
+    * creates the report file that is needed by the Apollo plugin
       to post the status on Phabricator. (.quality_assurance_status)
 """
 
@@ -43,18 +43,46 @@ def get_newest_path(folder, suffix):
     return os.path.join(folder, name_list.pop())
 
 
-def generate_status(suite, f):
+def generate_status(suite, f, required = False):
     """
     :param suite: Test suite name.
     :param f: Json file with status report.
+    :param required: Adds status ticks to the message if required.
 
     :return: Status string.
     """
     result = json.load(f)
     total = result["total"]
     passed = result["passed"]
-    return ("SUITE: %s, PASSED SCENARIOS: %s, TOTAL SCENARIOS: %s (%.2f%%)" %
-            (suite, passed, total, 100.0 * passed / total)), passed, total
+    ratio = passed / total
+    msg = "{} / {} //({:.2%})//".format(passed, total, ratio)
+    if required:
+        if passed == total:
+            msg += " {icon check color=green}"
+        else:
+            msg += " {icon times color=red}"
+    return (msg, passed, total)
+
+
+def generate_remarkup(data):
+    """
+    :param data: Tabular data to convert to remarkup.
+
+    :return: Remarkup formatted status string.
+    """
+    ret = "==== Quality assurance status: ====\n\n"
+    ret += "<table>\n"
+    for row in data:
+        ret += "  <tr>\n"
+        for item in row:
+            if row == data[0]:
+                fmt = "    <th>{}</th>\n"
+            else:
+                fmt = "    <td>{}</td>\n"
+            ret += fmt.format(item)
+        ret += "  </tr>\n"
+    ret += "</table>\n"
+    return ret
 
 
 if __name__ == "__main__":
@@ -73,13 +101,14 @@ if __name__ == "__main__":
             suite_suffix.format(memgraph_suite))
     log.info("Memgraph result path is {}".format(memgraph_result_path))
 
+    # status table headers
+    status_data = [["Suite", "Scenarios"]]
+
     # read internal scenarios
     with open(memgraph_result_path) as f:
         memgraph_status, memgraph_passed, memgraph_total \
-            = generate_status(memgraph_suite, f)
-
-    # create status message
-    qa_status_message = "Quality Assurance Status\n" + memgraph_status + "\n"
+            = generate_status(memgraph_suite, f, required = True)
+    status_data.append([memgraph_suite, memgraph_status])
 
     # read extra scenarios
     for suite in extra_suites:
@@ -87,7 +116,10 @@ if __name__ == "__main__":
         log.info("Extra suite '{}' result path is {}".format(suite, result_path))
         with open(result_path) as f:
             suite_status, _, _ = generate_status(suite, f)
-        qa_status_message += suite_status + "\n"
+        status_data.append([suite, suite_status])
+
+    # create status message
+    qa_status_message = generate_remarkup(status_data)
 
     # create the report file
     with open(qa_status_path, "w") as f:

@@ -39,9 +39,11 @@ class _QuerySuite:
     # what the QuerySuite can work with
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
                   "teardown", "common"}
-    summary = "Macro benchmark summary:\n" \
-              "{:>27}{:>27}{:>27}{:>27}{:>27}{:>27}\n".format(
-                      "scenario_name", "query_parsing_time",
+    FORMAT = ["{:>24}", "{:>28}", "{:>22}", "{:>24}", "{:>28}",
+              "{:>16}", "{:>16}"]
+    FULL_FORMAT = "".join(FORMAT) + "\n"
+    summary = FULL_FORMAT.format(
+                      "group_name", "scenario_name", "query_parsing_time",
                       "query_planning_time", "query_plan_execution_time",
                       WALL_TIME, CPU_TIME)
 
@@ -186,7 +188,7 @@ class _QuerySuite:
 
         return group_scenarios
 
-    def run(self, scenario, scenario_name, runner):
+    def run(self, scenario, group_name, scenario_name, runner):
         log.debug("QuerySuite.run() with scenario: %s", scenario)
         scenario_config = scenario.get("config")
         scenario_config = next(scenario_config()) if scenario_config else {}
@@ -252,20 +254,21 @@ class _QuerySuite:
         # TODO value outlier detection and warning across iterations
         execute("teardown")
         runner.stop()
-        self.append_scenario_summary(scenario_name, measurement_sums,
-                                     num_iterations)
+        self.append_scenario_summary(group_name, scenario_name,
+                                     measurement_sums, num_iterations)
         return measurements
 
-    def append_scenario_summary(self, scenario_name, measurement_sums,
-                                num_iterations):
-        self.summary += "{:>27}".format(scenario_name)
-        for key in ("query_parsing_time", "query_planning_time",
-                    "query_plan_execution_time", WALL_TIME, CPU_TIME):
+    def append_scenario_summary(self, group_name, scenario_name,
+                                measurement_sums, num_iterations):
+        self.summary += self.FORMAT[0].format(group_name)
+        self.summary += self.FORMAT[1].format(scenario_name)
+        for i, key in enumerate(("query_parsing_time", "query_planning_time",
+                    "query_plan_execution_time", WALL_TIME, CPU_TIME)):
             if key not in measurement_sums:
                 time = "-"
             else:
                 time = "{:.10f}".format(measurement_sums[key] / num_iterations)
-            self.summary += "{:>27}".format(time)
+            self.summary += self.FORMAT[i + 2].format(time)
         self.summary += "\n"
 
     def runners(self):
@@ -523,7 +526,7 @@ def main():
     for (group, scenario_name), scenario in filtered_scenarios.items():
         log.info("Executing group.scenario '%s.%s' with elements %s",
                  group, scenario_name, list(scenario.keys()))
-        for iter_result in suite.run(scenario, scenario_name, runner):
+        for iter_result in suite.run(scenario, group, scenario_name, runner):
             iter_result["group"] = group
             iter_result["scenario"] = scenario_name
             results.append(iter_result)
@@ -534,7 +537,8 @@ def main():
     run.update(args.additional_run_fields)
     for result in results:
         jail.store_data(result)
-    print("\n\n{}\n".format(suite.summary))
+    print("\n\nMacro benchmark summary:")
+    print("{}\n".format(suite.summary))
     with open(os.path.join(DIR_PATH, ".harness_summary"), "w") as f:
         print(suite.summary, file=f)
 

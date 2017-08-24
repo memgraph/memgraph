@@ -35,6 +35,7 @@ OUTPUT_DIR = os.path.join(BUILD_DIR, "apollo")
 # output lists
 ARCHIVES = []
 RUNS = []
+DATA_PROCESS = []
 
 # generation mode
 if len(sys.argv) >= 2:
@@ -46,6 +47,10 @@ else:
 def run_cmd(cmd, cwd):
     ret = subprocess.run(cmd, cwd = cwd, stdout = subprocess.PIPE, check = True)
     return ret.stdout.decode("utf-8")
+
+def find_memgraph_binary(loc):
+    return run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-type",
+            "f", "-name", "memgraph*"], loc).split("\n")[0][2:]
 
 def generate_run(name, typ = "run", supervisor = "", commands = "",
         arguments = "", enable_network = False,
@@ -77,12 +82,9 @@ if os.path.exists(OUTPUT_DIR):
 os.makedirs(OUTPUT_DIR)
 
 # store memgraph binary to archive
-binary_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-type",
-        "f", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
-binary_link_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable", "-type",
-        "l", "-name", "memgraph*"], BUILD_DIR).split("\n")[0][2:]
+binary_name = find_memgraph_binary(BUILD_DIR)
 binary_path = os.path.join(BUILD_DIR, binary_name)
-binary_link_path = os.path.join(BUILD_DIR, binary_link_name)
+binary_link_path = os.path.join(BUILD_DIR, "memgraph")
 config_path = os.path.join(BASE_DIR, "config")
 config_copy_path = os.path.join(BUILD_DIR, "config")
 if os.path.exists(config_copy_path):
@@ -183,23 +185,54 @@ if mode == "release":
     BUILD_RELEASE_DIR = os.path.join(BASE_DIR, "build")
 else:
     BUILD_RELEASE_DIR = os.path.join(BASE_DIR, "build_release")
-binary_release_name = run_cmd(["find", ".", "-maxdepth", "1", "-executable",
-        "-type", "f", "-name", "memgraph*"], BUILD_RELEASE_DIR).split("\n")[0][2:]
+binary_release_name = find_memgraph_binary(BUILD_RELEASE_DIR)
 binary_release_path = os.path.join(BUILD_RELEASE_DIR, binary_release_name)
 binary_release_link_path = os.path.join(BUILD_RELEASE_DIR, "memgraph")
 
 # macro benchmark tests
+MACRO_BENCHMARK_ARGS = "QuerySuite MemgraphRunner --groups aggregation"
 macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
 stress_common = os.path.join(BASE_DIR, "tests", "stress", "common.py")
 infile = create_archive("macro_benchmark", [binary_release_path,
         macro_bench_path, stress_common, config_path],
         cwd = WORKSPACE_DIR)
 supervisor = "./{}/tests/macro_benchmark/harness/harness.py".format(BASE_DIR_NAME)
-args = "QuerySuite MemgraphRunner --groups aggregation --RunnerBin " + binary_release_path
+args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_release_path
 outfile_paths = "\./{}/tests/macro_benchmark/harness/\.harness_summary".format(
         BASE_DIR_NAME)
 RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
         arguments = args, infile = infile, outfile_paths = outfile_paths))
+
+# macro benchmark parent tests
+if mode == "diff":
+    PARENT_DIR = os.path.join(WORKSPACE_DIR, "parent")
+    BUILD_PARENT_DIR = os.path.join(PARENT_DIR, "build")
+    binary_parent_name = find_memgraph_binary(BUILD_PARENT_DIR)
+    binary_parent_path = os.path.join(BUILD_PARENT_DIR, binary_parent_name)
+    parent_config_path = os.path.join(PARENT_DIR, "config")
+    parent_macro_bench_path = os.path.join(PARENT_DIR, "tests", "macro_benchmark")
+    parent_stress_common = os.path.join(PARENT_DIR, "tests", "stress", "common.py")
+    infile = create_archive("macro_benchmark_parent", [binary_parent_path,
+            parent_macro_bench_path, parent_stress_common, parent_config_path],
+            cwd = WORKSPACE_DIR)
+    supervisor = "./parent/tests/macro_benchmark/harness/harness.py"
+    args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
+    outfile_paths = "\./parent/tests/macro_benchmark/harness/\.harness_summary"
+    RUNS.append(generate_run("macro_benchmark_parent", supervisor = supervisor,
+            arguments = args, infile = infile, outfile_paths = outfile_paths))
+
+    # macro benchmark comparison data process
+    script_path = os.path.join(BASE_DIR, "tools", "apollo",
+            "macro_benchmark_summary")
+    infile = create_archive("macro_benchmark_summary", [script_path],
+            cwd = WORKSPACE_DIR)
+    cmd = "./memgraph/tools/apollo/macro_benchmark_summary " \
+            "macro_benchmark/memgraph/tests/macro_benchmark/harness/.harness_summary " \
+            "macro_benchmark_parent/parent/tests/macro_benchmark/harness/.harness_summary " \
+            ".harness_summary"
+    outfile_paths = "\./.harness_summary"
+    DATA_PROCESS.append(generate_run("macro_benchmark_summary", typ = "data process",
+            commands = cmd, infile = infile, outfile_paths = outfile_paths))
 
 # stress tests
 stress_path = os.path.join(BASE_DIR, "tests", "stress")
@@ -212,4 +245,4 @@ RUNS.append(generate_run("stress", commands = cmd, infile = infile))
 
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
-store_metadata(OUTPUT_DIR, "runs", RUNS)
+store_metadata(OUTPUT_DIR, "runs", RUNS + DATA_PROCESS)
