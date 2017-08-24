@@ -481,7 +481,22 @@ documentation.
 
 #### CASE
 
-TODO
+Conditional expressions can be expressed in openCypher language by simple and
+generic form of CASE expression. A simple form is used to compare an expression
+against multiple predicates. For the first matched predicate result of the
+expression provided after the THEN keyword is returned.  If no expression is
+matched value following ELSE is returned is provided, or null if ELSE is not
+used:
+
+    MATCH (n)
+    RETURN CASE n.currency WHEN "DOLLAR" THEN "$" WHEN "EURO" THEN "€" ELSE "UNKNOWN" END
+
+In generic form, you don't provided expression whose value is compared to
+predicates, but you list multiple predicates and the first one that evaluates
+to true is matched:
+
+    MATCH (n)
+    RETURN CASE WHEN n.height < 30 THEN "short" WHEN n.height > 300 THEN "tall" END
 
 ### Differences
 
