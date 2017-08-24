@@ -196,13 +196,6 @@ LogicalOperator *GenFilters(
         &all_filters,
     AstTreeStorage &storage);
 
-ScanAll *GenScanByIndex(
-    LogicalOperator *last_op, const GraphDbAccessor &db,
-    const Symbol &node_symbol, const MatchContext &context,
-    const std::set<GraphDbTypes::Label> &labels,
-    const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
-        &properties);
-
 LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
                            SymbolTable &symbol_table, bool is_write,
                            const std::unordered_set<Symbol> &bound_symbols,
@@ -265,8 +258,7 @@ class RuleBasedPlanner {
           input_op =
               GenMerge(*merge, input_op, query_part.merge_matching[merge_id++]);
           // Treat MERGE clause as write, because we do not know if it will
-          // create
-          // anything.
+          // create anything.
           is_write = true;
         } else if (auto *with = dynamic_cast<query::With *>(clause)) {
           input_op =
@@ -302,6 +294,106 @@ class RuleBasedPlanner {
  private:
   TPlanningContext &context_;
 
+  // Finds the label-property combination which has indexed the lowest amount of
+  // vertices. `best_label` and `best_property` will be set to that combination
+  // and the function will return `true`. If the index cannot be found, the
+  // function will return `false` while leaving `best_label` and `best_property`
+  // unchanged.
+  bool FindBestLabelPropertyIndex(
+      const std::set<GraphDbTypes::Label> &labels,
+      const std::map<GraphDbTypes::Property,
+                     std::vector<Filters::PropertyFilter>> &property_filters,
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
+      GraphDbTypes::Label &best_label,
+      std::pair<GraphDbTypes::Property, Filters::PropertyFilter>
+          &best_property) {
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (bound_symbols.find(used_symbol) == bound_symbols.end()) {
+          return false;
+        }
+      }
+      return true;
+    };
+    bool found = false;
+    auto min_count = std::numeric_limits<decltype(context_.db.VerticesCount(
+        GraphDbTypes::Label{}, GraphDbTypes::Property{}))>::max();
+    for (const auto &label : labels) {
+      for (const auto &prop_pair : property_filters) {
+        const auto &property = prop_pair.first;
+        if (context_.db.LabelPropertyIndexExists(label, property)) {
+          auto vertices_count = context_.db.VerticesCount(label, property);
+          if (vertices_count < min_count) {
+            for (const auto &prop_filter : prop_pair.second) {
+              if (prop_filter.used_symbols.find(symbol) !=
+                  prop_filter.used_symbols.end()) {
+                // Skip filter expressions which use the symbol whose property
+                // we are looking up. We cannot scan by such expressions. For
+                // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`,
+                // so we cannot scan `n` by property index.
+                continue;
+              }
+              if (are_bound(prop_filter.used_symbols)) {
+                // Take the first property filter which uses bound symbols.
+                best_label = label;
+                best_property = {property, prop_filter};
+                min_count = vertices_count;
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  const GraphDbTypes::Label &FindBestLabelIndex(
+      const std::set<GraphDbTypes::Label> &labels) {
+    debug_assert(!labels.empty(),
+                 "Trying to find the best label without any labels.");
+    return *std::min_element(labels.begin(), labels.end(),
+                             [this](const auto &label1, const auto &label2) {
+                               return context_.db.VerticesCount(label1) <
+                                      context_.db.VerticesCount(label2);
+                             });
+  }
+
+  ScanAll *GenScanByIndex(
+      LogicalOperator *last_op, const Symbol &node_symbol,
+      const MatchContext &context, const std::set<GraphDbTypes::Label> &labels,
+      const std::map<GraphDbTypes::Property,
+                     std::vector<Filters::PropertyFilter>> &properties) {
+    debug_assert(!labels.empty(),
+                 "Without labels, indexed data cannot be scanned.");
+    // First, try to see if we can use label+property index. If not, use just
+    // the label index (which ought to exist).
+    GraphDbTypes::Label best_label;
+    std::pair<GraphDbTypes::Property, Filters::PropertyFilter> best_property;
+    if (FindBestLabelPropertyIndex(labels, properties, node_symbol,
+                                   context.bound_symbols, best_label,
+                                   best_property)) {
+      const auto &prop_filter = best_property.second;
+      if (prop_filter.lower_bound || prop_filter.upper_bound) {
+        return new ScanAllByLabelPropertyRange(
+            std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
+            best_property.first, prop_filter.lower_bound,
+            prop_filter.upper_bound, context.graph_view);
+      } else {
+        debug_assert(
+            prop_filter.expression,
+            "Property filter should either have bounds or an expression.");
+        return new ScanAllByLabelPropertyValue(
+            std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
+            best_property.first, prop_filter.expression, context.graph_view);
+      }
+    }
+    auto label = FindBestLabelIndex(labels);
+    return new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
+                              node_symbol, label, context.graph_view);
+  }
+
   LogicalOperator *PlanMatching(const Matching &matching,
                                 LogicalOperator *input_op,
                                 MatchContext &match_context) {
@@ -312,8 +404,7 @@ class RuleBasedPlanner {
     auto all_filters = matching.filters.all_filters();
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
-    // regular
-    // match.
+    // regular match.
     auto *last_op =
         impl::GenFilters(input_op, bound_symbols, all_filters, storage);
     for (const auto &expansion : matching.expansions) {
@@ -334,8 +425,8 @@ class RuleBasedPlanner {
                      std::map<GraphDbTypes::Property,
                               std::vector<Filters::PropertyFilter>>())
                   .first;
-          last_op = impl::GenScanByIndex(last_op, context_.db, node1_symbol,
-                                         match_context, labels, properties);
+          last_op = GenScanByIndex(last_op, node1_symbol, match_context, labels,
+                                   properties);
         }
         match_context.new_symbols.emplace_back(node1_symbol);
         last_op =
@@ -387,8 +478,7 @@ class RuleBasedPlanner {
         }
         if (!existing_edge) {
           // Ensure Cyphermorphism (different edge symbols always map to
-          // different
-          // edges).
+          // different edges).
           for (const auto &edge_symbols : matching.edge_symbols) {
             if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
               continue;
@@ -419,8 +509,7 @@ class RuleBasedPlanner {
   auto GenMerge(query::Merge &merge, LogicalOperator *input_op,
                 const Matching &matching) {
     // Copy the bound symbol set, because we don't want to use the updated
-    // version
-    // when generating the create part.
+    // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_.bound_symbols);
     MatchContext match_ctx{context_.symbol_table, bound_symbols_copy,
                            GraphView::NEW};

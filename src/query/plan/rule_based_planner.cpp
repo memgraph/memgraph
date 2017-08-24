@@ -590,71 +590,6 @@ void AddMatching(const Match &match, SymbolTable &symbol_table,
                      matching);
 }
 
-const GraphDbTypes::Label &FindBestLabelIndex(
-    const GraphDbAccessor &db, const std::set<GraphDbTypes::Label> &labels) {
-  debug_assert(!labels.empty(),
-               "Trying to find the best label without any labels.");
-  return *std::min_element(labels.begin(), labels.end(),
-                           [&db](const auto &label1, const auto &label2) {
-                             return db.VerticesCount(label1) <
-                                    db.VerticesCount(label2);
-                           });
-}
-
-// Finds the label-property combination which has indexed the lowest amount of
-// vertices. `best_label` and `best_property` will be set to that combination
-// and the function will return `true`. If the index cannot be found, the
-// function will return `false` while leaving `best_label` and `best_property`
-// unchanged.
-bool FindBestLabelPropertyIndex(
-    const GraphDbAccessor &db, const std::set<GraphDbTypes::Label> &labels,
-    const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
-        &property_filters,
-    const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
-    GraphDbTypes::Label &best_label,
-    std::pair<GraphDbTypes::Property, Filters::PropertyFilter> &best_property) {
-  auto are_bound = [&bound_symbols](const auto &used_symbols) {
-    for (const auto &used_symbol : used_symbols) {
-      if (bound_symbols.find(used_symbol) == bound_symbols.end()) {
-        return false;
-      }
-    }
-    return true;
-  };
-  bool found = false;
-  auto min_count = std::numeric_limits<decltype(db.VerticesCount(
-      GraphDbTypes::Label{}, GraphDbTypes::Property{}))>::max();
-  for (const auto &label : labels) {
-    for (const auto &prop_pair : property_filters) {
-      const auto &property = prop_pair.first;
-      if (db.LabelPropertyIndexExists(label, property)) {
-        auto vertices_count = db.VerticesCount(label, property);
-        if (vertices_count < min_count) {
-          for (const auto &prop_filter : prop_pair.second) {
-            if (prop_filter.used_symbols.find(symbol) !=
-                prop_filter.used_symbols.end()) {
-              // Skip filter expressions which use the symbol whose property we
-              // are looking up. We cannot scan by such expressions. For
-              // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so
-              // we cannot scan `n` by property index.
-              continue;
-            }
-            if (are_bound(prop_filter.used_symbols)) {
-              // Take the first property filter which uses bound symbols.
-              best_label = label;
-              best_property = {property, prop_filter};
-              min_count = vertices_count;
-              found = true;
-              break;
-            }
-          }
-        }
-      }
-    }
-  }
-  return found;
-}
-
 }  // namespace
 
 // Analyzes the filter expression by collecting information on filtering labels
@@ -901,41 +836,6 @@ LogicalOperator *GenFilters(
         new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
   }
   return last_op;
-}
-
-ScanAll *GenScanByIndex(
-    LogicalOperator *last_op, const GraphDbAccessor &db,
-    const Symbol &node_symbol, const MatchContext &context,
-    const std::set<GraphDbTypes::Label> &labels,
-    const std::map<GraphDbTypes::Property, std::vector<Filters::PropertyFilter>>
-        &properties) {
-  debug_assert(!labels.empty(),
-               "Without labels, indexed data cannot be scanned.");
-  // First, try to see if we can use label+property index. If not, use just the
-  // label index (which ought to exist).
-  GraphDbTypes::Label best_label;
-  std::pair<GraphDbTypes::Property, Filters::PropertyFilter> best_property;
-  if (FindBestLabelPropertyIndex(db, labels, properties, node_symbol,
-                                 context.bound_symbols, best_label,
-                                 best_property)) {
-    const auto &prop_filter = best_property.second;
-    if (prop_filter.lower_bound || prop_filter.upper_bound) {
-      return new ScanAllByLabelPropertyRange(
-          std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
-          best_property.first, prop_filter.lower_bound, prop_filter.upper_bound,
-          context.graph_view);
-    } else {
-      debug_assert(
-          prop_filter.expression,
-          "Property filter should either have bounds or an expression.");
-      return new ScanAllByLabelPropertyValue(
-          std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
-          best_property.first, prop_filter.expression, context.graph_view);
-    }
-  }
-  auto label = FindBestLabelIndex(db, labels);
-  return new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
-                            node_symbol, label, context.graph_view);
 }
 
 LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,

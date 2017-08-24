@@ -33,6 +33,7 @@ namespace query::plan {
  * actual query execution for plan A is less then that of plan B. It can NOT be
  * used to estimate how MUCH execution between A and B will differ.
  */
+template <class TDbAccessor>
 class CostEstimator : public HierarchicalLogicalOperatorVisitor {
  public:
   struct CostParam {
@@ -63,22 +64,133 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::PostVisit;
 
-  CostEstimator(const GraphDbAccessor &db_accessor)
-      : db_accessor_(db_accessor) {}
+  CostEstimator(const TDbAccessor &db_accessor) : db_accessor_(db_accessor) {}
 
-  bool PostVisit(ScanAll &) override;
-  bool PostVisit(ScanAllByLabel &scan_all_by_label) override;
-  bool PostVisit(ScanAllByLabelPropertyValue &logical_op) override;
-  bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override;
-  bool PostVisit(Expand &) override;
-  bool PostVisit(ExpandVariable &) override;
-  bool PostVisit(ExpandBreadthFirst &) override;
-  bool PostVisit(Filter &) override;
-  bool PostVisit(ExpandUniquenessFilter<VertexAccessor> &) override;
-  bool PostVisit(ExpandUniquenessFilter<EdgeAccessor> &) override;
-  bool PostVisit(Unwind &unwind) override;
-  bool Visit(Once &) override;
-  bool Visit(CreateIndex &) override;
+  bool PostVisit(ScanAll &) override {
+    cardinality_ *= db_accessor_.VerticesCount();
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::kScanAll);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
+    cardinality_ *= db_accessor_.VerticesCount(scan_all_by_label.label());
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::kScanAllByLabel);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByLabelPropertyValue &logical_op) override {
+    // this cardinality estimation depends on the property value (expression).
+    // if it's a literal (const) we can evaluate cardinality exactly, otherwise
+    // we estimate
+    std::experimental::optional<PropertyValue> property_value =
+        std::experimental::nullopt;
+    if (auto *literal =
+            dynamic_cast<PrimitiveLiteral *>(logical_op.expression()))
+      if (literal->value_.IsPropertyValue())
+        property_value =
+            std::experimental::optional<PropertyValue>(literal->value_);
+
+    double factor = 1.0;
+    if (property_value)
+      // get the exact influence based on ScanAll(label, property, value)
+      factor = db_accessor_.VerticesCount(
+          logical_op.label(), logical_op.property(), property_value.value());
+    else
+      // estimate the influence as ScanAll(label, property) * filtering
+      factor = db_accessor_.VerticesCount(logical_op.label(),
+                                          logical_op.property()) *
+               CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
+    // this cardinality estimation depends on Bound expressions.
+    // if they are literals we can evaluate cardinality properly
+    auto lower = BoundToPropertyValue(logical_op.lower_bound());
+    auto upper = BoundToPropertyValue(logical_op.upper_bound());
+
+    int64_t factor = 1;
+    if (upper || lower)
+      // if we have either Bound<PropertyValue>, use the value index
+      factor = db_accessor_.VerticesCount(logical_op.label(),
+                                          logical_op.property(), lower, upper);
+    else
+      // no values, but we still have the label
+      factor =
+          db_accessor_.VerticesCount(logical_op.label(), logical_op.property());
+
+    // if we failed to take either bound from the op into account, then apply
+    // the filtering constant to the factor
+    if ((logical_op.upper_bound() && !upper) ||
+        (logical_op.lower_bound() && !lower))
+      factor *= CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+    return true;
+  }
+
+// For the given op first increments the cardinality and then cost.
+#define POST_VISIT_CARD_FIRST(NAME)     \
+  bool PostVisit(NAME &) override {     \
+    cardinality_ *= CardParam::k##NAME; \
+    IncrementCost(CostParam::k##NAME);  \
+    return true;                        \
+  }
+
+  POST_VISIT_CARD_FIRST(Expand);
+  POST_VISIT_CARD_FIRST(ExpandVariable);
+  POST_VISIT_CARD_FIRST(ExpandBreadthFirst);
+
+#undef POST_VISIT_CARD_FIRST
+
+// For the given op first increments the cost and then cardinality.
+#define POST_VISIT_COST_FIRST(LOGICAL_OP, PARAM_NAME) \
+  bool PostVisit(LOGICAL_OP &) override {             \
+    IncrementCost(CostParam::PARAM_NAME);             \
+    cardinality_ *= CardParam::PARAM_NAME;            \
+    return true;                                      \
+  }
+
+  POST_VISIT_COST_FIRST(Filter, kFilter)
+  POST_VISIT_COST_FIRST(ExpandUniquenessFilter<VertexAccessor>,
+                        kExpandUniquenessFilter);
+  POST_VISIT_COST_FIRST(ExpandUniquenessFilter<EdgeAccessor>,
+                        kExpandUniquenessFilter);
+
+#undef POST_VISIT_COST_FIRST
+
+  bool PostVisit(Unwind &unwind) override {
+    // Unwind cost depends more on the number of lists that get unwound
+    // much less on the number of outputs
+    // for that reason first increment cost, then modify cardinality
+    IncrementCost(CostParam::kUnwind);
+
+    // try to determine how many values will be yielded by Unwind
+    // if the Unwind expression is a list literal, we can deduce cardinality
+    // exactly, otherwise we approximate
+    int unwind_value;
+    if (auto literal =
+            dynamic_cast<query::ListLiteral *>(unwind.input_expression()))
+      unwind_value = literal->elements_.size();
+    else
+      unwind_value = MiscParam::kUnwindNoLiteral;
+
+    cardinality_ *= unwind_value;
+    return true;
+  }
+
+  bool Visit(Once &) override { return true; }
+  bool Visit(CreateIndex &) override { return true; }
 
   auto cost() const { return cost_; }
   auto cardinality() const { return cardinality_; }
@@ -93,9 +205,22 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   double cardinality_{1};
   //
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
-  const GraphDbAccessor &db_accessor_;
+  const TDbAccessor &db_accessor_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
+
+  // converts an optional ScanAll range bound into a property value
+  // if the bound is present and is a literal expression convertible to
+  // a property value. otherwise returns nullopt
+  static std::experimental::optional<utils::Bound<PropertyValue>>
+  BoundToPropertyValue(
+      std::experimental::optional<ScanAllByLabelPropertyRange::Bound> bound) {
+    if (bound)
+      if (auto *literal = dynamic_cast<PrimitiveLiteral *>(bound->value()))
+        return std::experimental::make_optional(
+            utils::Bound<PropertyValue>(literal->value_, bound->type()));
+    return std::experimental::nullopt;
+  }
 };
 
 }  // namespace query::plan

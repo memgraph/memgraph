@@ -11,9 +11,9 @@
 using namespace query;
 using namespace query::plan;
 
-using CardParam = CostEstimator::CardParam;
-using CostParam = CostEstimator::CostParam;
-using MiscParam = CostEstimator::MiscParam;
+using CardParam = CostEstimator<GraphDbAccessor>::CardParam;
+using CostParam = CostEstimator<GraphDbAccessor>::CostParam;
+using MiscParam = CostEstimator<GraphDbAccessor>::MiscParam;
 
 /** A fixture for cost estimation. Sets up the database
  * and accessor (adds some vertices). Provides convenience
@@ -61,7 +61,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator cost_estimator(*dba);
+    CostEstimator<GraphDbAccessor> cost_estimator(*dba);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -187,11 +187,12 @@ TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(
-              last_op_, storage_.Create<ListLiteral>(
-                            std::vector<Expression *>(7, nullptr)),
-              NextSymbol()),
-          CostParam::kUnwind, 7);
+  TEST_OP(
+      MakeOp<query::plan::Unwind>(
+          last_op_,
+          storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
+          NextSymbol()),
+      CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {

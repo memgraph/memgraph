@@ -117,7 +117,7 @@ class Interpreter {
           ast_storage, symbol_table, db_accessor);
       double min_cost = std::numeric_limits<double>::max();
       for (auto &plan : plans) {
-        plan::CostEstimator estimator(db_accessor);
+        plan::CostEstimator<GraphDbAccessor> estimator(db_accessor);
         plan->Accept(estimator);
         auto cost = estimator.cost();
         if (!logical_plan || cost < min_cost) {
@@ -131,7 +131,7 @@ class Interpreter {
     } else {
       logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
           ast_storage, symbol_table, db_accessor);
-      plan::CostEstimator cost_estimator(db_accessor);
+      plan::CostEstimator<GraphDbAccessor> cost_estimator(db_accessor);
       logical_plan->Accept(cost_estimator);
       query_plan_cost_estimation = cost_estimator.cost();
     }
