@@ -49,6 +49,12 @@ class SkipListGC {
    * @brief - Returns instance of executioner shared between all SkipLists.
    */
   auto &GetExecutioner() {
+    // TODO: Even though executioner is static, there are multiple instance:
+    // one for each TNode param type. We probably don't want that kind of
+    // behavior. Static variables with nontrivial destructor create subtle bugs
+    // because of their order of destruction. For example of one bug take a look
+    // at documentation in database/dbms.hpp. Rethink ownership and lifetime of
+    // executioner.
     static Executioner executioner(
         (std::chrono::seconds(FLAGS_skiplist_gc_interval)));
 

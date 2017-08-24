@@ -9,12 +9,13 @@
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
+  // Dbms shouldn't be global constructed/destructed. See documentation in
+  // database/dbms.hpp for details.
   std::experimental::optional<Dbms> dbms_;
   query::Interpreter interpeter_;
 
   void SetUp(const benchmark::State &state) override {
-    if (!dbms_)
-      dbms_.emplace();
+    dbms_.emplace();
     auto dba = dbms_->active();
     for (int i = 0; i < state.range(0); i++) dba->InsertVertex();
 
@@ -33,22 +34,23 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     auto dba = dbms_->active();
     for (auto vertex : dba->Vertices(false)) dba->DetachRemoveVertex(vertex);
     dba->Commit();
+    dbms_ = std::experimental::nullopt;
   }
 };
 
-// BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
-//   auto query = "MATCH (s:Start) return s";
-//   auto dba = dbms_->active();
-//   while (state.KeepRunning()) {
-//     ResultStreamFaker results;
-//     interpeter_.Interpret(query, *dba, results, {});
-//   }
-// }
-// 
-// BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
-//     ->RangeMultiplier(1024)
-//     ->Range(1, 1 << 20)
-//     ->Unit(benchmark::kMillisecond);
+BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
+  auto query = "MATCH (s:Start) return s";
+  auto dba = dbms_->active();
+  while (state.KeepRunning()) {
+    ResultStreamFaker results;
+    interpeter_.Interpret(query, *dba, results, {});
+  }
+}
+
+BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
+    ->RangeMultiplier(1024)
+    ->Range(1, 1 << 20)
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Start) WITH s MATCH (s)--(d) RETURN count(d)";

@@ -15,6 +15,27 @@ DECLARE_string(snapshot_directory);
 DECLARE_bool(recover_on_startup);
 
 namespace fs = std::experimental::filesystem;
+
+// Always be sure that Dbms object is destructed before main exits, i. e. Dbms
+// object shouldn't be part of global/static variable, except if its destructor
+// is explicitly called before main exits.
+// Consider code:
+//
+// Dbms dbms;  // KeyIndex is created as a part of dbms.
+// int main() {
+//   auto dba = dbms.active();
+//   auto v = dba->InsertVertex();
+//   v.add_label(dba->Label(
+//       "Start"));  // New SkipList is created in KeyIndex for LabelIndex.
+//                   // That SkipList creates SkipListGc which
+//                   // initialises static Executioner object.
+//   return 0;
+// }
+//
+// After main exits: 1. Executioner is destructed, 2. KeyIndex is destructed.
+// Destructor of KeyIndex calls delete on created SkipLists which destroy
+// SkipListGc that tries to use Excutioner object that doesn't exist anymore.
+// -> CRASH
 class Dbms {
  public:
   Dbms() {
