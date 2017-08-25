@@ -454,6 +454,17 @@ functions.
  `contains`   | Check if the first argument has an element which is equal to the second argument.
  `all`        | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.
 
+#### String Operators
+
+Apart from comparison and concatenation operators openCypher provides special
+string operators for easier matching of substrings:
+
+Operator         | Description
+-----------------|------------
+ a STARTS WITH b | Returns true if prefix of string a is equal to string b.
+ a ENDS WITH b   | Returns true if suffix of string a is equal to string b.
+ a CONTAINS b    | Returns true if some substring of string a is equal to string b.
+
 #### Parameters
 
 When automating the queries for Memgraph, it comes in handy to change only
