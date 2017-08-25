@@ -1,0 +1,7 @@
+ldbc_snb_datagen/
+ldbc_driver/
+ldbc-snb-impls/
+neo4j_csv_dataset_scale_*/
+tmp/
+ve3/
+*.out

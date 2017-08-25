@@ -1,0 +1,10 @@
+cycler==0.10.0
+functools32==3.2.3.post2
+matplotlib==2.0.2
+numpy==1.13.1
+pkg-resources==0.0.0
+pyparsing==2.2.0
+python-dateutil==2.6.1
+pytz==2017.2
+six==1.10.0
+subprocess32==3.2.7

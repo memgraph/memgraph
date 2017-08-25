@@ -1,0 +1,131 @@
+#!/bin/bash
+
+function print_help () {
+    echo "Usage: $0 [OPTION]"
+    echo "Optional arguments:"
+    echo -e "  -h|--help -> Prints help."
+    echo -e "  --scale-factor Positive_Integer -> Defines the dataset size."
+    echo -e "  --transform-dataset -> Run just transform dataset (SNB -> Memgraph Snapshot)."
+    echo -e "  --copy-dataset -> Just copy dataset into the Memgraph snapshots path."
+    echo -e "  --run -> Just run Memgraph."
+}
+
+set -e
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+memgraph_dir="${script_dir}/../../.."
+# TODO: pass as an argument
+memgraph_build_dir="${memgraph_dir}/build"
+loadable_snapshot_path="${memgraph_build_dir}/snapshots/default/3000_01_01__01_01_01_00000"
+
+# Read the arguments.
+scale_factor=1
+run_all=true
+transform_dataset=false
+copy_dataset=false
+run_memgraph=false
+while [[ $# -gt 0 ]]
+do
+    case $1 in
+        -h|--help)
+        print_help
+        exit 1
+        ;;
+        --scale-factor)
+        scale_factor=$2
+        shift
+        ;;
+        --transform-dataset)
+        run_all=false
+        transform_dataset=true
+        ;;
+        --copy-dataset)
+        run_all=false
+        copy_dataset=true
+        ;;
+        --run)
+        run_all=false
+        run_memgraph=true
+        ;;
+        *)
+        # unknown option
+        ;;
+    esac
+    shift # past argument or value
+done
+
+snapshot_path="${script_dir}/memgraph_snapshots/snb_scale_${scale_factor}.snapshot"
+csv_folder="${script_dir}/neo4j_csv_dataset_scale_${scale_factor}"
+
+# Transform dataset into MemGraph Snapshot.
+if [[ ${run_all} = true ]] || [[ ${transform_dataset} = true ]] ; then
+    rm ${snapshot_path}
+    ${memgraph_dir}/tools/csv_to_snapshot -o ${snapshot_path} \
+        --nodes ${csv_folder}/comment_0_0.csv \
+        --nodes ${csv_folder}/forum_0_0.csv \
+        --nodes ${csv_folder}/organisation_0_0.csv \
+        --nodes ${csv_folder}/person_0_0.csv \
+        --nodes ${csv_folder}/place_0_0.csv \
+        --nodes ${csv_folder}/post_0_0.csv \
+        --nodes ${csv_folder}/tag_0_0.csv \
+        --nodes ${csv_folder}/tagclass_0_0.csv \
+        --relationships ${csv_folder}/comment_hasCreator_person_0_0.csv \
+        --relationships ${csv_folder}/comment_hasTag_tag_0_0.csv \
+        --relationships ${csv_folder}/comment_isLocatedIn_place_0_0.csv \
+        --relationships ${csv_folder}/comment_replyOf_comment_0_0.csv \
+        --relationships ${csv_folder}/comment_replyOf_post_0_0.csv \
+        --relationships ${csv_folder}/forum_containerOf_post_0_0.csv \
+        --relationships ${csv_folder}/forum_hasMember_person_0_0.csv \
+        --relationships ${csv_folder}/forum_hasModerator_person_0_0.csv \
+        --relationships ${csv_folder}/forum_hasTag_tag_0_0.csv \
+        --relationships ${csv_folder}/organisation_isLocatedIn_place_0_0.csv \
+        --relationships ${csv_folder}/person_hasInterest_tag_0_0.csv \
+        --relationships ${csv_folder}/person_isLocatedIn_place_0_0.csv \
+        --relationships ${csv_folder}/person_knows_person_0_0.csv \
+        --relationships ${csv_folder}/person_likes_comment_0_0.csv \
+        --relationships ${csv_folder}/person_likes_post_0_0.csv \
+        --relationships ${csv_folder}/person_studyAt_organisation_0_0.csv \
+        --relationships ${csv_folder}/person_workAt_organisation_0_0.csv \
+        --relationships ${csv_folder}/place_isPartOf_place_0_0.csv \
+        --relationships ${csv_folder}/post_hasCreator_person_0_0.csv \
+        --relationships ${csv_folder}/post_hasTag_tag_0_0.csv \
+        --relationships ${csv_folder}/post_isLocatedIn_place_0_0.csv \
+        --relationships ${csv_folder}/tag_hasType_tagclass_0_0.csv \
+        --relationships ${csv_folder}/tagclass_isSubclassOf_tagclass_0_0.csv \
+        --csv-delimiter "|" --array-delimiter ";"
+    echo "Dataset transformed."
+fi
+
+# Copy the dataset.
+if [[ ${run_all} = true ]] || [[ ${copy_dataset} = true ]] ; then
+    cp ${snapshot_path} ${loadable_snapshot_path}
+    echo "Dataset copied."
+fi
+
+# Run MemGraph.
+if [[ ${run_all} = true ]] || [[ ${run_memgraph} = true ]] ; then
+    ${memgraph_build_dir}/memgraph -flagfile ${memgraph_dir}/config/public_benchmark_ldbc.conf 2>&1 &
+    memgraph_pid=$!
+    sleep 200 # TODO: replace this with something that is going to work in all cases
+              #       not just in SNB scale 1 case
+
+    # Create indexes.
+    cd ${script_dir}
+    if [ ! -d "ve3" ]; then
+        virtualenv -p python3 ve3 || command_fail "Virtualenv setup failed."
+        source ve3/bin/activate
+        pip install -r ${script_dir}/requirements_3.txt
+    fi
+    source ve3/bin/activate
+    python index_creation.py ${script_dir}/ldbc-snb-impls/snb-interactive-neo4j/scripts/indexCreation.neo4j
+
+    # On Ctrl-C stop Memgraph.
+    trap ctrl_c INT
+    function ctrl_c() {
+        kill -9 ${memgraph_pid}
+        exit 0
+    }
+    while true; do
+        sleep 1
+    done
+fi

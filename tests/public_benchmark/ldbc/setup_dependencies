@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Setup all dependencies
+
+set -e
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Setup ldbc_snb_datagen
+cd ${script_dir}
+git clone https://github.com/ldbc/ldbc_snb_datagen
+
+# Setup ldbc_driver
+cd ${script_dir}
+git clone https://github.com/ldbc/ldbc_driver.git
+cd ${script_dir}/ldbc_driver
+mvn clean package -DskipTests
+mvn install -DskipTests
+
+# Setup ldbc-snb-impls
+cd ${script_dir}
+git clone https://phabricator.memgraph.io/source/ldbc-snb-impls.git
+cp ${script_dir}/ldbc-snb-impls-pom.xml ${script_dir}/ldbc-snb-impls/pom.xml
+cd ${script_dir}/ldbc-snb-impls
+mvn install
+
+# Setup python virtual environment & Install dependencies
+cd ${script_dir}
+if ! which virtualenv >/dev/null; then
+    command_fail "Please install virtualenv!"
+fi
+if [ ! -d "ve3" ]; then
+    virtualenv -p python3 ve3 || command_fail "Virtualenv setup failed."
+fi
+source ve3/bin/activate
+pip install -r ${script_dir}/requirements_3.txt
+deactivate
+if [ ! -d "ve2" ]; then
+    virtualenv -p python2 ve2 || command_fail "Virtualenv setup failed."
+fi
+source ve2/bin/activate
+pip install -r ${script_dir}/requirements_2.txt
+deactivate

@@ -1,0 +1,44 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>net.ellitron.ldbcsnbimpls</groupId>
+  <artifactId>ldbc-snb-impls</artifactId>
+  <packaging>pom</packaging>
+  <version>0.1.0</version>
+  <name>LDBC SNB Workload Implementations</name>
+  <url>https://github.com/ellitron/ldbc-snb-impls</url>
+  <description>
+    A collection of workload implementations for the LDBC SNB benchmark driver
+    (see https://github.com/ldbc/ldbc_driver).
+  </description>
+  <modules>
+    <module>snb-interactive-core</module>
+    <!--<module>snb-interactive-tools</module>-->
+    <module>snb-interactive-neo4j</module>
+    <!--<module>snb-interactive-titan</module>-->
+    <!--<module>snb-interactive-torc</module>-->
+  </modules>
+  <dependencies>
+    <dependency>
+      <groupId>com.ldbc.driver</groupId>
+      <artifactId>jeeves</artifactId>
+      <version>0.3-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <descriptorRefs>
+            <descriptorRef>jar-with-dependencies</descriptorRef>
+          </descriptorRefs>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <properties>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+  </properties>
+</project>
