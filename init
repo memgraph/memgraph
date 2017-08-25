@@ -110,9 +110,6 @@ cd ..
 # setup qa dependencies
 setup_virtualenv tests/qa
 
-# setup macro benchmark
-setup_virtualenv tests/macro_benchmark
-
 # setup stress dependencies
 setup_virtualenv tests/stress
 
