@@ -473,6 +473,9 @@ def parse_known_args():
                       help="Logging level")
     argp.add_argument("--additional-run-fields", default={}, type=json.loads,
                       help="Additional fields to add to the 'run', in JSON")
+    argp.add_argument("--no-strict", default=False, action="store_true",
+                      help="Ignores nonexisting groups instead of raising an "
+                           "exception")
     return argp.parse_known_args()
 
 
@@ -510,12 +513,18 @@ def main():
     runner = runners[args.runner](remaining_args)
 
     # Validate groups (if provided)
+    groups = []
     if args.groups:
         for group in args.groups:
             if group not in suite.groups():
-                raise Exception("Group '{}' isn't registered for suite '{}'".
-                                format(group, suite))
-        groups = args.groups
+                msg = "Group '{}' isn't registered for suite '{}'".format(
+                        group, suite)
+                if args.no_strict:
+                    log.warn(msg)
+                else:
+                    raise Exception(msg)
+            else:
+                groups.append(group)
     else:
         # No groups provided, use all suite group
         groups = suite.groups()
