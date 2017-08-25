@@ -30,7 +30,7 @@ TIMEOUT=600 ./init
 
 cd build
 cmake -DCMAKE_BUILD_TYPE=release ..
-TIMEOUT=1000 make -j$THREADS memgraph_link_target
+TIMEOUT=1000 make -j$THREADS memgraph_link_target parent__macro_benchmark__harness_client
 
 cd ../../memgraph/tools/apollo
 
