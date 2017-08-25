@@ -81,6 +81,7 @@ class Network {
       return std::make_shared<RemoteChannelWriter>(this, address, port, reactor_name,
                                              channel_name);
     }
+    LOG(WARNING) << "Could not resolve " << address << ":" << port << " " << reactor_name << "/" << channel_name;
     return nullptr;
   }
 

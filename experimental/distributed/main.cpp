@@ -1,11 +1,13 @@
-#include "memgraph_distributed.hpp"
 #include "memgraph_config.hpp"
+#include "memgraph_distributed.hpp"
+#include "memgraph_transactions.hpp"
 
 #include "reactors_distributed.hpp"
 
 #include <iostream>
 #include <fstream>
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 DEFINE_uint64(my_mnid, -1, "Memgraph node id"); // TODO(zuza): this should be assigned by the leader once in the future
@@ -14,7 +16,7 @@ DEFINE_uint64(my_mnid, -1, "Memgraph node id"); // TODO(zuza): this should be as
  * Sends a text message and has a return address.
  */
 class TextMessage : public ReturnAddressMsg {
-public:
+ public:
   TextMessage(std::string reactor, std::string channel, std::string s)
     : ReturnAddressMsg(reactor, channel), text(s) {}
 
@@ -25,7 +27,7 @@ public:
 
   std::string text;
 
-protected:
+ protected:
   friend class cereal::access;
   TextMessage() {} // Cereal needs access to a default constructor.
 };
@@ -35,45 +37,35 @@ class Master : public Reactor {
  public:
   Master(std::string name, MnidT mnid)
     : Reactor(name), mnid_(mnid) {
-    worker_mnids_ = MemgraphDistributed::GetInstance().GetAllMnids();
-    worker_mnids_.erase(worker_mnids_.begin()); // remove the master from the beginning
+    MemgraphDistributed& memgraph = MemgraphDistributed::GetInstance();
+    worker_mnids_ = memgraph.GetAllMnids();
+    // remove the leader (itself), because its not a worker
+    auto leader_it = std::find(worker_mnids_.begin(), worker_mnids_.end(), memgraph.LeaderMnid());
+    worker_mnids_.erase(leader_it);
   }
 
   virtual void Run() {
-    MemgraphDistributed &memgraph = MemgraphDistributed::GetInstance();
     Distributed &distributed = Distributed::GetInstance();
 
-    std::cout << "Master (" << mnid_ << ") @ " << distributed.network().Address()
+    LOG(INFO) << "Master (" << mnid_ << ") @ " << distributed.network().Address()
               << ":" << distributed.network().Port() << std::endl;
 
-    auto stream = main_.first;
+    // TODO(zuza): check if all workers are up
 
-    // wait until every worker sends a ReturnAddressMsg back, then close
-    stream->OnEvent<TextMessage>([this](const TextMessage &msg,
-                                        const Subscription &subscription) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
-      ++workers_seen;
-      if (workers_seen == worker_mnids_.size()) {
-        subscription.Unsubscribe();
-        // Sleep for a while so we can read output in the terminal.
-        // (start_distributed.py runs each process in a new tab which is
-        //  closed immediately after process has finished)
-        std::this_thread::sleep_for(std::chrono::seconds(4));
-        CloseChannel("main");
-      }
-    });
+    auto stream = Open("client-queries").first;
+    stream->OnEvent<QueryCreateVertex>([this](const QueryCreateVertex& msg, const Subscription&) {
+        std::random_device rd; // slow random number generator
 
-    // send a TextMessage to each worker
-    for (auto wmnid : worker_mnids_) {
-      std::cout << "wmnid_ = " << wmnid << std::endl;
+        // succeed and fail with 50-50
+        if (rd() % 2 == 0) {
+          msg.GetReturnChannelWriter()
+            ->Send<SuccessQueryCreateVertex>();
+        } else {
+          msg.GetReturnChannelWriter()
+            ->Send<FailureQueryCreateVertex>();
+        }
+      });
 
-      auto stream = memgraph.FindChannel(wmnid, "worker", "main");
-      stream->OnEventOnce()
-        .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg, const Subscription&){
-          msg.channelWriter()->Send<TextMessage>("master", "main", "hi from master");
-          stream->Close();
-        });
-    }
   }
 
  protected:
@@ -90,22 +82,8 @@ class Worker : public Reactor {
   virtual void Run() {
     Distributed &distributed = Distributed::GetInstance();
 
-    std::cout << "Worker (" << mnid_ << ") @ " << distributed.network().Address()
+    LOG(INFO) << "Worker (" << mnid_ << ") @ " << distributed.network().Address()
               << ":" << distributed.network().Port() << std::endl;
-
-    auto stream = main_.first;
-    // wait until master sends us a TextMessage, then reply back and close
-    stream->OnEventOnce()
-      .ChainOnce<TextMessage>([this](const TextMessage &msg, const Subscription&) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
-
-      msg.GetReturnChannelWriter()
-        ->Send<TextMessage>("worker", "main", "hi from worker");
-
-      // Sleep for a while so we can read output in the terminal.
-      std::this_thread::sleep_for(std::chrono::seconds(4));
-      CloseChannel("main");
-    });
   }
 
  protected:
@@ -113,8 +91,9 @@ class Worker : public Reactor {
 };
 
 int main(int argc, char *argv[]) {
-  google::InitGoogleLogging(argv[0]);
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  gflags::ParseCommandLineFlags(&argc, &argv, /* remove flags from command line */ true);
+  std::string logging_name = std::string(argv[0]) + "-mnid-" + std::to_string(FLAGS_my_mnid);
+  google::InitGoogleLogging(logging_name.c_str());
 
   System &system = System::GetInstance();
   Distributed& distributed = Distributed::GetInstance();

@@ -20,10 +20,11 @@ This subdirectory structure implements distributed infrastructure of Memgraph.
 * System, Distributed are singletons. They should be always alive.
 * ChannelWriter (write-end) should be lightweight and can be copied arbitrarily.
 * EventStream (read-end) should never be written by anyone except the owner (the reactor that created it).
+* In general: always think about who owns an object. Preferably write it in its comment block.
 
 ## Code Conventions
 
-* Locked: A method having a Locked... prefix indicates that you
+* Locked: A method having a "Locked..." prefix indicates that you
   have to lock the appropriate mutex before calling this function.
 * ALWAYS close channels. You will memory leak if you don't.
   Reactor::CloseChannel or Subscription::Close will do the trick.

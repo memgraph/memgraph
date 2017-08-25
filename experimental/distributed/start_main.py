@@ -3,19 +3,26 @@
 
 import os
 
-command = 'gnome-terminal'
-config_filename = 'config'
-glog_flags = '-alsologtostderr --minloglevel=2'
+terminal_command = 'gnome-terminal'
+terminal_flags = ' --geometry=200x50 '  # columns x rows
 
+config_filename = 'config'
+log_dir = "logs"
+glog_flags = '--alsologtostderr --logbufsecs=0 --minloglevel=0 --log_dir="{}" '.format(log_dir)
 
 def GetMainCall(my_mnid, address, port):
-  return "./main {} --my_mnid {} --address {} --port {} --config_filename={}".format(
+  ret = "./main {} --my_mnid {} --address {} --port {} --config_filename={}".format(
     glog_flags, my_mnid, address, port, config_filename)
+
+  print(ret)
+  return ret
 
 
 def GetClientCall():
-  return "./main-client {} --address 127.0.0.1 --port 10000 --config_filename={}".format(
+  ret = "./main-client {} --address 127.0.0.1 --port 10000 --config_filename={}".format(
     glog_flags, config_filename)
+  print(ret)
+  return ret
 
 
 def NamedGnomeTab(name, command):
@@ -23,6 +30,8 @@ def NamedGnomeTab(name, command):
 
 
 if __name__ == "__main__":
+  command = "{} {}".format(terminal_command, terminal_flags)
+
   f = open(config_filename, 'r')
   for line in f:
     data = line.strip().split(' ')
@@ -33,4 +42,5 @@ if __name__ == "__main__":
 
   command += NamedGnomeTab("client", GetClientCall())
   print(command)
+  os.system('mkdir -p {}'.format(log_dir))
   os.system(command)
