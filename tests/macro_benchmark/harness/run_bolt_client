@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd $DIR
-source ../ve3/bin/activate
-python3 bolt_client.py $@
-exit $?

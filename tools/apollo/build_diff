@@ -21,7 +21,7 @@ mkdir build_release
 
 cd build_release
 cmake -DCMAKE_BUILD_TYPE=release ..
-TIMEOUT=1000 make -j$THREADS memgraph_link_target
+TIMEOUT=1000 make -j$THREADS memgraph_link_target memgraph__macro_benchmark__harness_client
 
 cd ../../parent
 

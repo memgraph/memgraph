@@ -27,6 +27,9 @@ endif (UNIX)
 # benchmark test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
 
+# macro_benchmark test binaries
+add_subdirectory(${PROJECT_SOURCE_DIR}/macro_benchmark)
+
 # concurrent test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
 

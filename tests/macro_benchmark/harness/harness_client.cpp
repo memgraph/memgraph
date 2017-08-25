@@ -18,12 +18,12 @@ using DecodedValueT = communication::bolt::DecodedValue;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_string(port, "7687", "Server port");
-DEFINE_uint64(num_workers, 1, "Number of workers");
+DEFINE_int32(num_workers, 1, "Number of workers");
 DEFINE_string(output, "", "Output file");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 
-const uint64_t MAX_RETRIES = 1000;
+const int MAX_RETRIES = 1000;
 
 void PrintJsonDecodedValue(std::ostream &os, const DecodedValueT &value) {
   switch (value.type()) {
@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
   std::string query;
   std::vector<std::thread> threads;
 
-  SpinLock mutex;
+  SpinLock spinlock;
   uint64_t last = 0;
   std::vector<std::string> queries;
   std::vector<std::map<std::string, DecodedValueT>> metadata;
@@ -119,21 +119,21 @@ int main(int argc, char **argv) {
 
       ClientT client(std::move(socket), FLAGS_username, FLAGS_password);
 
-      uint64_t pos, i;
       std::string str;
       while (true) {
+        uint64_t pos;
         {
-          std::lock_guard<SpinLock> lock(mutex);
+          std::lock_guard<SpinLock> lock(spinlock);
           if (last == queries.size()) {
             break;
           }
           pos = last++;
           str = queries[pos];
         }
+        int i;
         for (i = 0; i < MAX_RETRIES; ++i) {
           try {
             auto ret = client.Execute(str, {});
-            std::lock_guard<SpinLock> lock(mutex);
             metadata[pos] = ret.metadata;
             break;
           } catch (const communication::bolt::ClientQueryException &e) {

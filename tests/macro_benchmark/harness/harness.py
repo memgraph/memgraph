@@ -319,10 +319,9 @@ class _BaseRunner:
 
     def _get_argparser(self):
         argp = ArgumentParser("RunnerArgumentParser")
-        # TODO: These two options should be passed two database and client, not
-        # only client as we are doing at the moment.
+        # TODO: This option should be passed to the database and client, not
+        # only to the client as we are doing at the moment.
         argp.add_argument("--RunnerUri", default="127.0.0.1:7687")
-        argp.add_argument("--RunnerEncryptBolt", action="store_true")
         return argp
 
     def start(self):
@@ -331,14 +330,17 @@ class _BaseRunner:
 
     def execute(self, queries, num_client_workers):
         self.log.debug("execute('%s')", str(queries))
-        client = path.join(DIR_PATH, "run_bolt_client")
-        client_args = ["--endpoint", self.args.RunnerUri]
-        client_args += ["--num-workers", str(num_client_workers)]
-        output_fd, output = tempfile.mkstemp()
-        os.close(output_fd)
-        client_args += ["--output", output]
-        if self.args.RunnerEncryptBolt:
-            client_args.append("--ssl-enabled")
+
+        client = os.path.normpath(os.path.join(DIR_PATH,
+                "../../../build/tests/macro_benchmark/harness_client"))
+        if not os.path.exists(client):
+            # Apollo builds both debug and release binaries on diff
+            # so we need to use the release client if the debug one
+            # doesn't exist
+            client = os.path.normpath(os.path.join(DIR_PATH,
+                    "../../../build_release/tests/macro_benchmark/"
+                    "harness_client"))
+
         queries_fd, queries_path = tempfile.mkstemp()
         try:
             queries_file = os.fdopen(queries_fd, "w")
@@ -348,6 +350,14 @@ class _BaseRunner:
             queries_file.close()
             os.remove(queries_path)
             raise Exception("Writing queries to temporary file failed")
+
+        output_fd, output = tempfile.mkstemp()
+        os.close(output_fd)
+
+        address, port = self.args.RunnerUri.split(":")
+        client_args = ["--address", address, "--port", port,
+                       "--num-workers", str(num_client_workers),
+                       "--output", output]
 
         cpu_time_start = self.database_bin.get_usage()["cpu"]
         # TODO make the timeout configurable per query or something
@@ -362,10 +372,14 @@ class _BaseRunner:
                            "Failed with return_code %d and stderr:\n%s",
                            str(queries), return_code, stderr)
             raise Exception("BoltClient execution failed")
+
         with open(output) as f:
             data = json.loads(f.read())
-            data[CPU_TIME] = cpu_time_end - cpu_time_start
-            return data
+        data[CPU_TIME] = cpu_time_end - cpu_time_start
+
+        os.remove(output)
+
+        return data
 
     def stop(self):
         self.log.info("stop")
@@ -391,7 +405,7 @@ class MemgraphRunner(_BaseRunner):
         argp.add_argument("--RunnerConfig",
                           default=os.path.normpath(os.path.join(
                               DIR_PATH,
-                              "../../../config/benchmarking.conf")))
+                              "../../../config/benchmarking_latency.conf")))
         # parse args
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
