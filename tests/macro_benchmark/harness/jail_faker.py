@@ -234,5 +234,4 @@ def store_data(data):
         if not i in data:
             raise StorageException("Field '{}' missing in data!".format(i))
     data["timestamp"] = time.time()
-    print("STORE DATA:", data)
     _storage_file.write(json.dumps(data) + "\n")

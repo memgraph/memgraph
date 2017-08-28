@@ -137,7 +137,7 @@ class _QuerySuite:
         """
         argp = ArgumentParser("QuerySuite.scenarios argument parser")
         argp.add_argument("--query-scenarios-root", default=path.join(
-            DIR_PATH, "..", "groups"),
+            DIR_PATH, "groups"),
             dest="root")
         args, _ = argp.parse_known_args()
         log.info("Loading query scenarios from root: %s", args.root)
@@ -278,8 +278,6 @@ class _QuerySuite:
     def groups(self):
         """ Which groups can be executed by a QuerySuite scenario """
         assert False, "This is a base class, use one of derived suites"
-        return ["create", "match", "expression", "aggregation", "return",
-                "update", "delete", "hardcoded"]
 
 
 class QuerySuite(_QuerySuite):
@@ -290,8 +288,8 @@ class QuerySuite(_QuerySuite):
         return ["MemgraphRunner", "NeoRunner"]
 
     def groups(self):
-        return ["create", "match", "expression", "aggregation", "return",
-                "update", "delete"]
+        return ["1000_create", "unwind_create", "match", "expression",
+                "aggregation", "return", "update", "delete"]
 
 
 class QueryParallelSuite(_QuerySuite):
@@ -546,7 +544,7 @@ def main():
 
     log.info("Executing %d scenarios", len(filtered_scenarios))
     results = []
-    for (group, scenario_name), scenario in filtered_scenarios.items():
+    for (group, scenario_name), scenario in sorted(filtered_scenarios.items()):
         log.info("Executing group.scenario '%s.%s' with elements %s",
                  group, scenario_name, list(scenario.keys()))
         for iter_result in suite.run(scenario, group, scenario_name, runner):

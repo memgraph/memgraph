@@ -4,6 +4,7 @@
 #include "communication/bolt/client.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "io/network/socket.hpp"
+#include "utils/timer.hpp"
 
 using SocketT = io::network::Socket;
 using EndpointT = io::network::NetworkEndpoint;
@@ -35,7 +36,10 @@ int main(int argc, char **argv) {
       break;
     }
     try {
+      utils::Timer t;
       auto ret = client.Execute(s, {});
+      auto elapsed = t.Elapsed().count();
+      std::cout << "Wall time:\n    " << elapsed << std::endl;
 
       std::cout << "Fields:" << std::endl;
       for (auto &field : ret.fields) {
@@ -43,7 +47,7 @@ int main(int argc, char **argv) {
       }
 
       std::cout << "Records:" << std::endl;
-      for (int i = 0; i < ret.records.size(); ++i) {
+      for (int i = 0; i < static_cast<int>(ret.records.size()); ++i) {
         std::cout << "    " << i << std::endl;
         for (auto &value : ret.records[i]) {
           std::cout << "        " << value << std::endl;
@@ -54,8 +58,7 @@ int main(int argc, char **argv) {
       for (auto &data : ret.metadata) {
         std::cout << "    " << data.first << " : " << data.second << std::endl;
       }
-    }
-    catch (const communication::bolt::ClientQueryException &e) {
+    } catch (const communication::bolt::ClientQueryException &e) {
       std::cout << "Client received exception: " << e.what() << std::endl;
     }
   }

@@ -190,7 +190,9 @@ binary_release_path = os.path.join(BUILD_RELEASE_DIR, binary_release_name)
 binary_release_link_path = os.path.join(BUILD_RELEASE_DIR, "memgraph")
 
 # macro benchmark tests
-MACRO_BENCHMARK_ARGS = "QuerySuite MemgraphRunner --groups aggregation --no-strict"
+MACRO_BENCHMARK_ARGS = (
+    "QuerySuite MemgraphRunner " +
+    "--groups aggregation 1000_create unwind_create --no-strict")
 macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
 harness_client_binary = os.path.join(BUILD_RELEASE_DIR, "tests",
         "macro_benchmark", "harness_client")
