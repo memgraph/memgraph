@@ -92,16 +92,20 @@ inline std::string Replace(std::string src, const std::string& match,
 /**
  * Split string by delimeter and return vector of results.
  */
-inline std::vector<std::string> Split(const std::string& src,
-                                      const std::string& delimiter) {
-  size_t index = 0;
-  std::vector<std::string> res;
-  size_t n = src.find(delimiter, index);
-  while (n != std::string::npos) {
-    n = src.find(delimiter, index);
-    res.push_back(src.substr(index, n - index));
-    index = n + delimiter.size();
+inline std::vector<std::string> Split(const std::string &src,
+                                      const std::string &delimiter = " ") {
+  if (src.empty()) {
+    return {};
   }
+  size_t index = 0;
+  size_t n = std::string::npos;
+  std::vector<std::string> res;
+  do {
+    n = src.find(delimiter, index);
+    auto word = src.substr(index, n - index);
+    if (!word.empty()) res.push_back(word);
+    index = n + delimiter.size();
+  } while (n != std::string::npos);
   return res;
 }
 

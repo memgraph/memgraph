@@ -484,6 +484,11 @@ class ExpandCommon {
                Symbol input_symbol, bool existing_node, bool existing_edge,
                GraphView graph_view = GraphView::AS_IS);
 
+  const auto &input_symbol() const { return input_symbol_; }
+  const auto &node_symbol() const { return node_symbol_; }
+  const auto &edge_symbol() const { return edge_symbol_; }
+  const auto &direction() const { return direction_; }
+
  protected:
   // info on what's getting expanded
   const Symbol node_symbol_;
@@ -529,7 +534,7 @@ class ExpandCommon {
  * only expansions that match defined equalities are succesfully
  * pulled.
  */
-class Expand : public LogicalOperator, ExpandCommon {
+class Expand : public LogicalOperator, public ExpandCommon {
  public:
   /**
    * Creates an expansion. All parameters are forwarded to @c ExpandCommon and
@@ -601,7 +606,7 @@ class Expand : public LogicalOperator, ExpandCommon {
  * only expansions that match defined equalities are succesfully
  * pulled.
  */
-class ExpandVariable : public LogicalOperator, ExpandCommon {
+class ExpandVariable : public LogicalOperator, public ExpandCommon {
   // the ExpandVariableCursor is not declared in the header because
   // it's edges_ and edges_it_ are decltyped using a helper function
   // that should be inaccessible (private class function won't compile)
