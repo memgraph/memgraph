@@ -52,7 +52,7 @@ class Server
   }
 
   void Start(size_t n) {
-    LOG(INFO) << fmt::format("Starting {} workers", n) << std::endl;
+    std::cout << fmt::format("Starting {} workers", n) << std::endl;
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       workers_.push_back(
@@ -60,8 +60,8 @@ class Server
               session_data_));
       workers_.back()->Start(alive_);
     }
-    LOG(INFO) << "Server is fully armed and operational" << std::endl;
-    LOG(INFO) << fmt::format("Listening on {} at {}",
+    std::cout << "Server is fully armed and operational" << std::endl;
+    std::cout << fmt::format("Listening on {} at {}",
                              socket_.endpoint().address(),
                              socket_.endpoint().port())
               << std::endl;
@@ -69,7 +69,7 @@ class Server
       this->WaitAndProcessEvents();
     }
 
-    LOG(INFO) << "Shutting down..." << std::endl;
+    std::cout << "Shutting down..." << std::endl;
     for (auto &worker : workers_) worker->thread_.join();
   }
 
