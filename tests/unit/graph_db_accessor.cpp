@@ -352,19 +352,6 @@ TEST(GraphDbAccessorTest, Transfer) {
   EXPECT_EQ(dba3->Transfer(e12)->PropsAt(prop).Value<int64_t>(), 12);
 }
 
-TEST(GraphDbAccessorTest, Rand) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  double a = dba->Rand();
-  EXPECT_GE(a, 0.0);
-  EXPECT_LT(a, 1.0);
-  double b = dba->Rand();
-  EXPECT_GE(b, 0.0);
-  EXPECT_LT(b, 1.0);
-  EXPECT_NE(a, b);
-}
-
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   //  ::testing::GTEST_FLAG(filter) = "*.DetachRemoveVertex";

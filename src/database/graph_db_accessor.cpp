@@ -9,9 +9,7 @@
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(db.tx_engine_.Begin()) {
-  pseudo_rand_gen_.seed(std::random_device()());
-}
+    : db_(db), transaction_(db.tx_engine_.Begin()) {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
@@ -334,5 +332,3 @@ const std::string &GraphDbAccessor::PropertyName(
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return *property;
 }
-
-double GraphDbAccessor::Rand() { return rand_dist_(pseudo_rand_gen_); }

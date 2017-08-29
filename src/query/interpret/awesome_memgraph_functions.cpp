@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <functional>
+#include <random>
 
 #include "query/exceptions.hpp"
 #include "utils/string.hpp"
@@ -453,11 +454,13 @@ TypedValue Pi(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   return M_PI;
 }
 
-TypedValue Rand(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
+TypedValue Rand(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
+  static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
   if (args.size() != 0U) {
     throw QueryRuntimeException("rand shouldn't be called with arguments");
   }
-  return dba.Rand();
+  return rand_dist_(pseudo_rand_gen_);
 }
 
 template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
