@@ -472,13 +472,7 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   }
   last_op = new Produce(std::shared_ptr<LogicalOperator>(last_op),
                         body.named_expressions());
-  // Where may see new symbols so it comes after we generate Produce.
-  if (body.where()) {
-    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
-                         body.where()->expression_);
-  }
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
-  // Hopefully, it is more efficient to have Filter before Distinct.
   if (body.distinct()) {
     last_op = new Distinct(std::shared_ptr<LogicalOperator>(last_op),
                            body.output_symbols());
@@ -497,6 +491,12 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   if (body.limit()) {
     last_op =
         new Limit(std::shared_ptr<LogicalOperator>(last_op), body.limit());
+  }
+  // Where may see new symbols so it comes after we generate Produce and in
+  // general, comes after any OrderBy, Skip or Limit.
+  if (body.where()) {
+    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
+                         body.where()->expression_);
   }
   return last_op;
 }

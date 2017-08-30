@@ -703,7 +703,7 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   });
   auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc,
-            ExpectProduce(), ExpectFilter(), ExpectOrderBy());
+            ExpectProduce(), ExpectOrderBy(), ExpectFilter());
 }
 
 TEST(TestLogicalPlanner, ReturnAddSumCountOrderBy) {
@@ -796,7 +796,7 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   auto aggr = ExpectAggregate({sum}, {});
   auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
-            ExpectFilter(), ExpectDistinct(), ExpectProduce());
+            ExpectDistinct(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
