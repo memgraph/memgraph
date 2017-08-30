@@ -4,6 +4,7 @@
 
 namespace utils {
 
+// This class is threadsafe.
 class Timer {
  public:
   /** Time elapsed since creation. */
@@ -12,7 +13,7 @@ class Timer {
   }
 
  private:
-  std::chrono::time_point<std::chrono::steady_clock> start_time_ =
+  const std::chrono::time_point<std::chrono::steady_clock> start_time_ =
       std::chrono::steady_clock::now();
 };
 };

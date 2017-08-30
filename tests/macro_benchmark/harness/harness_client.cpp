@@ -4,7 +4,9 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "common.hpp"
 #include "communication/bolt/client.hpp"
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "threading/sync/spinlock.hpp"
@@ -14,7 +16,7 @@
 using SocketT = io::network::Socket;
 using EndpointT = io::network::NetworkEndpoint;
 using ClientT = communication::bolt::Client<SocketT>;
-using DecodedValueT = communication::bolt::DecodedValue;
+using communication::bolt::DecodedValue;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_string(port, "7687", "Server port");
@@ -25,49 +27,9 @@ DEFINE_string(password, "", "Password for the database");
 
 const int MAX_RETRIES = 1000;
 
-void PrintJsonDecodedValue(std::ostream &os, const DecodedValueT &value) {
-  switch (value.type()) {
-    case DecodedValueT::Type::Null:
-      os << "null";
-      break;
-    case DecodedValueT::Type::Bool:
-      os << (value.ValueBool() ? "true" : "false");
-      break;
-    case DecodedValueT::Type::Int:
-      os << value.ValueInt();
-      break;
-    case DecodedValueT::Type::Double:
-      os << value.ValueDouble();
-      break;
-    case DecodedValueT::Type::String:
-      os << "\"" << value.ValueString() << "\"";
-      break;
-    case DecodedValueT::Type::List:
-      os << "[";
-      PrintIterable(os, value.ValueList(), ", ",
-                    [](auto &stream, const auto &item) {
-                      PrintJsonDecodedValue(stream, item);
-                    });
-      os << "]";
-      break;
-    case DecodedValueT::Type::Map:
-      os << "{";
-      PrintIterable(os, value.ValueMap(), ", ",
-                    [](auto &stream, const auto &pair) {
-                      PrintJsonDecodedValue(stream, {pair.first});
-                      stream << ": ";
-                      PrintJsonDecodedValue(stream, pair.second);
-                    });
-      os << "}";
-      break;
-    default:
-      std::terminate();
-  }
-}
-
 void PrintJsonMetadata(
     std::ostream &os,
-    const std::vector<std::map<std::string, DecodedValueT>> &metadata) {
+    const std::vector<std::map<std::string, DecodedValue>> &metadata) {
   os << "[";
   PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) {
     PrintJsonDecodedValue(stream, item);
@@ -77,7 +39,7 @@ void PrintJsonMetadata(
 
 void PrintSummary(
     std::ostream &os, double duration,
-    const std::vector<std::map<std::string, DecodedValueT>> &metadata) {
+    const std::vector<std::map<std::string, DecodedValue>> &metadata) {
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
@@ -94,7 +56,7 @@ int main(int argc, char **argv) {
   SpinLock spinlock;
   uint64_t last = 0;
   std::vector<std::string> queries;
-  std::vector<std::map<std::string, DecodedValueT>> metadata;
+  std::vector<std::map<std::string, DecodedValue>> metadata;
 
   while (std::getline(std::cin, query)) {
     queries.push_back(query);
@@ -111,10 +73,12 @@ int main(int argc, char **argv) {
       try {
         endpoint = EndpointT(FLAGS_address, FLAGS_port);
       } catch (const io::network::NetworkEndpointException &e) {
-        std::terminate();
+        LOG(FATAL) << "Invalid address or port: " << FLAGS_address << ":"
+                   << FLAGS_port;
       }
       if (!socket.Connect(endpoint)) {
-        std::terminate();
+        LOG(FATAL) << "Could not connect to: " << FLAGS_address << ":"
+                   << FLAGS_port;
       }
 
       ClientT client(std::move(socket), FLAGS_username, FLAGS_password);
@@ -130,17 +94,12 @@ int main(int argc, char **argv) {
           pos = last++;
           str = queries[pos];
         }
-        int i;
-        for (i = 0; i < MAX_RETRIES; ++i) {
-          try {
-            auto ret = client.Execute(str, {});
-            metadata[pos] = ret.metadata;
-            break;
-          } catch (const communication::bolt::ClientQueryException &e) {
-          }
-        }
-        if (i == MAX_RETRIES) {
-          std::terminate();
+        try {
+          metadata[pos] =
+              ExecuteNTimesTillSuccess(client, str, MAX_RETRIES).metadata;
+        } catch (const communication::bolt::ClientQueryException &e) {
+          LOG(FATAL) << "Could not execute query '" << str << "' "
+                     << MAX_RETRIES << "times";
         }
       }
       client.Close();

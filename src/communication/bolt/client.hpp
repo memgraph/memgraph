@@ -93,6 +93,11 @@ class Client {
     }
   }
 
+  Client(const Client &) = delete;
+  Client(Client &&) = delete;
+  Client &operator=(const Client &) = delete;
+  Client &operator=(Client &&) = delete;
+
   QueryData Execute(const std::string &query,
                     const std::map<std::string, DecodedValue> &parameters) {
     DLOG(INFO) << "Sending run message with statement: '" << query

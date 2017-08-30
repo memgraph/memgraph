@@ -29,6 +29,96 @@ from perf import Perf
 
 log = logging.getLogger(__name__)
 
+def load_scenarios(args):
+    """
+    Scans through folder structure starting with groups_root and
+    loads query scenarios.
+    Expected folder structure is:
+        groups_root/
+            groupname1/
+                config.json
+                common.py
+                setup.FILE_TYPE
+                teardown.FILE_TYPE
+                itersetup.FILE_TYPE
+                iterteardown.FILE_TYPE
+                scenario1.config.json
+                scenario1.run.FILE_TYPE-------(mandatory)
+                scenario1.setup.FILE_TYPE
+                scenario1.teardown.FILE_TYPE
+                scenario1.itersetup.FILE_TYPE
+                scenario1.iterteardown.FILE_TYPE
+                scenario2...
+                            ...
+            groupname2/
+                        ...
+
+    Per query configs (setup, teardown, itersetup, iterteardown)
+    override group configs for that scenario. Group configs must have one
+    extension (.FILE_TYPE) and
+    scenario configs must have 2 extensions (.scenario_name.FILE_TYPE).
+    Each suite doesn't need to implement all query steps and filetypes.
+    See documentation in each suite for supported ones.
+
+    Args:
+        args: additional args parsed by this function
+        group_paths: str, root folder that contains group folders
+    Return:
+        {group: (scenario, {config: query_generator_function})
+    """
+    argp = ArgumentParser("QuerySuite.scenarios argument parser")
+    argp.add_argument("--query-scenarios-root", default=path.join(
+        DIR_PATH, "groups"),
+        dest="root")
+    args, _ = argp.parse_known_args()
+    log.info("Loading query scenarios from root: %s", args.root)
+
+    def fill_config_dict(config_dict, base, config_files):
+        for config_file in config_files:
+            log.debug("Processing config file %s", config_file)
+            config_name = config_file.split(".")[-2]
+            config_dict[config_name] = QuerySuite.Loader(
+                path.join(base, config_file))
+
+        # validate that the scenario does not contain any illegal
+        # keys (defense against typos in file naming)
+        unknown_keys = set(config_dict) - QuerySuite.KNOWN_KEYS
+        if unknown_keys:
+            raise Exception("Unknown QuerySuite config elements: '%r'" %
+                            unknown_keys)
+
+    def dir_content(root, predicate):
+        return [p for p in os.listdir(root)
+                if predicate(path.join(root, p))]
+
+    group_scenarios = OrderedDict()
+    for group in dir_content(args.root, path.isdir):
+        log.info("Loading group: '%s'", group)
+
+        group_scenarios[group] = []
+        files = dir_content(path.join(args.root, group),
+                            path.isfile)
+
+        # process group default config
+        group_config = {}
+        fill_config_dict(group_config, path.join(args.root, group),
+                         [f for f in files if f.count(".") == 1])
+
+        # group files on scenario
+        for scenario_name, scenario_files in itertools.groupby(
+                filter(lambda f: f.count(".") == 2, sorted(files)),
+                lambda x: x.split(".")[0]):
+            log.info("Loading scenario: '%s'", scenario_name)
+            scenario = dict(group_config)
+            fill_config_dict(scenario,
+                             path.join(args.root, group),
+                             scenario_files)
+            group_scenarios[group].append((scenario_name, scenario))
+            log.debug("Loaded config for scenario '%s'\n%r", scenario_name,
+                      scenario)
+
+    return group_scenarios
+
 
 class _QuerySuite:
     """
@@ -98,96 +188,6 @@ class _QuerySuite:
 
         def __repr__(self):
             return "(QuerySuite.Loader<%s>)" % self.file_path
-
-    @staticmethod
-    def scenarios(args):
-        """
-        Scans through folder structure starting with groups_root and
-        loads query scenarios.
-        Expected folder structure is:
-            groups_root/
-                groupname1/
-                    config.json
-                    common.py
-                    setup.FILE_TYPE
-                    teardown.FILE_TYPE
-                    itersetup.FILE_TYPE
-                    iterteardown.FILE_TYPE
-                    scenario1.config.json
-                    scenario1.run.FILE_TYPE-------(mandatory)
-                    scenario1.setup.FILE_TYPE
-                    scenario1.teardown.FILE_TYPE
-                    scenario1.itersetup.FILE_TYPE
-                    scenario1.iterteardown.FILE_TYPE
-                    scenario2...
-                                ...
-                groupname2/
-                            ...
-
-        Per query configs (setup, teardown, itersetup, iterteardown)
-        override group configs for that scenario. Group configs must have one
-        extension (.FILE_TYPE) and
-        scenario configs must have 2 extensions (.scenario_name.FILE_TYPE).
-        See `QueryLoader` documentation to see which file types are supported.
-
-        Args:
-            args: additional args parsed by this function
-            group_paths: str, root folder that contains group folders
-        Return:
-            {group: (scenario, {config: query_generator_function})
-        """
-        argp = ArgumentParser("QuerySuite.scenarios argument parser")
-        argp.add_argument("--query-scenarios-root", default=path.join(
-            DIR_PATH, "groups"),
-            dest="root")
-        args, _ = argp.parse_known_args()
-        log.info("Loading query scenarios from root: %s", args.root)
-
-        def fill_config_dict(config_dict, base, config_files):
-            for config_file in config_files:
-                log.debug("Processing config file %s", config_file)
-                config_name = config_file.split(".")[-2]
-                config_dict[config_name] = QuerySuite.Loader(
-                    path.join(base, config_file))
-
-            # validate that the scenario does not contain any illegal
-            # keys (defense against typos in file naming)
-            unknown_keys = set(config_dict) - QuerySuite.KNOWN_KEYS
-            if unknown_keys:
-                raise Exception("Unknown QuerySuite config elements: '%r'" %
-                                unknown_keys)
-
-        def dir_content(root, predicate):
-            return [p for p in os.listdir(root)
-                    if predicate(path.join(root, p))]
-
-        group_scenarios = OrderedDict()
-        for group in dir_content(args.root, path.isdir):
-            log.info("Loading group: '%s'", group)
-
-            group_scenarios[group] = []
-            files = dir_content(path.join(args.root, group),
-                                path.isfile)
-
-            # process group default config
-            group_config = {}
-            fill_config_dict(group_config, path.join(args.root, group),
-                             [f for f in files if f.count(".") == 1])
-
-            # group files on scenario
-            for scenario_name, scenario_files in itertools.groupby(
-                    filter(lambda f: f.count(".") == 2, sorted(files)),
-                    lambda x: x.split(".")[0]):
-                log.info("Loading scenario: '%s'", scenario_name)
-                scenario = dict(group_config)
-                fill_config_dict(scenario,
-                                 path.join(args.root, group),
-                                 scenario_files)
-                group_scenarios[group].append((scenario_name, scenario))
-                log.debug("Loaded config for scenario '%s'\n%r", scenario_name,
-                          scenario)
-
-        return group_scenarios
 
     def run(self, scenario, group_name, scenario_name, runner):
         log.debug("QuerySuite.run() with scenario: %s", scenario)
@@ -305,7 +305,95 @@ class QueryParallelSuite(_QuerySuite):
         return ["aggregation_parallel", "create_parallel"]
 
 
-class _BaseRunner:
+def get_common_runner_argument_parser():
+    argp = ArgumentParser("CommonRunnerArgumentParser")
+    argp.add_argument("--address", help="Database and client address",
+                      default="127.0.0.1")
+    argp.add_argument("--port", help="Database and client port",
+                      default="7687")
+    return argp
+
+
+# Database wrappers.
+
+class Memgraph:
+    """
+    Knows how to start and stop memgraph.
+    """
+    def __init__(self, args, cpus=None):
+        if cpus is None: cpus = [1]
+        self.log = logging.getLogger("MemgraphRunner")
+        argp = ArgumentParser("MemgraphArgumentParser", add_help=False,
+                              parents=[get_common_runner_argument_parser()])
+        argp.add_argument("--RunnerBin",
+                          default=os.path.join(DIR_PATH,
+                                               "../../../build/memgraph"))
+        argp.add_argument("--RunnerConfig",
+                          default=os.path.normpath(os.path.join(
+                              DIR_PATH,
+                              "../../../config/benchmarking_latency.conf")))
+        self.log.info("Initializing Runner with arguments %r", args)
+        self.args, _ = argp.parse_known_args(args)
+        self.database_bin = jail.get_process()
+        self.database_bin.set_cpus(cpus)
+
+    def start(self):
+        self.log.info("start")
+        environment = os.environ.copy()
+        environment["MEMGRAPH_CONFIG"] = self.args.RunnerConfig
+        database_args = ["--interface", self.args.address,
+                         "--port", self.args.port]
+        self.database_bin.run(self.args.RunnerBin, database_args,
+                              env=environment, timeout=600)
+        # TODO change to a check via SIGUSR
+        time.sleep(1.0)
+        return self.database_bin.get_pid() if not APOLLO else None
+
+    def stop(self):
+        self.database_bin.send_signal(jail.SIGTERM)
+        self.database_bin.wait()
+
+
+class Neo:
+    def __init__(self, args, cpus):
+        if cpus is None: cpus = [1]
+        self.log = logging.getLogger("NeoRunner")
+        argp = ArgumentParser("NeoArgumentParser", add_help=False,
+                              parents=[get_common_runner_argument_parser()])
+        argp.add_argument(
+            "--RunnerConfigDir",
+            default=path.join(DIR_PATH, "neo4j_config"))
+        argp.add_argument(
+            "--RunnerHomeDir",
+            default=path.join(DIR_PATH, "neo4j_home"))
+        self.log.info("Initializing Runner with arguments %r", args)
+        self.args, _ = argp.parse_known_args(args)
+        if self.args.address != "127.0.0.1" or self.args.port != "7687":
+            raise Exception(
+                "Neo wrapper doesn't support different address or port")
+        self.database_bin = jail.get_process()
+        self.database_bin.set_cpus(cpus)
+
+    def start(self):
+        self.log.info("start")
+        environment = os.environ.copy()
+        environment["NEO4J_CONF"] = self.args.RunnerConfigDir
+        environment["NEO4J_HOME"] = self.args.RunnerHomeDir
+        neo4j_data_path = path.join(environment["NEO4J_HOME"], "data")
+        if path.exists(neo4j_data_path):
+            shutil.rmtree(neo4j_data_path)
+        self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
+                              env=environment, timeout=600)
+        # TODO change to a check via SIGUSR
+        time.sleep(5.0)
+        return self.database_bin.get_pid() if not APOLLO else None
+
+    def stop(self):
+        self.database_bin.send_signal(jail.SIGTERM)
+        self.database_bin.wait()
+
+
+class _HarnessClientRunner:
     """
     Knows how to start and stop database (backend) some client frontend (bolt),
     and execute a cypher query.
@@ -314,19 +402,18 @@ class _BaseRunner:
     Inherited class should implement start method and initialise database_bin
     and bolt_client members of type Process.
     """
-    def __init__(self, args):
-        self.log = logging.getLogger("_BaseRunner")
-
-    def _get_argparser(self):
-        argp = ArgumentParser("RunnerArgumentParser")
-        # TODO: This option should be passed to the database and client, not
-        # only to the client as we are doing at the moment.
-        argp.add_argument("--RunnerUri", default="127.0.0.1:7687")
-        return argp
+    def __init__(self, args, database, cpus=None):
+        if cpus is None: cpus = [2, 3]
+        self.log = logging.getLogger("_HarnessClientRunner")
+        self.database = database
+        argp = ArgumentParser("RunnerArgumentParser", add_help=False,
+                              parents=[get_common_runner_argument_parser()])
+        self.args, _ = argp.parse_known_args()
+        self.bolt_client = jail.get_process()
+        self.bolt_client.set_cpus(cpus)
 
     def start(self):
-        raise NotImplementedError(
-                "This method should be implemented in derivded class")
+        self.database.start()
 
     def execute(self, queries, num_client_workers):
         self.log.debug("execute('%s')", str(queries))
@@ -354,16 +441,15 @@ class _BaseRunner:
         output_fd, output = tempfile.mkstemp()
         os.close(output_fd)
 
-        address, port = self.args.RunnerUri.split(":")
-        client_args = ["--address", address, "--port", port,
+        client_args = ["--address", self.args.address, "--port", self.args.port,
                        "--num-workers", str(num_client_workers),
                        "--output", output]
 
-        cpu_time_start = self.database_bin.get_usage()["cpu"]
+        cpu_time_start = self.database.database_bin.get_usage()["cpu"]
         # TODO make the timeout configurable per query or something
         return_code = self.bolt_client.run_and_wait(
             client, client_args, timeout=600, stdin=queries_path)
-        cpu_time_end = self.database_bin.get_usage()["cpu"]
+        cpu_time_end = self.database.database_bin.get_usage()["cpu"]
         os.remove(queries_path)
         if return_code != 0:
             with open(self.bolt_client.get_stderr()) as f:
@@ -378,88 +464,27 @@ class _BaseRunner:
         data[CPU_TIME] = cpu_time_end - cpu_time_start
 
         os.remove(output)
-
         return data
 
     def stop(self):
         self.log.info("stop")
         self.bolt_client.wait()
-        self.database_bin.send_signal(jail.SIGTERM)
-        self.database_bin.wait()
+        self.database.stop()
 
 
-class MemgraphRunner(_BaseRunner):
-    """
-    Knows how to start and stop Memgraph (backend) some client frontent
-    (bolt), and execute a cypher query.
-    Execution returns benchmarking data (execution times, memory
-    usage etc).
-    """
-    def __init__(self, args):
-        super(MemgraphRunner, self).__init__(args)
-        self.log = logging.getLogger("MemgraphRunner")
-        argp = self._get_argparser()
-        argp.add_argument("--RunnerBin",
-                          default=os.path.join(DIR_PATH,
-                                               "../../../build/memgraph"))
-        argp.add_argument("--RunnerConfig",
-                          default=os.path.normpath(os.path.join(
-                              DIR_PATH,
-                              "../../../config/benchmarking_latency.conf")))
-        # parse args
-        self.log.info("Initializing Runner with arguments %r", args)
-        self.args, _ = argp.parse_known_args(args)
-        self.database_bin = jail.get_process()
-        self.database_bin.set_cpus([1])
-        self.bolt_client = jail.get_process()
-        self.bolt_client.set_cpus([2, 3])
-
-    def start(self):
-        self.log.info("start")
-        environment = os.environ.copy()
-        environment["MEMGRAPH_CONFIG"] = self.args.RunnerConfig
-        self.database_bin.run(self.args.RunnerBin, env=environment,
-                              timeout=600)
-        # TODO change to a check via SIGUSR
-        time.sleep(1.0)
-        return self.database_bin.get_pid() if not APOLLO else None
+class MemgraphRunner(_HarnessClientRunner):
+    def __init__(self, args, client_cpus=None, database_cpus=None):
+        database = Memgraph(args, database_cpus)
+        super(MemgraphRunner, self).__init__(args, database, cpus=client_cpus)
 
 
-class NeoRunner(_BaseRunner):
-    def __init__(self, args):
-        super(NeoRunner, self).__init__(args)
-        self.log = logging.getLogger("NeoRunner")
-        argp = self._get_argparser()
-        argp.add_argument(
-            "--RunnerConfigDir",
-            default=path.join(DIR_PATH, "neo4j_config"))
-        argp.add_argument(
-            "--RunnerHomeDir",
-            default=path.join(DIR_PATH, "neo4j_home"))
-        # parse args
-        self.log.info("Initializing Runner with arguments %r", args)
-        self.args, _ = argp.parse_known_args(args)
-        self.database_bin = jail.get_process()
-        self.database_bin.set_cpus([1])
-        self.bolt_client = jail.get_process()
-        self.bolt_client.set_cpus([2, 3])
-
-    def start(self):
-        self.log.info("start")
-        environment = os.environ.copy()
-        environment["NEO4J_CONF"] = self.args.RunnerConfigDir
-        environment["NEO4J_HOME"] = self.args.RunnerHomeDir
-        neo4j_data_path = path.join(environment["NEO4J_HOME"], "data")
-        if path.exists(neo4j_data_path):
-            shutil.rmtree(neo4j_data_path)
-        self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
-                              env=environment, timeout=600)
-        # TODO change to a check via SIGUSR
-        time.sleep(5.0)
-        return self.database_bin.get_pid() if not APOLLO else None
+class NeoRunner(_HarnessClientRunner):
+    def __init__(self, args, client_cpus=None, database_cpus=None):
+        database = Neo(args, database_cpus)
+        super(NeoRunner, self).__init__(args, database, cpus=client_cpus)
 
 
-def parse_known_args():
+def main():
     argp = ArgumentParser(description=__doc__)
     # positional, mandatory args
     argp.add_argument("suite", help="Suite to run.")
@@ -476,11 +501,8 @@ def parse_known_args():
     argp.add_argument("--no-strict", default=False, action="store_true",
                       help="Ignores nonexisting groups instead of raising an "
                            "exception")
-    return argp.parse_known_args()
+    args, remaining_args = argp.parse_known_args()
 
-
-def main():
-    args, remaining_args = parse_known_args()
     if args.logging:
         logging.basicConfig(level=args.logging)
         logging.getLogger("requests").setLevel(logging.WARNING)
@@ -489,7 +511,7 @@ def main():
     log.info("Memgraph benchmark suite harness")
     log.info("Executing for suite '%s', runner '%s'", args.suite, args.runner)
 
-    # Create suite
+    # Create suites.
     suites = {"QuerySuite": QuerySuite,
               "QueryParallelSuite": QueryParallelSuite}
     if args.suite not in suites:
@@ -498,21 +520,20 @@ def main():
                 args.suite, suites))
     suite = suites[args.suite](remaining_args)
 
-    # Load scenarios
-    group_scenarios = suites[args.suite].scenarios(remaining_args)
+    # Load scenarios.
+    group_scenarios = load_scenarios(remaining_args)
     log.info("Loaded %d groups, with a total of %d scenarios",
              len(group_scenarios),
              sum([len(x) for x in group_scenarios.values()]))
 
-    # Create runner
+    # Create runners.
     runners = {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
-    # TODO if make runner argument optional, then execute all runners
     if args.runner not in suite.runners():
         raise Exception("Runner '{}' not registered for suite '{}'".format(
             args.runner, args.suite))
     runner = runners[args.runner](remaining_args)
 
-    # Validate groups (if provided)
+    # Validate groups (if provided).
     groups = []
     if args.groups:
         for group in args.groups:
@@ -529,6 +550,7 @@ def main():
         # No groups provided, use all suite group
         groups = suite.groups()
 
+    # Filter scenarios.
     # TODO enable scenario filtering on regex
     filtered_scenarios = OrderedDict()
     for group, scenarios in group_scenarios.items():
@@ -544,6 +566,7 @@ def main():
         log.info("No scenarios to execute")
         return
 
+    # Run scenarios.
     log.info("Executing %d scenarios", len(filtered_scenarios))
     results = []
     for (group, scenario_name), scenario in sorted(filtered_scenarios.items()):
@@ -553,6 +576,8 @@ def main():
             iter_result["group"] = group
             iter_result["scenario"] = scenario_name
             results.append(iter_result)
+
+    # Save results.
     run = dict()
     run["suite"] = args.suite
     run["runner"] = runner.__class__.__name__
@@ -560,6 +585,8 @@ def main():
     run.update(args.additional_run_fields)
     for result in results:
         jail.store_data(result)
+
+    # Print summary.
     print("\n\nMacro benchmark summary:")
     print("{}\n".format(suite.summary))
     with open(os.path.join(DIR_PATH, ".harness_summary"), "w") as f:

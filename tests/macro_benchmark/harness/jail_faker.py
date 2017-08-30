@@ -36,7 +36,9 @@ class Process:
         self._usage = {}
         self._files = []
 
-    def run(self, binary, args = [], env = {}, timeout = 120, stdin = "/dev/null", cwd = "."):
+    def run(self, binary, args = None, env = None, timeout = 120, stdin = "/dev/null", cwd = "."):
+        if args is None: args = []
+        if env is None: env = {}
         # don't start a new process if one is already running
         if self._proc != None and self._proc.returncode == None:
             raise ProcessException
