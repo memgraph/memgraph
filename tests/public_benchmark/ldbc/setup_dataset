@@ -32,6 +32,7 @@ do
     shift # past argument or value
 done
 
+echo "Using scale_factor" $scale_factor
 # Prepare the folder structure.
 dataset_folder_prefix="neo4j_csv_dataset"
 dataset_folder="${script_dir}/${dataset_folder_prefix}_scale_${scale_factor}"
@@ -50,7 +51,15 @@ EOF
 ldbc_snb_datagen_folder=${script_dir}/ldbc_snb_datagen
 cd ${ldbc_snb_datagen_folder}
 export HADOOP_OPTS="$HADOOP_OPTS -Xmx10240M"
-export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64/jre
+if [[ -d "/usr/lib/jvm/default-java/jre" ]]; then
+  export JAVA_HOME=/usr/lib/jvm/default-java/jre
+elif [[ -d "/usr/lib/jvm/default-runtime/" ]]; then
+  export JAVA_HOME=/usr/lib/jvm/default-runtime/
+else
+  echo "Unable to find JRE under /usr/lib/jvm"
+  exit 1
+fi
+echo "Using JAVA_HOME" $JAVA_HOME
 HADOOP_HOME=/usr/local/hadoop LDBC_SNB_DATAGEN_HOME=${ldbc_snb_datagen_folder} ./run.sh
 
 # Transform the dataset into Neo4j CSV format.

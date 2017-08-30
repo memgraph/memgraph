@@ -2,7 +2,11 @@
 
 # Setup all dependencies
 
-set -e
+function command_fail {
+  echo $1
+  exit 1
+}
+
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Setup ldbc_snb_datagen
@@ -13,19 +17,23 @@ git clone https://github.com/ldbc/ldbc_snb_datagen
 cd ${script_dir}
 git clone https://github.com/ldbc/ldbc_driver.git
 cd ${script_dir}/ldbc_driver
-mvn clean package -DskipTests
-mvn install -DskipTests
+mvn clean package -DskipTests || exit 1
+mvn install -DskipTests || exit 1
 
 # Setup ldbc-snb-impls
 cd ${script_dir}
 git clone https://phabricator.memgraph.io/source/ldbc-snb-impls.git
 cp ${script_dir}/ldbc-snb-impls-pom.xml ${script_dir}/ldbc-snb-impls/pom.xml
 cd ${script_dir}/ldbc-snb-impls
-mvn install
+mvn install || exit 1
+
+# Use set -e after we have called git clone, to avoid exiting if we already
+# cloned something.
+set -e
 
 # Setup python virtual environment & Install dependencies
 cd ${script_dir}
-if ! which virtualenv >/dev/null; then
+if ! which virtualenv > /dev/null 2>&1; then
     command_fail "Please install virtualenv!"
 fi
 if [ ! -d "ve3" ]; then

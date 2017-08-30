@@ -3,7 +3,7 @@
 ## How to run the benchmark against Neo4j OR Memgraph?
 
     cd memgraph/tests/public_benchmark/ldbc
-    sudo ./setup_system
+    ./setup_system
     ./setup_dependencies
     ./setup_dataset [--scale-factor 1]
     ./neo [--run] OR ./mg [--run]

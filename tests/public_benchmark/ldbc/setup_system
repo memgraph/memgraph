@@ -2,26 +2,22 @@
 
 # System setup (root access is required)
 
-# Make sure only root can run our script
-# TODO: remove sudo requirement
-if [ "$(id -u)" != "0" ]; then
-    echo "This script must be run as root" 1>&2
-    exit 1
-fi
-
 # Working directories
 set -e
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 mkdir -p ${script_dir}/tmp
 
 # Install OS packages
-# TODO: sudo is required here (remove)
 cd ${script_dir}/tmp
-wget -O - http://debian.neo4j.org/neotechnology.gpg.key >> key.pgp
-apt-key add key.pgp
-echo 'deb http://debian.neo4j.org/repo stable/' | tee -a /etc/apt/sources.list.d/neo4j.list > /dev/null
-apt-get update
-apt-get install -y maven default-jdk neo4j
+if which apt-get > /dev/null 2>&1; then
+  wget -O - http://debian.neo4j.org/neotechnology.gpg.key >> key.pgp || exit 1
+  sudo apt-key add key.pgp || exit 1
+  sudo echo 'deb http://debian.neo4j.org/repo stable/' | tee -a /etc/apt/sources.list.d/neo4j.list > /dev/null || exit 1
+  sudo apt-get update || exit 1
+  sudo apt-get install -y maven default-jdk neo4j || exit 1
+else
+  echo "Assuming that 'maven', 'jdk' and 'neo4j' are installed"
+fi
 
 # Install Hadoop
 cd ${script_dir}/tmp
@@ -29,10 +25,10 @@ hadoop_version="hadoop-2.7.3"
 hadoop_tar="${hadoop_version}.tar.gz"
 hadoop_url="http://apache.mirrors.tds.net/hadoop/common/${hadoop_version}/${hadoop_tar}"
 wget ${hadoop_url}
-tar -xzvf ${hadoop_tar}
-rm -rf /usr/local/hadoop/${hadoop_version}
+tar -xzf ${hadoop_tar}
 # TODO: root access is required here -> run hadoop under a current user
-mv ${hadoop_version} /usr/local/hadoop
+echo "Moving hadoop to /usr/local/hadoop"
+sudo mv ${hadoop_version} /usr/local/hadoop
 
 # Performance Setup
 # echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
