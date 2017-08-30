@@ -1252,7 +1252,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
-TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
+TEST(TestLogicalPlanner, MatchExpandVariableInlinedFilter) {
   // Test MATCH (n) -[r :type * {prop: 42}]-> (m) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
@@ -1262,6 +1262,22 @@ TEST(TestLogicalPlanner, MatchExpandVariableFiltered) {
   auto edge = EDGE("r", type);
   edge->has_range_ = true;
   edge->properties_[prop] = LITERAL(42);
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  CheckPlan(storage, ExpectScanAll(),
+            ExpectExpandVariable(),  // Filter is inlined in expand
+            ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
+  // Test MATCH (n) -[r :type * {prop: m.prop}]-> (m) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto type = dba->EdgeType("type");
+  auto prop = PROPERTY_PAIR("prop");
+  AstTreeStorage storage;
+  auto edge = EDGE("r", type);
+  edge->has_range_ = true;
+  edge->properties_[prop] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(),
             ExpectProduce());

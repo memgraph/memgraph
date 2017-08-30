@@ -71,6 +71,9 @@ endif()
 # TODO: set here 17 once it will be available in the cmake version (3.8)
 set(cxx_standard 14)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
+# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
+    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 # -----------------------------------------------------------------------------
 
 # dir variables
@@ -99,7 +102,7 @@ endif()
 
 # default build type is debug
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
-    set(CMAKE_BUILD_TYPE "debug")
+    set(CMAKE_BUILD_TYPE "Debug")
 endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
@@ -356,7 +359,7 @@ string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 set(MEMGRAPH_BUILD_NAME
     "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
 add_custom_target(memgraph_link_target ALL
-	COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
 # -----------------------------------------------------------------------------
 
 # memgraph main executable

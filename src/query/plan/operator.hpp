@@ -633,7 +633,8 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
                  Expression *lower_bound, Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, bool existing_node, bool existing_edge,
-                 GraphView graph_view = GraphView::AS_IS);
+                 GraphView graph_view = GraphView::AS_IS,
+                 Expression *filter = nullptr);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
@@ -646,6 +647,7 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
   // True if the path should be written as expanding from node_symbol to
   // input_symbol.
   bool is_reverse_;
+  Expression *filter_;
 };
 
 /**

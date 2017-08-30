@@ -44,6 +44,18 @@ void ExpectType(Symbol symbol, TypedValue value, TypedValue::Type expected) {
                                 symbol.name(), value.type());
 }
 
+// Returns boolean result of evaluating filter expression. Null is treated as
+// false. Other non boolean values raise a QueryRuntimeException.
+bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
+  TypedValue result = filter->Accept(evaluator);
+  // Null is treated like false.
+  if (result.IsNull()) return false;
+  if (result.type() != TypedValue::Type::Bool)
+    throw QueryRuntimeException(
+        "Filter expression must be a bool or null, but got {}.", result.type());
+  return result.Value<bool>();
+}
+
 }  // namespace
 
 bool Once::OnceCursor::Pull(Frame &, const SymbolTable &) {
@@ -239,7 +251,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
       output_symbol_(output_symbol),
       graph_view_(graph_view) {
   permanent_assert(graph_view != GraphView::AS_IS,
-                   "ScanAll must have explicitly defined GraphView")
+                   "ScanAll must have explicitly defined GraphView");
 }
 
 ACCEPT_WITH_INPUT(ScanAll)
@@ -300,10 +312,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -531,12 +543,14 @@ ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
                                Expression *lower_bound, Expression *upper_bound,
                                const std::shared_ptr<LogicalOperator> &input,
                                Symbol input_symbol, bool existing_node,
-                               bool existing_edge, GraphView graph_view)
+                               bool existing_edge, GraphView graph_view,
+                               Expression *filter)
     : ExpandCommon(node_symbol, edge_symbol, direction, input, input_symbol,
                    existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
-      is_reverse_(is_reverse) {}
+      is_reverse_(is_reverse),
+      filter_(filter) {}
 
 bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
                                               Frame &frame) const {
@@ -612,8 +626,9 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, const SymbolTable &symbol_table) override {
+    ExpressionEvaluator evaluator(frame, symbol_table, db_, self_.graph_view_);
     while (true) {
-      if (Expand(frame)) return true;
+      if (Expand(frame, symbol_table)) return true;
 
       if (PullInput(frame, symbol_table)) {
         // if lower bound is zero we also yield empty paths
@@ -625,8 +640,11 @@ class ExpandVariableCursor : public Cursor {
           // take into account existing_edge when yielding empty paths
           if ((!self_.existing_edge_ || edges_on_frame.empty()) &&
               // Place the start vertex on the frame.
-              self_.HandleExistingNode(start_vertex, frame))
+              self_.HandleExistingNode(start_vertex, frame)) {
+            if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_))
+              continue;
             return true;
+          }
         }
         // if lower bound is not zero, we just continue, the next
         // loop iteration will attempt to expand and we're good
@@ -793,7 +811,8 @@ class ExpandVariableCursor : public Cursor {
    * case no more expansions are available from the current input
    * vertex and another Pull from the input cursor should be performed.
    */
-  bool Expand(Frame &frame) {
+  bool Expand(Frame &frame, const SymbolTable &symbol_table) {
+    ExpressionEvaluator evaluator(frame, symbol_table, db_, self_.graph_view_);
     // some expansions might not be valid due to
     // edge uniqueness, existing_edge, existing_node criterions,
     // so expand in a loop until either the input vertex is
@@ -851,6 +870,10 @@ class ExpandVariableCursor : public Cursor {
       auto edge_placement_result =
           HandleEdgePlacement(current_edge.first, edges_on_frame);
       if (edge_placement_result == EdgePlacementResult::MISMATCH) continue;
+      // Skip expanding out of filtered expansion. It is assumed that the
+      // expression does not use the vertex which has yet to be put on frame.
+      // Therefore, this check is done as soon as the edge is on the frame.
+      if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_)) continue;
 
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN
@@ -1050,16 +1073,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
   // and edges.
   ExpressionEvaluator evaluator(frame, symbol_table, db_, GraphView::OLD);
   while (input_cursor_->Pull(frame, symbol_table)) {
-    TypedValue result = self_.expression_->Accept(evaluator);
-    // Null is treated like false.
-    if (result.IsNull()) continue;
-
-    if (result.type() != TypedValue::Type::Bool)
-      throw QueryRuntimeException(
-          "Filter expression must be a bool or null, but got {}.",
-          result.type());
-    if (!result.Value<bool>()) continue;
-    return true;
+    if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;
 }
@@ -1203,11 +1217,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame,
       // Skip setting properties on Null (can occur in optional match).
       break;
     case TypedValue::Type::Map:
-      // Semantically modifying a map makes sense, but it's not supported due to
-      // all the copying we do (when PropertyValue -> TypedValue and in
-      // ExpressionEvaluator). So even though we set a map property here, that
-      // is never visible to the user and it's not stored.
-      // TODO: fix above described bug
+    // Semantically modifying a map makes sense, but it's not supported due to
+    // all the copying we do (when PropertyValue -> TypedValue and in
+    // ExpressionEvaluator). So even though we set a map property here, that
+    // is never visible to the user and it's not stored.
+    // TODO: fix above described bug
     default:
       throw QueryRuntimeException(
           "Properties can only be set on Vertices and Edges");
@@ -1737,14 +1751,14 @@ void Aggregate::AggregateCursor::Update(
           *value_it = 1;
           break;
         case Aggregation::Op::COLLECT_LIST:
-            value_it->Value<std::vector<TypedValue>>().push_back(input_value);
-            break;
+          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+          break;
         case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->key->Accept(evaluator);
-            if (key.type() != TypedValue::Type::String)
-              throw QueryRuntimeException("Map key must be a string");
-            value_it->Value<std::map<std::string, TypedValue>>().emplace(
-                key.Value<std::string>(), input_value);
+          auto key = agg_elem_it->key->Accept(evaluator);
+          if (key.type() != TypedValue::Type::String)
+            throw QueryRuntimeException("Map key must be a string");
+          value_it->Value<std::map<std::string, TypedValue>>().emplace(
+              key.Value<std::string>(), input_value);
           break;
       }
       continue;
@@ -1789,14 +1803,14 @@ void Aggregate::AggregateCursor::Update(
         *value_it = *value_it + input_value;
         break;
       case Aggregation::Op::COLLECT_LIST:
-          value_it->Value<std::vector<TypedValue>>().push_back(input_value);
-          break;
+        value_it->Value<std::vector<TypedValue>>().push_back(input_value);
+        break;
       case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->key->Accept(evaluator);
-          if (key.type() != TypedValue::Type::String)
-            throw QueryRuntimeException("Map key must be a string");
-          value_it->Value<std::map<std::string, TypedValue>>().emplace(
-              key.Value<std::string>(), input_value);
+        auto key = agg_elem_it->key->Accept(evaluator);
+        if (key.type() != TypedValue::Type::String)
+          throw QueryRuntimeException("Map key must be a string");
+        value_it->Value<std::map<std::string, TypedValue>>().emplace(
+            key.Value<std::string>(), input_value);
         break;
     }  // end switch over Aggregation::Op enum
   }    // end loop over all aggregations

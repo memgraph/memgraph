@@ -114,10 +114,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
 };
 
-bool HasBoundFilterSymbols(
-    const std::unordered_set<Symbol> &bound_symbols,
-    const std::pair<Expression *, std::unordered_set<Symbol>> &filter) {
-  for (const auto &symbol : filter.second) {
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols,
+                           const Filters::FilterInfo &filter) {
+  for (const auto &symbol : filter.used_symbols) {
     if (bound_symbols.find(symbol) == bound_symbols.end()) {
       return false;
     }
@@ -357,8 +356,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP uses
     // two expressions, so we can have 0, 1 or 2 elements on the
     // has_aggregation_stack for this Aggregation expression.
-    if (aggr.op_ == Aggregation::Op::COLLECT_MAP)
-      has_aggregation_.pop_back();
+    if (aggr.op_ == Aggregation::Op::COLLECT_MAP) has_aggregation_.pop_back();
     if (aggr.expression1_)
       has_aggregation_.back() = true;
     else
@@ -594,11 +592,178 @@ void AddMatching(const Match &match, SymbolTable &symbol_table,
                      matching);
 }
 
+// Iterates over `all_filters` joining them in one expression via
+// `FilterAndOperator`. Filters which use unbound symbols are skipped, as well
+// as those that fail the `predicate` function. The function takes a single
+// argument, `FilterInfo`. All the joined filters are removed from
+// `all_filters`.
+template <class TPredicate>
+Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
+                           std::vector<Filters::FilterInfo> &all_filters,
+                           AstTreeStorage &storage,
+                           const TPredicate &predicate) {
+  Expression *filter_expr = nullptr;
+  for (auto filters_it = all_filters.begin();
+       filters_it != all_filters.end();) {
+    if (HasBoundFilterSymbols(bound_symbols, *filters_it) &&
+        predicate(*filters_it)) {
+      filter_expr = BoolJoin<FilterAndOperator>(storage, filter_expr,
+                                                filters_it->expression);
+      filters_it = all_filters.erase(filters_it);
+    } else {
+      filters_it++;
+    }
+  }
+  return filter_expr;
+}
+
 }  // namespace
 
+namespace impl {
+
+// Returns false if the symbol was already bound, otherwise binds it and
+// returns true.
+bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
+                const Symbol &symbol) {
+  auto insertion = bound_symbols.insert(symbol);
+  return insertion.second;
+}
+
+Expression *FindExpandVariableFilter(
+    const std::unordered_set<Symbol> &bound_symbols,
+    const Symbol &expands_to_node,
+    std::vector<Filters::FilterInfo> &all_filters, AstTreeStorage &storage) {
+  return ExtractFilters(bound_symbols, all_filters, storage,
+                        [&](const auto &filter) {
+                          return filter.is_for_expand_variable &&
+                                 filter.used_symbols.find(expands_to_node) ==
+                                     filter.used_symbols.end();
+                        });
+}
+
+LogicalOperator *GenFilters(LogicalOperator *last_op,
+                            const std::unordered_set<Symbol> &bound_symbols,
+                            std::vector<Filters::FilterInfo> &all_filters,
+                            AstTreeStorage &storage) {
+  auto *filter_expr = ExtractFilters(bound_symbols, all_filters, storage,
+                                     [](const auto &) { return true; });
+  if (filter_expr) {
+    last_op =
+        new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
+  }
+  return last_op;
+}
+
+LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
+                           SymbolTable &symbol_table, bool is_write,
+                           const std::unordered_set<Symbol> &bound_symbols,
+                           AstTreeStorage &storage) {
+  // Similar to WITH clause, but we want to accumulate and advance command when
+  // the query writes to the database. This way we handle the case when we want
+  // to return expressions with the latest updated results. For example,
+  // `MATCH (n) -- () SET n.prop = n.prop + 1 RETURN n.prop`. If we match same
+  // `n` multiple 'k' times, we want to return 'k' results where the property
+  // value is the same, final result of 'k' increments.
+  bool accumulate = is_write;
+  bool advance_command = false;
+  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage);
+  return GenReturnBody(input_op, advance_command, body, accumulate);
+}
+
+LogicalOperator *GenCreateForPattern(
+    Pattern &pattern, LogicalOperator *input_op,
+    const SymbolTable &symbol_table,
+    std::unordered_set<Symbol> &bound_symbols) {
+  auto base = [&](NodeAtom *node) -> LogicalOperator * {
+    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
+      return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
+    else
+      return input_op;
+  };
+
+  auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
+                     EdgeAtom *edge, NodeAtom *node) {
+    // Store the symbol from the first node as the input to CreateExpand.
+    const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
+    // If the expand node was already bound, then we need to indicate this,
+    // so that CreateExpand only creates an edge.
+    bool node_existing = false;
+    if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
+      node_existing = true;
+    }
+    if (!BindSymbol(bound_symbols, symbol_table.at(*edge->identifier_))) {
+      permanent_fail("Symbols used for created edges cannot be redeclared.");
+    }
+    return new CreateExpand(node, edge,
+                            std::shared_ptr<LogicalOperator>(last_op),
+                            input_symbol, node_existing);
+  };
+
+  return ReducePattern<LogicalOperator *>(pattern, base, collect);
+}
+
+// Generate an operator for a clause which writes to the database. If the clause
+// isn't handled, returns nullptr.
+LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
+                                   const SymbolTable &symbol_table,
+                                   std::unordered_set<Symbol> &bound_symbols) {
+  if (auto *create = dynamic_cast<Create *>(clause)) {
+    return GenCreate(*create, input_op, symbol_table, bound_symbols);
+  } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
+    return new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
+                            del->expressions_, del->detach_);
+  } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
+    return new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
+                                 set->property_lookup_, set->expression_);
+  } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
+    auto op = set->update_ ? plan::SetProperties::Op::UPDATE
+                           : plan::SetProperties::Op::REPLACE;
+    const auto &input_symbol = symbol_table.at(*set->identifier_);
+    return new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
+                                   input_symbol, set->expression_, op);
+  } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
+    const auto &input_symbol = symbol_table.at(*set->identifier_);
+    return new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
+                               input_symbol, set->labels_);
+  } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
+    return new plan::RemoveProperty(std::shared_ptr<LogicalOperator>(input_op),
+                                    rem->property_lookup_);
+  } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
+    const auto &input_symbol = symbol_table.at(*rem->identifier_);
+    return new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
+                                  input_symbol, rem->labels_);
+  }
+  return nullptr;
+}
+
+LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
+                         SymbolTable &symbol_table, bool is_write,
+                         std::unordered_set<Symbol> &bound_symbols,
+                         AstTreeStorage &storage) {
+  // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
+  // optional Filter. In case of update and aggregation, we want to accumulate
+  // first, so that when aggregating, we get the latest results. Similar to
+  // RETURN clause.
+  bool accumulate = is_write;
+  // No need to advance the command if we only performed reads.
+  bool advance_command = is_write;
+  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage,
+                         with.where_);
+  LogicalOperator *last_op =
+      GenReturnBody(input_op, advance_command, body, accumulate);
+  // Reset bound symbols, so that only those in WITH are exposed.
+  bound_symbols.clear();
+  for (const auto &symbol : body.output_symbols()) {
+    BindSymbol(bound_symbols, symbol);
+  }
+  return last_op;
+}
+
+}  // namespace impl
+
 // Analyzes the filter expression by collecting information on filtering labels
-// and properties to be used with indexing. Note that all filters are never
-// updated here, but only labels and properties are.
+// and properties to be used with indexing. Note that `all_filters_` are never
+// updated here, but only `label_filters_` and `property_filters_` are.
 void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = ScanAllByLabelPropertyRange::Bound;
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
@@ -714,11 +879,11 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
       if (is_variable_path) {
         all_filters_.emplace_back(
-            storage.Create<All>(identifier, atom->identifier_,
-                                storage.Create<Where>(prop_equal)),
-            collector.symbols_);
+            FilterInfo{storage.Create<All>(identifier, atom->identifier_,
+                                           storage.Create<Where>(prop_equal)),
+                       collector.symbols_, true});
       } else {
-        all_filters_.emplace_back(prop_equal, collector.symbols_);
+        all_filters_.emplace_back(FilterInfo{prop_equal, collector.symbols_});
       }
     }
   };
@@ -729,9 +894,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       label_filters_[node_symbol].insert(node->labels_.begin(),
                                          node->labels_.end());
       // Create a LabelsTest and store it in all_filters_.
-      all_filters_.emplace_back(
+      all_filters_.emplace_back(FilterInfo{
           storage.Create<LabelsTest>(node->identifier_, node->labels_),
-          std::unordered_set<Symbol>{node_symbol});
+          std::unordered_set<Symbol>{node_symbol}});
     }
     add_properties_filter(node);
   };
@@ -740,19 +905,19 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     if (!edge->edge_types_.empty()) {
       if (edge->has_range_) {
         // We need a new identifier and symbol for All.
-        auto *identifier = edge->identifier_->Clone(storage);
-        symbol_table[*identifier] =
-            symbol_table.CreateSymbol(identifier->name_, false);
+        auto *ident_in_all = edge->identifier_->Clone(storage);
+        symbol_table[*ident_in_all] =
+            symbol_table.CreateSymbol(ident_in_all->name_, false);
         auto *edge_type_test =
-            storage.Create<EdgeTypeTest>(identifier, edge->edge_types_);
-        all_filters_.emplace_back(
-            storage.Create<All>(identifier, edge->identifier_,
+            storage.Create<EdgeTypeTest>(ident_in_all, edge->edge_types_);
+        all_filters_.emplace_back(FilterInfo{
+            storage.Create<All>(ident_in_all, edge->identifier_,
                                 storage.Create<Where>(edge_type_test)),
-            std::unordered_set<Symbol>{edge_symbol});
+            std::unordered_set<Symbol>{edge_symbol}, true});
       } else {
-        all_filters_.emplace_back(
+        all_filters_.emplace_back(FilterInfo{
             storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),
-            std::unordered_set<Symbol>{edge_symbol});
+            std::unordered_set<Symbol>{edge_symbol}});
       }
     }
     add_properties_filter(edge, edge->has_range_);
@@ -761,13 +926,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   ForEachPattern(pattern, add_node_filter, add_expand_filter);
 }
 
-// Adds the where filter expression to all filters and collects additional
+// Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
 void Filters::CollectWhereFilter(Where &where,
                                  const SymbolTable &symbol_table) {
   UsedSymbolsCollector collector(symbol_table);
   where.expression_->Accept(collector);
-  all_filters_.emplace_back(where.expression_, collector.symbols_);
+  all_filters_.emplace_back(FilterInfo{where.expression_, collector.symbols_});
   AnalyzeFilter(where.expression_, symbol_table);
 }
 
@@ -808,145 +973,5 @@ std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
   }
   return query_parts;
 }
-
-namespace impl {
-
-// Returns false if the symbol was already bound, otherwise binds it and
-// returns true.
-bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
-                const Symbol &symbol) {
-  auto insertion = bound_symbols.insert(symbol);
-  return insertion.second;
-}
-
-LogicalOperator *GenFilters(
-    LogicalOperator *last_op, const std::unordered_set<Symbol> &bound_symbols,
-    std::vector<std::pair<Expression *, std::unordered_set<Symbol>>>
-        &all_filters,
-    AstTreeStorage &storage) {
-  Expression *filter_expr = nullptr;
-  for (auto filters_it = all_filters.begin();
-       filters_it != all_filters.end();) {
-    if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      filter_expr =
-          BoolJoin<FilterAndOperator>(storage, filter_expr, filters_it->first);
-      filters_it = all_filters.erase(filters_it);
-    } else {
-      filters_it++;
-    }
-  }
-  if (filter_expr) {
-    last_op =
-        new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
-  }
-  return last_op;
-}
-
-LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
-                           SymbolTable &symbol_table, bool is_write,
-                           const std::unordered_set<Symbol> &bound_symbols,
-                           AstTreeStorage &storage) {
-  // Similar to WITH clause, but we want to accumulate and advance command when
-  // the query writes to the database. This way we handle the case when we want
-  // to return expressions with the latest updated results. For example,
-  // `MATCH (n) -- () SET n.prop = n.prop + 1 RETURN n.prop`. If we match same
-  // `n` multiple 'k' times, we want to return 'k' results where the property
-  // value is the same, final result of 'k' increments.
-  bool accumulate = is_write;
-  bool advance_command = false;
-  ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage);
-  return GenReturnBody(input_op, advance_command, body, accumulate);
-}
-
-LogicalOperator *GenCreateForPattern(
-    Pattern &pattern, LogicalOperator *input_op,
-    const SymbolTable &symbol_table,
-    std::unordered_set<Symbol> &bound_symbols) {
-  auto base = [&](NodeAtom *node) -> LogicalOperator * {
-    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
-      return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
-    else
-      return input_op;
-  };
-
-  auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
-                     EdgeAtom *edge, NodeAtom *node) {
-    // Store the symbol from the first node as the input to CreateExpand.
-    const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
-    // If the expand node was already bound, then we need to indicate this,
-    // so that CreateExpand only creates an edge.
-    bool node_existing = false;
-    if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
-      node_existing = true;
-    }
-    if (!BindSymbol(bound_symbols, symbol_table.at(*edge->identifier_))) {
-      permanent_fail("Symbols used for created edges cannot be redeclared.");
-    }
-    return new CreateExpand(node, edge,
-                            std::shared_ptr<LogicalOperator>(last_op),
-                            input_symbol, node_existing);
-  };
-
-  return ReducePattern<LogicalOperator *>(pattern, base, collect);
-}
-
-// Generate an operator for a clause which writes to the database. If the clause
-// isn't handled, returns nullptr.
-LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
-                                   const SymbolTable &symbol_table,
-                                   std::unordered_set<Symbol> &bound_symbols) {
-  if (auto *create = dynamic_cast<Create *>(clause)) {
-    return GenCreate(*create, input_op, symbol_table, bound_symbols);
-  } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
-    return new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
-                            del->expressions_, del->detach_);
-  } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
-    return new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
-                                 set->property_lookup_, set->expression_);
-  } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
-    auto op = set->update_ ? plan::SetProperties::Op::UPDATE
-                           : plan::SetProperties::Op::REPLACE;
-    const auto &input_symbol = symbol_table.at(*set->identifier_);
-    return new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
-                                   input_symbol, set->expression_, op);
-  } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
-    const auto &input_symbol = symbol_table.at(*set->identifier_);
-    return new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
-                               input_symbol, set->labels_);
-  } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
-    return new plan::RemoveProperty(std::shared_ptr<LogicalOperator>(input_op),
-                                    rem->property_lookup_);
-  } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
-    const auto &input_symbol = symbol_table.at(*rem->identifier_);
-    return new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
-                                  input_symbol, rem->labels_);
-  }
-  return nullptr;
-}
-
-LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
-                         SymbolTable &symbol_table, bool is_write,
-                         std::unordered_set<Symbol> &bound_symbols,
-                         AstTreeStorage &storage) {
-  // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
-  // optional Filter. In case of update and aggregation, we want to accumulate
-  // first, so that when aggregating, we get the latest results. Similar to
-  // RETURN clause.
-  bool accumulate = is_write;
-  // No need to advance the command if we only performed reads.
-  bool advance_command = is_write;
-  ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage,
-                         with.where_);
-  LogicalOperator *last_op =
-      GenReturnBody(input_op, advance_command, body, accumulate);
-  // Reset bound symbols, so that only those in WITH are exposed.
-  bound_symbols.clear();
-  for (const auto &symbol : body.output_symbols()) {
-    BindSymbol(bound_symbols, symbol);
-  }
-  return last_op;
-}
-
-}  // namespace impl
 
 }  // namespace query::plan

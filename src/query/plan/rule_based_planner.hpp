@@ -38,7 +38,19 @@ class Filters {
     std::experimental::optional<Bound> upper_bound{};
   };
 
-  /// All filter expressions that should be generated.
+  /// Stores additional information for a filter expression.
+  struct FilterInfo {
+    /// The filter expression which must be satisfied.
+    Expression *expression;
+    /// Set of used symbols by the filter @c expression.
+    std::unordered_set<Symbol> used_symbols;
+    /// True if the filter is to be applied on multiple expanding edges.
+    /// This is used to inline filtering in an @c ExpandVariable operator.
+    bool is_for_expand_variable = false;
+  };
+
+  /// List of FilterInfo objects corresponding to all filter expressions that
+  /// should be generated.
   auto &all_filters() { return all_filters_; }
   const auto &all_filters() const { return all_filters_; }
   /// Mapping from a symbol to labels that are filtered on it. These should be
@@ -66,7 +78,7 @@ class Filters {
  private:
   void AnalyzeFilter(Expression *, const SymbolTable &);
 
-  std::vector<std::pair<Expression *, std::unordered_set<Symbol>>> all_filters_;
+  std::vector<FilterInfo> all_filters_;
   std::unordered_map<Symbol, std::set<GraphDbTypes::Label>> label_filters_;
   std::unordered_map<
       Symbol, std::map<GraphDbTypes::Property, std::vector<PropertyFilter>>>
@@ -190,11 +202,20 @@ namespace impl {
 bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
                 const Symbol &symbol);
 
-LogicalOperator *GenFilters(
-    LogicalOperator *last_op, const std::unordered_set<Symbol> &bound_symbols,
-    std::vector<std::pair<Expression *, std::unordered_set<Symbol>>>
-        &all_filters,
-    AstTreeStorage &storage);
+// Looks for filter expressions, which can be inlined in an ExpandVariable
+// operator. Such expressions are merged into one (via `and`) and removed from
+// `all_filters`. If the expression uses `expands_to_node`, it is skipped. In
+// such a case, we cannot cut variable expand short, since filtering may be
+// satisfied by a node deeper in the path.
+Expression *FindExpandVariableFilter(
+    const std::unordered_set<Symbol> &bound_symbols,
+    const Symbol &expands_to_node,
+    std::vector<Filters::FilterInfo> &all_filters, AstTreeStorage &storage);
+
+LogicalOperator *GenFilters(LogicalOperator *last_op,
+                            const std::unordered_set<Symbol> &bound_symbols,
+                            std::vector<Filters::FilterInfo> &all_filters,
+                            AstTreeStorage &storage);
 
 LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
                            SymbolTable &symbol_table, bool is_write,
@@ -464,12 +485,15 @@ class RuleBasedPlanner {
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
               existing_node, match_context.graph_view);
         } else if (expansion.edge->has_range_) {
+          auto *filter_expr = impl::FindExpandVariableFilter(
+              bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, expansion.direction,
               expansion.direction != expansion.edge->direction_,
               expansion.edge->lower_bound_, expansion.edge->upper_bound_,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              existing_node, existing_edge, match_context.graph_view);
+              existing_node, existing_edge, match_context.graph_view,
+              filter_expr);
         } else {
           last_op = new Expand(node_symbol, edge_symbol, expansion.direction,
                                std::shared_ptr<LogicalOperator>(last_op),
