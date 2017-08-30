@@ -13,6 +13,7 @@ from collections import OrderedDict
 from collections import defaultdict
 import tempfile
 import shutil
+from statistics import median
 
 try:
     import jail
@@ -200,7 +201,7 @@ class _QuerySuite:
 
         measurements = []
 
-        measurement_sums = defaultdict(float)
+        measurement_lists = defaultdict(list)
 
         def add_measurement(dictionary, iteration, key):
             if key in dictionary:
@@ -211,7 +212,7 @@ class _QuerySuite:
                                "iteration": iteration}
                 measurements.append(measurement)
                 try:
-                    measurement_sums[key] += float(dictionary[key])
+                    measurement_lists[key].append(float(dictionary[key]))
                 except:
                     pass
 
@@ -255,19 +256,20 @@ class _QuerySuite:
         execute("teardown")
         runner.stop()
         self.append_scenario_summary(group_name, scenario_name,
-                                     measurement_sums, num_iterations)
+                                     measurement_lists, num_iterations)
         return measurements
 
     def append_scenario_summary(self, group_name, scenario_name,
-                                measurement_sums, num_iterations):
+                                measurement_lists, num_iterations):
         self.summary += self.FORMAT[0].format(group_name)
         self.summary += self.FORMAT[1].format(scenario_name)
         for i, key in enumerate(("query_parsing_time", "query_planning_time",
                     "query_plan_execution_time", WALL_TIME, CPU_TIME)):
-            if key not in measurement_sums:
+            if key not in measurement_lists:
                 time = "-"
             else:
-                time = "{:.10f}".format(measurement_sums[key] / num_iterations)
+                # Median is used instead of avg to avoid effect of outliers.
+                time = "{:.10f}".format(median(measurement_lists[key]))
             self.summary += self.FORMAT[i + 2].format(time)
         self.summary += "\n"
 
