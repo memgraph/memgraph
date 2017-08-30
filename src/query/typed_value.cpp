@@ -451,7 +451,19 @@ double ToDouble(const TypedValue &value) {
 }
 
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
-  if (a.type() == TypedValue::Type::Bool || b.type() == TypedValue::Type::Bool)
+  auto is_legal = [](TypedValue::Type type) {
+    switch (type) {
+      case TypedValue::Type::Null:
+      case TypedValue::Type::Int:
+      case TypedValue::Type::Double:
+      case TypedValue::Type::String:
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  if (!is_legal(a.type()) || !is_legal(b.type()))
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(),
                               b.type());
 
@@ -619,15 +631,17 @@ TypedValue operator+(const TypedValue &a) {
  */
 inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b,
                                    bool string_ok, const std::string &op_name) {
-  if (a.type() == TypedValue::Type::Bool || b.type() == TypedValue::Type::Bool)
+  auto is_legal = [string_ok](const TypedValue &value) {
+    return value.IsNumeric() ||
+           (string_ok && value.type() == TypedValue::Type::String);
+  };
+
+  // Note that List and Null can also be valid in arithmetic ops. They are not
+  // checked here because they are handled before this check is performed in
+  // arithmetic op implementations.
+
+  if (!is_legal(a) || !is_legal(b))
     throw TypedValueException("Invalid {} operand types {}, {}", op_name,
-                              a.type(), b.type());
-
-  if (string_ok) return;
-
-  if (a.type() == TypedValue::Type::String ||
-      b.type() == TypedValue::Type::String)
-    throw TypedValueException("Invalid subtraction operands types {}, {}",
                               a.type(), b.type());
 }
 
@@ -651,7 +665,6 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
-  // no more Bool nor Null, summing works on anything from here onward
 
   if (a.type() == TypedValue::Type::String ||
       b.type() == TypedValue::Type::String)
@@ -667,9 +680,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
-  EnsureArithmeticallyOk(a, b, false, "subtraction");
-
   if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  EnsureArithmeticallyOk(a, b, false, "subtraction");
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -681,9 +693,8 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
-  EnsureArithmeticallyOk(a, b, false, "division");
-
   if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  EnsureArithmeticallyOk(a, b, false, "division");
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -697,9 +708,8 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator*(const TypedValue &a, const TypedValue &b) {
-  EnsureArithmeticallyOk(a, b, false, "multiplication");
-
   if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  EnsureArithmeticallyOk(a, b, false, "multiplication");
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||
@@ -711,9 +721,8 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b) {
 }
 
 TypedValue operator%(const TypedValue &a, const TypedValue &b) {
-  EnsureArithmeticallyOk(a, b, false, "modulo");
-
   if (a.IsNull() || b.IsNull()) return TypedValue::Null;
+  EnsureArithmeticallyOk(a, b, false, "modulo");
 
   // at this point we only have int and double
   if (a.type() == TypedValue::Type::Double ||

@@ -3,26 +3,44 @@
 // Created by Florijan Stamenkovic on 24.01.17..
 //
 #include <functional>
+#include <map>
+#include <set>
 #include <vector>
 
+#include "database/dbms.hpp"
 #include "gtest/gtest.h"
 #include "query/typed_value.hpp"
-
-namespace {
 
 using query::TypedValue;
 using query::TypedValueException;
 
-std::vector<TypedValue> MakePropsAllTypes() {
-  return {
-      true,
-      "something",
-      42,
-      0.5,
-      TypedValue::Null,
-      std::vector<TypedValue>{true, "something", 42, 0.5, TypedValue::Null}};
-}
-}
+class AllTypesFixture : public testing::Test {
+ protected:
+  std::vector<TypedValue> values_;
+  Dbms dbms_;
+  std::unique_ptr<GraphDbAccessor> dba_ = dbms_.active();
+
+  void SetUp() override {
+    values_.emplace_back(TypedValue::Null);
+    values_.emplace_back(true);
+    values_.emplace_back(42);
+    values_.emplace_back(3.14);
+    values_.emplace_back("something");
+    values_.emplace_back(
+        std::vector<TypedValue>{true, "something", 42, 0.5, TypedValue::Null});
+    values_.emplace_back(
+        std::map<std::string, TypedValue>{{"a", true},
+                                          {"b", "something"},
+                                          {"c", 42},
+                                          {"d", 0.5},
+                                          {"e", TypedValue::Null}});
+    auto vertex = dba_->InsertVertex();
+    values_.emplace_back(vertex);
+    values_.emplace_back(
+        dba_->InsertEdge(vertex, vertex, dba_->EdgeType("et")));
+    values_.emplace_back(query::Path{});
+  }
+};
 
 void EXPECT_PROP_FALSE(const TypedValue &a) {
   EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.Value<bool>());
@@ -145,22 +163,30 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", 1}})));
 }
 
-TEST(TypedValue, Less) {
-  // not_bool_type < bool -> exception
-  auto props = MakePropsAllTypes();
-  for (int i = 0; i < (int)props.size(); ++i) {
-    if (props.at(i).type() == TypedValue::Type::Bool) continue;
-    // the comparison should raise an exception
-    // cast to (void) so the compiler does not complain about unused comparison
-    // result
-    EXPECT_THROW((void)(props.at(i) < TypedValue(true)), TypedValueException);
+TEST_F(AllTypesFixture, Less) {
+  // 'Less' is legal only between numerics, Null and strings.
+  auto is_string_compatible = [](const TypedValue &v) {
+    return v.IsNull() || v.type() == TypedValue::Type::String;
+  };
+  auto is_numeric_compatible = [](const TypedValue &v) {
+    return v.IsNull() || v.IsNumeric();
+  };
+  for (TypedValue &a : values_) {
+    for (TypedValue &b : values_) {
+      if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
+      if (is_string_compatible(a) && is_string_compatible(b)) continue;
+      // Comparison should raise an exception. Cast to (void) so the compiler
+      // does not complain about unused comparison result.
+      EXPECT_THROW((void)(a < b), TypedValueException);
+    }
   }
 
-  // not_bool_type < Null = Null
-  props = MakePropsAllTypes();
-  for (int i = 0; i < (int)props.size(); ++i) {
-    if (props.at(i).type() == TypedValue::Type::Bool) continue;
-    EXPECT_PROP_ISNULL(props.at(i) < TypedValue::Null);
+  // legal_type < Null = Null
+  for (TypedValue &value : values_) {
+    if (!(value.IsNumeric() || value.type() == TypedValue::Type::String))
+      continue;
+    EXPECT_PROP_ISNULL(value < TypedValue::Null);
+    EXPECT_PROP_ISNULL(TypedValue::Null < value);
   }
 
   // int tests
@@ -213,48 +239,58 @@ TEST(TypedValue, UnaryPlus) {
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
 }
 
-/**
- * Performs a series of tests on properties of all types. The tests
- * evaluate how arithmetic operators behave w.r.t. exception throwing
- * in case of invalid operands and null handling.
- *
- * @param string_ok Indicates if or not the operation tested works
- *  with String values (does not throw).
- * @param op  The operation lambda. Takes two values and resturns
- *  the results.
- */
-void ExpectArithmeticThrowsAndNull(
-    bool string_list_ok,
-    std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
-  // arithmetic ops that raise
-  auto props = MakePropsAllTypes();
-  for (int i = 0; i < (int)props.size(); ++i) {
-    if (!string_list_ok || props.at(i).type() == TypedValue::Type::String) {
-      EXPECT_THROW(op(TypedValue(true), props.at(i)), TypedValueException);
-      EXPECT_THROW(op(props.at(i), TypedValue(true)), TypedValueException);
+class TypedValueArithmeticTest : public AllTypesFixture {
+ protected:
+  /**
+   * Performs a series of tests on properties of all types. The tests
+   * evaluate how arithmetic operators behave w.r.t. exception throwing
+   * in case of invalid operands and null handling.
+   *
+   * @param string_list_ok Indicates if or not the operation tested works
+   *  with String and List values (does not throw).
+   * @param op  The operation lambda. Takes two values and resturns
+   *  the results.
+   */
+  void ExpectArithmeticThrowsAndNull(
+      bool string_list_ok,
+      std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
+    // If one operand is always valid, the other can be of any type.
+    auto always_valid = [string_list_ok](const TypedValue &value) {
+      return value.IsNull() ||
+             (string_list_ok && value.type() == TypedValue::Type::List);
+    };
+
+    // If we don't have an always_valid operand, they both must be plain valid.
+    auto valid = [string_list_ok](const TypedValue &value) {
+      switch (value.type()) {
+        case TypedValue::Type::Int:
+        case TypedValue::Type::Double:
+          return true;
+        case TypedValue::Type::String:
+          return string_list_ok;
+        default:
+          return false;
+      }
+    };
+
+    for (const TypedValue &a : values_) {
+      for (const TypedValue &b : values_) {
+        if (always_valid(a) || always_valid(b)) continue;
+        if (valid(a) && valid(b)) continue;
+        EXPECT_THROW(op(a, b), TypedValueException);
+        EXPECT_THROW(op(b, a), TypedValueException);
+      }
     }
-    if (!string_list_ok) {
-      EXPECT_THROW(op(TypedValue("some"), props.at(i)), TypedValueException);
-      EXPECT_THROW(op(props.at(i), TypedValue("some")), TypedValueException);
-      EXPECT_THROW(op(TypedValue("[1]"), props.at(i)), TypedValueException);
-      EXPECT_THROW(op(props.at(i), TypedValue("[]")), TypedValueException);
+
+    // null resulting ops
+    for (const TypedValue &value : values_) {
+      EXPECT_PROP_ISNULL(op(value, TypedValue::Null));
+      EXPECT_PROP_ISNULL(op(TypedValue::Null, value));
     }
   }
+};
 
-  // null resulting ops
-  props = MakePropsAllTypes();
-  for (int i = 0; i < (int)props.size(); ++i) {
-    if (props.at(i).type() == TypedValue::Type::Bool) continue;
-    if (!string_list_ok && (props.at(i).type() == TypedValue::Type::String ||
-                            props.at(i).type() == TypedValue::Type::List))
-      continue;
-
-    EXPECT_PROP_ISNULL(op(props.at(i), TypedValue::Null));
-    EXPECT_PROP_ISNULL(op(TypedValue::Null, props.at(i)));
-  }
-}
-
-TEST(TypedValue, Sum) {
+TEST_F(TypedValueArithmeticTest, Sum) {
   ExpectArithmeticThrowsAndNull(
       true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
 
@@ -283,7 +319,7 @@ TEST(TypedValue, Sum) {
       (TypedValue(in) + TypedValue(in)).Value<std::vector<TypedValue>>(), out3);
 }
 
-TEST(TypedValue, Difference) {
+TEST_F(TypedValueArithmeticTest, Difference) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a - b; });
 
@@ -296,7 +332,7 @@ TEST(TypedValue, Difference) {
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).Value<double>(), 0.5);
 }
 
-TEST(TypedValue, Divison) {
+TEST_F(TypedValueArithmeticTest, Divison) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
   EXPECT_THROW(TypedValue(1) / TypedValue(0), TypedValueException);
@@ -311,7 +347,7 @@ TEST(TypedValue, Divison) {
   EXPECT_FLOAT_EQ((TypedValue(10.0) / TypedValue(4)).Value<double>(), 2.5);
 }
 
-TEST(TypedValue, Multiplication) {
+TEST_F(TypedValueArithmeticTest, Multiplication) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a * b; });
 
@@ -322,7 +358,7 @@ TEST(TypedValue, Multiplication) {
   EXPECT_FLOAT_EQ((TypedValue(10.2) * TypedValue(4)).Value<double>(), 10.2 * 4);
 }
 
-TEST(TypedValue, Modulo) {
+TEST_F(TypedValueArithmeticTest, Modulo) {
   ExpectArithmeticThrowsAndNull(
       false, [](const TypedValue &a, const TypedValue &b) { return a % b; });
   EXPECT_THROW(TypedValue(1) % TypedValue(0), TypedValueException);
@@ -337,43 +373,32 @@ TEST(TypedValue, Modulo) {
   EXPECT_FLOAT_EQ((TypedValue(10.0) % TypedValue(4)).Value<double>(), 2.0);
 }
 
-TEST(TypedValue, TypeIncompatibility) {
-  auto props = MakePropsAllTypes();
+class TypedValueLogicTest : public AllTypesFixture {
+ protected:
+  /**
+   * Logical operations (logical and, or) are only legal on bools
+   * and nulls. This function ensures that the given
+   * logical operation throws exceptions when either operand
+   * is not bool or null.
+   *
+   * @param op The logical operation to test.
+   */
+  void TestLogicalThrows(
+      std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
+    for (const auto &p1 : values_) {
+      for (const auto &p2 : values_) {
+        // skip situations when both p1 and p2 are either bool or null
+        auto p1_ok = p1.type() == TypedValue::Type::Bool || p1.IsNull();
+        auto p2_ok = p2.type() == TypedValue::Type::Bool || p2.IsNull();
+        if (p1_ok && p2_ok) continue;
 
-  // iterate over all the props, plus one, what will return
-  // the Null property, which must be incompatible with all
-  // the others
-  for (int i = 0; i < (int)props.size(); ++i)
-    for (int j = 0; j < (int)props.size(); ++j)
-      EXPECT_EQ(props.at(i).type() == props.at(j).type(), i == j);
-}
-
-/**
- * Logical operations (logical and, or) are only legal on bools
- * and nulls. This function ensures that the given
- * logical operation throws exceptions when either operand
- * is not bool or null.
- *
- * @param op The logical operation to test.
- */
-void TestLogicalThrows(
-    std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
-  auto props = MakePropsAllTypes();
-  for (int i = 0; i < (int)props.size(); ++i) {
-    auto p1 = props.at(i);
-    for (int j = 0; j < (int)props.size(); ++j) {
-      auto p2 = props.at(j);
-      // skip situations when both p1 and p2 are either bool or null
-      auto p1_ok = p1.type() == TypedValue::Type::Bool || p1.IsNull();
-      auto p2_ok = p2.type() == TypedValue::Type::Bool || p2.IsNull();
-      if (p1_ok && p2_ok) continue;
-
-      EXPECT_THROW(op(p1, p2), TypedValueException);
+        EXPECT_THROW(op(p1, p2), TypedValueException);
+      }
     }
   }
-}
+};
 
-TEST(TypedValue, LogicalAnd) {
+TEST_F(TypedValueLogicTest, LogicalAnd) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
 
@@ -383,7 +408,7 @@ TEST(TypedValue, LogicalAnd) {
   EXPECT_PROP_EQ(TypedValue(false) && TypedValue(true), TypedValue(false));
 }
 
-TEST(TypedValue, LogicalOr) {
+TEST_F(TypedValueLogicTest, LogicalOr) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 || p2; });
 
@@ -393,7 +418,7 @@ TEST(TypedValue, LogicalOr) {
   EXPECT_PROP_EQ(TypedValue(false) || TypedValue(true), TypedValue(true));
 }
 
-TEST(TypedValue, LogicalXor) {
+TEST_F(TypedValueLogicTest, LogicalXor) {
   TestLogicalThrows(
       [](const TypedValue &p1, const TypedValue &p2) { return p1 ^ p2; });
 
@@ -402,11 +427,4 @@ TEST(TypedValue, LogicalXor) {
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(false), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(false), TypedValue(false));
-}
-
-TEST(TypedValue, ImplicitStringConversion) {
-  std::vector<TypedValue> v;
-  auto pv = PropertyValue("Mirko");
-  v.push_back(PropertyValue("Mirko"));
-  ASSERT_EQ(v[0].Value<std::string>(), "Mirko");
 }
