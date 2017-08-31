@@ -4,4 +4,5 @@ ldbc-snb-impls/
 neo4j_csv_dataset_scale_*/
 tmp/
 ve3/
+ve2/
 *.out
