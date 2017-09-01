@@ -27,6 +27,9 @@ _CSV_TYPE_TO_PY_TYPE = {
 
 
 def csv_to_py_val(value, csv_type, array_delimiter):
+    if not value.strip():
+        # Empty string signifies null or None in Python.
+        return None
     if not csv_type.endswith('[]'):
         return _CSV_TYPE_TO_PY_TYPE[csv_type](value)
     # Otherwise we have an array type, so convert it to a list.
