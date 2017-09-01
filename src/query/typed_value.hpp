@@ -117,6 +117,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   ~TypedValue();
 
   Type type() const { return type_; }
+
   /**
    * Returns the value of the property as given type T.
    * The behavior of this function is undefined if
@@ -130,10 +131,30 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   const T &Value() const;
 
-  std::vector<TypedValue> &ValueList();
-  const std::vector<TypedValue> &ValueList() const;
+// TODO consider adding getters for primitives by value (and not by ref)
 
-  /** Convenience function for checking if this TypedValue is Null */
+#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, field)          \
+  /** Gets the value of type field. Throws if value is not field*/ \
+  type_param &Value##field();                                      \
+  /** Gets the value of type field. Throws if value is not field*/ \
+  const type_param &Value##field() const;                          \
+  /** Checks if it's the value is of the given type */             \
+  bool Is##field() const;
+
+  using value_map_t = std::map<std::string, TypedValue>;
+  DECLARE_VALUE_AND_TYPE_GETTERS(bool, Bool)
+  DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
+  DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
+  DECLARE_VALUE_AND_TYPE_GETTERS(std::string, String)
+  DECLARE_VALUE_AND_TYPE_GETTERS(std::vector<TypedValue>, List)
+  DECLARE_VALUE_AND_TYPE_GETTERS(value_map_t, Map)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
+  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
+
+#undef DECLARE_VALUE_AND_TYPE_GETTERS
+
+  /**  Checks if value is a TypedValue::Null. */
   bool IsNull() const;
 
   /** Convenience function for checking if this TypedValue is either
