@@ -918,7 +918,7 @@ ExpandBreadthFirst::ExpandBreadthFirst(
       inner_node_symbol_(inner_node_symbol),
       inner_edge_symbol_(inner_edge_symbol),
       where_(where),
-      input_(input),
+      input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
       graph_view_(graph_view) {}
