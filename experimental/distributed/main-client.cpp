@@ -1,12 +1,31 @@
-#include "reactors_distributed.hpp"
+#include <fstream>
+#include <iostream>
+#include <memory>
 
+#include "reactors_distributed.hpp"
 #include "memgraph_config.hpp"
 #include "memgraph_distributed.hpp"
 #include "memgraph_transactions.hpp"
 
-#include <fstream>
-#include <iostream>
-#include <memory>
+/**
+ * List of queries that should be executed.
+ */
+std::vector<std::string> queries = {{
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "create vertex",
+  "vertex count",
+  "create vertex",
+  "create vertex",
+  "vertex count"
+}};
 
 /**
  * This is the client that issues some hard-coded queries.
@@ -17,40 +36,31 @@ class Client : public Reactor {
   }
 
   void IssueQueries(std::shared_ptr<ChannelWriter> channel_to_leader) {
-    const int NUM_VERTS = 10;
     // (concurrently) create a couple of vertices
-    for (int num_vert = 0; num_vert < NUM_VERTS; ++num_vert) {
+    for (int query_idx = 0; query_idx < queries.size(); ++query_idx) {
       // register callback
-
-      std::string channel_name = "create-node-" + std::to_string(num_vert);
-      // TODO(zuza): this is actually pretty bad because if SuccessQueryCreateVertex arrives, then
-      //             FailureQueryCreateVertex never gets unsubscribed. This could cause memory leaks
-      //             in the future (not currently since all callbacks get destroyed when channel is closed).
-      //             The best thing to do is to implement a ThenOnce and Either. Perhaps even a ThenClose.
+      std::string channel_name = "query-" + std::to_string(query_idx);
       auto stream = Open(channel_name).first;
       stream
         ->OnEventOnce()
-        .ChainOnce<SuccessQueryCreateVertex>([this, num_vert](const SuccessQueryCreateVertex&, const Subscription& sub) {
-            LOG(INFO) << "successfully created vertex " << num_vert+1 << std::endl;
-            sub.CloseChannel();
-          });
-
-      stream
-        ->OnEventOnce()
-        .ChainOnce<FailureQueryCreateVertex>([this, num_vert](const FailureQueryCreateVertex&, const Subscription& sub) {
-            LOG(INFO) << "failed on creating vertex " << num_vert+1 << std::endl;
-            sub.CloseChannel();
-          });
+        .ChainOnce<ResultMsg>([this, query_idx](const ResultMsg &msg,
+                                               const Subscription &sub){
+          std::cout << "Result of query " << query_idx << " ("
+                    << queries[query_idx] << "):" << std::endl
+                    << "  " << msg.result() << std::endl;
+          sub.CloseChannel();
+        });
 
       // then issue the query (to avoid race conditions)
-      LOG(INFO) << "Issuing command to create vertex " << num_vert+1;
-      channel_to_leader->Send<QueryCreateVertex>(channel_name);
+      std::cout << "Issuing command " << query_idx << " ("
+                << queries[query_idx] << ")" << std::endl;
+      channel_to_leader->Send<QueryMsg>(channel_name, queries[query_idx]);
     }
   }
 
   virtual void Run() {
     MemgraphDistributed& memgraph = MemgraphDistributed::GetInstance();
-    int mnid = memgraph.LeaderMnid();
+    auto mnid = memgraph.LeaderMnid();
 
     memgraph.FindChannel(mnid, "master", "client-queries")
       ->OnEventOnce()

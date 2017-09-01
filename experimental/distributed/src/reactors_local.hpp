@@ -77,10 +77,26 @@ class EventStream {
    */
   template<typename MsgType>
   void OnEvent(std::function<void(const MsgType&, const Subscription&)> &&cb) {
-    OnEventHelper(typeid(MsgType), [cb = move(cb)](const Message &general_msg,
-                                                   const Subscription &subscription) {
+    OnEventHelper(typeid(MsgType),
+                  [cb = std::move(cb)](const Message &general_msg,
+                                       const Subscription &subscription) {
         const MsgType &correct_msg = dynamic_cast<const MsgType&>(general_msg);
         cb(correct_msg, subscription);
+      });
+  }
+
+  /**
+   * Register a callback that will be called only once.
+   * Once event is received, channel of this EventStream is closed.
+   */
+  template<typename MsgType>
+  void OnEventOnceThenClose(std::function<void(const MsgType&)> &&cb) {
+    OnEventHelper(typeid(MsgType),
+                  [cb = std::move(cb)](const Message &general_msg,
+                                       const Subscription &subscription) {
+        const MsgType &correct_msg = dynamic_cast<const MsgType&>(general_msg);
+        subscription.CloseChannel();
+        cb(correct_msg);
       });
   }
 

@@ -8,7 +8,7 @@ terminal_flags = ' --geometry=200x50 '  # columns x rows
 
 config_filename = 'config'
 log_dir = "logs"
-glog_flags = '--alsologtostderr --logbufsecs=0 --minloglevel=0 --log_dir="{}" '.format(log_dir)
+glog_flags = '--alsologtostderr --logbufsecs=0 --minloglevel=2 --log_dir="{}" '.format(log_dir)
 
 def GetMainCall(my_mnid, address, port):
   ret = "./main {} --my_mnid {} --address {} --port {} --config_filename={}".format(
@@ -31,6 +31,7 @@ def NamedGnomeTab(name, command):
 
 if __name__ == "__main__":
   command = "{} {}".format(terminal_command, terminal_flags)
+  command += NamedGnomeTab("client", GetClientCall())
 
   f = open(config_filename, 'r')
   for line in f:
@@ -40,7 +41,6 @@ if __name__ == "__main__":
     port = data[2]
     command += NamedGnomeTab("mnid={}".format(my_mnid), GetMainCall(my_mnid, address, port))
 
-  command += NamedGnomeTab("client", GetClientCall())
   print(command)
   os.system('mkdir -p {}'.format(log_dir))
   os.system(command)
