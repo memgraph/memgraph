@@ -320,8 +320,7 @@ class Memgraph:
     """
     Knows how to start and stop memgraph.
     """
-    def __init__(self, args, cpus=None):
-        if cpus is None: cpus = [1]
+    def __init__(self, args, cpus):
         self.log = logging.getLogger("MemgraphRunner")
         argp = ArgumentParser("MemgraphArgumentParser", add_help=False,
                               parents=[get_common_runner_argument_parser()])
@@ -356,16 +355,12 @@ class Memgraph:
 
 class Neo:
     def __init__(self, args, cpus):
-        if cpus is None: cpus = [1]
         self.log = logging.getLogger("NeoRunner")
         argp = ArgumentParser("NeoArgumentParser", add_help=False,
                               parents=[get_common_runner_argument_parser()])
         argp.add_argument(
             "--RunnerConfigDir",
             default=path.join(DIR_PATH, "neo4j_config"))
-        argp.add_argument(
-            "--RunnerHomeDir",
-            default=path.join(DIR_PATH, "neo4j_home"))
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         if self.args.address != "127.0.0.1" or self.args.port != "7687":
@@ -378,19 +373,23 @@ class Neo:
         self.log.info("start")
         environment = os.environ.copy()
         environment["NEO4J_CONF"] = self.args.RunnerConfigDir
-        environment["NEO4J_HOME"] = self.args.RunnerHomeDir
-        neo4j_data_path = path.join(environment["NEO4J_HOME"], "data")
-        if path.exists(neo4j_data_path):
-            shutil.rmtree(neo4j_data_path)
-        self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
-                              env=environment, timeout=600)
-        # TODO change to a check via SIGUSR
-        time.sleep(5.0)
+        self.neo4j_home_path = tempfile.mkdtemp(dir="/dev/shm")
+        environment["NEO4J_HOME"] = self.neo4j_home_path
+        try:
+            self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
+                                  env=environment, timeout=600)
+            # TODO change to a check via SIGUSR
+            time.sleep(5.0)
+        except:
+            shutil.rmtree(self.neo4j_home_path)
+            raise Exception("Couldn't create symlink or run neo4j")
         return self.database_bin.get_pid() if not APOLLO else None
 
     def stop(self):
         self.database_bin.send_signal(jail.SIGTERM)
         self.database_bin.wait()
+        if path.exists(self.neo4j_home_path):
+            shutil.rmtree(self.neo4j_home_path)
 
 
 class _HarnessClientRunner:
@@ -474,12 +473,14 @@ class _HarnessClientRunner:
 
 class MemgraphRunner(_HarnessClientRunner):
     def __init__(self, args, client_cpus=None, database_cpus=None):
+        if database_cpus is None: database_cpus = [1]
         database = Memgraph(args, database_cpus)
         super(MemgraphRunner, self).__init__(args, database, cpus=client_cpus)
 
 
 class NeoRunner(_HarnessClientRunner):
     def __init__(self, args, client_cpus=None, database_cpus=None):
+        if database_cpus is None: database_cpus = [1]
         database = Neo(args, database_cpus)
         super(NeoRunner, self).__init__(args, database, cpus=client_cpus)
 
