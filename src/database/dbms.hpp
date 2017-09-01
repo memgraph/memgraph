@@ -10,6 +10,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
+#include "utils/exceptions.hpp"
 
 DECLARE_string(snapshot_directory);
 DECLARE_bool(recover_on_startup);
@@ -39,13 +40,22 @@ namespace fs = std::experimental::filesystem;
 class Dbms {
  public:
   Dbms() {
+    auto snapshot_root_dir = fs::path(FLAGS_snapshot_directory);
+    if (fs::exists(snapshot_root_dir) && !fs::is_directory(snapshot_root_dir)) {
+      throw utils::BasicException("Specified snapshot directory is a file!");
+    }
+
     if (FLAGS_recover_on_startup) {
-      if (fs::exists(fs::path(FLAGS_snapshot_directory))) {
+      if (fs::exists(snapshot_root_dir)) {
         auto accessor = dbs.access();
-        for (auto &snapshot_db :
+        for (auto &snapshot_db_dir :
              fs::directory_iterator(FLAGS_snapshot_directory)) {
-          // create db and set it active
-          active(snapshot_db.path().filename(), snapshot_db);
+          // The snapshot folder structure is:
+          //   snapshot_root_dir/database_name/[timestamp]
+          if (fs::is_directory(snapshot_db_dir)) {
+            // Create db and set it active
+            active(snapshot_db_dir.path().filename(), snapshot_db_dir);
+          }
         }
       }
     }

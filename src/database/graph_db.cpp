@@ -71,8 +71,11 @@ void GraphDb::StartSnapshooting() {
 void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
   if (snapshot_db_dir.empty()) return;
   std::vector<fs::path> snapshots;
-  for (auto &snapshot_file : fs::directory_iterator(snapshot_db_dir))
-    snapshots.push_back(snapshot_file);
+  for (auto &snapshot_file : fs::directory_iterator(snapshot_db_dir)) {
+    if (fs::is_regular_file(snapshot_file)) {
+      snapshots.push_back(snapshot_file);
+    }
+  }
 
   std::sort(snapshots.rbegin(), snapshots.rend());
   Recovery recovery;
