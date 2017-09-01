@@ -6,7 +6,8 @@ import sys
 from neo4j.v1 import GraphDatabase, basic_auth
 
 # Initialize driver and create session.
-driver = GraphDatabase.driver('bolt://localhost:7687',
+port = sys.argv[2] if len(sys.argv) > 2 else '7687'
+driver = GraphDatabase.driver('bolt://localhost:%s' % port,
                               auth=basic_auth('', ''),
                               encrypted=False)
 session = driver.session()

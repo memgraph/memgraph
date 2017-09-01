@@ -5,7 +5,7 @@ RETURN DISTINCT
   friend.firstName AS personFirstName,
   friend.lastName AS personLastName,
   message.id AS messageId,
-  CASE message.content IS null
+  CASE message.content IS not null
     WHEN true THEN message.content
     ELSE message.imageFile
   END AS messageContent,

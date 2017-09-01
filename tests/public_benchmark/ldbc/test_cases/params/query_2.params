@@ -1,0 +1,3 @@
+person_id: 17592186052613
+message.creationDate <= 1354060800000
+limit 20
