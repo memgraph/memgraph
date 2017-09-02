@@ -344,7 +344,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(LessEqualOperator)
   VISIT_BINARY_OPERATOR(GreaterEqualOperator)
   VISIT_BINARY_OPERATOR(InListOperator)
-  VISIT_BINARY_OPERATOR(ListIndexingOperator)
+  VISIT_BINARY_OPERATOR(ListMapIndexingOperator)
 
 #undef VISIT_BINARY_OPERATOR
 

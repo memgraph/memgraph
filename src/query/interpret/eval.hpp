@@ -170,33 +170,40 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return false;
   }
 
-  TypedValue Visit(ListIndexingOperator &list_indexing) override {
-    // TODO: implement this for maps
-    auto _list = list_indexing.expression1_->Accept(*this);
-    if (_list.type() != TypedValue::Type::List &&
-        _list.type() != TypedValue::Type::Null) {
+  TypedValue Visit(ListMapIndexingOperator &list_indexing) override {
+    auto lhs = list_indexing.expression1_->Accept(*this);
+    auto index = list_indexing.expression2_->Accept(*this);
+    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsNull())
+
       throw QueryRuntimeException(
-          "Expected a list to index with '[]', but got {}", _list.type());
+          "Expected a list or map to index with '[]', but got {}", lhs.type());
+    if (lhs.IsNull() || index.IsNull()) return TypedValue::Null;
+    if (lhs.IsList()) {
+      if (!index.IsInt())
+        throw QueryRuntimeException(
+            "Expected an int as a list index, but got {}", index.type());
+      auto index_int = index.Value<int64_t>();
+      const auto &list = lhs.Value<std::vector<TypedValue>>();
+      if (index_int < 0) {
+        index_int += static_cast<int64_t>(list.size());
+      }
+      if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0)
+        return TypedValue::Null;
+      return list[index_int];
     }
-    auto _index = list_indexing.expression2_->Accept(*this);
-    if (_index.type() != TypedValue::Type::Int &&
-        _index.type() != TypedValue::Type::Null) {
-      throw QueryRuntimeException("Expected an int as a list index, but got {}",
-                                  _index.type());
+
+    if (lhs.IsMap()) {
+      if (!index.IsString())
+        throw QueryRuntimeException(
+            "Expected a string as a map index, but got {}", index.type());
+      const auto &map = lhs.Value<std::map<std::string, TypedValue>>();
+      auto found = map.find(index.Value<std::string>());
+      if (found == map.end()) return TypedValue::Null;
+      return found->second;
     }
-    if (_index.type() == TypedValue::Type::Null ||
-        _list.type() == TypedValue::Type::Null) {
-      return TypedValue::Null;
-    }
-    auto index = _index.Value<int64_t>();
-    const auto &list = _list.Value<std::vector<TypedValue>>();
-    if (index < 0) {
-      index = static_cast<int64_t>(list.size()) + index;
-    }
-    if (index >= static_cast<int64_t>(list.size()) || index < 0) {
-      return TypedValue::Null;
-    }
-    return list[index];
+
+    // lhs is Null
+    return TypedValue::Null;
   }
 
   TypedValue Visit(ListSlicingOperator &op) override {

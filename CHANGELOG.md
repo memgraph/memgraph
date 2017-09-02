@@ -8,6 +8,7 @@
 * `rand` function added.
 * Maps can now be stored as vertex/edge properties.
 * `collect` aggregation now supports Map collection.
+* Map indexing supported.
 
 ### Bug Fixes and Other Changes
 

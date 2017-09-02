@@ -45,7 +45,7 @@ class GreaterOperator;
 class LessEqualOperator;
 class GreaterEqualOperator;
 class InListOperator;
-class ListIndexingOperator;
+class ListMapIndexingOperator;
 class ListSlicingOperator;
 class IfOperator;
 class Delete;
@@ -64,7 +64,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, ListIndexingOperator,
+    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
     EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,
@@ -89,7 +89,7 @@ using TreeVisitor = ::utils::Visitor<
     FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, ListIndexingOperator,
+    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
     EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,

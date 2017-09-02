@@ -417,7 +417,7 @@ class InListOperator : public BinaryOperator {
   using BinaryOperator::BinaryOperator;
 };
 
-class ListIndexingOperator : public BinaryOperator {
+class ListMapIndexingOperator : public BinaryOperator {
   friend class AstTreeStorage;
 
  public:

@@ -33,3 +33,13 @@ Feature: Map operators
         Then the result should be:
             | x.a | x.c.d |
             | 1   | 42    |
+
+
+  Scenario: Map indexing
+        When executing query:
+            """
+            WITH {a: 1, b: 'bla', c: {d: 42}} AS x RETURN x["a"] as xa, x["c"]["d"] as xcd, x["z"] as xz
+            """
+        Then the result should be:
+            | xa | xcd | xz   |
+            | 1  | 42  | null |

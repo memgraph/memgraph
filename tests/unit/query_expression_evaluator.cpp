@@ -313,7 +313,7 @@ TEST(ExpressionEvaluator, InListOperator) {
   }
 }
 
-TEST(ExpressionEvaluator, ListIndexingOperator) {
+TEST(ExpressionEvaluator, ListMapIndexingOperator) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
@@ -322,35 +322,35 @@ TEST(ExpressionEvaluator, ListIndexingOperator) {
       storage.Create<PrimitiveLiteral>(4)});
   {
     // Legal indexing.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<int64_t>(), 3);
   }
   {
     // Out of bounds indexing.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(4));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.type(), TypedValue::Type::Null);
   }
   {
     // Out of bounds indexing with negative bound.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-100));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.type(), TypedValue::Type::Null);
   }
   {
     // Legal indexing with negative index.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<int64_t>(), 3);
   }
   {
     // Indexing with one operator being null.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         storage.Create<PrimitiveLiteral>(TypedValue::Null),
         storage.Create<PrimitiveLiteral>(-2));
     auto value = op->Accept(eval.eval);
@@ -358,10 +358,49 @@ TEST(ExpressionEvaluator, ListIndexingOperator) {
   }
   {
     // Indexing with incompatible type.
-    auto *op = storage.Create<ListIndexingOperator>(
+    auto *op = storage.Create<ListMapIndexingOperator>(
         storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>(TypedValue::Null));
     EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
+}
+
+TEST(ExpressionEvaluator, MapIndexing) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto *map_literal = storage.Create<MapLiteral>(
+      std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>{
+          {PROPERTY_PAIR("a"), storage.Create<PrimitiveLiteral>(1)},
+          {PROPERTY_PAIR("b"), storage.Create<PrimitiveLiteral>(2)},
+          {PROPERTY_PAIR("c"), storage.Create<PrimitiveLiteral>(3)}});
+  {
+    // Legal indexing.
+    auto *op = storage.Create<ListMapIndexingOperator>(
+        map_literal, storage.Create<PrimitiveLiteral>("b"));
+    auto value = op->Accept(eval.eval);
+    EXPECT_EQ(value.Value<int64_t>(), 2);
+  }
+  {
+    // Legal indexing, non-existing key.
+    auto *op = storage.Create<ListMapIndexingOperator>(
+        map_literal, storage.Create<PrimitiveLiteral>("z"));
+    auto value = op->Accept(eval.eval);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op = storage.Create<ListMapIndexingOperator>(
+        map_literal, storage.Create<PrimitiveLiteral>(42));
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op = storage.Create<ListMapIndexingOperator>(
+        map_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    auto value = op->Accept(eval.eval);
+    EXPECT_TRUE(value.IsNull());
   }
 }
 

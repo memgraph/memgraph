@@ -473,11 +473,11 @@ TYPED_TEST(CypherMainVisitorTest, ComparisonOperators) {
 
 #undef CHECK_COMPARISON
 
-TYPED_TEST(CypherMainVisitorTest, ListIndexingOperator) {
+TYPED_TEST(CypherMainVisitorTest, ListIndexing) {
   TypeParam ast_generator("RETURN [1,2,3] [ 2 ]");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
-  auto *list_index_op = dynamic_cast<ListIndexingOperator *>(
+  auto *list_index_op = dynamic_cast<ListMapIndexingOperator *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(list_index_op);
   auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
@@ -532,7 +532,7 @@ TYPED_TEST(CypherMainVisitorTest, InWithListIndexing) {
   ASSERT_TRUE(literal);
   EXPECT_EQ(literal->value_.Value<int64_t>(), 1);
   auto *list_indexing =
-      dynamic_cast<ListIndexingOperator *>(in_list_operator->expression2_);
+      dynamic_cast<ListMapIndexingOperator *>(in_list_operator->expression2_);
   ASSERT_TRUE(list_indexing);
   auto *list = dynamic_cast<ListLiteral *>(list_indexing->expression1_);
   EXPECT_TRUE(list);
