@@ -530,7 +530,7 @@ std::vector<Expansion> NormalizePatterns(
       collector.symbols_.erase(
           symbol_table.at(*bf_atom->next_node_identifier_));
     }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_,
+    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false,
                                       collector.symbols_, current_node});
   };
   for (const auto &pattern : patterns) {

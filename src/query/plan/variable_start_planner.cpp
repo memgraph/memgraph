@@ -96,6 +96,7 @@ void AddNextExpansions(
       if (!dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         std::swap(expansion.node1, expansion.node2);
+        expansion.is_flipped = true;
         if (expansion.direction != EdgeAtom::Direction::BOTH) {
           expansion.direction = expansion.direction == EdgeAtom::Direction::IN
                                     ? EdgeAtom::Direction::OUT

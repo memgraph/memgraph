@@ -15,6 +15,8 @@ struct Expansion {
   /// Direction of the edge, it may be flipped compared to original
   /// @c EdgeAtom during plan generation.
   EdgeAtom::Direction direction = EdgeAtom::Direction::BOTH;
+  /// True if the direction and nodes were flipped.
+  bool is_flipped = false;
   /// Set of symbols found inside the range expressions of a variable path edge.
   std::unordered_set<Symbol> symbols_in_range{};
   /// Optional node at the other end of an edge. If the expansion
@@ -489,8 +491,8 @@ class RuleBasedPlanner {
               bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, expansion.direction,
-              expansion.direction != expansion.edge->direction_,
-              expansion.edge->lower_bound_, expansion.edge->upper_bound_,
+              expansion.is_flipped, expansion.edge->lower_bound_,
+              expansion.edge->upper_bound_,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
               existing_node, existing_edge, match_context.graph_view,
               filter_expr);

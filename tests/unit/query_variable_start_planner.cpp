@@ -263,6 +263,33 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   });
 }
 
+TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto id = dba->Property("id");
+  // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
+  auto v1 = dba->InsertVertex();
+  v1.PropsSet(id, 1);
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto r1 = dba->InsertEdge(v1, v2, dba->EdgeType("r1"));
+  auto r2 = dba->InsertEdge(v2, v3, dba->EdgeType("r2"));
+  dba->AdvanceCommand();
+  // Test MATCH (n {id:1}) -[r*]- (m) RETURN r
+  AstTreeStorage storage;
+  auto edge = EDGE("r", Direction::BOTH);
+  edge->has_range_ = true;
+  auto node_n = NODE("n");
+  node_n->properties_[std::make_pair("id", id)] = LITERAL(1);
+  QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
+  // We expect to get a single column with the following rows:
+  TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
+  TypedValue r1_r2_list(std::vector<TypedValue>{r1, r2});  // [r1, r2]
+  CheckPlansProduce(2, storage, *dba, [&](const auto &results) {
+    AssertRows(results, {{r1_list}, {r1_r2_list}});
+  });
+}
+
 TEST(TestVariableStartPlanner, MatchBfs) {
   Dbms dbms;
   auto dba = dbms.active();
