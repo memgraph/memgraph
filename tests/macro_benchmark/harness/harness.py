@@ -311,8 +311,8 @@ class QuerySuite(_QuerySuite):
         return ["MemgraphRunner", "NeoRunner"]
 
     def groups(self):
-        return ["1000_create", "unwind_create", "match", "expression",
-                "aggregation", "return", "update", "delete"]
+        return ["1000_create", "unwind_create", "match", "dense_expand",
+                "expression", "aggregation", "return", "update", "delete"]
 
 
 class QueryParallelSuite(_QuerySuite):

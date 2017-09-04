@@ -1,0 +1,4 @@
+MATCH (a) WITH a LIMIT 10
+MATCH (b) WITH a, b
+MATCH (a)-[r]->(b)
+RETURN 1 SKIP 1000000;
