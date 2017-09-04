@@ -131,6 +131,22 @@ TEST(QueryStripper, StringLiteral4) {
   EXPECT_EQ(stripped.query(), "return " + kStrippedStringToken);
 }
 
+TEST(QueryStripper, HighSurrogateAlone) {
+  ASSERT_THROW(StrippedQuery("RETURN '\\udeeb'"), SemanticException);
+}
+
+TEST(QueryStripper, LowSurrogateAlone) {
+  ASSERT_THROW(StrippedQuery("RETURN '\\ud83d'"), SemanticException);
+}
+
+TEST(QueryStripper, Surrogates) {
+  StrippedQuery stripped("RETURN '\\ud83d\\udeeb'");
+  EXPECT_EQ(stripped.literals().size(), 1);
+  EXPECT_EQ(stripped.literals().At(0).second.Value<std::string>(),
+            u8"\U0001f6eb");
+  EXPECT_EQ(stripped.query(), "return " + kStrippedStringToken);
+}
+
 TEST(QueryStripper, StringLiteralIllegalEscapedSequence) {
   EXPECT_THROW(StrippedQuery("RETURN 'so\\x'"), LexingException);
   EXPECT_THROW(StrippedQuery("RETURN 'so\\uabc'"), LexingException);

@@ -38,10 +38,40 @@ std::string ParseStringLiteral(const std::string &s) {
       return converter.to_bytes(t);
     } else if (j - i >= kShortUnicodeLength + 1) {
       char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
-      i += kShortUnicodeLength;
-      std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
-          converter;
-      return converter.to_bytes(t);
+      if (t >= 0xD800 && t <= 0xDBFF) {
+        // t is high surrogate pair. Expect one more utf16 codepoint.
+        j = i + kShortUnicodeLength + 1;
+        if (j >= static_cast<int>(s.size()) - 1 || s[j] != '\\') {
+          throw SemanticException("Invalid utf codepoint");
+        }
+        ++j;
+        if (j >= static_cast<int>(s.size()) - 1 ||
+            (s[j] != 'u' && s[j] != 'U')) {
+          throw SemanticException("Invalid utf codepoint");
+        }
+        ++j;
+        int k = j;
+        while (k < static_cast<int>(s.size()) - 1 &&
+               k < j + kShortUnicodeLength && isxdigit(s[k])) {
+          ++k;
+        }
+        if (k != j + kShortUnicodeLength) {
+          throw SemanticException("Invalid utf codepoint");
+        }
+        char16_t surrogates[3] = {t,
+                                  static_cast<char16_t>(stoi(
+                                      s.substr(j, kShortUnicodeLength), 0, 16)),
+                                  0};
+        i += kShortUnicodeLength + 2 + kShortUnicodeLength;
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
+            converter;
+        return converter.to_bytes(surrogates);
+      } else {
+        i += kShortUnicodeLength;
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
+            converter;
+        return converter.to_bytes(t);
+      }
     } else {
       // This should never happen, except grammar changes and we don't notice
       // change in this production.
@@ -88,7 +118,11 @@ std::string ParseStringLiteral(const std::string &s) {
           break;
         case 'U':
         case 'u':
-          unescaped += EncodeEscapedUnicodeCodepoint(s, i);
+          try {
+            unescaped += EncodeEscapedUnicodeCodepoint(s, i);
+          } catch (const std::range_error &) {
+            throw SemanticException("Invalid utf codepoint");
+          }
           break;
         default:
           // This should never happen, except grammar changes and we don't
