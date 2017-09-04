@@ -16,14 +16,16 @@ function print_help () {
     echo -e "  --time-compression-ratio |"
     echo -e "  --operation-count        | -> https://github.com/ldbc/ldbc_driver/wiki/Driver-Configuration"
     echo -e "  --thread-count           |"
+    echo -e "  --result-file-prefix -> Result file prefix."
 }
 
 # Default parameters.
 host=127.0.0.1
 port=7687
 time_compression_ratio=0.01
-operation_count=100
+operation_count=200
 thread_count=8
+result_file_prefix="undefined"
 
 # Read the arguments.
 while [[ $# -gt 0 ]]
@@ -39,6 +41,10 @@ do
         ;;
         --port)
         port=$2
+        shift
+        ;;
+        --result-file-prefix)
+        result_file_prefix=$2
         shift
         ;;
         --time-compression-ratio)
@@ -64,4 +70,6 @@ cd ${script_dir}/ldbc-snb-impls
 mvn clean compile assembly:single
 
 cd ${script_dir}/ldbc_driver
-java -cp target/jeeves-0.3-SNAPSHOT.jar:${script_dir}/ldbc-snb-impls/snb-interactive-neo4j/target/snb-interactive-neo4j-1.0.0-jar-with-dependencies.jar com.ldbc.driver.Client -P ${script_dir}/ldbc_driver/configuration/ldbc_driver_default.properties -P ${script_dir}/ldbc-snb-impls-test.properties -P ${script_dir}/ldbc_snb_datagen/social_network/updateStream.properties -p host ${host} -p port ${port} -db net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb -p ldbc.snb.interactive.parameters_dir ${script_dir}/ldbc_snb_datagen/substitution_parameters --time_compression_ratio ${time_compression_ratio} --operation_count ${operation_count} --thread_count ${thread_count}
+java -cp target/jeeves-0.3-SNAPSHOT.jar:${script_dir}/ldbc-snb-impls/snb-interactive-neo4j/target/snb-interactive-neo4j-1.0.0-jar-with-dependencies.jar com.ldbc.driver.Client -P ${script_dir}/ldbc_driver/configuration/ldbc_driver_default.properties -P ${script_dir}/ldbc-snb-impls-allshortandupdate.properties -P ${script_dir}/ldbc_snb_datagen/social_network/updateStream.properties -p host ${host} -p port ${port} -db net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb -p ldbc.snb.interactive.parameters_dir ${script_dir}/ldbc_snb_datagen/substitution_parameters --time_compression_ratio ${time_compression_ratio} --operation_count ${operation_count} --thread_count ${thread_count}
+
+cp ${script_dir}/ldbc_driver/results/LDBC-results.json ${script_dir}/results/${result_file_prefix}-LDBC-results.json

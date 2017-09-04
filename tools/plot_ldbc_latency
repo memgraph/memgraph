@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+'''
+Latency Barchart (Based on LDBC JSON output).
+'''
+
+import json
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.cbook import get_sample_data
+from argparse import ArgumentParser
+
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+COLORS = {
+    'memgraph': '#ff7300',
+    'neo4j': '#008cc2'
+}
+
+
+def parse_args():
+    argp = ArgumentParser(description=__doc__)
+    argp.add_argument("--vendor-references", nargs="+",
+                      help="Short references that represent all the "
+                           "vendors that are going to be "
+                           "visualized on the plot.")
+    argp.add_argument("--vendor-titles", nargs="+",
+                      help="Vender titles that are going to appear "
+                           "on the plot, e.g. legend titles.")
+    argp.add_argument("--plot-title", default="{{Plot title placeholder}}",
+                      help="Plot title.")
+    argp.add_argument("--logo-path", default=None,
+                      help="Path to the logo that is going to be presented"
+                           " instead of title.")
+    argp.add_argument("--results-dir",
+                      default=os.path.join(SCRIPT_DIR,
+                                           "../tests/public_benchmark"
+                                           "/ldbc/results"),
+                      help="Path to the folder with result files in format "
+                           "{{vendor-reference}}-LDBC-results.json")
+    return argp.parse_args()
+
+
+def autolabel(ax, rects):
+    """
+    Attach a text label above each bar displaying its height
+    """
+    for rect in rects:
+        height = rect.get_height()
+        # TODO: adjust more vendors
+        ax.text(rect.get_x() + rect.get_width()/2., 1.00*height,
+                '%d' % int(height),
+                ha='center', va='bottom')
+
+
+def main():
+    # Read the arguments.
+    args = parse_args()
+
+    # Prepare the datastructure.
+    vendors = {}
+    for vendor_reference, vendor_title in zip(args.vendor_references,
+                                              args.vendor_titles):
+        vendors[vendor_reference] = {}
+        vendors[vendor_reference]['title'] = vendor_title
+        vendors[vendor_reference]['results_path'] = os.path.join(
+            args.results_dir, "%s-LDBC-results.json" % vendor_reference)
+        vendors[vendor_reference]['color'] = COLORS[vendor_reference]
+        vendors[vendor_reference]['latencies'] = []
+        vendors[vendor_reference]['query_names'] = []
+    assert len(vendors) == 2, "The graph is tailored for only 2 vendors."
+
+    # Collect the benchmark data.
+    print("LDBC Latency Data")
+    for vendor_reference, vendor_data in vendors.items():
+        print("Vendor: %s" % vendor_reference)
+        with open(vendor_data['results_path']) as results_file:
+            results_data = json.load(results_file)
+            for query_data in results_data["all_metrics"]:
+                mean_runtime = query_data["run_time"]["mean"]
+                query_name = query_data['name']
+                print("%s -> %sms" % (query_name, str(mean_runtime)))
+                vendor_data['latencies'].append(mean_runtime)
+                vendor_data['query_names'].append(query_name)
+
+    # Consistency check.
+    all_query_names = [tuple(vd['query_names']) for vd in vendors.values()]
+    assert len(set(all_query_names)) == 1, \
+        "Queries between different vendors are different!"
+    query_names = all_query_names[0]
+
+    # Plot.
+    ind = np.arange(len(query_names))   # the x locations for the groups
+    width = 0.40                        # the width of the bars
+    fig, ax = plt.subplots()            # figure setup
+    ax.set_ylabel('Mean Latency (ms)')  # YAxis title
+    ax.set_facecolor('#dcdcdc')         # plot bg color (light gray)
+    ax.set_xticks(ind + width / len(vendors))  # TODO: adjust (more vendors)
+    # IMPORTANT! Long query names on the XAxis don't look compelling.
+    ax.set_xticklabels(['Q%s' % x for x in range(len(query_names))])
+    # set only horizontal grid lines
+    for line in ax.get_xgridlines():
+        line.set_linestyle(' ')
+    for line in ax.get_ygridlines():
+        line.set_linestyle('--')
+    ax.set_axisbelow(True)              # put the grid below all other elements
+    plt.grid(True)                      # show grid
+    # Draw logo or plot title
+    if args.logo_path is None:
+        ax.set_title(args.plot_title)
+    else:
+        # TODO: improve the logo positioning
+        im = plt.imread(get_sample_data(args.logo_path))
+        plt.gcf().subplots_adjust(top=0.85)
+        newax = fig.add_axes([0.4, 0.75, 0.2, 0.25], anchor='N')
+        newax.imshow(im)
+        newax.axis('off')
+    # Draw bars
+    for index, vendor_data in enumerate(vendors.values()):
+        rects = ax.bar(ind + index * width, vendor_data['latencies'], width,
+                       color=vendor_data['color'])
+        vendor_data['rects'] = rects
+        autolabel(ax, rects)
+    rects = [vd['rects'][0] for vd in vendors.values()]
+    titles = [vd['title'] for vd in vendors.values()]
+    ax.legend(rects, titles)           # Draw the legend.
+    plt.show()
+
+if __name__ == '__main__':
+    main()
