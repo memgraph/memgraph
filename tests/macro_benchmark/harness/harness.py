@@ -3,17 +3,18 @@
 
 import logging
 import os
-from os import path
 import time
 import itertools
 import json
-from subprocess import check_output
+import subprocess
 from argparse import ArgumentParser
 from collections import OrderedDict
 from collections import defaultdict
 import tempfile
 import shutil
 from statistics import median
+
+from perf import Perf
 
 try:
     import jail
@@ -22,12 +23,33 @@ except:
     import jail_faker as jail
     APOLLO = False
 
-DIR_PATH = path.dirname(path.realpath(__file__))
+DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 WALL_TIME = "wall_time"
 CPU_TIME = "cpu_time"
-from perf import Perf
 
 log = logging.getLogger(__name__)
+
+
+def get_absolute_path(path, base=""):
+    if base == "build":
+        extra = "../../../build"
+    elif base == "build_release":
+        extra = "../../../build_release"
+    elif base == "libs":
+        extra = "../../../libs"
+    elif base == "config":
+        extra = "../../../config"
+    else:
+        extra = ""
+    return os.path.normpath(os.path.join(DIR_PATH, extra, path))
+
+
+def wait_for_server(port, delay=1.0):
+    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
+    while subprocess.call(cmd) != 0:
+        time.sleep(0.5)
+    time.sleep(delay)
+
 
 def load_scenarios(args):
     """
@@ -67,9 +89,8 @@ def load_scenarios(args):
         {group: (scenario, {config: query_generator_function})
     """
     argp = ArgumentParser("QuerySuite.scenarios argument parser")
-    argp.add_argument("--query-scenarios-root", default=path.join(
-        DIR_PATH, "groups"),
-        dest="root")
+    argp.add_argument("--query-scenarios-root",
+                      default=get_absolute_path("groups"), dest="root")
     args, _ = argp.parse_known_args()
     log.info("Loading query scenarios from root: %s", args.root)
 
@@ -78,7 +99,7 @@ def load_scenarios(args):
             log.debug("Processing config file %s", config_file)
             config_name = config_file.split(".")[-2]
             config_dict[config_name] = QuerySuite.Loader(
-                path.join(base, config_file))
+                os.path.join(base, config_file))
 
         # validate that the scenario does not contain any illegal
         # keys (defense against typos in file naming)
@@ -89,19 +110,19 @@ def load_scenarios(args):
 
     def dir_content(root, predicate):
         return [p for p in os.listdir(root)
-                if predicate(path.join(root, p))]
+                if predicate(os.path.join(root, p))]
 
     group_scenarios = OrderedDict()
-    for group in dir_content(args.root, path.isdir):
+    for group in dir_content(args.root, os.path.isdir):
         log.info("Loading group: '%s'", group)
 
         group_scenarios[group] = []
-        files = dir_content(path.join(args.root, group),
-                            path.isfile)
+        files = dir_content(os.path.join(args.root, group),
+                            os.path.isfile)
 
         # process group default config
         group_config = {}
-        fill_config_dict(group_config, path.join(args.root, group),
+        fill_config_dict(group_config, os.path.join(args.root, group),
                          [f for f in files if f.count(".") == 1])
 
         # group files on scenario
@@ -111,7 +132,7 @@ def load_scenarios(args):
             log.info("Loading scenario: '%s'", scenario_name)
             scenario = dict(group_config)
             fill_config_dict(scenario,
-                             path.join(args.root, group),
+                             os.path.join(args.root, group),
                              scenario_files)
             group_scenarios[group].append((scenario_name, scenario))
             log.debug("Loaded config for scenario '%s'\n%r", scenario_name,
@@ -130,12 +151,12 @@ class _QuerySuite:
     # what the QuerySuite can work with
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
                   "teardown", "common"}
-    FORMAT = ["{:>24}", "{:>28}", "{:>22}", "{:>24}", "{:>28}",
+    FORMAT = ["{:>24}", "{:>28}", "{:>16}", "{:>18}", "{:>22}",
               "{:>16}", "{:>16}"]
     FULL_FORMAT = "".join(FORMAT) + "\n"
     summary = FULL_FORMAT.format(
-                      "group_name", "scenario_name", "query_parsing_time",
-                      "query_planning_time", "query_plan_execution_time",
+                      "group_name", "scenario_name", "parsing_time",
+                      "planning_time", "plan_execution_time",
                       WALL_TIME, CPU_TIME)
 
     def __init__(self, args):
@@ -173,12 +194,12 @@ class _QuerySuite:
             """ Yields queries found in the given file_path one by one """
             log.debug("Generating queries from file_path: %s",
                       self.file_path)
-            _, extension = path.splitext(self.file_path)
+            _, extension = os.path.splitext(self.file_path)
             if extension == ".cypher":
                 with open(self.file_path) as f:
                     return self._queries(f.read())
             elif extension == ".py":
-                return self._queries(check_output(
+                return self._queries(subprocess.check_output(
                     ["python3", self.file_path]).decode("ascii"))
             elif extension == ".json":
                 with open(self.file_path) as f:
@@ -241,9 +262,9 @@ class _QuerySuite:
                                  scenario_config.get("num_client_workers", 1))
             add_measurement(run_result, iteration, WALL_TIME)
             add_measurement(run_result, iteration, CPU_TIME)
-            for measurement in ["query_parsing_time",
-                                "query_plan_execution_time",
-                                "query_planning_time"] :
+            for measurement in ["parsing_time",
+                                "plan_execution_time",
+                                "planning_time"] :
                 for i in range(len(run_result.get("metadatas", []))):
                     add_measurement(run_result["metadatas"][i], iteration,
                                     measurement)
@@ -263,8 +284,8 @@ class _QuerySuite:
                                 measurement_lists, num_iterations):
         self.summary += self.FORMAT[0].format(group_name)
         self.summary += self.FORMAT[1].format(scenario_name)
-        for i, key in enumerate(("query_parsing_time", "query_planning_time",
-                    "query_plan_execution_time", WALL_TIME, CPU_TIME)):
+        for i, key in enumerate(("parsing_time", "planning_time",
+                    "plan_execution_time", WALL_TIME, CPU_TIME)):
             if key not in measurement_lists:
                 time = "-"
             else:
@@ -305,15 +326,6 @@ class QueryParallelSuite(_QuerySuite):
         return ["aggregation_parallel", "create_parallel"]
 
 
-def get_common_runner_argument_parser():
-    argp = ArgumentParser("CommonRunnerArgumentParser")
-    argp.add_argument("--address", help="Database and client address",
-                      default="127.0.0.1")
-    argp.add_argument("--port", help="Database and client port",
-                      default="7687")
-    return argp
-
-
 # Database wrappers.
 
 class Memgraph:
@@ -322,15 +334,13 @@ class Memgraph:
     """
     def __init__(self, args, cpus):
         self.log = logging.getLogger("MemgraphRunner")
-        argp = ArgumentParser("MemgraphArgumentParser", add_help=False,
-                              parents=[get_common_runner_argument_parser()])
-        argp.add_argument("--RunnerBin",
-                          default=os.path.join(DIR_PATH,
-                                               "../../../build/memgraph"))
-        argp.add_argument("--RunnerConfig",
-                          default=os.path.normpath(os.path.join(
-                              DIR_PATH,
-                              "../../../config/benchmarking_latency.conf")))
+        argp = ArgumentParser("MemgraphArgumentParser", add_help=False)
+        argp.add_argument("--runner-bin",
+                          default=get_absolute_path("memgraph", "build"))
+        argp.add_argument("--runner-config",
+                          default=get_absolute_path("benchmarking_latency.conf", "config"))
+        argp.add_argument("--port", default="7687",
+                          help="Database and client port")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.database_bin = jail.get_process()
@@ -338,14 +348,20 @@ class Memgraph:
 
     def start(self):
         self.log.info("start")
-        environment = os.environ.copy()
-        environment["MEMGRAPH_CONFIG"] = self.args.RunnerConfig
-        database_args = ["--interface", self.args.address,
-                         "--port", self.args.port]
-        self.database_bin.run(self.args.RunnerBin, database_args,
-                              env=environment, timeout=600)
-        # TODO change to a check via SIGUSR
-        time.sleep(1.0)
+        env = {"MEMGRAPH_CONFIG": self.args.runner_config}
+        database_args = ["--port", self.args.port]
+
+        # find executable path
+        runner_bin = self.args.runner_bin
+        if not os.path.exists(runner_bin):
+            # Apollo builds both debug and release binaries on diff
+            # so we need to use the release binary if the debug one
+            # doesn't exist
+            runner_bin = get_absolute_path("memgraph", "build_release")
+
+        # start memgraph
+        self.database_bin.run(runner_bin, database_args, env=env, timeout=600)
+        wait_for_server(self.args.port)
         return self.database_bin.get_pid() if not APOLLO else None
 
     def stop(self):
@@ -356,40 +372,103 @@ class Memgraph:
 class Neo:
     def __init__(self, args, cpus):
         self.log = logging.getLogger("NeoRunner")
-        argp = ArgumentParser("NeoArgumentParser", add_help=False,
-                              parents=[get_common_runner_argument_parser()])
-        argp.add_argument(
-            "--RunnerConfigDir",
-            default=path.join(DIR_PATH, "neo4j_config"))
+        argp = ArgumentParser("NeoArgumentParser", add_help=False)
+        argp.add_argument("--runner-bin", default=get_absolute_path(
+                          "neo4j/bin/neo4j", "libs"))
+        argp.add_argument("--runner-config",
+                          default=get_absolute_path("config/neo4j.conf"))
+        argp.add_argument("--port", default="7687",
+                          help="Database and client port")
+        argp.add_argument("--http-port", default="7474",
+                          help="Database and client port")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
-        if self.args.address != "127.0.0.1" or self.args.port != "7687":
-            raise Exception(
-                "Neo wrapper doesn't support different address or port")
         self.database_bin = jail.get_process()
         self.database_bin.set_cpus(cpus)
 
     def start(self):
         self.log.info("start")
-        environment = os.environ.copy()
-        environment["NEO4J_CONF"] = self.args.RunnerConfigDir
+
+        # create home directory
         self.neo4j_home_path = tempfile.mkdtemp(dir="/dev/shm")
-        environment["NEO4J_HOME"] = self.neo4j_home_path
+
         try:
-            self.database_bin.run("/usr/share/neo4j/bin/neo4j", args=["console"],
-                                  env=environment, timeout=600)
-            # TODO change to a check via SIGUSR
-            time.sleep(5.0)
+            os.symlink(os.path.join(get_absolute_path("neo4j", "libs"), "lib"),
+                       os.path.join(self.neo4j_home_path, "lib"))
+            neo4j_conf_dir = os.path.join(self.neo4j_home_path, "conf")
+            neo4j_conf_file = os.path.join(neo4j_conf_dir, "neo4j.conf")
+            os.mkdir(neo4j_conf_dir)
+            shutil.copyfile(self.args.runner_config, neo4j_conf_file)
+            with open(neo4j_conf_file, "a") as f:
+                f.write("\ndbms.connector.bolt.listen_address=:" +
+                        self.args.port + "\n")
+                f.write("\ndbms.connector.http.listen_address=:" +
+                        self.args.http_port + "\n")
+
+            # environment
+            cwd = os.path.dirname(self.args.runner_bin)
+            env = {"NEO4J_HOME": self.neo4j_home_path}
+
+            self.database_bin.run(self.args.runner_bin, args=["console"],
+                                  env=env, timeout=600, cwd=cwd)
         except:
             shutil.rmtree(self.neo4j_home_path)
-            raise Exception("Couldn't create symlink or run neo4j")
+            raise Exception("Couldn't run Neo4j!")
+
+        wait_for_server(self.args.http_port, 2.0)
         return self.database_bin.get_pid() if not APOLLO else None
 
     def stop(self):
         self.database_bin.send_signal(jail.SIGTERM)
         self.database_bin.wait()
-        if path.exists(self.neo4j_home_path):
+        if os.path.exists(self.neo4j_home_path):
             shutil.rmtree(self.neo4j_home_path)
+
+
+class Postgres:
+    """
+    Knows how to start and stop PostgreSQL.
+    """
+    def __init__(self, args, cpus):
+        self.log = logging.getLogger("PostgresRunner")
+        argp = ArgumentParser("PostgresArgumentParser", add_help=False)
+        argp.add_argument("--init-bin", default=get_absolute_path(
+                          "postgresql/bin/initdb", "libs"))
+        argp.add_argument("--runner-bin", default=get_absolute_path(
+                          "postgresql/bin/postgres", "libs"))
+        argp.add_argument("--port", default="5432",
+                          help="Database and client port")
+        self.log.info("Initializing Runner with arguments %r", args)
+        self.args, _ = argp.parse_known_args(args)
+        self.username = "macro_benchmark"
+        self.database_bin = jail.get_process()
+        self.database_bin.set_cpus(cpus)
+
+    def start(self):
+        self.log.info("start")
+        self.data_path = tempfile.mkdtemp(dir="/dev/shm")
+        init_args = ["-D", self.data_path, "-U", self.username]
+        self.database_bin.run_and_wait(self.args.init_bin, init_args)
+
+        # args
+        runner_args = ["-D", self.data_path, "-c", "port=" + self.args.port,
+                       "-c", "ssl=false", "-c", "max_worker_processes=1"]
+
+        try:
+            self.database_bin.run(self.args.runner_bin, args=runner_args,
+                                  timeout=600)
+        except:
+            shutil.rmtree(self.data_path)
+            raise Exception("Couldn't run PostgreSQL!")
+
+        wait_for_server(self.args.port)
+        return self.database_bin.get_pid() if not APOLLO else None
+
+    def stop(self):
+        self.database_bin.send_signal(jail.SIGTERM)
+        self.database_bin.wait()
+        if os.path.exists(self.data_path):
+            shutil.rmtree(self.data_path)
 
 
 class _HarnessClientRunner:
@@ -405,8 +484,7 @@ class _HarnessClientRunner:
         if cpus is None: cpus = [2, 3]
         self.log = logging.getLogger("_HarnessClientRunner")
         self.database = database
-        argp = ArgumentParser("RunnerArgumentParser", add_help=False,
-                              parents=[get_common_runner_argument_parser()])
+        argp = ArgumentParser("RunnerArgumentParser", add_help=False)
         self.args, _ = argp.parse_known_args()
         self.bolt_client = jail.get_process()
         self.bolt_client.set_cpus(cpus)
@@ -417,15 +495,13 @@ class _HarnessClientRunner:
     def execute(self, queries, num_client_workers):
         self.log.debug("execute('%s')", str(queries))
 
-        client = os.path.normpath(os.path.join(DIR_PATH,
-                "../../../build/tests/macro_benchmark/harness_client"))
+        client_path = "tests/macro_benchmark/harness_client"
+        client = get_absolute_path(client_path, "build")
         if not os.path.exists(client):
             # Apollo builds both debug and release binaries on diff
             # so we need to use the release client if the debug one
             # doesn't exist
-            client = os.path.normpath(os.path.join(DIR_PATH,
-                    "../../../build_release/tests/macro_benchmark/"
-                    "harness_client"))
+            client = get_absolute_path(client_path, "build_release")
 
         queries_fd, queries_path = tempfile.mkstemp()
         try:
@@ -440,7 +516,7 @@ class _HarnessClientRunner:
         output_fd, output = tempfile.mkstemp()
         os.close(output_fd)
 
-        client_args = ["--address", self.args.address, "--port", self.args.port,
+        client_args = ["--port", self.database.args.port,
                        "--num-workers", str(num_client_workers),
                        "--output", output]
 
@@ -590,7 +666,7 @@ def main():
     # Print summary.
     print("\n\nMacro benchmark summary:")
     print("{}\n".format(suite.summary))
-    with open(os.path.join(DIR_PATH, ".harness_summary"), "w") as f:
+    with open(get_absolute_path(".harness_summary"), "w") as f:
         print(suite.summary, file=f)
 
 

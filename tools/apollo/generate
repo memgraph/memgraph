@@ -197,14 +197,13 @@ macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
 harness_client_binary = os.path.join(BUILD_RELEASE_DIR, "tests",
         "macro_benchmark", "harness_client")
 infile = create_archive("macro_benchmark", [binary_release_path,
-        macro_bench_path, config_path, harness_client_binary],
-        cwd = WORKSPACE_DIR)
-supervisor = "./{}/tests/macro_benchmark/harness/harness.py".format(BASE_DIR_NAME)
-args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_release_path
-outfile_paths = "\./{}/tests/macro_benchmark/harness/\.harness_summary".format(
-        BASE_DIR_NAME)
+        binary_release_link_path, macro_bench_path, config_path,
+        harness_client_binary], cwd = WORKSPACE_DIR)
+supervisor = "./memgraph/tests/macro_benchmark/harness/harness.py"
+outfile_paths = "\./memgraph/tests/macro_benchmark/harness/\.harness_summary"
 RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
-        arguments = args, infile = infile, outfile_paths = outfile_paths))
+        arguments = MACRO_BENCHMARK_ARGS, infile = infile,
+        outfile_paths = outfile_paths))
 
 # macro benchmark parent tests
 if mode == "diff":

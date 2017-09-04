@@ -178,10 +178,10 @@ class Interpreter {
     }
     auto execution_time = execution_timer.Elapsed();
 
-    summary["query_parsing_time"] = frontend_time.count();
-    summary["query_planning_time"] = planning_time.count();
-    summary["query_plan_execution_time"] = execution_time.count();
-    summary["query_cost_estimate"] = query_plan_cost_estimation;
+    summary["parsing_time"] = frontend_time.count();
+    summary["planning_time"] = planning_time.count();
+    summary["plan_execution_time"] = execution_time.count();
+    summary["cost_estimate"] = query_plan_cost_estimation;
 
     // TODO: set summary['type'] based on transaction metadata
     // the type can't be determined based only on top level LogicalOp

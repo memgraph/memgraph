@@ -99,11 +99,11 @@ class QueryEngine {
     }
 
     std::map<std::string, query::TypedValue> summary;
-    summary["query_parsing_time"] = parsing_time.count();
+    summary["parsing_time"] = parsing_time.count();
     // This doesn't do any actual planning, but benchmarking harness knows how
     // to work with this field.
-    summary["query_planning_time"] = planning_time.count();
-    summary["query_plan_execution_time"] = execution_time.count();
+    summary["planning_time"] = planning_time.count();
+    summary["plan_execution_time"] = execution_time.count();
     summary["type"] = "rw";
     stream.Summary(summary);
 

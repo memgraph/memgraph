@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Download external dependencies.
 
@@ -88,3 +88,15 @@ gflags_tag="652651b421ca5ac7b722a34a301fb656deca5198" # May 6, 2017
 cd gflags
 git checkout ${gflags_tag}
 cd ..
+
+# neo4j
+wget http://deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz -O neo4j.tar.gz
+tar -xzf neo4j.tar.gz
+mv neo4j-community-3.2.3 neo4j
+rm neo4j.tar.gz
+
+# postgresql
+wget http://deps.memgraph.io/postgresql-9.6.5-1-linux-x64-binaries.tar.gz -O postgres.tar.gz
+tar -xzf postgres.tar.gz
+mv pgsql postgresql
+rm postgres.tar.gz
