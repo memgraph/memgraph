@@ -14,6 +14,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
+#include "utils/string.hpp"
 
 #include "query_common.hpp"
 
@@ -1158,5 +1159,26 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
   const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
   eval.symbol_table[*all->identifier_] = x_sym;
   EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionAssert) {
+  // Invalid calls.
+  ASSERT_THROW(EvaluateFunction("ASSERT", {}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, false}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {"string", false}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "reason", true}), QueryRuntimeException);
+
+  // Valid calls, assertion fails.
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "message"}), QueryRuntimeException);
+  try {
+    EvaluateFunction("ASSERT", {false, "bbgba"});
+  } catch (QueryRuntimeException &e) {
+    ASSERT_TRUE(utils::EndsWith(e.what(), "bbgba"));
+  }
+
+  // Valid calls, assertion passes.
+  ASSERT_TRUE(EvaluateFunction("ASSERT", {true}).ValueBool());
+  ASSERT_TRUE(EvaluateFunction("ASSERT", {true, "message"}).ValueBool());
 }
 }

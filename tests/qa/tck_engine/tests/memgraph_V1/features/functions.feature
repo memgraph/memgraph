@@ -649,3 +649,44 @@ Feature: Functions
             RETURN all(x IN [1, 2, '3'] WHERE x < 3) AS a
             """
         Then an error should be raised
+
+
+    Scenario: Assert test fail, no message:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN assert(n.a = 2) AS res
+            """
+        Then an error should be raised
+
+
+    Scenario: Assert test fail:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1, b: "string"})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN assert(n.a = 2, n.b) AS res
+            """
+        Then an error should be raised
+
+
+    Scenario: Assert test pass:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1, b: "string"})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN assert(n.a = 1, n.b) AS res
+            """
+        Then the result should be:
+            | res  |
+            | true |

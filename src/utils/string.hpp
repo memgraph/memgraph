@@ -20,7 +20,7 @@ namespace utils {
  *
  * @return trimmed string
  */
-inline std::string Trim(const std::string& s) {
+inline std::string Trim(const std::string &s) {
   auto begin = s.begin();
   auto end = s.end();
   if (begin == end) {
@@ -58,11 +58,11 @@ inline std::string ToUpperCase(std::string s) {
 /**
  * Join strings in vector separated by a given separator.
  */
-inline std::string Join(const std::vector<std::string>& strings,
-                        const std::string& separator) {
+inline std::string Join(const std::vector<std::string> &strings,
+                        const std::string &separator) {
   if (strings.size() == 0U) return "";
   int64_t total_size = 0;
-  for (const auto& x : strings) {
+  for (const auto &x : strings) {
     total_size += x.size();
   }
   total_size += separator.size() * (static_cast<int64_t>(strings.size()) - 1);
@@ -80,8 +80,8 @@ inline std::string Join(const std::vector<std::string>& strings,
  * Replaces all occurences of <match> in <src> with <replacement>.
  */
 // TODO: This could be implemented much more efficient.
-inline std::string Replace(std::string src, const std::string& match,
-                           const std::string& replacement) {
+inline std::string Replace(std::string src, const std::string &match,
+                           const std::string &replacement) {
   for (size_t pos = src.find(match); pos != std::string::npos;
        pos = src.find(match, pos + replacement.size())) {
     src.erase(pos, match.length()).insert(pos, replacement);
@@ -113,7 +113,7 @@ inline std::vector<std::string> Split(const std::string &src,
  * Parse double using classic locale, throws BasicException if it wasn't able to
  * parse whole string.
  */
-inline double ParseDouble(const std::string& s) {
+inline double ParseDouble(const std::string &s) {
   // stod would be nicer but it uses current locale so we shouldn't use it.
   double t = 0.0;
   std::istringstream iss(s);
@@ -123,5 +123,13 @@ inline double ParseDouble(const std::string& s) {
     throw BasicException("Couldn't parse string");
   }
   return t;
+}
+
+/**
+ * Checks if the given string `s` ends with the given `suffix`.
+ */
+inline bool EndsWith(const std::string &s, const std::string &suffix) {
+  return s.size() >= suffix.size() &&
+         s.compare(s.size() - suffix.size(), std::string::npos, suffix) == 0;
 }
 }

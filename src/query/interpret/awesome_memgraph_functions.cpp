@@ -506,7 +506,24 @@ bool ContainsPredicate(const std::string &s1, const std::string &s2) {
   return s1.find(s2) != std::string::npos;
 }
 auto Contains = StringMatchOperator<ContainsPredicate>;
+
+TypedValue Assert(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() < 1U || args.size() > 2U) {
+    throw QueryRuntimeException("assert takes one or two arguments");
+  }
+  if (args[0].type() != TypedValue::Type::Bool)
+      throw QueryRuntimeException("first assert argument must be bool");
+  if (args.size() == 2U && args[1].type() != TypedValue::Type::String)
+      throw QueryRuntimeException("second assert argument must be a string");
+  if (!args[0].ValueBool()) {
+    std::string message("assertion failed");
+    if (args.size() == 2U)
+      message += ": " + args[1].ValueString();
+    throw QueryRuntimeException(message);
+  }
+  return args[0];
 }
+} // annonymous namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
 NameToFunction(const std::string &function_name) {
@@ -548,6 +565,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == kStartsWith) return StartsWith;
   if (function_name == kEndsWith) return EndsWith;
   if (function_name == kContains) return Contains;
+  if (function_name == "ASSERT") return Assert;
   return nullptr;
 }
-}
+} // namespace query

@@ -9,6 +9,7 @@
 * Maps can now be stored as vertex/edge properties.
 * `collect` aggregation now supports Map collection.
 * Map indexing supported.
+* `assert` function added.
 
 ### Bug Fixes and Other Changes
 
