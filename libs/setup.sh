@@ -11,7 +11,7 @@ cd ${working_dir}
 # antlr
 antlr_generator_filename="antlr-4.6-complete.jar"
 #wget -O ${antlr_generator_filename} http://www.antlr.org/download/${antlr_generator_filename}
-wget -O ${antlr_generator_filename} http://deps.memgraph.io/${antlr_generator_filename}
+wget -nv -O ${antlr_generator_filename} http://deps.memgraph.io/${antlr_generator_filename}
 #git clone https://github.com/antlr/antlr4.git
 git clone git://deps.memgraph.io/antlr4.git
 antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
@@ -90,13 +90,13 @@ git checkout ${gflags_tag}
 cd ..
 
 # neo4j
-wget http://deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz -O neo4j.tar.gz
+wget -nv http://deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz -O neo4j.tar.gz
 tar -xzf neo4j.tar.gz
 mv neo4j-community-3.2.3 neo4j
 rm neo4j.tar.gz
 
 # postgresql
-wget http://deps.memgraph.io/postgresql-9.6.5-1-linux-x64-binaries.tar.gz -O postgres.tar.gz
+wget -nv http://deps.memgraph.io/postgresql-9.6.5-1-linux-x64-binaries.tar.gz -O postgres.tar.gz
 tar -xzf postgres.tar.gz
 mv pgsql postgresql
 rm postgres.tar.gz
