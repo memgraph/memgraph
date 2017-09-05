@@ -8,25 +8,29 @@ from random import randint
 def rint(upper_bound_exclusive):
     return randint(0, upper_bound_exclusive - 1)
 
-VERTEX_COUNT = 10000
-EDGE_COUNT = VERTEX_COUNT * 3
+VERTEX_COUNT = 1500
+EDGE_COUNT = VERTEX_COUNT * 15
 
 # numbers of *different* labels, edge types and properties
 LABEL_COUNT = 10
-EDGE_TYPE_COUNT = 10
 
-MAX_LABELS = 3  # maximum number of labels in a vertex
+MAX_LABELS = 5  # maximum number of labels in a vertex
 MAX_PROPS = 4   # maximum number of properties in a vertex/edge
+MAX_PROP_VALUE = 1000
 
 # some consts used in mutiple files
+LABEL_INDEX = "LabelIndex"
 LABEL_PREFIX = "Label"
-PROP_PREFIX = "Property"
+PROP_PREFIX = "Prop"
 ID = "id"
 
 
+
 def labels():
-    return "".join(":%s%d" % (LABEL_PREFIX, rint(LABEL_COUNT))
-                   for _ in range(randint(1, MAX_LABELS - 1)))
+    labels = ":" + LABEL_INDEX
+    for _ in range(rint(MAX_LABELS)):
+        labels += ":" + LABEL_PREFIX + str(rint(LABEL_COUNT))
+    return labels
 
 
 def properties(id):
@@ -34,22 +38,22 @@ def properties(id):
     Note that if PropX is generated, then all the PropY where Y < X
     are generated. Thus most labels have Prop0, and least have PropMAX_PROPS.
     """
-    return "{%s: %d, %s}" % (ID, id, ",".join(
-        ["%s%d: %d" % (PROP_PREFIX, prop_ind, rint(100))
-         for prop_ind in range(randint(1, MAX_PROPS - 1))]))
+    props = {"%s%d" % (PROP_PREFIX, i): rint(MAX_PROP_VALUE)
+             for i in range(rint(MAX_PROPS))}
+    props[ID] = id
+    return "{" + ", ".join("%s: %s" % kv for kv in props.items()) + "}"
 
 
 def vertex(vertex_index):
     return "(%s %s)" % (labels(), properties(vertex_index))
 
 
-def edge(edge_index):
-    return "[:EdgeType%d %s]" % (rint(EDGE_TYPE_COUNT), properties(edge_index))
-
-
 def main():
+    # create an index to speed setup up
+    print("CREATE INDEX ON :%s(%s);" % (LABEL_INDEX, ID))
+
     # we batch CREATEs because to speed creation up
-    BATCH_SIZE = 50
+    BATCH_SIZE = 30
 
     # create vertices
     for vertex_index in range(VERTEX_COUNT):
@@ -57,14 +61,14 @@ def main():
         if (vertex_index != 0 and vertex_index % BATCH_SIZE == 0) or \
                 vertex_index + 1 == VERTEX_COUNT:
             print(";")
+    print("MATCH (n) RETURN assert(count(n) = %d);" % VERTEX_COUNT)
 
     # create edges
-    for edge_index in range(EDGE_COUNT):
-        print("MATCH (a {%s: %d}), (b {%s: %d}) MERGE (a)-%s->(b)" % (
-            ID, randint(0, VERTEX_COUNT - 1),
-            ID, randint(0, VERTEX_COUNT - 1),
-            edge(edge_index)))
-        print(";")
+    print("MATCH (a) WITH a MATCH (b) WITH a, b WHERE rand() < %f "
+          " CREATE (a)-[:EdgeType]->(b);" % (EDGE_COUNT / VERTEX_COUNT ** 2))
+    print("MATCH (n)-[r]->() WITH count(r) AS c "
+          "RETURN assert(c >= %d AND c <= %d);" % (
+            EDGE_COUNT * 0.98, EDGE_COUNT * 1.02))
 
 
 if __name__ == "__main__":

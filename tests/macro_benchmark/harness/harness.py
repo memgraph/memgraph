@@ -217,8 +217,14 @@ class _QuerySuite:
 
         def execute(config_name, num_client_workers=1):
             queries = scenario.get(config_name)
-            return runner.execute(queries(), num_client_workers) if queries \
-                else None
+            start_time = time.time()
+            if queries:
+                r_val = runner.execute(queries(), num_client_workers)
+            else:
+                r_val = None
+            log.info("\t%s done in %.2f seconds" % (config_name,
+                                                    time.time() - start_time))
+            return r_val
 
         measurements = []
 
