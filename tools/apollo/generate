@@ -211,12 +211,13 @@ if mode == "diff":
     BUILD_PARENT_DIR = os.path.join(PARENT_DIR, "build")
     binary_parent_name = find_memgraph_binary(BUILD_PARENT_DIR)
     binary_parent_path = os.path.join(BUILD_PARENT_DIR, binary_parent_name)
+    binary_parent_link_path = os.path.join(BUILD_PARENT_DIR, "memgraph")
     parent_config_path = os.path.join(PARENT_DIR, "config")
     parent_macro_bench_path = os.path.join(PARENT_DIR, "tests", "macro_benchmark")
     parent_harness_client_binary = os.path.join(BUILD_PARENT_DIR, "tests",
             "macro_benchmark", "harness_client")
     infile = create_archive("macro_benchmark_parent", [binary_parent_path,
-            parent_macro_bench_path, parent_config_path,
+            binary_parent_link_path, parent_macro_bench_path, parent_config_path,
             parent_harness_client_binary], cwd = WORKSPACE_DIR)
     supervisor = "./parent/tests/macro_benchmark/harness/harness.py"
     args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
