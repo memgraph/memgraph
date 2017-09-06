@@ -7,7 +7,12 @@
     ./setup_dependencies
     ./setup_dataset [--scale-factor 1]
     ./neo [--run] OR ./mg [--run]
+    # To run short reads by default, just call:
     ./run_benchmark
+    # To run update queries use the following.
+    ./run_benchmark --properties-file ldbc-snb-impls-updates.properties
+    # You may need to increase the time compression when updating:
+    ./run_benchmark --time-compresion-ratio 1.5 --properties-file ldbc-snb-impls-updates.properties
 
 ## How to run a specific test?
 
