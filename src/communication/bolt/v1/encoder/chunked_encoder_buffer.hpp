@@ -50,16 +50,19 @@ class ChunkedEncoderBuffer {
    * @param n is the number of bytes
    */
   void Write(const uint8_t *values, size_t n) {
+    int written = 0;
+
     while (n > 0) {
       // Define number of bytes  which will be copied into chunk because
       // chunk is a fixed length array.
       auto size = n < WHOLE_CHUNK_SIZE - pos_ ? n : WHOLE_CHUNK_SIZE - pos_;
 
       // Copy size values to chunk array.
-      std::memcpy(chunk_.data() + pos_, values, size);
+      std::memcpy(chunk_.data() + pos_, values + written, size);
 
       // Update positions. Position pointer and incomming size have to be
       // updated because all incomming values have to be processed.
+      written += size;
       pos_ += size;
       n -= size;
 
