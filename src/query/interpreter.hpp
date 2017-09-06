@@ -190,7 +190,8 @@ class Interpreter {
     // have to be correct (for Bolt clients)
     summary["type"] = "rw";
     stream.Summary(summary);
-    DLOG(INFO) << "Executed " << query << ", " << summary;
+    DLOG(INFO) << "Executed '" << query << "', params: " << params
+               << ", summary: " << summary;
   }
 
  private:
