@@ -21,8 +21,10 @@ static constexpr auto WCS = communication::bolt::WHOLE_CHUNK_SIZE;
  * @param size of data array
  * @param element expected element in all positions of chunk data array
  *        (all data bytes in tested chunk should be equal to element)
+ * @param final_chunk if set to true then check for 0x00 0x00 after the chunk
  */
-void VerifyChunkOfOnes(uint8_t *data, int size, uint8_t element) {
+void VerifyChunkOfOnes(uint8_t *data, int size, uint8_t element,
+                       bool final_chunk = true) {
   // first two bytes are size (big endian)
   uint8_t lower_byte = size & 0xFF;
   uint8_t higher_byte = (size & 0xFF00) >> 8;
@@ -37,8 +39,10 @@ void VerifyChunkOfOnes(uint8_t *data, int size, uint8_t element) {
 
   // last two bytes should be zeros
   // next to header and data
-  ASSERT_EQ(*(data + CHS + size), 0x00);
-  ASSERT_EQ(*(data + CHS + size + 1), 0x00);
+  if (final_chunk) {
+    ASSERT_EQ(*(data + CHS + size), 0x00);
+    ASSERT_EQ(*(data + CHS + size + 1), 0x00);
+  }
 }
 
 TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
@@ -105,7 +109,7 @@ TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // the output array should look like this:
   // [0xFF, 0xFF, 1, 1, ... , 1, 0, 0, 0x86, 0xA1, 1, 1, ... , 1, 0, 0]
   auto output = socket.output.data();
-  VerifyChunkOfOnes(output, MCS, element);
+  VerifyChunkOfOnes(output, MCS, element, false);
   VerifyChunkOfOnes(output + WCS, size - MCS, element);
 }
 

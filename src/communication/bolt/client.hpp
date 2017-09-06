@@ -75,14 +75,11 @@ class Client {
     DLOG(INFO) << "Sending init message";
     if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
                                             {"principal", username},
-                                            {"secret", password}})) {
+                                            {"credentials", password}})) {
       throw ClientSocketException();
     }
 
     DLOG(INFO) << "Reading init message response";
-    if (!GetDataByChunk()) {
-      throw ClientSocketException();
-    }
     Signature signature;
     DecodedValue metadata;
     if (!ReadMessage(&signature, &metadata)) {
@@ -91,6 +88,7 @@ class Client {
     if (signature != Signature::Success) {
       throw ClientInvalidDataException();
     }
+    DLOG(INFO) << "Metadata of init message response: " << metadata;
   }
 
   Client(const Client &) = delete;
@@ -109,9 +107,6 @@ class Client {
     encoder_.MessagePullAll();
 
     DLOG(INFO) << "Reading run message response";
-    if (!GetDataByChunk()) {
-      throw ClientSocketException();
-    }
     Signature signature;
     DecodedValue fields;
     if (!ReadMessage(&signature, &fields)) {
@@ -213,25 +208,25 @@ class Client {
   }
 
   bool GetDataByChunk() {
-    // If there is more data in the buffer then don't read data.
-    if (decoder_buffer_.Size() > 0) return true;
-
     ChunkState state;
-    while ((state = decoder_buffer_.GetChunk()) == ChunkState::Partial) {
+    while ((state = decoder_buffer_.GetChunk()) != ChunkState::Done) {
+      if (state == ChunkState::Whole) {
+        // The chunk is whole, no need to read more data.
+        continue;
+      }
       auto buff = buffer_.Allocate();
       int ret = socket_.Read(buff.data, buff.len);
       if (ret == -1) return false;
       buffer_.Written(ret);
     }
-
-    if (state == ChunkState::Whole) {
-      return true;
-    }
-    return false;
+    return true;
   }
 
   bool ReadMessage(Signature *signature, DecodedValue *ret) {
     Marker marker;
+    if (!GetDataByChunk()) {
+      return false;
+    }
     if (!decoder_.ReadMessageHeader(signature, &marker)) {
       return false;
     }
@@ -255,9 +250,6 @@ class Client {
     while (true) {
       Signature signature;
       DecodedValue data;
-      if (!GetDataByChunk()) {
-        throw ClientInvalidDataException();
-      }
       if (!ReadMessage(&signature, &data)) {
         throw ClientInvalidDataException();
       }

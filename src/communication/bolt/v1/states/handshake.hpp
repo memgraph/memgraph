@@ -28,7 +28,6 @@ State StateHandshakeRun(Session &session) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }
-  session.connected_ = true;
 
   // Delete data from buffer. It is guaranteed that there will more than, or
   // equal to 20 bytes (HANDSHAKE_SIZE) in the buffer.

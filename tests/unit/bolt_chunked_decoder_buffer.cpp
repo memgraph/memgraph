@@ -24,6 +24,7 @@ TEST(BoltBuffer, CorrectChunk) {
   buffer.Written(1004);
 
   ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Whole);
+  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Done);
 
   ASSERT_EQ(decoder_buffer.Read(tmp, 1000), true);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
@@ -45,6 +46,7 @@ TEST(BoltBuffer, CorrectChunkTrailingData) {
   buffer.Written(2004);
 
   ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Whole);
+  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Done);
 
   ASSERT_EQ(decoder_buffer.Read(tmp, 1000), true);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
@@ -52,26 +54,6 @@ TEST(BoltBuffer, CorrectChunkTrailingData) {
   uint8_t *leftover = buffer.data();
   ASSERT_EQ(buffer.size(), 1000);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i + 1002], leftover[i]);
-}
-
-TEST(BoltBuffer, InvalidChunk) {
-  BufferT buffer;
-  DecoderBufferT decoder_buffer(buffer);
-  StreamBufferT sb = buffer.Allocate();
-
-  sb.data[0] = 0x03;
-  sb.data[1] = 0xe8;
-  memcpy(sb.data + 2, data, 2002);
-  sb.data[1002] = 1;
-  sb.data[1003] = 1;
-  buffer.Written(2004);
-
-  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Invalid);
-
-  ASSERT_EQ(buffer.size(), 1000);
-
-  uint8_t *tmp = buffer.data();
-  for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i + 1002], tmp[i]);
 }
 
 TEST(BoltBuffer, GraduallyPopulatedChunk) {
@@ -83,13 +65,12 @@ TEST(BoltBuffer, GraduallyPopulatedChunk) {
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
   buffer.Written(2);
-  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
 
   for (int i = 0; i < 5; ++i) {
+    ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
     sb = buffer.Allocate();
     memcpy(sb.data, data + 200 * i, 200);
     buffer.Written(200);
-    ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
   }
 
   sb = buffer.Allocate();
@@ -97,6 +78,7 @@ TEST(BoltBuffer, GraduallyPopulatedChunk) {
   sb.data[1] = 0;
   buffer.Written(2);
   ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Whole);
+  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Done);
 
   ASSERT_EQ(decoder_buffer.Read(tmp, 1000), true);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);
@@ -113,13 +95,12 @@ TEST(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
   buffer.Written(2);
-  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
 
   for (int i = 0; i < 5; ++i) {
+    ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
     sb = buffer.Allocate();
     memcpy(sb.data, data + 200 * i, 200);
     buffer.Written(200);
-    ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
   }
 
   sb = buffer.Allocate();
@@ -132,6 +113,7 @@ TEST(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
   buffer.Written(1000);
 
   ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Whole);
+  ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Done);
 
   ASSERT_EQ(decoder_buffer.Read(tmp, 1000), true);
   for (int i = 0; i < 1000; ++i) EXPECT_EQ(data[i], tmp[i]);

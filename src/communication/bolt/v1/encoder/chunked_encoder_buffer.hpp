@@ -26,11 +26,11 @@ namespace communication::bolt {
  * the currently stored data to the Socket. Chunking prepends data length and
  * appends chunk end marker (0x00 0x00).
  *
- * | chunk header | --- chunk --- | end marker | ---------- another chunk ... |
- * | ------------- whole chunk ----------------| ---------- another chunk ... |
+ * | chunk header | --- chunk --- | another chunk | -- end marker -- |
+ * | ------- whole chunk -------- |  whole chunk  | chunk of size 0  |
  *
- * | ------------------------ message --------------------------------------- |
- * | ------------------------ buffer  --------------------------------------- |
+ * | --------------------------- message --------------------------- |
+ * | --------------------------- buffer  --------------------------- |
  *
  * The current implementation stores the whole message into a single buffer
  * which is std::vector.
@@ -53,9 +53,7 @@ class ChunkedEncoderBuffer {
     while (n > 0) {
       // Define number of bytes  which will be copied into chunk because
       // chunk is a fixed length array.
-      auto size = n < MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_
-                      ? n
-                      : MAX_CHUNK_SIZE + CHUNK_HEADER_SIZE - pos_;
+      auto size = n < WHOLE_CHUNK_SIZE - pos_ ? n : WHOLE_CHUNK_SIZE - pos_;
 
       // Copy size values to chunk array.
       std::memcpy(chunk_.data() + pos_, values, size);
@@ -67,15 +65,19 @@ class ChunkedEncoderBuffer {
 
       // If chunk is full copy it into the message buffer and make space for
       // other incomming values that are left in the values array.
-      if (pos_ == CHUNK_HEADER_SIZE + MAX_CHUNK_SIZE) Chunk();
+      if (pos_ == WHOLE_CHUNK_SIZE) Chunk(false);
     }
   }
 
   /**
    * Wrap the data from chunk array (append header and end marker) and put
    * the whole chunk into the buffer.
+   *
+   * @param message_done if set to true then chunk appends an end message
+   *                     marker to the chunk, should always be set to true
+   *                     (the default value), false is used only internally
    */
-  void Chunk() {
+  void Chunk(bool message_done = true) {
     // 1. Write the size of the chunk (CHUNK HEADER).
     uint16_t size = pos_ - CHUNK_HEADER_SIZE;
     // Write the higher byte.
@@ -83,24 +85,25 @@ class ChunkedEncoderBuffer {
     // Write the lower byte.
     chunk_[1] = size & 0xFF;
 
-    // 2. Write last two bytes in the whole chunk (CHUNK END MARKER).
-    // The last two bytes are always 0x00 0x00.
-    chunk_[pos_++] = 0x00;
-    chunk_[pos_++] = 0x00;
+    // 2. Determine the final size for the end marker.
+    if (message_done) size_ += 2;
 
-    debug_assert(pos_ <= WHOLE_CHUNK_SIZE,
-                 "Internal variable pos_ is bigger than the whole chunk size.");
-
-    // 3. Remember first chunk size.
-    if (first_chunk_size_ == -1) first_chunk_size_ = pos_;
-
-    // 4. Copy whole chunk into the buffer.
+    // 3. Copy whole chunk into the buffer.
     size_ += pos_;
     buffer_.reserve(size_);
     std::copy(chunk_.begin(), chunk_.begin() + pos_,
               std::back_inserter(buffer_));
 
-    // 5. Cleanup.
+    // 4. Insert message end marker.
+    if (message_done) {
+      buffer_.push_back(0);
+      buffer_.push_back(0);
+    }
+
+    // 5. Remember first chunk size.
+    if (first_chunk_size_ == -1) first_chunk_size_ = size_;
+
+    // 6. Cleanup.
     //     * pos_ has to be reset to the size of chunk header (reserved
     //       space for the chunk size)
     pos_ = CHUNK_HEADER_SIZE;

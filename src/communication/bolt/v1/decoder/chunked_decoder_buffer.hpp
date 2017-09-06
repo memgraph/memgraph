@@ -22,11 +22,11 @@ enum class ChunkState : uint8_t {
   // The chunk isn't complete, we have to read more data
   Partial,
 
-  // The chunk is invalid, it's tail isn't 0x00 0x00
-  Invalid,
-
   // The chunk is whole and correct and has been loaded into the buffer
-  Whole
+  Whole,
+
+  // The chunk size is 0 meaning that the message is done
+  Done
 };
 
 /**
@@ -44,7 +44,9 @@ class ChunkedDecoderBuffer {
   using StreamBufferT = io::network::StreamBuffer;
 
  public:
-  ChunkedDecoderBuffer(Buffer<> &buffer) : buffer_(buffer) {}
+  ChunkedDecoderBuffer(Buffer<> &buffer) : buffer_(buffer) {
+    data_.reserve(MAX_CHUNK_SIZE);
+  }
 
   /**
    * Reads data from the internal buffer.
@@ -55,9 +57,13 @@ class ChunkedDecoderBuffer {
    *          false otherwise
    */
   bool Read(uint8_t *data, size_t len) {
-    if (len > size_ - pos_) return false;
+    if (len > Size()) return false;
     memcpy(data, &data_[pos_], len);
     pos_ += len;
+    if (Size() == 0) {
+      pos_ = 0;
+      data_.clear();
+    }
     return true;
   }
 
@@ -72,25 +78,23 @@ class ChunkedDecoderBuffer {
    *          false otherwise
    */
   bool Peek(uint8_t *data, size_t len, size_t offset = 0) {
-    if (len + offset > size_ - pos_) return false;
+    if (len + offset > Size()) return false;
     memcpy(data, &data_[pos_ + offset], len);
     return true;
   }
 
   /**
    * Gets a chunk from the underlying raw data buffer.
-   * When getting a chunk this function validates the chunk.
-   * If the chunk isn't yet finished the function just returns false.
-   * If the chunk is finished (all data has been read) and the chunk isn't
-   * valid, then the function automatically deletes the invalid chunk
-   * from the underlying buffer and returns false.
    *
-   * @returns true if a chunk was successfully copied into the internal
-   *          buffer, false otherwise
+   * @returns ChunkState::Partial if the chunk isn't whole
+   *          ChunkState::Whole if the chunk is whole
+   *          ChunkState::Done if the chunk size is 0 (that signals that the
+   *                           message is whole)
    */
   ChunkState GetChunk() {
     uint8_t *data = buffer_.data();
     size_t size = buffer_.size();
+
     if (size < 2) {
       DLOG(WARNING) << "Size < 2";
       return ChunkState::Partial;
@@ -99,22 +103,22 @@ class ChunkedDecoderBuffer {
     size_t chunk_size = data[0];
     chunk_size <<= 8;
     chunk_size += data[1];
-    if (size < chunk_size + 4) {
+
+    if (chunk_size == 0) {
+      // The message is done.
+      buffer_.Shift(2);
+      return ChunkState::Done;
+    }
+
+    if (size < chunk_size + 2) {
       DLOG(WARNING) << fmt::format(
           "Chunk size is {} but only have {} data bytes.", chunk_size, size);
       return ChunkState::Partial;
     }
 
-    if (data[chunk_size + 2] != 0 || data[chunk_size + 3] != 0) {
-      DLOG(WARNING) << "Invalid chunk!";
-      buffer_.Shift(chunk_size + 4);
-      return ChunkState::Invalid;
-    }
-
-    pos_ = 0;
-    size_ = chunk_size;
-    memcpy(data_, data + 2, size - 4);
-    buffer_.Shift(chunk_size + 4);
+    data_.reserve(data_.size() + chunk_size);
+    std::copy(data + 2, data + chunk_size + 2, std::back_inserter(data_));
+    buffer_.Shift(chunk_size + 2);
 
     return ChunkState::Whole;
   }
@@ -124,12 +128,11 @@ class ChunkedDecoderBuffer {
    *
    * @returns size of available data
    */
-  size_t Size() { return size_ - pos_; }
+  size_t Size() { return data_.size() - pos_; }
 
  private:
   Buffer<> &buffer_;
-  uint8_t data_[MAX_CHUNK_SIZE];
-  size_t size_{0};
+  std::vector<uint8_t> data_;
   size_t pos_{0};
 };
 }

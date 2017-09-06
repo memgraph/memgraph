@@ -614,22 +614,6 @@ TEST(BoltSession, PartialChunk) {
   PrintOutput(output);
 }
 
-TEST(BoltSession, InvalidChunk) {
-  INIT_VARS;
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
-
-  // this will write 0x00 0x02 0x00 0x02 0x00 0x02
-  // that is a chunk of good size, but it's invalid because the last
-  // two bytes are 0x00 0x02 and they should be 0x00 0x00
-  for (int i = 0; i < 3; ++i) WriteChunkHeader(session, 2);
-  session.Execute();
-
-  ASSERT_EQ(session.state_, StateT::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
-  CheckFailureMessage(output);
-}
-
 TEST(BoltSession, ExplicitTransactionValidQueries) {
   // It is not really easy to check if we commited or aborted transaction except
   // by faking GraphDb/TxEngine...

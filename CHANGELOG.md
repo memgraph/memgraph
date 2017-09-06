@@ -14,6 +14,7 @@
 ### Bug Fixes and Other Changes
 
 * Keywords appearing in header (named expressions) keep original case.
+* Our Bolt protocol implementation is now completely compatible with the protocol version 1 specification. (https://boltprotocol.org/v1/)
 
 ## v0.7.0
 

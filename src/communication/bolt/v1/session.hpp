@@ -79,34 +79,31 @@ class Session {
    * Goes through the bolt states in order to execute commands from the client.
    */
   void Execute() {
-    // while there is data in the buffers
-    while (buffer_.size() > 0 || decoder_buffer_.Size() > 0) {
-      if (LIKELY(connected_)) {
-        DLOG(INFO) << fmt::format("Decoding chunk of size {}", buffer_.size());
-        auto chunk_state = decoder_buffer_.GetChunk();
-        if (chunk_state == ChunkState::Partial) {
-          DLOG(WARNING) << "Chunk isn't complete!";
-          return;
-        } else if (chunk_state == ChunkState::Invalid) {
-          DLOG(WARNING) << "Chunk is invalid!";
-          ClientFailureInvalidData();
-          return;
-        }
-        // if chunk_state == ChunkState::Whole then we continue with
-        // execution of the select below
-      } else if (buffer_.size() < HANDSHAKE_SIZE) {
+    if (UNLIKELY(!handshake_done_)) {
+      if (buffer_.size() < HANDSHAKE_SIZE) {
         DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
                                      buffer_.size());
         return;
-      } else {
-        DLOG(WARNING) << fmt::format("Decoding handshake of size {}",
-                                     buffer_.size());
+      }
+      DLOG(WARNING) << fmt::format("Decoding handshake of size {}",
+                                   buffer_.size());
+      state_ = StateHandshakeRun(*this);
+      if (UNLIKELY(state_ == State::Close)) {
+        ClientFailureInvalidData();
+        return;
+      }
+      handshake_done_ = true;
+    }
+
+    ChunkState chunk_state;
+    while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
+      if (chunk_state == ChunkState::Whole) {
+        // The chunk is whole, we need to read one more chunk
+        // (the 0x00 0x00 end marker).
+        continue;
       }
 
       switch (state_) {
-        case State::Handshake:
-          state_ = StateHandshakeRun(*this);
-          break;
         case State::Init:
           state_ = StateInitRun(*this);
           break;
@@ -119,15 +116,16 @@ class Session {
         case State::ErrorWaitForRollback:
           state_ = StateErrorRun(*this, state_);
           break;
-        case State::Close:
-          // This state is handled below
+        default:
+          // State::Handshake is handled above
+          // State::Close is handled below
           break;
       }
 
       // State::Close is handled here because we always want to check for
       // it after the above select. If any of the states above return a
       // State::Close then the connection should be terminated immediately.
-      if (state_ == State::Close) {
+      if (UNLIKELY(state_ == State::Close)) {
         ClientFailureInvalidData();
         return;
       }
@@ -200,7 +198,7 @@ class Session {
   Decoder<ChunkedDecoderBuffer> decoder_{decoder_buffer_};
 
   io::network::Epoll::Event event_;
-  bool connected_{false};
+  bool handshake_done_{false};
   State state_{State::Handshake};
   // GraphDbAccessor of active transaction in the session, can be null if there
   // is no associated transaction.
