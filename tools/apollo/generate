@@ -29,6 +29,7 @@ BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 WORKSPACE_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
 BASE_DIR_NAME = os.path.basename(BASE_DIR)
 BUILD_DIR = os.path.join(BASE_DIR, "build")
+LIBS_DIR = os.path.join(BASE_DIR, "libs")
 TESTS_DIR = os.path.join(BUILD_DIR, "tests")
 OUTPUT_DIR = os.path.join(BUILD_DIR, "apollo")
 
@@ -195,11 +196,12 @@ MACRO_BENCHMARK_ARGS = (
     "--groups aggregation 1000_create unwind_create dense_expand "
     "--no-strict")
 macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
-harness_client_binary = os.path.join(BUILD_RELEASE_DIR, "tests",
-        "macro_benchmark", "harness_client")
+harness_client_binaries = os.path.join(BUILD_RELEASE_DIR, "tests",
+        "macro_benchmark")
+postgresql_lib_dir = os.path.join(LIBS_DIR, "postgresql", "lib")
 infile = create_archive("macro_benchmark", [binary_release_path,
         binary_release_link_path, macro_bench_path, config_path,
-        harness_client_binary], cwd = WORKSPACE_DIR)
+        harness_client_binaries, postgresql_lib_dir], cwd = WORKSPACE_DIR)
 supervisor = "./memgraph/tests/macro_benchmark/harness/harness.py"
 outfile_paths = "\./memgraph/tests/macro_benchmark/harness/\.harness_summary"
 RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
@@ -210,16 +212,19 @@ RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
 if mode == "diff":
     PARENT_DIR = os.path.join(WORKSPACE_DIR, "parent")
     BUILD_PARENT_DIR = os.path.join(PARENT_DIR, "build")
+    LIBS_PARENT_DIR = os.path.join(PARENT_DIR, "libs")
     binary_parent_name = find_memgraph_binary(BUILD_PARENT_DIR)
     binary_parent_path = os.path.join(BUILD_PARENT_DIR, binary_parent_name)
     binary_parent_link_path = os.path.join(BUILD_PARENT_DIR, "memgraph")
     parent_config_path = os.path.join(PARENT_DIR, "config")
     parent_macro_bench_path = os.path.join(PARENT_DIR, "tests", "macro_benchmark")
-    parent_harness_client_binary = os.path.join(BUILD_PARENT_DIR, "tests",
-            "macro_benchmark", "harness_client")
+    parent_harness_client_binaries = os.path.join(BUILD_PARENT_DIR, "tests",
+            "macro_benchmark")
+    parent_postgresql_lib_dir = os.path.join(LIBS_PARENT_DIR, "postgresql", "lib")
     infile = create_archive("macro_benchmark_parent", [binary_parent_path,
             binary_parent_link_path, parent_macro_bench_path, parent_config_path,
-            parent_harness_client_binary], cwd = WORKSPACE_DIR)
+            parent_harness_client_binaries, parent_postgresql_lib_dir],
+            cwd = WORKSPACE_DIR)
     supervisor = "./parent/tests/macro_benchmark/harness/harness.py"
     args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
     outfile_paths = "\./parent/tests/macro_benchmark/harness/\.harness_summary"

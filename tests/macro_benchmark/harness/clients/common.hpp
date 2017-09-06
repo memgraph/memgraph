@@ -47,17 +47,16 @@ void PrintJsonDecodedValue(std::ostream &os,
   }
 }
 
-template <typename SocketT>
+template <typename ClientT, typename ExceptionT>
 communication::bolt::QueryData ExecuteNTimesTillSuccess(
-    communication::bolt::Client<SocketT> &client, const std::string &query,
-    int times) {
+    ClientT &client, const std::string &query, int times) {
   for (int i = 0; i < times; ++i) {
     try {
       auto ret = client.Execute(query, {});
       return ret;
-    } catch (const communication::bolt::ClientQueryException &e) {
+    } catch (const ExceptionT &e) {
     }
   }
-  throw communication::bolt::ClientQueryException();
+  throw ExceptionT();
 }
 }

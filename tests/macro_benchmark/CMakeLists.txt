@@ -7,6 +7,9 @@ get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 file(GLOB_RECURSE test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
+# postgres directory
+set(postgres_dir ${libs_dir}/postgresql)
+
 # for each cpp file build binary and register test
 foreach(test_cpp ${test_type_cpps})
 
@@ -27,5 +30,9 @@ foreach(test_cpp ${test_type_cpps})
 
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
+
+    # libpq includes
+    target_link_libraries(${target_name} "${postgres_dir}/lib/libpq.so")
+    target_include_directories(${target_name} PUBLIC "${postgres_dir}/include")
 
 endforeach()
