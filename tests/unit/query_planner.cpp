@@ -1307,4 +1307,52 @@ TEST(TestLogicalPlanner, MatchBreadthFirst) {
             ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
+  // Test MATCH (n) -[r]- (m :label) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->Label("label");
+  dba = dbms.active();
+  AstTreeStorage storage;
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  // We expect 2x ScanAll and then Expand, since we are guessing that is
+  // faster (due to low label index vertex count).
+  CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectScanAllByLabel(),
+            ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchScanToExpand) {
+  // Test MATCH (n) -[r]- (m :label {property: 1}) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto label = dba->Label("label");
+  auto property = dba->Property("property");
+  dba->BuildIndex(label, property);
+  dba = dbms.active();
+  // Fill vertices to the max.
+  for (int64_t i = 0; i < FLAGS_query_vertex_count_to_expand_existing; ++i) {
+    auto vertex = dba->InsertVertex();
+    vertex.PropsSet(property, 1);
+    vertex.add_label(label);
+  }
+  // Add one more above the max.
+  auto vertex = dba->InsertVertex();
+  vertex.add_label(label);
+  vertex.PropsSet(property, 1);
+  dba->Commit();
+  dba = dbms.active();
+  AstTreeStorage storage;
+  auto node_m = NODE("m", label);
+  node_m->properties_[std::make_pair("property", property)] = LITERAL(1);
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  // We expect 1x ScanAllByLabel and then Expand, since we are guessing that is
+  // faster (due to high label index vertex count).
+  CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),
+            ExpectFilter(), ExpectProduce());
+}
+
 }  // namespace
