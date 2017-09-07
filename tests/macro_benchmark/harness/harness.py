@@ -226,10 +226,6 @@ class _QuerySuite:
                                                     time.time() - start_time))
             return r_val
 
-        measurements = []
-
-        measurement_lists = defaultdict(list)
-
         def add_measurement(dictionary, iteration, key):
             if key in dictionary:
                 measurement = {"target": key,
@@ -243,45 +239,53 @@ class _QuerySuite:
                 except:
                     pass
 
-        pid = runner.start()
-        execute("setup")
+        measurements = []
 
-        # warmup phase
-        for _ in range(min(scenario_config.get("iterations", 1),
-                           scenario_config.get("warmup", 2))):
-            execute("itersetup")
-            execute("run", scenario_config.get("num_client_workers", 1))
-            execute("iterteardown")
+        measurement_lists = defaultdict(list)
 
-        if self.perf:
-            self.perf.start(pid)
+        # Run the whole test 3 times because memgraph is sometimes
+        # consistently slow and with this hack we get a good median
+        for i in range(3):
+            pid = runner.start()
+            execute("setup")
 
-        # TODO per scenario/run runner configuration
-        num_iterations = scenario_config.get("iterations", 1)
-        for iteration in range(num_iterations):
-            # TODO if we didn't have the itersetup it would be trivial
-            # to move iteration to the bolt_client script, so we would not
-            # have to start and stop the client for each iteration, it would
-            # most likely run faster
-            execute("itersetup")
-            run_result = execute("run",
-                                 scenario_config.get("num_client_workers", 1))
-            add_measurement(run_result, iteration, WALL_TIME)
-            add_measurement(run_result, iteration, CPU_TIME)
-            for measurement in ["parsing_time",
-                                "plan_execution_time",
-                                "planning_time"] :
-                for i in range(len(run_result.get("metadatas", []))):
-                    add_measurement(run_result["metadatas"][i], iteration,
-                                    measurement)
-            execute("iterteardown")
+            # warmup phase
+            for _ in range(min(scenario_config.get("iterations", 1),
+                               scenario_config.get("warmup", 2))):
+                execute("itersetup")
+                execute("run", scenario_config.get("num_client_workers", 1))
+                execute("iterteardown")
 
-        if self.perf:
-            self.perf.stop()
+            if self.perf:
+                self.perf.start(pid)
 
-        # TODO value outlier detection and warning across iterations
-        execute("teardown")
-        runner.stop()
+            # TODO per scenario/run runner configuration
+            num_iterations = scenario_config.get("iterations", 1)
+            for iteration in range(num_iterations):
+                # TODO if we didn't have the itersetup it would be trivial
+                # to move iteration to the bolt_client script, so we would not
+                # have to start and stop the client for each iteration, it would
+                # most likely run faster
+                execute("itersetup")
+                run_result = execute("run",
+                                     scenario_config.get("num_client_workers", 1))
+                add_measurement(run_result, iteration, WALL_TIME)
+                add_measurement(run_result, iteration, CPU_TIME)
+                for measurement in ["parsing_time",
+                                    "plan_execution_time",
+                                    "planning_time"] :
+                    for i in range(len(run_result.get("metadatas", []))):
+                        add_measurement(run_result["metadatas"][i], iteration,
+                                        measurement)
+                execute("iterteardown")
+
+            if self.perf:
+                self.perf.stop()
+
+            # TODO value outlier detection and warning across iterations
+            execute("teardown")
+            runner.stop()
+
         self.append_scenario_summary(group_name, scenario_name,
                                      measurement_lists, num_iterations)
         return measurements
