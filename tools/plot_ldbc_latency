@@ -98,8 +98,15 @@ def main():
     ax.set_ylabel('Mean Latency (ms)')  # YAxis title
     ax.set_facecolor('#dcdcdc')         # plot bg color (light gray)
     ax.set_xticks(ind + width / len(vendors))  # TODO: adjust (more vendors)
-    # IMPORTANT! Long query names on the XAxis don't look compelling.
-    ax.set_xticklabels(['Q%s' % x for x in range(len(query_names))])
+
+    def shorten_query_name(query_name):
+        # IMPORTANT! Long query names on the XAxis don't look compelling.
+        if query_name.lower().startswith('ldbc'):
+            query_name = query_name[4:]
+        if len(query_name) > 10:
+            query_name = query_name[:10] + '\N{HORIZONTAL ELLIPSIS}'
+        return query_name
+    ax.set_xticklabels(map(shorten_query_name, query_names), rotation=30)
     # set only horizontal grid lines
     for line in ax.get_xgridlines():
         line.set_linestyle(' ')
@@ -127,6 +134,7 @@ def main():
     titles = [vd['title'] for vd in vendors.values()]
     ax.legend(rects, titles)           # Draw the legend.
     plt.show()
+
 
 if __name__ == '__main__':
     main()
