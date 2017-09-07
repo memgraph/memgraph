@@ -223,4 +223,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 };
 
+/** Returns the estimated cost of the given plan. */
+template <class TDbAccessor>
+double EstimatePlanCost(TDbAccessor &db, LogicalOperator &plan) {
+  CostEstimator<TDbAccessor> estimator(db);
+  plan.Accept(estimator);
+  return estimator.cost();
+}
+
 }  // namespace query::plan

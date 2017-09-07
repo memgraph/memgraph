@@ -16,6 +16,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/vertex_count_cache.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
 
@@ -111,15 +112,14 @@ class Interpreter {
 
     // high level tree -> logical plan
     std::unique_ptr<plan::LogicalOperator> logical_plan;
+    auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
     double query_plan_cost_estimation = 0.0;
     if (FLAGS_query_cost_planner) {
       auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
-          ast_storage, symbol_table, db_accessor);
+          ast_storage, symbol_table, vertex_counts);
       double min_cost = std::numeric_limits<double>::max();
       for (auto &plan : plans) {
-        plan::CostEstimator<GraphDbAccessor> estimator(db_accessor);
-        plan->Accept(estimator);
-        auto cost = estimator.cost();
+        auto cost = EstimatePlanCost(vertex_counts, *plan);
         if (!logical_plan || cost < min_cost) {
           // We won't be iterating over plans anymore, so it's ok to invalidate
           // unique_ptrs inside.
@@ -130,10 +130,9 @@ class Interpreter {
       query_plan_cost_estimation = min_cost;
     } else {
       logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-          ast_storage, symbol_table, db_accessor);
-      plan::CostEstimator<GraphDbAccessor> cost_estimator(db_accessor);
-      logical_plan->Accept(cost_estimator);
-      query_plan_cost_estimation = cost_estimator.cost();
+          ast_storage, symbol_table, vertex_counts);
+      query_plan_cost_estimation =
+          EstimatePlanCost(vertex_counts, *logical_plan);
     }
 
     // generate frame based on symbol table max_position
