@@ -10,15 +10,15 @@
  * @brief - Provides execution of jobs in job queue on one thread with 'pause'
  * time between two consecutives starts.
  */
-class Executioner {
+class Executor {
  public:
   template <typename TRep, typename TPeriod>
-  Executioner(const std::chrono::duration<TRep, TPeriod> pause) {
+  Executor(const std::chrono::duration<TRep, TPeriod> pause) {
     if (pause != pause.zero())
-      scheduler_.Run(pause, std::bind(&Executioner::Execute, this));
+      scheduler_.Run(pause, std::bind(&Executor::Execute, this));
   }
 
-  ~Executioner() {
+  ~Executor() {
     // Be sure to first stop scheduler because otherwise we might destroy the
     // mutex before the scheduler and that might cause problems since mutex is
     // used in Execute method passed to scheduler along with jobs vector.

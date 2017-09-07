@@ -29,11 +29,11 @@ namespace fs = std::experimental::filesystem;
 //   v.add_label(dba->Label(
 //       "Start"));  // New SkipList is created in KeyIndex for LabelIndex.
 //                   // That SkipList creates SkipListGc which
-//                   // initialises static Executioner object.
+//                   // initialises static Executor object.
 //   return 0;
 // }
 //
-// After main exits: 1. Executioner is destructed, 2. KeyIndex is destructed.
+// After main exits: 1. Executor is destructed, 2. KeyIndex is destructed.
 // Destructor of KeyIndex calls delete on created SkipLists which destroy
 // SkipListGc that tries to use Excutioner object that doesn't exist anymore.
 // -> CRASH

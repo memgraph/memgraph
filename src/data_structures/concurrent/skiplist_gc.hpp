@@ -12,7 +12,7 @@
 #include "data_structures/concurrent/push_queue.hpp"
 
 #include "threading/sync/spinlock.hpp"
-#include "utils/executioner.hpp"
+#include "utils/executor.hpp"
 
 DECLARE_int32(skiplist_gc_interval);
 
@@ -32,13 +32,13 @@ class SkipListGC {
  public:
   explicit SkipListGC() {
     executor_job_id_ =
-        GetExecutioner().RegisterJob([this]() { GarbageCollect(); });
+        GetExecutor().RegisterJob([this]() { GarbageCollect(); });
   }
 
   ~SkipListGC() {
-    // We have to unregister the job because otherwise Executioner might access
+    // We have to unregister the job because otherwise Executor might access
     // some member variables of this class after it has been destructed.
-    GetExecutioner().UnRegisterJob(executor_job_id_);
+    GetExecutor().UnRegisterJob(executor_job_id_);
     for (auto it = deleted_queue_.begin(); it != deleted_queue_.end(); ++it) {
       TNode::destroy(it->second);
     }
@@ -46,19 +46,19 @@ class SkipListGC {
   }
 
   /**
-   * @brief - Returns instance of executioner shared between all SkipLists.
+   * @brief - Returns instance of executor shared between all SkipLists.
    */
-  auto &GetExecutioner() {
-    // TODO: Even though executioner is static, there are multiple instance:
+  auto &GetExecutor() {
+    // TODO: Even though executor is static, there are multiple instance:
     // one for each TNode param type. We probably don't want that kind of
     // behavior. Static variables with nontrivial destructor create subtle bugs
     // because of their order of destruction. For example of one bug take a look
     // at documentation in database/dbms.hpp. Rethink ownership and lifetime of
-    // executioner.
-    static Executioner executioner(
+    // executor.
+    static Executor executor(
         (std::chrono::seconds(FLAGS_skiplist_gc_interval)));
 
-    return executioner;
+    return executor;
   }
 
   SkipListGC(const SkipListGC &other) = delete;
