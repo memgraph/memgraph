@@ -218,11 +218,18 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
 void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   vertex_accessor.SwitchNew();
-  for (auto edge_accessor : vertex_accessor.in()) RemoveEdge(edge_accessor);
+  for (auto edge_accessor : vertex_accessor.in())
+    RemoveEdge(edge_accessor, true, false);
   vertex_accessor.SwitchNew();
-  for (auto edge_accessor : vertex_accessor.out()) RemoveEdge(edge_accessor);
-  if (!RemoveVertex(vertex_accessor))
-    permanent_fail("Unable to remove vertex after all edges detached");
+  for (auto edge_accessor : vertex_accessor.out())
+    RemoveEdge(edge_accessor, false, true);
+
+  vertex_accessor.SwitchNew();
+  // it's possible the vertex was removed already in this transaction
+  // due to it getting matched multiple times by some patterns
+  // we can only delete it once, so check if it's already deleted
+  if (!vertex_accessor.current_->is_deleted_by(*transaction_))
+    vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
 }
 
 EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
@@ -235,12 +242,12 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
-  from.update().out_.emplace_back(edge_vlist);
+  from.update().out_.emplace(to.vlist_, edge_vlist, edge_type);
   // ensure that the "to" accessor has the latest version
   // WARNING: must do that after the above "from.update()" for cases when
   // we are creating a cycle and "from" and "to" are the same vlist
   to.SwitchNew();
-  to.update().in_.emplace_back(edge_vlist);
+  to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
   bool success = db_.edges_.access().insert(edge_vlist).second;
   const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
@@ -272,27 +279,18 @@ int64_t GraphDbAccessor::EdgesCount(
   return db_.edge_types_index_.Count(edge_type);
 }
 
-/**
- * Removes the given edge pointer from a vector of pointers.
- * Does NOT maintain edge pointer ordering (for efficiency).
- */
-void swap_out_edge(std::vector<mvcc::VersionList<Edge> *> &edges,
-                   mvcc::VersionList<Edge> *edge) {
-  auto found = std::find(edges.begin(), edges.end(), edge);
-  debug_assert(found != edges.end(), "Edge doesn't exist.");
-  std::swap(*found, edges.back());
-  edges.pop_back();
-}
-
-void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor) {
+void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
+                                 bool remove_from_from, bool remove_from_to) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   // it's possible the edge was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
   edge_accessor.SwitchNew();
   if (edge_accessor.current_->is_deleted_by(*transaction_)) return;
-  swap_out_edge(edge_accessor.from().update().out_, edge_accessor.vlist_);
-  swap_out_edge(edge_accessor.to().update().in_, edge_accessor.vlist_);
+  if (remove_from_from)
+    edge_accessor.from().update().out_.RemoveEdge(edge_accessor.vlist_);
+  if (remove_from_to)
+    edge_accessor.to().update().in_.RemoveEdge(edge_accessor.vlist_);
   edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
 }
 

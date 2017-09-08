@@ -4,24 +4,40 @@
 #include "cppitertools/imap.hpp"
 
 /**
+ * Converts a (beginning, end) pair of iterators into an iterable that can be
+ * passed on to itertools. */
+template <typename TIterator>
+class Iterable {
+ public:
+  Iterable(TIterator &&begin, TIterator &&end)
+      : begin_(std::forward<TIterator>(begin)),
+        end_(std::forward<TIterator>(end)) {}
+
+  auto begin() { return begin_; };
+  auto end() { return end_; };
+
+ private:
+  TIterator begin_;
+  TIterator end_;
+};
+
+/**
  * Creates an iterator over record accessors (Edge or Vertex).
+ *
+ * @param begin Start iterator over (vertex_vlist_ptr, edge_vlist_ptr) pairs.
+ * @param end End iterator over (vertex_vlist_ptr, edge_vlist_ptr) pairs.
+ * @param db_accessor A database accessor to create the record accessors with.
  *
  * @tparam TAccessor The exact type of accessor.
  * @tparam TIterable An iterable of pointers to version list objects.
- *
- * @param records An iterable of version list pointers for which accessors
- *  need to be created.
- * @param db_accessor A database accessor to create the record accessors with.
  */
-template <typename TAccessor, typename TIterable>
-auto make_accessor_iterator(TIterable &&records, GraphDbAccessor &db_accessor) {
+template <typename TAccessor, typename TIterator>
+auto MakeAccessorIterator(TIterator &&begin, TIterator &&end,
+                          GraphDbAccessor &db_accessor) {
   return iter::imap(
-      [&db_accessor](auto vlist) {
-        return TAccessor(*vlist, db_accessor);
-        // note that here we iterate over records in REVERSED order
-        // this is necessary for DETACH DELETE (see GraphDbAccessor)
-        // which deletes items from relationship collections in a
-        // vertex accessor
+      [&db_accessor](auto &edges_element) {
+        return TAccessor(*edges_element.edge, db_accessor);
       },
-      iter::reversed(std::forward<TIterable>(records)));
+      Iterable<TIterator>(std::forward<TIterator>(begin),
+                          std::forward<TIterator>(end)));
 }

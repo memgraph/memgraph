@@ -236,3 +236,75 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   for (auto e : v1.out()) EXPECT_EQ(edge, e);
   for (auto e : v2.in()) EXPECT_EQ(edge, e);
 }
+
+#define TEST_EDGE_ITERABLE(iterable, ...)                                     \
+  {                                                                           \
+    std::vector<EdgeAccessor> edge_accessors;                                 \
+    auto expected_vec = std::vector<EdgeAccessor>(__VA_ARGS__);               \
+    for (const auto &ea : iterable) edge_accessors.emplace_back(ea);          \
+    ASSERT_EQ(edge_accessors.size(), expected_vec.size());                    \
+    EXPECT_TRUE(std::is_permutation(                                          \
+        edge_accessors.begin(), edge_accessors.end(), expected_vec.begin())); \
+  }
+
+TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto edge_type = dba->EdgeType("edge type");
+  auto e12 = dba->InsertEdge(v1, v2, edge_type);
+  auto e22 = dba->InsertEdge(v2, v2, edge_type);
+  auto e23a = dba->InsertEdge(v2, v3, edge_type);
+  auto e23b = dba->InsertEdge(v2, v3, edge_type);
+  auto e32 = dba->InsertEdge(v3, v2, edge_type);
+  dba->AdvanceCommand();
+
+  TEST_EDGE_ITERABLE(v1.out_with_destination(v1));
+  TEST_EDGE_ITERABLE(v1.out_with_destination(v2), {e12});
+  TEST_EDGE_ITERABLE(v1.out_with_destination(v3));
+  TEST_EDGE_ITERABLE(v2.out_with_destination(v1));
+  TEST_EDGE_ITERABLE(v2.out_with_destination(v2), {e22});
+  TEST_EDGE_ITERABLE(v2.out_with_destination(v3), {e23a, e23b});
+  TEST_EDGE_ITERABLE(v3.out_with_destination(v1));
+  TEST_EDGE_ITERABLE(v3.out_with_destination(v2), {e32});
+  TEST_EDGE_ITERABLE(v3.out_with_destination(v3));
+
+  TEST_EDGE_ITERABLE(v1.in_with_destination(v1));
+  TEST_EDGE_ITERABLE(v1.in_with_destination(v2));
+  TEST_EDGE_ITERABLE(v1.in_with_destination(v3));
+  TEST_EDGE_ITERABLE(v2.in_with_destination(v1), {e12});
+  TEST_EDGE_ITERABLE(v2.in_with_destination(v2), {e22});
+  TEST_EDGE_ITERABLE(v2.in_with_destination(v3), {e32});
+  TEST_EDGE_ITERABLE(v3.in_with_destination(v1));
+  TEST_EDGE_ITERABLE(v3.in_with_destination(v2), {e23a, e23b});
+  TEST_EDGE_ITERABLE(v3.in_with_destination(v3));
+}
+
+TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto a = dba->EdgeType("a");
+  auto b = dba->EdgeType("b");
+  auto ea = dba->InsertEdge(v1, v2, a);
+  auto eb_1 = dba->InsertEdge(v2, v1, b);
+  auto eb_2 = dba->InsertEdge(v2, v1, b);
+  dba->AdvanceCommand();
+
+  TEST_EDGE_ITERABLE(v1.in(), {eb_1, eb_2});
+  TEST_EDGE_ITERABLE(v2.in(), {ea});
+
+  TEST_EDGE_ITERABLE(v1.in_with_type(a));
+  TEST_EDGE_ITERABLE(v1.in_with_type(b), {eb_1, eb_2});
+  TEST_EDGE_ITERABLE(v1.out_with_type(a), {ea});
+  TEST_EDGE_ITERABLE(v1.out_with_type(b));
+  TEST_EDGE_ITERABLE(v2.in_with_type(a), {ea});
+  TEST_EDGE_ITERABLE(v2.in_with_type(b));
+  TEST_EDGE_ITERABLE(v2.out_with_type(a));
+  TEST_EDGE_ITERABLE(v2.out_with_type(b), {eb_1, eb_2});
+}
+
+#undef TEST_EDGE_ITERABLE

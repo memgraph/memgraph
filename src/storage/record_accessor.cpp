@@ -7,7 +7,7 @@
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         GraphDbAccessor &db_accessor)
-    : db_accessor_(&db_accessor), vlist_(&vlist) {
+    : vlist_(&vlist), db_accessor_(&db_accessor) {
   Reconstruct();
 }
 

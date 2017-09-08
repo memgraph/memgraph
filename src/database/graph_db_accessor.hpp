@@ -52,7 +52,7 @@ class GraphDbAccessor {
    *
    * @param db The database
    */
-  GraphDbAccessor(GraphDb &db);
+  explicit GraphDbAccessor(GraphDb &db);
   ~GraphDbAccessor();
 
   // the GraphDbAccessor can NOT be copied nor moved because
@@ -252,11 +252,19 @@ class GraphDbAccessor {
                           GraphDbTypes::EdgeType type);
 
   /**
-   * Removes an edge from the graph.
+   * Removes an edge from the graph. Parameters can indicate if the edge should
+   * be removed from data structures in vertices it connects. When removing an
+   * edge both arguments should be `true`. `false` is only used when
+   * detach-deleting a vertex.
    *
    * @param edge_accessor  The accessor to an edge.
+   * @param remove_from_from If the edge should be removed from the its origin
+   * side.
+   * @param remove_from_to If the edge should be removed from the its
+   * destination side.
    */
-  void RemoveEdge(EdgeAccessor &edge_accessor);
+  void RemoveEdge(EdgeAccessor &edge_accessor, bool remove_from = true,
+                  bool remove_to = true);
 
   /**
    * Returns iterable over accessors to all the edges in the graph

@@ -172,15 +172,15 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   const TRecord &current() const;
 
+  // The record (edge or vertex) this accessor provides access to.
+  // Immutable, set in the constructor and never changed.
+  mvcc::VersionList<TRecord> *vlist_;
+
  private:
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
   GraphDbAccessor *db_accessor_;
-
-  // The record (edge or vertex) this accessor provides access to.
-  // Immutable, set in the constructor and never changed.
-  mvcc::VersionList<TRecord> *vlist_;
 
   /**
    * Latest version which is visible to the current transaction+command

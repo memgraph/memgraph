@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <set>
 #include <vector>
 
@@ -67,14 +68,52 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * Returns EdgeAccessors for all incoming edges.
    */
   auto in() const {
-    return make_accessor_iterator<EdgeAccessor>(current().in_, db_accessor());
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().in_.begin(), current().in_.end(), db_accessor());
+  }
+
+  /**
+   * Returns EdgeAccessors for all incoming edges whose destination is the given
+   * vertex.
+   */
+  auto in_with_destination(const VertexAccessor &dest) const {
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().in_.begin(dest.vlist_), current().in_.end(), db_accessor());
+  }
+
+  /**
+   * Returns EdgeAccessors for all incoming edges whose type is equal to the
+   * given.
+   */
+  auto in_with_type(GraphDbTypes::EdgeType edge_type) const {
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().in_.begin(edge_type), current().in_.end(), db_accessor());
   }
 
   /**
    * Returns EdgeAccessors for all outgoing edges.
    */
   auto out() const {
-    return make_accessor_iterator<EdgeAccessor>(current().out_, db_accessor());
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().out_.begin(), current().out_.end(), db_accessor());
+  }
+
+  /**
+   * Returns EdgeAccessors for all outgoing edges whose destination is the given
+   * vertex.
+   */
+  auto out_with_destination(const VertexAccessor &dest) const {
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().out_.begin(dest.vlist_), current().out_.end(), db_accessor());
+  }
+
+  /**
+   * Returns EdgeAccessors for all outgoing edges whose type is equal to the
+   * given.
+   */
+  auto out_with_type(GraphDbTypes::EdgeType edge_type) const {
+    return MakeAccessorIterator<EdgeAccessor>(
+        current().out_.begin(edge_type), current().out_.end(), db_accessor());
   }
 };
 
@@ -82,9 +121,8 @@ std::ostream &operator<<(std::ostream &, const VertexAccessor &);
 
 // hash function for the vertex accessor
 namespace std {
-  template <> struct hash<VertexAccessor> {
-    size_t operator()(const VertexAccessor &v) const {
-      return v.temporary_id();
-    };
-  };
+template <>
+struct hash<VertexAccessor> {
+  size_t operator()(const VertexAccessor &v) const { return v.temporary_id(); };
+};
 }

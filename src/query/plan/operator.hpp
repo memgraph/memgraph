@@ -565,26 +565,6 @@ class Expand : public LogicalOperator, public ExpandCommon {
     std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
 
     bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
-
-    /**
-     * Expands a node for the given newly expanded edge.
-     *
-     * @return True if after this call a new node has been successfully
-     * expanded. Returns false only when matching an existing node and the
-     * new node does not qualify.
-     */
-    bool PullNode(const EdgeAccessor &new_edge, EdgeAtom::Direction direction,
-                  Frame &frame);
-
-    /**
-     * For a newly expanded edge handles existence checking and
-     * frame placement.
-     *
-     * @return If or not the given new_edge is a valid expansion. It is not
-     * valid only when matching and existing edge and new_edge does not match
-     * the old.
-     */
-    bool HandleExistingEdge(const EdgeAccessor &new_edge, Frame &frame) const;
   };
 };
 

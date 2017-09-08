@@ -312,10 +312,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -427,15 +427,47 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)), db_(db) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
+  // Helper function for handling existing-edge checking. Returns false only if
+  // existing_edge is true and the given new_edge is not equal to the existing
+  // one.
+  auto handle_existing_edge = [this, &frame](const EdgeAccessor &new_edge) {
+    if (self_.existing_edge_) {
+      TypedValue &old_edge_value = frame[self_.edge_symbol_];
+      // old_edge_value may be Null when using optional matching
+      if (old_edge_value.IsNull()) return false;
+      ExpectType(self_.edge_symbol_, old_edge_value, TypedValue::Type::Edge);
+      return old_edge_value.Value<EdgeAccessor>() == new_edge;
+    } else {
+      frame[self_.edge_symbol_] = new_edge;
+      return true;
+    }
+  };
+
+  // A helper function for expanding a node from an edge.
+  auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
+                                  EdgeAtom::Direction direction) {
+    if (self_.existing_node_) return;
+    switch (direction) {
+      case EdgeAtom::Direction::IN:
+        frame[self_.node_symbol_] = new_edge.from();
+        break;
+      case EdgeAtom::Direction::OUT:
+        frame[self_.node_symbol_] = new_edge.to();
+        break;
+      case EdgeAtom::Direction::BOTH:
+        permanent_fail("Must indicate exact expansion direction here");
+    }
+  };
+
   while (true) {
     if (db_.should_abort()) throw HintedAbortError();
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       EdgeAccessor edge = *(*in_edges_it_)++;
-      if (HandleExistingEdge(edge, frame) &&
-          PullNode(edge, EdgeAtom::Direction::IN, frame))
+      if (handle_existing_edge(edge)) {
+        pull_node(edge, EdgeAtom::Direction::IN);
         return true;
-      else
+      } else
         continue;
     }
 
@@ -447,10 +479,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, const SymbolTable &symbol_table) {
       // already done in the block above
       if (self_.direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
         continue;
-      if (HandleExistingEdge(edge, frame) &&
-          PullNode(edge, EdgeAtom::Direction::OUT, frame))
+      if (handle_existing_edge(edge)) {
+        pull_node(edge, EdgeAtom::Direction::OUT);
         return true;
-      else
+      } else
         continue;
     }
 
@@ -506,13 +538,35 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
     auto direction = self_.direction_;
     if (direction == EdgeAtom::Direction::IN ||
         direction == EdgeAtom::Direction::BOTH) {
-      in_edges_.emplace(vertex.in());
+      if (self_.existing_node_) {
+        TypedValue &existing_node = frame[self_.node_symbol_];
+        // old_node_value may be Null when using optional matching
+        if (!existing_node.IsNull()) {
+          ExpectType(self_.node_symbol_, existing_node,
+                     TypedValue::Type::Vertex);
+          in_edges_.emplace(
+              vertex.in_with_destination(existing_node.ValueVertex()));
+        }
+      } else {
+        in_edges_.emplace(vertex.in());
+      }
       in_edges_it_.emplace(in_edges_->begin());
     }
 
     if (direction == EdgeAtom::Direction::OUT ||
         direction == EdgeAtom::Direction::BOTH) {
-      out_edges_.emplace(vertex.out());
+      if (self_.existing_node_) {
+        TypedValue &existing_node = frame[self_.node_symbol_];
+        // old_node_value may be Null when using optional matching
+        if (!existing_node.IsNull()) {
+          ExpectType(self_.node_symbol_, existing_node,
+                     TypedValue::Type::Vertex);
+          out_edges_.emplace(
+              vertex.out_with_destination(existing_node.ValueVertex()));
+        }
+      } else {
+        out_edges_.emplace(vertex.out());
+      }
       out_edges_it_.emplace(out_edges_->begin());
     }
 
@@ -522,19 +576,6 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
     // TODO add support for named paths
 
     return true;
-  }
-}
-
-bool Expand::ExpandCursor::PullNode(const EdgeAccessor &new_edge,
-                                    EdgeAtom::Direction direction,
-                                    Frame &frame) {
-  switch (direction) {
-    case EdgeAtom::Direction::IN:
-      return self_.HandleExistingNode(new_edge.from(), frame);
-    case EdgeAtom::Direction::OUT:
-      return self_.HandleExistingNode(new_edge.to(), frame);
-    case EdgeAtom::Direction::BOTH:
-      permanent_fail("Must indicate exact expansion direction here");
   }
 }
 
@@ -551,20 +592,6 @@ ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
       upper_bound_(upper_bound),
       is_reverse_(is_reverse),
       filter_(filter) {}
-
-bool Expand::ExpandCursor::HandleExistingEdge(const EdgeAccessor &new_edge,
-                                              Frame &frame) const {
-  if (self_.existing_edge_) {
-    TypedValue &old_edge_value = frame[self_.edge_symbol_];
-    // old_edge_value may be Null when using optional matching
-    if (old_edge_value.IsNull()) return false;
-    ExpectType(self_.edge_symbol_, old_edge_value, TypedValue::Type::Edge);
-    return old_edge_value.Value<EdgeAccessor>() == new_edge;
-  } else {
-    frame[self_.edge_symbol_] = new_edge;
-    return true;
-  }
-}
 
 ACCEPT_WITH_INPUT(ExpandVariable)
 
