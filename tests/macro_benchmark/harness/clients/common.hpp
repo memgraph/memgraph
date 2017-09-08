@@ -50,13 +50,15 @@ void PrintJsonDecodedValue(std::ostream &os,
 template <typename ClientT, typename ExceptionT>
 communication::bolt::QueryData ExecuteNTimesTillSuccess(
     ClientT &client, const std::string &query, int times) {
+  ExceptionT last_exception;
   for (int i = 0; i < times; ++i) {
     try {
       auto ret = client.Execute(query, {});
       return ret;
     } catch (const ExceptionT &e) {
+      last_exception = e;
     }
   }
-  throw ExceptionT();
+  throw last_exception;
 }
 }

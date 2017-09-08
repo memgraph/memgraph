@@ -88,7 +88,7 @@ void ExecuteQueries(std::istream &istream, int num_workers,
                               .metadata;
         } catch (const ExceptionT &e) {
           LOG(FATAL) << "Could not execute query '" << str << "' "
-                     << MAX_RETRIES << "times";
+                     << MAX_RETRIES << " times! Error message: " << e.what();
         }
       }
       client.Close();
