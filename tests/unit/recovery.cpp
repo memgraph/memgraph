@@ -120,7 +120,7 @@ TEST_F(RecoveryTest, TestEncoding) {
     auto &vertex = vertex_dv.ValueVertex();
     ids.push_back(vertex.id);
   }
-  std::vector<int> from, to;
+  std::vector<int64_t> from, to;
   for (int i = 0; i < summary.edge_num_; ++i) {
     communication::bolt::DecodedValue edge_dv;
     decoder.ReadValue(&edge_dv);
@@ -131,11 +131,8 @@ TEST_F(RecoveryTest, TestEncoding) {
   }
   buffer.Close();
 
-  permanent_assert(static_cast<int>(to.size()) == 2,
-                   "There should be two edges.");
-  permanent_assert(static_cast<int>(from.size()) == 2,
-                   "There should be two edges.");
-
+  ASSERT_EQ(to.size(), 2U);
+  ASSERT_EQ(from.size(), 2U);
   EXPECT_EQ(buffer.hash(), summary.hash_);
   EXPECT_NE(edge_types.end(),
             std::find(edge_types.begin(), edge_types.end(), "hates"));
