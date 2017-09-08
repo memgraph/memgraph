@@ -94,19 +94,17 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
     wait_transaction->Commit();
   }
 
-  // This transaction surely sees everything that happened before CreateIndex.
-  auto transaction = db_.tx_engine_.Begin();
-
-  for (auto vertex_vlist : db_.vertices_.access()) {
-    auto vertex_record = vertex_vlist->find(*transaction);
-    // Check if visible record exists, if it exists apply function on it.
-    if (vertex_record == nullptr) continue;
-    db_.label_property_index_.UpdateOnLabelProperty(vertex_vlist,
-                                                    vertex_record);
+  // This accessor's transaction surely sees everything that happened before
+  // CreateIndex.
+  GraphDbAccessor dba(db_);
+  for (auto vertex : dba.Vertices(label, false)) {
+    db_.label_property_index_.UpdateOnLabelProperty(vertex.vlist_,
+                                                    vertex.current_);
   }
   // Commit transaction as we finished applying method on newest visible
   // records.
-  transaction->Commit();
+  dba.Commit();
+
   // After these two operations we are certain that everything is contained in
   // the index under the assumption that this transaction contained no
   // vertex/edge insert/update before this method was invoked.
