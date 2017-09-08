@@ -28,3 +28,18 @@ Feature: Bfs
       Then the result should be:
           | n.a | m.a   |
           | '0' | '1.1' |
+
+  Scenario: Test match BFS resulting edge list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Start)-[:r {id: 0}]->()-[:r {id: 1}]->()-[:r {id: 2}]->()-[:r {id: 3}]->()
+          """
+      When executing query:
+          """
+          MATCH (:Start)-bfs[r](e, m| true, 10)->(m) WHERE size(r) > 3
+          RETURN size(r) AS s, (r[0]).id AS r0, (r[2]).id AS r2
+          """
+      Then the result should be:
+          | s | r0 | r2 |
+          | 4 | 0  | 2  |
