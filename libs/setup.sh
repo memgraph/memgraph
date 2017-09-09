@@ -38,7 +38,7 @@ fmt_tag="7fa8f8fa48b0903deab5bb42e6760477173ac485" # v3.0.1
 fmt_cxx14_fix="b9aaa507fc49680d037fd84c043f747a395bce04"
 cd fmt
 git checkout ${fmt_tag}
-git cherry-pick ${fmt_cxx14_fix}
+git cherry-pick -n ${fmt_cxx14_fix}
 cd ..
 
 # rapidcheck
