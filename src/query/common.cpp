@@ -21,12 +21,11 @@ int64_t ParseIntegerLiteral(const std::string &s) {
 }
 
 std::string ParseStringLiteral(const std::string &s) {
-  // This function is declared as lambda since its semantics is highly specific
-  // for this conxtext and shouldn't be used elsewhere.
-  auto EncodeEscapedUnicodeCodepoint = [](const std::string &s, int &i) {
-    int j = i + 1;
-    const int kShortUnicodeLength = 4;
+  // These functions is declared as lambda since its semantics is highly
+  // specific for this conxtext and shouldn't be used elsewhere.
+  auto EncodeEscapedUnicodeCodepointUtf32 = [](const std::string &s, int &i) {
     const int kLongUnicodeLength = 8;
+    int j = i + 1;
     while (j < static_cast<int>(s.size()) - 1 &&
            j < i + kLongUnicodeLength + 1 && isxdigit(s[j])) {
       ++j;
@@ -36,7 +35,19 @@ std::string ParseStringLiteral(const std::string &s) {
       i += kLongUnicodeLength;
       std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
       return converter.to_bytes(t);
-    } else if (j - i >= kShortUnicodeLength + 1) {
+    }
+    throw SyntaxException(
+        "Expected 8 hex digits as unicode codepoint started with \\U. "
+        "Use \\u for 4 hex digits format.");
+  };
+  auto EncodeEscapedUnicodeCodepointUtf16 = [](const std::string &s, int &i) {
+    const int kShortUnicodeLength = 4;
+    int j = i + 1;
+    while (j < static_cast<int>(s.size()) - 1 &&
+           j < i + kShortUnicodeLength + 1 && isxdigit(s[j])) {
+      ++j;
+    }
+    if (j - i >= kShortUnicodeLength + 1) {
       char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
       if (t >= 0xD800 && t <= 0xDBFF) {
         // t is high surrogate pair. Expect one more utf16 codepoint.
@@ -72,12 +83,10 @@ std::string ParseStringLiteral(const std::string &s) {
             converter;
         return converter.to_bytes(t);
       }
-    } else {
-      // This should never happen, except grammar changes and we don't notice
-      // change in this production.
-      debug_assert(false, "can't happen");
-      throw std::exception();
     }
+    throw SyntaxException(
+        "Expected 4 hex digits as unicode codepoint started with \\u. "
+        "Use \\U for 8 hex digits format.");
   };
 
   std::string unescaped;
@@ -117,9 +126,15 @@ std::string ParseStringLiteral(const std::string &s) {
           unescaped += '\t';
           break;
         case 'U':
+          try {
+            unescaped += EncodeEscapedUnicodeCodepointUtf32(s, i);
+          } catch (const std::range_error &) {
+            throw SemanticException("Invalid utf codepoint");
+          }
+          break;
         case 'u':
           try {
-            unescaped += EncodeEscapedUnicodeCodepoint(s, i);
+            unescaped += EncodeEscapedUnicodeCodepointUtf16(s, i);
           } catch (const std::range_error &) {
             throw SemanticException("Invalid utf codepoint");
           }

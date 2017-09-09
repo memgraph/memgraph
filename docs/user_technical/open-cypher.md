@@ -539,3 +539,8 @@ For example:
 The above would find the edge `r` which forms a circular connection on a node.
 This behaviour is not supported in openCypher reference and the query would
 fail.
+
+#### Unicode codepoints in string literal
+
+Use `\u` followed by 4 hex digits in string literal for UTF-16 codepoint and
+'\U' with 8 hex digits for UTF-32 codepoint in memgraph.

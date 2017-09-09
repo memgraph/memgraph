@@ -743,7 +743,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
-  TypeParam ast_generator("RETURN '\\u221daaa\\U221daaa'");
+  TypeParam ast_generator("RETURN '\\u221daaa\\u221daaa'");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<PrimitiveLiteral *>(
@@ -753,8 +753,12 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
   EXPECT_EQ(literal->token_position_, 2);
 }
 
+TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
+  ASSERT_THROW(TypeParam("RETURN '\\U221daaa'"), SyntaxException);
+}
+
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
-  TypeParam ast_generator("RETURN '\\u0001F600aaaa\\U0001F600aaaaaaaa'");
+  TypeParam ast_generator("RETURN '\\U0001F600aaaa\\U0001F600aaaaaaaa'");
   auto *query = ast_generator.query_;
   auto *return_clause = dynamic_cast<Return *>(query->clauses_[0]);
   auto *literal = dynamic_cast<PrimitiveLiteral *>(

@@ -250,7 +250,7 @@ StringLiteral : ( '"' ( StringLiteral_0 | EscapedChar )* '"' )
               | ( '\'' ( StringLiteral_1 | EscapedChar )* '\'' )
               ;
 
-EscapedChar : '\\' ( '\\' | '\'' | '"' | ( 'B' | 'b' ) | ( 'F' | 'f' ) | ( 'N' | 'n' ) | ( 'R' | 'r' ) | ( 'T' | 't' ) | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit ) ) | ( ( 'U' | 'u' ) ( HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit ) ) ) ;
+EscapedChar : '\\' ( '\\' | '\'' | '"' | ( 'B' | 'b' ) | ( 'F' | 'f' ) | ( 'N' | 'n' ) | ( 'R' | 'r' ) | ( 'T' | 't' ) | ( 'u' ( HexDigit HexDigit HexDigit HexDigit ) ) | ( 'U' ( HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit HexDigit ) ) ) ;
 
 numberLiteral : doubleLiteral
               | integerLiteral
