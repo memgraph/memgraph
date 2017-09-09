@@ -203,7 +203,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // cardinality estimation (how many times an operator gets executed)
   // cardinality is a double to make it easier to work with
   double cardinality_{1};
-  //
+
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   const TDbAccessor &db_accessor_;
 
@@ -225,7 +225,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor &db, LogicalOperator &plan) {
+double EstimatePlanCost(const TDbAccessor &db, LogicalOperator &plan) {
   CostEstimator<TDbAccessor> estimator(db);
   plan.Accept(estimator);
   return estimator.cost();

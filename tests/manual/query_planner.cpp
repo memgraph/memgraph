@@ -140,12 +140,7 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount(const GraphDbTypes::Label &label) const {
     if (label_vertex_count_.find(*label) == label_vertex_count_.end()) {
-      // DbAccessor API needs to be const. Since we know that
-      // InteractiveDbAccessor should never be const in this file, we use
-      // const_cast.
-      auto non_const_this = const_cast<InteractiveDbAccessor *>(this);
-      non_const_this->label_vertex_count_[*label] =
-          non_const_this->ReadVertexCount("label '" + *label + "'");
+      label_vertex_count_[*label] = ReadVertexCount("label '" + *label + "'");
     }
     return label_vertex_count_.at(*label);
   }
@@ -155,10 +150,8 @@ class InteractiveDbAccessor {
     auto key = std::make_pair(*label, *property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end()) {
-      auto non_const_this = const_cast<InteractiveDbAccessor *>(this);
-      non_const_this->label_property_vertex_count_[key] =
-          non_const_this->ReadVertexCount("label '" + *label +
-                                          "' and property '" + *property + "'");
+      label_property_vertex_count_[key] = ReadVertexCount(
+          "label '" + *label + "' and property '" + *property + "'");
     }
     return label_property_vertex_count_.at(key);
   }
@@ -170,15 +163,12 @@ class InteractiveDbAccessor {
     if (label_property_index_.find(label_prop) == label_property_index_.end()) {
       return 0;
     }
-    auto non_const_this = const_cast<InteractiveDbAccessor *>(this);
-    auto &value_vertex_count =
-        non_const_this->property_value_vertex_count_[label_prop];
+    auto &value_vertex_count = property_value_vertex_count_[label_prop];
     if (value_vertex_count.find(value) == value_vertex_count.end()) {
       std::stringstream ss;
       ss << value;
-      int64_t count = non_const_this->ReadVertexCount(
-          "label '" + *label + "' and property '" + *property + "' value '" +
-          ss.str() + "'");
+      int64_t count = ReadVertexCount("label '" + *label + "' and property '" +
+                                      *property + "' value '" + ss.str() + "'");
       value_vertex_count[value] = count;
     }
     return value_vertex_count.at(value);
@@ -199,22 +189,19 @@ class InteractiveDbAccessor {
     if (upper) {
       range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
     }
-    return const_cast<InteractiveDbAccessor *>(this)->ReadVertexCount(
-        "label '" + *label + "' and property '" + *property + "' in range " +
-        range_string.str());
+    return ReadVertexCount("label '" + *label + "' and property '" + *property +
+                           "' in range " + range_string.str());
   }
 
   bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
                                 const GraphDbTypes::Property &property) const {
     auto key = std::make_pair(*label, *property);
     if (label_property_index_.find(key) == label_property_index_.end()) {
-      bool resp = const_cast<InteractiveDbAccessor *>(this)->timer_.WithPause(
-          [&label, &property]() {
-            return AskYesNo("Index for ':" + *label + "(" + *property +
-                            ")' exists:");
-          });
-      const_cast<InteractiveDbAccessor *>(this)->label_property_index_[key] =
-          resp;
+      bool resp = timer_.WithPause([&label, &property]() {
+        return AskYesNo("Index for ':" + *label + "(" + *property +
+                        ")' exists:");
+      });
+      label_property_index_[key] = resp;
     }
     return label_property_index_.at(key);
   }
@@ -323,18 +310,19 @@ class InteractiveDbAccessor {
 
   int64_t vertices_count_;
   Timer &timer_;
-  std::map<std::string, int64_t> label_vertex_count_;
-  std::map<std::pair<std::string, std::string>, int64_t>
+  mutable std::map<std::string, int64_t> label_vertex_count_;
+  mutable std::map<std::pair<std::string, std::string>, int64_t>
       label_property_vertex_count_;
-  std::map<std::pair<std::string, std::string>, bool> label_property_index_;
-  std::map<
+  mutable std::map<std::pair<std::string, std::string>, bool>
+      label_property_index_;
+  mutable std::map<
       std::pair<std::string, std::string>,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
                          query::TypedValue::BoolEqual>>
       property_value_vertex_count_;
   // TODO: Cache faked index counts by range.
 
-  int64_t ReadVertexCount(const std::string &message) {
+  int64_t ReadVertexCount(const std::string &message) const {
     return timer_.WithPause(
         [&message]() { return ReadInt("Vertices with " + message + ": "); });
   }
@@ -621,7 +609,7 @@ query::SymbolTable MakeSymbolTable(const query::AstTreeStorage &ast) {
 // order by cost.
 auto MakeLogicalPlans(query::AstTreeStorage &ast,
                       query::SymbolTable &symbol_table,
-                      const InteractiveDbAccessor &dba) {
+                      InteractiveDbAccessor &dba) {
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
       plans_with_cost;
   auto plans = query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
