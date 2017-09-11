@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 #include "query/plan/operator.hpp"
 
@@ -312,10 +313,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -2018,7 +2019,7 @@ OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
     ordering.emplace_back(ordering_expression_pair.first);
     order_by_.emplace_back(ordering_expression_pair.second);
   }
-  compare_ = TypedValueListCompare(ordering);
+  compare_ = TypedValueVectorCompare(ordering);
 }
 
 ACCEPT_WITH_INPUT(OrderBy)
@@ -2041,17 +2042,19 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame,
     ExpressionEvaluator evaluator(frame, symbol_table, db_);
     while (input_cursor_->Pull(frame, symbol_table)) {
       // collect the order_by elements
-      std::list<TypedValue> order_by;
+      std::vector<TypedValue> order_by;
+      order_by.reserve(self_.order_by_.size());
       for (auto expression_ptr : self_.order_by_) {
         order_by.emplace_back(expression_ptr->Accept(evaluator));
       }
 
       // collect the output elements
-      std::list<TypedValue> output;
+      std::vector<TypedValue> output;
+      output.reserve(self_.output_symbols_.size());
       for (const Symbol &output_sym : self_.output_symbols_)
         output.emplace_back(frame[output_sym]);
 
-      cache_.emplace_back(order_by, output);
+      cache_.emplace_back(std::move(order_by), std::move(output));
     }
 
     std::sort(cache_.begin(), cache_.end(),
@@ -2126,16 +2129,16 @@ bool OrderBy::TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   }
 }
 
-bool OrderBy::TypedValueListCompare::operator()(
-    const std::list<TypedValue> &c1, const std::list<TypedValue> &c2) const {
-  auto c1_it = c1.begin();
-  auto c2_it = c2.begin();
+bool OrderBy::TypedValueVectorCompare::operator()(
+    const std::vector<TypedValue> &c1,
+    const std::vector<TypedValue> &c2) const {
   // ordering is invalid if there are more elements in the collections
   // then there are in the ordering_ vector
-  debug_assert(std::distance(c1_it, c1.end()) <= ordering_.size() &&
-                   std::distance(c2_it, c2.end()) <= ordering_.size(),
+  debug_assert(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
                "Collections contain more elements then there are orderings");
 
+  auto c1_it = c1.begin();
+  auto c2_it = c2.begin();
   auto ordering_it = ordering_.begin();
   for (; c1_it != c1.end() && c2_it != c2.end();
        c1_it++, c2_it++, ordering_it++) {

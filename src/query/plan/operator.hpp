@@ -1351,24 +1351,24 @@ class OrderBy : public LogicalOperator {
   const auto &output_symbols() const { return output_symbols_; }
 
  private:
-  // custom Comparator type for comparing lists of TypedValues
+  // custom Comparator type for comparing vectors of TypedValues
   // does lexicographical ordering of elements based on the above
   // defined TypedValueCompare, and also accepts a vector of Orderings
   // the define how respective elements compare
-  class TypedValueListCompare {
+  class TypedValueVectorCompare {
    public:
-    TypedValueListCompare() {}
-    TypedValueListCompare(const std::vector<Ordering> &ordering)
+    TypedValueVectorCompare() {}
+    TypedValueVectorCompare(const std::vector<Ordering> &ordering)
         : ordering_(ordering) {}
-    bool operator()(const std::list<TypedValue> &c1,
-                    const std::list<TypedValue> &c2) const;
+    bool operator()(const std::vector<TypedValue> &c1,
+                    const std::vector<TypedValue> &c2) const;
 
    private:
     std::vector<Ordering> ordering_;
   };
 
   const std::shared_ptr<LogicalOperator> input_;
-  TypedValueListCompare compare_;
+  TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   const std::vector<Symbol> output_symbols_;
 
@@ -1394,7 +1394,7 @@ class OrderBy : public LogicalOperator {
     // first pair element is the order-by list
     // second pair is the remember list
     // the cache is filled and sorted (only on first pair elem) on first Pull
-    std::vector<std::pair<std::list<TypedValue>, std::list<TypedValue>>> cache_;
+    std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>> cache_;
     // iterator over the cache_, maintains state between Pulls
     decltype(cache_.begin()) cache_it_ = cache_.begin();
   };
