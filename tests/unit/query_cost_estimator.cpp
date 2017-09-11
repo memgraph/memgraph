@@ -146,15 +146,15 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeNonLiteral) {
 }
 
 TEST_F(QueryCostEstimator, Expand) {
-  MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, last_op_,
-                 NextSymbol(), false, false);
+  MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, nullptr,
+                 last_op_, NextSymbol(), false, false);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                         false, nullptr, nullptr, last_op_, NextSymbol(), false,
-                         false);
+                         nullptr, false, nullptr, nullptr, last_op_,
+                         NextSymbol(), false, false);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 

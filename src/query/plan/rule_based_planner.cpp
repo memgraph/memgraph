@@ -911,6 +911,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
     if (!edge->edge_types_.empty()) {
+      edge_type_filters_[edge_symbol].insert(edge->edge_types_.begin(),
+                                             edge->edge_types_.end());
       if (edge->has_range_) {
         // We need a new identifier and symbol for All.
         auto *ident_in_all = edge->identifier_->Clone(storage);

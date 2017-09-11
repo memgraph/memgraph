@@ -312,10 +312,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     ExpressionEvaluator evaluator(frame, symbol_table, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -391,12 +391,14 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
 
 ExpandCommon::ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                            EdgeAtom::Direction direction,
+                           const GraphDbTypes::EdgeType &edge_type,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node,
                            bool existing_edge, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_symbol_(edge_symbol),
       direction_(direction),
+      edge_type_(edge_type),
       input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
@@ -547,6 +549,8 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
           in_edges_.emplace(
               vertex.in_with_destination(existing_node.ValueVertex()));
         }
+      } else if (self_.edge_type_) {
+        in_edges_.emplace(vertex.in_with_type(self_.edge_type_));
       } else {
         in_edges_.emplace(vertex.in());
       }
@@ -564,6 +568,8 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
           out_edges_.emplace(
               vertex.out_with_destination(existing_node.ValueVertex()));
         }
+      } else if (self_.edge_type_) {
+        out_edges_.emplace(vertex.out_with_type(self_.edge_type_));
       } else {
         out_edges_.emplace(vertex.out());
       }
@@ -580,14 +586,16 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame,
 }
 
 ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                               EdgeAtom::Direction direction, bool is_reverse,
-                               Expression *lower_bound, Expression *upper_bound,
+                               EdgeAtom::Direction direction,
+                               const GraphDbTypes::EdgeType &edge_type,
+                               bool is_reverse, Expression *lower_bound,
+                               Expression *upper_bound,
                                const std::shared_ptr<LogicalOperator> &input,
                                Symbol input_symbol, bool existing_node,
                                bool existing_edge, GraphView graph_view,
                                Expression *filter)
-    : ExpandCommon(node_symbol, edge_symbol, direction, input, input_symbol,
-                   existing_node, existing_edge, graph_view),
+    : ExpandCommon(node_symbol, edge_symbol, direction, edge_type, input,
+                   input_symbol, existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       is_reverse_(is_reverse),
@@ -607,7 +615,8 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex,
-                      EdgeAtom::Direction direction) {
+                      EdgeAtom::Direction direction,
+                      const GraphDbTypes::EdgeType &edge_type) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&vertices) {
     return iter::imap(
@@ -620,11 +629,30 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
   // prepare a vector of elements we'll pass to the itertools
   std::vector<decltype(wrapper(direction, vertex.in()))> chain_elements;
 
-  if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0)
-    chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, vertex.in()));
-  if (direction != EdgeAtom::Direction::IN && vertex.out_degree() > 0)
-    chain_elements.emplace_back(
-        wrapper(EdgeAtom::Direction::OUT, vertex.out()));
+  if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0) {
+    if (edge_type) {
+      auto edges = vertex.in_with_type(edge_type);
+      if (edges.begin() != edges.end()) {
+        chain_elements.emplace_back(
+            wrapper(EdgeAtom::Direction::IN, std::move(edges)));
+      }
+    } else {
+      chain_elements.emplace_back(
+          wrapper(EdgeAtom::Direction::IN, vertex.in()));
+    }
+  }
+  if (direction != EdgeAtom::Direction::IN && vertex.out_degree() > 0) {
+    if (edge_type) {
+      auto edges = vertex.out_with_type(edge_type);
+      if (edges.begin() != edges.end()) {
+        chain_elements.emplace_back(
+            wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
+      }
+    } else {
+      chain_elements.emplace_back(
+          wrapper(EdgeAtom::Direction::OUT, vertex.out()));
+    }
+  }
 
   return iter::chain.from_iterable(std::move(chain_elements));
 }
@@ -702,7 +730,8 @@ class ExpandVariableCursor : public Cursor {
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
   std::vector<decltype(ExpandFromVertex(std::declval<VertexAccessor>(),
-                                        EdgeAtom::Direction::IN))>
+                                        EdgeAtom::Direction::IN,
+                                        self_.edge_type_))>
       edges_;
 
   // an iterator indicating the possition in the corresponding edges_ element
@@ -745,7 +774,8 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         SwitchAccessor(vertex, self_.graph_view_);
-        edges_.emplace_back(ExpandFromVertex(vertex, self_.direction_));
+        edges_.emplace_back(
+            ExpandFromVertex(vertex, self_.direction_, self_.edge_type_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -913,7 +943,8 @@ class ExpandVariableCursor : public Cursor {
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         SwitchAccessor(current_vertex, self_.graph_view_);
-        edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_));
+        edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_,
+                                             self_.edge_type_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 

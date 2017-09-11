@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 
+#include "utils/exceptions.hpp"
+
 /**
  * Outputs a collection of items to the given stream, separating them with the
  * given delimiter.
@@ -55,8 +57,32 @@ template <class TMap, class TKey, class TVal>
 std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key,
                              TVal &&or_value) {
   auto it = map.find(key);
-  if (it != map.end()) {
-    return {it->second, true};
-  }
+  if (it != map.end()) return {it->second, true};
   return {std::forward<TVal>(or_value), false};
+}
+
+/**
+ * Returns the *copy* of the first element from an iterable.
+ *
+ * @param iterable An iterable collection of values.
+ * @return The first element of the `iterable`.
+ * @exception BasicException is thrown if the `iterable` is empty.
+ */
+template <class TIterable>
+auto First(TIterable &&iterable) {
+  if (iterable.begin() != iterable.end()) return *iterable.begin();
+  throw utils::BasicException("Empty iterable");
+}
+
+/**
+ * Returns the *copy* of the first element from an iterable.
+ *
+ * @param iterable An iterable collection of values.
+ * @param empty_value Value to return if the `iterable` is empty.
+ * @return The first element of the `iterable` or the `empty_value`.
+ */
+template <class TVal, class TIterable>
+TVal First(TIterable &&iterable, TVal &&empty_value) {
+  if (iterable.begin() != iterable.end()) return *iterable.begin();
+  return empty_value;
 }

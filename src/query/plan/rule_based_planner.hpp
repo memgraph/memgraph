@@ -62,6 +62,9 @@ class Filters {
   /// Mapping from a symbol to labels that are filtered on it. These should be
   /// used only for generating indexed scans.
   const auto &label_filters() const { return label_filters_; }
+  /// Mapping from a symbol to edge types that are filtered on it. These should
+  /// be used for generating indexed expansions.
+  const auto &edge_type_filters() const { return edge_type_filters_; }
   /// Mapping from a symbol to properties that are filtered on it. These should
   /// be used only for generating indexed scans.
   const auto &property_filters() const { return property_filters_; }
@@ -85,9 +88,12 @@ class Filters {
   void AnalyzeFilter(Expression *, const SymbolTable &);
 
   std::vector<FilterInfo> all_filters_;
-  std::unordered_map<Symbol, std::set<GraphDbTypes::Label>> label_filters_;
-  std::unordered_map<
-      Symbol, std::map<GraphDbTypes::Property, std::vector<PropertyFilter>>>
+  std::unordered_map<Symbol, std::unordered_set<GraphDbTypes::Label>>
+      label_filters_;
+  std::unordered_map<Symbol, std::unordered_set<GraphDbTypes::EdgeType>>
+      edge_type_filters_;
+  std::unordered_map<Symbol, std::unordered_map<GraphDbTypes::Property,
+                                                std::vector<PropertyFilter>>>
       property_filters_;
 };
 
@@ -330,9 +336,10 @@ class RuleBasedPlanner {
   // cannot be found, the function will return (`false`, maximum int64_t), while
   // leaving `best_label` and `best_property` unchanged.
   std::pair<bool, int64_t> FindBestLabelPropertyIndex(
-      const std::set<GraphDbTypes::Label> &labels,
-      const std::map<GraphDbTypes::Property,
-                     std::vector<Filters::PropertyFilter>> &property_filters,
+      const std::unordered_set<GraphDbTypes::Label> &labels,
+      const std::unordered_map<GraphDbTypes::Property,
+                               std::vector<Filters::PropertyFilter>>
+          &property_filters,
       const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
       GraphDbTypes::Label &best_label,
       std::pair<GraphDbTypes::Property, Filters::PropertyFilter>
@@ -379,7 +386,7 @@ class RuleBasedPlanner {
   }
 
   const GraphDbTypes::Label &FindBestLabelIndex(
-      const std::set<GraphDbTypes::Label> &labels) {
+      const std::unordered_set<GraphDbTypes::Label> &labels) {
     debug_assert(!labels.empty(),
                  "Trying to find the best label without any labels.");
     return *std::min_element(labels.begin(), labels.end(),
@@ -400,17 +407,18 @@ class RuleBasedPlanner {
                           const MatchContext &match_ctx,
                           const std::experimental::optional<int64_t>
                               &max_vertex_count = std::experimental::nullopt) {
-    const auto labels = FindOr(match_ctx.matching.filters.label_filters(),
-                               node_symbol, std::set<GraphDbTypes::Label>())
-                            .first;
+    const auto labels =
+        FindOr(match_ctx.matching.filters.label_filters(), node_symbol,
+               std::unordered_set<GraphDbTypes::Label>())
+            .first;
     if (labels.empty()) {
       // Without labels, we cannot generated any indexed ScanAll.
       return nullptr;
     }
     const auto properties =
         FindOr(match_ctx.matching.filters.property_filters(), node_symbol,
-               std::map<GraphDbTypes::Property,
-                        std::vector<Filters::PropertyFilter>>())
+               std::unordered_map<GraphDbTypes::Property,
+                                  std::vector<Filters::PropertyFilter>>())
             .first;
     // First, try to see if we can use label+property index. If not, use just
     // the label index (which ought to exist).
@@ -499,6 +507,16 @@ class RuleBasedPlanner {
         } else {
           match_context.new_symbols.emplace_back(edge_symbol);
         }
+        GraphDbTypes::EdgeType edge_type = nullptr;
+        const auto &edge_types =
+            FindOr(matching.filters.edge_type_filters(), edge_symbol,
+                   std::unordered_set<GraphDbTypes::EdgeType>())
+                .first;
+        if (edge_types.size() == 1U) {
+          // With exactly one edge type filter, we can generate a more efficient
+          // expand.
+          edge_type = First(edge_types);
+        }
         if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
           const auto &traversed_edge_symbol =
               symbol_table.at(*bf_atom->traversed_edge_identifier_);
@@ -514,7 +532,7 @@ class RuleBasedPlanner {
           auto *filter_expr = impl::FindExpandVariableFilter(
               bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
-              node_symbol, edge_symbol, expansion.direction,
+              node_symbol, edge_symbol, expansion.direction, edge_type,
               expansion.is_flipped, expansion.edge->lower_bound_,
               expansion.edge->upper_bound_,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
@@ -537,10 +555,10 @@ class RuleBasedPlanner {
               existing_node = true;
             }
           }
-          last_op = new Expand(node_symbol, edge_symbol, expansion.direction,
-                               std::shared_ptr<LogicalOperator>(last_op),
-                               node1_symbol, existing_node, existing_edge,
-                               match_context.graph_view);
+          last_op = new Expand(
+              node_symbol, edge_symbol, expansion.direction, edge_type,
+              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+              existing_node, existing_edge, match_context.graph_view);
         }
         if (!existing_edge) {
           // Ensure Cyphermorphism (different edge symbols always map to
