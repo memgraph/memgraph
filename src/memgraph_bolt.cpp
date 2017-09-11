@@ -46,8 +46,16 @@ void load_config(int &argc, char **&argv) {
   if (getenv("HOME") != nullptr)
     configs.emplace_back(fs::path(getenv("HOME")) /
                          fs::path(".memgraph/config"));
-  if (getenv("MEMGRAPH_CONFIG") != nullptr)
-    configs.emplace_back(fs::path(getenv("MEMGRAPH_CONFIG")));
+  {
+    auto memgraph_config = getenv("MEMGRAPH_CONFIG");
+    if (memgraph_config != nullptr) {
+      auto path = fs::path(memgraph_config);
+      CHECK(fs::exists(path))
+          << "MEMGRAPH_CONFIG environment variable set to nonexisting path: "
+          << path.generic_string();
+      configs.emplace_back(path);
+    }
+  }
 
   std::vector<std::string> flagfile_arguments;
   for (const auto &config : configs)
