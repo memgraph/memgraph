@@ -1,5 +1,7 @@
+#include <chrono>
 #include <experimental/optional>
 #include <map>
+#include <random>
 #include <string>
 
 #include "communication/bolt/client.hpp"
@@ -56,12 +58,16 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
     const std::map<std::string, communication::bolt::DecodedValue> &params,
     int times) {
   std::experimental::optional<utils::BasicException> last_exception;
+  static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
+  static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};
   for (int i = 0; i < times; ++i) {
     try {
       auto ret = client.Execute(query, params);
       return ret;
     } catch (const utils::BasicException &e) {
       last_exception = e;
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(rand_dist_(pseudo_rand_gen_)));
     }
   }
   throw last_exception;

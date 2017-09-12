@@ -27,7 +27,7 @@ DEFINE_string(database, "", "Database for the database");
 
 using communication::bolt::DecodedValue;
 
-const int MAX_RETRIES = 1000;
+const int MAX_RETRIES = 50;
 
 void PrintJsonMetadata(
     std::ostream &os,
