@@ -46,8 +46,9 @@ struct QueryData {
 template <typename Socket>
 class Client {
  public:
-  Client(Socket &&socket, std::string &username, std::string &password,
-         std::string client_name = "")
+  Client(Socket &&socket, const std::string &username,
+         const std::string &password,
+         const std::string &client_name = "memgraph-bolt/0.0.1")
       : socket_(std::move(socket)) {
     DLOG(INFO) << "Sending handshake";
     if (!socket_.Write(kPreamble, sizeof(kPreamble))) {
@@ -67,10 +68,6 @@ class Client {
       throw ClientException("Server negotiated unsupported protocol version!");
     }
     buffer_.Shift(sizeof(kProtocol));
-
-    if (client_name == "") {
-      client_name = "memgraph-bolt/0.0.1";
-    }
 
     DLOG(INFO) << "Sending init message";
     if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},

@@ -10,10 +10,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -24,14 +24,14 @@ namespace io::network {
 
 Socket::Socket() : socket_(-1) {}
 
-Socket::Socket(int sock, NetworkEndpoint& endpoint)
+Socket::Socket(int sock, const NetworkEndpoint &endpoint)
     : socket_(sock), endpoint_(endpoint) {}
 
-Socket::Socket(const Socket& s) : socket_(s.id()) {}
+Socket::Socket(const Socket &s) : socket_(s.id()) {}
 
-Socket::Socket(Socket&& other) { *this = std::forward<Socket>(other); }
+Socket::Socket(Socket &&other) { *this = std::forward<Socket>(other); }
 
-Socket& Socket::operator=(Socket&& other) {
+Socket &Socket::operator=(Socket &&other) {
   socket_ = other.socket_;
   endpoint_ = other.endpoint_;
   other.socket_ = -1;
@@ -51,12 +51,12 @@ void Socket::Close() {
 
 bool Socket::IsOpen() { return socket_ != -1; }
 
-bool Socket::Connect(NetworkEndpoint& endpoint) {
+bool Socket::Connect(const NetworkEndpoint &endpoint) {
   if (UNLIKELY(socket_ != -1)) return false;
 
   auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
 
-  for (struct addrinfo* it = info; it != nullptr; it = it->ai_next) {
+  for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
     if (sfd == -1) continue;
     if (connect(sfd, it->ai_addr, it->ai_addrlen) == 0) {
@@ -70,12 +70,12 @@ bool Socket::Connect(NetworkEndpoint& endpoint) {
   return true;
 }
 
-bool Socket::Bind(NetworkEndpoint& endpoint) {
+bool Socket::Bind(const NetworkEndpoint &endpoint) {
   if (UNLIKELY(socket_ != -1)) return false;
 
   auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
 
-  for (struct addrinfo* it = info; it != nullptr; it = it->ai_next) {
+  for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
     if (sfd == -1) continue;
 
@@ -94,7 +94,7 @@ bool Socket::Bind(NetworkEndpoint& endpoint) {
   // detect bound port, used when the server binds to a random port
   struct sockaddr_in6 portdata;
   socklen_t portdatalen = sizeof(portdata);
-  if (getsockname(socket_, (struct sockaddr *) &portdata, &portdatalen) < 0) {
+  if (getsockname(socket_, (struct sockaddr *)&portdata, &portdatalen) < 0) {
     return false;
   }
 
@@ -122,16 +122,16 @@ bool Socket::SetKeepAlive() {
   if (setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0)
     return false;
 
-  optval = 20; // wait 120s before seding keep-alive packets
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void*)&optval, optlen) < 0)
+  optval = 20;  // wait 120s before seding keep-alive packets
+  if (setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen) < 0)
     return false;
 
-  optval = 4; // 4 keep-alive packets must fail to close
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void*)&optval, optlen) < 0)
+  optval = 4;  // 4 keep-alive packets must fail to close
+  if (setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen) < 0)
     return false;
 
-  optval = 15; // send keep-alive packets every 15s
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void*)&optval, optlen) < 0)
+  optval = 15;  // send keep-alive packets every 15s
+  if (setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen) < 0)
     return false;
 
   return true;
@@ -141,7 +141,7 @@ bool Socket::SetNoDelay() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  if (setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void*)&optval, optlen) < 0)
+  if (setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen) < 0)
     return false;
 
   return true;
@@ -163,24 +163,24 @@ bool Socket::SetTimeout(long sec, long usec) {
 
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
-bool Socket::Accept(Socket* s) {
+bool Socket::Accept(Socket *s) {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
-  void* addr_src;
+  void *addr_src;
   unsigned short port;
   unsigned char family;
 
-  int sfd = accept(socket_, (struct sockaddr*)&addr, &addr_size);
+  int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
   if (UNLIKELY(sfd == -1)) return false;
 
   if (addr.ss_family == AF_INET) {
-    addr_src = (void*)&(((sockaddr_in*)&addr)->sin_addr);
-    port = ntohs(((sockaddr_in*)&addr)->sin_port);
+    addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);
+    port = ntohs(((sockaddr_in *)&addr)->sin_port);
     family = 4;
   } else {
-    addr_src = (void*)&(((sockaddr_in6*)&addr)->sin6_addr);
-    port = ntohs(((sockaddr_in6*)&addr)->sin6_port);
+    addr_src = (void *)&(((sockaddr_in6 *)&addr)->sin6_addr);
+    port = ntohs(((sockaddr_in6 *)&addr)->sin6_port);
     family = 6;
   }
 
@@ -189,7 +189,7 @@ bool Socket::Accept(Socket* s) {
   NetworkEndpoint endpoint;
   try {
     endpoint = NetworkEndpoint(addr_decoded, port);
-  } catch (NetworkEndpointException& e) {
+  } catch (NetworkEndpointException &e) {
     return false;
   }
 
@@ -201,17 +201,17 @@ bool Socket::Accept(Socket* s) {
 Socket::operator int() { return socket_; }
 
 int Socket::id() const { return socket_; }
-NetworkEndpoint& Socket::endpoint() { return endpoint_; }
+const NetworkEndpoint &Socket::endpoint() const { return endpoint_; }
 
-bool Socket::Write(const std::string& str) {
+bool Socket::Write(const std::string &str) {
   return Write(str.c_str(), str.size());
 }
 
-bool Socket::Write(const char* data, size_t len) {
-  return Write(reinterpret_cast<const uint8_t*>(data), len);
+bool Socket::Write(const char *data, size_t len) {
+  return Write(reinterpret_cast<const uint8_t *>(data), len);
 }
 
-bool Socket::Write(const uint8_t* data, size_t len) {
+bool Socket::Write(const uint8_t *data, size_t len) {
   while (len > 0) {
     // MSG_NOSIGNAL is here to disable raising a SIGPIPE
     // signal when a connection dies mid-write, the socket
@@ -224,7 +224,7 @@ bool Socket::Write(const uint8_t* data, size_t len) {
   return true;
 }
 
-int Socket::Read(void* buffer, size_t len) {
+int Socket::Read(void *buffer, size_t len) {
   return read(socket_, buffer, len);
 }
 }

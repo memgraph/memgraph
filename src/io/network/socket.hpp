@@ -15,9 +15,9 @@ namespace io::network {
 class Socket {
  public:
   Socket();
-  Socket(const Socket& s);
-  Socket(Socket&& other);
-  Socket& operator=(Socket&& other);
+  Socket(const Socket &s);
+  Socket(Socket &&other);
+  Socket &operator=(Socket &&other);
   ~Socket();
 
   /**
@@ -43,7 +43,7 @@ class Socket {
    *             true if the connect succeeded
    *             false if the connect failed
    */
-  bool Connect(NetworkEndpoint& endpoint);
+  bool Connect(const NetworkEndpoint &endpoint);
 
   /**
    * Binds the socket to the specified endpoint.
@@ -54,12 +54,13 @@ class Socket {
    *             true if the bind succeeded
    *             false if the bind failed
    */
-  bool Bind(NetworkEndpoint& endpoint);
+  bool Bind(const NetworkEndpoint &endpoint);
 
   /**
    * Start listening on the bound socket.
    *
-   * @param backlog maximum number of pending connections in the connection queue
+   * @param backlog maximum number of pending connections in the connection
+   *                queue
    *
    * @return listen success status:
    *             true if the listen succeeded
@@ -74,10 +75,11 @@ class Socket {
    * @param s Socket object that will be instantiated with the new connection
    *
    * @return accept success status:
-   *             true if a new connection was accepted and the socket 's' was instantiated
+   *             true if a new connection was accepted and the socket 's' was
+   *                  instantiated
    *             false if a new connection accept failed
    */
-  bool Accept(Socket* s);
+  bool Accept(Socket *s);
 
   /**
    * Sets the socket to non-blocking.
@@ -132,7 +134,7 @@ class Socket {
   /**
    * Returns the currently active endpoint of the socket.
    */
-  NetworkEndpoint& endpoint();
+  const NetworkEndpoint &endpoint() const;
 
   /**
    * Write data to the socket.
@@ -146,9 +148,9 @@ class Socket {
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const std::string& str);
-  bool Write(const char* data, size_t len);
-  bool Write(const uint8_t* data, size_t len);
+  bool Write(const std::string &str);
+  bool Write(const char *data, size_t len);
+  bool Write(const uint8_t *data, size_t len);
 
   /**
    * Read data from the socket.
@@ -162,10 +164,10 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  int Read(void* buffer, size_t len);
+  int Read(void *buffer, size_t len);
 
  private:
-  Socket(int sock, NetworkEndpoint& endpoint);
+  Socket(int sock, const NetworkEndpoint &endpoint);
 
   int socket_;
   NetworkEndpoint endpoint_;

@@ -6,7 +6,6 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-
 #include <libpq-fe.h>
 
 #include "communication/bolt/client.hpp"
@@ -49,10 +48,13 @@ class Client {
     }
   }
 
-  QueryData Execute(const std::string &query,
-                    const std::map<std::string, std::string> &parameters) {
+  QueryData Execute(
+      const std::string &query,
+      const std::map<std::string, communication::bolt::DecodedValue>
+          &parameters) {
     QueryData ret;
 
+    CHECK(parameters.size() == 0U) << "Parameters not yet supported";
     DLOG(INFO) << "Sending run message with statement: '" << query << "'";
 
     result_ = PQexec(connection_, query.c_str());

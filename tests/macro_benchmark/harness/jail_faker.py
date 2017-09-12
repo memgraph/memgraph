@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+
 import atexit
 import json
 import os
@@ -12,19 +13,15 @@ import uuid
 from signal import *
 
 
-
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 STORAGE_DIR = os.path.join(SCRIPT_DIR, ".storage")
-
 
 
 class ProcessException(Exception):
     pass
 
-
 class StorageException(Exception):
     pass
-
 
 
 class Process:
@@ -36,7 +33,8 @@ class Process:
         self._usage = {}
         self._files = []
 
-    def run(self, binary, args = None, env = None, timeout = 120, stdin = "/dev/null", cwd = "."):
+    def run(self, binary, args=None, env=None, timeout=120,
+            stdin="/dev/null", cwd="."):
         if args is None: args = []
         if env is None: env = {}
         # don't start a new process if one is already running
@@ -59,8 +57,8 @@ class Process:
         self._timeout = timeout
 
         # start process
-        self._proc = subprocess.Popen(exe, env = env, cwd = cwd,
-                stdin = open(stdin, "r"))
+        self._proc = subprocess.Popen(exe, env=env, cwd=cwd,
+                stdin=open(stdin, "r"))
 
     def run_and_wait(self, *args, **kwargs):
         check = kwargs.pop("check", True)
@@ -92,7 +90,7 @@ class Process:
         return self._usage
 
     # this is implemented only in the real API
-    def set_cpus(self, cpus, hyper = True):
+    def set_cpus(self, cpus, hyper=True):
         s = "out" if not hyper else ""
         sys.stderr.write("WARNING: Trying to set cpus for {} to "
                 "{} with{} hyperthreading!\n".format(str(self), cpus, s))
@@ -113,7 +111,7 @@ class Process:
             raise ProcessException
         return self._proc.pid
 
-    def _set_usage(self, val, name, only_value = False):
+    def _set_usage(self, val, name, only_value=False):
         self._usage[name] = val
         if only_value: return
         maxname = "max_" + name
@@ -138,10 +136,12 @@ class Process:
         except:
             return
         # for a description of these fields see: man proc; man times
-        cpu_time = sum(map(lambda x: int(x) / self._ticks_per_sec, data_stat[13:17]))
+        cpu_time = sum(map(lambda x: int(x) / self._ticks_per_sec,
+                           data_stat[13:17]))
         self._set_usage(cpu_time, "cpu", only_value = True)
         self._set_usage(int(data_stat[19]), "threads")
-        mem_vm, mem_res, mem_shr = map(lambda x: int(x) * self._page_size // 1024, data_statm[:3])
+        mem_vm, mem_res, mem_shr = map(
+                lambda x: int(x) * self._page_size // 1024, data_statm[:3])
         self._set_usage(mem_res, "memory")
 
     def _watchdog(self):
@@ -169,13 +169,14 @@ def _usage_updater():
             proc._do_background_tasks()
         time.sleep(0.1)
 
-_thread = threading.Thread(target = _usage_updater, daemon = True)
+_thread = threading.Thread(target=_usage_updater, daemon=True)
 _thread.start()
 
 if not os.path.exists(STORAGE_DIR):
     os.mkdir(STORAGE_DIR)
 
-_storage_name = os.path.join(STORAGE_DIR, time.strftime("%Y%m%d%H%M%S") + ".json")
+_storage_name = os.path.join(
+        STORAGE_DIR, time.strftime("%Y%m%d%H%M%S") + ".json")
 _storage_file = open(_storage_name, "w")
 
 @atexit.register

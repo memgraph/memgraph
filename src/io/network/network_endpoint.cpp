@@ -11,7 +11,7 @@ NetworkEndpoint::NetworkEndpoint() : port_(0), family_(0) {
   memset(port_str_, 0, sizeof port_str_);
 }
 
-NetworkEndpoint::NetworkEndpoint(const char* addr, const char* port) {
+NetworkEndpoint::NetworkEndpoint(const char *addr, const char *port) {
   if (addr == nullptr) throw NetworkEndpointException("Address can't be null!");
   if (port == nullptr) throw NetworkEndpointException("Port can't be null!");
 
@@ -19,27 +19,6 @@ NetworkEndpoint::NetworkEndpoint(const char* addr, const char* port) {
   snprintf(address_, sizeof address_, "%s", addr);
   snprintf(port_str_, sizeof port_str_, "%s", port);
 
-  is_address_valid();
-
-  int ret = sscanf(port, "%hu", &port_);
-  if (ret != 1) throw NetworkEndpointException("Port isn't valid!");
-}
-
-NetworkEndpoint::NetworkEndpoint(const std::string& addr,
-                                 const std::string& port)
-    : NetworkEndpoint(addr.c_str(), port.c_str()) {}
-
-NetworkEndpoint::NetworkEndpoint(const char* addr, unsigned short port) {
-  if (addr == nullptr) throw NetworkEndpointException("Address can't be null!");
-
-  snprintf(address_, sizeof address_, "%s", addr);
-  snprintf(port_str_, sizeof port_str_, "%hu", port);
-  port_ = port;
-
-  is_address_valid();
-}
-
-void NetworkEndpoint::is_address_valid() {
   in_addr addr4;
   in6_addr addr6;
   int ret = inet_pton(AF_INET, address_, &addr4);
@@ -52,10 +31,15 @@ void NetworkEndpoint::is_address_valid() {
       family_ = 6;
   } else
     family_ = 4;
+
+  ret = sscanf(port, "%hu", &port_);
+  if (ret != 1) throw NetworkEndpointException("Port isn't valid!");
 }
 
-const char* NetworkEndpoint::address() { return address_; }
-const char* NetworkEndpoint::port_str() { return port_str_; }
-unsigned short NetworkEndpoint::port() { return port_; }
-unsigned char NetworkEndpoint::family() { return family_; }
+NetworkEndpoint::NetworkEndpoint(const std::string &addr,
+                                 const std::string &port)
+    : NetworkEndpoint(addr.c_str(), port.c_str()) {}
+
+NetworkEndpoint::NetworkEndpoint(const std::string &addr, unsigned short port)
+    : NetworkEndpoint(addr.c_str(), std::to_string(port)) {}
 }

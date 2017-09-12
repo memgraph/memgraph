@@ -20,18 +20,16 @@ class NetworkEndpointException : public utils::BasicException {
 class NetworkEndpoint {
  public:
   NetworkEndpoint();
-  NetworkEndpoint(const char* addr, const char* port);
-  NetworkEndpoint(const char* addr, unsigned short port);
-  NetworkEndpoint(const std::string& addr, const std::string& port);
+  NetworkEndpoint(const std::string &addr, const std::string &port);
+  NetworkEndpoint(const char *addr, const char *port);
+  NetworkEndpoint(const std::string &addr, unsigned short port);
 
-  const char* address();
-  const char* port_str();
-  unsigned short port();
-  unsigned char family();
+  const char *address() const { return address_; }
+  const char *port_str() const { return port_str_; }
+  int port() const { return port_; }
+  unsigned char family() const { return family_; }
 
  private:
-  void is_address_valid();
-
   char address_[INET6_ADDRSTRLEN];
   char port_str_[6];
   unsigned short port_;

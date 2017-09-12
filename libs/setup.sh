@@ -100,3 +100,11 @@ wget -nv http://deps.memgraph.io/postgresql-9.6.5-1-linux-x64-binaries.tar.gz -O
 tar -xzf postgres.tar.gz
 mv pgsql postgresql
 rm postgres.tar.gz
+
+# nlohmann json
+# We wget header instead of cloning repo since repo is huge (lots of test data).
+# We use head on Sep 1, 2017 instead of last release since it was long time ago.
+mkdir json
+cd json
+wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
+cd ..

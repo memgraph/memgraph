@@ -4,6 +4,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
@@ -11,7 +12,7 @@
 
 #include "bolt_client.hpp"
 #include "common.hpp"
-#include "postgres_client.hpp"
+//#include "postgres_client.hpp"
 
 DEFINE_string(protocol, "bolt", "Protocol to use (available: bolt, postgres)");
 DEFINE_int32(num_workers, 1, "Number of workers");
@@ -83,9 +84,8 @@ void ExecuteQueries(std::istream &istream, int num_workers,
           str = queries[pos];
         }
         try {
-          metadata[pos] = ExecuteNTimesTillSuccess<ClientT, ExceptionT>(
-                              client, str, MAX_RETRIES)
-                              .metadata;
+          metadata[pos] =
+              ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES).metadata;
         } catch (const ExceptionT &e) {
           LOG(FATAL) << "Could not execute query '" << str << "' "
                      << MAX_RETRIES << " times! Error message: " << e.what();
@@ -104,12 +104,6 @@ void ExecuteQueries(std::istream &istream, int num_workers,
 
   PrintSummary(ostream, duration, metadata);
 }
-
-using BoltClientT = BoltClient;
-using BoltExceptionT = communication::bolt::ClientQueryException;
-
-using PostgresClientT = postgres::Client;
-using PostgresExceptionT = postgres::ClientQueryException;
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -134,18 +128,27 @@ int main(int argc, char **argv) {
   std::string port = FLAGS_port;
   if (FLAGS_protocol == "bolt") {
     if (port == "") port = "7687";
+
+    using BoltClientT = BoltClient;
+    using BoltExceptionT = communication::bolt::ClientQueryException;
     ExecuteQueries<BoltClientT, BoltExceptionT>(
         *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
         FLAGS_username, FLAGS_password, FLAGS_database);
   } else if (FLAGS_protocol == "postgres") {
-    permanent_assert(FLAGS_username != "",
-                     "Username can't be empty for postgres!");
-    permanent_assert(FLAGS_database != "",
-                     "Database can't be empty for postgres!");
-    if (port == "") port = "5432";
-    ExecuteQueries<PostgresClientT, PostgresExceptionT>(
-        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
-        FLAGS_username, FLAGS_password, FLAGS_database);
+    LOG(FATAL) << "Postgres not yet supported";
+    // TODO: Currently libpq is linked dynamically so it is a pain to move
+    // harness_client executable to other machines without libpq.
+    //    CHECK(FLAGS_username != "") << "Username can't be empty for
+    //    postgres!";
+    //    CHECK(FLAGS_database != "") << "Database can't be empty for
+    //    postgres!";
+    //    if (port == "") port = "5432";
+    //
+    //    using PostgresClientT = postgres::Client;
+    //    using PostgresExceptionT = postgres::ClientQueryException;
+    //    ExecuteQueries<PostgresClientT, PostgresExceptionT>(
+    //        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
+    //        FLAGS_username, FLAGS_password, FLAGS_database);
   }
 
   return 0;

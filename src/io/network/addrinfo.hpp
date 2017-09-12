@@ -7,16 +7,16 @@ namespace io::network {
  * see: man 3 getaddrinfo
  */
 class AddrInfo {
-  AddrInfo(struct addrinfo* info);
+  AddrInfo(struct addrinfo *info);
 
  public:
   ~AddrInfo();
 
-  static AddrInfo Get(const char* addr, const char* port);
+  static AddrInfo Get(const char *addr, const char *port);
 
-  operator struct addrinfo*();
+  operator struct addrinfo *();
 
  private:
-  struct addrinfo* info;
+  struct addrinfo *info;
 };
 }

@@ -10,6 +10,10 @@ message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 # postgres directory
 set(postgres_dir ${libs_dir}/postgresql)
 
+# add target that depends on all other targets
+set(all_targets_target ${project_name}__${test_type})
+add_custom_target(${all_targets_target})
+
 # for each cpp file build binary and register test
 foreach(test_cpp ${test_type_cpps})
 
@@ -34,5 +38,8 @@ foreach(test_cpp ${test_type_cpps})
     # libpq includes
     target_link_libraries(${target_name} "${postgres_dir}/lib/libpq.so")
     target_include_directories(${target_name} PUBLIC "${postgres_dir}/include")
+
+    # add target to dependencies
+    add_dependencies(${all_targets_target} ${target_name})
 
 endforeach()

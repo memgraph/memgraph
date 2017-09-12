@@ -30,7 +30,8 @@ BASE_FLAGS = [
     '-I./libs/antlr4/runtime/Cpp/runtime/src',
     '-I./build/libs/gflags/include',
     '-I./experimental/distributed/src',
-    '-I./experimental/distributed/libs/cereal/include'
+    '-I./experimental/distributed/libs/cereal/include',
+    '-I./libs/postgresql/include'
 ]
 
 SOURCE_EXTENSIONS = [

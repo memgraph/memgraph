@@ -1,7 +1,10 @@
+#include <experimental/optional>
+#include <map>
 #include <string>
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "utils/exceptions.hpp"
 
 namespace {
 
@@ -47,15 +50,17 @@ void PrintJsonDecodedValue(std::ostream &os,
   }
 }
 
-template <typename ClientT, typename ExceptionT>
+template <typename TClient>
 communication::bolt::QueryData ExecuteNTimesTillSuccess(
-    ClientT &client, const std::string &query, int times) {
-  ExceptionT last_exception;
+    TClient &client, const std::string &query,
+    const std::map<std::string, communication::bolt::DecodedValue> &params,
+    int times) {
+  std::experimental::optional<utils::BasicException> last_exception;
   for (int i = 0; i < times; ++i) {
     try {
-      auto ret = client.Execute(query, {});
+      auto ret = client.Execute(query, params);
       return ret;
-    } catch (const ExceptionT &e) {
+    } catch (const utils::BasicException &e) {
       last_exception = e;
     }
   }

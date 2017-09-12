@@ -1,0 +1,28 @@
+{
+    "num_independent_nodes" : 4111,
+    "num_nodes" : 10000,
+    "independent_label": "User",
+    "read_probability": 0.5,
+    "queries" : [
+        {
+            "query": "MATCH (n :User {id : $id})-[]-(m) RETURN AVG(n.age + m.age)",
+            "params" : [
+                {
+                    "name" : "id",
+                    "low" : 1,
+                    "high" : 10000
+                }
+            ]
+        },
+        {
+            "query": "MATCH (n :User {id : $id})-[]-(m)-[]-(k) RETURN AVG(n.age + m.age + k.age)",
+            "params" : [
+                {
+                    "name" : "id",
+                    "low" : 1,
+                    "high" : 10000
+                }
+            ]
+        }
+    ]
+}
