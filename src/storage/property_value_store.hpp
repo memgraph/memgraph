@@ -127,20 +127,6 @@ class PropertyValueStore {
    */
   auto end() const { return props_.end(); }
 
-  /**
-   * Accepts two functions.
-   *
-   * @param handler  Called for each PropertyValue in this collection.
-   * @param finish Called once in the end.
-   */
-  void Accept(std::function<void(const TKey, const PropertyValue &)> handler,
-              std::function<void()> finish = {}) const {
-    if (handler)
-      for (const auto &prop : props_) handler(prop.first, prop.second);
-
-    if (finish) finish();
-  }
-
  private:
   std::vector<std::pair<TKey, PropertyValue>> props_;
 };

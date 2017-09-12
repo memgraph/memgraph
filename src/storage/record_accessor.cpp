@@ -34,15 +34,6 @@ const PropertyValueStore<GraphDbTypes::Property>
 }
 
 template <typename TRecord>
-void RecordAccessor<TRecord>::PropertiesAccept(
-    std::function<void(const GraphDbTypes::Property key,
-                       const PropertyValue &prop)>
-        handler,
-    std::function<void()> finish) const {
-  current().properties_.Accept(handler, finish);
-}
-
-template <typename TRecord>
 GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
   return *db_accessor_;
 }

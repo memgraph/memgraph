@@ -104,32 +104,6 @@ TEST(PropertyValueStore, Size) {
   EXPECT_EQ(props.size(), 100);
 }
 
-TEST(PropertyValueStore, Accept) {
-  int count_props = 0;
-  int count_finish = 0;
-
-  auto handler = [&](const uint32_t, const PropertyValue &) {
-    count_props += 1;
-  };
-  auto finish = [&]() { count_finish += 1; };
-
-  PropertyValueStore<uint32_t> props;
-  props.Accept(handler, finish);
-  EXPECT_EQ(count_props, 0);
-  EXPECT_EQ(count_finish, 1);
-
-  props.Accept(handler);
-  EXPECT_EQ(count_props, 0);
-  EXPECT_EQ(count_finish, 1);
-
-  props.set(0, 20);
-  props.set(1, "bla");
-
-  props.Accept(handler, finish);
-  EXPECT_EQ(count_props, 2);
-  EXPECT_EQ(count_finish, 2);
-}
-
 TEST(PropertyValueStore, InsertRetrieveList) {
   PropertyValueStore<> props;
   props.set(0, std::vector<PropertyValue>{1, true, 2.5, "something",
