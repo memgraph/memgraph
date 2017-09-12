@@ -1626,10 +1626,11 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame,
   // cache all the input
   if (!pulled_all_input_) {
     while (input_cursor_->Pull(frame, symbol_table)) {
-      cache_.emplace_back();
-      auto &row = cache_.back();
+      std::vector<TypedValue> row;
+      row.reserve(self_.symbols_.size());
       for (const Symbol &symbol : self_.symbols_)
         row.emplace_back(frame[symbol]);
+      cache_.emplace_back(std::move(row));
     }
     pulled_all_input_ = true;
     cache_it_ = cache_.begin();
@@ -1752,8 +1753,8 @@ void Aggregate::AggregateCursor::ProcessAll(Frame &frame,
 void Aggregate::AggregateCursor::ProcessOne(Frame &frame,
                                             const SymbolTable &symbol_table,
                                             ExpressionEvaluator &evaluator) {
-  // create the group-by list of values
-  std::list<TypedValue> group_by;
+  std::vector<TypedValue> group_by;
+  group_by.reserve(self_.group_by_.size());
   for (Expression *expression : self_.group_by_) {
     group_by.emplace_back(expression->Accept(evaluator));
   }
@@ -1922,8 +1923,12 @@ void Aggregate::AggregateCursor::EnsureOkForAvgSum(
   }
 }
 
-bool TypedValueListEqual::operator()(const std::list<TypedValue> &left,
-                                     const std::list<TypedValue> &right) const {
+bool TypedValueVectorEqual::operator()(
+    const std::vector<TypedValue> &left,
+    const std::vector<TypedValue> &right) const {
+  debug_assert(left.size() == right.size(),
+               "TypedValueVector comparison should only be done over vectors "
+               "of the same size");
   return std::equal(left.begin(), left.end(), right.begin(),
                     TypedValue::BoolEqual{});
 }
@@ -2367,7 +2372,8 @@ bool Distinct::DistinctCursor::Pull(Frame &frame,
   while (true) {
     if (!input_cursor_->Pull(frame, symbol_table)) return false;
 
-    std::list<TypedValue> row;
+    std::vector<TypedValue> row;
+    row.reserve(self_.value_symbols_.size());
     for (const auto &symbol : self_.value_symbols_)
       row.emplace_back(frame[symbol]);
     if (seen_rows_.insert(std::move(row)).second) return true;

@@ -1109,19 +1109,19 @@ class Accumulate : public LogicalOperator {
     const Accumulate &self_;
     GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
-    std::list<std::list<TypedValue>> cache_;
+    std::vector<std::vector<TypedValue>> cache_;
     decltype(cache_.begin()) cache_it_ = cache_.begin();
     bool pulled_all_input_{false};
   };
 };
 
 /**
- * Custom equality function for a list of typed values.
+ * Custom equality function for a vector of typed values.
  * Used in unordered_maps in Aggregate and Distinct operators.
  */
-struct TypedValueListEqual {
-  bool operator()(const std::list<TypedValue> &left,
-                  const std::list<TypedValue> &right) const;
+struct TypedValueVectorEqual {
+  bool operator()(const std::vector<TypedValue> &left,
+                  const std::vector<TypedValue> &right) const;
 };
 
 /** @brief Performs an arbitrary number of aggregations of data
@@ -1194,14 +1194,14 @@ class Aggregate : public LogicalOperator {
     GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
     // storage for aggregated data
-    // map key is the list of group-by values
+    // map key is the vector of group-by values
     // map value is an AggregationValue struct
     std::unordered_map<
-        std::list<TypedValue>, AggregationValue,
-        // use FNV collection hashing specialized for a list of TypedValues
-        FnvCollection<std::list<TypedValue>, TypedValue, TypedValue::Hash>,
+        std::vector<TypedValue>, AggregationValue,
+        // use FNV collection hashing specialized for a vector of TypedValues
+        FnvCollection<std::vector<TypedValue>, TypedValue, TypedValue::Hash>,
         // custom equality
-        TypedValueListEqual>
+        TypedValueVectorEqual>
         aggregation_;
     // iterator over the accumulated cache
     decltype(aggregation_.begin()) aggregation_it_ = aggregation_.begin();
@@ -1393,8 +1393,8 @@ class OrderBy : public LogicalOperator {
     const std::unique_ptr<Cursor> input_cursor_;
     bool did_pull_all_{false};
     // a cache of elements pulled from the input
-    // first pair element is the order-by list
-    // second pair is the remember list
+    // first pair element is the order-by vector
+    // second pair is the remember vector
     // the cache is filled and sorted (only on first pair elem) on first Pull
     std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>>
         cache_;
@@ -1566,10 +1566,10 @@ class Distinct : public LogicalOperator {
     const std::unique_ptr<Cursor> input_cursor_;
     // a set of already seen rows
     std::unordered_set<
-        std::list<TypedValue>,
-        // use FNV collection hashing specialized for a list of TypedValues
-        FnvCollection<std::list<TypedValue>, TypedValue, TypedValue::Hash>,
-        TypedValueListEqual>
+        std::vector<TypedValue>,
+        // use FNV collection hashing specialized for a vector of TypedValues
+        FnvCollection<std::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+        TypedValueVectorEqual>
         seen_rows_;
   };
 };
