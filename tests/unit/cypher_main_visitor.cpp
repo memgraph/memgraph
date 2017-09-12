@@ -1493,7 +1493,7 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
 
 TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   TypeParam ast_generator(
-      "MATCH (n) -bfs[r](e, n|e.prop = 42, 10)-> (m) RETURN r");
+      "MATCH (n) -bfs[r:type1|type2](e, n|e.prop = 42, 10)-> (m) RETURN r");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -1503,6 +1503,10 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   auto *bfs = dynamic_cast<BreadthFirstAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(bfs);
   EXPECT_EQ(bfs->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(
+      bfs->edge_types_,
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   EXPECT_EQ(bfs->identifier_->name_, "r");
   EXPECT_EQ(bfs->traversed_edge_identifier_->name_, "e");
   EXPECT_EQ(bfs->next_node_identifier_->name_, "n");

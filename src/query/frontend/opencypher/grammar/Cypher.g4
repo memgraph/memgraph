@@ -123,7 +123,7 @@ relationshipPattern : ( leftArrowHead SP? dash SP? ( bfsDetail | relationshipDet
                     | ( dash SP? ( bfsDetail | relationshipDetail )? SP? dash )
                     ;
 
-bfsDetail : BFS SP? ( '[' SP? ( bfs_variable=variable SP? )? ']' )? SP? '(' SP? traversed_edge=variable SP? ',' SP? next_node=variable SP? '|' SP? expression SP? ',' SP? expression SP? ')' ;
+bfsDetail : BFS SP? ( '[' SP? ( bfs_variable=variable SP? )? ( relationshipTypes SP? )? SP? ']' )? SP? '(' SP? traversed_edge=variable SP? ',' SP? next_node=variable SP? '|' SP? expression SP? ',' SP? expression SP? ')' ;
 
 relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? properties SP? ']'
                    | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? ( properties SP? )? ']'

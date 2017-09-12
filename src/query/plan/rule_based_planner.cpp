@@ -132,15 +132,6 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols,
   return true;
 }
 
-template <class TBoolOperator>
-Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
-                     Expression *expr2) {
-  if (expr1 && expr2) {
-    return storage.Create<TBoolOperator>(expr1, expr2);
-  }
-  return expr1 ? expr1 : expr2;
-}
-
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
 //
@@ -615,8 +606,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
        filters_it != all_filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it) &&
         predicate(*filters_it)) {
-      filter_expr = BoolJoin<FilterAndOperator>(storage, filter_expr,
-                                                filters_it->expression);
+      filter_expr = impl::BoolJoin<FilterAndOperator>(storage, filter_expr,
+                                                      filters_it->expression);
       filters_it = all_filters.erase(filters_it);
     } else {
       filters_it++;
@@ -637,13 +628,13 @@ bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
   return insertion.second;
 }
 
-Expression *FindExpandVariableFilter(
+Expression *ExtractMultiExpandFilter(
     const std::unordered_set<Symbol> &bound_symbols,
     const Symbol &expands_to_node,
     std::vector<Filters::FilterInfo> &all_filters, AstTreeStorage &storage) {
   return ExtractFilters(bound_symbols, all_filters, storage,
                         [&](const auto &filter) {
-                          return filter.is_for_expand_variable &&
+                          return filter.is_for_multi_expand &&
                                  filter.used_symbols.find(expands_to_node) ==
                                      filter.used_symbols.end();
                         });
@@ -864,6 +855,10 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                                     AstTreeStorage &storage) {
   UsedSymbolsCollector collector(symbol_table);
   auto add_properties_filter = [&](auto *atom, bool is_variable_path = false) {
+    debug_assert(
+        dynamic_cast<BreadthFirstAtom *>(atom) && atom->properties_.empty() ||
+            !dynamic_cast<BreadthFirstAtom *>(atom),
+        "Property filters are not supported in BFS");
     const auto &symbol = symbol_table.at(*atom->identifier_);
     for (auto &prop_pair : atom->properties_) {
       collector.symbols_.clear();
@@ -923,6 +918,14 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         all_filters_.emplace_back(FilterInfo{
             storage.Create<All>(ident_in_all, edge->identifier_,
                                 storage.Create<Where>(edge_type_test)),
+            std::unordered_set<Symbol>{edge_symbol}, true});
+      } else if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge)) {
+        // BFS filters will be inlined inside the filter expression, so create
+        // EdgeTypeTest which relies on traversed edge identifier. Set of
+        // used symbols treats this as the original edge symbol.
+        all_filters_.emplace_back(FilterInfo{
+            storage.Create<EdgeTypeTest>(bf_atom->traversed_edge_identifier_,
+                                         bf_atom->edge_types_),
             std::unordered_set<Symbol>{edge_symbol}, true});
       } else {
         all_filters_.emplace_back(FilterInfo{

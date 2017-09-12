@@ -160,7 +160,7 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
 
 TEST_F(QueryCostEstimator, ExpandBreadthFirst) {
   MakeOp<ExpandBreadthFirst>(
-      NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, Literal(3),
+      NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN, nullptr, Literal(3),
       NextSymbol(), NextSymbol(), Literal(true), last_op_, NextSymbol(), false);
   EXPECT_COST(CardParam::kExpandBreadthFirst * CostParam::kExpandBreadthFirst);
 }

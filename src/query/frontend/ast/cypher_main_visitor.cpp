@@ -428,6 +428,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge);
     std::string traversed_edge_variable =
         ctx->bfsDetail()->traversed_edge->accept(this);
+    if (ctx->bfsDetail()->relationshipTypes()) {
+      bf_atom->edge_types_ = ctx->bfsDetail()
+                                 ->relationshipTypes()
+                                 ->accept(this)
+                                 .as<std::vector<GraphDbTypes::EdgeType>>();
+    }
     bf_atom->traversed_edge_identifier_ =
         storage_.Create<Identifier>(traversed_edge_variable);
     std::string next_node_variable = ctx->bfsDetail()->next_node->accept(this);

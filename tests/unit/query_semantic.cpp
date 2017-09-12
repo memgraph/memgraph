@@ -1019,6 +1019,7 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
   auto *bfs =
       storage.Create<BreadthFirstAtom>(IDENT("r"), EdgeAtom::Direction::OUT,
+                                       std::vector<GraphDbTypes::EdgeType>{},
                                        IDENT("r"), IDENT("n"), r_prop, n_prop);
   auto *ret_r = IDENT("r");
   auto *query =
@@ -1043,7 +1044,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
   // Test MATCH (n) -bfs[r](e, n | r, 10)-> (m) RETURN r
   AstTreeStorage storage;
   auto *bfs = storage.Create<BreadthFirstAtom>(
-      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("r"),
+      IDENT("r"), EdgeAtom::Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{}, IDENT("e"), IDENT("n"), IDENT("r"),
       LITERAL(10));
   auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;
@@ -1056,7 +1058,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
   AstTreeStorage storage;
   auto *node_a = NODE("a");
   auto *bfs = storage.Create<BreadthFirstAtom>(
-      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("a"),
+      IDENT("r"), EdgeAtom::Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{}, IDENT("e"), IDENT("n"), IDENT("a"),
       LITERAL(10));
   auto *query = QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;
@@ -1070,7 +1073,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   // Test MATCH (n) -bfs[r](e, n | m, 10)-> (m) RETURN r
   AstTreeStorage storage;
   auto *bfs = storage.Create<BreadthFirstAtom>(
-      IDENT("r"), EdgeAtom::Direction::OUT, IDENT("e"), IDENT("n"), IDENT("m"),
+      IDENT("r"), EdgeAtom::Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{}, IDENT("e"), IDENT("n"), IDENT("m"),
       LITERAL(10));
   auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;

@@ -1,5 +1,5 @@
 MATCH (person1:Person {id:"17592186055119"}), (person2:Person {id:"8796093025131"})
-OPTIONAL MATCH (person1)-bfs[r](a, b | type(a) = "KNOWS", 15)-(person2)
+OPTIONAL MATCH (person1)-bfs[r:KNOWS](a, b | true , 15)-(person2)
 RETURN
 CASE r IS NULL
   WHEN true THEN -1

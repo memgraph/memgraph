@@ -51,8 +51,9 @@ class Filters {
     /// Set of used symbols by the filter @c expression.
     std::unordered_set<Symbol> used_symbols;
     /// True if the filter is to be applied on multiple expanding edges.
-    /// This is used to inline filtering in an @c ExpandVariable operator.
-    bool is_for_expand_variable = false;
+    /// This is used to inline filtering in an @c ExpandVariable and
+    /// @c ExpandBreadthFirst operators.
+    bool is_for_multi_expand = false;
   };
 
   /// List of FilterInfo objects corresponding to all filter expressions that
@@ -220,7 +221,7 @@ bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
 // `all_filters`. If the expression uses `expands_to_node`, it is skipped. In
 // such a case, we cannot cut variable expand short, since filtering may be
 // satisfied by a node deeper in the path.
-Expression *FindExpandVariableFilter(
+Expression *ExtractMultiExpandFilter(
     const std::unordered_set<Symbol> &bound_symbols,
     const Symbol &expands_to_node,
     std::vector<Filters::FilterInfo> &all_filters, AstTreeStorage &storage);
@@ -248,6 +249,15 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
                          SymbolTable &symbol_table, bool is_write,
                          std::unordered_set<Symbol> &bound_symbols,
                          AstTreeStorage &storage);
+
+template <class TBoolOperator>
+Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
+                     Expression *expr2) {
+  if (expr1 && expr2) {
+    return storage.Create<TBoolOperator>(expr1, expr2);
+  }
+  return expr1 ? expr1 : expr2;
+}
 
 }  // namespace impl
 
@@ -522,14 +532,18 @@ class RuleBasedPlanner {
               symbol_table.at(*bf_atom->traversed_edge_identifier_);
           const auto &next_node_symbol =
               symbol_table.at(*bf_atom->next_node_identifier_);
+          // Inline BFS edge filtering together with its filter expression.
+          auto *filter_expr = impl::BoolJoin<FilterAndOperator>(
+              storage, impl::ExtractMultiExpandFilter(
+                           bound_symbols, node_symbol, all_filters, storage),
+              bf_atom->filter_expression_);
           last_op = new ExpandBreadthFirst(
-              node_symbol, edge_symbol, expansion.direction,
+              node_symbol, edge_symbol, expansion.direction, edge_type,
               bf_atom->max_depth_, next_node_symbol, traversed_edge_symbol,
-              bf_atom->filter_expression_,
-              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              existing_node, match_context.graph_view);
+              filter_expr, std::shared_ptr<LogicalOperator>(last_op),
+              node1_symbol, existing_node, match_context.graph_view);
         } else if (expansion.edge->has_range_) {
-          auto *filter_expr = impl::FindExpandVariableFilter(
+          auto *filter_expr = impl::ExtractMultiExpandFilter(
               bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, expansion.direction, edge_type,

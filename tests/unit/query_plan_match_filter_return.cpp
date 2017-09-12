@@ -353,10 +353,9 @@ class QueryPlanExpandVariable : public testing::Test {
       GraphView graph_view = GraphView::AS_IS, bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
-        storage.Create<query::LabelsTest>(
-            n_from.node_->identifier_,
-            std::vector<GraphDbTypes::Label>{labels[layer]}));
+        n_from.op_, storage.Create<query::LabelsTest>(
+                        n_from.node_->identifier_,
+                        std::vector<GraphDbTypes::Label>{labels[layer]}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -697,9 +696,9 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
                         : symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     last_op = std::make_shared<ExpandBreadthFirst>(
-        node_sym, edge_list_sym, direction, LITERAL(max_depth), inner_node,
-        inner_edge, where, last_op, n.sym_, existing_node_input != nullptr,
-        graph_view);
+        node_sym, edge_list_sym, direction, nullptr, LITERAL(max_depth),
+        inner_node, inner_edge, where, last_op, n.sym_,
+        existing_node_input != nullptr, graph_view);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(*dba);

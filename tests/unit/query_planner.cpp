@@ -1297,11 +1297,15 @@ TEST(TestLogicalPlanner, UnwindMatchVariable) {
 }
 
 TEST(TestLogicalPlanner, MatchBreadthFirst) {
-  // Test MATCH (n) -bfs[r](r, n|n, 10)-> (m) RETURN r
+  // Test MATCH (n) -bfs[r:type](r, n|n, 10)-> (m) RETURN r
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto edge_type = dba->EdgeType("type");
   AstTreeStorage storage;
   auto *bfs = storage.Create<query::BreadthFirstAtom>(
-      IDENT("r"), Direction::OUT, IDENT("r"), IDENT("n"), IDENT("n"),
-      LITERAL(10));
+      IDENT("r"), Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{edge_type}, IDENT("r"), IDENT("n"),
+      IDENT("n"), LITERAL(10));
   QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
             ExpectProduce());

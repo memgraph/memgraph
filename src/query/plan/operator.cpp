@@ -967,12 +967,14 @@ std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) {
 
 ExpandBreadthFirst::ExpandBreadthFirst(
     Symbol node_symbol, Symbol edge_list_symbol, EdgeAtom::Direction direction,
-    Expression *max_depth, Symbol inner_node_symbol, Symbol inner_edge_symbol,
-    Expression *where, const std::shared_ptr<LogicalOperator> &input,
-    Symbol input_symbol, bool existing_node, GraphView graph_view)
+    const GraphDbTypes::EdgeType &edge_type, Expression *max_depth,
+    Symbol inner_node_symbol, Symbol inner_edge_symbol, Expression *where,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_list_symbol_(edge_list_symbol),
       direction_(direction),
+      edge_type_(edge_type),
       max_depth_(max_depth),
       inner_node_symbol_(inner_node_symbol),
       inner_edge_symbol_(inner_edge_symbol),
@@ -1032,12 +1034,24 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame,
   // from the given vertex. skips expansions that don't satisfy
   // the "where" condition.
   auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
-    if (self_.direction_ != EdgeAtom::Direction::IN)
-      for (const EdgeAccessor &edge : vertex.out())
-        expand_pair(edge, edge.to());
-    if (self_.direction_ != EdgeAtom::Direction::OUT)
-      for (const EdgeAccessor &edge : vertex.in())
-        expand_pair(edge, edge.from());
+    if (self_.direction_ != EdgeAtom::Direction::IN) {
+      if (self_.edge_type_) {
+        for (const EdgeAccessor &edge : vertex.out_with_type(self_.edge_type_))
+          expand_pair(edge, edge.to());
+      } else {
+        for (const EdgeAccessor &edge : vertex.out())
+          expand_pair(edge, edge.to());
+      }
+    }
+    if (self_.direction_ != EdgeAtom::Direction::OUT) {
+      if (self_.edge_type_) {
+        for (const EdgeAccessor &edge : vertex.in_with_type(self_.edge_type_))
+          expand_pair(edge, edge.from());
+      } else {
+        for (const EdgeAccessor &edge : vertex.in())
+          expand_pair(edge, edge.from());
+      }
+    }
   };
 
   // do it all in a loop because we skip some elements

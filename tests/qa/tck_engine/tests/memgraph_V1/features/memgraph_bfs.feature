@@ -43,3 +43,33 @@ Feature: Bfs
       Then the result should be:
           | s | r0 | r2 |
           | 4 | 0  | 2  |
+
+  Scenario: Test match BFS single edge type filtered
+      Given an empty graph
+      And having executed:
+          """
+          CREATE ()-[:r0 {id: 0}]->()-[:r1 {id: 1}]->()-[:r2 {id: 2}]->()-[:r3 {id: 3}]->()
+          """
+      When executing query:
+          """
+          MATCH ()-bfs[r :r0](e, m| true, 10)->(m)
+          RETURN size(r) AS s, (r[0]).id AS r0
+          """
+      Then the result should be:
+          | s | r0 |
+          | 1 | 0  |
+
+  Scenario: Test match BFS multiple edge types filtered
+      Given an empty graph
+      And having executed:
+          """
+          CREATE ()-[:r0 {id: 0}]->()-[:r1 {id: 1}]->()-[:r2 {id: 2}]->()-[:r3 {id: 3}]->()
+          """
+      When executing query:
+          """
+          MATCH ()-bfs[r :r0|:r1](e, m| true, 10)->(m) WHERE size(r) > 1
+          RETURN size(r) AS s, (r[0]).id AS r0, (r[1]).id AS r1
+          """
+      Then the result should be:
+          | s | r0 | r1 |
+          | 2 | 0  | 1  |

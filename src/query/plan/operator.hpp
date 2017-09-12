@@ -663,9 +663,10 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
 class ExpandBreadthFirst : public LogicalOperator {
  public:
   ExpandBreadthFirst(Symbol node_symbol, Symbol edge_list_symbol,
-                     EdgeAtom::Direction direction, Expression *max_depth,
-                     Symbol inner_node_symbol, Symbol inner_edge_symbol,
-                     Expression *where,
+                     EdgeAtom::Direction direction,
+                     const GraphDbTypes::EdgeType &edge_type,
+                     Expression *max_depth, Symbol inner_node_symbol,
+                     Symbol inner_edge_symbol, Expression *where,
                      const std::shared_ptr<LogicalOperator> &input,
                      Symbol input_symbol, bool existing_node,
                      GraphView graph_view = GraphView::AS_IS);
@@ -705,6 +706,7 @@ class ExpandBreadthFirst : public LogicalOperator {
   const Symbol edge_list_symbol_;
 
   const EdgeAtom::Direction direction_;
+  const GraphDbTypes::EdgeType edge_type_ = nullptr;
   Expression *max_depth_;
 
   // symbols for a single node and edge that are currently getting expanded
@@ -1394,7 +1396,8 @@ class OrderBy : public LogicalOperator {
     // first pair element is the order-by list
     // second pair is the remember list
     // the cache is filled and sorted (only on first pair elem) on first Pull
-    std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>> cache_;
+    std::vector<std::pair<std::vector<TypedValue>, std::vector<TypedValue>>>
+        cache_;
     // iterator over the cache_, maintains state between Pulls
     decltype(cache_.begin()) cache_it_ = cache_.begin();
   };

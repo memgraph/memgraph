@@ -1044,10 +1044,16 @@ class EdgeAtom : public PatternAtom {
   using PatternAtom::PatternAtom;
   EdgeAtom(int uid, Identifier *identifier, Direction direction)
       : PatternAtom(uid, identifier), direction_(direction) {}
+  EdgeAtom(int uid, Identifier *identifier, Direction direction,
+           const std::vector<GraphDbTypes::EdgeType> &edge_types)
+      : PatternAtom(uid, identifier),
+        direction_(direction),
+        edge_types_(edge_types) {}
 };
 
 class BreadthFirstAtom : public EdgeAtom {
-  // TODO: Reconsider inheriting from EdgeAtom, since only `direction_` is used.
+  // TODO: Reconsider inheriting from EdgeAtom, since only `direction_` and
+  // `edge_types_` are used.
   friend class AstTreeStorage;
 
  public:
@@ -1064,7 +1070,7 @@ class BreadthFirstAtom : public EdgeAtom {
 
   BreadthFirstAtom *Clone(AstTreeStorage &storage) const override {
     return storage.Create<BreadthFirstAtom>(
-        identifier_->Clone(storage), direction_,
+        identifier_->Clone(storage), direction_, edge_types_,
         traversed_edge_identifier_->Clone(storage),
         next_node_identifier_->Clone(storage),
         filter_expression_->Clone(storage), max_depth_->Clone(storage));
@@ -1079,10 +1085,11 @@ class BreadthFirstAtom : public EdgeAtom {
  protected:
   using EdgeAtom::EdgeAtom;
   BreadthFirstAtom(int uid, Identifier *identifier, Direction direction,
+                   const std::vector<GraphDbTypes::EdgeType> &edge_types,
                    Identifier *traversed_edge_identifier,
                    Identifier *next_node_identifier,
                    Expression *filter_expression, Expression *max_depth)
-      : EdgeAtom(uid, identifier, direction),
+      : EdgeAtom(uid, identifier, direction, edge_types),
         traversed_edge_identifier_(traversed_edge_identifier),
         next_node_identifier_(next_node_identifier),
         filter_expression_(filter_expression),
