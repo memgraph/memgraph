@@ -63,12 +63,16 @@ def main():
             print(";")
     print("MATCH (n) RETURN assert(count(n) = %d);" % VERTEX_COUNT)
 
-    # create edges
+    # create edges stohastically
+    attempts = VERTEX_COUNT ** 2
+    p = EDGE_COUNT / VERTEX_COUNT ** 2
     print("MATCH (a) WITH a MATCH (b) WITH a, b WHERE rand() < %f "
-          " CREATE (a)-[:EdgeType]->(b);" % (EDGE_COUNT / VERTEX_COUNT ** 2))
+          " CREATE (a)-[:EdgeType]->(b);" % p)
+    sigma = (attempts * p * (1 - p)) ** 0.5
+    delta = 5 * sigma
     print("MATCH (n)-[r]->() WITH count(r) AS c "
           "RETURN assert(c >= %d AND c <= %d);" % (
-            EDGE_COUNT * 0.98, EDGE_COUNT * 1.02))
+            EDGE_COUNT - delta, EDGE_COUNT + delta))
 
 
 if __name__ == "__main__":
