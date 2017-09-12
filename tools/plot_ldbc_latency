@@ -40,6 +40,8 @@ def parse_args():
                                            "/ldbc/results"),
                       help="Path to the folder with result files in format "
                            "{{vendor-reference}}-LDBC-results.json")
+    argp.add_argument("--max-label-width", default=11, type=int,
+                      help="Maximum length of the x-axis labels (-1 is unlimited)")
     return argp.parse_args()
 
 
@@ -100,13 +102,18 @@ def main():
     ax.set_xticks(ind + width / len(vendors))  # TODO: adjust (more vendors)
 
     def shorten_query_name(query_name):
-        # IMPORTANT! Long query names on the XAxis don't look compelling.
+        # Long query names on the x-axis don't look compelling.
         if query_name.lower().startswith('ldbc'):
             query_name = query_name[4:]
-        if len(query_name) > 10:
-            query_name = query_name[:10] + '\N{HORIZONTAL ELLIPSIS}'
+        if len(query_name) > args.max_label_width:
+            query_name = query_name[:args.max_label_width] + '\N{HORIZONTAL ELLIPSIS}'
         return query_name
-    ax.set_xticklabels(map(shorten_query_name, query_names), rotation=30)
+    labels = query_names
+    if args.max_label_width == 0:
+        labels = ["Q{}".format(i) for i, _ in enumerate(query_names)]
+    elif args.max_label_width > 0:
+        labels = map(shorten_query_name, query_names)
+    ax.set_xticklabels(labels, rotation=30)
     # set only horizontal grid lines
     for line in ax.get_xgridlines():
         line.set_linestyle(' ')
