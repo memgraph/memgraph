@@ -12,6 +12,7 @@
 #include <glog/logging.h>
 #include <json/json.hpp>
 
+#include "bolt_client.hpp"
 #include "common.hpp"
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
@@ -23,9 +24,6 @@
 #include "utils/assert.hpp"
 #include "utils/timer.hpp"
 
-using SocketT = io::network::Socket;
-using EndpointT = io::network::NetworkEndpoint;
-using Client = communication::bolt::Client<SocketT>;
 using communication::bolt::DecodedValue;
 using communication::bolt::DecodedVertex;
 using communication::bolt::DecodedEdge;
@@ -39,7 +37,6 @@ DEFINE_string(password, "", "Password for the database");
 DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
 
 const int MAX_RETRIES = 30;
-const int NUM_BUCKETS = 100;
 
 struct VertexAndEdges {
   DecodedVertex vertex;
@@ -47,16 +44,22 @@ struct VertexAndEdges {
   std::vector<DecodedVertex> vertices;
 };
 
-std::pair<VertexAndEdges, int> DetachDeleteVertex(Client &client,
+std::pair<VertexAndEdges, int> DetachDeleteVertex(BoltClient &client,
                                                   const std::string &label,
                                                   int64_t id) {
+  auto vertex_record =
+      ExecuteNTimesTillSuccess(
+          client, "MATCH (n :" + label + " {id : $id}) RETURN n",
+          std::map<std::string, DecodedValue>{{"id", id}}, MAX_RETRIES)
+          .records;
+  CHECK(vertex_record.size() == 1U) << "id : " << id << " "
+                                    << vertex_record.size();
+
   auto records =
       ExecuteNTimesTillSuccess(
           client, "MATCH (n :" + label + " {id : $id})-[e]-(m) RETURN n, e, m",
           std::map<std::string, DecodedValue>{{"id", id}}, MAX_RETRIES)
           .records;
-
-  if (records.size() == 0U) return {{}, 1};
 
   ExecuteNTimesTillSuccess(
       client, "MATCH (n :" + label + " {id : $id})-[]-(m) DETACH DELETE n",
@@ -74,10 +77,11 @@ std::pair<VertexAndEdges, int> DetachDeleteVertex(Client &client,
     vertices.push_back(record[2].ValueVertex());
   }
 
-  return {{records[0][0].ValueVertex(), edges, vertices}, 2};
+  return {{vertex_record[0][0].ValueVertex(), edges, vertices}, 3};
 }
 
-int ReturnVertexAndEdges(Client &client, const VertexAndEdges &vertex_and_edges,
+int ReturnVertexAndEdges(BoltClient &client,
+                         const VertexAndEdges &vertex_and_edges,
                          const std::string &independent_label) {
   int num_queries = 0;
   {
@@ -134,11 +138,33 @@ int ReturnVertexAndEdges(Client &client, const VertexAndEdges &vertex_and_edges,
     if (x.type() == DecodedValue::Type::Double) {
       LOG_EVERY_N(INFO, 5000) << "exec " << x.ValueDouble() << " planning "
                               << y.ValueDouble();
-      CHECK(ret.records.size() == 1U) << "Graph in invalid state";
     }
+    CHECK(ret.records.size() == 1U)
+        << "Graph in invalid state "
+        << vertex_and_edges.vertex.properties.at("id");
     ++num_queries;
   }
   return num_queries;
+}
+
+int64_t NumNodes(BoltClient &client, const std::string &label) {
+  auto result = ExecuteNTimesTillSuccess(
+      client, "MATCH (n :" + label + ") RETURN COUNT(n) as cnt", {},
+      MAX_RETRIES);
+  return result.records[0][0].ValueInt();
+}
+
+std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
+                                int64_t id) {
+  auto result = ExecuteNTimesTillSuccess(
+      client, "MATCH (n :" + label + " {id: " + std::to_string(id) +
+                  "})-[e]-(m) RETURN m.id",
+      {}, MAX_RETRIES);
+  std::vector<int64_t> ret;
+  for (const auto &record : result.records) {
+    ret.push_back(record[0].ValueInt());
+  }
+  return ret;
 }
 
 int main(int argc, char **argv) {
@@ -149,40 +175,60 @@ int main(int argc, char **argv) {
   std::cin >> config;
   const auto &queries = config["queries"];
   const double read_probability = config["read_probability"];
-  const int64_t num_independent_nodes = config["num_independent_nodes"];
   const std::string independent_label = config["independent_label"];
-  const int64_t num_nodes = config["num_nodes"];
+  std::vector<int64_t> independent_nodes_ids;
+
+  BoltClient client(FLAGS_address, FLAGS_port, FLAGS_username, FLAGS_password);
+  const int64_t num_nodes = NumNodes(client, independent_label);
+  {
+    std::vector<int64_t> ids;
+    std::unordered_set<int64_t> independent;
+    for (int64_t i = 1; i <= num_nodes; ++i) {
+      ids.push_back(i);
+      independent.insert(i);
+    }
+    {
+      std::mt19937 mt;
+      std::shuffle(ids.begin(), ids.end(), mt);
+    }
+
+    for (auto i : ids) {
+      if (independent.find(i) == independent.end()) continue;
+      independent.erase(i);
+      std::vector<int64_t> neighbour_ids =
+          Neighbours(client, independent_label, i);
+      independent_nodes_ids.push_back(i);
+      for (auto j : neighbour_ids) {
+        independent.erase(j);
+      }
+    }
+  }
 
   utils::Timer timer;
   std::vector<std::thread> threads;
   std::atomic<int64_t> executed_queries{0};
   std::atomic<bool> keep_running{true};
 
+  LOG(INFO) << "nodes " << num_nodes << " independent "
+            << independent_nodes_ids.size();
+
+  int64_t next_to_assign = 0;
   for (int i = 0; i < FLAGS_num_workers; ++i) {
+    int64_t size = independent_nodes_ids.size();
+    int64_t next_next_to_assign = next_to_assign + size / FLAGS_num_workers +
+                                  (i < size % FLAGS_num_workers);
+    std::vector<int64_t> to_remove(
+        independent_nodes_ids.begin() + next_to_assign,
+        independent_nodes_ids.begin() + next_next_to_assign);
+    LOG(INFO) << next_to_assign << " " << next_next_to_assign;
+    next_to_assign = next_next_to_assign;
+
     threads.emplace_back(
-        [&](int thread_id) {
-          // Initialise client.
-          SocketT socket;
-          EndpointT endpoint;
-          try {
-            endpoint = EndpointT(FLAGS_address, FLAGS_port);
-          } catch (const io::network::NetworkEndpointException &e) {
-            LOG(FATAL) << "Invalid address or port: " << FLAGS_address << ":"
-                       << FLAGS_port;
-          }
-          if (!socket.Connect(endpoint)) {
-            LOG(FATAL) << "Could not connect to: " << FLAGS_address << ":"
-                       << FLAGS_port;
-          }
-          Client client(std::move(socket), FLAGS_username, FLAGS_password);
+        [&](int thread_id, std::vector<int64_t> to_remove) {
+          BoltClient client(FLAGS_address, FLAGS_port, FLAGS_username,
+                            FLAGS_password);
 
           std::mt19937 random_gen(thread_id);
-          int64_t to_remove =
-              num_independent_nodes / FLAGS_num_workers * thread_id + 1;
-          int64_t last_to_remove =
-              to_remove + num_independent_nodes / FLAGS_num_workers;
-          bool remove = true;
-          int64_t num_shifts = 0;
           std::vector<VertexAndEdges> removed;
 
           while (keep_running) {
@@ -203,40 +249,34 @@ int main(int argc, char **argv) {
                                        MAX_RETRIES);
               ++executed_queries;
             } else {
-              if (!remove) {
+              if (real_dist(random_gen) <
+                  static_cast<double>(removed.size()) /
+                      (removed.size() + to_remove.size())) {
+                CHECK(removed.size());
+                std::uniform_int_distribution<> int_dist(0, removed.size() - 1);
+                std::swap(removed.back(), removed[int_dist(random_gen)]);
                 executed_queries += ReturnVertexAndEdges(client, removed.back(),
                                                          independent_label);
+                to_remove.push_back(
+                    removed.back().vertex.properties["id"].ValueInt());
                 removed.pop_back();
-                if (removed.empty()) {
-                  remove = true;
-                }
               } else {
-                auto ret =
-                    DetachDeleteVertex(client, independent_label, to_remove);
-                ++to_remove;
+                CHECK(to_remove.size());
+                std::uniform_int_distribution<> int_dist(0,
+                                                         to_remove.size() - 1);
+                std::swap(to_remove.back(), to_remove[int_dist(random_gen)]);
+                auto ret = DetachDeleteVertex(client, independent_label,
+                                              to_remove.back());
+                removed.push_back(ret.first);
+                to_remove.pop_back();
                 executed_queries += ret.second;
-                if (ret.second > 1) {
-                  removed.push_back(std::move(ret.first));
-                }
-                if (to_remove == last_to_remove) {
-                  for (auto &x : removed) {
-                    x.vertex.properties["id"].ValueInt() += num_nodes;
-                  }
-                  remove = false;
-                  ++num_shifts;
-                  to_remove =
-                      num_independent_nodes / FLAGS_num_workers * thread_id +
-                      1 + num_shifts * num_nodes;
-                  last_to_remove =
-                      to_remove + num_independent_nodes / FLAGS_num_workers;
-                }
               }
             }
           }
 
           client.Close();
         },
-        i);
+        i, std::move(to_remove));
   }
 
   // Open stream for writing stats.

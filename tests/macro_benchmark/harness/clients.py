@@ -67,8 +67,10 @@ class QueryClient:
                            str(queries), return_code, stderr)
             raise Exception("BoltClient execution failed")
 
+        data = {"groups" : []}
         with open(output) as f:
-            data = json.loads(f.read())
+            for line in f:
+               data["groups"].append(json.loads(line))
         data[CPU_TIME] = cpu_time_end - cpu_time_start
         data[MAX_MEMORY] = usage["max_memory"]
 

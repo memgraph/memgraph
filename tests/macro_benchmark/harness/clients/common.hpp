@@ -70,6 +70,7 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
           std::chrono::milliseconds(rand_dist_(pseudo_rand_gen_)));
     }
   }
+  LOG(WARNING) << query << " failed " << times << "times";
   throw last_exception;
 }
 }

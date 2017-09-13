@@ -91,14 +91,17 @@ class _QuerySuite:
                 execute("itersetup")
                 run_result = execute("run",
                                      scenario_config.get("num_client_workers", 1))
-                add_measurement(run_result, iteration, WALL_TIME)
                 add_measurement(run_result, iteration, CPU_TIME)
                 add_measurement(run_result, iteration, MAX_MEMORY)
+                assert len(run_result["groups"]) == 1, \
+                        "Multiple groups in run step not yet supported"
+                group = run_result["groups"][0]
+                add_measurement(group, iteration, WALL_TIME)
                 for measurement in ["parsing_time",
                                     "plan_execution_time",
                                     "planning_time"] :
-                    for i in range(len(run_result.get("metadatas", []))):
-                        add_measurement(run_result["metadatas"][i], iteration,
+                    for i in range(len(group.get("metadatas", []))):
+                        add_measurement(group["metadatas"][i], iteration,
                                         measurement)
                 execute("iterteardown")
 

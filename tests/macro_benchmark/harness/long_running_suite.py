@@ -24,33 +24,14 @@ class LongRunningSuite:
 
     def run(self, scenario, group_name, scenario_name, runner):
         runner.start()
-        # This suite allows empty lines in setup. Those lines separate query
-        # groups. It is guaranteed that groups will be executed sequentially,
-        # but queries in each group are possibly executed concurrently.
-        query_groups = [[]]
-        for query in scenario.get("setup")():
-            if query == "":
-                query_groups.append([])
-            else:
-                query_groups[-1].append(query)
-        if query_groups[-1] == []:
-            query_groups.pop()
 
-        log.info("Executing {} query groups in setup"
-                .format(len(query_groups)))
-
-        for i, queries in enumerate(query_groups):
-            start_time = time.time()
-            # TODO: number of threads configurable
-            runner.setup(queries, self.args.num_client_workers)
-            log.info("\t{}. group imported in done in {:.2f} seconds".format(
-                i + 1, time.time() - start_time))
+        log.info("Executing setup")
+        runner.setup(scenario.get("setup")(), self.args.num_client_workers)
 
         config = next(scenario.get("config")())
         duration = config["duration"]
         log.info("Executing run for {} seconds with {} client workers".format(
             duration, self.args.num_client_workers))
-        # TODO: number of threads configurable
         results = runner.run(next(scenario.get("run")()), duration,
                 self.args.num_client_workers)
 

@@ -28,8 +28,9 @@ class ClientQueryException : public ClientException {
 
 class Client {
  public:
-  Client(std::string &host, std::string &port, std::string &username,
-         std::string &password, std::string database = "") {
+  Client(const std::string &host, const std::string &port,
+         const std::string &username, const std::string &password,
+         const std::string &database = "") {
     // https://www.postgresql.org/docs/9.4/static/libpq-connect.html#LIBPQ-PARAMKEYWORDS
     std::string pass = "";
     if (password != "") {

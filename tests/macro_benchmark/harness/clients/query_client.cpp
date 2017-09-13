@@ -8,6 +8,7 @@
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/string.hpp"
 #include "utils/timer.hpp"
 
 #include "bolt_client.hpp"
@@ -45,25 +46,20 @@ void PrintSummary(
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
-  os << "}";
+  os << "}\n";
 }
 
-template <typename ClientT, typename ExceptionT>
-void ExecuteQueries(std::istream &istream, int num_workers,
+template <typename ClientT>
+void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
                     std::ostream &ostream, std::string &address,
                     std::string &port, std::string &username,
                     std::string &password, std::string &database) {
-  std::string query;
   std::vector<std::thread> threads;
 
   SpinLock spinlock;
   uint64_t last = 0;
-  std::vector<std::string> queries;
   std::vector<std::map<std::string, DecodedValue>> metadata;
 
-  while (std::getline(istream, query)) {
-    queries.push_back(query);
-  }
   metadata.resize(queries.size());
 
   utils::Timer timer;
@@ -86,7 +82,7 @@ void ExecuteQueries(std::istream &istream, int num_workers,
         try {
           metadata[pos] =
               ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES).metadata;
-        } catch (const ExceptionT &e) {
+        } catch (const utils::BasicException &e) {
           LOG(FATAL) << "Could not execute query '" << str << "' "
                      << MAX_RETRIES << " times! Error message: " << e.what();
         }
@@ -128,27 +124,38 @@ int main(int argc, char **argv) {
   std::string port = FLAGS_port;
   if (FLAGS_protocol == "bolt") {
     if (port == "") port = "7687";
-
-    using BoltClientT = BoltClient;
-    using BoltExceptionT = communication::bolt::ClientQueryException;
-    ExecuteQueries<BoltClientT, BoltExceptionT>(
-        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
-        FLAGS_username, FLAGS_password, FLAGS_database);
   } else if (FLAGS_protocol == "postgres") {
-    LOG(FATAL) << "Postgres not yet supported";
-    // TODO: Currently libpq is linked dynamically so it is a pain to move
-    // harness_client executable to other machines without libpq.
-    //    CHECK(FLAGS_username != "") << "Username can't be empty for
-    //    postgres!";
-    //    CHECK(FLAGS_database != "") << "Database can't be empty for
-    //    postgres!";
-    //    if (port == "") port = "5432";
-    //
-    //    using PostgresClientT = postgres::Client;
-    //    using PostgresExceptionT = postgres::ClientQueryException;
-    //    ExecuteQueries<PostgresClientT, PostgresExceptionT>(
-    //        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
-    //        FLAGS_username, FLAGS_password, FLAGS_database);
+    if (port == "") port = "5432";
+  }
+
+  while (!istream->eof()) {
+    std::vector<std::string> queries;
+    std::string query;
+    while (std::getline(*istream, query) && utils::Trim(query) != "" &&
+           utils::Trim(query) != ";") {
+      queries.push_back(query);
+    }
+
+    if (FLAGS_protocol == "bolt") {
+      ExecuteQueries<BoltClient>(queries, FLAGS_num_workers, *ostream,
+                                 FLAGS_address, port, FLAGS_username,
+                                 FLAGS_password, FLAGS_database);
+    } else if (FLAGS_protocol == "postgres") {
+      LOG(FATAL) << "Postgres not yet supported";
+      // TODO: Currently libpq is linked dynamically so it is a pain to move
+      // harness_client executable to other machines without libpq.
+      //    CHECK(FLAGS_username != "") << "Username can't be empty for
+      //    postgres!";
+      //    CHECK(FLAGS_database != "") << "Database can't be empty for
+      //    postgres!";
+      //    if (port == "") port = "5432";
+      //
+      //    using PostgresClientT = postgres::Client;
+      //    using PostgresExceptionT = postgres::ClientQueryException;
+      //    ExecuteQueries<PostgresClientT, PostgresExceptionT>(
+      //        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
+      //        FLAGS_username, FLAGS_password, FLAGS_database);
+    }
   }
 
   return 0;

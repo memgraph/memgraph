@@ -16,8 +16,9 @@ using communication::bolt::DecodedValue;
 
 class BoltClient {
  public:
-  BoltClient(std::string &address, std::string &port, std::string &username,
-             std::string &password, std::string database = "") {
+  BoltClient(const std::string &address, const std::string &port,
+             const std::string &username, const std::string &password,
+             const std::string & = "") {
     SocketT socket;
     EndpointT endpoint;
 
