@@ -31,7 +31,7 @@ class Base {
   Base(const std::string &query) : query_string_(query) {}
   Dbms dbms_;
   std::unique_ptr<GraphDbAccessor> db_accessor_ = dbms_.active();
-  Context context_{Config{}, *db_accessor_};
+  Context context_{*db_accessor_};
   std::string query_string_;
 
   auto Prop(const std::string &prop_name) {

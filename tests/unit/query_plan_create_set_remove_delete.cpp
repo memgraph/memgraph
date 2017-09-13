@@ -290,7 +290,9 @@ TEST(QueryPlan, Delete) {
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
-    delete_op->MakeCursor(*dba)->Pull(frame, symbol_table);
+    Context context(*dba);
+    context.symbol_table_ = symbol_table;
+    delete_op->MakeCursor(*dba)->Pull(frame, context);
     dba->AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
     EXPECT_EQ(3, CountIterable(dba->Edges(false)));

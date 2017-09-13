@@ -14,6 +14,7 @@ class EdgeTypeTest;
 class Aggregation;
 class Function;
 class All;
+class ParameterLookup;
 class Create;
 class Match;
 class Return;
@@ -71,8 +72,8 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
-using TreeLeafVisitor =
-    ::utils::LeafVisitor<Identifier, PrimitiveLiteral, CreateIndex>;
+using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
+                                             ParameterLookup, CreateIndex>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -92,9 +93,9 @@ using TreeVisitor = ::utils::Visitor<
     GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,
-    Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind,
-    Identifier, PrimitiveLiteral, CreateIndex>;
+    EdgeTypeTest, Aggregation, Function, All, ParameterLookup, Create, Match,
+    Return, With, Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
+    Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
 
 }  // namespace query

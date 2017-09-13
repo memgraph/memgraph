@@ -588,8 +588,7 @@ void ExaminePlans(
 }
 
 query::AstTreeStorage MakeAst(const std::string &query, GraphDbAccessor &dba) {
-  query::Config config;
-  query::Context ctx(config, dba);
+  query::Context ctx(dba);
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
   // AST -> high level tree

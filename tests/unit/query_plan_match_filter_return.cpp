@@ -394,7 +394,9 @@ class QueryPlanExpandVariable : public testing::Test {
     map_int count_per_length;
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(*dba);
-    while (cursor->Pull(frame, symbol_table)) {
+    Context context(*dba);
+    context.symbol_table_ = symbol_table;
+    while (cursor->Pull(frame, context)) {
       auto length = frame[symbol].Value<std::vector<TypedValue>>().size();
       auto found = count_per_length.find(length);
       if (found == count_per_length.end())
@@ -703,7 +705,9 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(*dba);
     std::vector<std::pair<std::vector<EdgeAccessor>, VertexAccessor>> results;
-    while (cursor->Pull(frame, symbol_table)) {
+    Context context(*dba);
+    context.symbol_table_ = symbol_table;
+    while (cursor->Pull(frame, context)) {
       results.emplace_back(std::vector<EdgeAccessor>(),
                            frame[node_sym].Value<VertexAccessor>());
       for (const TypedValue &edge : frame[edge_list_sym].ValueList())

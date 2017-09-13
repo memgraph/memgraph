@@ -19,10 +19,12 @@ namespace query {
 
 class ExpressionEvaluator : public TreeVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame &frame, const SymbolTable &symbol_table,
+  ExpressionEvaluator(Frame &frame, const Parameters &parameters,
+                      const SymbolTable &symbol_table,
                       GraphDbAccessor &db_accessor,
                       GraphView graph_view = GraphView::AS_IS)
       : frame_(frame),
+        parameters_(parameters),
         symbol_table_(symbol_table),
         db_accessor_(db_accessor),
         graph_view_(graph_view) {}
@@ -388,6 +390,10 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return true;
   }
 
+  TypedValue Visit(ParameterLookup &param_lookup) override {
+    return parameters_.AtTokenPosition(param_lookup.token_position_);
+  }
+
  private:
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.
@@ -438,6 +444,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   Frame &frame_;
+  const Parameters &parameters_;
   const SymbolTable &symbol_table_;
   GraphDbAccessor &db_accessor_;
   // which switching approach should be used when evaluating

@@ -42,6 +42,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Expressions
   ReturnType Visit(Identifier &) override;
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  ReturnType Visit(ParameterLookup &) override { return true; }
   bool PreVisit(Aggregation &) override;
   bool PostVisit(Aggregation &) override;
   bool PreVisit(IfOperator &) override;

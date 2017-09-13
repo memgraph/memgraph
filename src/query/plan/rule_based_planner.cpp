@@ -116,6 +116,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(PrimitiveLiteral &) override { return true; }
+  bool Visit(ParameterLookup &) override { return true; }
   bool Visit(query::CreateIndex &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
@@ -376,6 +377,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool Visit(ParameterLookup &) override { return true; }
   bool Visit(query::CreateIndex &) override { return true; }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.

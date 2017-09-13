@@ -31,7 +31,8 @@ struct NoContextExpressionEvaluator {
   SymbolTable symbol_table;
   Dbms dbms;
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
-  ExpressionEvaluator eval{frame, symbol_table, *dba};
+  Parameters parameters;
+  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
@@ -708,7 +709,8 @@ TEST(ExpressionEvaluator, Aggregation) {
   frame[aggr_sym] = TypedValue(1);
   Dbms dbms;
   auto dba = dbms.active();
-  ExpressionEvaluator eval{frame, symbol_table, *dba};
+  Parameters parameters;
+  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
   auto value = aggr->Accept(eval);
   EXPECT_EQ(value.Value<int64_t>(), 1);
 }
@@ -1181,4 +1183,15 @@ TEST(ExpressionEvaluator, FunctionAssert) {
   ASSERT_TRUE(EvaluateFunction("ASSERT", {true}).ValueBool());
   ASSERT_TRUE(EvaluateFunction("ASSERT", {true, "message"}).ValueBool());
 }
+
+TEST(ExpressionEvaluator, ParameterLookup) {
+  NoContextExpressionEvaluator eval;
+  eval.parameters.Add(0, 42);
+  AstTreeStorage storage;
+  auto *param_lookup = storage.Create<ParameterLookup>(0);
+  auto value = param_lookup->Accept(eval.eval);
+  ASSERT_EQ(value.type(), TypedValue::Type::Int);
+  EXPECT_EQ(value.Value<int64_t>(), 42);
 }
+
+}  // namespace

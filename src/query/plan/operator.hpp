@@ -24,8 +24,9 @@
 
 namespace query {
 
-class Frame;
+class Context;
 class ExpressionEvaluator;
+class Frame;
 
 namespace plan {
 
@@ -43,9 +44,10 @@ class Cursor {
    *
    *  @param Frame May be read from or written to while performing the
    *      iteration.
-   *  @param SymbolTable Used to get the position of symbols in frame.
+   *  @param Context Used to get the position of symbols in frame and other
+   * information.
    */
-  virtual bool Pull(Frame &, const SymbolTable &) = 0;
+  virtual bool Pull(Frame &, Context &) = 0;
 
   /**
    * Resets the Cursor to it's initial state.
@@ -156,7 +158,7 @@ class Once : public LogicalOperator {
  private:
   class OnceCursor : public Cursor {
    public:
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -194,7 +196,7 @@ class CreateNode : public LogicalOperator {
   class CreateNodeCursor : public Cursor {
    public:
     CreateNodeCursor(const CreateNode &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -205,7 +207,7 @@ class CreateNode : public LogicalOperator {
     /**
      * Creates a single node and places it in the frame.
      */
-    void Create(Frame &frame, const SymbolTable &symbol_table);
+    void Create(Frame &, Context &);
   };
 };
 
@@ -259,7 +261,7 @@ class CreateExpand : public LogicalOperator {
   class CreateExpandCursor : public Cursor {
    public:
     CreateExpandCursor(const CreateExpand &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -553,7 +555,7 @@ class Expand : public LogicalOperator, public ExpandCommon {
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -569,7 +571,7 @@ class Expand : public LogicalOperator, public ExpandCommon {
     std::experimental::optional<OutEdgeT> out_edges_;
     std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
 
-    bool InitEdges(Frame &frame, const SymbolTable &symbol_table);
+    bool InitEdges(Frame &, Context &);
   };
 };
 
@@ -678,7 +680,7 @@ class ExpandBreadthFirst : public LogicalOperator {
   class Cursor : public query::plan::Cursor {
    public:
     Cursor(const ExpandBreadthFirst &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -751,7 +753,7 @@ class Filter : public LogicalOperator {
   class FilterCursor : public Cursor {
    public:
     FilterCursor(const Filter &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -788,7 +790,7 @@ class Produce : public LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(const Produce &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -822,7 +824,7 @@ class Delete : public LogicalOperator {
   class DeleteCursor : public Cursor {
    public:
     DeleteCursor(const Delete &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -853,7 +855,7 @@ class SetProperty : public LogicalOperator {
   class SetPropertyCursor : public Cursor {
    public:
     SetPropertyCursor(const SetProperty &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -901,7 +903,7 @@ class SetProperties : public LogicalOperator {
   class SetPropertiesCursor : public Cursor {
    public:
     SetPropertiesCursor(const SetProperties &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -940,7 +942,7 @@ class SetLabels : public LogicalOperator {
   class SetLabelsCursor : public Cursor {
    public:
     SetLabelsCursor(const SetLabels &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -967,7 +969,7 @@ class RemoveProperty : public LogicalOperator {
   class RemovePropertyCursor : public Cursor {
    public:
     RemovePropertyCursor(const RemoveProperty &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -999,7 +1001,7 @@ class RemoveLabels : public LogicalOperator {
   class RemoveLabelsCursor : public Cursor {
    public:
     RemoveLabelsCursor(const RemoveLabels &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1049,7 +1051,7 @@ class ExpandUniquenessFilter : public LogicalOperator {
    public:
     ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
                                  GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1102,7 +1104,7 @@ class Accumulate : public LogicalOperator {
   class AccumulateCursor : public Cursor {
    public:
     AccumulateCursor(const Accumulate &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1170,7 +1172,7 @@ class Aggregate : public LogicalOperator {
   class AggregateCursor : public Cursor {
    public:
     AggregateCursor(Aggregate &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1218,7 +1220,7 @@ class Aggregate : public LogicalOperator {
      * cache cardinality depends on number of
      * aggregation results, and not on the number of inputs.
      */
-    void ProcessAll(Frame &frame, const SymbolTable &symbol_table);
+    void ProcessAll(Frame &, Context &);
 
     /**
      * Performs a single accumulation.
@@ -1273,7 +1275,7 @@ class Skip : public LogicalOperator {
   class SkipCursor : public Cursor {
    public:
     SkipCursor(Skip &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1316,7 +1318,7 @@ class Limit : public LogicalOperator {
   class LimitCursor : public Cursor {
    public:
     LimitCursor(Limit &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1384,7 +1386,7 @@ class OrderBy : public LogicalOperator {
   class OrderByCursor : public Cursor {
    public:
     OrderByCursor(OrderBy &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1436,7 +1438,7 @@ class Merge : public LogicalOperator {
   class MergeCursor : public Cursor {
    public:
     MergeCursor(Merge &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1481,7 +1483,7 @@ class Optional : public LogicalOperator {
   class OptionalCursor : public Cursor {
    public:
     OptionalCursor(Optional &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1520,7 +1522,7 @@ class Unwind : public LogicalOperator {
   class UnwindCursor : public Cursor {
    public:
     UnwindCursor(Unwind &self, GraphDbAccessor &db);
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:
@@ -1558,7 +1560,7 @@ class Distinct : public LogicalOperator {
    public:
     DistinctCursor(Distinct &self, GraphDbAccessor &db);
 
-    bool Pull(Frame &frame, const SymbolTable &symbol_table) override;
+    bool Pull(Frame &, Context &) override;
     void Reset() override;
 
    private:

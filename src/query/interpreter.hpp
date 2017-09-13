@@ -34,8 +34,7 @@ class Interpreter {
                  Stream &stream,
                  const std::map<std::string, TypedValue> &params) {
     utils::Timer frontend_timer;
-    Config config;
-    Context ctx(config, db_accessor);
+    Context ctx(db_accessor);
     std::map<std::string, TypedValue> summary;
 
     // stripped query -> high level tree
@@ -88,26 +87,25 @@ class Interpreter {
                  .first;
       }
 
-      // Update literals map with provided parameters.
-      auto literals = stripped.literals();
+      // Update context with provided parameters.
+      ctx.parameters_ = stripped.literals();
       for (const auto &param_pair : stripped.parameters()) {
         auto param_it = params.find(param_pair.second);
         if (param_it == params.end()) {
           throw query::UnprovidedParameterError(
               fmt::format("Parameter$ {} not provided", param_pair.second));
         }
-        literals.Add(param_pair.first, param_it->second);
+        ctx.parameters_.Add(param_pair.first, param_it->second);
       }
 
       // Plug literals, parameters and named expressions.
-      return it->second.Plug(literals, stripped.named_expressions());
+      return it->second.Plug(ctx.parameters_, stripped.named_expressions());
     }();
     auto frontend_time = frontend_timer.Elapsed();
 
     utils::Timer planning_timer;
     // symbol table fill
-    SymbolTable symbol_table;
-    SymbolGenerator symbol_generator(symbol_table);
+    SymbolGenerator symbol_generator(ctx.symbol_table_);
     ast_storage.query()->Accept(symbol_generator);
 
     // high level tree -> logical plan
@@ -116,7 +114,7 @@ class Interpreter {
     double query_plan_cost_estimation = 0.0;
     if (FLAGS_query_cost_planner) {
       auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
-          ast_storage, symbol_table, vertex_counts);
+          ast_storage, ctx.symbol_table_, vertex_counts);
       double min_cost = std::numeric_limits<double>::max();
       for (auto &plan : plans) {
         auto cost = EstimatePlanCost(vertex_counts, *plan);
@@ -130,19 +128,19 @@ class Interpreter {
       query_plan_cost_estimation = min_cost;
     } else {
       logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-          ast_storage, symbol_table, vertex_counts);
+          ast_storage, ctx.symbol_table_, vertex_counts);
       query_plan_cost_estimation =
           EstimatePlanCost(vertex_counts, *logical_plan);
     }
 
     // generate frame based on symbol table max_position
-    Frame frame(symbol_table.max_position());
+    Frame frame(ctx.symbol_table_.max_position());
     auto planning_time = planning_timer.Elapsed();
 
     utils::Timer execution_timer;
     std::vector<std::string> header;
     std::vector<Symbol> output_symbols(
-        logical_plan->OutputSymbols(symbol_table));
+        logical_plan->OutputSymbols(ctx.symbol_table_));
     if (!output_symbols.empty()) {
       // Since we have output symbols, this means that the query contains RETURN
       // clause, so stream out the results.
@@ -153,7 +151,7 @@ class Interpreter {
 
       // stream out results
       auto cursor = logical_plan->MakeCursor(db_accessor);
-      while (cursor->Pull(frame, symbol_table)) {
+      while (cursor->Pull(frame, ctx)) {
         std::vector<TypedValue> values;
         for (const auto &symbol : output_symbols)
           values.emplace_back(frame[symbol]);
@@ -171,7 +169,7 @@ class Interpreter {
                dynamic_cast<plan::CreateIndex *>(logical_plan.get())) {
       stream.Header(header);
       auto cursor = logical_plan->MakeCursor(db_accessor);
-      while (cursor->Pull(frame, symbol_table)) continue;
+      while (cursor->Pull(frame, ctx)) continue;
     } else {
       throw QueryRuntimeException("Unknown top level LogicalOperator");
     }

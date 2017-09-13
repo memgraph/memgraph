@@ -16,14 +16,14 @@ namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -901,6 +901,28 @@ class All : public Expression {
   }
 };
 
+class ParameterLookup : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  ParameterLookup *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<ParameterLookup>(token_position_);
+  }
+
+  // This field contains token position of *literal* used to create
+  // ParameterLookup object. If ParameterLookup object is not created from
+  // a literal leave this value at -1.
+  int token_position_ = -1;
+
+ protected:
+  ParameterLookup(int uid) : Expression(uid) {}
+  ParameterLookup(int uid, int token_position)
+      : Expression(uid), token_position_(token_position) {}
+};
+
 class NamedExpression : public Tree {
   friend class AstTreeStorage;
 
@@ -1652,6 +1674,7 @@ class CachedAst {
     }
 
     bool Visit(Identifier &) override { return true; }
+    bool Visit(ParameterLookup &) override { return true; }
     bool Visit(CreateIndex &) override { return true; }
 
     bool PreVisit(Return &) override {

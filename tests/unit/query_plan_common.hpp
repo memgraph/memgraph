@@ -11,6 +11,7 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/common.hpp"
+#include "query/context.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
@@ -50,9 +51,11 @@ std::vector<std::vector<TypedValue>> CollectProduce(
   for (auto named_expression : produce->named_expressions())
     symbols.emplace_back(symbol_table[*named_expression]);
 
+  Context context(db_accessor);
+  context.symbol_table_ = symbol_table;
   // stream out results
   auto cursor = produce->MakeCursor(db_accessor);
-  while (cursor->Pull(frame, symbol_table)) {
+  while (cursor->Pull(frame, context)) {
     std::vector<TypedValue> values;
     for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
     stream.Result(values);
@@ -68,7 +71,9 @@ int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
   Frame frame(symbol_table.max_position());
   auto cursor = logical_op->MakeCursor(db);
   int count = 0;
-  while (cursor->Pull(frame, symbol_table)) count++;
+  Context context(db);
+  context.symbol_table_ = symbol_table;
+  while (cursor->Pull(frame, context)) count++;
   return count;
 }
 
