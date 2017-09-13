@@ -115,6 +115,10 @@ parser.add_argument("--verbose", action = "store_const",
         const = True, default = False)
 args = parser.parse_args()
 
+# find memgraph binary
+if not os.path.exists(args.memgraph):
+    args.memgraph = os.path.join(BASE_DIR, "build_release", "memgraph")
+
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
 cmd = [args.memgraph, "--num-workers=" + str(THREADS)]

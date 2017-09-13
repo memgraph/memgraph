@@ -55,12 +55,12 @@ def find_memgraph_binary(loc):
 
 def generate_run(name, typ = "run", supervisor = "", commands = "",
         arguments = "", enable_network = False,
-        outfile_paths = "", infile = ""):
+        outfile_paths = "", infile = "", slave_group = "local"):
     if not commands.endswith("\n"): commands += "\n"
     return dict(name = name, type = typ, supervisor = supervisor,
             commands = commands, arguments = arguments,
             enable_network = enable_network, outfile_paths = outfile_paths,
-            infile = infile)
+            infile = infile, slave_group = slave_group)
 
 def generate_archive(name, short_name, archive):
     return dict(name = name, short_name = short_name, archive = archive)
@@ -249,9 +249,14 @@ stress_path = os.path.join(BASE_DIR, "tests", "stress")
 infile = create_archive("stress", [binary_release_path,
         binary_release_link_path, stress_path, config_path],
         cwd = WORKSPACE_DIR)
-cmd = "cd {}/tests/stress\nTIMEOUT=600 ./continuous_integration " \
-        "--memgraph {}".format(BASE_DIR_NAME, binary_release_link_path)
+cmd = "cd memgraph/tests/stress\nTIMEOUT=600 ./continuous_integration"
 RUNS.append(generate_run("stress", commands = cmd, infile = infile))
+# stress tests for daily release (large dataset)
+if mode == "release":
+    cmd = "cd memgraph/tests/stress\nTIMEOUT=43200 ./continuous_integration" \
+            " --large-dataset"
+    RUNS.append(generate_run("stress_large", commands = cmd, infile = infile,
+            slave_group = "remote_16c56g"))
 
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
