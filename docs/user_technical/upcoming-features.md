@@ -11,6 +11,7 @@ will be continually working on improving the performance. This includes:
   * query compilation;
   * query execution;
   * core engine performance;
+  * algorithmic improvements (i.e. bidirectional breadth-first search);
   * memory usage and
   * other improvements.
 

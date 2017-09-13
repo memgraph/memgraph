@@ -395,6 +395,52 @@ index `label` and `property`. Do not create indices concurrently.
 
 The following sections describe some of the other supported features.
 
+#### Breadth First Search
+
+A typical graph use-case is searching for the shortest path between nodes.
+The openCypher standard does not define this feature. Neo4j offers the
+`shortestPath` function-like invocation for this purpose.
+
+Memgraph decided to offer the same functionality using the edge expansion syntax.
+Finding the shortest path between nodes can be done using breadth-first
+expansion:
+
+  MATCH (a {id: 723})-bfs[r:Type](e, n | true, 10)-(b {id : 882}) RETURN *
+
+The above query will find all paths of length up to 10 between nodes `a` and `b`.
+Just like in variable-length expansion, a single edge element in the query
+pattern denotes a possibly longer path.
+
+To find only the shortest path, simply append LIMIT 1 to the RETURN clause.
+
+  MATCH (a {id: 723})-bfs[r:Type](e, n | true, 10)-(b {id : 882}) RETURN * LIMIT 1
+
+Breadth-fist expansion allows an arbitrary expression filter that determines
+if an expansion is allowed. In the above query that expression is `true`, meaning
+that all expansions are allowed. Following is an example in which expansion is
+allowed only over edges whose `x` property is greater then `12` and nodes `y`
+whose property is lesser then `3`:
+
+  MATCH (a {id: 723})-bfs[](e, n | e.x > 12 and n.y < 3, 10)-() RETURN *
+
+Notice how the filtering expression uses `e` and `n` symbols. These symbols
+don't have a fixed name, which is exactly why they have to be declared as the first
+two arguments of the breadth-first expansion.
+
+The edge symbol and edge types in the square brackets can be omitted, just like
+in ordinary expansion. All other arguments (in the round brackets) are obligatory.
+
+There are a few benefits of the breadth-first expansion approach, as compared to
+the `shortestPath` function of Neo4j. For one, it is possible to inject
+expressions that filter on nodes and edges along the path itself, not just the final
+destination node. Furthermore, it's possible to find multiple paths to multiple destination
+nodes regardless of their length. Also, it is possible to simply go through a node's
+neighbourhood in breadth-first manner.
+
+It is fair to say there are a few drawbacks too. Currently, it isn't possible to get
+all shortest paths to a single node using Memgraph's breadth-first expansion. Also,
+the syntax is a bit unwieldy.
+
 #### UNWIND
 
 The `UNWIND` clause is used to unwind a list of values as individual rows.
