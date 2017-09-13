@@ -690,3 +690,20 @@ Feature: Functions
         Then the result should be:
             | res  |
             | true |
+
+    Scenario: Counter test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), (), ()
+            """
+        When executing query:
+            """
+            MATCH (n) SET n.id = counter("n.id") WITH n SKIP 1
+            RETURN n.id, counter("other") AS c2
+            """
+        Then the result should be:
+            | n.id | c2 |
+            | 1    | 0  |
+            | 2    | 1  |
+

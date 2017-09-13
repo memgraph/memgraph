@@ -5,6 +5,7 @@
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_datatypes.hpp"
@@ -120,4 +121,7 @@ class GraphDb {
   // Periodically wakes up and hints to transactions that are running for a long
   // time to stop their execution.
   Scheduler transaction_killer_;
+
+  // DB level global counters, used in the "counter" function
+  ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
 };

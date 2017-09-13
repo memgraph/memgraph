@@ -328,3 +328,9 @@ const std::string &GraphDbAccessor::PropertyName(
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return *property;
 }
+
+int64_t GraphDbAccessor::Counter(const std::string &name) {
+  return db_.counters_.access()
+      .emplace(name, std::make_tuple(name), std::make_tuple(0))
+      .first->second.fetch_add(1);
+}

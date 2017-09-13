@@ -512,18 +512,27 @@ TypedValue Assert(const std::vector<TypedValue> &args, GraphDbAccessor &) {
     throw QueryRuntimeException("assert takes one or two arguments");
   }
   if (args[0].type() != TypedValue::Type::Bool)
-      throw QueryRuntimeException("first assert argument must be bool");
+    throw QueryRuntimeException("first assert argument must be bool");
   if (args.size() == 2U && args[1].type() != TypedValue::Type::String)
-      throw QueryRuntimeException("second assert argument must be a string");
+    throw QueryRuntimeException("second assert argument must be a string");
   if (!args[0].ValueBool()) {
     std::string message("assertion failed");
-    if (args.size() == 2U)
-      message += ": " + args[1].ValueString();
+    if (args.size() == 2U) message += ": " + args[1].ValueString();
     throw QueryRuntimeException(message);
   }
   return args[0];
 }
-} // annonymous namespace
+
+TypedValue Counter(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("counter takes one argument");
+  }
+  if (!args[0].IsString())
+    throw QueryRuntimeException("first counter argument must be a string");
+
+  return dba.Counter(args[0].ValueString());
+}
+}  // annonymous namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
 NameToFunction(const std::string &function_name) {
@@ -566,6 +575,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == kEndsWith) return EndsWith;
   if (function_name == kContains) return Contains;
   if (function_name == "ASSERT") return Assert;
+  if (function_name == "COUNTER") return Counter;
   return nullptr;
 }
-} // namespace query
+}  // namespace query

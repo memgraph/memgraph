@@ -36,11 +36,13 @@ struct NoContextExpressionEvaluator {
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
-                            const std::vector<TypedValue> &args) {
+                            const std::vector<TypedValue> &args, Dbms &dbms) {
   AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  Dbms dbms;
+  SymbolTable symbol_table;
   auto dba = dbms.active();
+  Frame frame{128};
+  Parameters parameters;
+  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
 
   std::vector<Expression *> expressions;
   for (const auto &arg : args) {
@@ -48,7 +50,13 @@ TypedValue EvaluateFunction(const std::string &function_name,
   }
   auto *op =
       storage.Create<Function>(NameToFunction(function_name), expressions);
-  return op->Accept(eval.eval);
+  return op->Accept(eval);
+}
+
+TypedValue EvaluateFunction(const std::string &function_name,
+                            const std::vector<TypedValue> &args) {
+  Dbms dbms;
+  return EvaluateFunction(function_name, args, dbms);
 }
 
 TEST(ExpressionEvaluator, OrOperator) {
@@ -1166,13 +1174,17 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
 TEST(ExpressionEvaluator, FunctionAssert) {
   // Invalid calls.
   ASSERT_THROW(EvaluateFunction("ASSERT", {}), QueryRuntimeException);
-  ASSERT_THROW(EvaluateFunction("ASSERT", {false, false}), QueryRuntimeException);
-  ASSERT_THROW(EvaluateFunction("ASSERT", {"string", false}), QueryRuntimeException);
-  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "reason", true}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, false}),
+               QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {"string", false}),
+               QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "reason", true}),
+               QueryRuntimeException);
 
   // Valid calls, assertion fails.
   ASSERT_THROW(EvaluateFunction("ASSERT", {false}), QueryRuntimeException);
-  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "message"}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("ASSERT", {false, "message"}),
+               QueryRuntimeException);
   try {
     EvaluateFunction("ASSERT", {false, "bbgba"});
   } catch (QueryRuntimeException &e) {
@@ -1192,6 +1204,18 @@ TEST(ExpressionEvaluator, ParameterLookup) {
   auto value = param_lookup->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Int);
   EXPECT_EQ(value.Value<int64_t>(), 42);
+}
+
+TEST(ExpressionEvaluator, FunctionCounter) {
+  Dbms dbms;
+  EXPECT_THROW(EvaluateFunction("COUNTER", {}, dbms), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, dbms),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 2);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 1);
 }
 
 }  // namespace

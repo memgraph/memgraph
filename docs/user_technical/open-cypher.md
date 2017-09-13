@@ -500,6 +500,7 @@ functions.
  `contains`   | Check if the first argument has an element which is equal to the second argument.
  `all`        | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.
  `assert`     | Raises an exception reported to the client if the given argument is not `true`.
+ `counter`    | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
 
 #### String Operators
 
