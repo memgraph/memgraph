@@ -76,7 +76,7 @@ function cleanup_and_exit {
     exit $1
 }
 
-sleep 0.1
+sleep 1
 
 ps -p $background_pid > /dev/null
 if [[ $? -ne 0 ]]; then
