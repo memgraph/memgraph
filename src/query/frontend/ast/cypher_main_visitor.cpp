@@ -772,11 +772,10 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(
 
 antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
   if (ctx->literal()) {
-    return static_cast<Expression *>(
-        ctx->literal()->accept(this).as<BaseLiteral *>());
+    return ctx->literal()->accept(this);
   } else if (ctx->parameter()) {
     return static_cast<Expression *>(
-        ctx->parameter()->accept(this).as<PrimitiveLiteral *>());
+        ctx->parameter()->accept(this).as<ParameterLookup *>());
   } else if (ctx->parenthesizedExpression()) {
     return static_cast<Expression *>(
         ctx->parenthesizedExpression()->accept(this));
@@ -813,34 +812,41 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitParameter(
     CypherParser::ParameterContext *ctx) {
-  return storage_.Create<PrimitiveLiteral>(
-      ctx->getText(),  // Not really important since we do parameter
-                       // substitution by token position not by its name.
-                       // Lookup by name is already done in stage before.
-      ctx->getStart()->getTokenIndex());
+  return storage_.Create<ParameterLookup>(ctx->getStart()->getTokenIndex());
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(
     CypherParser::LiteralContext *ctx) {
-  int token_position = ctx->getStart()->getTokenIndex();
-  if (ctx->CYPHERNULL()) {
-    return static_cast<BaseLiteral *>(
-        storage_.Create<PrimitiveLiteral>(TypedValue::Null, token_position));
-  } else if (ctx->StringLiteral()) {
-    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>(),
-        token_position));
-  } else if (ctx->booleanLiteral()) {
-    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        ctx->booleanLiteral()->accept(this).as<bool>(), token_position));
-  } else if (ctx->numberLiteral()) {
-    return static_cast<BaseLiteral *>(storage_.Create<PrimitiveLiteral>(
-        ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
+  if (ctx->CYPHERNULL() || ctx->StringLiteral() || ctx->booleanLiteral() ||
+      ctx->numberLiteral()) {
+    int token_position = ctx->getStart()->getTokenIndex();
+    if (ctx->CYPHERNULL()) {
+      return static_cast<Expression *>(
+          storage_.Create<PrimitiveLiteral>(TypedValue::Null, token_position));
+    } else if (ctx_.is_query_cached_) {
+      // Instead of generating PrimitiveLiteral, we generate a ParameterLookup,
+      // so that the AST can be cached. This allows for varying literals, which
+      // are then looked up in the parameters table (even though they are not
+      // user provided). Note, that NULL always generates a PrimitiveLiteral.
+      return static_cast<Expression *>(
+          storage_.Create<ParameterLookup>(token_position));
+    } else if (ctx->StringLiteral()) {
+      return static_cast<Expression *>(storage_.Create<PrimitiveLiteral>(
+          visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>(),
+          token_position));
+    } else if (ctx->booleanLiteral()) {
+      return static_cast<Expression *>(storage_.Create<PrimitiveLiteral>(
+          ctx->booleanLiteral()->accept(this).as<bool>(), token_position));
+    } else if (ctx->numberLiteral()) {
+      return static_cast<Expression *>(storage_.Create<PrimitiveLiteral>(
+          ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
+    }
+    debug_fail("Expected to handle all cases above");
   } else if (ctx->listLiteral()) {
-    return static_cast<BaseLiteral *>(storage_.Create<ListLiteral>(
+    return static_cast<Expression *>(storage_.Create<ListLiteral>(
         ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
   } else {
-    return static_cast<BaseLiteral *>(storage_.Create<MapLiteral>(
+    return static_cast<Expression *>(storage_.Create<MapLiteral>(
         ctx->mapLiteral()
             ->accept(this)
             .as<std::map<std::pair<std::string, GraphDbTypes::Property>,

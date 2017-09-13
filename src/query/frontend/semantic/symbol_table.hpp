@@ -21,11 +21,12 @@ class Symbol {
 
   Symbol() {}
   Symbol(const std::string &name, int position, bool user_declared,
-         Type type = Type::Any)
+         Type type = Type::Any, int token_position = -1)
       : name_(name),
         position_(position),
         user_declared_(user_declared),
-        type_(type) {}
+        type_(type),
+        token_position_(token_position) {}
 
   bool operator==(const Symbol &other) const {
     return position_ == other.position_ && name_ == other.name_ &&
@@ -37,20 +38,23 @@ class Symbol {
   int position() const { return position_; }
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }
+  int token_position() const { return token_position_; }
 
  private:
   std::string name_;
   int position_;
   bool user_declared_ = true;
   Type type_ = Type::Any;
+  int token_position_ = -1;
 };
 
 class SymbolTable {
  public:
   Symbol CreateSymbol(const std::string &name, bool user_declared,
-                      Symbol::Type type = Symbol::Type::Any) {
+                      Symbol::Type type = Symbol::Type::Any,
+                      int token_position = -1) {
     int position = position_++;
-    return Symbol(name, position, user_declared, type);
+    return Symbol(name, position, user_declared, type, token_position);
   }
 
   auto &operator[](const Tree &tree) { return table_[tree.uid()]; }

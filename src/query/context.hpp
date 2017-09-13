@@ -13,6 +13,7 @@ class Context {
   GraphDbAccessor &db_accessor_;
   SymbolTable symbol_table_;
   Parameters parameters_;
+  bool is_query_cached_ = false;
 };
 
 }  // namespace query

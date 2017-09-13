@@ -377,8 +377,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(ParameterLookup &) override { return true; }
-  bool Visit(query::CreateIndex &) override { return true; }
+  bool Visit(ParameterLookup &) override {
+    has_aggregation_.emplace_back(false);
+    return true;
+  }
+
+  bool Visit(query::CreateIndex &) override {
+    has_aggregation_.emplace_back(false);
+    return true;
+  }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.
   // This should be used when body.all_identifiers is true, to generate

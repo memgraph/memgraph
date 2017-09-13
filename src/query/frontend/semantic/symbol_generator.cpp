@@ -12,8 +12,9 @@
 namespace query {
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared,
-                                   Symbol::Type type) {
-  auto symbol = symbol_table_.CreateSymbol(name, user_declared, type);
+                                   Symbol::Type type, int token_position) {
+  auto symbol =
+      symbol_table_.CreateSymbol(name, user_declared, type, token_position);
   scope_.symbols[name] = symbol;
   return symbol;
 }
@@ -76,7 +77,8 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     }
     // An improvement would be to infer the type of the expression, so that the
     // new symbol would have a more specific type.
-    symbol_table_[*named_expr] = CreateSymbol(name, true);
+    symbol_table_[*named_expr] = CreateSymbol(name, true, Symbol::Type::Any,
+                                              named_expr->token_position_);
   }
   scope_.in_order_by = true;
   for (const auto &order_pair : body.order_by) {

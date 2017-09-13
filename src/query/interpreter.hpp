@@ -35,11 +35,14 @@ class Interpreter {
                  const std::map<std::string, TypedValue> &params) {
     utils::Timer frontend_timer;
     Context ctx(db_accessor);
+    ctx.is_query_cached_ = FLAGS_ast_cache;
     std::map<std::string, TypedValue> summary;
 
+    // query -> stripped query
+    StrippedQuery stripped(query);
     // stripped query -> high level tree
     AstTreeStorage ast_storage = [&]() {
-      if (!FLAGS_ast_cache) {
+      if (!ctx.is_query_cached_) {
         // This is totally fine, since we don't really expect anyone to turn off
         // the cache.
         if (!params.empty()) {
@@ -61,12 +64,9 @@ class Interpreter {
         return std::move(visitor.storage());
       }
 
-      // query -> stripped query
-      StrippedQuery stripped(query);
-
       auto ast_cache_accessor = ast_cache_.access();
-      auto it = ast_cache_accessor.find(stripped.hash());
-      if (it == ast_cache_accessor.end()) {
+      auto ast_it = ast_cache_accessor.find(stripped.hash());
+      if (ast_it == ast_cache_accessor.end()) {
         // stripped query -> AST
         auto parser = [&] {
           // Be careful about unlocking since parser can throw.
@@ -81,10 +81,9 @@ class Interpreter {
         visitor.visit(low_level_tree);
 
         // Cache it.
-        it = ast_cache_accessor
-                 .insert(stripped.hash(),
-                         CachedAst(std::move(visitor.storage())))
-                 .first;
+        ast_it = ast_cache_accessor
+                     .insert(stripped.hash(), std::move(visitor.storage()))
+                     .first;
       }
 
       // Update context with provided parameters.
@@ -98,8 +97,9 @@ class Interpreter {
         ctx.parameters_.Add(param_pair.first, param_it->second);
       }
 
-      // Plug literals, parameters and named expressions.
-      return it->second.Plug(ctx.parameters_, stripped.named_expressions());
+      AstTreeStorage new_ast;
+      ast_it->second.query()->Clone(new_ast);
+      return new_ast;
     }();
     auto frontend_time = frontend_timer.Elapsed();
 
@@ -146,7 +146,16 @@ class Interpreter {
       // clause, so stream out the results.
 
       // generate header
-      for (const auto &symbol : output_symbols) header.push_back(symbol.name());
+      for (const auto &symbol : output_symbols) {
+        // When the symbol is aliased or expanded from '*' (inside RETURN or
+        // WITH), then there is no token position, so use symbol name.
+        // Otherwise, find the name from stripped query.
+        if (symbol.token_position() == -1)
+          header.push_back(symbol.name());
+        else
+          header.push_back(
+              stripped.named_expressions().at(symbol.token_position()));
+      }
       stream.Header(header);
 
       // stream out results
@@ -192,7 +201,7 @@ class Interpreter {
   }
 
  private:
-  ConcurrentMap<HashType, CachedAst> ast_cache_;
+  ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we

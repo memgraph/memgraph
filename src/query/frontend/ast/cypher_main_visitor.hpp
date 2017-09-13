@@ -426,7 +426,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitAtom(CypherParser::AtomContext *ctx) override;
 
   /**
-   * @return PrimitiveLiteral*
+   * @return ParameterLookup*
    */
   antlrcpp::Any visitParameter(CypherParser::ParameterContext *ctx) override;
 
@@ -449,7 +449,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::FunctionNameContext *ctx) override;
 
   /**
-   * @return BaseLiteral*
+   * @return Expression*
    */
   antlrcpp::Any visitLiteral(CypherParser::LiteralContext *ctx) override;
 
