@@ -3,7 +3,7 @@ import os
 import time
 import json
 import tempfile
-from common import get_absolute_path, WALL_TIME, CPU_TIME
+from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,8 @@ class QueryClient:
         # TODO make the timeout configurable per query or something
         return_code = self.client.run_and_wait(
             client, client_args, timeout=600, stdin=queries_path)
-        cpu_time_end = database.database_bin.get_usage()["cpu"]
+        usage = database.database_bin.get_usage()
+        cpu_time_end = usage["cpu"]
         os.remove(queries_path)
         if return_code != 0:
             with open(self.client.get_stderr()) as f:
@@ -69,6 +70,7 @@ class QueryClient:
         with open(output) as f:
             data = json.loads(f.read())
         data[CPU_TIME] = cpu_time_end - cpu_time_start
+        data[MAX_MEMORY] = usage["max_memory"]
 
         os.remove(output)
         return data

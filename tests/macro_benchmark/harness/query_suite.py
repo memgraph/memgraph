@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 from collections import defaultdict
 import tempfile
 from statistics import median
-from common import get_absolute_path, WALL_TIME, CPU_TIME
+from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY
 from databases import Memgraph, Neo
 from clients import QueryClient
 
@@ -25,12 +25,12 @@ class _QuerySuite:
     KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
                   "teardown", "common"}
     FORMAT = ["{:>24}", "{:>28}", "{:>16}", "{:>18}", "{:>22}",
-              "{:>16}", "{:>16}"]
+              "{:>16}", "{:>16}", "{:>16}"]
     FULL_FORMAT = "".join(FORMAT) + "\n"
     summary = FULL_FORMAT.format(
                       "group_name", "scenario_name", "parsing_time",
                       "planning_time", "plan_execution_time",
-                      WALL_TIME, CPU_TIME)
+                      WALL_TIME, CPU_TIME, MAX_MEMORY)
 
     def __init__(self, args):
         pass
@@ -93,6 +93,7 @@ class _QuerySuite:
                                      scenario_config.get("num_client_workers", 1))
                 add_measurement(run_result, iteration, WALL_TIME)
                 add_measurement(run_result, iteration, CPU_TIME)
+                add_measurement(run_result, iteration, MAX_MEMORY)
                 for measurement in ["parsing_time",
                                     "plan_execution_time",
                                     "planning_time"] :
@@ -114,12 +115,17 @@ class _QuerySuite:
         self.summary += self.FORMAT[0].format(group_name)
         self.summary += self.FORMAT[1].format(scenario_name)
         for i, key in enumerate(("parsing_time", "planning_time",
-                    "plan_execution_time", WALL_TIME, CPU_TIME)):
+                    "plan_execution_time", WALL_TIME, CPU_TIME, MAX_MEMORY)):
             if key not in measurement_lists:
                 time = "-"
             else:
+                fmt = "{:.10f}"
                 # Median is used instead of avg to avoid effect of outliers.
-                time = "{:.10f}".format(median(measurement_lists[key]))
+                value = median(measurement_lists[key])
+                if key == MAX_MEMORY:
+                    fmt = "{}"
+                    value = int(value)
+                time = fmt.format(value)
             self.summary += self.FORMAT[i + 2].format(time)
         self.summary += "\n"
 

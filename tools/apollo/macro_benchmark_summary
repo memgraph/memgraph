@@ -51,20 +51,28 @@ def compare_values(data_cur, data_prev):
                 item = " ".join(item_cur.split("_")).capitalize()
             else:
                 item_prev = find_item(data_prev, headers[j], row_cur)
+                if j != len(row_cur) - 1:
+                    fmt = "{:.3f}ms"
+                    scale = 1000.0
+                else:
+                    fmt = "{:.2f}MiB"
+                    scale = 1.0 / 1024.0
                 if item_prev != None:
                     if item_prev != 0.0:
                         diff = (item_cur - item_prev) / item_prev
                     else:
                         diff = 0.0
-                    if diff < -0.05:
+                    if diff < -0.05 and item_cur > 0.0005:
                         sign = " {icon arrow-down color=green}"
-                    elif diff > 0.05:
+                    elif diff > 0.05 and item_cur > 0.0005:
                         sign = " {icon arrow-up color=red}"
                     else:
                         sign = ""
-                    item = "{:.3f}ms //({:+.2%})//{}".format(item_cur * 1000.0, diff, sign)
+                    fmt += " //({:+.2%})//{}"
+                    item = fmt.format(item_cur * scale, diff, sign)
                 else:
-                    item = "{:.3f}ms //(new)// {{icon plus color=blue}}".format(item_cur * 1000.0)
+                    fmt += "//(new)// {{icon plus color=blue}}"
+                    item = fmt.format(item_cur * scale)
             ret[i].append(item)
     return ret
 
