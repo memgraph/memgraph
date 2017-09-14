@@ -417,9 +417,18 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(query::plan::Produce &op) override {
+    WithPrintLn([&](auto &out) {
+      out << "* Produce {";
+      PrintIterable(out, op.named_expressions(), ", ",
+                    [](auto &out, const auto &nexpr) { out << nexpr->name_; });
+      out << "}";
+    });
+    return true;
+  }
+
   PRE_VISIT(ExpandBreadthFirst);
   PRE_VISIT(Filter);
-  PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
   PRE_VISIT(SetLabels);
