@@ -11,7 +11,7 @@
 * Map indexing supported.
 * `assert` function added.
 * Use \u to specify 4 digit codepoint and \U for 8 digit
-* `counter` function added.
+* `counter` and `counterSet` functions added.
 
 ### Bug Fixes and Other Changes
 

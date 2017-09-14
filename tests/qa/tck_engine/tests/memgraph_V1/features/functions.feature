@@ -707,3 +707,15 @@ Feature: Functions
             | 1    | 0  |
             | 2    | 1  |
 
+
+    Scenario: CounterSet test:
+        When executing query:
+            """
+            WITH counter("n") AS zero
+            WITH counter("n") AS one, zero
+            WITH counterSet("n", 42) AS nothing, zero, one
+            RETURN counter("n") AS n, zero, one, counter("n2") AS n2
+            """
+        Then the result should be:
+            | n  | zero | one | n2 |
+            | 42 | 0    | 1   | 0  |

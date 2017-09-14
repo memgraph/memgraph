@@ -1218,4 +1218,21 @@ TEST(ExpressionEvaluator, FunctionCounter) {
   EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 1);
 }
 
+TEST(ExpressionEvaluator, FunctionCounterSet) {
+  Dbms dbms;
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, dbms), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, dbms),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}, dbms),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}, dbms),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 0);
+  EvaluateFunction("COUNTERSET", {"c1", 12}, dbms);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 12);
+  EvaluateFunction("COUNTERSET", {"c2", 42}, dbms);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 42);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 13);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 43);
+}
 }  // namespace

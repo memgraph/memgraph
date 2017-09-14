@@ -532,6 +532,19 @@ TypedValue Counter(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
 
   return dba.Counter(args[0].ValueString());
 }
+
+TypedValue CounterSet(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
+  if (args.size() != 2U) {
+    throw QueryRuntimeException("counterSet takes two arguments");
+  }
+  if (!args[0].IsString())
+    throw QueryRuntimeException("first counterSet argument must be a string");
+  if (!args[1].IsInt())
+    throw QueryRuntimeException("first counterSet argument must be an int");
+
+  dba.CounterSet(args[0].ValueString(), args[1].ValueInt());
+  return TypedValue::Null;
+}
 }  // annonymous namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
@@ -576,6 +589,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == kContains) return Contains;
   if (function_name == "ASSERT") return Assert;
   if (function_name == "COUNTER") return Counter;
+  if (function_name == "COUNTERSET") return CounterSet;
   return nullptr;
 }
 }  // namespace query

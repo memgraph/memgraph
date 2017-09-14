@@ -334,3 +334,10 @@ int64_t GraphDbAccessor::Counter(const std::string &name) {
       .emplace(name, std::make_tuple(name), std::make_tuple(0))
       .first->second.fetch_add(1);
 }
+
+void GraphDbAccessor::CounterSet(const std::string &name, int64_t value) {
+  auto name_counter_pair = db_.counters_.access()
+      .emplace(name, std::make_tuple(name), std::make_tuple(value));
+  if (!name_counter_pair.second)
+    name_counter_pair.first->second.store(value);
+}

@@ -568,6 +568,13 @@ class GraphDbAccessor {
    */
   int64_t Counter(const std::string &name);
 
+  /**
+   * Sets the counter with the given name to the given value. Returns nothing.
+   * If the counter with the given name does not exist, a new counter is
+   * created and set to the given value.
+   */
+  void CounterSet(const std::string &name, int64_t value);
+
  private:
   /**
    * Insert this vertex into corresponding label and label+property (if it
