@@ -73,18 +73,11 @@ background_pid=$!
 
 function cleanup_and_exit {
     kill -9 $background_pid
+    sleep 2
     exit $1
 }
 
-sleep 1
-
-ps -p $background_pid > /dev/null
-if [[ $? -ne 0 ]]; then
-    echo "Starting memgraph failed."
-    echo "Perhaps you forgot to build Memgraph before running this script, "
-    echo "or another program uses same port!"
-    cleanup_and_exit 1
-fi
+sleep 2
 
 python3 tck_engine/test_executor.py $tck_flags
 cleanup_and_exit $?
