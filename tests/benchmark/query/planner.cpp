@@ -95,6 +95,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   std::tie(label, prop) =
       CreateIndexedVertices(index_count, vertex_count, dbms);
   auto dba = dbms.active();
+  Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
     query::AstTreeStorage storage;
@@ -108,7 +109,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
         query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
             storage, symbol_table, *dba);
     for (auto &plan : plans) {
-      query::plan::EstimatePlanCost(*dba, *plan);
+      query::plan::EstimatePlanCost(*dba, parameters, *plan);
     }
   }
 }
@@ -124,6 +125,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
       CreateIndexedVertices(index_count, vertex_count, dbms);
   auto dba = dbms.active();
   auto vertex_counts = query::plan::MakeVertexCountCache(*dba);
+  Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
     query::AstTreeStorage storage;
@@ -137,7 +139,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
         query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
             storage, symbol_table, vertex_counts);
     for (auto &plan : plans) {
-      query::plan::EstimatePlanCost(vertex_counts, *plan);
+      query::plan::EstimatePlanCost(vertex_counts, parameters, *plan);
     }
   }
 }

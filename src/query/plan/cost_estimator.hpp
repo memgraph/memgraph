@@ -1,4 +1,5 @@
 #include "query/frontend/ast/ast.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 
@@ -64,7 +65,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::PostVisit;
 
-  CostEstimator(const TDbAccessor &db_accessor) : db_accessor_(db_accessor) {}
+  CostEstimator(const TDbAccessor &db_accessor, const Parameters &parameters)
+      : db_accessor_(db_accessor), parameters(parameters) {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_.VerticesCount();
@@ -81,17 +83,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelPropertyValue &logical_op) override {
-    // this cardinality estimation depends on the property value (expression).
-    // if it's a literal (const) we can evaluate cardinality exactly, otherwise
+    // This cardinality estimation depends on the property value (expression).
+    // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    std::experimental::optional<PropertyValue> property_value =
-        std::experimental::nullopt;
-    if (auto *literal =
-            dynamic_cast<PrimitiveLiteral *>(logical_op.expression()))
-      if (literal->value_.IsPropertyValue())
-        property_value =
-            std::experimental::optional<PropertyValue>(literal->value_);
-
+    auto property_value = ConstPropertyValue(logical_op.expression());
     double factor = 1.0;
     if (property_value)
       // get the exact influence based on ScanAll(label, property, value)
@@ -206,27 +201,43 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   const TDbAccessor &db_accessor_;
+  const Parameters &parameters;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
   // converts an optional ScanAll range bound into a property value
-  // if the bound is present and is a literal expression convertible to
+  // if the bound is present and is a constant expression convertible to
   // a property value. otherwise returns nullopt
-  static std::experimental::optional<utils::Bound<PropertyValue>>
-  BoundToPropertyValue(
+  std::experimental::optional<utils::Bound<PropertyValue>> BoundToPropertyValue(
       std::experimental::optional<ScanAllByLabelPropertyRange::Bound> bound) {
-    if (bound)
-      if (auto *literal = dynamic_cast<PrimitiveLiteral *>(bound->value()))
-        return std::experimental::make_optional(
-            utils::Bound<PropertyValue>(literal->value_, bound->type()));
+    if (bound) {
+      auto property_value = ConstPropertyValue(bound->value());
+      if (property_value)
+        return utils::Bound<PropertyValue>(*property_value, bound->type());
+    }
+    return std::experimental::nullopt;
+  }
+
+  // If the expression is a constant property value, it is returned. Otherwise,
+  // return nullopt.
+  std::experimental::optional<PropertyValue> ConstPropertyValue(
+      const Expression *expression) {
+    if (auto *literal = dynamic_cast<const PrimitiveLiteral *>(expression)) {
+      if (literal->value_.IsPropertyValue()) return literal->value_;
+    } else if (auto *param_lookup =
+                   dynamic_cast<const ParameterLookup *>(expression)) {
+      auto value = parameters.AtTokenPosition(param_lookup->token_position_);
+      if (value.IsPropertyValue()) return value;
+    }
     return std::experimental::nullopt;
   }
 };
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(const TDbAccessor &db, LogicalOperator &plan) {
-  CostEstimator<TDbAccessor> estimator(db);
+double EstimatePlanCost(const TDbAccessor &db, const Parameters &parameters,
+                        LogicalOperator &plan) {
+  CostEstimator<TDbAccessor> estimator(db, parameters);
   plan.Accept(estimator);
   return estimator.cost();
 }

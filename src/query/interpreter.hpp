@@ -117,7 +117,7 @@ class Interpreter {
           ast_storage, ctx.symbol_table_, vertex_counts);
       double min_cost = std::numeric_limits<double>::max();
       for (auto &plan : plans) {
-        auto cost = EstimatePlanCost(vertex_counts, *plan);
+        auto cost = EstimatePlanCost(vertex_counts, ctx.parameters_, *plan);
         if (!logical_plan || cost < min_cost) {
           // We won't be iterating over plans anymore, so it's ok to invalidate
           // unique_ptrs inside.
@@ -130,7 +130,7 @@ class Interpreter {
       logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
           ast_storage, ctx.symbol_table_, vertex_counts);
       query_plan_cost_estimation =
-          EstimatePlanCost(vertex_counts, *logical_plan);
+          EstimatePlanCost(vertex_counts, ctx.parameters_, *logical_plan);
     }
 
     // generate frame based on symbol table max_position
