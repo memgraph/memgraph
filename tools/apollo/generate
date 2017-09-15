@@ -225,9 +225,9 @@ if mode == "diff":
             binary_parent_link_path, parent_macro_bench_path, parent_config_path,
             parent_harness_client_binaries, parent_postgresql_lib_dir],
             cwd = WORKSPACE_DIR)
-    supervisor = "./parent/tests/macro_benchmark/harness/harness.py"
+    supervisor = "./parent/tests/macro_benchmark/harness.py"
     args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
-    outfile_paths = "\./parent/tests/macro_benchmark/harness/\.harness_summary"
+    outfile_paths = "\./parent/tests/macro_benchmark/\.harness_summary"
     RUNS.append(generate_run("macro_benchmark_parent", supervisor = supervisor,
             arguments = args, infile = infile, outfile_paths = outfile_paths))
 
@@ -238,7 +238,7 @@ if mode == "diff":
             cwd = WORKSPACE_DIR)
     cmd = "./memgraph/tools/apollo/macro_benchmark_summary " \
             "macro_benchmark/memgraph/tests/macro_benchmark/.harness_summary " \
-            "macro_benchmark_parent/parent/tests/macro_benchmark/harness/.harness_summary " \
+            "macro_benchmark_parent/parent/tests/macro_benchmark/.harness_summary " \
             ".harness_summary"
     outfile_paths = "\./.harness_summary"
     DATA_PROCESS.append(generate_run("macro_benchmark_summary", typ = "data process",
