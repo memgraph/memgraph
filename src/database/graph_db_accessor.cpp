@@ -341,3 +341,19 @@ void GraphDbAccessor::CounterSet(const std::string &name, int64_t value) {
   if (!name_counter_pair.second)
     name_counter_pair.first->second.store(value);
 }
+
+std::vector<std::string> GraphDbAccessor::IndexInfo() const {
+  std::vector<std::string> info;
+  for (GraphDbTypes::Label label : db_.labels_index_.Keys()) {
+    info.emplace_back(":" + LabelName(label));
+  }
+
+  // Edge indices are not shown because they are never used.
+
+  for (LabelPropertyIndex::Key key : db_.label_property_index_.Keys()) {
+    info.emplace_back(fmt::format(":{}({})", LabelName(key.label_),
+                                  PropertyName(key.property_)));
+  }
+
+  return info;
+}

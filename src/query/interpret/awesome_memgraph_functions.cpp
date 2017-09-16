@@ -545,6 +545,15 @@ TypedValue CounterSet(const std::vector<TypedValue> &args, GraphDbAccessor &dba)
   dba.CounterSet(args[0].ValueString(), args[1].ValueInt());
   return TypedValue::Null;
 }
+
+TypedValue IndexInfo(const std::vector<TypedValue> &args,
+                     GraphDbAccessor &dba) {
+  if (args.size() != 0U)
+    throw QueryRuntimeException("indexInfo takes zero arguments");
+
+  auto info = dba.IndexInfo();
+  return std::vector<TypedValue>(info.begin(), info.end());
+}
 }  // annonymous namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
@@ -590,6 +599,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "ASSERT") return Assert;
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
+  if (function_name == "INDEXINFO") return IndexInfo;
   return nullptr;
 }
 }  // namespace query

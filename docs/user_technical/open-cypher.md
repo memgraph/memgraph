@@ -502,6 +502,7 @@ functions.
  `assert`     | Raises an exception reported to the client if the given argument is not `true`.
  `counter`    | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet` | Sets the counter with the given name to the given value.
+ `indexInfo`  | Returns a list of all the indexes available in the database. The list includes indexes that are not yet ready for use (they are concurrently being built by another transaction).
 
 #### String Operators
 

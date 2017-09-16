@@ -389,6 +389,16 @@ class LabelPropertyIndex {
     return indices;
   }
 
+  /**
+   * Returns a vector of keys present in this index.
+   */
+  std::vector<Key> Keys() {
+    std::vector<Key> keys;
+    for (auto &kv : indices_.access())
+      keys.push_back(kv.first);
+    return keys;
+  }
+
  private:
   /**
    * @brief - Contains value, vlist and vertex record to distinguish between

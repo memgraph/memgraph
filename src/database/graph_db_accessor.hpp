@@ -575,6 +575,11 @@ class GraphDbAccessor {
    */
   void CounterSet(const std::string &name, int64_t value);
 
+  /*
+   * Returns a list of index names present in the database.
+   */
+  std::vector<std::string> IndexInfo() const;
+
  private:
   /**
    * Insert this vertex into corresponding label and label+property (if it

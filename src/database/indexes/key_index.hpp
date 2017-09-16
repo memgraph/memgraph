@@ -96,6 +96,16 @@ class KeyIndex {
         });
   }
 
+  /**
+   * Returns a vector of keys present in this index.
+   */
+  std::vector<TKey> Keys() {
+    std::vector<TKey> keys;
+    for (auto &kv : indices_.access())
+      keys.push_back(kv.first);
+    return keys;
+  }
+
  private:
   /**
    * @brief - Contains vlist and record pointers.

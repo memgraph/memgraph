@@ -12,6 +12,7 @@
 * `assert` function added.
 * Use \u to specify 4 digit codepoint and \U for 8 digit
 * `counter` and `counterSet` functions added.
+* `indexInfo` function added.
 
 ### Bug Fixes and Other Changes
 

@@ -1235,4 +1235,23 @@ TEST(ExpressionEvaluator, FunctionCounterSet) {
   EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 13);
   EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 43);
 }
+
+TEST(ExpressionEvaluator, FunctionIndexInfo) {
+  Dbms dbms;
+  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, dbms), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, dbms).ValueList().size(), 0);
+  auto dba = dbms.active();
+  dba->InsertVertex().add_label(dba->Label("l1"));
+  {
+    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, dbms));
+    EXPECT_EQ(info.size(), 1);
+    EXPECT_EQ(info[0], ":l1");
+  }
+  {
+    dba->BuildIndex(dba->Label("l1"), dba->Property("prop"));
+    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, dbms));
+    EXPECT_EQ(info.size(), 2);
+    EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
+  }
+}
 }  // namespace
