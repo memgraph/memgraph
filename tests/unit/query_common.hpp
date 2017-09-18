@@ -23,9 +23,11 @@
 
 #pragma once
 
+#include <cstdlib>
+#include <map>
+#include <string>
 #include <utility>
 #include <vector>
-#include <map>
 
 #include "database/dbms.hpp"
 #include "database/graph_db_datatypes.hpp"
@@ -168,11 +170,30 @@ auto GetNode(AstTreeStorage &storage, const std::string &name,
   return node;
 }
 
+/// Generates a randomly chosen (uniformly) string from a population of 10 ** 20
+std::string random_string() {
+  std::string str = "rand_str_";
+  for (int i = 0; i < 20; i++) str += std::to_string(rand() % 10);
+  return str;
+}
+
 ///
 /// Create a Pattern with given atoms.
 ///
 auto GetPattern(AstTreeStorage &storage, std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
+  pattern->identifier_ = storage.Create<Identifier>(random_string(), false);
+  pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
+  return pattern;
+}
+
+///
+/// Create a Pattern with given name and atoms.
+///
+auto GetPattern(AstTreeStorage &storage, const std::string &name,
+                std::vector<PatternAtom *> atoms) {
+  auto pattern = storage.Create<Pattern>();
+  pattern->identifier_ = storage.Create<Identifier>(name, true);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
 }
@@ -439,6 +460,8 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define NODE(...) query::test_common::GetNode(storage, __VA_ARGS__)
 #define EDGE(...) query::test_common::GetEdge(storage, __VA_ARGS__)
 #define PATTERN(...) query::test_common::GetPattern(storage, {__VA_ARGS__})
+#define NAMED_PATTERN(name, ...) \
+  query::test_common::GetPattern(storage, name, {__VA_ARGS__})
 #define OPTIONAL_MATCH(...)                                               \
   query::test_common::GetWithPatterns(storage.Create<query::Match>(true), \
                                       {__VA_ARGS__})

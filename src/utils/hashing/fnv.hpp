@@ -66,15 +66,20 @@ struct FnvCollection {
   static const uint64_t fnv_prime = 1099511628211u;
 };
 
-template<typename TA, typename TB>
+/**
+ * Like FNV hashing for a collection, just specialized for two elements to avoid
+ * iteration overhead.
+ */
+template <typename TA, typename TB, typename TAHash = std::hash<TA>,
+          typename TBHash = std::hash<TB>>
 struct HashCombine {
-  size_t operator()(const TA& a, const TB& b) const {
+  size_t operator()(const TA &a, const TB &b) const {
     constexpr size_t fnv_prime = 1099511628211UL;
     constexpr size_t fnv_offset = 14695981039346656037UL;
     size_t ret = fnv_offset;
-    ret ^= std::hash<TA>()(a);
+    ret ^= TAHash()(a);
     ret *= fnv_prime;
-    ret ^= std::hash<TB>()(b);
+    ret ^= TBHash()(b);
     return ret;
   }
 };

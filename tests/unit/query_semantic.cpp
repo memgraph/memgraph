@@ -21,9 +21,13 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
       QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1"));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // symbols for pattern, node_atom_1 and named_expr in return
+  EXPECT_EQ(symbol_table.max_position(), 3);
   auto match = dynamic_cast<Match *>(query_ast->clauses_[0]);
   auto pattern = match->patterns_[0];
+  auto pattern_sym = symbol_table[*pattern->identifier_];
+  EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
+  EXPECT_FALSE(pattern_sym.user_declared());
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name(), "node_atom_1");
@@ -35,6 +39,24 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   EXPECT_NE(node_sym, column_sym);
   auto ret_sym = symbol_table[*named_expr->expression_];
   EXPECT_EQ(node_sym, ret_sym);
+}
+
+TEST(TestSymbolGenerator, MatchNamedPattern) {
+  SymbolTable symbol_table;
+  AstTreeStorage storage;
+  // MATCH p = (node_atom_1) RETURN node_atom_1
+  auto query_ast = QUERY(MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))),
+                         RETURN("p"));
+  SymbolGenerator symbol_generator(symbol_table);
+  query_ast->Accept(symbol_generator);
+  // symbols for p, node_atom_1 and named_expr in return
+  EXPECT_EQ(symbol_table.max_position(), 3);
+  auto match = dynamic_cast<Match *>(query_ast->clauses_[0]);
+  auto pattern = match->patterns_[0];
+  auto pattern_sym = symbol_table[*pattern->identifier_];
+  EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
+  EXPECT_EQ(pattern_sym.name(), "p");
+  EXPECT_TRUE(pattern_sym.user_declared());
 }
 
 TEST(TestSymbolGenerator, MatchUnboundMultiReturn) {
@@ -69,7 +91,8 @@ TEST(TestSymbolGenerator, MatchSameEdge) {
       RETURN("r"));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // symbols for pattern, `n`, `r` and named_expr in return
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto match = dynamic_cast<Match *>(query_ast->clauses_[0]);
   auto pattern = match->patterns_[0];
   std::vector<Symbol> node_symbols;
@@ -120,7 +143,8 @@ TEST(TestSymbolGenerator, CreateNodeReturn) {
   auto query_ast = QUERY(CREATE(PATTERN(NODE("n"))), RETURN("n"));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // symbols for pattern, `n` and named_expr
+  EXPECT_EQ(symbol_table.max_position(), 3);
   auto create = dynamic_cast<Create *>(query_ast->clauses_[0]);
   auto pattern = create->patterns_[0];
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
@@ -252,7 +276,8 @@ TEST(TestSymbolGenerator, CreateDelete) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 1);
+  // symbols for pattern and `n`
+  EXPECT_EQ(symbol_table.max_position(), 2);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto ident_symbol = symbol_table.at(*ident);
   EXPECT_EQ(node_symbol.type(), Symbol::Type::Vertex);
@@ -281,7 +306,8 @@ TEST(TestSymbolGenerator, MatchWithReturn) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // symbols for pattern, `old`, `n` and named_expr in return
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto old = symbol_table.at(*old_ident);
   EXPECT_EQ(node_symbol, old);
@@ -318,7 +344,8 @@ TEST(TestSymbolGenerator, MatchWithWhere) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // symbols for pattern, `old` and `n`
+  EXPECT_EQ(symbol_table.max_position(), 3);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto old = symbol_table.at(*old_ident);
   EXPECT_EQ(node_symbol, old);
@@ -360,7 +387,8 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 5);
+  // symbols for pattern * 2, `n`, `r`, `m`, `p`, `l`
+  EXPECT_EQ(symbol_table.max_position(), 7);
   auto n1 = symbol_table.at(*node_n1->identifier_);
   auto n2 = symbol_table.at(*node_n2->identifier_);
   EXPECT_EQ(n1, n2);
@@ -424,8 +452,8 @@ TEST(TestSymbolGenerator, MatchReturnSum) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // 3 symbols for: 'n', 'sum' and 'result'.
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // 3 symbols for: pattern, 'n', 'sum' and 'result'.
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto sum_symbol = symbol_table.at(*sum);
   EXPECT_NE(node_symbol, sum_symbol);
@@ -476,7 +504,8 @@ TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // symbols: pattern * 2, `node_n`, `node_m`
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
   auto m = symbol_table.at(*node_m->identifier_);
@@ -497,7 +526,8 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // symbols: pattern * 2, `n`, `r`
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_1->identifier_);
   EXPECT_EQ(n, symbol_table.at(*node_2->identifier_));
   EXPECT_EQ(n, symbol_table.at(*node_3->identifier_));
@@ -519,7 +549,8 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // symbols: pattern * 2, `n`, `m`, `r`
+  EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_1->identifier_);
   EXPECT_EQ(n.type(), Symbol::Type::Vertex);
   auto m = symbol_table.at(*node_2->identifier_);
@@ -612,8 +643,8 @@ TEST(TestSymbolGenerator, AggregationOrderBy) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `old`, `count(old)` and `new`
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // Symbols for pattern, `old`, `count(old)` and `new`
+  EXPECT_EQ(symbol_table.max_position(), 4);
   auto old = symbol_table.at(*node->identifier_);
   EXPECT_EQ(old, symbol_table.at(*ident_old));
   auto new_sym = symbol_table.at(*as_new);
@@ -633,8 +664,8 @@ TEST(TestSymbolGenerator, OrderByOldVariable) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `old` and `new`
-  EXPECT_EQ(symbol_table.max_position(), 2);
+  // Symbols for pattern, `old` and `new`
+  EXPECT_EQ(symbol_table.max_position(), 3);
   auto old = symbol_table.at(*node->identifier_);
   EXPECT_EQ(old, symbol_table.at(*ident_old));
   EXPECT_EQ(old, symbol_table.at(*by_old));
@@ -699,8 +730,8 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for: `n`, `r`, `m` and `AS r`.
-  EXPECT_EQ(symbol_table.max_position(), 4);
+  // Symbols for: pattern * 2, `n`, `r`, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 6);
   auto n = symbol_table.at(*match_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
@@ -770,8 +801,8 @@ TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `n`, `m` and `AS n`
-  EXPECT_EQ(symbol_table.max_position(), 3);
+  // Symbols for pattern * 2, `n`, `m` and `AS n`
+  EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
   EXPECT_EQ(n, symbol_table.at(*ident_n));
@@ -800,8 +831,8 @@ TEST(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `n`, `e`, `m`, `AS n.prop`.
-  EXPECT_EQ(symbol_table.max_position(), 4);
+  // Symbols for pattern, `n`, `e`, `m`, `AS n.prop`.
+  EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
 }
@@ -860,8 +891,8 @@ TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `n`, `r`, `m` and implicit in RETURN `r AS r`
-  EXPECT_EQ(symbol_table.max_position(), 4);
+  // Symbols for pattern, `n`, `r`, `m` and implicit in RETURN `r AS r`
+  EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
 }
@@ -882,8 +913,8 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `n`, `r`, `m`, `l` and implicit in RETURN `r AS r`
-  EXPECT_EQ(symbol_table.max_position(), 5);
+  // Symbols for pattern * 2, `n`, `r`, `m`, `l` and implicit in RETURN `r AS r`
+  EXPECT_EQ(symbol_table.max_position(), 7);
   auto l = symbol_table.at(*node_l->identifier_);
   EXPECT_EQ(l, symbol_table.at(*l_prop->expression_));
   auto r = symbol_table.at(*edge->identifier_);
@@ -1027,8 +1058,8 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
-  EXPECT_EQ(symbol_table.max_position(), 6);
+  // Symbols for pattern, `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
   EXPECT_NE(symbol_table.at(*ret_r),
             symbol_table.at(*bfs->traversed_edge_identifier_));

@@ -38,7 +38,7 @@ class AllTypesFixture : public testing::Test {
     values_.emplace_back(vertex);
     values_.emplace_back(
         dba_->InsertEdge(vertex, vertex, dba_->EdgeType("et")));
-    values_.emplace_back(query::Path{});
+    values_.emplace_back(query::Path(dba_->InsertVertex()));
   }
 };
 

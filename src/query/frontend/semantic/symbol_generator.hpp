@@ -83,9 +83,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_order_by{false};
     bool in_where{false};
     bool in_match{false};
-    // True when visiting a pattern identifier, which can be reused or created
-    // in the pattern itself.
-    bool in_pattern_identifier{false};
+    // True when visiting a pattern atom (node or edge) identifier, which can be
+    // reused or created in the pattern itself.
+    bool in_pattern_atom_identifier{false};
     // True when visiting range bounds of a variable path.
     bool in_edge_range{false};
     // True if the return/with contains an aggregation in any named expression.

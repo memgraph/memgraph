@@ -313,10 +313,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -576,11 +576,6 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
       }
       out_edges_it_.emplace(out_edges_->begin());
     }
-
-    // TODO add support for Front and Back expansion (when QueryPlanner
-    // will need it). For now only Back expansion (left to right) is
-    // supported
-    // TODO add support for named paths
 
     return true;
   }
@@ -1132,6 +1127,88 @@ void ExpandBreadthFirst::Cursor::Reset() {
   to_visit_current_.clear();
 }
 
+class ConstructNamedPathCursor : public Cursor {
+ public:
+  ConstructNamedPathCursor(const ConstructNamedPath &self, GraphDbAccessor &db)
+      : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {}
+
+  bool Pull(Frame &frame, Context &context) override {
+    if (!input_cursor_->Pull(frame, context)) return false;
+
+    auto symbol_it = self_.path_elements().begin();
+    debug_assert(symbol_it != self_.path_elements().end(),
+                 "Named path must contain at least one node");
+
+    TypedValue start_vertex = frame[*symbol_it++];
+
+    // In an OPTIONAL MATCH everything could be Null.
+    if (start_vertex.IsNull()) {
+      frame[self_.path_symbol()] = TypedValue::Null;
+      return true;
+    }
+
+    debug_assert(start_vertex.IsVertex(),
+                 "First named path element must be a vertex");
+    query::Path path(start_vertex.ValueVertex());
+
+    // If the last path element symbol was for an edge list, then
+    // the next symbol is a vertex and it should not append to the path because
+    // expansion already did it.
+    bool last_was_edge_list = false;
+
+    for (; symbol_it != self_.path_elements().end(); symbol_it++) {
+      TypedValue expansion = frame[*symbol_it];
+      //  We can have Null (OPTIONAL MATCH), a vertex, an edge, or an edge
+      //  list (variable expand or BFS).
+      switch (expansion.type()) {
+        case TypedValue::Type::Null:
+          frame[self_.path_symbol()] = TypedValue::Null;
+          return true;
+        case TypedValue::Type::Vertex:
+          if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
+          last_was_edge_list = false;
+          break;
+        case TypedValue::Type::Edge:
+          path.Expand(expansion.ValueEdge());
+          break;
+        case TypedValue::Type::List: {
+          last_was_edge_list = true;
+          // We need to expand all edges in the list and intermediary vertices.
+          const std::vector<TypedValue> &edges = expansion.ValueList();
+          for (const auto &edge_value : edges) {
+            const EdgeAccessor &edge = edge_value.ValueEdge();
+            const VertexAccessor from = edge.from();
+            if (path.vertices().back() == from)
+              path.Expand(edge, edge.to());
+            else
+              path.Expand(edge, from);
+          }
+          break;
+        }
+        default:
+          permanent_fail("Unsupported type in named path construction");
+
+          break;
+      }
+    }
+
+    frame[self_.path_symbol()] = path;
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+ private:
+  const ConstructNamedPath self_;
+  const std::unique_ptr<Cursor> input_cursor_;
+};
+
+ACCEPT_WITH_INPUT(ConstructNamedPath)
+
+std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(GraphDbAccessor &db) {
+  return std::make_unique<ConstructNamedPathCursor>(*this, db);
+}
+
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                Expression *expression)
     : input_(input ? input : std::make_shared<Once>()),
@@ -1147,8 +1224,8 @@ Filter::FilterCursor::FilterCursor(const Filter &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
-  // Like all filters, newly set values should not affect filtering of old nodes
-  // and edges.
+  // Like all filters, newly set values should not affect filtering of old
+  // nodes and edges.
   ExpressionEvaluator evaluator(frame, context.parameters_,
                                 context.symbol_table_, db_, GraphView::OLD);
   while (input_cursor_->Pull(frame, context)) {
@@ -1553,8 +1630,8 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
       // This shouldn't raise a TypedValueException, because the planner makes
-      // sure these are all of the expected type. In case they are not, an error
-      // should be raised long before this code is executed.
+      // sure these are all of the expected type. In case they are not, an
+      // error should be raised long before this code is executed.
       // TODO handle possible null due to optional match
       if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
     }
@@ -1583,18 +1660,20 @@ namespace {
  * given TypedValue.
  */
 void ReconstructTypedValue(TypedValue &value) {
+  const static std::string vertex_error_msg =
+      "Vertex invalid after WITH clause, (most likely deleted by a "
+      "preceeding DELETE clause)";
+  const static std::string edge_error_msg =
+      "Edge invalid after WITH clause, (most likely deleted by a "
+      "preceeding DELETE clause)";
   switch (value.type()) {
     case TypedValue::Type::Vertex:
       if (!value.Value<VertexAccessor>().Reconstruct())
-        throw QueryRuntimeException(
-            "Vertex invalid after WITH clause, (most likely deleted by a "
-            "preceeding DELETE clause)");
+        throw QueryRuntimeException(vertex_error_msg);
       break;
     case TypedValue::Type::Edge:
       if (!value.Value<VertexAccessor>().Reconstruct())
-        throw QueryRuntimeException(
-            "Edge invalid after WITH clause, (most likely deleted by a "
-            "preceeding DELETE clause)");
+        throw QueryRuntimeException(edge_error_msg);
       break;
     case TypedValue::Type::List:
       for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())
@@ -1605,8 +1684,10 @@ void ReconstructTypedValue(TypedValue &value) {
         ReconstructTypedValue(kv.second);
       break;
     case TypedValue::Type::Path:
-      // TODO implement path reconstruct?
-      throw utils::NotYetImplemented("path reconstruction");
+      for (auto &vertex : value.ValuePath().vertices())
+        if (vertex.Reconstruct()) throw QueryRuntimeException(vertex_error_msg);
+      for (auto &edge : value.ValuePath().edges())
+        if (edge.Reconstruct()) throw QueryRuntimeException(edge_error_msg);
     default:
       break;
   }
@@ -2413,8 +2494,8 @@ class CreateIndexCursor : public Cursor {
       // Report to the end user.
       did_create_ = false;
       throw QueryRuntimeException(
-          "Index building already in progress on this database. Memgraph does "
-          "not support concurrent index building.");
+          "Index building already in progress on this database. Memgraph "
+          "does not support concurrent index building.");
     }
     did_create_ = true;
     return true;

@@ -25,17 +25,29 @@
 using namespace query;
 using namespace query::plan;
 
-TEST(QueryPlan, MatchReturn) {
+class MatchReturnFixture : public testing::Test {
+ protected:
   Dbms dbms;
-  auto dba = dbms.active();
-
-  // add a few nodes to the database
-  dba->InsertVertex();
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-
+  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
   AstTreeStorage storage;
   SymbolTable symbol_table;
+
+  void AddVertices(int count) {
+    for (int i = 0; i < count; i++) dba->InsertVertex();
+  }
+
+  template <typename TResult>
+  std::vector<TResult> Results(std::shared_ptr<Produce> &op) {
+    std::vector<TResult> res;
+    for (const auto &row : CollectProduce(op.get(), symbol_table, *dba))
+      res.emplace_back(row[0].Value<TResult>());
+    return res;
+  }
+};
+
+TEST_F(MatchReturnFixture, MatchReturn) {
+  AddVertices(2);
+  dba->AdvanceCommand();
 
   auto test_pull_count = [&](GraphView graph_view) {
     auto scan_all =
@@ -55,6 +67,27 @@ TEST(QueryPlan, MatchReturn) {
   EXPECT_EQ(2, test_pull_count(GraphView::OLD));
   dba->AdvanceCommand();
   EXPECT_EQ(3, test_pull_count(GraphView::OLD));
+}
+
+TEST_F(MatchReturnFixture, MatchReturnPath) {
+  AddVertices(2);
+  dba->AdvanceCommand();
+
+  auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr);
+  Symbol path_sym = symbol_table.CreateSymbol("path", true);
+  auto make_path = std::make_shared<ConstructNamedPath>(
+      scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
+  auto output = NEXPR("path", IDENT("path"));
+  symbol_table[*output->expression_] = path_sym;
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  auto produce = MakeProduce(make_path, output);
+  auto results = Results<query::Path>(produce);
+  ASSERT_EQ(results.size(), 2);
+  std::vector<query::Path> expected_paths;
+  for (const auto &v : dba->Vertices(false)) expected_paths.emplace_back(v);
+  ASSERT_EQ(expected_paths.size(), 2);
+  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
+                                  results.begin()));
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
@@ -218,25 +251,30 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST(QueryPlan, Expand) {
+class ExpandFixture : public testing::Test {
+ protected:
   Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  auto v1 = dba->InsertVertex();
-  v1.add_label((GraphDbTypes::Label)1);
-  auto v2 = dba->InsertVertex();
-  v2.add_label((GraphDbTypes::Label)2);
-  auto v3 = dba->InsertVertex();
-  v3.add_label((GraphDbTypes::Label)3);
-  auto edge_type = dba->EdgeType("Edge");
-  dba->InsertEdge(v1, v2, edge_type);
-  dba->InsertEdge(v1, v3, edge_type);
-  dba->AdvanceCommand();
-
+  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
+  // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
+  VertexAccessor v1 = dba->InsertVertex();
+  VertexAccessor v2 = dba->InsertVertex();
+  VertexAccessor v3 = dba->InsertVertex();
+  GraphDbTypes::EdgeType edge_type = dba->EdgeType("Edge");
+  EdgeAccessor r1 = dba->InsertEdge(v1, v2, edge_type);
+  EdgeAccessor r2 = dba->InsertEdge(v1, v3, edge_type);
+
+  void SetUp() override {
+    v1.add_label((GraphDbTypes::Label)1);
+    v2.add_label((GraphDbTypes::Label)2);
+    v3.add_label((GraphDbTypes::Label)3);
+    dba->AdvanceCommand();
+  }
+};
+
+TEST_F(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, GraphView graph_view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
@@ -274,6 +312,29 @@ TEST(QueryPlan, Expand) {
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 }
 
+TEST_F(ExpandFixture, ExpandPath) {
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::OUT, nullptr, false, "m", false);
+  Symbol path_sym = symbol_table.CreateSymbol("path", true);
+  auto path = std::make_shared<ConstructNamedPath>(
+      r_m.op_, path_sym,
+      std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
+  auto output = NEXPR("m", IDENT("m"));
+  symbol_table[*output->expression_] = path_sym;
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  auto produce = MakeProduce(path, output);
+
+  std::vector<query::Path> expected_paths{{v1, r2, v3}, {v1, r1, v2}};
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  ASSERT_EQ(results.size(), 2);
+  std::vector<query::Path> results_paths;
+  for (const auto &result : results)
+    results_paths.emplace_back(result[0].ValuePath());
+  EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
+                                  results_paths.begin()));
+}
+
 /**
  * A fixture that sets a graph up and provides some functions.
  *
@@ -288,7 +349,7 @@ TEST(QueryPlan, Expand) {
  */
 class QueryPlanExpandVariable : public testing::Test {
  protected:
-  // type returned by the GetResults function, used
+  // type returned by the GetEdgeListSizes function, used
   // a lot below in test declaration
   using map_int = std::unordered_map<int, int>;
 
@@ -296,6 +357,8 @@ class QueryPlanExpandVariable : public testing::Test {
   std::unique_ptr<GraphDbAccessor> dba = dbms.active();
   // labels for layers in the double chain
   std::vector<GraphDbTypes::Label> labels;
+  // for all the edges
+  GraphDbTypes::EdgeType edge_type = dba->EdgeType("edge_type");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -318,7 +381,7 @@ class QueryPlanExpandVariable : public testing::Test {
         v_to.add_label(label);
         for (size_t v_from_ind = 0; v_from_ind < layer.size(); v_from_ind++) {
           auto &v_from = layer[v_from_ind];
-          auto edge = dba->InsertEdge(v_from, v_to, dba->EdgeType("edge_type"));
+          auto edge = dba->InsertEdge(v_from, v_to, edge_type);
           edge.PropsSet(dba->Property("p"),
                         fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
                                     from_layer_ind + 1, v_to_ind));
@@ -385,19 +448,35 @@ class QueryPlanExpandVariable : public testing::Test {
   }
 
   /**
-   * Pulls from the given input and analyses the edge-list (result of variable
-   * length expansion) found in the results under the given symbol.
+   * Pulls from the given input and returns the results under the given symbol.
    *
-   * @return a map {path_lenth -> number_of_results}
+   * @return a vector of values of the given type.
+   * @tparam TResult type of the result that is sought.
    */
+  template <typename TResult>
   auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
-    map_int count_per_length;
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(*dba);
     Context context(*dba);
     context.symbol_table_ = symbol_table;
-    while (cursor->Pull(frame, context)) {
-      auto length = frame[symbol].Value<std::vector<TypedValue>>().size();
+    std::vector<TResult> results;
+    while (cursor->Pull(frame, context))
+      results.emplace_back(frame[symbol].Value<TResult>());
+    return results;
+  }
+
+  /**
+   * Pulls from the given input and analyses the edge-list (result of variable
+   * length expansion) found in the results under the given symbol.
+   *
+   * @return a map {edge_list_length -> number_of_results}
+   */
+  auto GetEdgeListSizes(std::shared_ptr<LogicalOperator> input_op,
+                        Symbol symbol) {
+    map_int count_per_length;
+    for (const auto &edge_list :
+         GetResults<std::vector<TypedValue>>(input_op, symbol)) {
+      auto length = edge_list.size();
       auto found = count_per_length.find(length);
       if (found == count_per_length.end())
         count_per_length[length] = 1;
@@ -414,10 +493,11 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
                          std::experimental::optional<size_t> upper,
                          bool reverse) {
     auto e = Edge("r", direction);
-    return GetResults(AddMatch<ExpandVariable>(nullptr, "n", layer, direction,
-                                               nullptr, lower, upper, e, false,
-                                               "m", GraphView::AS_IS, reverse),
-                      e);
+    return GetEdgeListSizes(
+        AddMatch<ExpandVariable>(nullptr, "n", layer, direction, nullptr, lower,
+                                 upper, e, false, "m", GraphView::AS_IS,
+                                 reverse),
+        e);
   };
 
   for (int reverse = 0; reverse < 2; ++reverse) {
@@ -501,7 +581,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
           last_op, last_symbol, symbols);
     }
 
-    return GetResults(last_op, var_length_sym);
+    return GetEdgeListSizes(last_op, var_length_sym);
   };
 
   // no uniqueness between variable and single expansion
@@ -531,7 +611,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
           last_op, e2, std::vector<Symbol>{e1});
     }
 
-    return GetResults(last_op, e2);
+    return GetEdgeListSizes(last_op, e2);
   };
 
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false),
@@ -553,7 +633,7 @@ TEST_F(QueryPlanExpandVariable, ExistingEdges) {
     auto second =
         AddMatch<ExpandVariable>(first, "n2", layer, direction, nullptr, lower,
                                  upper, e2, same_edge_symbol, "m2");
-    return GetResults(second, e2);
+    return GetEdgeListSizes(second, e2);
   };
 
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, false),
@@ -580,14 +660,11 @@ TEST_F(QueryPlanExpandVariable, ExistingEdges) {
 TEST_F(QueryPlanExpandVariable, GraphState) {
   auto test_expand = [&](GraphView graph_view, const auto &edge_type) {
     auto e = Edge("r", EdgeAtom::Direction::OUT);
-    return GetResults(
+    return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
                                  edge_type, 2, 2, e, false, "m", graph_view),
         e);
   };
-
-  EXPECT_EQ(test_expand(GraphView::OLD, dba->EdgeType("edge_type")),
-            (map_int{{2, 8}}));
 
   auto new_edge_type = dba->EdgeType("some_type");
   // add two vertices branching out from the second layer
@@ -602,16 +679,44 @@ TEST_F(QueryPlanExpandVariable, GraphState) {
   EXPECT_EQ(test_expand(GraphView::OLD, nullptr), (map_int{{2, 8}}));
   EXPECT_EQ(test_expand(GraphView::OLD, new_edge_type), (map_int{}));
   EXPECT_EQ(test_expand(GraphView::NEW, nullptr), (map_int{{2, 12}}));
-  EXPECT_EQ(test_expand(GraphView::NEW, dba->EdgeType("edge_type")),
-            (map_int{{2, 8}}));
+  EXPECT_EQ(test_expand(GraphView::NEW, edge_type), (map_int{{2, 8}}));
   EXPECT_EQ(test_expand(GraphView::NEW, new_edge_type), (map_int{}));
   dba->AdvanceCommand();
   for (const auto graph_view : {GraphView::OLD, GraphView::NEW}) {
     EXPECT_EQ(test_expand(graph_view, nullptr), (map_int{{2, 12}}));
-    EXPECT_EQ(test_expand(graph_view, dba->EdgeType("edge_type")),
-              (map_int{{2, 8}}));
+    EXPECT_EQ(test_expand(graph_view, edge_type), (map_int{{2, 8}}));
     EXPECT_EQ(test_expand(graph_view, new_edge_type), (map_int{}));
   }
+}
+
+TEST_F(QueryPlanExpandVariable, NamedPath) {
+  auto e = Edge("r", EdgeAtom::Direction::OUT);
+  auto expand = AddMatch<ExpandVariable>(
+      nullptr, "n", 0, EdgeAtom::Direction::OUT, nullptr, 2, 2, e, false, "m");
+  auto find_symbol = [this](const std::string &name) {
+    for (const auto &pos_sym : symbol_table.table())
+      if (pos_sym.second.name() == name) return pos_sym.second;
+    throw std::runtime_error("Symbol not found");
+  };
+
+  auto path_symbol =
+      symbol_table.CreateSymbol("path", true, Symbol::Type::Path);
+  auto create_path = std::make_shared<ConstructNamedPath>(
+      expand, path_symbol,
+      std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
+
+  std::vector<query::Path> expected_paths;
+  for (const auto &v : dba->Vertices(labels[0], false))
+    for (const auto &e1 : v.out())
+      for (const auto &e2 : e1.to().out())
+        expected_paths.emplace_back(v, e1, e1.to(), e2, e2.to());
+  ASSERT_EQ(expected_paths.size(), 8);
+
+  auto results = GetResults<query::Path>(create_path, path_symbol);
+  ASSERT_EQ(results.size(), 8);
+  EXPECT_TRUE(std::is_permutation(results.begin(), results.end(),
+                                  expected_paths.begin(),
+                                  TypedValue::BoolEqual{}));
 }
 
 namespace std {

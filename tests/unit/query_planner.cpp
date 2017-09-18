@@ -57,6 +57,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ExpandVariable);
   PRE_VISIT(ExpandBreadthFirst);
   PRE_VISIT(Filter);
+  PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
@@ -83,7 +84,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
 
-  bool Visit(Once &op) override {
+  bool Visit(Once &) override {
     // Ignore checking Once, it is implicitly at the end.
     return true;
   }
@@ -115,7 +116,7 @@ class OpChecker : public BaseOpChecker {
     ExpectOp(*expected_op, symbol_table);
   }
 
-  virtual void ExpectOp(TOp &op, const SymbolTable &) {}
+  virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
 using ExpectCreateNode = OpChecker<CreateNode>;
@@ -127,6 +128,7 @@ using ExpectExpand = OpChecker<Expand>;
 using ExpectExpandVariable = OpChecker<ExpandVariable>;
 using ExpectExpandBreadthFirst = OpChecker<ExpandBreadthFirst>;
 using ExpectFilter = OpChecker<Filter>;
+using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
@@ -147,7 +149,7 @@ class ExpectAccumulate : public OpChecker<Accumulate> {
   ExpectAccumulate(const std::unordered_set<Symbol> &symbols)
       : symbols_(symbols) {}
 
-  void ExpectOp(Accumulate &op, const SymbolTable &symbol_table) override {
+  void ExpectOp(Accumulate &op, const SymbolTable &) override {
     std::unordered_set<Symbol> got_symbols(op.symbols().begin(),
                                            op.symbols().end());
     EXPECT_EQ(symbols_, got_symbols);
@@ -364,6 +366,18 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
             ExpectCreateNode());
 }
 
+TEST(TestLogicalPlanner, CreateNamedPattern) {
+  // Test CREATE p = (n) -[r :rel]-> (m)
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto relationship = dba->EdgeType("rel");
+  QUERY(CREATE(NAMED_PATTERN(
+      "p", NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m"))));
+  CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
+            ExpectConstructNamedPath());
+}
+
 TEST(TestLogicalPlanner, MatchCreateExpand) {
   // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
   AstTreeStorage storage;
@@ -396,6 +410,32 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
         RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
             ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
+  // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto relationship = dba->EdgeType("relationship");
+  QUERY(
+      MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
+      RETURN("n"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
+            ExpectConstructNamedPath(), ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
+  // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
+  AstTreeStorage storage;
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto relationship = dba->EdgeType("relationship");
+  QUERY(
+      MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
+      WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n"));
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
+            ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWhereReturn) {

@@ -833,6 +833,16 @@ TEST(ExpressionEvaluator, FunctionSize) {
                 .Value<int64_t>(),
             3);
   ASSERT_THROW(EvaluateFunction("SIZE", {5}), QueryRuntimeException);
+
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto v0 = dba->InsertVertex();
+  query::Path path(v0);
+  EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 0);
+  auto v1 = dba->InsertVertex();
+  path.Expand(dba->InsertEdge(v0, v1, dba->EdgeType("type")));
+  path.Expand(v1);
+  EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 1);
 }
 
 TEST(ExpressionEvaluator, FunctionStartNode) {

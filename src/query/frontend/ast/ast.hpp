@@ -1125,6 +1125,7 @@ class Pattern : public Tree {
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor);
       for (auto &part : atoms_) {
         if (!part->Accept(visitor)) break;
       }

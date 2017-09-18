@@ -26,19 +26,6 @@ allow deletion of created indices.
 Although we have implemented the most common features of the openCypher query
 language, there are other useful features we are still working on.
 
-#### Named Paths
-
-It would be useful to store paths that match a pattern into a variable. This
-enables the user to display the matched patterns or do some other operations
-on the path, like calculating the length of the path.
-
-The feature would be used by simply assigning the variable to a pattern. For
-example:
-
-    MATCH path = (node1) -[connection]-> (node2)
-
-Path naming is especially useful with the *variable length paths* feature.
-
 #### Functions
 
 Memgraph's openCypher implementation supports the most useful functions, but

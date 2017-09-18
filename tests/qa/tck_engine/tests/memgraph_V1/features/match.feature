@@ -484,3 +484,18 @@ Feature: Match
         Then the result should be:
             | n.a | m.a |
             | 1   | 2   |
+
+    Scenario: Named path with length function.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:start)-[:type]->()
+            """
+        When executing query:
+            """
+            MATCH path = (:start) -[*0..1]-> () RETURN size(path)
+            """
+        Then the result should be:
+            | size(path) |
+            | 0            |
+            | 1            |

@@ -5,17 +5,18 @@
 ### Major Features and Improvements
 
 * CASE construct (without aggregations).
-* `rand` function added.
+* Named path support added.
 * Maps can now be stored as vertex/edge properties.
-* `collect` aggregation now supports Map collection.
 * Map indexing supported.
+* `rand` function added.
 * `assert` function added.
-* Use \u to specify 4 digit codepoint and \U for 8 digit
 * `counter` and `counterSet` functions added.
 * `indexInfo` function added.
+* `collect` aggregation now supports Map collection.
 
 ### Bug Fixes and Other Changes
 
+* Use \u to specify 4 digit codepoint and \U for 8 digit
 * Keywords appearing in header (named expressions) keep original case.
 * Our Bolt protocol implementation is now completely compatible with the protocol version 1 specification. (https://boltprotocol.org/v1/)
 

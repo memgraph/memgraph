@@ -589,6 +589,13 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
   }
   for (auto *pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
+    if (pattern->identifier_->user_declared_) {
+      std::vector<Symbol> path_elements;
+      for (auto *pattern_atom : pattern->atoms_)
+        path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
+      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_),
+                                   std::move(path_elements));
+    }
   }
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
@@ -624,7 +631,6 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
   }
   return filter_expr;
 }
-
 }  // namespace
 
 namespace impl {
@@ -659,6 +665,30 @@ LogicalOperator *GenFilters(LogicalOperator *last_op,
     last_op =
         new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
   }
+  return last_op;
+}
+
+LogicalOperator *GenNamedPaths(
+    LogicalOperator *last_op, std::unordered_set<Symbol> &bound_symbols,
+    std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {
+  auto all_are_bound = [&bound_symbols](const std::vector<Symbol> &syms) {
+    for (const auto &sym : syms)
+      if (bound_symbols.find(sym) == bound_symbols.end()) return false;
+    return true;
+  };
+  for (auto named_path_it = named_paths.begin();
+       named_path_it != named_paths.end();) {
+    if (all_are_bound(named_path_it->second)) {
+      last_op = new ConstructNamedPath(
+          std::shared_ptr<LogicalOperator>(last_op), named_path_it->first,
+          std::move(named_path_it->second));
+      bound_symbols.insert(named_path_it->first);
+      named_path_it = named_paths.erase(named_path_it);
+    } else {
+      ++named_path_it;
+    }
+  }
+
   return last_op;
 }
 
@@ -707,7 +737,20 @@ LogicalOperator *GenCreateForPattern(
                             input_symbol, node_existing);
   };
 
-  return ReducePattern<LogicalOperator *>(pattern, base, collect);
+  LogicalOperator *last_op =
+      ReducePattern<LogicalOperator *>(pattern, base, collect);
+
+  // If the pattern is named, append the path constructing logical operator.
+  if (pattern.identifier_->user_declared_) {
+    std::vector<Symbol> path_elements;
+    for (const PatternAtom *atom : pattern.atoms_)
+      path_elements.emplace_back(symbol_table.at(*atom->identifier_));
+    last_op = new ConstructNamedPath(std::shared_ptr<LogicalOperator>(last_op),
+                                     symbol_table.at(*pattern.identifier_),
+                                     path_elements);
+  }
+
+  return last_op;
 }
 
 // Generate an operator for a clause which writes to the database. If the clause

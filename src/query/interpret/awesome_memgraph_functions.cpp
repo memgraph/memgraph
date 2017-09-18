@@ -135,6 +135,8 @@ TypedValue Size(const std::vector<TypedValue> &args, GraphDbAccessor &) {
       // to do it.
       return static_cast<int64_t>(
           args[0].Value<std::map<std::string, TypedValue>>().size());
+    case TypedValue::Type::Path:
+      return static_cast<int64_t>(args[0].ValuePath().edges().size());
     default:
       throw QueryRuntimeException("size called with incompatible type");
   }

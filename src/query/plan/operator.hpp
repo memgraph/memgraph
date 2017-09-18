@@ -18,6 +18,8 @@
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/path.hpp"
+#include "query/typed_value.hpp"
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
@@ -67,6 +69,7 @@ class ScanAllByLabelPropertyValue;
 class Expand;
 class ExpandVariable;
 class ExpandBreadthFirst;
+class ConstructNamedPath;
 class Filter;
 class Produce;
 class Delete;
@@ -92,8 +95,8 @@ class CreateIndex;
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
-    ExpandVariable, ExpandBreadthFirst, Filter, Produce, Delete, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    ExpandVariable, ExpandBreadthFirst, ConstructNamedPath, Filter, Produce,
+    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
@@ -729,6 +732,30 @@ class ExpandBreadthFirst : public LogicalOperator {
 
   // from which state the input node should get expanded
   const GraphView graph_view_;
+};
+
+/**
+ * Constructs a named path from it's elements and places it on the frame.
+ */
+class ConstructNamedPath : public LogicalOperator {
+ public:
+  ConstructNamedPath(const std::shared_ptr<LogicalOperator> &input,
+                     Symbol path_symbol,
+                     const std::vector<Symbol> &path_elements)
+      : input_(input),
+        path_symbol_(path_symbol),
+        path_elements_(path_elements) {}
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) override;
+
+  const auto &input() const { return input_; }
+  const auto &path_symbol() const { return path_symbol_; }
+  const auto &path_elements() const { return path_elements_; }
+
+ private:
+  const std::shared_ptr<LogicalOperator> input_;
+  const Symbol path_symbol_;
+  const std::vector<Symbol> path_elements_;
 };
 
 /**

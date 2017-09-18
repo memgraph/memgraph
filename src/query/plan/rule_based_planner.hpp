@@ -120,6 +120,8 @@ struct Matching {
   Filters filters;
   /// Maps node symbols to expansions which bind them.
   std::unordered_map<Symbol, std::set<int>> node_symbol_to_expansions{};
+  /// Maps named path symbols to a vector of Symbols that define its pattern.
+  std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
 };
@@ -230,6 +232,14 @@ LogicalOperator *GenFilters(LogicalOperator *last_op,
                             const std::unordered_set<Symbol> &bound_symbols,
                             std::vector<Filters::FilterInfo> &all_filters,
                             AstTreeStorage &storage);
+//
+/// For all given `named_paths` checks if the all it's symbols have been bound.
+/// If so it creates a logical operator for named path generation, binds it's
+/// symbol, removes that path from the collection of unhandled ones and returns
+/// the new op. Otherwise it returns nullptr.
+LogicalOperator *GenNamedPaths(
+    LogicalOperator *last_op, std::unordered_set<Symbol> &bound_symbols,
+    std::unordered_map<Symbol, std::vector<Symbol>> &named_paths);
 
 LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
                            SymbolTable &symbol_table, bool is_write,
@@ -474,6 +484,8 @@ class RuleBasedPlanner {
     const auto &matching = match_context.matching;
     // Copy all_filters, because we will modify the list as we generate Filters.
     auto all_filters = matching.filters.all_filters();
+    // Copy the named_paths for the same reason.
+    auto named_paths = matching.named_paths;
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
@@ -494,6 +506,9 @@ class RuleBasedPlanner {
                                 node1_symbol, match_context.graph_view);
         }
         match_context.new_symbols.emplace_back(node1_symbol);
+        last_op =
+            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenNamedPaths(last_op, bound_symbols, named_paths);
         last_op =
             impl::GenFilters(last_op, bound_symbols, all_filters, storage);
       }
@@ -596,6 +611,9 @@ class RuleBasedPlanner {
             }
           }
         }
+        last_op =
+            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenNamedPaths(last_op, bound_symbols, named_paths);
         last_op =
             impl::GenFilters(last_op, bound_symbols, all_filters, storage);
       }

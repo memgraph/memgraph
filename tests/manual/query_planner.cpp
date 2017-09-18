@@ -428,6 +428,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   }
 
   PRE_VISIT(ExpandBreadthFirst);
+  PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(Filter);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);

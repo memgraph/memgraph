@@ -190,7 +190,12 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
                             scope_.in_skip ? "SKIP" : "LIMIT");
   }
   Symbol symbol;
-  if (scope_.in_pattern && scope_.in_pattern_identifier) {
+  if (scope_.in_pattern && !(scope_.in_node_atom || scope_.visiting_edge)) {
+    // If we are in the pattern, and outside of a node or an edge, the
+    // identifier is the pattern name.
+    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
+                               Symbol::Type::Path);
+  } else if (scope_.in_pattern && scope_.in_pattern_atom_identifier) {
     // Patterns can bind new symbols or reference already bound. But there
     // are the following special cases:
     //  1) Patterns used to create nodes and edges cannot redeclare already
@@ -221,7 +226,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       }
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
-  } else if (scope_.in_pattern && !scope_.in_pattern_identifier &&
+  } else if (scope_.in_pattern && !scope_.in_pattern_atom_identifier &&
              scope_.in_match) {
     if (scope_.in_edge_range &&
         scope_.visiting_edge->identifier_->name_ == ident.name_) {
@@ -329,9 +334,9 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   for (auto kv : node_atom.properties_) {
     kv.second->Accept(*this);
   }
-  scope_.in_pattern_identifier = true;
+  scope_.in_pattern_atom_identifier = true;
   node_atom.identifier_->Accept(*this);
-  scope_.in_pattern_identifier = false;
+  scope_.in_pattern_atom_identifier = false;
   return false;
 }
 
@@ -374,9 +379,9 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     }
     scope_.in_edge_range = false;
   }
-  scope_.in_pattern_identifier = true;
+  scope_.in_pattern_atom_identifier = true;
   edge_atom.identifier_->Accept(*this);
-  scope_.in_pattern_identifier = false;
+  scope_.in_pattern_atom_identifier = false;
   return false;
 }
 
@@ -428,9 +433,9 @@ bool SymbolGenerator::PreVisit(BreadthFirstAtom &bf_atom) {
   scope_.in_pattern = true;
   // XXX: Make BFS symbol be EdgeList.
   bf_atom.has_range_ = true;
-  scope_.in_pattern_identifier = true;
+  scope_.in_pattern_atom_identifier = true;
   bf_atom.identifier_->Accept(*this);
-  scope_.in_pattern_identifier = false;
+  scope_.in_pattern_atom_identifier = false;
   bf_atom.has_range_ = false;
   return false;
 }

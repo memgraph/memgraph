@@ -43,3 +43,11 @@ class EdgeAccessor : public RecordAccessor<Edge> {
 };
 
 std::ostream &operator<<(std::ostream &, const EdgeAccessor &);
+
+// hash function for the edge accessor
+namespace std {
+template <>
+struct hash<EdgeAccessor> {
+  size_t operator()(const EdgeAccessor &e) const { return e.temporary_id(); };
+};
+}

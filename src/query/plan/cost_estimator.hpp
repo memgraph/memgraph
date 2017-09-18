@@ -223,11 +223,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   std::experimental::optional<PropertyValue> ConstPropertyValue(
       const Expression *expression) {
     if (auto *literal = dynamic_cast<const PrimitiveLiteral *>(expression)) {
-      if (literal->value_.IsPropertyValue()) return literal->value_;
+      if (literal->value_.IsPropertyValue())
+        return static_cast<PropertyValue>(literal->value_);
     } else if (auto *param_lookup =
                    dynamic_cast<const ParameterLookup *>(expression)) {
       auto value = parameters.AtTokenPosition(param_lookup->token_position_);
-      if (value.IsPropertyValue()) return value;
+      if (value.IsPropertyValue()) return static_cast<PropertyValue>(value);
     }
     return std::experimental::nullopt;
   }

@@ -64,6 +64,8 @@ class SymbolTable {
 
   int max_position() const { return position_; }
 
+  const auto &table() const { return table_; }
+
  private:
   int position_{0};
   std::map<int, Symbol> table_;
