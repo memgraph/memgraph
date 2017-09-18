@@ -887,7 +887,6 @@ class ExpandVariableCursor : public Cursor {
       if (edges_.empty()) return false;
 
       // we use this a lot
-      // TODO handle optional + existing edge
       std::vector<TypedValue> &edges_on_frame =
           frame[self_.edge_symbol_].Value<std::vector<TypedValue>>();
 
@@ -1016,7 +1015,6 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
     TypedValue result = self_.where_->Accept(evaluator);
     switch (result.type()) {
       case TypedValue::Type::Null:
-        // TODO review: is treating Null as false desired?
         return;
       case TypedValue::Type::Bool:
         if (!result.Value<bool>()) return;
@@ -1630,9 +1628,8 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
       // This shouldn't raise a TypedValueException, because the planner makes
-      // sure these are all of the expected type. In case they are not, an
-      // error should be raised long before this code is executed.
-      // TODO handle possible null due to optional match
+      // sure these are all of the expected type. In case they are not, an error
+      // should be raised long before this code is executed.
       if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
     }
     return true;

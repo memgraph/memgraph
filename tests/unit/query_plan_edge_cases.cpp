@@ -41,23 +41,38 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
   Commit();
   ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 4);
 
-  auto Exec = [this](bool desc, bool variable) {
+  auto Exec = [this](bool desc, const std::string &edge_pattern) {
     // this test depends on left-to-right query planning
     FLAGS_query_cost_planner = false;
     return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") +
                    (desc ? "DESC " : "") +
                    "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
-                   "MATCH (d)-" +
-                   (variable ? "[*1]" : "") +
-                   "->(f:Food) "
+                   "MATCH (d)" + edge_pattern +
+                   "(f:Food) "
                    "RETURN p, d, f")
         .size();
   };
 
-  EXPECT_EQ(Exec(false, false), 1);
-  EXPECT_EQ(Exec(true, false), 1);
-  EXPECT_EQ(Exec(false, true), 1);
-  EXPECT_EQ(Exec(true, true), 1);
+  std::string expand = "-->";
+  std::string variable = "-[*1]->";
+  std::string bfs = "-bfs[](n, e | true, 1)->";
 
-  // TODO test/fix ExpandBreadthFirst once it's operator lands
+  EXPECT_EQ(Exec(false, expand), 1);
+  EXPECT_EQ(Exec(true, expand), 1);
+  EXPECT_EQ(Exec(false, variable), 1);
+  EXPECT_EQ(Exec(true, bfs), 1);
+  EXPECT_EQ(Exec(true, bfs), 1);
+}
+
+TEST_F(QueryExecution, EdgeUniquenessInOptional) {
+  // Validating that an edge uniqueness check can't fail when the edge is Null
+  // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
+  // MATCH, we only need to check that scenario.
+  Execute("CREATE (), ()-[:Type]->()");
+  Commit();
+  ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 3);
+  EXPECT_EQ(Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
+                    "RETURN n, r1, r2")
+                .size(),
+            3);
 }
