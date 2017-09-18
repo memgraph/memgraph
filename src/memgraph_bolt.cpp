@@ -108,6 +108,9 @@ int main(int argc, char **argv) {
               << stacktrace.dump() << std::endl;
   });
 
+  // Initialize bolt session data (Dbms and QueryEngine).
+  session_data_t session_data;
+
   // Initialize endpoint.
   endpoint_t endpoint;
   try {
@@ -128,9 +131,6 @@ int main(int argc, char **argv) {
   if (!socket.Listen(1024)) {
     LOG(FATAL) << "Cannot listen on socket!";
   }
-
-  // Initialize bolt session data (Dbms and QueryEngine).
-  session_data_t session_data;
 
   // Initialize server.
   bolt_server_t server(std::move(socket), session_data);
