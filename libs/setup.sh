@@ -106,5 +106,6 @@ rm postgres.tar.gz
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.
 mkdir json
 cd json
-wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
+#wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
+wget -nv http://deps.memgraph.io/json.hpp
 cd ..
