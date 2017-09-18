@@ -22,14 +22,14 @@ DEFINE_string(password, "", "Password for the database");
 
 DEFINE_int32(vertex_count, 0, "The average number of vertices in the graph");
 DEFINE_int32(edge_count, 0, "The average number of edges in the graph");
-DEFINE_int32(vertex_batch, 200,
-             "The number of vertices to be created simultaneously");
 DEFINE_int32(prop_count, 5, "The max number of properties on a node");
 DEFINE_uint64(max_queries, 1 << 30, "Maximum number of queries to execute");
 DEFINE_int32(max_time, 1, "Maximum execution time in minutes");
 DEFINE_int32(verify, 0, "Interval (seconds) between checking local info");
 DEFINE_int32(worker_count, 1,
              "The number of workers that operate on the graph independently");
+DEFINE_bool(global_queries, false,
+            "If queries that modifiy globally should be executed sometimes");
 
 /**
  * Encapsulates a Graph and a Bolt session and provides CRUD op functions.
@@ -309,13 +309,15 @@ class GraphSession {
       double ratio_v = (double)vertices_.size() / (double)vertex_count;
 
       // try to edit vertices globally
-      if (Bernoulli(0.01)) {
-        UpdateGlobalVertices();
-      }
+      if (FLAGS_global_queries) {
+        if (Bernoulli(0.01)) {
+          UpdateGlobalVertices();
+        }
 
-      // try to edit edges globally
-      if (Bernoulli(0.01)) {
-        UpdateGlobalEdges();
+        // try to edit edges globally
+        if (Bernoulli(0.01)) {
+          UpdateGlobalEdges();
+        }
       }
 
       // prefer adding/removing edges whenever there is an edge

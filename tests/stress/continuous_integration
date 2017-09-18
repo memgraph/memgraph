@@ -27,12 +27,12 @@ SMALL_DATASET = [
         "timeout": 5,
     },
     {
-        "test": "long_running.py",
+        "test": "long_running.cpp",
         "options": ["--vertex-count", "1000", "--edge-count", "1000", "--max-time", "1", "--verify", "20"],
         "timeout": 5,
     },
     {
-        "test": "long_running.py",
+        "test": "long_running.cpp",
         "options": ["--vertex-count", "1000", "--edge-count", "1000", "--max-time", "2", "--verify", "30"],
         "timeout": 5,
     },
@@ -55,13 +55,13 @@ LARGE_DATASET = [
     },
 ] + [
     {
-        "test": "long_running.py",
+        "test": "long_running.cpp",
         "options": ["--vertex-count", "100000", "--edge-count", "100000", "--max-time", "5", "--verify", "60"],
         "timeout": 8,
     },
 ] * 6 + [
     {
-        "test": "long_running.py",
+        "test": "long_running.cpp",
         "options": ["--vertex-count", "200000", "--edge-count", "2000000", "--max-time", "480", "--verify", "300"],
         "timeout": 500,
     },
@@ -84,10 +84,22 @@ else:
 def run_test(args, test, options, timeout):
     print("Running test '{}'".format(test))
 
+    # find binary
+    if test.endswith(".py"):
+        logging = "DEBUG" if args.verbose else "WARNING"
+        binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test),
+                "--logging", logging]
+    elif test.endswith(".cpp"):
+        exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
+        if not os.path.exists(exe):
+            exe = os.path.join(BASE_DIR, "build_release", "tests", "stress",
+                    test[:-4])
+        binary = [exe]
+    else:
+        raise Exception("Test '{}' binary not supported!".format(test))
+
     # start test
-    logging = "DEBUG" if args.verbose else "WARNING"
-    cmd = [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--worker-count",
-            str(THREADS), "--logging", logging] + options
+    cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
     ret_test = subprocess.run(cmd, cwd = SCRIPT_DIR, timeout = timeout * 60)
 

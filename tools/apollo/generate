@@ -246,8 +246,10 @@ if mode == "diff":
 
 # stress tests
 stress_path = os.path.join(BASE_DIR, "tests", "stress")
+stress_binary_path = os.path.join(BUILD_RELEASE_DIR, "tests", "stress")
 infile = create_archive("stress", [binary_release_path,
-        binary_release_link_path, stress_path, config_path],
+        binary_release_link_path, stress_path, stress_binary_path,
+        config_path],
         cwd = WORKSPACE_DIR)
 cmd = "cd memgraph/tests/stress\nTIMEOUT=600 ./continuous_integration"
 RUNS.append(generate_run("stress", commands = cmd, infile = infile))

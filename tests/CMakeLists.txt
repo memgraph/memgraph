@@ -30,6 +30,9 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
 # macro_benchmark test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/macro_benchmark)
 
+# stress test binaries
+add_subdirectory(${PROJECT_SOURCE_DIR}/stress)
+
 # concurrent test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
 
