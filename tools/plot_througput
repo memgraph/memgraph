@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import json
+import os
+import matplotlib.pyplot as plt
+from matplotlib.cbook import get_sample_data
+from argparse import ArgumentParser
+
+COLORS = {
+    'memgraph': '#ff7300',
+    'neo4j': '#008cc2'
+}
+
+
+def parse_args():
+    argp = ArgumentParser(description=__doc__)
+    argp.add_argument("--vendor-references", nargs="+",
+                      help="Short references that represent all the "
+                           "vendors that are going to be "
+                           "visualized on the plot.")
+    argp.add_argument("--vendor-titles", nargs="+",
+                      help="Vender titles that are going to appear "
+                           "on the plot, e.g. legend titles.")
+    argp.add_argument("--results", nargs="+",
+                      help="Result files for each vendor")
+    argp.add_argument("--plot-title", default="{{Plot title placeholder}}",
+                      help="Plot title.")
+    #argp.add_argument("--max-label-width", default=11, type=int,
+    #                  help="Maximum length of the x-axis labels (-1 is unlimited)")
+    return argp.parse_args()
+
+
+def main():
+    # Read the arguments.
+    args = parse_args()
+
+    # Prepare the datastructure.
+    vendors = {}
+    for vendor_reference, vendor_title, vendor_results in \
+            zip(args.vendor_references, args.vendor_titles, args.results):
+        vendors[vendor_reference] = {}
+        vendors[vendor_reference]['title'] = vendor_title
+        vendors[vendor_reference]['results_path'] = vendor_results
+        vendors[vendor_reference]['color'] = COLORS[vendor_reference]
+        vendors[vendor_reference]['t'] = []
+        vendors[vendor_reference]['dq/dt'] = []
+
+    fig, ax = plt.subplots()
+    ax.set_ylabel('Throughput (queries per second)')
+    ax.set_xlabel('Time (seconds)')
+    ax.set_title(args.plot_title)
+    ax.set_aspect(0.01)
+
+    # Collect the benchmark data and plot lines.
+    print("Pokec throughput")
+    for vendor_reference, vendor_data in vendors.items():
+        print("Vendor: %s" % vendor_reference)
+        with open(vendor_data['results_path']) as results_file:
+            # Skip first line which contains titles.
+            prev_time, prev_num_queries  = 0.0, 0
+            for line in results_file.readlines()[1:]:
+                data = line.split()
+                if data == []: break
+                assert len(data) == 2, "Invalid data"
+                new_time = float(data[0])
+                new_num_quries = int(data[1])
+                dt, dq = new_time - prev_time, new_num_quries - prev_num_queries
+                prev_time, prev_num_queries = new_time, new_num_quries
+                vendor_data['t'].append(new_time)
+                vendor_data['dq/dt'].append(dq / dt)
+
+        line1, = ax.plot(vendor_data['t'], vendor_data['dq/dt'], '-', linewidth=2,
+                         label=vendor_data['title'], color=vendor_data['color'])
+
+    ax.legend(loc='lower right')
+    plt.show()
+
+if __name__ == '__main__':
+    main()

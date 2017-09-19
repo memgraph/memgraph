@@ -19,6 +19,7 @@ class LongRunningSuite:
     def __init__(self, args):
         argp = ArgumentParser("LongRunningSuiteArgumentParser")
         argp.add_argument("--num-client-workers", default=4)
+        argp.add_argument("--duration", type=int)
         self.args, _ = argp.parse_known_args(args)
         pass
 
@@ -30,6 +31,8 @@ class LongRunningSuite:
 
         config = next(scenario.get("config")())
         duration = config["duration"]
+        if self.args.duration:
+            duration = self.args.duration
         log.info("Executing run for {} seconds with {} client workers".format(
             duration, self.args.num_client_workers))
         results = runner.run(next(scenario.get("run")()), duration,
@@ -38,15 +41,19 @@ class LongRunningSuite:
         runner.stop()
 
         measurements = []
+        summary_format = "{:>15} {:>22}\n"
+        self.summary = summary_format.format(
+                "elapsed_time", "num_executed_queries")
         for result in results:
-            print(result["num_executed_queries"], result["elapsed_time"])
+            self.summary += summary_format.format(
+                    result["elapsed_time"], result["num_executed_queries"])
             # TODO: Revise this.
             measurements.append({
                 "target": "throughput",
                 "value": result["num_executed_queries"] / result["elapsed_time"],
                 "unit": "queries per second",
                 "type": "throughput"})
-        self.summary = "Throughtput: " + str(measurements[-1]["value"])
+        self.summary += "\n\nThroughtput: " + str(measurements[-1]["value"])
         return measurements
 
     def runners(self):
