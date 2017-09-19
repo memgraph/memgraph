@@ -12,7 +12,6 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "traversal/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/total_ordering.hpp"
 
