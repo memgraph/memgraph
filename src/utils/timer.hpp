@@ -8,7 +8,7 @@ namespace utils {
 class Timer {
  public:
   /** Time elapsed since creation. */
-  std::chrono::duration<double> Elapsed() {
+  std::chrono::duration<double> Elapsed() const {
     return std::chrono::steady_clock::now() - start_time_;
   }
 

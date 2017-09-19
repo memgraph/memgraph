@@ -14,25 +14,60 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/plan/cost_estimator.hpp"
-#include "query/plan/planner.hpp"
-#include "query/plan/vertex_count_cache.hpp"
+#include "query/plan/operator.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
 
 // TODO: Remove ast_cache flag and add flag that limits cache size.
 DECLARE_bool(ast_cache);
 DECLARE_bool(query_cost_planner);
+DECLARE_bool(query_plan_cache);
+DECLARE_int32(query_cache_expire_seconds);
 
 namespace query {
 
 class Interpreter {
+ private:
+  class CachedPlan {
+   public:
+    CachedPlan(std::unique_ptr<plan::LogicalOperator> plan, double cost,
+               SymbolTable symbol_table, AstTreeStorage storage)
+        : plan_(std::move(plan)),
+          cost_(cost),
+          symbol_table_(symbol_table),
+          ast_storage_(std::move(storage)) {}
+
+    const auto &plan() const { return *plan_; }
+    double cost() const { return cost_; }
+    const auto &symbol_table() const { return symbol_table_; }
+
+    bool IsExpired() const {
+      auto elapsed = cache_timer_.Elapsed();
+      return std::chrono::duration_cast<std::chrono::seconds>(elapsed) >
+             std::chrono::seconds(FLAGS_query_cache_expire_seconds);
+    };
+
+   private:
+    std::unique_ptr<plan::LogicalOperator> plan_;
+    double cost_;
+    SymbolTable symbol_table_;
+    AstTreeStorage ast_storage_;
+    utils::Timer cache_timer_;
+  };
+
  public:
   Interpreter() {}
+
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream,
                  const std::map<std::string, TypedValue> &params) {
+    if (!FLAGS_ast_cache && !params.empty()) {
+      // This is totally fine, since we don't really expect anyone to turn off
+      // the cache.
+      throw utils::NotYetImplemented(
+          "Params not implemented if ast cache is turned off");
+    }
     utils::Timer frontend_timer;
     Context ctx(db_accessor);
     ctx.is_query_cached_ = FLAGS_ast_cache;
@@ -40,98 +75,83 @@ class Interpreter {
 
     // query -> stripped query
     StrippedQuery stripped(query);
-    // stripped query -> high level tree
-    AstTreeStorage ast_storage = [&]() {
-      if (!ctx.is_query_cached_) {
-        // This is totally fine, since we don't really expect anyone to turn off
-        // the cache.
-        if (!params.empty()) {
-          throw utils::NotYetImplemented(
-              "Params not implemented if ast cache is turned off");
-        }
 
-        // stripped query -> AST
-        auto parser = [&] {
-          // Be careful about unlocking since parser can throw.
-          std::unique_lock<SpinLock> guard(antlr_lock_);
-          return std::make_unique<frontend::opencypher::Parser>(query);
-        }();
-        auto low_level_tree = parser->tree();
-
-        // AST -> high level tree
-        frontend::CypherMainVisitor visitor(ctx);
-        visitor.visit(low_level_tree);
-        return std::move(visitor.storage());
+    // Update context with provided parameters.
+    ctx.parameters_ = stripped.literals();
+    for (const auto &param_pair : stripped.parameters()) {
+      auto param_it = params.find(param_pair.second);
+      if (param_it == params.end()) {
+        throw query::UnprovidedParameterError(
+            fmt::format("Parameter$ {} not provided", param_pair.second));
       }
+      ctx.parameters_.Add(param_pair.first, param_it->second);
+    }
 
-      auto ast_cache_accessor = ast_cache_.access();
-      auto ast_it = ast_cache_accessor.find(stripped.hash());
-      if (ast_it == ast_cache_accessor.end()) {
-        // stripped query -> AST
-        auto parser = [&] {
-          // Be careful about unlocking since parser can throw.
-          std::unique_lock<SpinLock> guard(antlr_lock_);
-          return std::make_unique<frontend::opencypher::Parser>(
-              stripped.query());
-        }();
-        auto low_level_tree = parser->tree();
+    std::shared_ptr<CachedPlan> cached_plan;
+    std::experimental::optional<AstTreeStorage> ast_storage;
+    // Check if we have a cached logical plan ready, so that we can skip the
+    // whole query -> AST -> logical_plan process.
+    auto plan_cache_accessor = plan_cache_.access();
+    auto plan_cache_it = plan_cache_accessor.find(stripped.hash());
+    if (plan_cache_it != plan_cache_accessor.end() &&
+        plan_cache_it->second->IsExpired()) {
+      // Remove the expired plan.
+      plan_cache_accessor.remove(stripped.hash());
+      plan_cache_it = plan_cache_accessor.end();
+    }
+    if (plan_cache_it == plan_cache_accessor.end()) {
+      // We didn't find a cached plan or it was expired.
+      // stripped query -> high level tree
+      ast_storage = QueryToAst(stripped, ctx);
+    } else {
+      cached_plan = plan_cache_it->second;
+    }
 
-        // AST -> high level tree
-        frontend::CypherMainVisitor visitor(ctx);
-        visitor.visit(low_level_tree);
-
-        // Cache it.
-        ast_it = ast_cache_accessor
-                     .insert(stripped.hash(), std::move(visitor.storage()))
-                     .first;
-      }
-
-      // Update context with provided parameters.
-      ctx.parameters_ = stripped.literals();
-      for (const auto &param_pair : stripped.parameters()) {
-        auto param_it = params.find(param_pair.second);
-        if (param_it == params.end()) {
-          throw query::UnprovidedParameterError(
-              fmt::format("Parameter$ {} not provided", param_pair.second));
-        }
-        ctx.parameters_.Add(param_pair.first, param_it->second);
-      }
-
-      AstTreeStorage new_ast;
-      ast_it->second.query()->Clone(new_ast);
-      return new_ast;
-    }();
     auto frontend_time = frontend_timer.Elapsed();
 
     utils::Timer planning_timer;
-    // symbol table fill
-    SymbolGenerator symbol_generator(ctx.symbol_table_);
-    ast_storage.query()->Accept(symbol_generator);
 
-    // high level tree -> logical plan
-    std::unique_ptr<plan::LogicalOperator> logical_plan;
-    auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+    auto fill_symbol_table = [](auto &ast_storage, auto &symbol_table) {
+      SymbolGenerator symbol_generator(symbol_table);
+      ast_storage.query()->Accept(symbol_generator);
+    };
+
+    // If the plan is not stored in the cache, `tmp_logical_plan` owns the newly
+    // generated plan. Otherwise, it is empty and `cached_plan` owns the plan.
+    // In all cases, `logical_plan` references the plan to be used.
+    std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
+    const plan::LogicalOperator *logical_plan = nullptr;
     double query_plan_cost_estimation = 0.0;
-    if (FLAGS_query_cost_planner) {
-      auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
-          ast_storage, ctx.symbol_table_, vertex_counts);
-      double min_cost = std::numeric_limits<double>::max();
-      for (auto &plan : plans) {
-        auto cost = EstimatePlanCost(vertex_counts, ctx.parameters_, *plan);
-        if (!logical_plan || cost < min_cost) {
-          // We won't be iterating over plans anymore, so it's ok to invalidate
-          // unique_ptrs inside.
-          logical_plan = std::move(plan);
-          min_cost = cost;
-        }
+    if (FLAGS_query_plan_cache) {
+      if (!cached_plan) {
+        debug_assert(ast_storage, "AST is required to generate a plan");
+        fill_symbol_table(*ast_storage, ctx.symbol_table_);
+        std::tie(tmp_logical_plan, query_plan_cost_estimation) =
+            MakeLogicalPlan(*ast_storage, db_accessor, ctx);
+        // Cache the generated plan.
+        auto plan_cache_accessor = plan_cache_.access();
+        auto plan_cache_it =
+            plan_cache_accessor
+                .insert(
+                    stripped.hash(),
+                    std::make_shared<CachedPlan>(
+                        std::move(tmp_logical_plan), query_plan_cost_estimation,
+                        ctx.symbol_table_, std::move(*ast_storage)))
+                .first;
+        cached_plan = plan_cache_it->second;
       }
-      query_plan_cost_estimation = min_cost;
+      query_plan_cost_estimation = cached_plan->cost();
+      ctx.symbol_table_ = cached_plan->symbol_table();
+      logical_plan = &cached_plan->plan();
     } else {
-      logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-          ast_storage, ctx.symbol_table_, vertex_counts);
-      query_plan_cost_estimation =
-          EstimatePlanCost(vertex_counts, ctx.parameters_, *logical_plan);
+      debug_assert(ast_storage, "Without plan caching, AST must be generated.");
+      fill_symbol_table(*ast_storage, ctx.symbol_table_);
+      std::tie(tmp_logical_plan, query_plan_cost_estimation) =
+          MakeLogicalPlan(*ast_storage, db_accessor, ctx);
+      logical_plan = tmp_logical_plan.get();
     }
+    // Below this point, ast_storage should not be used. Other than not allowing
+    // modifications, the ast_storage may have moved to a cache.
 
     // generate frame based on symbol table max_position
     Frame frame(ctx.symbol_table_.max_position());
@@ -166,16 +186,16 @@ class Interpreter {
           values.emplace_back(frame[symbol]);
         stream.Result(values);
       }
-    } else if (dynamic_cast<plan::CreateNode *>(logical_plan.get()) ||
-               dynamic_cast<plan::CreateExpand *>(logical_plan.get()) ||
-               dynamic_cast<plan::SetProperty *>(logical_plan.get()) ||
-               dynamic_cast<plan::SetProperties *>(logical_plan.get()) ||
-               dynamic_cast<plan::SetLabels *>(logical_plan.get()) ||
-               dynamic_cast<plan::RemoveProperty *>(logical_plan.get()) ||
-               dynamic_cast<plan::RemoveLabels *>(logical_plan.get()) ||
-               dynamic_cast<plan::Delete *>(logical_plan.get()) ||
-               dynamic_cast<plan::Merge *>(logical_plan.get()) ||
-               dynamic_cast<plan::CreateIndex *>(logical_plan.get())) {
+    } else if (dynamic_cast<const plan::CreateNode *>(logical_plan) ||
+               dynamic_cast<const plan::CreateExpand *>(logical_plan) ||
+               dynamic_cast<const plan::SetProperty *>(logical_plan) ||
+               dynamic_cast<const plan::SetProperties *>(logical_plan) ||
+               dynamic_cast<const plan::SetLabels *>(logical_plan) ||
+               dynamic_cast<const plan::RemoveProperty *>(logical_plan) ||
+               dynamic_cast<const plan::RemoveLabels *>(logical_plan) ||
+               dynamic_cast<const plan::Delete *>(logical_plan) ||
+               dynamic_cast<const plan::Merge *>(logical_plan) ||
+               dynamic_cast<const plan::CreateIndex *>(logical_plan)) {
       stream.Header(header);
       auto cursor = logical_plan->MakeCursor(db_accessor);
       while (cursor->Pull(frame, ctx)) continue;
@@ -201,7 +221,16 @@ class Interpreter {
   }
 
  private:
+  // stripped query -> high level tree
+  AstTreeStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
+
+  // high level tree -> (logical plan, plan cost)
+  // AstTreeStorage and SymbolTable may be modified during planning.
+  std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
+      AstTreeStorage &, const GraphDbAccessor &, Context &);
+
   ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
+  ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> plan_cache_;
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we

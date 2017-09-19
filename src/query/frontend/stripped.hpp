@@ -48,6 +48,7 @@ class StrippedQuery {
   StrippedQuery &operator=(StrippedQuery &&other) = default;
 
   const std::string &query() const { return query_; }
+  const auto &original_query() const { return original_; }
   const auto &literals() const { return literals_; }
   const auto &named_expressions() const { return named_exprs_; }
   const auto &parameters() const { return parameters_; }

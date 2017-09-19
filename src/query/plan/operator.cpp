@@ -68,7 +68,7 @@ bool Once::OnceCursor::Pull(Frame &, Context &) {
   return false;
 }
 
-std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &) {
+std::unique_ptr<Cursor> Once::MakeCursor(GraphDbAccessor &) const {
   return std::make_unique<OnceCursor>();
 }
 
@@ -80,7 +80,7 @@ CreateNode::CreateNode(const NodeAtom *node_atom,
 
 ACCEPT_WITH_INPUT(CreateNode)
 
-std::unique_ptr<Cursor> CreateNode::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> CreateNode::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<CreateNodeCursor>(*this, db);
 }
 
@@ -122,7 +122,7 @@ CreateExpand::CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
-std::unique_ptr<Cursor> CreateExpand::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> CreateExpand::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<CreateExpandCursor>(*this, db);
 }
 
@@ -257,7 +257,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(ScanAll)
 
-std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> ScanAll::MakeCursor(GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &, Context &) {
     return db.Vertices(graph_view_ == GraphView::NEW);
   };
@@ -272,7 +272,7 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &, Context &) {
     return db.Vertices(label_, graph_view_ == GraphView::NEW);
   };
@@ -296,7 +296,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
 std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
-    GraphDbAccessor &db) {
+    GraphDbAccessor &db) const {
   auto is_less = [](const TypedValue &a, const TypedValue &b,
                     Bound::Type bound_type) {
     try {
@@ -387,7 +387,7 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
 };
 
 std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
-    GraphDbAccessor &db) {
+    GraphDbAccessor &db) const {
   return std::make_unique<ScanAllByLabelPropertyValueCursor>(*this, db);
 }
 
@@ -423,7 +423,7 @@ bool ExpandCommon::HandleExistingNode(const VertexAccessor &new_node,
 
 ACCEPT_WITH_INPUT(Expand)
 
-std::unique_ptr<Cursor> Expand::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Expand::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<ExpandCursor>(*this, db);
 }
 
@@ -960,7 +960,7 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<ExpandVariableCursor>(*this, db);
 }
 
@@ -985,7 +985,8 @@ ExpandBreadthFirst::ExpandBreadthFirst(
 
 ACCEPT_WITH_INPUT(ExpandBreadthFirst)
 
-std::unique_ptr<Cursor> ExpandBreadthFirst::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> ExpandBreadthFirst::MakeCursor(
+    GraphDbAccessor &db) const {
   return std::make_unique<ExpandBreadthFirst::Cursor>(*this, db);
 }
 
@@ -1203,7 +1204,7 @@ class ConstructNamedPathCursor : public Cursor {
 
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
-std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<ConstructNamedPathCursor>(*this, db);
 }
 
@@ -1214,7 +1215,7 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Filter)
 
-std::unique_ptr<Cursor> Filter::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Filter::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<FilterCursor>(*this, db);
 }
 
@@ -1241,11 +1242,12 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Produce)
 
-std::unique_ptr<Cursor> Produce::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Produce::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<ProduceCursor>(*this, db);
 }
 
-std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) {
+std::vector<Symbol> Produce::OutputSymbols(
+    const SymbolTable &symbol_table) const {
   std::vector<Symbol> symbols;
   for (const auto &named_expr : named_expressions_) {
     symbols.emplace_back(symbol_table.at(*named_expr));
@@ -1280,7 +1282,7 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_,
 
 ACCEPT_WITH_INPUT(Delete)
 
-std::unique_ptr<Cursor> Delete::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Delete::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<DeleteCursor>(*this, db);
 }
 
@@ -1344,7 +1346,7 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetProperty)
 
-std::unique_ptr<Cursor> SetProperty::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> SetProperty::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<SetPropertyCursor>(*this, db);
 }
 
@@ -1392,7 +1394,7 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetProperties)
 
-std::unique_ptr<Cursor> SetProperties::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> SetProperties::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<SetPropertiesCursor>(*this, db);
 }
 
@@ -1470,7 +1472,7 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(SetLabels)
 
-std::unique_ptr<Cursor> SetLabels::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> SetLabels::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<SetLabelsCursor>(*this, db);
 }
 
@@ -1500,7 +1502,7 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
-std::unique_ptr<Cursor> RemoveProperty::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> RemoveProperty::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<RemovePropertyCursor>(*this, db);
 }
 
@@ -1543,7 +1545,7 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
-std::unique_ptr<Cursor> RemoveLabels::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> RemoveLabels::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<RemoveLabelsCursor>(*this, db);
 }
 
@@ -1580,7 +1582,7 @@ ACCEPT_WITH_INPUT(ExpandUniquenessFilter<TAccessor>)
 
 template <typename TAccessor>
 std::unique_ptr<Cursor> ExpandUniquenessFilter<TAccessor>::MakeCursor(
-    GraphDbAccessor &db) {
+    GraphDbAccessor &db) const {
   return std::make_unique<ExpandUniquenessFilterCursor>(*this, db);
 }
 
@@ -1697,7 +1699,7 @@ Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Accumulate)
 
-std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Accumulate::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<Accumulate::AccumulateCursor>(*this, db);
 }
 
@@ -1749,11 +1751,11 @@ Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Aggregate)
 
-std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Aggregate::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<AggregateCursor>(*this, db);
 }
 
-Aggregate::AggregateCursor::AggregateCursor(Aggregate &self,
+Aggregate::AggregateCursor::AggregateCursor(const Aggregate &self,
                                             GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
@@ -2021,16 +2023,16 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Skip)
 
-std::unique_ptr<Cursor> Skip::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Skip::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<SkipCursor>(*this, db);
 }
 
-std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) {
+std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
   // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
-Skip::SkipCursor::SkipCursor(Skip &self, GraphDbAccessor &db)
+Skip::SkipCursor::SkipCursor(const Skip &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
@@ -2068,16 +2070,17 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Limit)
 
-std::unique_ptr<Cursor> Limit::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Limit::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<LimitCursor>(*this, db);
 }
 
-std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) {
+std::vector<Symbol> Limit::OutputSymbols(
+    const SymbolTable &symbol_table) const {
   // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
-Limit::LimitCursor::LimitCursor(Limit &self, GraphDbAccessor &db)
+Limit::LimitCursor::LimitCursor(const Limit &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
@@ -2127,16 +2130,17 @@ OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(OrderBy)
 
-std::unique_ptr<Cursor> OrderBy::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> OrderBy::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<OrderByCursor>(*this, db);
 }
 
-std::vector<Symbol> OrderBy::OutputSymbols(const SymbolTable &symbol_table) {
+std::vector<Symbol> OrderBy::OutputSymbols(
+    const SymbolTable &symbol_table) const {
   // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
-OrderBy::OrderByCursor::OrderByCursor(OrderBy &self, GraphDbAccessor &db)
+OrderBy::OrderByCursor::OrderByCursor(const OrderBy &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
@@ -2271,11 +2275,11 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-std::unique_ptr<Cursor> Merge::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Merge::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<MergeCursor>(*this, db);
 }
 
-Merge::MergeCursor::MergeCursor(Merge &self, GraphDbAccessor &db)
+Merge::MergeCursor::MergeCursor(const Merge &self, GraphDbAccessor &db)
     : input_cursor_(self.input_->MakeCursor(db)),
       merge_match_cursor_(self.merge_match_->MakeCursor(db)),
       merge_create_cursor_(self.merge_create_->MakeCursor(db)) {}
@@ -2336,11 +2340,12 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-std::unique_ptr<Cursor> Optional::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Optional::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<OptionalCursor>(*this, db);
 }
 
-Optional::OptionalCursor::OptionalCursor(Optional &self, GraphDbAccessor &db)
+Optional::OptionalCursor::OptionalCursor(const Optional &self,
+                                         GraphDbAccessor &db)
     : self_(self),
       input_cursor_(self.input_->MakeCursor(db)),
       optional_cursor_(self.optional_->MakeCursor(db)) {}
@@ -2394,11 +2399,11 @@ Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Unwind)
 
-std::unique_ptr<Cursor> Unwind::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Unwind::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<UnwindCursor>(*this, db);
 }
 
-Unwind::UnwindCursor::UnwindCursor(Unwind &self, GraphDbAccessor &db)
+Unwind::UnwindCursor::UnwindCursor(const Unwind &self, GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
@@ -2439,16 +2444,18 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(Distinct)
 
-std::unique_ptr<Cursor> Distinct::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> Distinct::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<DistinctCursor>(*this, db);
 }
 
-std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) {
+std::vector<Symbol> Distinct::OutputSymbols(
+    const SymbolTable &symbol_table) const {
   // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
-Distinct::DistinctCursor::DistinctCursor(Distinct &self, GraphDbAccessor &db)
+Distinct::DistinctCursor::DistinctCursor(const Distinct &self,
+                                         GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Distinct::DistinctCursor::Pull(Frame &frame, Context &context) {
@@ -2478,7 +2485,7 @@ bool CreateIndex::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 
 class CreateIndexCursor : public Cursor {
  public:
-  CreateIndexCursor(CreateIndex &self, GraphDbAccessor &db)
+  CreateIndexCursor(const CreateIndex &self, GraphDbAccessor &db)
       : self_(self), db_(db) {}
 
   bool Pull(Frame &, Context &) override {
@@ -2506,7 +2513,7 @@ class CreateIndexCursor : public Cursor {
   bool did_create_ = false;
 };
 
-std::unique_ptr<Cursor> CreateIndex::MakeCursor(GraphDbAccessor &db) {
+std::unique_ptr<Cursor> CreateIndex::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<CreateIndexCursor>(*this, db);
 }
 
