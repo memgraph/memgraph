@@ -138,9 +138,7 @@ class GraphDbAccessor {
   auto Vertices(const GraphDbTypes::Label &label, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
     return iter::imap(
-        [this, current_state](auto vlist) {
-          return VertexAccessor(*vlist, *this);
-        },
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
         db_.labels_index_.GetVlists(label, *transaction_, current_state));
   }
 
@@ -161,11 +159,11 @@ class GraphDbAccessor {
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
-    return iter::imap([this, current_state](
-                          auto vlist) { return VertexAccessor(*vlist, *this); },
-                      db_.label_property_index_.GetVlists(
-                          LabelPropertyIndex::Key(label, property),
-                          *transaction_, current_state));
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        db_.label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), *transaction_,
+            current_state));
   }
 
   /**
@@ -190,11 +188,11 @@ class GraphDbAccessor {
                  "Label+property index doesn't exist.");
     permanent_assert(value.type() != PropertyValue::Type::Null,
                      "Can't query index for propery value type null.");
-    return iter::imap([this, current_state](
-                          auto vlist) { return VertexAccessor(*vlist, *this); },
-                      db_.label_property_index_.GetVlists(
-                          LabelPropertyIndex::Key(label, property), value,
-                          *transaction_, current_state));
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        db_.label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), value, *transaction_,
+            current_state));
   }
 
   /**
@@ -233,11 +231,11 @@ class GraphDbAccessor {
     debug_assert(db_.label_property_index_.IndexExists(
                      LabelPropertyIndex::Key(label, property)),
                  "Label+property index doesn't exist.");
-    return iter::imap([this, current_state](
-                          auto vlist) { return VertexAccessor(*vlist, *this); },
-                      db_.label_property_index_.GetVlists(
-                          LabelPropertyIndex::Key(label, property), lower,
-                          upper, *transaction_, current_state));
+    return iter::imap(
+        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        db_.label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), lower, upper,
+            *transaction_, current_state));
   }
 
   /**
@@ -307,10 +305,10 @@ class GraphDbAccessor {
    */
   auto Edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
     debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-    return iter::imap([this, current_state](
-                          auto vlist) { return EdgeAccessor(*vlist, *this); },
-                      db_.edge_types_index_.GetVlists(edge_type, *transaction_,
-                                                      current_state));
+    return iter::imap(
+        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
+        db_.edge_types_index_.GetVlists(edge_type, *transaction_,
+                                        current_state));
   }
 
   /**

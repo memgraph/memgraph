@@ -297,26 +297,15 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
 std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
     GraphDbAccessor &db) const {
-  auto is_less = [](const TypedValue &a, const TypedValue &b,
-                    Bound::Type bound_type) {
-    try {
-      auto is_below = bound_type == Bound::Type::INCLUSIVE ? a < b : a <= b;
-      if (is_below.IsNull() || is_below.Value<bool>()) return true;
-    } catch (const TypedValueException &) {
-      throw QueryRuntimeException(
-          "Unable to compare values of type '{}' and '{}'", a.type(), b.type());
-    }
-    return false;
-  };
-  auto vertices = [this, &db, is_less](Frame &frame, Context &context) {
+  auto vertices = [this, &db](Frame &frame, Context &context) {
     ExpressionEvaluator evaluator(frame, context.parameters_,
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -522,7 +511,7 @@ void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
       break;
   }
 }
-}
+}  // namespace
 
 bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
@@ -669,7 +658,7 @@ int64_t EvaluateInt(ExpressionEvaluator &evaluator, Expression *expr,
     throw QueryRuntimeException(what + " must be an int");
   }
 }
-}  // annonymous namespace
+}  // namespace
 
 class ExpandVariableCursor : public Cursor {
  public:
@@ -759,7 +748,7 @@ class ExpandVariableCursor : public Cursor {
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(frame, context.parameters_,
                                     context.symbol_table_, db_);
-      auto calc_bound = [this, &evaluator](auto &bound) {
+      auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0)
           throw QueryRuntimeException(
@@ -1204,7 +1193,8 @@ class ConstructNamedPathCursor : public Cursor {
 
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
-std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(GraphDbAccessor &db) const {
+std::unique_ptr<Cursor> ConstructNamedPath::MakeCursor(
+    GraphDbAccessor &db) const {
   return std::make_unique<ConstructNamedPathCursor>(*this, db);
 }
 
@@ -1620,7 +1610,7 @@ bool ContainsSame<EdgeAccessor>(const TypedValue &a, const TypedValue &b) {
 
   return a.Value<EdgeAccessor>() == b.Value<EdgeAccessor>();
 }
-}  // annonymous namespace
+}  // namespace
 
 template <typename TAccessor>
 bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
@@ -1691,7 +1681,7 @@ void ReconstructTypedValue(TypedValue &value) {
       break;
   }
 }
-}
+}  // namespace
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
                        const std::vector<Symbol> &symbols, bool advance_command)
@@ -1779,7 +1769,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element) {
       return TypedValue(std::map<std::string, TypedValue>());
   }
 }
-}
+}  // namespace
 
 bool Aggregate::AggregateCursor::Pull(Frame &frame, Context &context) {
   if (!pulled_all_input_) {
