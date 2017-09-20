@@ -221,3 +221,18 @@ Feature: With
             | 1 |
             | 3 |
             | 5 |
+
+    Scenario: With test 15:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 0})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n RETURN *
+            """
+        Then the result should be:
+            | n         |
+            | ({id: 0}) |
+

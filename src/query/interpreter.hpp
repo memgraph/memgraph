@@ -170,11 +170,9 @@ class Interpreter {
         // When the symbol is aliased or expanded from '*' (inside RETURN or
         // WITH), then there is no token position, so use symbol name.
         // Otherwise, find the name from stripped query.
-        if (symbol.token_position() == -1)
-          header.push_back(symbol.name());
-        else
-          header.push_back(
-              stripped.named_expressions().at(symbol.token_position()));
+        header.push_back(FindOr(stripped.named_expressions(),
+                                symbol.token_position(), symbol.name())
+                             .first);
       }
       stream.Header(header);
 
