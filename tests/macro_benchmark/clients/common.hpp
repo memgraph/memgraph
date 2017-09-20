@@ -71,6 +71,6 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
     }
   }
   LOG(WARNING) << query << " failed " << times << "times";
-  throw last_exception;
+  throw last_exception.value();
 }
 }
