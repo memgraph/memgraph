@@ -96,7 +96,6 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 
   BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
   BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
-  BINARY_OPERATOR_VISITOR(AndOperator, &&, AND);
   BINARY_OPERATOR_VISITOR(AdditionOperator, +, +);
   BINARY_OPERATOR_VISITOR(SubtractionOperator, -, -);
   BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
@@ -116,7 +115,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
-  TypedValue Visit(FilterAndOperator &op) override {
+  TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
     if (value1.IsNull() || !value1.Value<bool>()) {
       // If first expression is null or false, don't execute the second one.

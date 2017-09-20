@@ -101,25 +101,18 @@ TEST(ExpressionEvaluator, AndOperator) {
   ASSERT_EQ(val2.Value<bool>(), false);
 }
 
-TEST(ExpressionEvaluator, FilterAndOperator) {
+TEST(ExpressionEvaluator, AndOperatorShortCircuit) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
   {
-    auto *op = storage.Create<FilterAndOperator>(
-        storage.Create<PrimitiveLiteral>(true),
-        storage.Create<PrimitiveLiteral>(true));
-    auto value = op->Accept(eval.eval);
-    EXPECT_EQ(value.Value<bool>(), true);
-  }
-  {
-    auto *op = storage.Create<FilterAndOperator>(
-        storage.Create<PrimitiveLiteral>(false),
-        storage.Create<PrimitiveLiteral>(5));
+    auto *op =
+        storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false),
+                                    storage.Create<PrimitiveLiteral>(5));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
   {
-    auto *op = storage.Create<FilterAndOperator>(
+    auto *op = storage.Create<AndOperator>(
         storage.Create<PrimitiveLiteral>(TypedValue::Null),
         storage.Create<PrimitiveLiteral>(5));
     auto value = op->Accept(eval.eval);

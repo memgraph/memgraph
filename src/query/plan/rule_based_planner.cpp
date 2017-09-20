@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <stack>
 #include <unordered_set>
 
 #include "utils/algorithm.hpp"
@@ -331,7 +332,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(OrOperator)
   VISIT_BINARY_OPERATOR(XorOperator)
   VISIT_BINARY_OPERATOR(AndOperator)
-  VISIT_BINARY_OPERATOR(FilterAndOperator)
   VISIT_BINARY_OPERATOR(AdditionOperator)
   VISIT_BINARY_OPERATOR(SubtractionOperator)
   VISIT_BINARY_OPERATOR(MultiplicationOperator)
@@ -608,7 +608,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table,
 }
 
 // Iterates over `all_filters` joining them in one expression via
-// `FilterAndOperator`. Filters which use unbound symbols are skipped, as well
+// `AndOperator`. Filters which use unbound symbols are skipped, as well
 // as those that fail the `predicate` function. The function takes a single
 // argument, `FilterInfo`. All the joined filters are removed from
 // `all_filters`.
@@ -622,8 +622,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
        filters_it != all_filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it) &&
         predicate(*filters_it)) {
-      filter_expr = impl::BoolJoin<FilterAndOperator>(storage, filter_expr,
-                                                      filters_it->expression);
+      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr,
+                                                filters_it->expression);
       filters_it = all_filters.erase(filters_it);
     } else {
       filters_it++;
@@ -631,6 +631,24 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
   }
   return filter_expr;
 }
+
+auto SplitExpressionOnAnd(Expression *expression) {
+  std::vector<Expression *> expressions;
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = dynamic_cast<AndOperator *>(current_expression)) {
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    } else {
+      expressions.push_back(current_expression);
+    }
+  }
+  return expressions;
+}
+
 }  // namespace
 
 namespace impl {
@@ -995,10 +1013,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 // information for potential property and label indexing.
 void Filters::CollectWhereFilter(Where &where,
                                  const SymbolTable &symbol_table) {
-  UsedSymbolsCollector collector(symbol_table);
-  where.expression_->Accept(collector);
-  all_filters_.emplace_back(FilterInfo{where.expression_, collector.symbols_});
-  AnalyzeFilter(where.expression_, symbol_table);
+  auto where_filters = SplitExpressionOnAnd(where.expression_);
+  for (const auto &filter : where_filters) {
+    UsedSymbolsCollector collector(symbol_table);
+    filter->Accept(collector);
+    all_filters_.emplace_back(FilterInfo{filter, collector.symbols_});
+    AnalyzeFilter(filter, symbol_table);
+  }
 }
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be

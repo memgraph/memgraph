@@ -1399,4 +1399,18 @@ TEST(TestLogicalPlanner, MatchScanToExpand) {
             ExpectFilter(), ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, MatchWhereAndSplit) {
+  // Test MATCH (n) -[r]- (m) WHERE n.prop AND r.prop RETURN m
+  Dbms dbms;
+  auto dba = dbms.active();
+  auto prop = PROPERTY_PAIR("prop");
+  AstTreeStorage storage;
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+        WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))),
+        RETURN("m"));
+  // We expect `n.prop` filter right after scanning `n`.
+  CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
+            ExpectFilter(), ExpectProduce());
+}
+
 }  // namespace

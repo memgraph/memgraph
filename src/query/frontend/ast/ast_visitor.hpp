@@ -29,7 +29,6 @@ class MapLiteral;
 class OrOperator;
 class XorOperator;
 class AndOperator;
-class FilterAndOperator;
 class NotOperator;
 class AdditionOperator;
 class SubtractionOperator;
@@ -61,16 +60,16 @@ class Unwind;
 class CreateIndex;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    Query, NamedExpression, OrOperator, XorOperator, AndOperator,
-    FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
-    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
-    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
-    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
-    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    EdgeTypeTest, Aggregation, Function, All, Create, Match, Return, With,
-    Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
+    Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
+    AdditionOperator, SubtractionOperator, MultiplicationOperator,
+    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
+    InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
+    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
+    MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation, Function,
+    All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
+    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
                                              ParameterLookup, CreateIndex>;
@@ -78,24 +77,24 @@ using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
  public:
-  using TreeCompositeVisitor::PreVisit;
   using TreeCompositeVisitor::PostVisit;
-  using typename TreeLeafVisitor::ReturnType;
+  using TreeCompositeVisitor::PreVisit;
   using TreeLeafVisitor::Visit;
+  using typename TreeLeafVisitor::ReturnType;
 };
 
 template <typename TResult>
 using TreeVisitor = ::utils::Visitor<
     TResult, Query, NamedExpression, OrOperator, XorOperator, AndOperator,
-    FilterAndOperator, NotOperator, AdditionOperator, SubtractionOperator,
-    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
-    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
-    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
-    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    EdgeTypeTest, Aggregation, Function, All, ParameterLookup, Create, Match,
-    Return, With, Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
+    NotOperator, AdditionOperator, SubtractionOperator, MultiplicationOperator,
+    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
+    InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
+    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
+    MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation, Function,
+    All, ParameterLookup, Create, Match, Return, With, Pattern, NodeAtom,
+    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, Identifier,
+    PrimitiveLiteral, CreateIndex>;
 
 }  // namespace query

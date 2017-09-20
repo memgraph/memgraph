@@ -548,9 +548,10 @@ class RuleBasedPlanner {
           const auto &next_node_symbol =
               symbol_table.at(*bf_atom->next_node_identifier_);
           // Inline BFS edge filtering together with its filter expression.
-          auto *filter_expr = impl::BoolJoin<FilterAndOperator>(
-              storage, impl::ExtractMultiExpandFilter(
-                           bound_symbols, node_symbol, all_filters, storage),
+          auto *filter_expr = impl::BoolJoin<AndOperator>(
+              storage,
+              impl::ExtractMultiExpandFilter(bound_symbols, node_symbol,
+                                             all_filters, storage),
               bf_atom->filter_expression_);
           last_op = new ExpandBreadthFirst(
               node_symbol, edge_symbol, expansion.direction, edge_type,
