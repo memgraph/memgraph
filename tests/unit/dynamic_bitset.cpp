@@ -1,9 +1,18 @@
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
 
-TEST(DynamicBitset, BasicAtAndSet) {
-  DynamicBitset<> db;
+namespace {
+
+template <typename T>
+class DynamicBitsetTest : public ::testing::Test {};
+typedef ::testing::Types<DynamicBitset<>, DynamicBitset<uint8_t, 8>>
+    DynamicBitsetTypes;
+TYPED_TEST_CASE(DynamicBitsetTest, DynamicBitsetTypes);
+
+TYPED_TEST(DynamicBitsetTest, BasicAtAndSet) {
+  TypeParam db;
 
   EXPECT_EQ(db.at(17, 1), 0);
   EXPECT_EQ(db.at(17), false);
@@ -12,8 +21,8 @@ TEST(DynamicBitset, BasicAtAndSet) {
   EXPECT_EQ(db.at(17), true);
 }
 
-TEST(DynamicBitset, GroupAt) {
-  DynamicBitset<> db;
+TYPED_TEST(DynamicBitsetTest, GroupAt) {
+  TypeParam db;
 
   db.set(0, 1);
   db.set(1, 1);
@@ -27,8 +36,8 @@ TEST(DynamicBitset, GroupAt) {
   EXPECT_EQ(db.at(1, 3), 1 | 4);
 }
 
-TEST(DynamicBitset, GroupSet) {
-  DynamicBitset<> db;
+TYPED_TEST(DynamicBitsetTest, GroupSet) {
+  TypeParam db;
   EXPECT_EQ(db.at(0, 3), 0);
   db.set(1, 2);
   EXPECT_FALSE(db.at(0));
@@ -77,4 +86,5 @@ TEST(DynamicBitset, ConstBitset) {
   DynamicBitset<> dbs;
   dbs.set(17);
   const_accepting(dbs);
+}
 }

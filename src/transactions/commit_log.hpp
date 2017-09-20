@@ -52,9 +52,6 @@ class CommitLog {
 
   Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
 
-  // TODO: Searching the log will take more and more time the more and more
-  // transactoins are done. This could be awerted if DynamicBitset is changed
-  // to point to largest chunk instead of the smallest.
   DynamicBitset<uint8_t, 32768> log;
 };
 }
