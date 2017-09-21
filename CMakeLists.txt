@@ -195,7 +195,6 @@ include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
-set(antlr_src ${CMAKE_SOURCE_DIR}/libs/antlr4/runtime/Cpp/runtime/src)
 set(opencypher_frontend ${CMAKE_SOURCE_DIR}/src/query/frontend/opencypher)
 set(opencypher_generated ${opencypher_frontend}/generated)
 set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
@@ -223,17 +222,11 @@ add_custom_target(generate_opencypher_parser
   DEPENDS ${antlr_opencypher_generated_src})
 
 # include antlr header files
-include_directories(
-  ${antlr_src}
-  ${antlr_src}/misc
-  ${antlr_src}/atn
-  ${antlr_src}/dfa
-  ${antlr_src}/tree
-  ${antlr_src}/support
-)
+include_directories(${ANTLR4_INCLUDE_DIR})
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
-target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
+add_dependencies(antlr_opencypher_parser_lib antlr4)
+target_link_libraries(antlr_opencypher_parser_lib ${ANTLR4_LIBRARY})
 # -----------------------------------------------------------------------------
 
 # all memgraph src files

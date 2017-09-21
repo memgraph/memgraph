@@ -1,9 +1,32 @@
 cmake_minimum_required(VERSION 3.1)
+include(ExternalProject)
+
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if (NPROC EQUAL 0)
+  set(NPROC 1)
+endif()
 
 # setup antlr
-option(WITH_LIBCXX "" OFF) # because of debian bug
-# http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
-add_subdirectory(antlr4/runtime/Cpp)
+ExternalProject_Add(antlr4
+  PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
+  CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+             -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+             -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
+             # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
+             -DWITH_LIBCXX=OFF # because of debian bug
+  BUILD_COMMAND make -j${NPROC}
+  # Make a License.txt out of thin air, so that antlr4.6 knows how to build.
+  # When we upgrade antlr, this will no longer be needed.
+  INSTALL_COMMAND touch ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/License.txt
+  COMMAND make install)
+set(ANTLR4_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
+    CACHE FILEPATH "Path to antlr4 library" FORCE)
+set(ANTLR4_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
+    CACHE PATH "Path to antlr4 include directory" FORCE)
+mark_as_advanced(ANTLR4_LIBRARY ANTLR4_INCLUDE_DIR)
 
 # setup google benchmark
 add_subdirectory(benchmark)
@@ -29,15 +52,15 @@ add_subdirectory(gflags)
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_SAVED})
 
 # Setup google logging after gflags (so that glog can use it).
-# We need to use `ExternalProject`, because currently glog's CMakeLists.txt
-# doesn't detect gflags if we do `add_subdirectory`.
-include(ExternalProject)
 ExternalProject_Add(glog DEPENDS gflags
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/glog
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glog
   CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+             -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
              -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/glog
-             -Dgflags_DIR=${CMAKE_CURRENT_BINARY_DIR}/gflags)
+             -Dgflags_DIR=${CMAKE_CURRENT_BINARY_DIR}/gflags
+  BUILD_COMMAND make -j${NPROC})
 set(GLOG_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/glog/lib/libglog.a CACHE FILEPATH
     "Path to glog library" FORCE)
 set(GLOG_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glog/include CACHE PATH
