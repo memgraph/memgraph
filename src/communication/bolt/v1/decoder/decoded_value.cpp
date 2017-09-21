@@ -3,6 +3,10 @@
 namespace communication::bolt {
 
 #define DEF_GETTER_BY_VAL(type, value_type, field)          \
+  value_type &DecodedValue::Value##type() {                 \
+    if (type_ != Type::type) throw DecodedValueException(); \
+    return field;                                           \
+  }                                                         \
   value_type DecodedValue::Value##type() const {            \
     if (type_ != Type::type) throw DecodedValueException(); \
     return field;                                           \

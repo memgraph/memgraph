@@ -122,6 +122,7 @@ class DecodedValue {
   Type type() const { return type_; }
 
 #define DECL_GETTER_BY_VALUE(type, value_type) \
+  value_type &Value##type();                   \
   value_type Value##type() const;
 
   DECL_GETTER_BY_VALUE(Bool, bool)
