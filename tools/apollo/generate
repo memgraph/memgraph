@@ -260,6 +260,23 @@ if mode == "release":
     RUNS.append(generate_run("stress_large", commands = cmd, infile = infile,
             slave_group = "remote_16c56g"))
 
+# public_benchmark/ldbc tests
+if mode == "release":
+    ldbc_path = os.path.join(BASE_DIR, "tests", "public_benchmark", "ldbc")
+    neo4j_path = os.path.join(BASE_DIR, "libs", "neo4j")
+    csv_to_snapshot_path = os.path.join(BASE_DIR, "tools", "csv_to_snapshot")
+    plot_ldbc_latency_path = os.path.join(BASE_DIR, "tools", "plot_ldbc_latency")
+    infile = create_archive("ldbc", [binary_release_path, ldbc_path,
+            binary_release_link_path, neo4j_path, config_path,
+            csv_to_snapshot_path, plot_ldbc_latency_path],
+            cwd = WORKSPACE_DIR)
+    cmd = "cd memgraph/tests/public_benchmark/ldbc\n. continuous_integration\n"
+    outfile_paths = "\./memgraph/tests/public_benchmark/ldbc/results/.+\n" \
+                    "\./memgraph/tests/public_benchmark/ldbc/plots/.+\n"
+    RUNS.append(generate_run("public_benchmark__ldbc", commands = cmd,
+            infile = infile, outfile_paths = outfile_paths,
+            slave_group = "remote_20c140g", enable_network = True))
+
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)
 store_metadata(OUTPUT_DIR, "runs", RUNS + DATA_PROCESS)

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Generate SNB dataset.
 
@@ -7,18 +7,18 @@ function print_help () {
     echo "Optional arguments:"
     echo -e "  -h|--help -> Prints help."
     echo -e "  --scale-factor Positive_Integer -> Defines the dataset size."
-    echo -e "  --neo4j-home Neo4j home directory, overrides NEO4J_HOME"
-    echo -e "  --memgraph-home Memgraph home directory."
-    echo -e "  --skip-generating Only transform generated dataset"
 }
 
-set -e
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+base_dir="${script_dir}/../../.."
+neo4j_dir="${base_dir}/libs/neo4j"
+
+# Add Maven to PATH
+export PATH=$PATH:${script_dir}/maven/bin
 
 # Read the arguments.
 scale_factor=1
 skip_generating=false
-memgraph_dir="${script_dir}/../../.."
 while [[ $# -gt 0 ]]
 do
     case $1 in
@@ -30,17 +30,6 @@ do
         scale_factor=$2
         shift
         ;;
-        --neo4j-home)
-        NEO4J_HOME=$2
-        shift
-        ;;
-        --memgraph-home)
-        memgraph_dir=$2
-        shift
-        ;;
-        --skip-generating)
-        skip_generating=true
-        ;;
         *)
         # unknown option
         ;;
@@ -48,13 +37,15 @@ do
     shift # past argument or value
 done
 
-echo "Using scale_factor" $scale_factor
 # Prepare the folder structure.
-dataset_folder_prefix="neo4j_csv_dataset"
-dataset_folder="${script_dir}/${dataset_folder_prefix}_scale_${scale_factor}"
-mkdir -p ${dataset_folder}
+dataset_dir="${script_dir}/datasets/scale_${scale_factor}"
+if [ -d ${dataset_dir} ]; then
+    rm -rf ${dataset_dir}
+fi
+mkdir -p ${dataset_dir}
 
 # Define scale factor.
+echo "Using scale_factor" $scale_factor
 cat > ${script_dir}/ldbc_snb_datagen/params.ini <<EOF
 ldbc.snb.datagen.generator.scaleFactor:snb.interactive.${scale_factor}
 ldbc.snb.datagen.serializer.personSerializer:ldbc.snb.datagen.serializer.snb.interactive.CSVPersonSerializer
@@ -62,83 +53,84 @@ ldbc.snb.datagen.serializer.invariantSerializer:ldbc.snb.datagen.serializer.snb.
 ldbc.snb.datagen.serializer.personActivitySerializer:ldbc.snb.datagen.serializer.snb.interactive.CSVPersonActivitySerializer
 EOF
 
-ldbc_snb_datagen_folder=${script_dir}/ldbc_snb_datagen
-if [[ ${skip_generating} = false ]]; then
-  # Generate the dataset.
-  rm -rf ${dataset_folder}/*
-  cd ${ldbc_snb_datagen_folder}
-  export HADOOP_OPTS="$HADOOP_OPTS -Xmx20G"
-  if [[ -d "/usr/lib/jvm/default-java/jre" ]]; then
+# Find installed Java binary.
+if [[ -d "/usr/lib/jvm/default-java/jre" ]]; then
     export JAVA_HOME=/usr/lib/jvm/default-java/jre
-  elif [[ -d "/usr/lib/jvm/default-runtime/" ]]; then
+elif [[ -d "/usr/lib/jvm/default-runtime/" ]]; then
     export JAVA_HOME=/usr/lib/jvm/default-runtime/
-  else
+else
     echo "Unable to find JRE under /usr/lib/jvm"
     exit 1
-  fi
-  echo "Using JAVA_HOME" $JAVA_HOME
-  HADOOP_HOME=/usr/local/hadoop LDBC_SNB_DATAGEN_HOME=${ldbc_snb_datagen_folder} ./run.sh || exit 1
-
-  # Transform the dataset into Neo4j CSV format.
-  cd ${script_dir}/ldbc-snb-impls/snb-interactive-neo4j
-  mvn exec:java \
-      -Dexec.mainClass="net.ellitron.ldbcsnbimpls.interactive.neo4j.util.DataFormatConverter" \
-      -Dexec.args="${ldbc_snb_datagen_folder}/social_network ${dataset_folder}" || exit 1
 fi
+echo "Using JAVA_HOME" $JAVA_HOME
 
-rm -rf ${dataset_folder}/social_network
-cp -r ${ldbc_snb_datagen_folder}/social_network ${dataset_folder}/social_network
+# Remove old generated dataset.
+rm -rf ${ldbc_snb_datagen_folder}/social_network ${ldbc_snb_datagen_folder}/substitution_parameters
 
-rm -rf ${dataset_folder}/substitution_parameters
-cp -r ${ldbc_snb_datagen_folder}/substitution_parameters ${dataset_folder}/substitution_parameters
+# Generate the dataset.
+ldbc_snb_datagen_folder=${script_dir}/ldbc_snb_datagen
+cd ${ldbc_snb_datagen_folder}
+# Poorly documented hadoop heapsize flag (unit is 'm'), see: hadoop/libexec/hadoop-config.sh
+# https://stackoverflow.com/questions/15609909/error-java-heap-space
+export HADOOP_HEAPSIZE=8192
+HADOOP_HOME=${script_dir}/hadoop LDBC_SNB_DATAGEN_HOME=${ldbc_snb_datagen_folder} ./run.sh
+
+# Copy generated dataset.
+cp -r ${ldbc_snb_datagen_folder}/social_network ${dataset_dir}/
+cp -r ${ldbc_snb_datagen_folder}/substitution_parameters ${dataset_dir}/
+
+# Transform the dataset into Neo4j CSV format.
+mkdir -p ${dataset_dir}/csv
+cd ${script_dir}/ldbc-snb-impls/snb-interactive-neo4j
+mvn exec:java \
+    -Dexec.mainClass="net.ellitron.ldbcsnbimpls.interactive.neo4j.util.DataFormatConverter" \
+    -Dexec.args="${ldbc_snb_datagen_folder}/social_network ${dataset_dir}/csv"
 
 csv_dataset="
---nodes ${dataset_folder}/comment_0_0.csv \
---nodes ${dataset_folder}/forum_0_0.csv \
---nodes ${dataset_folder}/organisation_0_0.csv \
---nodes ${dataset_folder}/person_0_0.csv \
---nodes ${dataset_folder}/place_0_0.csv \
---nodes ${dataset_folder}/post_0_0.csv \
---nodes ${dataset_folder}/tag_0_0.csv \
---nodes ${dataset_folder}/tagclass_0_0.csv \
---relationships ${dataset_folder}/comment_hasCreator_person_0_0.csv \
---relationships ${dataset_folder}/comment_hasTag_tag_0_0.csv \
---relationships ${dataset_folder}/comment_isLocatedIn_place_0_0.csv \
---relationships ${dataset_folder}/comment_replyOf_comment_0_0.csv \
---relationships ${dataset_folder}/comment_replyOf_post_0_0.csv \
---relationships ${dataset_folder}/forum_containerOf_post_0_0.csv \
---relationships ${dataset_folder}/forum_hasMember_person_0_0.csv \
---relationships ${dataset_folder}/forum_hasModerator_person_0_0.csv \
---relationships ${dataset_folder}/forum_hasTag_tag_0_0.csv \
---relationships ${dataset_folder}/organisation_isLocatedIn_place_0_0.csv \
---relationships ${dataset_folder}/person_hasInterest_tag_0_0.csv \
---relationships ${dataset_folder}/person_isLocatedIn_place_0_0.csv \
---relationships ${dataset_folder}/person_knows_person_0_0.csv \
---relationships ${dataset_folder}/person_likes_comment_0_0.csv \
---relationships ${dataset_folder}/person_likes_post_0_0.csv \
---relationships ${dataset_folder}/person_studyAt_organisation_0_0.csv \
---relationships ${dataset_folder}/person_workAt_organisation_0_0.csv \
---relationships ${dataset_folder}/place_isPartOf_place_0_0.csv \
---relationships ${dataset_folder}/post_hasCreator_person_0_0.csv \
---relationships ${dataset_folder}/post_hasTag_tag_0_0.csv \
---relationships ${dataset_folder}/post_isLocatedIn_place_0_0.csv \
---relationships ${dataset_folder}/tag_hasType_tagclass_0_0.csv \
---relationships ${dataset_folder}/tagclass_isSubclassOf_tagclass_0_0.csv"
+--nodes ${dataset_dir}/csv/comment_0_0.csv \
+--nodes ${dataset_dir}/csv/forum_0_0.csv \
+--nodes ${dataset_dir}/csv/organisation_0_0.csv \
+--nodes ${dataset_dir}/csv/person_0_0.csv \
+--nodes ${dataset_dir}/csv/place_0_0.csv \
+--nodes ${dataset_dir}/csv/post_0_0.csv \
+--nodes ${dataset_dir}/csv/tag_0_0.csv \
+--nodes ${dataset_dir}/csv/tagclass_0_0.csv \
+--relationships ${dataset_dir}/csv/comment_hasCreator_person_0_0.csv \
+--relationships ${dataset_dir}/csv/comment_hasTag_tag_0_0.csv \
+--relationships ${dataset_dir}/csv/comment_isLocatedIn_place_0_0.csv \
+--relationships ${dataset_dir}/csv/comment_replyOf_comment_0_0.csv \
+--relationships ${dataset_dir}/csv/comment_replyOf_post_0_0.csv \
+--relationships ${dataset_dir}/csv/forum_containerOf_post_0_0.csv \
+--relationships ${dataset_dir}/csv/forum_hasMember_person_0_0.csv \
+--relationships ${dataset_dir}/csv/forum_hasModerator_person_0_0.csv \
+--relationships ${dataset_dir}/csv/forum_hasTag_tag_0_0.csv \
+--relationships ${dataset_dir}/csv/organisation_isLocatedIn_place_0_0.csv \
+--relationships ${dataset_dir}/csv/person_hasInterest_tag_0_0.csv \
+--relationships ${dataset_dir}/csv/person_isLocatedIn_place_0_0.csv \
+--relationships ${dataset_dir}/csv/person_knows_person_0_0.csv \
+--relationships ${dataset_dir}/csv/person_likes_comment_0_0.csv \
+--relationships ${dataset_dir}/csv/person_likes_post_0_0.csv \
+--relationships ${dataset_dir}/csv/person_studyAt_organisation_0_0.csv \
+--relationships ${dataset_dir}/csv/person_workAt_organisation_0_0.csv \
+--relationships ${dataset_dir}/csv/place_isPartOf_place_0_0.csv \
+--relationships ${dataset_dir}/csv/post_hasCreator_person_0_0.csv \
+--relationships ${dataset_dir}/csv/post_hasTag_tag_0_0.csv \
+--relationships ${dataset_dir}/csv/post_isLocatedIn_place_0_0.csv \
+--relationships ${dataset_dir}/csv/tag_hasType_tagclass_0_0.csv \
+--relationships ${dataset_dir}/csv/tagclass_isSubclassOf_tagclass_0_0.csv"
 
 # Convert to neo4j internal format.
-if [[ ! -d "${NEO4J_HOME}" ]]; then
-  NEO4J_HOME="/usr/share/neo4j"
-fi
-echo "Using NEO4J_HOME" ${NEO4J_HOME}
-mkdir -p ${dataset_folder}/neo4j
-cd ${dataset_folder}/neo4j
-echo "Converting CSV dataset to '${dataset_folder}/neo4j/graph.db'"
-rm -rf graph.db
-${NEO4J_HOME}/bin/neo4j-import --into graph.db ${csv_dataset} --delimiter "|" --array-delimiter ";"
+neo4j_database_dir=${dataset_dir}/neo4j/databases
+mkdir -p ${neo4j_database_dir}
+cd ${neo4j_database_dir}
+echo "Converting CSV dataset to '${neo4j_database_dir}/graph.db'"
+${neo4j_dir}/bin/neo4j-import --into graph.db ${csv_dataset} --delimiter "|" --array-delimiter ";"
+
 # Convert to memgraph internal format.
-echo "Using MEMGRAPH_HOME" ${memgraph_dir}
-mkdir -p ${dataset_folder}/memgraph
-cd ${dataset_folder}/memgraph
-echo "Converting CSV dataset to '${dataset_folder}/memgraph/graph.snapshot'"
-rm -rf graph.snapshot
-${memgraph_dir}/tools/csv_to_snapshot -o graph.snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
+memgraph_snapshot_dir=${dataset_dir}/memgraph/default
+mkdir -p ${memgraph_snapshot_dir}
+cd ${memgraph_snapshot_dir}
+echo "Converting CSV dataset to '${memgraph_snapshot_dir}/snapshot'"
+${base_dir}/tools/csv_to_snapshot -o snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
+
+echo "Done!"

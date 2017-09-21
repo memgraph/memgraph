@@ -3,16 +3,15 @@
 ## How to run the benchmark against Neo4j OR Memgraph?
 
     cd memgraph/tests/public_benchmark/ldbc
-    ./setup_system
-    ./setup_dependencies
-    ./setup_dataset [--scale-factor 1]
-    ./neo [--run] OR ./mg [--run]
+    ./setup
+    ./build_dataset [--scale-factor 1]
     # To run short reads by default, just call:
-    ./run_benchmark
-    # To run update queries use the following.
-    ./run_benchmark --properties-file ldbc-snb-impls-updates.properties
-    # You may need to increase the time compression when updating:
-    ./run_benchmark --time-compresion-ratio 1.5 --properties-file ldbc-snb-impls-updates.properties
+    ./run_benchmark --create-index --run-db memgraph # or neo4j
+    # To run update queries pass the properties file for updates and slow down
+    # the execution by setting a larger time compression ratio.
+    ./run_benchmark --create-index --run-db memgraph \
+                    --properties-file ldbc-snb-impls-updates.properties \
+                    --time-compression-ratio 1.5
 
 ## How to run a specific test?
 
