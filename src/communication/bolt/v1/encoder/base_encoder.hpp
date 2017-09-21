@@ -127,13 +127,16 @@ class BaseEncoder {
     }
   }
 
-  void WriteEdge(const EdgeAccessor &edge) {
-    WriteRAW(underlying_cast(Marker::TinyStruct) + 5);
-    WriteRAW(underlying_cast(Signature::Relationship));
+  void WriteEdge(const EdgeAccessor &edge, bool unbound = false) {
+    WriteRAW(underlying_cast(Marker::TinyStruct) + (unbound ? 3 : 5));
+    WriteRAW(underlying_cast(unbound ? Signature::UnboundRelationship
+                                     : Signature::Relationship));
 
     WriteUInt(edge.temporary_id());
-    WriteUInt(edge.from().temporary_id());
-    WriteUInt(edge.to().temporary_id());
+    if (!unbound) {
+      WriteUInt(edge.from().temporary_id());
+      WriteUInt(edge.to().temporary_id());
+    }
 
     // write type
     WriteString(edge.db_accessor().EdgeTypeName(edge.EdgeType()));
@@ -147,8 +150,47 @@ class BaseEncoder {
     }
   }
 
-  void WritePath() {
-    // TODO: this isn't implemented in the backend!
+  void WritePath(const query::Path &path) {
+    // Prepare the data structures to be written.
+    //
+    // Unique vertices in the path.
+    std::vector<VertexAccessor> vertices;
+    // Unique edges in the path.
+    std::vector<EdgeAccessor> edges;
+    // Indices that map path positions to vertices/edges elements. Positive
+    // indices for left-to-right directionality and negative for right-to-left.
+    std::vector<int> indices;
+
+    // Helper function. Looks for the given element in the collection. If found
+    // it puts it's index into `indices`. Otherwise emplaces the given element
+    // into the collection and puts that index into `indices`. A multiplier is
+    // added to switch between positive and negative indices (that define edge
+    // direction).
+    auto add_element = [&indices](auto &collection, const auto &element,
+                                  int multiplier, int offset) {
+      auto found = std::find(collection.begin(), collection.end(), element);
+      indices.emplace_back(
+          multiplier * (std::distance(collection.begin(), found) + offset));
+      if (found == collection.end()) collection.emplace_back(element);
+    };
+
+    vertices.emplace_back(path.vertices()[0]);
+    for (uint i = 0; i < path.size(); i++) {
+      const auto &e = path.edges()[i];
+      const auto &v = path.vertices()[i + 1];
+      add_element(edges, e, e.to_is(v) ? 1 : -1, 1);
+      add_element(vertices, v, 1, 0);
+    }
+
+    // Write data.
+    WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
+    WriteRAW(underlying_cast(Signature::Path));
+    WriteTypeSize(vertices.size(), MarkerList);
+    for (auto &v : vertices) WriteVertex(v);
+    WriteTypeSize(edges.size(), MarkerList);
+    for (auto &e : edges) WriteEdge(e, true);
+    WriteTypeSize(indices.size(), MarkerList);
+    for (auto &i : indices) WriteInt(i);
   }
 
   void WriteTypedValue(const query::TypedValue &value) {
@@ -181,8 +223,7 @@ class BaseEncoder {
         WriteEdge(value.Value<EdgeAccessor>());
         break;
       case query::TypedValue::Type::Path:
-        // TODO: this is not implemeted yet!
-        WritePath();
+        WritePath(value.ValuePath());
         break;
     }
   }

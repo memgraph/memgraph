@@ -2,117 +2,38 @@
 
 namespace communication::bolt {
 
-bool DecodedValue::ValueBool() const {
-  if (type_ != Type::Bool) {
-    throw DecodedValueException();
+#define DEF_GETTER_BY_VAL(type, value_type, field)          \
+  value_type DecodedValue::Value##type() const {            \
+    if (type_ != Type::type) throw DecodedValueException(); \
+    return field;                                           \
   }
-  return bool_v;
-}
 
-int64_t DecodedValue::ValueInt() const {
-  if (type_ != Type::Int) {
-    throw DecodedValueException();
-  }
-  return int_v;
-}
+DEF_GETTER_BY_VAL(Bool, bool, bool_v)
+DEF_GETTER_BY_VAL(Int, int64_t, int_v)
+DEF_GETTER_BY_VAL(Double, double, double_v)
 
-double DecodedValue::ValueDouble() const {
-  if (type_ != Type::Double) {
-    throw DecodedValueException();
-  }
-  return double_v;
-}
+#undef DEF_GETTER_BY_VAL
 
-const std::string &DecodedValue::ValueString() const {
-  if (type_ != Type::String) {
-    throw DecodedValueException();
+#define DEF_GETTER_BY_REF(type, value_type, field)          \
+  value_type &DecodedValue::Value##type() {                 \
+    if (type_ != Type::type) throw DecodedValueException(); \
+    return field;                                           \
+  }                                                         \
+  const value_type &DecodedValue::Value##type() const {     \
+    if (type_ != Type::type) throw DecodedValueException(); \
+    return field;                                           \
   }
-  return string_v;
-}
 
-const std::vector<DecodedValue> &DecodedValue::ValueList() const {
-  if (type_ != Type::List) {
-    throw DecodedValueException();
-  }
-  return list_v;
-}
+DEF_GETTER_BY_REF(String, std::string, string_v)
+DEF_GETTER_BY_REF(List, std::vector<DecodedValue>, list_v)
+using map_t = std::map<std::string, DecodedValue>;
+DEF_GETTER_BY_REF(Map, map_t, map_v)
+DEF_GETTER_BY_REF(Vertex, DecodedVertex, vertex_v)
+DEF_GETTER_BY_REF(Edge, DecodedEdge, edge_v)
+DEF_GETTER_BY_REF(UnboundedEdge, DecodedUnboundedEdge, unbounded_edge_v)
+DEF_GETTER_BY_REF(Path, DecodedPath, path_v)
 
-const std::map<std::string, DecodedValue> &DecodedValue::ValueMap() const {
-  if (type_ != Type::Map) {
-    throw DecodedValueException();
-  }
-  return map_v;
-}
-
-const DecodedVertex &DecodedValue::ValueVertex() const {
-  if (type_ != Type::Vertex) {
-    throw DecodedValueException();
-  }
-  return vertex_v;
-}
-
-const DecodedEdge &DecodedValue::ValueEdge() const {
-  if (type_ != Type::Edge) {
-    throw DecodedValueException();
-  }
-  return edge_v;
-}
-
-bool &DecodedValue::ValueBool() {
-  if (type_ != Type::Bool) {
-    throw DecodedValueException();
-  }
-  return bool_v;
-}
-
-int64_t &DecodedValue::ValueInt() {
-  if (type_ != Type::Int) {
-    throw DecodedValueException();
-  }
-  return int_v;
-}
-
-double &DecodedValue::ValueDouble() {
-  if (type_ != Type::Double) {
-    throw DecodedValueException();
-  }
-  return double_v;
-}
-
-std::string &DecodedValue::ValueString() {
-  if (type_ != Type::String) {
-    throw DecodedValueException();
-  }
-  return string_v;
-}
-
-std::vector<DecodedValue> &DecodedValue::ValueList() {
-  if (type_ != Type::List) {
-    throw DecodedValueException();
-  }
-  return list_v;
-}
-
-std::map<std::string, DecodedValue> &DecodedValue::ValueMap() {
-  if (type_ != Type::Map) {
-    throw DecodedValueException();
-  }
-  return map_v;
-}
-
-DecodedVertex &DecodedValue::ValueVertex() {
-  if (type_ != Type::Vertex) {
-    throw DecodedValueException();
-  }
-  return vertex_v;
-}
-
-DecodedEdge &DecodedValue::ValueEdge() {
-  if (type_ != Type::Edge) {
-    throw DecodedValueException();
-  }
-  return edge_v;
-}
+#undef DEF_GETTER_BY_REF
 
 DecodedValue::DecodedValue(const DecodedValue &other) : type_(other.type_) {
   switch (other.type_) {
@@ -141,6 +62,12 @@ DecodedValue::DecodedValue(const DecodedValue &other) : type_(other.type_) {
       return;
     case Type::Edge:
       new (&edge_v) DecodedEdge(other.edge_v);
+      return;
+    case Type::UnboundedEdge:
+      new (&unbounded_edge_v) DecodedUnboundedEdge(other.unbounded_edge_v);
+      return;
+    case Type::Path:
+      new (&path_v) DecodedPath(other.path_v);
       return;
   }
   permanent_fail("Unsupported DecodedValue::Type");
@@ -179,6 +106,12 @@ DecodedValue &DecodedValue::operator=(const DecodedValue &other) {
       case Type::Edge:
         new (&edge_v) DecodedEdge(other.edge_v);
         return *this;
+      case Type::UnboundedEdge:
+        new (&unbounded_edge_v) DecodedUnboundedEdge(other.unbounded_edge_v);
+        return *this;
+      case Type::Path:
+        new (&path_v) DecodedPath(other.path_v);
+        return *this;
     }
     permanent_fail("Unsupported DecodedValue::Type");
   }
@@ -216,6 +149,12 @@ DecodedValue::~DecodedValue() {
     case Type::Edge:
       edge_v.~DecodedEdge();
       return;
+    case Type::UnboundedEdge:
+      unbounded_edge_v.~DecodedUnboundedEdge();
+      return;
+    case Type::Path:
+      path_v.~DecodedPath();
+      return;
   }
   permanent_fail("Unsupported DecodedValue::Type");
 }
@@ -238,7 +177,10 @@ DecodedValue::operator query::TypedValue() const {
     case Type::Map:
       return query::TypedValue(
           std::map<std::string, query::TypedValue>(map_v.begin(), map_v.end()));
-    default:
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::UnboundedEdge:
+    case Type::Path:
       throw DecodedValueException(
           "Unsupported conversion from DecodedValue to TypedValue");
   }
@@ -263,6 +205,37 @@ std::ostream &operator<<(std::ostream &os, const DecodedEdge &edge) {
     stream << pair.first << ": " << pair.second;
   });
   return os << "}]";
+}
+
+std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge) {
+  os << "E[" << edge.type;
+  os << " {";
+  PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+    stream << pair.first << ": " << pair.second;
+  });
+  return os << "}]";
+}
+
+std::ostream &operator<<(std::ostream &os, const DecodedPath &path) {
+  os << path.vertices[0];
+  debug_assert(path.indices.size() % 2 == 0,
+               "Must have even number of indices");
+  for (auto it = path.indices.begin(); it != path.indices.end();) {
+    auto edge_ind = *it++;
+    auto vertex_ind = *it++;
+    bool arrow_to_right = true;
+    if (edge_ind < 0) {
+      arrow_to_right = false;
+      edge_ind = -edge_ind;
+    }
+
+    if (!arrow_to_right) os << "<";
+    os << "-" << path.edges[edge_ind - 1] << "-";
+    if (arrow_to_right) os << ">";
+    os << path.vertices[vertex_ind];
+  }
+
+  return os;
 }
 
 std::ostream &operator<<(std::ostream &os, const DecodedValue &value) {
@@ -292,6 +265,38 @@ std::ostream &operator<<(std::ostream &os, const DecodedValue &value) {
       return os << value.ValueVertex();
     case DecodedValue::Type::Edge:
       return os << value.ValueEdge();
+    case DecodedValue::Type::UnboundedEdge:
+      return os << value.ValueUnboundedEdge();
+    case DecodedValue::Type::Path:
+      return os << value.ValuePath();
+  }
+  permanent_fail("Unsupported DecodedValue::Type");
+}
+
+std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type) {
+  switch (type) {
+    case DecodedValue::Type::Null:
+      return os << "null";
+    case DecodedValue::Type::Bool:
+      return os << "bool";
+    case DecodedValue::Type::Int:
+      return os << "int";
+    case DecodedValue::Type::Double:
+      return os << "double";
+    case DecodedValue::Type::String:
+      return os << "string";
+    case DecodedValue::Type::List:
+      return os << "list";
+    case DecodedValue::Type::Map:
+      return os << "map";
+    case DecodedValue::Type::Vertex:
+      return os << "vertex";
+    case DecodedValue::Type::Edge:
+      return os << "edge";
+    case DecodedValue::Type::UnboundedEdge:
+      return os << "unbounded_edge";
+    case DecodedValue::Type::Path:
+      return os << "path";
   }
   permanent_fail("Unsupported DecodedValue::Type");
 }

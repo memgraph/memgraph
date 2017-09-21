@@ -100,6 +100,13 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
     return vlist_ == other.vlist_;
   }
 
+  /** Enables equality check against a version list pointer. This makes it
+   * possible to check if an accessor and a vlist ptr represent the same graph
+   * element without creating an accessor (not very cheap). */
+  bool operator==(const mvcc::VersionList<TRecord> *other_vlist) const {
+    return vlist_ == other_vlist;
+  }
+
   /**
    * Returns a GraphDB accessor of this record accessor.
    *

@@ -32,10 +32,18 @@ class EdgeAccessor : public RecordAccessor<Edge> {
    */
   VertexAccessor from() const;
 
+  /** Checks if the given vertex is the source of this edge, without
+   * creating an additional accessor to perform the check. */
+  bool from_is(const VertexAccessor &v) const;
+
   /**
    * Returns an accessor to the destination Vertex of this edge.
    */
   VertexAccessor to() const;
+
+  /** Checks ig the given vertex is the destination of this edge, without
+   * creating an additional accessor to perform the check. */
+  bool to_is(const VertexAccessor &v) const;
 
   /** Returns true if this edge is a cycle (start and end node are
    * the same. */

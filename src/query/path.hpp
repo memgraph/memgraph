@@ -48,6 +48,9 @@ class Path {
     Expand(others...);
   }
 
+  /** Returns the number of expansions (edges) in this path. */
+  auto size() const { return edges_.size(); }
+
   auto &vertices() { return vertices_; }
   auto &edges() { return edges_; }
   const auto &vertices() const { return vertices_; }

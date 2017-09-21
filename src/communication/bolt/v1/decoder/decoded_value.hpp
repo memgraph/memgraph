@@ -38,6 +38,26 @@ struct DecodedEdge {
 };
 
 /**
+ * Structure used when reading an UnboundEdge with the decoder.
+ * The decoder writes data into this structure.
+ */
+struct DecodedUnboundedEdge {
+  int64_t id;
+  std::string type;
+  std::map<std::string, DecodedValue> properties;
+};
+
+/**
+ * Structure used when reading a Path with the decoder.
+ * The decoder writes data into this structure.
+ */
+struct DecodedPath {
+  std::vector<DecodedVertex> vertices;
+  std::vector<DecodedUnboundedEdge> edges;
+  std::vector<int64_t> indices;
+};
+
+/**
  * DecodedValue provides an encapsulation arround TypedValue, DecodedVertex
  * and DecodedEdge. This is necessary because TypedValue stores vertices and
  * edges as our internal accessors. Because of that the Bolt decoder can't
@@ -60,7 +80,9 @@ class DecodedValue {
     List,
     Map,
     Vertex,
-    Edge
+    Edge,
+    UnboundedEdge,
+    Path
   };
 
   // constructors for primitive types
@@ -86,6 +108,12 @@ class DecodedValue {
   DecodedValue(const DecodedEdge &value) : type_(Type::Edge) {
     new (&edge_v) DecodedEdge(value);
   }
+  DecodedValue(const DecodedUnboundedEdge &value) : type_(Type::UnboundedEdge) {
+    new (&unbounded_edge_v) DecodedUnboundedEdge(value);
+  }
+  DecodedValue(const DecodedPath &value) : type_(Type::Path) {
+    new (&path_v) DecodedPath(value);
+  }
 
   DecodedValue &operator=(const DecodedValue &other);
   DecodedValue(const DecodedValue &other);
@@ -93,25 +121,29 @@ class DecodedValue {
 
   Type type() const { return type_; }
 
-  // constant getters
-  bool ValueBool() const;
-  int64_t ValueInt() const;
-  double ValueDouble() const;
-  const std::string &ValueString() const;
-  const std::vector<DecodedValue> &ValueList() const;
-  const std::map<std::string, DecodedValue> &ValueMap() const;
-  const DecodedVertex &ValueVertex() const;
-  const DecodedEdge &ValueEdge() const;
+#define DECL_GETTER_BY_VALUE(type, value_type) \
+  value_type Value##type() const;
 
-  // getters
-  bool &ValueBool();
-  int64_t &ValueInt();
-  double &ValueDouble();
-  std::string &ValueString();
-  std::vector<DecodedValue> &ValueList();
-  std::map<std::string, DecodedValue> &ValueMap();
-  DecodedVertex &ValueVertex();
-  DecodedEdge &ValueEdge();
+  DECL_GETTER_BY_VALUE(Bool, bool)
+  DECL_GETTER_BY_VALUE(Int, int64_t)
+  DECL_GETTER_BY_VALUE(Double, double)
+
+#undef DECL_GETTER_BY_VALUE
+
+#define DECL_GETTER_BY_REFERENCE(type, value_type) \
+  value_type &Value##type();                       \
+  const value_type &Value##type() const;
+
+  DECL_GETTER_BY_REFERENCE(String, std::string)
+  DECL_GETTER_BY_REFERENCE(List, std::vector<DecodedValue>)
+  using map_t = std::map<std::string, DecodedValue>;
+  DECL_GETTER_BY_REFERENCE(Map, map_t)
+  DECL_GETTER_BY_REFERENCE(Vertex, DecodedVertex)
+  DECL_GETTER_BY_REFERENCE(Edge, DecodedEdge)
+  DECL_GETTER_BY_REFERENCE(UnboundedEdge, DecodedUnboundedEdge)
+  DECL_GETTER_BY_REFERENCE(Path, DecodedPath)
+
+#undef DECL_GETTER_BY_REFERNCE
 
   // conversion function to TypedValue
   operator query::TypedValue() const;
@@ -131,6 +163,8 @@ class DecodedValue {
     std::map<std::string, DecodedValue> map_v;
     DecodedVertex vertex_v;
     DecodedEdge edge_v;
+    DecodedUnboundedEdge unbounded_edge_v;
+    DecodedPath path_v;
   };
 };
 
@@ -149,5 +183,8 @@ class DecodedValueException : public utils::BasicException {
  */
 std::ostream &operator<<(std::ostream &os, const DecodedVertex &vertex);
 std::ostream &operator<<(std::ostream &os, const DecodedEdge &edge);
+std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge);
+std::ostream &operator<<(std::ostream &os, const DecodedPath &path);
 std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
+std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type);
 }

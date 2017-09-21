@@ -75,8 +75,29 @@ class Decoder {
       case Marker::Map32:
         return ReadMap(marker, data);
 
-      case Marker::TinyStruct3:
-        return ReadVertex(marker, data);
+      case Marker::TinyStruct3: {
+        // For tiny struct 3 we will also read the Signature to switch between
+        // vertex, unbounded_edge and path. Note that in those functions we
+        // won't perform an additional signature read.
+        uint8_t signature;
+        if (!buffer_.Read(&signature, 1)) {
+          DLOG(WARNING) << "[ReadVertex] Missing marker and/or signature data!";
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Node:
+            return ReadVertex(data);
+          case Signature::UnboundRelationship:
+            return ReadUnboundedEdge(data);
+          case Signature::Path:
+            return ReadPath(data);
+          default:
+            DLOG(WARNING) << "[ReadValue] Expected [node | unbounded_ege | "
+                             "path] signature, received "
+                          << signature;
+            return false;
+        }
+      }
 
       case Marker::TinyStruct5:
         return ReadEdge(marker, data);
@@ -348,28 +369,11 @@ class Decoder {
     return true;
   }
 
-  bool ReadVertex(const Marker &marker, DecodedValue *data) {
-    uint8_t value;
+  bool ReadVertex(DecodedValue *data) {
     DecodedValue dv;
     DecodedVertex vertex;
 
     DLOG(INFO) << "[ReadVertex] Start";
-
-    if (!buffer_.Read(&value, 1)) {
-      DLOG(WARNING) << "[ReadVertex] Missing marker and/or signature data!";
-      return false;
-    }
-
-    // check header
-    if (marker != Marker::TinyStruct3) {
-      DLOG(WARNING) << "[ReadVertex] Received invalid marker "
-                    << (uint64_t)underlying_cast(marker);
-      return false;
-    }
-    if (value != underlying_cast(Signature::Node)) {
-      DLOG(WARNING) << "[ReadVertex] Received invalid signature " << value;
-      return false;
-    }
 
     // read ID
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
@@ -432,7 +436,7 @@ class Decoder {
 
     // read ID
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
-      DLOG(WARNING) << "[ReadEdge] couldn't read ID!";
+      DLOG(WARNING) << "[ReadEdge] Couldn't read ID!";
       return false;
     }
     edge.id = dv.ValueInt();
@@ -468,6 +472,92 @@ class Decoder {
     *data = DecodedValue(edge);
 
     DLOG(INFO) << "[ReadEdge] Success";
+
+    return true;
+  }
+
+  bool ReadUnboundedEdge(DecodedValue *data) {
+    DecodedValue dv;
+    DecodedUnboundedEdge edge;
+
+    DLOG(INFO) << "[ReadUnboundedEdge] Start";
+
+    // read ID
+    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+      DLOG(WARNING) << "[ReadUnboundedEdge] Couldn't read ID!";
+      return false;
+    }
+    edge.id = dv.ValueInt();
+
+    // read type
+    if (!ReadValue(&dv, DecodedValue::Type::String)) {
+      DLOG(WARNING) << "[ReadUnboundedEdge] Couldn't read type!";
+      return false;
+    }
+    edge.type = dv.ValueString();
+
+    // read properties
+    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+      DLOG(WARNING) << "[ReadUnboundedEdge] Couldn't read properties!";
+      return false;
+    }
+    edge.properties = dv.ValueMap();
+
+    *data = DecodedValue(edge);
+
+    DLOG(INFO) << "[ReadUnboundedEdge] Success";
+
+    return true;
+  }
+
+  bool ReadPath(DecodedValue *data) {
+    DecodedValue dv;
+    DecodedPath path;
+
+    DLOG(INFO) << "[ReadPath] Start";
+
+    // vertices
+    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+      DLOG(WARNING) << "[ReadPath] Couldn't read vertices!";
+      return false;
+    }
+    for (const auto &vertex : dv.ValueList()) {
+      if (vertex.type() != DecodedValue::Type::Vertex) {
+        DLOG(WARNING) << "[ReadPath] Received a '" << vertex.type() << "' element in the vertices list!";
+        return false;
+      }
+      path.vertices.emplace_back(vertex.ValueVertex());
+    }
+
+    // edges
+    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+      DLOG(WARNING) << "[ReadPath] Couldn't read edges!";
+      return false;
+    }
+    for (const auto &edge : dv.ValueList()) {
+      if (edge.type() != DecodedValue::Type::UnboundedEdge) {
+        DLOG(WARNING) << "[ReadPath] Received a '" << edge.type() << "' element in the edges list!";
+        return false;
+      }
+      path.edges.emplace_back(edge.ValueUnboundedEdge());
+    }
+
+    // indices
+    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+      DLOG(WARNING) << "[ReadPath] Couldn't read indices!";
+      return false;
+    }
+    for (const auto &index : dv.ValueList()) {
+      if (index.type() != DecodedValue::Type::Int) {
+        DLOG(WARNING) << "[ReadPath] Received a '" << index.type() << "' element in the indices list (expected an int)!";
+        return false;
+      }
+      path.indices.emplace_back(index.ValueInt());
+    }
+
+    *data = DecodedValue(path);
+
+    DLOG(INFO) << "[ReadPath] Success";
 
     return true;
   }
