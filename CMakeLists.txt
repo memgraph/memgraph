@@ -218,7 +218,7 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # includes
 include_directories(${src_dir})
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)  # cppitertools
 # needed to include configured files (plan_compiler_flags.hpp)
 set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)
 include_directories(${generated_headers_dir})

@@ -131,6 +131,6 @@ memgraph_snapshot_dir=${dataset_dir}/memgraph/default
 mkdir -p ${memgraph_snapshot_dir}
 cd ${memgraph_snapshot_dir}
 echo "Converting CSV dataset to '${memgraph_snapshot_dir}/snapshot'"
-${base_dir}/tools/csv_to_snapshot -o snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
+${base_dir}/tools/csv_to_snapshot --out snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
 
 echo "Done!"

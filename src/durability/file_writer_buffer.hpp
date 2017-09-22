@@ -1,8 +1,8 @@
 #pragma once
 
 #include <fstream>
-#include "utils/bswap.hpp"
 #include "hasher.hpp"
+#include "utils/bswap.hpp"
 
 /**
  * Buffer that writes data to file and calculates hash of written data.
@@ -18,6 +18,11 @@ class FileWriterBuffer {
   FileWriterBuffer() {
     output_stream_.exceptions(std::ifstream::failbit | std::ifstream::badbit);
   }
+
+  /**
+   * Constructor which also takes a file path and opens it immediately.
+   */
+  FileWriterBuffer(const std::string &path) : FileWriterBuffer() { Open(path); }
 
   /**
    * Opens ofstream to file given in constructor.
@@ -72,8 +77,7 @@ class FileWriterBuffer {
    */
   void WriteLong(uint64_t val) {
     uint64_t bval = bswap(val);
-    output_stream_.write(reinterpret_cast<const char *>(&bval),
-                         sizeof(bval));
+    output_stream_.write(reinterpret_cast<const char *>(&bval), sizeof(bval));
   }
 
   /**

@@ -2,9 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <string>
-
 #include <iterator>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -91,9 +90,13 @@ inline std::string Replace(std::string src, const std::string &match,
 
 /**
  * Split string by delimeter and return vector of results.
+ * If the delimiter is not provided, a different splitting algorithm is used.
+ * Runs of consecutive whitespace are regarded as a single delimiter.
+ * Additionally, the result will not contain empty strings at the start of end
+ * as if the string was trimmed before splitting.
  */
 inline std::vector<std::string> Split(const std::string &src,
-                                      const std::string &delimiter = " ") {
+                                      const std::string &delimiter) {
   if (src.empty()) {
     return {};
   }
@@ -102,10 +105,28 @@ inline std::vector<std::string> Split(const std::string &src,
   std::vector<std::string> res;
   do {
     n = src.find(delimiter, index);
-    auto word = src.substr(index, n - index);
-    if (!word.empty()) res.push_back(word);
+    res.emplace_back(src.substr(index, n - index));
     index = n + delimiter.size();
   } while (n != std::string::npos);
+  return res;
+}
+
+/**
+ * Split string by whitespace and return vector of results.
+ */
+inline std::vector<std::string> Split(const std::string &src) {
+  if (src.empty()) {
+    return {};
+  }
+  std::regex not_whitespace("[^\\s]+");
+  auto matches_begin =
+      std::sregex_iterator(src.begin(), src.end(), not_whitespace);
+  auto matches_end = std::sregex_iterator();
+  std::vector<std::string> res;
+  res.reserve(std::distance(matches_begin, matches_end));
+  for (auto match = matches_begin; match != matches_end; ++match) {
+    res.emplace_back(match->str());
+  }
   return res;
 }
 
@@ -132,4 +153,12 @@ inline bool EndsWith(const std::string &s, const std::string &suffix) {
   return s.size() >= suffix.size() &&
          s.compare(s.size() - suffix.size(), std::string::npos, suffix) == 0;
 }
+
+/**
+ * Checks if the given string `s` starts with the given `prefix`.
+ */
+inline bool StartsWith(const std::string &s, const std::string &prefix) {
+  return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
+}
+
 }

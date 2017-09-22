@@ -1,0 +1,16 @@
+#!/bin/bash -e
+
+# Builds the memgraph tools and installs them in this directory.
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+mkdir -p ${script_dir}/build
+cd ${script_dir}/build
+
+# Setup cmake
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=${script_dir} \
+      ${script_dir}
+
+# Install the tools
+make -j$(nproc) install
