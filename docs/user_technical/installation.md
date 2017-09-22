@@ -72,8 +72,9 @@ parameters:
  --snapshot-on-exit | bool | false | Make a snapshot when closing Memgraph.
  --snapshot-recover-on-startup | bool | false | Recover the database on startup using the last<br/>stored snapshot.
  --query-execution-time-sec | integer | 180 | Maximum allowed query execution time. <br/>Queries exceeding this limit will be aborted. Value of -1 means no limit.
-
-[^1]: Maximum number of concurrent executions on the current CPU.
+ --memory-warning-threshold | integer | 1024 | Memory warning threshold, in MB. If Memgraph detects there is less available RAM available it will log a warning. Set to 0 to disable.
+ 
+ [^1]: Maximum number of concurrent executions on the current CPU.
 
 To find more about how to execute queries on Memgraph please proceed to
 [Quick Start](quick-start.md).

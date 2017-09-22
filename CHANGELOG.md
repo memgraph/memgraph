@@ -19,6 +19,7 @@
 * Use \u to specify 4 digit codepoint and \U for 8 digit
 * Keywords appearing in header (named expressions) keep original case.
 * Our Bolt protocol implementation is now completely compatible with the protocol version 1 specification. (https://boltprotocol.org/v1/)
+* Added a log warning when running out of memory and the `memory_warning_threshold` flag
 
 ## v0.7.0
 

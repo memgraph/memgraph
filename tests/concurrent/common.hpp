@@ -12,7 +12,6 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 #include "utils/assert.hpp"
-#include "utils/sysinfo/memory.hpp"
 
 // NOTE: this file is highly coupled to data_structures
 // TODO: REFACTOR
@@ -194,35 +193,4 @@ auto insert_try(typename S::Accessor &acc, long long &downcount,
       owned.push_back(key);
     }
   };
-}
-
-// Performs memory check to determine if memory usage before calling given
-// function
-// is aproximately equal to memory usage after function. Memory usage is thread
-// senstive so no_threads spawned in function is necessary.
-void memory_check(size_t no_threads, std::function<void()> f) {
-  DLOG(INFO) << fmt::format("Number of threads: {}", no_threads);
-
-  // TODO: replace vm_size with something more appropriate
-  //       the past implementation was teribble wrong
-  //       to that ASAP
-  //       OR
-  //       use custom allocation wrapper
-  //       OR
-  //       user Boost.Test
-  auto start = vm_size();
-  DLOG(INFO) << fmt::format("Memory check (used memory at the beginning): {}",
-                            start);
-
-  f();
-
-  auto end = vm_size();
-  DLOG(INFO) << fmt::format("Memory check (used memory at the end): {}", end);
-
-  long long delta = end - start;
-  DLOG(INFO) << fmt::format("Delta: {}", delta);
-
-  // TODO: do memory check somehow
-  // the past implementation was wrong
-  permanent_assert(true, "Memory leak");
 }

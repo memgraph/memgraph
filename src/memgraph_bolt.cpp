@@ -12,8 +12,10 @@
 #include "io/network/socket.hpp"
 
 #include "utils/flag_validation.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace.hpp"
+#include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 
 namespace fs = std::experimental::filesystem;
@@ -34,6 +36,10 @@ DEFINE_VALIDATED_int32(num_workers,
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(log_file, "memgraph.log",
               "Path to where the log should be stored.");
+DEFINE_uint64(
+    memory_warning_threshold, 1024,
+    "Memory warning treshold, in MB. If Memgraph detects there is less available "
+    "RAM available it will log a warning. Set to 0 to disable.");
 
 // Load flags in this order, the last one has the highest priority:
 // 1) /etc/memgraph/config
@@ -142,6 +148,17 @@ int main(int argc, char **argv) {
   // register SIGINT handler
   SignalHandler::register_handler(Signal::Interupt,
                                   [&server]() { server.Shutdown(); });
+
+  // Start memory warning logger.
+  Scheduler mem_log_scheduler;
+  if (FLAGS_memory_warning_threshold > 0) {
+    mem_log_scheduler.Run(std::chrono::seconds(3), [] {
+      auto free_ram_mb = utils::AvailableMem() / 1024;
+      if (free_ram_mb < FLAGS_memory_warning_threshold)
+        LOG(WARNING) << "Running out of available RAM, only " << free_ram_mb
+                     << " MB left.";
+    });
+  }
 
   // Start worker threads.
   server.Start(FLAGS_num_workers);
