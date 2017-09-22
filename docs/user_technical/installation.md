@@ -65,16 +65,22 @@ parameters:
 
  Name  | Type | Default | Description
 -------|------|:-------:|-------------
+ --interface | string | "0.0.0.0" | Communication port on which to listen.
  --port | integer | 7687 | Communication port on which to listen.
  --num-workers | integer | CPU count[^1] |  Number of Memgraph worker threads.
+ --log-file | string | "memgraph.log" | Path to where the log should be stored.
  --snapshot-cycle-sec | integer | 300 | Interval (seconds) between database snapshots.<br/>Value of -1 turns taking snapshots off.
  --snapshot-max-retained | integer | 3 | Number of retained snapshots.<br/>Value -1 means without limit.
  --snapshot-on-exit | bool | false | Make a snapshot when closing Memgraph.
  --snapshot-recover-on-startup | bool | false | Recover the database on startup using the last<br/>stored snapshot.
  --query-execution-time-sec | integer | 180 | Maximum allowed query execution time. <br/>Queries exceeding this limit will be aborted. Value of -1 means no limit.
  --memory-warning-threshold | integer | 1024 | Memory warning threshold, in MB. If Memgraph detects there is less available RAM available it will log a warning. Set to 0 to disable.
- 
- [^1]: Maximum number of concurrent executions on the current CPU.
+ --ast-cache | bool | true | Use AST caching.
+ --query-plan-cache | bool Cache generated query plans.
+ --query-plan-cache-ttl | int | 60 | Time to live for cached query plans, in seconds.
+ --query-cost-planner | bool | true | Use the cost-estimating query planner.
+
+[^1]: Maximum number of concurrent executions on the current CPU.
 
 To find more about how to execute queries on Memgraph please proceed to
 [Quick Start](quick-start.md).

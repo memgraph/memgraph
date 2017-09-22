@@ -9,16 +9,12 @@
 // false, this is useful for recerating antlr crashes in highly concurrent test.
 // Once antlr bugs are fixed, or real test is written this flag can be removed.
 DEFINE_bool(ast_cache, true, "Use ast caching.");
-
 DEFINE_bool(query_cost_planner, true,
-            "Use the cost estimator to generate plans for queries.");
-
+            "Use the cost-estimating query planner.");
 DEFINE_bool(query_plan_cache, true, "Cache generated query plans");
-
-DEFINE_VALIDATED_int32(
-    query_cache_expire_seconds, 60,
-    "Expire cached queries after this amount of seconds since caching",
-    FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
+DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
+                       "Time to live for cached query plans, in seconds.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace query {
 

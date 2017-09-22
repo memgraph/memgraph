@@ -22,7 +22,7 @@
 DECLARE_bool(ast_cache);
 DECLARE_bool(query_cost_planner);
 DECLARE_bool(query_plan_cache);
-DECLARE_int32(query_cache_expire_seconds);
+DECLARE_int32(query_plan_cache_ttl);
 
 namespace query {
 
@@ -44,7 +44,7 @@ class Interpreter {
     bool IsExpired() const {
       auto elapsed = cache_timer_.Elapsed();
       return std::chrono::duration_cast<std::chrono::seconds>(elapsed) >
-             std::chrono::seconds(FLAGS_query_cache_expire_seconds);
+             std::chrono::seconds(FLAGS_query_plan_cache_ttl);
     };
 
    private:

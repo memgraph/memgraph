@@ -4,9 +4,6 @@
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "query/engine.hpp"
-
-DECLARE_bool(interpret);
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
@@ -731,9 +728,6 @@ TEST(BoltSession, ExplicitTransactionInvalidQuery) {
 
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
-  // Set the interpret to true to avoid calling the compiler which only
-  // supports a limited set of queries.
-  FLAGS_interpret = true;
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -5,8 +5,8 @@
 #include "database/graph_db_accessor.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "query/engine.hpp"
 #include "query/exceptions.hpp"
+#include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 
@@ -17,13 +17,13 @@ namespace {
 
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
-TEST(QueryEngine, AstCache) {
-  QueryEngine<ResultStreamFaker> engine;
+TEST(Interpreter, AstCache) {
+  query::Interpreter interpreter;
   Dbms dbms;
   {
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 2 + 3", *dba, stream, {});
+    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -34,7 +34,7 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, different literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 5 + 4", *dba, stream, {});
+    interpreter.Interpret("RETURN 5 + 4", *dba, stream, {});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 9);
@@ -43,7 +43,7 @@ TEST(QueryEngine, AstCache) {
     // Different ast (because of different types).
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 5.5 + 4", *dba, stream, {});
+    interpreter.Interpret("RETURN 5.5 + 4", *dba, stream, {});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 9.5);
@@ -52,7 +52,7 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, same literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 2 + 3", *dba, stream, {});
+    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
@@ -61,7 +61,7 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, different literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN 10.5 + 1", *dba, stream, {});
+    interpreter.Interpret("RETURN 10.5 + 1", *dba, stream, {});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -70,7 +70,7 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, same literals, different whitespaces.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN  10.5 + 1", *dba, stream, {});
+    interpreter.Interpret("RETURN  10.5 + 1", *dba, stream, {});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -79,7 +79,7 @@ TEST(QueryEngine, AstCache) {
     // Cached ast, same literals, different named header.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN  10.5+1", *dba, stream, {});
+    interpreter.Interpret("RETURN  10.5+1", *dba, stream, {});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -89,13 +89,14 @@ TEST(QueryEngine, AstCache) {
 }
 
 // Run query with same ast multiple times with different parameters.
-TEST(QueryEngine, Parameters) {
-  QueryEngine<ResultStreamFaker> engine;
+TEST(Interpreter, Parameters) {
+  query::Interpreter interpreter;
   Dbms dbms;
   {
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN $2 + $`a b`", *dba, stream, {{"2", 10}, {"a b", 15}});
+    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+                          {{"2", 10}, {"a b", 15}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -106,8 +107,8 @@ TEST(QueryEngine, Parameters) {
     // Not needed parameter.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN $2 + $`a b`", *dba, stream,
-               {{"2", 10}, {"a b", 15}, {"c", 10}});
+    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+                          {{"2", 10}, {"a b", 15}, {"c", 10}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -118,8 +119,8 @@ TEST(QueryEngine, Parameters) {
     // Cached ast, different parameters.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN $2 + $`a b`", *dba, stream,
-               {{"2", "da"}, {"a b", "ne"}});
+    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+                          {{"2", "da"}, {"a b", "ne"}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<std::string>(), "dane");
@@ -128,8 +129,8 @@ TEST(QueryEngine, Parameters) {
     // Non-primitive literal.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    engine.Run("RETURN $2", *dba, stream,
-               {{"2", std::vector<query::TypedValue>{5, 2, 3}}});
+    interpreter.Interpret("RETURN $2", *dba, stream,
+                          {{"2", std::vector<query::TypedValue>{5, 2, 3}}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToList<int64_t>(
@@ -140,14 +141,14 @@ TEST(QueryEngine, Parameters) {
     // Cached ast, unprovided parameter.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    ASSERT_THROW(engine.Run("RETURN $2 + $`a b`", *dba, stream,
-                            {{"2", "da"}, {"ab", "ne"}}),
+    ASSERT_THROW(interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+                                       {{"2", "da"}, {"ab", "ne"}}),
                  query::UnprovidedParameterError);
   }
 }
 
 // Test bfs end to end.
-TEST(QueryEngine, Bfs) {
+TEST(Interpreter, Bfs) {
   srand(0);
   const auto kNumLevels = 10;
   const auto kNumNodesPerLevel = 100;
@@ -157,7 +158,7 @@ TEST(QueryEngine, Bfs) {
   const auto kReachable = "reachable";
   const auto kId = "id";
 
-  QueryEngine<ResultStreamFaker> engine;
+  query::Interpreter interpreter;
   Dbms dbms;
   ResultStreamFaker stream;
   std::vector<std::vector<VertexAccessor>> levels(kNumLevels);
@@ -220,7 +221,7 @@ TEST(QueryEngine, Bfs) {
 
   auto dba = dbms.active();
 
-  engine.Run(
+  interpreter.Interpret(
       "MATCH (n {id: 0})-bfs[r](e, n | n.reachable and e.reachable, 5)->(m) "
       "RETURN r",
       *dba, stream, {});

@@ -4,7 +4,7 @@
 #include "io/network/socket.hpp"
 
 #include "database/dbms.hpp"
-#include "query/engine.hpp"
+#include "query/interpreter.hpp"
 #include "transactions/transaction.hpp"
 
 #include "communication/bolt/v1/constants.hpp"
@@ -26,7 +26,7 @@ namespace communication::bolt {
 /**
  * Bolt SessionData
  *
- * This class is responsible for holding references to Dbms and QueryEngine
+ * This class is responsible for holding references to Dbms and Interpreter
  * that are passed through the network server and worker to the session.
  *
  * @tparam OutputStream type of output stream (could be a bolt output stream or
@@ -35,7 +35,7 @@ namespace communication::bolt {
 template <typename OutputStream>
 struct SessionData {
   Dbms dbms;
-  QueryEngine<OutputStream> query_engine;
+  query::Interpreter interpreter;
 };
 
 /**
@@ -55,7 +55,7 @@ class Session {
   Session(Socket &&socket, SessionData<OutputStream> &data)
       : socket_(std::move(socket)),
         dbms_(data.dbms),
-        query_engine_(data.query_engine) {
+        interpreter_(data.interpreter) {
     event_.data.ptr = this;
   }
 
@@ -187,7 +187,7 @@ class Session {
   // them are public.
   Socket socket_;
   Dbms &dbms_;
-  QueryEngine<OutputStream> &query_engine_;
+  query::Interpreter &interpreter_;
 
   ChunkedEncoderBuffer<Socket> encoder_buffer_{socket_};
   Encoder<ChunkedEncoderBuffer<Socket>> encoder_{encoder_buffer_};

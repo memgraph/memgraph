@@ -36,9 +36,6 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/stress)
 # concurrent test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
 
-# integration test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/integration)
-
 # manual test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
 

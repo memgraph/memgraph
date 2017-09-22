@@ -29,8 +29,8 @@ using session_data_t = communication::bolt::SessionData<result_stream_t>;
 using bolt_server_t =
     communication::Server<session_t, socket_t, session_data_t>;
 
-DEFINE_string(interface, "0.0.0.0", "Default interface on which to listen.");
-DEFINE_string(port, "7687", "Default port on which to listen.");
+DEFINE_string(interface, "0.0.0.0", "Communication interface on which to listen.");
+DEFINE_string(port, "7687", "Communication port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
               << stacktrace.dump() << std::endl;
   });
 
-  // Initialize bolt session data (Dbms and QueryEngine).
+  // Initialize bolt session data (Dbms and Interpreter).
   session_data_t session_data;
 
   // Initialize endpoint.

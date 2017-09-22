@@ -116,43 +116,8 @@ State HandleRun(Session &session, State state, Marker marker) {
     auto &params_map = params.ValueMap();
     std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
                                                        params_map.end());
-    auto is_successfully_executed =
-        session.query_engine_.Run(query.ValueString(), *session.db_accessor_,
-                                  session.output_stream_, params_tv);
-
-    // TODO: once we remove compiler from query_engine we can change return type
-    // to void and not do this checks here.
-    if (!is_successfully_executed) {
-      if (!in_explicit_transaction) {
-        session.Abort();
-      }
-
-      // clear any leftover messages in the buffer
-      session.encoder_buffer_.Clear();
-
-      // send failure message
-      bool exec_fail_sent = session.encoder_.MessageFailure(
-          {{"code", "Memgraph.QueryExecutionFail"},
-           {"message",
-            "Query execution has failed (probably there is no "
-            "element or there are some problems with concurrent "
-            "access -> client has to resolve problems with "
-            "concurrent access)"}});
-
-      DLOG(WARNING) << "Query execution failed!";
-      if (!exec_fail_sent) {
-        DLOG(WARNING) << "Couldn't send failure message!";
-        return State::Close;
-      }
-      if (in_explicit_transaction) {
-        // TODO: Neo4j only discards changes from last query and can possible
-        // continue. We can't discard changes from one or multiple commands in
-        // same transaction so we need to rollback whole transaction. One day
-        // we should probably support neo4j's way.
-        return State::ErrorWaitForRollback;
-      }
-      return State::ErrorIdle;
-    }
+    session.interpreter_.Interpret(query.ValueString(), *session.db_accessor_,
+                                   session.output_stream_, params_tv);
 
     if (!in_explicit_transaction) {
       session.Commit();

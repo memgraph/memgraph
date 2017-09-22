@@ -113,35 +113,6 @@ add_subdirectory(libs)
 set(fmt_source_dir ${libs_dir}/fmt)
 set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 
-# prepare template and destination folders for query engine (tests)
-# and memgraph server binary
-# copy query_engine template file
-set(query_engine_template_file ${src_dir}/query/plan_template_cpp)
-configure_file(${query_engine_template_file}
-    ${CMAKE_BINARY_DIR}/tests/template/plan_template_cpp COPYONLY)
-configure_file(${query_engine_template_file}
-    ${CMAKE_BINARY_DIR}/tests/integration/template/plan_template_cpp COPYONLY)
-configure_file(${query_engine_template_file}
-    ${CMAKE_BINARY_DIR}/tests/manual/template/plan_template_cpp COPYONLY)
-configure_file(${query_engine_template_file}
-    ${CMAKE_BINARY_DIR}/template/plan_template_cpp COPYONLY)
-# create destination folder for compiled queries
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/integration/compiled)
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/manual/compiled)
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/tests/compiled)
-FILE(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/compiled)
-# copy hardcoded queries
-file(GLOB __HARDCODED_FILES
-    ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*)
-foreach(file_path ${__HARDCODED_FILES})
-    get_filename_component(file_name ${file_path} NAME)
-    configure_file(${file_path} ${CMAKE_BINARY_DIR}/tests/integration/hardcoded_query/${file_name} COPYONLY)
-endforeach()
-set(print_record_stream_path ${CMAKE_SOURCE_DIR}/tests/integration/print_record_stream.hpp)
-get_filename_component(print_record_stream_file_name ${print_record_stream_path} NAME)
-configure_file(${print_record_stream_path} ${CMAKE_BINARY_DIR}/tests/integration/${print_record_stream_file_name} COPYONLY)
-# -----------------------------------------------------------------------------
-
 # linter setup (clang-tidy)
 # all source files for linting
 FILE(GLOB_RECURSE LINTER_SRC_FILES
@@ -209,8 +180,6 @@ message(STATUS "POC binaries: ${POC}")
 option(EXPERIMENTAL "Build experimental binaries" OFF)
 message(STATUS "POC binaries: ${POC}")
 # tests
-option(HARDCODED_TARGETS "Make hardcoded query targets" ON)
-message(STATUS "Make hardcoded query targets: ${HARDCODED_TARGETS}")
 option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
 message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 # -----------------------------------------------------------------------------
@@ -281,7 +250,6 @@ set(memgraph_src_files
     ${src_dir}/io/network/socket.cpp
     ${src_dir}/query/common.cpp
     ${src_dir}/query/console.cpp
-    ${src_dir}/query/engine.cpp
     ${src_dir}/query/frontend/ast/ast.cpp
     ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
     ${src_dir}/query/frontend/semantic/symbol_generator.cpp
@@ -370,17 +338,6 @@ if (MEMGRAPH)
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
 endif()
 
-# utility target to copy hardcoded queries
-# FROM: tests/integration/hardcoded_query TO: build/compiled/hardcode
-add_executable(__copy_hardcoded_queries ${src_dir}/copy_hardcoded_queries.cpp)
-set_property(TARGET __copy_hardcoded_queries PROPERTY CXX_STANDARD
-        ${cxx_standard})
-target_link_libraries(__copy_hardcoded_queries memgraph_lib)
-add_custom_target(copy_hardcoded_queries ./__copy_hardcoded_queries --src
-        ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query --dst
-        ${CMAKE_BINARY_DIR}/compiled/hardcode
-        WORKING_DIR ${CMAKE_BINARY_DIR})
-
 # make CLion aware of all source files so we get refactoring etc
 # this target won't be built
 file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp
@@ -388,28 +345,4 @@ file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp
 add_executable(__refactor_target ${__SOURCES})
 set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
 
-# targets to check compilability of all hardcoded query plans
-# that is a first step in integration testing
-# integration testing phases should be
-#   1. compilation of all hardcoded query plans
-#   2. query plan execution agains empty database and injected OutputStream
-#   3. integration tests for all pilot/clients written in cucumber
-# the following targets address only the first phase
-if(HARDCODED_TARGETS)
-    file(GLOB __HARDCODED_SOURCES
-        ${CMAKE_SOURCE_DIR}/tests/integration/hardcoded_query/*.cpp)
-    foreach(file_path ${__HARDCODED_SOURCES})
-        get_filename_component(file_name ${file_path} NAME_WE)
-        set(target_name __${file_name}_hardcoded_target)
-        add_executable(${target_name} ${CMAKE_SOURCE_DIR}/libs/__main.cpp
-                                      ${file_path})
-        target_link_libraries(${target_name} memgraph_lib)
-        set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
-        set_target_properties(${target_name}
-                              PROPERTIES RUNTIME_OUTPUT_DIRECTORY
-                              "${CMAKE_BINARY_DIR}/__hardcoded_targets")
-    endforeach()
-endif()
-
 get_target_cxx_flags(memgraph_lib compile_flags)
-configure_file(${src_dir}/query/plan_compiler_flags.hpp.in ${generated_headers_dir}/query/plan_compiler_flags.hpp)
