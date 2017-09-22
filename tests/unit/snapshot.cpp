@@ -6,7 +6,7 @@
 #include "database/dbms.hpp"
 #include "durability/snapshooter.hpp"
 
-DECLARE_bool(snapshot_on_db_exit);
+DECLARE_bool(snapshot_on_exit);
 DECLARE_int32(snapshot_cycle_sec);
 DECLARE_string(snapshot_directory);
 
@@ -47,14 +47,14 @@ class SnapshotTest : public ::testing::Test {
 };
 
 TEST_F(SnapshotTest, CreateLessThanMaxRetainedSnapshotsTests) {
-  const int max_retained_snapshots = 10;
+  const int snapshot_max_retained = 10;
   Dbms dbms;
 
   for (int i = 0; i < 3; ++i) {
     auto dba = dbms.active();
     Snapshooter snapshooter;
     snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
-                             max_retained_snapshots);
+                             snapshot_max_retained);
   }
 
   std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
@@ -62,7 +62,7 @@ TEST_F(SnapshotTest, CreateLessThanMaxRetainedSnapshotsTests) {
 }
 
 TEST_F(SnapshotTest, CreateMoreThanMaxRetainedSnapshotsTests) {
-  const int max_retained_snapshots = 2;
+  const int snapshot_max_retained = 2;
   Dbms dbms;
 
   fs::path first_snapshot;
@@ -70,7 +70,7 @@ TEST_F(SnapshotTest, CreateMoreThanMaxRetainedSnapshotsTests) {
     auto dba = dbms.active();
     Snapshooter snapshooter;
     snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
-                             max_retained_snapshots);
+                             snapshot_max_retained);
     if (i == 0) {
       std::vector<fs::path> files_begin =
           GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
@@ -86,14 +86,14 @@ TEST_F(SnapshotTest, CreateMoreThanMaxRetainedSnapshotsTests) {
 }
 
 TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
-  const int max_retained_snapshots = -1;
+  const int snapshot_max_retained = -1;
   Dbms dbms;
 
   for (int i = 0; i < 10; ++i) {
     auto dba = dbms.active();
     Snapshooter snapshooter;
     snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
-                             max_retained_snapshots);
+                             snapshot_max_retained);
   }
 
   std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
@@ -103,7 +103,7 @@ TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
 TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
   {
     FLAGS_snapshot_directory = SNAPSHOTS_FOLDER_ALL_DB;
-    FLAGS_snapshot_on_db_exit = true;
+    FLAGS_snapshot_on_exit = true;
     Dbms dbms;
     auto dba = dbms.active();
   }

@@ -44,7 +44,7 @@ class RecoveryTest : public ::testing::Test {
     CleanDbDir();
     FLAGS_snapshot_cycle_sec = -1;
   }
-  const int max_retained_snapshots_ = 10;
+  const int snapshot_max_retained_ = 10;
 };
 
 void CreateSmallGraph(Dbms &dbms) {
@@ -78,11 +78,11 @@ void CreateBigGraph(Dbms &dbms) {
   dba->Commit();
 }
 
-void TakeSnapshot(Dbms &dbms, int max_retained_snapshots_) {
+void TakeSnapshot(Dbms &dbms, int snapshot_max_retained_) {
   auto dba = dbms.active();
   Snapshooter snapshooter;
   snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_RECOVERY_DEFAULT_DB_DIR,
-                           max_retained_snapshots_);
+                           snapshot_max_retained_);
 }
 
 std::string GetLatestSnapshot() {
@@ -100,7 +100,7 @@ TEST_F(RecoveryTest, TestEncoding) {
   // reading graph is tested.
   Dbms dbms;
   CreateSmallGraph(dbms);
-  TakeSnapshot(dbms, max_retained_snapshots_);
+  TakeSnapshot(dbms, snapshot_max_retained_);
   std::string snapshot = GetLatestSnapshot();
 
   FileReaderBuffer buffer;
@@ -150,7 +150,7 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
   // the snapshot file. After creation graph is tested.
   Dbms dbms;
   CreateSmallGraph(dbms);
-  TakeSnapshot(dbms, max_retained_snapshots_);
+  TakeSnapshot(dbms, snapshot_max_retained_);
   std::string snapshot = GetLatestSnapshot();
 
   // New dbms is needed - old dbms has database "default"
@@ -193,7 +193,7 @@ TEST_F(RecoveryTest, TestEncodingAndRecovering) {
   // the snapshot file. After creation graph is tested.
   Dbms dbms;
   CreateBigGraph(dbms);
-  TakeSnapshot(dbms, max_retained_snapshots_);
+  TakeSnapshot(dbms, snapshot_max_retained_);
   std::string snapshot = GetLatestSnapshot();
 
   // New dbms is needed - old dbms has database "default"
@@ -236,7 +236,7 @@ TEST_F(RecoveryTest, TestLabelPropertyIndexRecovery) {
   dba->BuildIndex(dba->Label("label"), dba->Property("prop"));
   dba->Commit();
   CreateBigGraph(dbms);
-  TakeSnapshot(dbms, max_retained_snapshots_);
+  TakeSnapshot(dbms, snapshot_max_retained_);
   std::string snapshot = GetLatestSnapshot();
 
   Dbms dbms_recover;

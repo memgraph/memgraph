@@ -21,12 +21,12 @@ class Snapshooter {
    *     GraphDbAccessor used to access elements of GraphDb.
    * @param snapshot_folder:
    *     folder where snapshots are stored.
-   * @param max_retained_snapshots:
+   * @param snapshot_max_retained:
    *     maximum number of snapshots stored in snapshot folder.
    */
   bool MakeSnapshot(GraphDbAccessor &db_accessor,
                     const fs::path &snapshot_folder,
-                    int max_retained_snapshots);
+                    int snapshot_max_retained);
 
  private:
   /**

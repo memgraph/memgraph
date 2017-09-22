@@ -13,7 +13,7 @@
 DEFINE_int32(gc_cycle_sec, 30,
              "Amount of time between starts of two cleaning cycles in seconds. "
              "-1 to turn off.");
-DEFINE_int32(max_retained_snapshots, -1,
+DEFINE_int32(snapshot_max_retained, -1,
              "Number of retained snapshots, -1 means without limit.");
 DEFINE_int32(snapshot_cycle_sec, -1,
              "Amount of time between starts of two snapshooters in seconds. -1 "
@@ -22,7 +22,7 @@ DEFINE_int32(query_execution_time_sec, 180,
              "Maximum allowed query execution time. Queries exceeding this "
              "limit will be aborted. Value of -1 means no limit.");
 
-DEFINE_bool(snapshot_on_db_exit, false, "Snapshot on exiting the database.");
+DEFINE_bool(snapshot_on_exit, false, "Snapshot on exiting the database.");
 
 DECLARE_string(snapshot_directory);
 
@@ -61,7 +61,7 @@ void GraphDb::StartSnapshooting() {
       GraphDbAccessor db_accessor(*this);
       snapshooter_.MakeSnapshot(db_accessor,
                                 fs::path(FLAGS_snapshot_directory) / name_,
-                                FLAGS_max_retained_snapshots);
+                                FLAGS_snapshot_max_retained);
     };
     snapshot_creator_.Run(std::chrono::seconds(FLAGS_snapshot_cycle_sec),
                           create_snapshot);
@@ -134,12 +134,12 @@ GraphDb::~GraphDb() {
   transaction_killer_.Stop();
 
   // Create last database snapshot
-  if (FLAGS_snapshot_on_db_exit == true) {
+  if (FLAGS_snapshot_on_exit == true) {
     GraphDbAccessor db_accessor(*this);
     LOG(INFO) << "Creating snapshot on shutdown..." << std::endl;
     const bool status = snapshooter_.MakeSnapshot(
         db_accessor, fs::path(FLAGS_snapshot_directory) / name_,
-        FLAGS_max_retained_snapshots);
+        FLAGS_snapshot_max_retained);
     if (status) {
       std::cout << "Snapshot created successfully." << std::endl;
     } else {

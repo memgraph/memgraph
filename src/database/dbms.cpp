@@ -4,7 +4,7 @@
 
 DEFINE_string(snapshot_directory, "snapshots",
               "Relative path to directory in which to save snapshots.");
-DEFINE_bool(recover_on_startup, false, "Recover database on startup.");
+DEFINE_bool(snapshot_recover_on_startup, false, "Recover database on startup.");
 
 std::unique_ptr<GraphDbAccessor> Dbms::active() {
   return std::make_unique<GraphDbAccessor>(

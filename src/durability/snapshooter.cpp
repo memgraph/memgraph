@@ -11,7 +11,7 @@
 
 bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
                                const fs::path &snapshot_folder,
-                               const int max_retained_snapshots) {
+                               const int snapshot_max_retained) {
   if (!fs::exists(snapshot_folder) &&
       !fs::create_directories(snapshot_folder)) {
     LOG(ERROR) << "Error while creating directory " << snapshot_folder;
@@ -20,7 +20,7 @@ bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
   const auto snapshot_file = GetSnapshotFileName(snapshot_folder);
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db_accessor_)) {
-    MaintainMaxRetainedFiles(snapshot_folder, max_retained_snapshots);
+    MaintainMaxRetainedFiles(snapshot_folder, snapshot_max_retained);
     return true;
   }
   return false;
@@ -80,12 +80,12 @@ std::vector<fs::path> Snapshooter::GetSnapshotFiles(
 }
 
 void Snapshooter::MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
-                                           int max_retained_snapshots) {
-  if (max_retained_snapshots == -1) return;
+                                           int snapshot_max_retained) {
+  if (snapshot_max_retained == -1) return;
   std::vector<fs::path> files = GetSnapshotFiles(snapshot_folder);
-  if (static_cast<int>(files.size()) <= max_retained_snapshots) return;
+  if (static_cast<int>(files.size()) <= snapshot_max_retained) return;
   sort(files.begin(), files.end());
-  for (int i = 0; i < static_cast<int>(files.size()) - max_retained_snapshots;
+  for (int i = 0; i < static_cast<int>(files.size()) - snapshot_max_retained;
        ++i) {
     if (!fs::remove(files[i])) {
       LOG(ERROR) << "Error while removing file: " << files[i];

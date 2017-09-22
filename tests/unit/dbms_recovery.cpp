@@ -43,7 +43,7 @@ class DbmsRecoveryTest : public ::testing::Test {
 };
 
 void CreateSnapshot() {
-  FLAGS_recover_on_startup = false;
+  FLAGS_snapshot_recover_on_startup = false;
   Dbms dbms;
   auto dba = dbms.active();
 
@@ -62,7 +62,7 @@ void CreateSnapshot() {
 }
 
 void RecoverDbms() {
-  FLAGS_recover_on_startup = true;
+  FLAGS_snapshot_recover_on_startup = true;
   Dbms dbms;
   auto dba = dbms.active();
 

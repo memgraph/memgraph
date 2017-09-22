@@ -13,7 +13,7 @@
 #include "utils/exceptions.hpp"
 
 DECLARE_string(snapshot_directory);
-DECLARE_bool(recover_on_startup);
+DECLARE_bool(snapshot_recover_on_startup);
 
 namespace fs = std::experimental::filesystem;
 
@@ -45,7 +45,7 @@ class Dbms {
       throw utils::BasicException("Specified snapshot directory is a file!");
     }
 
-    if (FLAGS_recover_on_startup) {
+    if (FLAGS_snapshot_recover_on_startup) {
       if (fs::exists(snapshot_root_dir)) {
         auto accessor = dbs.access();
         for (auto &snapshot_db_dir :
