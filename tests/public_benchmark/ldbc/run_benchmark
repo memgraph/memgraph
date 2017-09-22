@@ -71,15 +71,15 @@ class Neo:
 
     def start(self):
         # create home directory
-        self.home_dir = tempfile.mkdtemp(dir="/dev/shm")
+        self.home_dir = tempfile.mkdtemp(dir=self.dataset)
 
         neo4j_dir = os.path.join(BASE_DIR, "libs", "neo4j")
 
         try:
             os.symlink(os.path.join(neo4j_dir, "lib"),
                        os.path.join(self.home_dir, "lib"))
-            os.symlink(os.path.join(self.dataset, "neo4j"),
-                       os.path.join(self.home_dir, "data"))
+            shutil.copytree(os.path.join(self.dataset, "neo4j"),
+                            os.path.join(self.home_dir, "data"))
             conf_dir = os.path.join(self.home_dir, "conf")
             conf_file = os.path.join(conf_dir, "neo4j.conf")
             os.mkdir(conf_dir)
@@ -156,10 +156,11 @@ LDBC_DEFAULT_PROPERTIES = \
                  'ldbc_driver_default.properties')
 
 
-def create_index(port):
+def create_index(port, database):
     index_file = os.path.join(SCRIPT_DIR, 'ldbc-snb-impls',
                               'snb-interactive-neo4j', 'scripts', 'indexCreation.neo4j')
-    subprocess.check_call(('ve3/bin/python3', 'index_creation.py', index_file, port),
+    subprocess.check_call(('ve3/bin/python3', 'index_creation.py', '--port',
+                           port, '--database', database, index_file),
                           cwd=SCRIPT_DIR)
     time.sleep(1.0)
 
@@ -181,8 +182,11 @@ def main():
     try:
         if db:
             db.start()
+            time.sleep(10.0)
+
         if args.create_index:
-            create_index(args.port)
+            create_index(args.port, args.run_db.lower())
+            time.sleep(10.0)
 
         # Run LDBC driver.
         cp = 'target/jeeves-0.3-SNAPSHOT.jar:{}'.format(LDBC_INTERACTIVE_NEO4J)
