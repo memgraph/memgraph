@@ -53,8 +53,6 @@ def parse_args():
                       default="ms", help="The time unit that should be used.")
     argp.add_argument("--output", default="",
                       help="Save plot to file (instead of displaying it).")
-    argp.add_argument("--max-label-width", default=11, type=int,
-                      help="Maximum length of the x-axis labels (-1 is unlimited)")
     return argp.parse_args()
 
 
@@ -66,7 +64,7 @@ def autolabel(ax, rects):
         height = rect.get_height()
         # TODO: adjust more vendors
         ax.text(rect.get_x() + rect.get_width()/2., 1.00*height,
-                '%d' % int(height),
+                '{:.1f}'.format(height),
                 ha='center', va='bottom')
 
 
@@ -87,6 +85,15 @@ def main():
         vendors.append(vendor)
     assert len(vendors) == 2, "The graph is tailored for only 2 vendors."
 
+    # Helper for shortening the query name.
+    def shorten_query_name(name):
+        if name.lower().startswith("ldbc"):
+            name = name[4:]
+        # Long query names on the x-axis don't look compelling.
+        num = "".join(filter(lambda x: x in string.digits, name))
+        prefix = name.split(num)[0]
+        return prefix + num
+
     # Collect the benchmark data.
     print("LDBC Latency Data")
     for vendor in vendors:
@@ -96,13 +103,19 @@ def main():
                 mean_runtime = (query_data["run_time"]["mean"] /
                         LDBC_TIME_FACTORS[results_data["unit"]] *
                         TIME_FACTORS[args.time_unit])
-                query_name = query_data['name']
+                query_name = shorten_query_name(query_data['name'])
                 vendor['results'].append((query_name, mean_runtime))
+
+    # Helper for sorting the results.
+    def sort_key(obj):
+        name = obj[0]
+        num = int("".join(filter(lambda x: x in string.digits, name)))
+        prefix = name.split(str(num))[0]
+        return (prefix, num)
 
     # Sort results.
     for vendor in vendors:
-        vendor['results'].sort(key=lambda item: int("".join(filter(
-                lambda x: x in string.digits, item[0]))))
+        vendor['results'].sort(key=sort_key)
 
     # Print results.
     for vendor in vendors:
@@ -116,6 +129,15 @@ def main():
         "Queries between different vendors are different!"
     query_names = all_query_names[0]
 
+    # Font size.
+    plt.rc('font', size=12)          # controls default text sizes
+    plt.rc('axes', titlesize=24)     # fontsize of the axes title
+    plt.rc('axes', labelsize=16)    # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=12)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=12)    # fontsize of the tick labels
+    plt.rc('legend', fontsize=16)    # legend fontsize
+    plt.rc('figure', titlesize=24)  # fontsize of the figure title
+
     # Plot.
     ind = np.arange(len(query_names))   # the x locations for the groups
     width = 0.40                        # the width of the bars
@@ -124,20 +146,7 @@ def main():
     ax.set_ylabel('Mean Latency (%s)' % (args.time_unit))  # YAxis title
     ax.set_facecolor('#dcdcdc')         # plot bg color (light gray)
     ax.set_xticks(ind + width / len(vendors))  # TODO: adjust (more vendors)
-
-    def shorten_query_name(query_name):
-        # Long query names on the x-axis don't look compelling.
-        if query_name.lower().startswith('ldbc'):
-            query_name = query_name[4:]
-        if len(query_name) > args.max_label_width:
-            query_name = query_name[:args.max_label_width] + '\N{HORIZONTAL ELLIPSIS}'
-        return query_name
-    labels = query_names
-    if args.max_label_width == 0:
-        labels = ["Q{}".format(i) for i, _ in enumerate(query_names)]
-    elif args.max_label_width > 0:
-        labels = map(shorten_query_name, query_names)
-    ax.set_xticklabels(labels, rotation=30)
+    ax.set_xticklabels(query_names, rotation=30)
     # set only horizontal grid lines
     for line in ax.get_xgridlines():
         line.set_linestyle(' ')
@@ -149,11 +158,11 @@ def main():
     ax.set_title(args.plot_title)
     # Draw logo or plot title
     if args.logo_path != None:
-        # TODO: improve the logo positioning
         im = plt.imread(get_sample_data(os.path.join(os.getcwd(),
                                                      args.logo_path)))
         plt.gcf().subplots_adjust(top=0.85)
-        newax = fig.add_axes([0.46, 0.85, 0.12, 0.15], anchor='N')
+        # magic numbers for logo size - DO NOT TOUCH!
+        newax = fig.add_axes([0.46, 0.85, 0.126, 0.15], anchor='N')
         newax.imshow(im)
         newax.axis('off')
     # Draw bars

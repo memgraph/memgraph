@@ -210,7 +210,7 @@ void WriteNodeRow(const std::vector<Field> &fields,
         }
       }
       id = node_id_map.Insert(node_id);
-      properties["id"] = *id;
+      properties["id"] = node_id.id;
     } else if (field.type == "label") {
       for (const auto &label : utils::Split(value, FLAGS_array_delimiter)) {
         labels.emplace_back(utils::Trim(label));

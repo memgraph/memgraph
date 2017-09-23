@@ -12,6 +12,10 @@ cd build
 cmake -DCMAKE_BUILD_TYPE=release ..
 TIMEOUT=1000 make -j$THREADS
 
-cd ../tools/apollo
+cd ../tools
+
+./setup
+
+cd apollo
 
 ./generate release

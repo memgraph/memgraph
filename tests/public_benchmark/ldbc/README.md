@@ -9,8 +9,7 @@
     ./run_benchmark --create-index --run-db memgraph # or neo4j
     # To run update queries pass the properties file for updates and slow down
     # the execution by setting a larger time compression ratio.
-    ./run_benchmark --create-index --run-db memgraph \
-                    --properties-file ldbc-snb-impls-updates.properties \
+    ./run_benchmark --create-index --run-db memgraph --test-type updates \
                     --time-compression-ratio 1.5
 
 ## How to run a specific test?

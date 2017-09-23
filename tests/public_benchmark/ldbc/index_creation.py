@@ -29,6 +29,7 @@ session = driver.session()
 
 # The fist program argument is path to a file with indexes.
 with open(args.indexfile, "r") as f:
+    print("Starting index creation...")
     for line in f.readlines():
         session.run(line.strip()).consume()
         print("%s -> DONE" % line.strip())

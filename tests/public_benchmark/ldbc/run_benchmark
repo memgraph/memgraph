@@ -44,7 +44,7 @@ class Memgraph:
         database_args = [binary, "--num-workers", self.num_workers,
                          "--snapshot-directory", os.path.join(self.dataset,
                                                               "memgraph"),
-                         "--recover-on-startup", "true",
+                         "--snapshot-recover-on-startup", "true",
                          "--port", self.port]
 
         # database env
@@ -119,12 +119,12 @@ def parse_args():
                       help='Dataset scale to use for benchmarking.')
     argp.add_argument('--host', default='127.0.0.1', help='Database host.')
     argp.add_argument('--port', default='7687', help='Database port.')
-    argp.add_argument('--time-compression-ratio', type=float, default=0.01,
+    argp.add_argument('--time-compression-ratio', type=float, default=0.001,
                       help='Compress/stretch durations between operation start '
                            'times to increase/decrease benchmark load. '
                            'E.g. 2.0 = run benchmark 2x slower, 0.1 = run '
-                           'benchmark 10x faster. Default is 0.01.')
-    argp.add_argument('--operation-count', type=int, default=200,
+                           'benchmark 10x faster. Default is 0.001.')
+    argp.add_argument('--operation-count', type=int, default=1000,
                       help='Number of operations to generate during benchmark '
                            'execution.')
     argp.add_argument('--thread-count', type=int, default=8,
@@ -136,10 +136,8 @@ def parse_args():
                       help='Time unit to use for measuring performance metrics')
     argp.add_argument('--result-file-prefix', default='',
                       help='Result file name prefix')
-    argp.add_argument('--properties-file',
-                      default=os.path.join(
-                          SCRIPT_DIR, 'ldbc-snb-impls-short-reads.properties'),
-                      help='Properties file used to select queries')
+    argp.add_argument('--test-type', choices=('reads', 'updates'),
+                      default='reads', help='Test queries of type')
     argp.add_argument('--run-db', choices=('memgraph', 'neo4j'),
                       help='Run the database before starting LDBC')
     argp.add_argument('--create-index', action='store_true', default=False,
@@ -194,7 +192,8 @@ def main():
         parameters_dir = os.path.join(dataset, 'substitution_parameters')
         java_cmd = ('java', '-cp', cp, 'com.ldbc.driver.Client',
                     '-P', LDBC_DEFAULT_PROPERTIES,
-                    '-P', os.path.join(os.getcwd(), args.properties_file),
+                    '-P', os.path.join(SCRIPT_DIR, "ldbc-snb-impls-{}."
+                                       "properties".format(args.test_type)),
                     '-p', 'ldbc.snb.interactive.updates_dir', updates_dir,
                     '-p', 'host', args.host, '-p', 'port', args.port,
                     '-db', 'net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb',
