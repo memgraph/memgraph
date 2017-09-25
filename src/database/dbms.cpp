@@ -13,6 +13,7 @@ std::unique_ptr<GraphDbAccessor> Dbms::active() {
 
 std::unique_ptr<GraphDbAccessor> Dbms::active(const std::string &name,
                                               const fs::path &snapshot_db_dir) {
+  if (!alive_) return nullptr;
   auto acc = dbs.access();
   // create db if it doesn't exist
   auto it = acc.find(name);

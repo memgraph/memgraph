@@ -31,17 +31,18 @@ using session_data_t = communication::bolt::SessionData<result_stream_t>;
 using bolt_server_t =
     communication::Server<session_t, socket_t, session_data_t>;
 
-DEFINE_string(interface, "0.0.0.0", "Communication interface on which to listen.");
+DEFINE_string(interface, "0.0.0.0",
+              "Communication interface on which to listen.");
 DEFINE_string(port, "7687", "Communication port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(log_file, "memgraph.log",
               "Path to where the log should be stored.");
-DEFINE_uint64(
-    memory_warning_threshold, 1024,
-    "Memory warning treshold, in MB. If Memgraph detects there is less available "
-    "RAM available it will log a warning. Set to 0 to disable.");
+DEFINE_uint64(memory_warning_threshold, 1024,
+              "Memory warning treshold, in MB. If Memgraph detects there is "
+              "less available RAM available it will log a warning. Set to 0 to "
+              "disable.");
 
 // Load flags in this order, the last one has the highest priority:
 // 1) /etc/memgraph/config
@@ -146,11 +147,16 @@ int main(int argc, char **argv) {
 
   // register SIGTERM handler
   SignalHandler::register_handler(Signal::Terminate,
-                                  [&server]() { server.Shutdown(); });
+                                  [&server, &session_data]() {
+                                    server.Shutdown();
+                                    session_data.dbms.Shutdown();
+                                  });
 
   // register SIGINT handler
-  SignalHandler::register_handler(Signal::Interupt,
-                                  [&server]() { server.Shutdown(); });
+  SignalHandler::register_handler(Signal::Interupt, [&server, &session_data]() {
+    server.Shutdown();
+    session_data.dbms.Shutdown();
+  });
 
   // Start memory warning logger.
   Scheduler mem_log_scheduler;

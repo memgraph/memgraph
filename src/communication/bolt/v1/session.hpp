@@ -181,8 +181,6 @@ class Session {
     db_accessor_ = nullptr;
   }
 
-  GraphDbAccessor ActiveDb() { return dbms_.active(); }
-
   // TODO: Rethink if there is a way to hide some members. At the momemnt all of
   // them are public.
   Socket socket_;

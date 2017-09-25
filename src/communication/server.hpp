@@ -31,7 +31,8 @@ namespace communication {
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
  * @tparam Socket the input/output socket that should be used
- * @tparam SessionData the class with objects that will be forwarded to the session
+ * @tparam SessionData the class with objects that will be forwarded to the
+ *         session
  */
 template <typename Session, typename Socket, typename SessionData>
 class Server
@@ -40,8 +41,7 @@ class Server
 
  public:
   Server(Socket &&socket, SessionData &session_data)
-      : socket_(std::forward<Socket>(socket)),
-        session_data_(session_data) {
+      : socket_(std::forward<Socket>(socket)), session_data_(session_data) {
     event_.data.fd = socket_;
 
     // TODO: EPOLLET is hard to use -> figure out how should EPOLLET be used
@@ -55,9 +55,8 @@ class Server
     std::cout << fmt::format("Starting {} workers", n) << std::endl;
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-      workers_.push_back(
-          std::make_unique<Worker<Session, Socket, SessionData>>(
-              session_data_));
+      workers_.push_back(std::make_unique<Worker<Session, Socket, SessionData>>(
+          session_data_));
       workers_.back()->Start(alive_);
     }
     std::cout << "Server is fully armed and operational" << std::endl;

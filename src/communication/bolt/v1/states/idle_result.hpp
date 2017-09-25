@@ -73,6 +73,11 @@ State HandleRun(Session &session, State state, Marker marker) {
   } else {
     // Create new transaction.
     session.db_accessor_ = session.dbms_.active();
+    if (!session.db_accessor_) {
+      // Dbms is shutting down and doesn't accept new transactions so we should
+      // close this session.
+      return State::Close;
+    }
   }
 
   DLOG(INFO) << fmt::format("[ActiveDB] '{}'", session.db_accessor_->name());

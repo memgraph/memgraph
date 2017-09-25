@@ -65,7 +65,19 @@ class Dbms {
   }
 
   /**
-   * Returns an accessor to the active database.
+   * Aborts every transaction in every GraphDb.
+   */
+  void Shutdown() {
+    alive_ = false;
+    for (auto &db : dbs.access()) {
+      db.second.tx_engine_.ForEachActiveTransaction(
+          [](tx::Transaction &t) { t.set_should_abort(); });
+    }
+  }
+
+  /**
+   * Returns an accessor to the active database. If dbms is shutting down
+   * (alive_ is false) it will reject new transactions and return nullptr.
    */
   std::unique_ptr<GraphDbAccessor> active();
 
@@ -87,5 +99,7 @@ class Dbms {
   ConcurrentMap<std::string, GraphDb> dbs;
 
   // currently active database
-  std::atomic<GraphDb *> active_db;
+  std::atomic<GraphDb *> active_db{nullptr};
+
+  std::atomic<bool> alive_{true};
 };
