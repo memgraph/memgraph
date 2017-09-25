@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#
+# Example usage:
+# ./plot_througput --vendor-references neo4j memgraph           \
+#                  --vendor-titles neo4j memgraph               \
+#                  --results neo_to_plot memgraph_to_plot       \
+#                  --plot-title "Pokec small" --window-size 10
+
 
 import json
 import os
@@ -26,8 +33,7 @@ def parse_args():
                       help="Result files for each vendor")
     argp.add_argument("--plot-title", default="{{Plot title placeholder}}",
                       help="Plot title.")
-    #argp.add_argument("--max-label-width", default=11, type=int,
-    #                  help="Maximum length of the x-axis labels (-1 is unlimited)")
+    argp.add_argument("--window-size", type=int, default=1)
     return argp.parse_args()
 
 
@@ -43,8 +49,9 @@ def main():
         vendors[vendor_reference]['title'] = vendor_title
         vendors[vendor_reference]['results_path'] = vendor_results
         vendors[vendor_reference]['color'] = COLORS[vendor_reference]
-        vendors[vendor_reference]['t'] = []
-        vendors[vendor_reference]['dq/dt'] = []
+        vendors[vendor_reference]['t'] = [0.0]
+        vendors[vendor_reference]['q'] = [0]
+        vendors[vendor_reference]['dq/dt'] = [0.0]
 
     fig, ax = plt.subplots()
     ax.set_ylabel('Throughput (queries per second)')
@@ -63,17 +70,19 @@ def main():
                 data = line.split()
                 if data == []: break
                 assert len(data) == 2, "Invalid data"
-                new_time = float(data[0])
-                new_num_quries = int(data[1])
-                dt, dq = new_time - prev_time, new_num_quries - prev_num_queries
-                prev_time, prev_num_queries = new_time, new_num_quries
-                vendor_data['t'].append(new_time)
-                vendor_data['dq/dt'].append(dq / dt)
+                vendor_data['t'].append(float(data[0]))
+                vendor_data['q'].append(int(data[1]))
+            for i in range(1, len(vendor_data['t'])):
+                j = max(0, i - args.window_size)
+                vendor_data['dq/dt'].append(
+                        (vendor_data['q'][i] - vendor_data['q'][j]) /
+                        (vendor_data['t'][i] - vendor_data['t'][j]))
 
         line1, = ax.plot(vendor_data['t'], vendor_data['dq/dt'], '-', linewidth=2,
                          label=vendor_data['title'], color=vendor_data['color'])
 
     ax.legend(loc='lower right')
+    plt.grid()
     plt.show()
 
 if __name__ == '__main__':
