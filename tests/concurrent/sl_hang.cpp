@@ -14,15 +14,15 @@ TEST(SkipList, HangDuringFindOrLarger) {
   const int num_of_threads = 8;
   const int iter = 100000;
   for (int i = 0; i < num_of_threads; ++i) {
-    threads.emplace_back([&iter, &skiplist]() {
+    threads.emplace_back([&skiplist]() {
       auto accessor = skiplist.access();
       for (int i = 0; i < iter; ++i) accessor.insert(rand() % 3);
     });
-    threads.emplace_back([&iter, &skiplist]() {
+    threads.emplace_back([&skiplist]() {
       auto accessor = skiplist.access();
       for (int i = 0; i < iter; ++i) accessor.remove(rand() % 3);
     });
-    threads.emplace_back([&iter, &skiplist]() {
+    threads.emplace_back([&skiplist]() {
       auto accessor = skiplist.access();
       for (int i = 0; i < iter; ++i)
         accessor.find_or_larger(rand() % 3);

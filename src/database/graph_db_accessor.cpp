@@ -74,7 +74,7 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // on function exit switch the build_in_progress to false
   utils::OnScopeExit on_exit([this] {
     bool expected = true;
-    bool success =
+    [[maybe_unused]] bool success =
         db_.index_build_in_progress_.compare_exchange_strong(expected, false);
     debug_assert(success, "BuildIndexInProgress flag was not set during build");
   });
