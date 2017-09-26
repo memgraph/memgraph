@@ -239,6 +239,10 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   // create an edge
   auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, *from.vlist_,
                                                 *to.vlist_, edge_type);
+  // We need to insert edge_vlist to edges_ before calling update since update
+  // can throw and edge_vlist will not be garbage collected if it is not in
+  // edges_ skiplist.
+  bool success = db_.edges_.access().insert(edge_vlist).second;
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
@@ -249,11 +253,10 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   to.SwitchNew();
   to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
-  bool success = db_.edges_.access().insert(edge_vlist).second;
-  const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
   if (success) {
     // This has to be here because there is no additional method for setting
     // edge type.
+    const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
     UpdateEdgeTypeIndex(edge_type, edge_accessor, &edge_accessor.current());
     return edge_accessor;
   }
@@ -336,10 +339,9 @@ int64_t GraphDbAccessor::Counter(const std::string &name) {
 }
 
 void GraphDbAccessor::CounterSet(const std::string &name, int64_t value) {
-  auto name_counter_pair = db_.counters_.access()
-      .emplace(name, std::make_tuple(name), std::make_tuple(value));
-  if (!name_counter_pair.second)
-    name_counter_pair.first->second.store(value);
+  auto name_counter_pair = db_.counters_.access().emplace(
+      name, std::make_tuple(name), std::make_tuple(value));
+  if (!name_counter_pair.second) name_counter_pair.first->second.store(value);
 }
 
 std::vector<std::string> GraphDbAccessor::IndexInfo() const {
