@@ -13,15 +13,12 @@ file(COPY ${CMAKE_SOURCE_DIR}/tests/data
      DESTINATION ${CMAKE_BINARY_DIR}/tests)
 
 # move test data data to the build directory
-if (UNIX)
-    set(test_data "tests/data")
-    set(test_data_src "${CMAKE_SOURCE_DIR}/${test_data}")
-	set(test_data_dst "${CMAKE_BINARY_DIR}/${test_data}")
-	add_custom_target (test_data
-		COMMAND rm -rf ${test_data_dst}
-        COMMAND cp -r ${test_data_src} ${test_data_dst}
-	)
-endif (UNIX)
+set(test_data "tests/data")
+set(test_data_src "${CMAKE_SOURCE_DIR}/${test_data}")
+set(test_data_dst "${CMAKE_BINARY_DIR}/${test_data}")
+add_custom_target(test_data
+                  COMMAND rm -rf ${test_data_dst}
+                  COMMAND cp -r ${test_data_src} ${test_data_dst})
 # -----------------------------------------------------------------------------
 
 # benchmark test binaries

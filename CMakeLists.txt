@@ -35,8 +35,7 @@ set(CMAKE_CXX_COMPILER "clang++")
 get_filename_component(project_name ${CMAKE_SOURCE_DIR} NAME)
 # replace whitespaces with underscores
 string(REPLACE " " "_" project_name ${project_name})
-# set project name
-project(${project_name})
+project(${project_name} VERSION 0.7.0)
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
@@ -111,7 +110,6 @@ message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 add_subdirectory(libs)
 # fmt
 set(fmt_source_dir ${libs_dir}/fmt)
-set(fmt_static_lib ${fmt_source_dir}/fmt/libfmt.a)
 
 # linter setup (clang-tidy)
 # all source files for linting
@@ -188,9 +186,6 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 include_directories(${src_dir})
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)  # cppitertools
-# needed to include configured files (plan_compiler_flags.hpp)
-set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)
-include_directories(${generated_headers_dir})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
@@ -292,15 +287,6 @@ endif()
 add_subdirectory(tests)
 # -----------------------------------------------------------------------------
 
-add_custom_target(recursive_include_plan_template
-    COMMAND ./recursive_include --roots ${src_dir} ${libs_dir} ${CMAKE_BINARY_DIR}/libs/gflags/include ${GLOG_INCLUDE_DIR} --start ${src_dir}/query/plan_template_cpp --copy ${CMAKE_BINARY_DIR}/include
-    DEPENDS ${src_dir}/query/plan_template_cpp
-    SOURCES ${src_dir}/query/plan_template_cpp
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cmake
-)
-add_dependencies(recursive_include_plan_template fmt gflags glog)
-add_dependencies(memgraph_lib recursive_include_plan_template)
-
 # memgraph build name
 execute_process(
     OUTPUT_VARIABLE COMMIT_BRANCH
@@ -329,6 +315,24 @@ if (MEMGRAPH)
     set_property(TARGET ${MEMGRAPH_BUILD_NAME}
                  PROPERTY CXX_STANDARD ${cxx_standard})
     target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
+    # Strip the executable in release build.
+    string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+    if (lower_build_type STREQUAL "release")
+      add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
+                         COMMAND strip -s ${MEMGRAPH_BUILD_NAME}
+                         COMMENT Stripping symbols and sections from
+                                 ${MEMGRAPH_BUILD_NAME})
+    endif()
+    # Install and rename executable to just 'memgraph' Since we have to rename,
+    # we cannot use the recommended `install(TARGETS ...)`.
+    install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
+            DESTINATION bin RENAME memgraph)
+    # Install the config file.
+    install(FILES ${CMAKE_SOURCE_DIR}/config/alpha.conf
+            DESTINATION /etc/memgraph RENAME config)
+    # Create empty directories for default location of snapshots and logs.
+    install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
+                       \$ENV{DESTDIR}/var/lib/memgraph/snapshots)")
 endif()
 
 # make CLion aware of all source files so we get refactoring etc
@@ -339,3 +343,25 @@ add_executable(__refactor_target ${__SOURCES})
 set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
 
 get_target_cxx_flags(memgraph_lib compile_flags)
+
+# ---- Setup CPack --------
+# General setup
+set(CPACK_PACKAGE_NAME memgraph)
+set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "High performance, in-memory, transactional graph database")
+set(CPACK_PACKAGE_VERSION_MAJOR ${${project_name}_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${${project_name}_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${${project_name}_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION_TWEAK ${${project_name}_VERSION_TWEAK})
+# TODO: Longer description, readme and license files.
+# DEB specific
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Memgraph Ltd.")
+set(CPACK_DEBIAN_PACKAGE_SECTION database)
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
+# We may need conffiles, postinst, postrm or prerm scripts.
+# set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA ...)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# All variables must be set before including.
+include(CPack)
+# ---- End Setup CPack ----
