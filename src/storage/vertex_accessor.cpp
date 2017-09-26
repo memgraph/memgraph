@@ -43,11 +43,12 @@ const std::vector<GraphDbTypes::Label> &VertexAccessor::labels() const {
 
 std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
   os << "V(";
-  PrintIterable(os, va.labels(), ":", [&](auto &stream, auto label) {
+  utils::PrintIterable(os, va.labels(), ":", [&](auto &stream, auto label) {
     stream << va.db_accessor().LabelName(label);
   });
   os << " {";
-  PrintIterable(os, va.Properties(), ", ", [&](auto &stream, const auto &pair) {
+  utils::PrintIterable(os, va.Properties(), ", ", [&](auto &stream,
+                                                      const auto &pair) {
     stream << va.db_accessor().PropertyName(pair.first) << ": " << pair.second;
   });
   return os << "})";

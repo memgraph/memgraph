@@ -116,10 +116,10 @@ void PrintResults(ResultStreamFaker results) {
 
   // output the summary
   std::cout << "Query summary: {";
-  PrintIterable(std::cout, results.GetSummary(), ", ",
-                [&](auto &stream, const auto &kv) {
-                  stream << kv.first << ": " << kv.second;
-                });
+  utils::PrintIterable(std::cout, results.GetSummary(), ", ",
+                       [&](auto &stream, const auto &kv) {
+                         stream << kv.first << ": " << kv.second;
+                       });
   std::cout << "}" << std::endl;
 }
 

@@ -302,7 +302,7 @@ TEST(QueryPlan, Delete) {
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, nullptr, false, "m", false);
+                          EdgeAtom::Direction::OUT, {}, false, "m", false);
     auto r_get = storage.Create<Identifier>("r");
     symbol_table[*r_get] = r_m.edge_sym_;
     auto delete_op = std::make_shared<plan::Delete>(
@@ -354,9 +354,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::BOTH, nullptr, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::BOTH, {}, false, "m", false);
 
     // getter expressions for deletion
     auto n_get = storage.Create<Identifier>("n");
@@ -479,7 +478,7 @@ TEST(QueryPlan, SetProperty) {
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, nullptr, false, "m", false);
+                        EdgeAtom::Direction::OUT, {}, false, "m", false);
 
   // set prop1 to 42 on n and r
   auto prop1 = dba->Property("prop1");
@@ -530,7 +529,7 @@ TEST(QueryPlan, SetProperties) {
     // scan (n)-[r]->(m)
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, nullptr, false, "m", false);
+                          EdgeAtom::Direction::OUT, {}, false, "m", false);
 
     auto op = update ? plan::SetProperties::Op::UPDATE
                      : plan::SetProperties::Op::REPLACE;
@@ -633,7 +632,7 @@ TEST(QueryPlan, RemoveProperty) {
   // scan (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, nullptr, false, "m", false);
+                        EdgeAtom::Direction::OUT, {}, false, "m", false);
 
   auto n_p = PROPERTY_LOOKUP("n", prop1);
   symbol_table[*n_p->expression_] = n.sym_;
@@ -711,7 +710,7 @@ TEST(QueryPlan, NodeFilterSet) {
   scan_all.node_->properties_[prop] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
-                 EdgeAtom::Direction::BOTH, nullptr, false, "m", false);
+                 EdgeAtom::Direction::BOTH, {}, false, "m", false);
   auto *filter_expr =
       EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, prop),
          LITERAL(42));
@@ -751,7 +750,7 @@ TEST(QueryPlan, FilterRemove) {
   scan_all.node_->properties_[prop] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
-                 EdgeAtom::Direction::BOTH, nullptr, false, "m", false);
+                 EdgeAtom::Direction::BOTH, {}, false, "m", false);
   auto filter_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*filter_prop->expression_] = scan_all.sym_;
   auto filter =
@@ -813,9 +812,8 @@ TEST(QueryPlan, Merge) {
   auto n = MakeScanAll(storage, symbol_table, "n");
 
   // merge_match branch
-  auto r_m =
-      MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_, "r",
-                 EdgeAtom::Direction::BOTH, nullptr, false, "m", false);
+  auto r_m = MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_,
+                        "r", EdgeAtom::Direction::BOTH, {}, false, "m", false);
   auto m_p = PROPERTY_LOOKUP("m", prop);
   symbol_table[*m_p->expression_] = r_m.node_sym_;
   auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, m_p, LITERAL(1));

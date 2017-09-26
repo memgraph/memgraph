@@ -6,6 +6,8 @@
 
 #include "utils/exceptions.hpp"
 
+namespace utils {
+
 /**
  * Outputs a collection of items to the given stream, separating them with the
  * given delimiter.
@@ -17,8 +19,9 @@
  *  streams the item to the stream.
  */
 template <typename TStream, typename TIterable, typename TStreamer>
-void PrintIterable(TStream &stream, const TIterable &iterable,
-                   const std::string &delim = ", ", TStreamer streamer = {}) {
+inline void PrintIterable(TStream &stream, const TIterable &iterable,
+                          const std::string &delim = ", ",
+                          TStreamer streamer = {}) {
   bool first = true;
   for (const auto &item : iterable) {
     if (first)
@@ -38,8 +41,8 @@ void PrintIterable(TStream &stream, const TIterable &iterable,
  * @param delim Delimiter that is put between items.
  */
 template <typename TStream, typename TIterable>
-void PrintIterable(TStream &stream, const TIterable &iterable,
-                   const std::string &delim = ", ") {
+inline void PrintIterable(TStream &stream, const TIterable &iterable,
+                          const std::string &delim = ", ") {
   PrintIterable(stream, iterable, delim,
                 [](auto &stream, const auto &item) { stream << item; });
 }
@@ -54,8 +57,8 @@ void PrintIterable(TStream &stream, const TIterable &iterable,
  * map.
  */
 template <class TMap, class TKey, class TVal>
-std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key,
-                             TVal &&or_value) {
+inline std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key,
+                                    TVal &&or_value) {
   auto it = map.find(key);
   if (it != map.end()) return {it->second, true};
   return {std::forward<TVal>(or_value), false};
@@ -69,7 +72,7 @@ std::pair<TVal, bool> FindOr(const TMap &map, const TKey &key,
  * @exception BasicException is thrown if the `iterable` is empty.
  */
 template <class TIterable>
-auto First(TIterable &&iterable) {
+inline auto First(TIterable &&iterable) {
   if (iterable.begin() != iterable.end()) return *iterable.begin();
   throw utils::BasicException("Empty iterable");
 }
@@ -82,7 +85,22 @@ auto First(TIterable &&iterable) {
  * @return The first element of the `iterable` or the `empty_value`.
  */
 template <class TVal, class TIterable>
-TVal First(TIterable &&iterable, TVal &&empty_value) {
+inline TVal First(TIterable &&iterable, TVal &&empty_value) {
   if (iterable.begin() != iterable.end()) return *iterable.begin();
   return empty_value;
 }
+
+/**
+ * Returns `true` if the given iterable contains the given element.
+ *
+ * @param iterable An iterable collection of values.
+ * @param element The sought element.
+ * @return `true` if element is contained in iterable.
+ * @tparam TIiterable type of iterable.
+ * @tparam TElement type of element.
+ */
+template <typename TIterable, typename TElement>
+inline bool Contains(const TIterable &iterable, const TElement &element) {
+  return std::find(iterable.begin(), iterable.end(), element) != iterable.end();
+}
+}  // namespace utils

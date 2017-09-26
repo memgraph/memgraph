@@ -5,4 +5,5 @@ Standard:     "C++11"
 UseTab:       Never
 DerivePointerAlignment: false
 PointerAlignment: Right
+ColumnLimit : 80
 ...

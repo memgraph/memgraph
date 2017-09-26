@@ -192,31 +192,33 @@ DecodedValue::operator query::TypedValue() const {
 
 std::ostream &operator<<(std::ostream &os, const DecodedVertex &vertex) {
   os << "V(";
-  PrintIterable(os, vertex.labels, ":",
-                [&](auto &stream, auto label) { stream << label; });
+  utils::PrintIterable(os, vertex.labels, ":",
+                       [&](auto &stream, auto label) { stream << label; });
   os << " {";
-  PrintIterable(os, vertex.properties, ", ",
-                [&](auto &stream, const auto &pair) {
-                  stream << pair.first << ": " << pair.second;
-                });
+  utils::PrintIterable(os, vertex.properties, ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << pair.first << ": " << pair.second;
+                       });
   return os << "})";
 }
 
 std::ostream &operator<<(std::ostream &os, const DecodedEdge &edge) {
   os << "E[" << edge.type;
   os << " {";
-  PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
-    stream << pair.first << ": " << pair.second;
-  });
+  utils::PrintIterable(os, edge.properties, ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << pair.first << ": " << pair.second;
+                       });
   return os << "}]";
 }
 
 std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge) {
   os << "E[" << edge.type;
   os << " {";
-  PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
-    stream << pair.first << ": " << pair.second;
-  });
+  utils::PrintIterable(os, edge.properties, ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << pair.first << ": " << pair.second;
+                       });
   return os << "}]";
 }
 
@@ -256,14 +258,14 @@ std::ostream &operator<<(std::ostream &os, const DecodedValue &value) {
       return os << value.ValueString();
     case DecodedValue::Type::List:
       os << "[";
-      PrintIterable(os, value.ValueList());
+      utils::PrintIterable(os, value.ValueList());
       return os << "]";
     case DecodedValue::Type::Map:
       os << "{";
-      PrintIterable(os, value.ValueMap(), ", ",
-                    [](auto &stream, const auto &pair) {
-                      stream << pair.first << ": " << pair.second;
-                    });
+      utils::PrintIterable(os, value.ValueMap(), ", ",
+                           [](auto &stream, const auto &pair) {
+                             stream << pair.first << ": " << pair.second;
+                           });
       return os << "}";
     case DecodedValue::Type::Vertex:
       return os << value.ValueVertex();

@@ -102,16 +102,16 @@ class Session {
   auto CreateVertex(const DecodedVertex &vertex) {
     std::stringstream os;
     os << "CREATE (n :";
-    PrintIterable(os, vertex.labels, ":");
+    utils::PrintIterable(os, vertex.labels, ":");
     os << " {";
-    PrintIterable(os, vertex.properties, ", ",
-                  [&](auto &stream, const auto &pair) {
-                    if (pair.second.type() == DecodedValue::Type::String) {
-                      stream << pair.first << ": \"" << pair.second << "\"";
-                    } else {
-                      stream << pair.first << ": " << pair.second;
-                    }
-                  });
+    utils::PrintIterable(
+        os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
+          if (pair.second.type() == DecodedValue::Type::String) {
+            stream << pair.first << ": \"" << pair.second << "\"";
+          } else {
+            stream << pair.first << ": " << pair.second;
+          }
+        });
     os << "})";
     return Execute(os.str(), {}, "CREATE (n :labels... {...})");
   }
@@ -129,14 +129,14 @@ class Session {
       os << "-";
     }
     os << "[:" << edge.type << " {";
-    PrintIterable(os, edge.properties, ", ",
-                  [&](auto &stream, const auto &pair) {
-                    if (pair.second.type() == DecodedValue::Type::String) {
-                      stream << pair.first << ": \"" << pair.second << "\"";
-                    } else {
-                      stream << pair.first << ": " << pair.second;
-                    }
-                  });
+    utils::PrintIterable(
+        os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+          if (pair.second.type() == DecodedValue::Type::String) {
+            stream << pair.first << ": \"" << pair.second << "\"";
+          } else {
+            stream << pair.first << ": " << pair.second;
+          }
+        });
     os << "}]";
     if (edge.from == from.id) {
       os << "->";
@@ -418,7 +418,8 @@ int main(int argc, char **argv) {
     out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    PrintIterable(out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
+    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream,
+                                                         const auto &x) {
       stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
       PrintJsonDecodedValue(stream, DecodedValue(x.second));
       stream << "}";

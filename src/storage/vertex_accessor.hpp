@@ -82,12 +82,14 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
   /**
-   * Returns EdgeAccessors for all incoming edges whose type is equal to the
-   * given.
+   * Returns EdgeAccessors for all incoming edges whose type is one of the
+   * given. If the given collection of types is nullptr or empty, all edge types
+   * are valid.
    */
-  auto in_with_type(GraphDbTypes::EdgeType edge_type) const {
+  auto in_with_types(
+      const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().in_.begin(edge_type), current().in_.end(), db_accessor());
+        current().in_.begin(edge_types), current().in_.end(), db_accessor());
   }
 
   /**
@@ -108,12 +110,14 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
   /**
-   * Returns EdgeAccessors for all outgoing edges whose type is equal to the
-   * given.
+   * Returns EdgeAccessors for all outgoing edges whose type is one of the
+   * given. If the given collection of types is nullptr or empty, all edge types
+   * are valid.
    */
-  auto out_with_type(GraphDbTypes::EdgeType edge_type) const {
+  auto out_with_types(
+      const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().out_.begin(edge_type), current().out_.end(), db_accessor());
+        current().out_.begin(edge_types), current().out_.end(), db_accessor());
   }
 };
 

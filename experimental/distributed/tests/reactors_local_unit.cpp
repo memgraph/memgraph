@@ -1,28 +1,25 @@
-#include "gtest/gtest.h"
 #include "reactors_local.hpp"
+#include "gtest/gtest.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <future>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
-#include <future>
 
 TEST(SystemTest, ReturnWithoutThrowing) {
   struct Master : public Reactor {
     Master(std::string name) : Reactor(name) {}
-    virtual void Run() {
-      CloseChannel("main");
-    }
+    virtual void Run() { CloseChannel("main"); }
   };
 
   System &system = System::GetInstance();
   ASSERT_NO_THROW(system.Spawn<Master>("master"));
   ASSERT_NO_THROW(system.AwaitShutdown());
 }
-
 
 TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
   struct Master : public Reactor {
@@ -40,13 +37,13 @@ TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
   system.AwaitShutdown();
 }
 
-
 TEST(ChannelSetUpTest, CheckMainChannelIsSet) {
   struct Master : public Reactor {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseChannel("main");
@@ -57,7 +54,8 @@ TEST(ChannelSetUpTest, CheckMainChannelIsSet) {
     Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("master", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("master", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       CloseChannel("main");
@@ -80,7 +78,8 @@ TEST(SimpleSendTest, OneCallback) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel_writer->Send<MessageInt>(888);
       CloseChannel("main");
@@ -90,12 +89,13 @@ TEST(SimpleSendTest, OneCallback) {
   struct Worker : public Reactor {
     Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msg, const Subscription&) {
-          ASSERT_EQ(msg.x, 888);
-          CloseChannel("main");
-        });
+      stream->OnEvent<MessageInt>(
+          [this](const MessageInt &msg, const Subscription &) {
+            ASSERT_EQ(msg.x, 888);
+            CloseChannel("main");
+          });
     }
   };
 
@@ -104,7 +104,6 @@ TEST(SimpleSendTest, OneCallback) {
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
 }
-
 
 TEST(SimpleSendTest, IgnoreAfterClose) {
   struct MessageInt : public Message {
@@ -116,26 +115,29 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel_writer->Send<MessageInt>(101);
-      channel_writer->Send<MessageInt>(102); // should be ignored
+      channel_writer->Send<MessageInt>(102);  // should be ignored
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
-      channel_writer->Send<MessageInt>(103); // should be ignored
-      channel_writer->Send<MessageInt>(104); // should be ignored
-      CloseChannel("main"); // Write-end doesn't need to be closed because it's in RAII.
+      channel_writer->Send<MessageInt>(103);  // should be ignored
+      channel_writer->Send<MessageInt>(104);  // should be ignored
+      CloseChannel(
+          "main");  // Write-end doesn't need to be closed because it's in RAII.
     }
   };
 
   struct Worker : public Reactor {
     Worker(std::string name) : Reactor(name) {}
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt& msg, const Subscription&) {
-          CloseChannel("main");
-          ASSERT_EQ(msg.x, 101);
-        });
+      stream->OnEvent<MessageInt>(
+          [this](const MessageInt &msg, const Subscription &) {
+            CloseChannel("main");
+            ASSERT_EQ(msg.x, 101);
+          });
     }
   };
 
@@ -152,20 +154,21 @@ TEST(SimpleSendTest, DuringFirstEvent) {
   };
 
   struct Master : public Reactor {
-    Master(std::string name, std::promise<int> p) : Reactor(name), p_(std::move(p)) {}
+    Master(std::string name, std::promise<int> p)
+        : Reactor(name), p_(std::move(p)) {}
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const Message &msg, const Subscription &subscription) {
-        const MessageInt &msgint = dynamic_cast<const MessageInt&>(msg);
-        if (msgint.x == 101)
-          FindChannel("main")->Send<MessageInt>(102);
-        if (msgint.x == 102) {
-          subscription.Unsubscribe();
-          CloseChannel("main");
-          p_.set_value(777);
-        }
-      });
+      stream->OnEvent<MessageInt>(
+          [this](const Message &msg, const Subscription &subscription) {
+            const MessageInt &msgint = dynamic_cast<const MessageInt &>(msg);
+            if (msgint.x == 101) FindChannel("main")->Send<MessageInt>(102);
+            if (msgint.x == 102) {
+              subscription.Unsubscribe();
+              CloseChannel("main");
+              p_.set_value(777);
+            }
+          });
 
       std::shared_ptr<ChannelWriter> channel_writer = FindChannel("main");
       channel_writer->Send<MessageInt>(101);
@@ -182,7 +185,6 @@ TEST(SimpleSendTest, DuringFirstEvent) {
   system.AwaitShutdown();
 }
 
-
 TEST(MultipleSendTest, UnsubscribeService) {
   struct MessageInt : public Message {
     MessageInt(int xx) : x(xx) {}
@@ -197,7 +199,8 @@ TEST(MultipleSendTest, UnsubscribeService) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel_writer->Send<MessageInt>(55);
       channel_writer->Send<MessageInt>(66);
@@ -218,24 +221,26 @@ TEST(MultipleSendTest, UnsubscribeService) {
     int num_msgs_received = 0;
 
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const Subscription &subscription) {
-          ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
-          ++num_msgs_received;
-          if (msgint.x == 66) {
-            subscription.Unsubscribe(); // receive only two of them
-          }
-        });
-      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const Subscription &subscription) {
-          char c = msgchar.x;
-          ++num_msgs_received;
-          ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
-          if (num_msgs_received == 5) {
-            subscription.Unsubscribe();
-            CloseChannel("main");
-          }
-        });
+      stream->OnEvent<MessageInt>(
+          [this](const MessageInt &msgint, const Subscription &subscription) {
+            ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
+            ++num_msgs_received;
+            if (msgint.x == 66) {
+              subscription.Unsubscribe();  // receive only two of them
+            }
+          });
+      stream->OnEvent<MessageChar>(
+          [this](const MessageChar &msgchar, const Subscription &subscription) {
+            char c = msgchar.x;
+            ++num_msgs_received;
+            ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
+            if (num_msgs_received == 5) {
+              subscription.Unsubscribe();
+              CloseChannel("main");
+            }
+          });
     }
   };
 
@@ -244,7 +249,6 @@ TEST(MultipleSendTest, UnsubscribeService) {
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
 }
-
 
 TEST(MultipleSendTest, OnEvent) {
   struct MessageInt : public Message {
@@ -260,7 +264,8 @@ TEST(MultipleSendTest, OnEvent) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       channel_writer->Send<MessageInt>(101);
@@ -278,27 +283,30 @@ TEST(MultipleSendTest, OnEvent) {
     int correct_vals = 0;
 
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
       correct_vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const MessageInt &msgint, const Subscription&) {
-          ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
-          ++correct_vals;
-          main_.second->Send<EndMessage>();
-        });
+      stream->OnEvent<MessageInt>(
+          [this](const MessageInt &msgint, const Subscription &) {
+            ASSERT_TRUE(msgint.x == 101 || msgint.x == 103);
+            ++correct_vals;
+            main_.second->Send<EndMessage>();
+          });
 
-      stream->OnEvent<MessageChar>([this](const MessageChar &msgchar, const Subscription&) {
-          ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
-          ++correct_vals;
-          main_.second->Send<EndMessage>();
-        });
+      stream->OnEvent<MessageChar>(
+          [this](const MessageChar &msgchar, const Subscription &) {
+            ASSERT_TRUE(msgchar.x == 'a' || msgchar.x == 'b');
+            ++correct_vals;
+            main_.second->Send<EndMessage>();
+          });
 
-      stream->OnEvent<EndMessage>([this](const EndMessage&, const Subscription&) {
-          ASSERT_LE(correct_vals, 4);
-          if (correct_vals == 4) {
-            CloseChannel("main");
-          }
-        });
+      stream->OnEvent<EndMessage>(
+          [this](const EndMessage &, const Subscription &) {
+            ASSERT_LE(correct_vals, 4);
+            if (correct_vals == 4) {
+              CloseChannel("main");
+            }
+          });
     }
   };
 
@@ -318,7 +326,8 @@ TEST(MultipleSendTest, Chaining) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel_writer->Send<MessageInt>(55);
       channel_writer->Send<MessageInt>(66);
@@ -331,19 +340,22 @@ TEST(MultipleSendTest, Chaining) {
     Worker(std::string name) : Reactor(name) {}
 
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 55);
-          })
-        .ChainOnce<MessageInt>([](const MessageInt &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 66);
-          })
-        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 77);
-            CloseChannel("main");
-          });
+          .ChainOnce<MessageInt>(
+              [this](const MessageInt &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 55);
+              })
+          .ChainOnce<MessageInt>(
+              [](const MessageInt &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 66);
+              })
+          .ChainOnce<MessageInt>(
+              [this](const MessageInt &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 77);
+                CloseChannel("main");
+              });
     }
   };
 
@@ -352,7 +364,6 @@ TEST(MultipleSendTest, Chaining) {
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
 }
-
 
 TEST(MultipleSendTest, ChainingInRightOrder) {
   struct MessageInt : public Message {
@@ -369,7 +380,8 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
       channel_writer->Send<MessageChar>('a');
       channel_writer->Send<MessageInt>(55);
@@ -383,19 +395,22 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
     Worker(std::string name) : Reactor(name) {}
 
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
 
       stream->OnEventOnce()
-        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 55);
-          })
-        .ChainOnce<MessageChar>([](const MessageChar &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 'b');
-          })
-        .ChainOnce<MessageInt>([this](const MessageInt &msg, const Subscription&) {
-            ASSERT_EQ(msg.x, 77);
-            CloseChannel("main");
-          });
+          .ChainOnce<MessageInt>(
+              [this](const MessageInt &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 55);
+              })
+          .ChainOnce<MessageChar>(
+              [](const MessageChar &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 'b');
+              })
+          .ChainOnce<MessageInt>(
+              [this](const MessageInt &msg, const Subscription &) {
+                ASSERT_EQ(msg.x, 77);
+                CloseChannel("main");
+              });
     }
   };
 
@@ -404,7 +419,6 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
 }
-
 
 TEST(MultipleSendTest, ProcessManyMessages) {
   const static int num_tests = 100;
@@ -418,7 +432,8 @@ TEST(MultipleSendTest, ProcessManyMessages) {
     Master(std::string name) : Reactor(name) {}
     virtual void Run() {
       std::shared_ptr<ChannelWriter> channel_writer;
-      while (!(channel_writer = System::GetInstance().FindChannel("worker", "main")))
+      while (!(channel_writer =
+                   System::GetInstance().FindChannel("worker", "main")))
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
       std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
@@ -437,20 +452,22 @@ TEST(MultipleSendTest, ProcessManyMessages) {
     int vals = 0;
 
     virtual void Run() {
-      EventStream* stream = main_.first;
+      EventStream *stream = main_.first;
       vals = 0;
 
-      stream->OnEvent<MessageInt>([this](const Message&, const Subscription&) {
-          ++vals;
-          main_.second->Send<EndMessage>();
-        });
+      stream->OnEvent<MessageInt>(
+          [this](const Message &, const Subscription &) {
+            ++vals;
+            main_.second->Send<EndMessage>();
+          });
 
-      stream->OnEvent<EndMessage>([this](const Message&, const Subscription&) {
-          ASSERT_LE(vals, num_tests);
-          if (vals == num_tests) {
-            CloseChannel("main");
-          }
-        });
+      stream->OnEvent<EndMessage>(
+          [this](const Message &, const Subscription &) {
+            ASSERT_LE(vals, num_tests);
+            if (vals == num_tests) {
+              CloseChannel("main");
+            }
+          });
     }
   };
 
@@ -459,10 +476,6 @@ TEST(MultipleSendTest, ProcessManyMessages) {
   system.Spawn<Worker>("worker");
   system.AwaitShutdown();
 }
-
-
-
-
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

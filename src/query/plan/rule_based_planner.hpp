@@ -428,17 +428,18 @@ class RuleBasedPlanner {
                           const std::experimental::optional<int64_t>
                               &max_vertex_count = std::experimental::nullopt) {
     const auto labels =
-        FindOr(match_ctx.matching.filters.label_filters(), node_symbol,
-               std::unordered_set<GraphDbTypes::Label>())
+        utils::FindOr(match_ctx.matching.filters.label_filters(), node_symbol,
+                      std::unordered_set<GraphDbTypes::Label>())
             .first;
     if (labels.empty()) {
       // Without labels, we cannot generated any indexed ScanAll.
       return nullptr;
     }
     const auto properties =
-        FindOr(match_ctx.matching.filters.property_filters(), node_symbol,
-               std::unordered_map<GraphDbTypes::Property,
-                                  std::vector<Filters::PropertyFilter>>())
+        utils::FindOr(
+            match_ctx.matching.filters.property_filters(), node_symbol,
+            std::unordered_map<GraphDbTypes::Property,
+                               std::vector<Filters::PropertyFilter>>())
             .first;
     // First, try to see if we can use label+property index. If not, use just
     // the label index (which ought to exist).
@@ -532,16 +533,12 @@ class RuleBasedPlanner {
         } else {
           match_context.new_symbols.emplace_back(edge_symbol);
         }
-        GraphDbTypes::EdgeType edge_type = nullptr;
-        const auto &edge_types =
-            FindOr(matching.filters.edge_type_filters(), edge_symbol,
-                   std::unordered_set<GraphDbTypes::EdgeType>())
+        const auto edge_types_set =
+            utils::FindOr(matching.filters.edge_type_filters(), edge_symbol,
+                          std::unordered_set<GraphDbTypes::EdgeType>())
                 .first;
-        if (edge_types.size() == 1U) {
-          // With exactly one edge type filter, we can generate a more efficient
-          // expand.
-          edge_type = First(edge_types);
-        }
+        const std::vector<GraphDbTypes::EdgeType> edge_types(
+            edge_types_set.begin(), edge_types_set.end());
         if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
           const auto &traversed_edge_symbol =
               symbol_table.at(*bf_atom->traversed_edge_identifier_);
@@ -549,22 +546,22 @@ class RuleBasedPlanner {
               symbol_table.at(*bf_atom->next_node_identifier_);
           // Inline BFS edge filtering together with its filter expression.
           auto *filter_expr = impl::BoolJoin<AndOperator>(
-              storage,
-              impl::ExtractMultiExpandFilter(bound_symbols, node_symbol,
-                                             all_filters, storage),
+              storage, impl::ExtractMultiExpandFilter(
+                           bound_symbols, node_symbol, all_filters, storage),
               bf_atom->filter_expression_);
           last_op = new ExpandBreadthFirst(
-              node_symbol, edge_symbol, expansion.direction, edge_type,
-              bf_atom->max_depth_, next_node_symbol, traversed_edge_symbol,
-              filter_expr, std::shared_ptr<LogicalOperator>(last_op),
-              node1_symbol, existing_node, match_context.graph_view);
+              node_symbol, edge_symbol, expansion.direction,
+              std::move(edge_types), bf_atom->max_depth_, next_node_symbol,
+              traversed_edge_symbol, filter_expr,
+              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+              existing_node, match_context.graph_view);
         } else if (expansion.edge->has_range_) {
           auto *filter_expr = impl::ExtractMultiExpandFilter(
               bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
-              node_symbol, edge_symbol, expansion.direction, edge_type,
-              expansion.is_flipped, expansion.edge->lower_bound_,
-              expansion.edge->upper_bound_,
+              node_symbol, edge_symbol, expansion.direction,
+              std::move(edge_types), expansion.is_flipped,
+              expansion.edge->lower_bound_, expansion.edge->upper_bound_,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
               existing_node, existing_edge, match_context.graph_view,
               filter_expr);
@@ -585,10 +582,11 @@ class RuleBasedPlanner {
               existing_node = true;
             }
           }
-          last_op = new Expand(
-              node_symbol, edge_symbol, expansion.direction, edge_type,
-              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              existing_node, existing_edge, match_context.graph_view);
+          last_op = new Expand(node_symbol, edge_symbol, expansion.direction,
+                               std::move(edge_types),
+                               std::shared_ptr<LogicalOperator>(last_op),
+                               node1_symbol, existing_node, existing_edge,
+                               match_context.graph_view);
         }
         if (!existing_edge) {
           // Ensure Cyphermorphism (different edge symbols always map to

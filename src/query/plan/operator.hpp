@@ -476,8 +476,9 @@ class ExpandCommon {
    * @param direction EdgeAtom::Direction determining the direction of edge
    *    expansion. The direction is relative to the starting vertex for each
    *    expansion.
-   * @param edge_type Optional GraphDbTypes::EdgeType specifying which edges we
-   *    want to expand.
+   * @param edge_types GraphDbTypes::EdgeType specifying which edges we
+   *    want to expand. If empty, all edges are valid. If not empty, only edges
+   * with one of the given types are valid.
    * @param input Optional LogicalOperator that preceeds this one.
    * @param input_symbol Symbol that points to a VertexAccessor in the Frame
    *    that expansion should emanate from.
@@ -487,7 +488,7 @@ class ExpandCommon {
    */
   ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                EdgeAtom::Direction direction,
-               const GraphDbTypes::EdgeType &edge_type,
+               const std::vector<GraphDbTypes::EdgeType> &edge_types,
                const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, bool existing_node, bool existing_edge,
                GraphView graph_view = GraphView::AS_IS);
@@ -496,14 +497,14 @@ class ExpandCommon {
   const auto &node_symbol() const { return node_symbol_; }
   const auto &edge_symbol() const { return edge_symbol_; }
   const auto &direction() const { return direction_; }
-  const auto &edge_type() const { return edge_type_; }
+  const auto &edge_types() const { return edge_types_; }
 
  protected:
   // info on what's getting expanded
   const Symbol node_symbol_;
   const Symbol edge_symbol_;
   const EdgeAtom::Direction direction_;
-  const GraphDbTypes::EdgeType edge_type_ = nullptr;
+  const std::vector<GraphDbTypes::EdgeType> edge_types_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
@@ -620,8 +621,9 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
    */
   ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
                  EdgeAtom::Direction direction,
-                 const GraphDbTypes::EdgeType &edge_type, bool is_reverse,
-                 Expression *lower_bound, Expression *upper_bound,
+                 const std::vector<GraphDbTypes::EdgeType> &edge_types,
+                 bool is_reverse, Expression *lower_bound,
+                 Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, bool existing_node, bool existing_edge,
                  GraphView graph_view = GraphView::AS_IS,
@@ -669,7 +671,7 @@ class ExpandBreadthFirst : public LogicalOperator {
  public:
   ExpandBreadthFirst(Symbol node_symbol, Symbol edge_list_symbol,
                      EdgeAtom::Direction direction,
-                     const GraphDbTypes::EdgeType &edge_type,
+                     const std::vector<GraphDbTypes::EdgeType> &edge_types,
                      Expression *max_depth, Symbol inner_node_symbol,
                      Symbol inner_edge_symbol, Expression *where,
                      const std::shared_ptr<LogicalOperator> &input,
@@ -711,7 +713,7 @@ class ExpandBreadthFirst : public LogicalOperator {
   const Symbol edge_list_symbol_;
 
   const EdgeAtom::Direction direction_;
-  const GraphDbTypes::EdgeType edge_type_ = nullptr;
+  const std::vector<GraphDbTypes::EdgeType> edge_types_;
   Expression *max_depth_;
 
   // symbols for a single node and edge that are currently getting expanded

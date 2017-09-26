@@ -31,20 +31,20 @@ void PrintJsonDecodedValue(std::ostream &os,
       break;
     case DecodedValue::Type::List:
       os << "[";
-      PrintIterable(os, value.ValueList(), ", ",
-                    [](auto &stream, const auto &item) {
-                      PrintJsonDecodedValue(stream, item);
-                    });
+      utils::PrintIterable(os, value.ValueList(), ", ",
+                           [](auto &stream, const auto &item) {
+                             PrintJsonDecodedValue(stream, item);
+                           });
       os << "]";
       break;
     case DecodedValue::Type::Map:
       os << "{";
-      PrintIterable(os, value.ValueMap(), ", ",
-                    [](auto &stream, const auto &pair) {
-                      PrintJsonDecodedValue(stream, {pair.first});
-                      stream << ": ";
-                      PrintJsonDecodedValue(stream, pair.second);
-                    });
+      utils::PrintIterable(os, value.ValueMap(), ", ",
+                           [](auto &stream, const auto &pair) {
+                             PrintJsonDecodedValue(stream, {pair.first});
+                             stream << ": ";
+                             PrintJsonDecodedValue(stream, pair.second);
+                           });
       os << "}";
       break;
     default:

@@ -302,10 +302,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -380,16 +380,15 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   return std::make_unique<ScanAllByLabelPropertyValueCursor>(*this, db);
 }
 
-ExpandCommon::ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
-                           EdgeAtom::Direction direction,
-                           const GraphDbTypes::EdgeType &edge_type,
-                           const std::shared_ptr<LogicalOperator> &input,
-                           Symbol input_symbol, bool existing_node,
-                           bool existing_edge, GraphView graph_view)
+ExpandCommon::ExpandCommon(
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    const std::vector<GraphDbTypes::EdgeType> &edge_types,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, bool existing_edge, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_symbol_(edge_symbol),
       direction_(direction),
-      edge_type_(edge_type),
+      edge_types_(edge_types),
       input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
@@ -539,10 +538,8 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           in_edges_.emplace(
               vertex.in_with_destination(existing_node.ValueVertex()));
         }
-      } else if (self_.edge_type_) {
-        in_edges_.emplace(vertex.in_with_type(self_.edge_type_));
       } else {
-        in_edges_.emplace(vertex.in());
+        in_edges_.emplace(vertex.in_with_types(&self_.edge_types()));
       }
       in_edges_it_.emplace(in_edges_->begin());
     }
@@ -558,10 +555,8 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           out_edges_.emplace(
               vertex.out_with_destination(existing_node.ValueVertex()));
         }
-      } else if (self_.edge_type_) {
-        out_edges_.emplace(vertex.out_with_type(self_.edge_type_));
       } else {
-        out_edges_.emplace(vertex.out());
+        out_edges_.emplace(vertex.out_with_types(&self_.edge_types()));
       }
       out_edges_it_.emplace(out_edges_->begin());
     }
@@ -570,16 +565,14 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
   }
 }
 
-ExpandVariable::ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
-                               EdgeAtom::Direction direction,
-                               const GraphDbTypes::EdgeType &edge_type,
-                               bool is_reverse, Expression *lower_bound,
-                               Expression *upper_bound,
-                               const std::shared_ptr<LogicalOperator> &input,
-                               Symbol input_symbol, bool existing_node,
-                               bool existing_edge, GraphView graph_view,
-                               Expression *filter)
-    : ExpandCommon(node_symbol, edge_symbol, direction, edge_type, input,
+ExpandVariable::ExpandVariable(
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    const std::vector<GraphDbTypes::EdgeType> &edge_types, bool is_reverse,
+    Expression *lower_bound, Expression *upper_bound,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, bool existing_edge, GraphView graph_view,
+    Expression *filter)
+    : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
                    input_symbol, existing_node, existing_edge, graph_view),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
@@ -601,7 +594,7 @@ namespace {
  */
 auto ExpandFromVertex(const VertexAccessor &vertex,
                       EdgeAtom::Direction direction,
-                      const GraphDbTypes::EdgeType &edge_type) {
+                      const std::vector<GraphDbTypes::EdgeType> &edge_types) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&vertices) {
     return iter::imap(
@@ -615,27 +608,17 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
   std::vector<decltype(wrapper(direction, vertex.in()))> chain_elements;
 
   if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0) {
-    if (edge_type) {
-      auto edges = vertex.in_with_type(edge_type);
-      if (edges.begin() != edges.end()) {
-        chain_elements.emplace_back(
-            wrapper(EdgeAtom::Direction::IN, std::move(edges)));
-      }
-    } else {
+    auto edges = vertex.in_with_types(&edge_types);
+    if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
-          wrapper(EdgeAtom::Direction::IN, vertex.in()));
+          wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
   if (direction != EdgeAtom::Direction::IN && vertex.out_degree() > 0) {
-    if (edge_type) {
-      auto edges = vertex.out_with_type(edge_type);
-      if (edges.begin() != edges.end()) {
-        chain_elements.emplace_back(
-            wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
-      }
-    } else {
+    auto edges = vertex.out_with_types(&edge_types);
+    if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
-          wrapper(EdgeAtom::Direction::OUT, vertex.out()));
+          wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
   }
 
@@ -718,7 +701,7 @@ class ExpandVariableCursor : public Cursor {
   // the expansion currently being Pulled
   std::vector<decltype(ExpandFromVertex(std::declval<VertexAccessor>(),
                                         EdgeAtom::Direction::IN,
-                                        self_.edge_type_))>
+                                        self_.edge_types_))>
       edges_;
 
   // an iterator indicating the possition in the corresponding edges_ element
@@ -763,7 +746,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > 0) {
         SwitchAccessor(vertex, self_.graph_view_);
         edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.direction_, self_.edge_type_));
+            ExpandFromVertex(vertex, self_.direction_, self_.edge_types_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -933,7 +916,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         SwitchAccessor(current_vertex, self_.graph_view_);
         edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_,
-                                             self_.edge_type_));
+                                             self_.edge_types_));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -955,14 +938,14 @@ std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) const {
 
 ExpandBreadthFirst::ExpandBreadthFirst(
     Symbol node_symbol, Symbol edge_list_symbol, EdgeAtom::Direction direction,
-    const GraphDbTypes::EdgeType &edge_type, Expression *max_depth,
-    Symbol inner_node_symbol, Symbol inner_edge_symbol, Expression *where,
-    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, GraphView graph_view)
+    const std::vector<GraphDbTypes::EdgeType> &edge_types,
+    Expression *max_depth, Symbol inner_node_symbol, Symbol inner_edge_symbol,
+    Expression *where, const std::shared_ptr<LogicalOperator> &input,
+    Symbol input_symbol, bool existing_node, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_list_symbol_(edge_list_symbol),
       direction_(direction),
-      edge_type_(edge_type),
+      edge_types_(edge_types),
       max_depth_(max_depth),
       inner_node_symbol_(inner_node_symbol),
       inner_edge_symbol_(inner_edge_symbol),
@@ -1023,22 +1006,12 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
   // the "where" condition.
   auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
     if (self_.direction_ != EdgeAtom::Direction::IN) {
-      if (self_.edge_type_) {
-        for (const EdgeAccessor &edge : vertex.out_with_type(self_.edge_type_))
-          expand_pair(edge, edge.to());
-      } else {
-        for (const EdgeAccessor &edge : vertex.out())
-          expand_pair(edge, edge.to());
-      }
+      for (const EdgeAccessor &edge : vertex.out_with_types(&self_.edge_types_))
+        expand_pair(edge, edge.to());
     }
     if (self_.direction_ != EdgeAtom::Direction::OUT) {
-      if (self_.edge_type_) {
-        for (const EdgeAccessor &edge : vertex.in_with_type(self_.edge_type_))
-          expand_pair(edge, edge.from());
-      } else {
-        for (const EdgeAccessor &edge : vertex.in())
-          expand_pair(edge, edge.from());
-      }
+      for (const EdgeAccessor &edge : vertex.in_with_types(&self_.edge_types_))
+        expand_pair(edge, edge.from());
     }
   };
 

@@ -5,6 +5,7 @@
 
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
+#include "utils/algorithm.hpp"
 
 // forward declare Vertex and Edge because they need this data structure
 class Edge;
@@ -26,7 +27,7 @@ class Edges {
   };
 
   /** Custom iterator that takes care of skipping edges when the destination
-   * vertex or edge type are known. */
+   * vertex or edge types are known. */
   class Iterator {
    public:
     /** Ctor that just sets the position. Used for normal iteration (that does
@@ -38,7 +39,7 @@ class Edges {
     explicit Iterator(std::vector<Element>::const_iterator iterator)
         : position_(iterator) {}
 
-    /** Ctor used for creating the beginning iterator with known destionation
+    /** Ctor used for creating the beginning iterator with known destination
      * vertex.
      *
      * @param iterator - Iterator in the underlying storage.
@@ -51,16 +52,17 @@ class Edges {
       update_position();
     }
 
-    /** Ctor used for creating the beginning iterator with known edge type.
+    /** Ctor used for creating the beginning iterator with known edge types.
      *
      * @param iterator - Iterator in the underlying storage.
      * @param end - End iterator in the underlying storage.
-     * @param edge_type - The edge type that must be matched.
+     * @param edge_types - The edge types at least one of which must be matched.
+     * If nullptr all edges are valid.
      */
     Iterator(std::vector<Element>::const_iterator position,
              std::vector<Element>::const_iterator end,
-             GraphDbTypes::EdgeType edge_type)
-        : position_(position), end_(end), edge_type_(edge_type) {
+             const std::vector<GraphDbTypes::EdgeType> *edge_types)
+        : position_(position), end_(end), edge_types_(edge_types) {
       update_position();
     }
 
@@ -86,7 +88,8 @@ class Edges {
     // Optional predicates. If set they define which edges are skipped by the
     // iterator. Only one can be not-null in the current implementation.
     vertex_ptr_t vertex_{nullptr};
-    GraphDbTypes::EdgeType edge_type_{nullptr};
+    // For edge types we use a vector pointer because it's optional.
+    const std::vector<GraphDbTypes::EdgeType> *edge_types_ = nullptr;
 
     /** Helper function that skips edges that don't satisfy the predicate
      * present in this iterator. */
@@ -95,11 +98,10 @@ class Edges {
         position_ = std::find_if(
             position_, end_,
             [v = this->vertex_](const Element &e) { return e.vertex == v; });
-      else if (edge_type_)
-        position_ = std::find_if(position_, end_,
-                                 [et = this->edge_type_](const Element &e) {
-                                   return e.edge_type == et;
-                                 });
+      else if (edge_types_)
+        position_ = std::find_if(position_, end_, [this](const Element &e) {
+          return utils::Contains(*edge_types_, e.edge_type);
+        });
     }
   };
 
@@ -144,11 +146,15 @@ class Edges {
 
   /*
    * Creates a beginning iterator that will skip edges whose edge type is not
-   * equal to the given. Relies on the fact that edge types are immutable during
-   * the whole edge lifetime.
+   * among the given. If none are given, or the pointer is null, then all edges
+   * are valid. Relies on the fact that edge types are immutable during the
+   * whole edge lifetime.
    */
-  auto begin(GraphDbTypes::EdgeType edge_type) const {
-    return Iterator(storage_.begin(), storage_.end(), edge_type);
+  auto begin(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+    if (edge_types && !edge_types->empty())
+      return Iterator(storage_.begin(), storage_.end(), edge_types);
+    else
+      return Iterator(storage_.begin());
   }
 
  private:

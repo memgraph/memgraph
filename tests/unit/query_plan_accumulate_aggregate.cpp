@@ -48,9 +48,8 @@ TEST(QueryPlan, Accumulate) {
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::BOTH, nullptr, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::BOTH, {}, false, "m", false);
 
     auto one = LITERAL(1);
     auto n_p = PROPERTY_LOOKUP("n", prop);

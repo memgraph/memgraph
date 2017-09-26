@@ -203,14 +203,14 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
       return os << value.Value<std::string>();
     case TypedValue::Type::List:
       os << "[";
-      PrintIterable(os, value.Value<std::vector<TypedValue>>());
+      utils::PrintIterable(os, value.Value<std::vector<TypedValue>>());
       return os << "]";
     case TypedValue::Type::Map:
       os << "{";
-      PrintIterable(os, value.Value<std::map<std::string, TypedValue>>(), ", ",
-                    [](auto &stream, const auto &pair) {
-                      stream << pair.first << ": " << pair.second;
-                    });
+      utils::PrintIterable(os, value.Value<std::map<std::string, TypedValue>>(),
+                           ", ", [](auto &stream, const auto &pair) {
+                             stream << pair.first << ": " << pair.second;
+                           });
       return os << "}";
     case TypedValue::Type::Vertex:
       return os << value.Value<VertexAccessor>();

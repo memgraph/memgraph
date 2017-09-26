@@ -81,7 +81,7 @@ class Snapshot {
   friend std::ostream &operator<<(std::ostream &stream,
                                   const Snapshot &snapshot) {
     stream << "Snapshot(";
-    PrintIterable(stream, snapshot.transaction_ids_);
+    utils::PrintIterable(stream, snapshot.transaction_ids_);
     stream << ")";
     return stream;
   }

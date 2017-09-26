@@ -34,7 +34,7 @@ void PrintJsonMetadata(
     std::ostream &os,
     const std::vector<std::map<std::string, DecodedValue>> &metadata) {
   os << "[";
-  PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) {
+  utils::PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) {
     PrintJsonDecodedValue(stream, item);
   });
   os << "]";

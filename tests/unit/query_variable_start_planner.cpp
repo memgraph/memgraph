@@ -19,12 +19,12 @@ namespace std {
 // Overloads for printing resulting rows from a query.
 std::ostream &operator<<(std::ostream &stream,
                          const std::vector<TypedValue> &row) {
-  PrintIterable(stream, row);
+  utils::PrintIterable(stream, row);
   return stream;
 }
 std::ostream &operator<<(std::ostream &stream,
                          const std::vector<std::vector<TypedValue>> &rows) {
-  PrintIterable(stream, rows, "\n");
+  utils::PrintIterable(stream, rows, "\n");
   return stream;
 }
 

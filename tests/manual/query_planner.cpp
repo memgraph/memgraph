@@ -420,8 +420,9 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   bool PreVisit(query::plan::Produce &op) override {
     WithPrintLn([&](auto &out) {
       out << "* Produce {";
-      PrintIterable(out, op.named_expressions(), ", ",
-                    [](auto &out, const auto &nexpr) { out << nexpr->name_; });
+      utils::PrintIterable(
+          out, op.named_expressions(), ", ",
+          [](auto &out, const auto &nexpr) { out << nexpr->name_; });
       out << "}";
     });
     return true;

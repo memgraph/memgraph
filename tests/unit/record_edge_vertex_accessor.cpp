@@ -289,22 +289,28 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
   auto v2 = dba->InsertVertex();
   auto a = dba->EdgeType("a");
   auto b = dba->EdgeType("b");
+  auto c = dba->EdgeType("c");
   auto ea = dba->InsertEdge(v1, v2, a);
   auto eb_1 = dba->InsertEdge(v2, v1, b);
   auto eb_2 = dba->InsertEdge(v2, v1, b);
+  auto ec = dba->InsertEdge(v1, v2, c);
   dba->AdvanceCommand();
 
   TEST_EDGE_ITERABLE(v1.in(), {eb_1, eb_2});
-  TEST_EDGE_ITERABLE(v2.in(), {ea});
+  TEST_EDGE_ITERABLE(v2.in(), {ea, ec});
 
-  TEST_EDGE_ITERABLE(v1.in_with_type(a));
-  TEST_EDGE_ITERABLE(v1.in_with_type(b), {eb_1, eb_2});
-  TEST_EDGE_ITERABLE(v1.out_with_type(a), {ea});
-  TEST_EDGE_ITERABLE(v1.out_with_type(b));
-  TEST_EDGE_ITERABLE(v2.in_with_type(a), {ea});
-  TEST_EDGE_ITERABLE(v2.in_with_type(b));
-  TEST_EDGE_ITERABLE(v2.out_with_type(a));
-  TEST_EDGE_ITERABLE(v2.out_with_type(b), {eb_1, eb_2});
+  std::vector<GraphDbTypes::EdgeType> edges_a{a};
+  std::vector<GraphDbTypes::EdgeType> edges_b{b};
+  std::vector<GraphDbTypes::EdgeType> edges_ac{a, c};
+  TEST_EDGE_ITERABLE(v1.in_with_types(&edges_a));
+  TEST_EDGE_ITERABLE(v1.in_with_types(&edges_b), {eb_1, eb_2});
+  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_a), {ea});
+  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_b));
+  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_ac), {ea, ec});
+  TEST_EDGE_ITERABLE(v2.in_with_types(&edges_a), {ea});
+  TEST_EDGE_ITERABLE(v2.in_with_types(&edges_b));
+  TEST_EDGE_ITERABLE(v2.out_with_types(&edges_a));
+  TEST_EDGE_ITERABLE(v2.out_with_types(&edges_b), {eb_1, eb_2});
 }
 
 #undef TEST_EDGE_ITERABLE

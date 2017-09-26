@@ -170,8 +170,8 @@ class Interpreter {
         // When the symbol is aliased or expanded from '*' (inside RETURN or
         // WITH), then there is no token position, so use symbol name.
         // Otherwise, find the name from stripped query.
-        header.push_back(FindOr(stripped.named_expressions(),
-                                symbol.token_position(), symbol.name())
+        header.push_back(utils::FindOr(stripped.named_expressions(),
+                                       symbol.token_position(), symbol.name())
                              .first);
       }
       stream.Header(header);
