@@ -18,8 +18,6 @@
 #include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
 
-// TODO: Remove ast_cache flag and add flag that limits cache size.
-DECLARE_bool(ast_cache);
 DECLARE_bool(query_cost_planner);
 DECLARE_bool(query_plan_cache);
 DECLARE_int32(query_plan_cache_ttl);
@@ -62,15 +60,9 @@ class Interpreter {
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream,
                  const std::map<std::string, TypedValue> &params) {
-    if (!FLAGS_ast_cache && !params.empty()) {
-      // This is totally fine, since we don't really expect anyone to turn off
-      // the cache.
-      throw utils::NotYetImplemented(
-          "Params not implemented if ast cache is turned off");
-    }
     utils::Timer frontend_timer;
     Context ctx(db_accessor);
-    ctx.is_query_cached_ = FLAGS_ast_cache;
+    ctx.is_query_cached_ = true;
     std::map<std::string, TypedValue> summary;
 
     // query -> stripped query

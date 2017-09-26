@@ -75,7 +75,6 @@ parameters:
  --snapshot-recover-on-startup | bool | false | Recover the database on startup using the last<br/>stored snapshot.
  --query-execution-time-sec | integer | 180 | Maximum allowed query execution time. <br/>Queries exceeding this limit will be aborted. Value of -1 means no limit.
  --memory-warning-threshold | integer | 1024 | Memory warning threshold, in MB. If Memgraph detects there is less available RAM available it will log a warning. Set to 0 to disable.
- --ast-cache | bool | true | Use AST caching.
  --query-plan-cache | bool Cache generated query plans.
  --query-plan-cache-ttl | int | 60 | Time to live for cached query plans, in seconds.
  --query-cost-planner | bool | true | Use the cost-estimating query planner.
