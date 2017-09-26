@@ -81,6 +81,11 @@ set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
 # -----------------------------------------------------------------------------
 
+# Generate a version.hpp file
+set(VERSION_STRING ${${project_name}_VERSION})
+configure_file(${src_dir}/version.hpp.in include/version.hpp @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
+
 # build flags -----------------------------------------------------------------
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
