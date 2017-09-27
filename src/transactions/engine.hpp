@@ -39,7 +39,7 @@ class Engine : Lockable<SpinLock> {
 
     T next() { return ++counter; }
 
-    T count() { return counter; }
+    T count() const { return counter; }
 
    private:
     T counter;
@@ -135,13 +135,13 @@ class Engine : Lockable<SpinLock> {
 
   /** The total number of transactions that have executed since the creation of
    * this engine */
-  auto Count() {
+  auto Count() const {
     auto guard = this->acquire_unique();
     return counter_.count();
   }
 
   /** The count of currently active transactions */
-  size_t ActiveCount() {
+  int64_t ActiveCount() const {
     auto guard = this->acquire_unique();
     return active_.size();
   }

@@ -1,10 +1,9 @@
 #pragma once
 
 #include "database/graph_db.hpp"
-#include "utils/total_ordering.hpp"
-//#include "database/graph_db_accessor.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
+#include "utils/total_ordering.hpp"
 
 #include "storage/property_value_store.hpp"
 

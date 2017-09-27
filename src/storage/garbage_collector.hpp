@@ -19,7 +19,7 @@ class GarbageCollector {
                    DeferredDeleter<mvcc::VersionList<T>> &version_list_deleter)
       : skiplist_(skiplist),
         record_deleter_(record_deleter),
-        version_list_deleter_(version_list_deleter){};
+        version_list_deleter_(version_list_deleter) {}
 
   /**
    * @brief - Runs garbage collector. Populates deferred deleters with version
@@ -29,7 +29,7 @@ class GarbageCollector {
    * transaction's snapshot, with that transaction's id appened as last.
    * @param engine - reference to engine object
    */
-  void Run(const tx::Snapshot &snapshot, tx::Engine &engine) {
+  void Run(const tx::Snapshot &snapshot, const tx::Engine &engine) {
     auto collection_accessor = this->skiplist_.access();
     uint64_t count = 0;
     std::vector<T *> deleted_records;
@@ -44,8 +44,8 @@ class GarbageCollector {
       }
       if (ret.second != nullptr) deleted_records.push_back(ret.second);
     }
-    DLOG_IF(INFO, count > 0)
-        << "GC started cleaning with snapshot: " << snapshot;
+    DLOG_IF(INFO, count > 0) << "GC started cleaning with snapshot: "
+                             << snapshot;
     DLOG_IF(INFO, count > 0) << "Destroyed: " << count;
 
     // Add records to deleter, with the id larger or equal than the last active

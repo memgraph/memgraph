@@ -1,3 +1,5 @@
+#pragma once
+
 #include <atomic>
 #include <mutex>
 
@@ -147,8 +149,7 @@ class ConcurrentPushQueue {
   template <typename... TArgs>
   void push(TArgs &&... args) {
     auto node = new Node(std::forward<TArgs>(args)...);
-    while (!head_.compare_exchange_strong(node->next_, node))
-      ;
+    while (!head_.compare_exchange_strong(node->next_, node)) continue;
     size_++;
   };
 

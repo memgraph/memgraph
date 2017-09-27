@@ -152,7 +152,7 @@ TEST(GarbageCollector, GcClean) {
   vlist_deleter.FreeExpiredObjects(engine.Count() + 1);
   EXPECT_EQ(vlist_deleter.Count(), 0);
 
-  EXPECT_EQ(access.size(), (size_t)0);
+  EXPECT_EQ(access.size(), 0U);
 }
 
 int main(int argc, char **argv) {

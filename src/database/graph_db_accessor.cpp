@@ -50,8 +50,8 @@ VertexAccessor GraphDbAccessor::InsertVertex() {
   auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_);
 
   bool success = db_.vertices_.access().insert(vertex_vlist).second;
-  if (success) return VertexAccessor(*vertex_vlist, *this);
-  throw CreationException("Unable to create a Vertex.");
+  CHECK(success) << "It is impossible for new version list to already exist";
+  return VertexAccessor(*vertex_vlist, *this);
 }
 
 void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
@@ -243,6 +243,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
   bool success = db_.edges_.access().insert(edge_vlist).second;
+  CHECK(success) << "It is impossible for new version list to already exist";
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
@@ -253,15 +254,11 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   to.SwitchNew();
   to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
-  if (success) {
-    // This has to be here because there is no additional method for setting
-    // edge type.
-    const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
-    UpdateEdgeTypeIndex(edge_type, edge_accessor, &edge_accessor.current());
-    return edge_accessor;
-  }
-
-  throw CreationException("Unable to create an Edge.");
+  // This has to be here because there is no additional method for setting edge
+  // type.
+  const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
+  UpdateEdgeTypeIndex(edge_type, edge_accessor, &edge_accessor.current());
+  return edge_accessor;
 }
 
 void GraphDbAccessor::UpdateEdgeTypeIndex(

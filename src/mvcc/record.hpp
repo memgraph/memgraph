@@ -116,7 +116,7 @@ class Record : public Version<T> {
    * transaction's snapshot, with that transaction's id appened as last.
    */
   bool is_not_visible_from(const tx::Snapshot &snapshot,
-                           tx::Engine &engine) const {
+                           const tx::Engine &engine) const {
     // first get tx.exp so that all the subsequent checks operate on
     // the same id. otherwise there could be a race condition
     auto exp_id = tx_.exp.load();

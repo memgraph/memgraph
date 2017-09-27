@@ -83,7 +83,7 @@ class VersionList {
    * visible anymore. If none exists to_delete will point to nullptr.
   */
   std::pair<bool, T *> GcDeleted(const tx::Snapshot &snapshot,
-                                 tx::Engine &engine) {
+                                 const tx::Engine &engine) {
     //    nullptr
     //       |
     //     [v1]      ...  all of this gets deleted!

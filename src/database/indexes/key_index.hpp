@@ -18,7 +18,7 @@
 template <typename TKey, typename TRecord>
 class KeyIndex {
  public:
-  KeyIndex(){};
+  KeyIndex() {}
   KeyIndex(const KeyIndex &other) = delete;
   KeyIndex(KeyIndex &&other) = delete;
   KeyIndex &operator=(const KeyIndex &other) = delete;
@@ -101,8 +101,7 @@ class KeyIndex {
    */
   std::vector<TKey> Keys() {
     std::vector<TKey> keys;
-    for (auto &kv : indices_.access())
-      keys.push_back(kv.first);
+    for (auto &kv : indices_.access()) keys.push_back(kv.first);
     return keys;
   }
 
