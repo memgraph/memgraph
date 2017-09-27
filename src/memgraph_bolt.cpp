@@ -94,7 +94,6 @@ void load_config(int &argc, char **&argv) {
 }
 
 int main(int argc, char **argv) {
-  fs::current_path(fs::path(argv[0]).parent_path());
   gflags::SetVersionString(version_string);
   load_config(argc, argv);
 
