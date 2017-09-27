@@ -4,10 +4,9 @@
 #include <iostream>
 #include <vector>
 
-#include "transaction.hpp"
+#include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/assert.hpp"
-#include "utils/option.hpp"
 
 namespace tx {
 

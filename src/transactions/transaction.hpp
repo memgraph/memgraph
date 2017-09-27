@@ -3,14 +3,16 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <unordered_set>
 #include <vector>
 
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/locking/record_lock.hpp"
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
-#include "type.hpp"
+#include "transactions/type.hpp"
 
 namespace tx {
 
@@ -75,13 +77,17 @@ class Transaction {
  private:
   // Index of the current command in the current transaction.
   command_id_t cid_{1};
+
   // A snapshot of currently active transactions.
   const Snapshot snapshot_;
+
   // Record locks held by this transaction.
-  LockStore<RecordLock> locks_;
+  LockStore locks_;
+
   // True if transaction should abort. Used to signal query executor that it
   // should stop execution, it is only a hint, transaction can disobey.
   std::atomic<bool> should_abort_{false};
+
   // Creation time.
   const std::chrono::time_point<std::chrono::steady_clock> creation_time_{
       std::chrono::steady_clock::now()};

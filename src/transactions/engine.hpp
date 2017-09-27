@@ -154,8 +154,10 @@ class Engine : Lockable<SpinLock> {
     }
   }
 
-  /** Returns this engine's commit log */
-  auto &clog() const { return clog_; }
+  const auto &clog() const { return clog_; }
+
+  auto &lock_graph() { return lock_graph_; }
+  const auto &lock_graph() const { return lock_graph_; }
 
  private:
   // Commit log of this engine.
@@ -177,5 +179,13 @@ class Engine : Lockable<SpinLock> {
 
   // Storage for the transactions.
   TransactionStore<transaction_id_t> store_;
+
+  // For each active transaction we store a transaction that holds a lock that
+  // mentioned transaction is also trying to acquire. We can think of this
+  // data structure as a graph: key being a start node of directed edges and
+  // value being an end node of that edge. ConcurrentMap is used since it is
+  // garbage collected and we are sure that we will not be having problems with
+  // lifetimes of each object.
+  ConcurrentMap<transaction_id_t, transaction_id_t> lock_graph_;
 };
 }

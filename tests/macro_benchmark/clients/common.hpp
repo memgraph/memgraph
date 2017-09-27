@@ -7,6 +7,7 @@
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/timer.hpp"
 
 namespace {
 
@@ -66,8 +67,11 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
       return ret;
     } catch (const utils::BasicException &e) {
       last_exception = e;
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(rand_dist_(pseudo_rand_gen_)));
+      utils::Timer t;
+      std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));
+      while (t.Elapsed() < to_sleep) {
+        cpu_relax();
+      }
     }
   }
   LOG(WARNING) << query << " failed " << times << "times";

@@ -3,20 +3,24 @@
 #include <memory>
 #include <vector>
 #include "storage/locking/lock_status.hpp"
+#include "storage/locking/record_lock.hpp"
+#include "transactions/type.hpp"
 #include "utils/assert.hpp"
 
 namespace tx {
 
-template <class T>
+class Engine;
+class Transaction;
+
 class LockStore {
   class LockHolder {
    public:
     LockHolder() = default;
 
-    template <class... Args>
-    LockHolder(T *lock, Args &&... args) : lock_(lock) {
+    LockHolder(RecordLock *lock, const Transaction &tx, tx::Engine &engine)
+        : lock_(lock) {
       debug_assert(lock != nullptr, "Lock is nullptr.");
-      auto status = lock_->Lock(std::forward<Args>(args)...);
+      auto status = lock_->Lock(tx, engine);
 
       if (status != LockStatus::Acquired) {
         lock_ = nullptr;
@@ -34,6 +38,7 @@ class LockStore {
       if (this == &other) return *this;
       lock_ = other.lock_;
       other.lock_ = nullptr;
+      return *this;
     }
 
     ~LockHolder() {
@@ -45,13 +50,12 @@ class LockStore {
     bool active() const { return lock_ != nullptr; }
 
    private:
-    T *lock_{nullptr};
+    RecordLock *lock_{nullptr};
   };
 
  public:
-  template <class... Args>
-  void Take(T *lock, Args &&... args) {
-    locks_.emplace_back(LockHolder(lock, std::forward<Args>(args)...));
+  void Take(RecordLock *lock, const tx::Transaction &tx, tx::Engine &engine) {
+    locks_.emplace_back(LockHolder(lock, tx, engine));
     if (!locks_.back().active()) {
       locks_.pop_back();
     }

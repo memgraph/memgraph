@@ -6,6 +6,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
