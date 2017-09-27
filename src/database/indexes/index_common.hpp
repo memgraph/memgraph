@@ -155,7 +155,7 @@ static void Refresh(
           indices_entries_accessor.insert(
               TIndexEntry(indices_entry, new_record));
 
-        [[maybe_unused]] auto success =
+        [[gnu::unused]] auto success =
             indices_entries_accessor.remove(indices_entry);
         debug_assert(success, "Unable to delete entry.");
       }
