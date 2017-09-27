@@ -5,7 +5,11 @@
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 
-class Prop : public mvcc::Record<Prop> {};
+class Prop : public mvcc::Record<Prop> {
+ public:
+  Prop() = default;
+  Prop *CloneData() { return new Prop; }
+};
 
 // Benchmark multiple updates, and finds, focused on finds.
 // This a rather weak test, but I'm not sure what's the better way to test this

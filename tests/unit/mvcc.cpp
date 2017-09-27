@@ -10,14 +10,12 @@
 
 #include "mvcc_gc_common.hpp"
 
-class TestClass : public mvcc::Record<TestClass> {};
-
 TEST(MVCC, Deadlock) {
   tx::Engine engine;
 
   auto t0 = engine.Begin();
-  mvcc::VersionList<TestClass> version_list1(*t0);
-  mvcc::VersionList<TestClass> version_list2(*t0);
+  mvcc::VersionList<Prop> version_list1(*t0);
+  mvcc::VersionList<Prop> version_list2(*t0);
   t0->Commit();
 
   auto t1 = engine.Begin();
@@ -59,7 +57,7 @@ TEST(MVCC, UpdateDontDelete) {
 TEST(MVCC, Oldest) {
   tx::Engine engine;
   auto t1 = engine.Begin();
-  mvcc::VersionList<TestClass> version_list(*t1);
+  mvcc::VersionList<Prop> version_list(*t1);
   auto first = version_list.Oldest();
   EXPECT_NE(first, nullptr);
   // TODO Gleich: no need to do 10 checks of the same thing

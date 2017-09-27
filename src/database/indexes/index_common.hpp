@@ -98,8 +98,8 @@ static auto GetVlists(
         // transaction+command
         // taking into account the current_state flag
         bool visible =
-            (old_record && !(current_state && old_record->is_deleted_by(t))) ||
-            (current_state && new_record && !new_record->is_deleted_by(t));
+            (old_record && !(current_state && old_record->is_expired_by(t))) ||
+            (current_state && new_record && !new_record->is_expired_by(t));
         if (!visible) return false;
         // if current_state is true and we have the new record, then that's
         // the reference value, and that needs to be compared with the index
@@ -167,8 +167,8 @@ static void Refresh(
       // because it's creator transaction could still be modifying it,
       // and modify+read is not thread-safe. for that reason we need to
       // first see if the the transaction that created it has ended
-      // (tx.cre() < oldest active trancsation).
-      else if (indices_entry.record_->tx.cre() < snapshot.back() &&
+      // (tx().cre < oldest active trancsation).
+      else if (indices_entry.record_->tx().cre < snapshot.back() &&
                !exists(key_indices_pair.first, indices_entry)) {
         indices_entries_accessor.remove(indices_entry);
       }

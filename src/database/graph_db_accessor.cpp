@@ -207,7 +207,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   // it's possible the vertex was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
-  if (vertex_accessor.current_->is_deleted_by(*transaction_)) return true;
+  if (vertex_accessor.current_->is_expired_by(*transaction_)) return true;
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
@@ -228,7 +228,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   // it's possible the vertex was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
-  if (!vertex_accessor.current_->is_deleted_by(*transaction_))
+  if (!vertex_accessor.current_->is_expired_by(*transaction_))
     vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
 }
 
@@ -289,7 +289,7 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
   edge_accessor.SwitchNew();
-  if (edge_accessor.current_->is_deleted_by(*transaction_)) return;
+  if (edge_accessor.current_->is_expired_by(*transaction_)) return;
   if (remove_from_from)
     edge_accessor.from().update().out_.RemoveEdge(edge_accessor.vlist_);
   if (remove_from_to)

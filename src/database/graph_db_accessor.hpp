@@ -118,9 +118,9 @@ class GraphDbAccessor {
         [this, current_state](const VertexAccessor &accessor) {
           return (accessor.old_ &&
                   !(current_state &&
-                    accessor.old_->is_deleted_by(*transaction_))) ||
+                    accessor.old_->is_expired_by(*transaction_))) ||
                  (current_state && accessor.new_ &&
-                  !accessor.new_->is_deleted_by(*transaction_));
+                  !accessor.new_->is_expired_by(*transaction_));
         },
         std::move(accessors));
   }
@@ -286,9 +286,9 @@ class GraphDbAccessor {
         [this, current_state](const EdgeAccessor &accessor) {
           return (accessor.old_ &&
                   !(current_state &&
-                    accessor.old_->is_deleted_by(*transaction_))) ||
+                    accessor.old_->is_expired_by(*transaction_))) ||
                  (current_state && accessor.new_ &&
-                  !accessor.new_->is_deleted_by(*transaction_));
+                  !accessor.new_->is_expired_by(*transaction_));
         },
         std::move(accessors));
   }
@@ -548,11 +548,11 @@ class GraphDbAccessor {
     // - we have new_ and it hasn't been deleted
     if (!accessor.new_) {
       debug_assert(
-          !accessor.old_->is_deleted_by(*transaction_),
+          !accessor.old_->is_expired_by(*transaction_),
           "Can't update a record deleted in the current transaction+command");
     } else {
       debug_assert(
-          !accessor.new_->is_deleted_by(*transaction_),
+          !accessor.new_->is_expired_by(*transaction_),
           "Can't update a record deleted in the current transaction+command");
     }
 

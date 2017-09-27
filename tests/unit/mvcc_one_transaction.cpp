@@ -6,11 +6,11 @@
 #undef EXPECT_CRE
 #undef EXPECT_EXP
 #define EXPECT_CRE(record, transaction, command) \
-  EXPECT_EQ(record->tx.cre(), id##transaction);  \
-  EXPECT_EQ(record->cmd.cre(), command)
+  EXPECT_EQ(record->tx().cre, id##transaction);  \
+  EXPECT_EQ(record->cmd().cre, command)
 #define EXPECT_EXP(record, transaction, command) \
-  EXPECT_EQ(record->tx.exp(), id##transaction);  \
-  EXPECT_EQ(record->cmd.exp(), command)
+  EXPECT_EQ(record->tx().exp, id##transaction);  \
+  EXPECT_EQ(record->cmd().exp, command)
 
 // IMPORTANT: look definiton of EXPECT_CRE and EXPECT_EXP macros in
 // tests/mvcc_find_update_common.hpp. Numbers in those macros represent

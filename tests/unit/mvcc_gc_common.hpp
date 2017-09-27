@@ -5,7 +5,10 @@
 /**
  * @brief - Empty class which inherits from mvcc:Record.
  */
-class Prop : public mvcc::Record<Prop> {};
+class Prop : public mvcc::Record<Prop> {
+ public:
+  Prop *CloneData() { return new Prop; }
+};
 
 /**
  * @brief - Class which inherits from mvcc::Record and takes an atomic variable
@@ -15,6 +18,7 @@ class Prop : public mvcc::Record<Prop> {};
 class DestrCountRec : public mvcc::Record<DestrCountRec> {
  public:
   DestrCountRec(std::atomic<int> &count) : count_(count) {}
+  DestrCountRec *CloneData() { return new DestrCountRec(count_); }
   ~DestrCountRec() { ++count_; }
 
  private:

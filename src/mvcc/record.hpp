@@ -7,7 +7,6 @@
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
 
-#include "mvcc/cre_exp.hpp"
 #include "mvcc/hints.hpp"
 #include "mvcc/version.hpp"
 #include "storage/locking/record_lock.hpp"
@@ -21,29 +20,35 @@ template <class T>
 class Record : public Version<T> {
  public:
   Record() = default;
+  Record(const Record &) = delete;
+  Record &operator=(const Record &) = delete;
+  Record(Record &&) = delete;
+  Record &operator=(Record &&) = delete;
 
-  // The copy constructor ignores tx, cmd, hints and super because
-  // they contain atomic variables that can't be copied
-  // it's still useful to have this copy constructor so that subclass
-  // data can easily be copied
-  // TODO maybe disable the copy-constructor and instead use a
-  // data variable in the version_list update() function (and similar)
-  // like it was in Dominik's implementation
-  Record(const Record &) {}
+ private:
+  template <typename TId>
+  struct CreExp {
+    std::atomic<TId> cre{0};
+    std::atomic<TId> exp{0};
+  };
 
   // tx.cre is the id of the transaction that created the record
   // and tx.exp is the id of the transaction that deleted the record
-  // these values are used to determine the visibility of the record
-  // to the current transaction
-  CreExp<tx::transaction_id_t> tx;
+  // These values are used to determine the visibility of the record
+  // to the current transaction.
+  CreExp<tx::transaction_id_t> tx_;
 
   // cmd.cre is the id of the command in this transaction that created the
   // record and cmd.exp is the id of the command in this transaction that
-  // deleted the record. these values are used to determine the visibility
-  // of the record to the current command in the running transaction
-  CreExp<tx::command_id_t> cmd;
+  // deleted the record. These values are used to determine the visibility
+  // of the record to the current command in the running transaction.
+  CreExp<tx::command_id_t> cmd_;
 
-  Hints hints;
+  Hints hints_;
+
+ public:
+  inline const auto &tx() const { return tx_; }
+  inline const auto &cmd() const { return cmd_; }
 
   // NOTE: Wasn't used.
   // this lock is used by write queries when they update or delete records
@@ -60,15 +65,15 @@ class Record : public Version<T> {
     tx::command_id_t cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
-    return ((tx.cre() == t.id_ &&     // inserted by the current transaction
-             cmd.cre() < t.cid() &&   // before this command, and
+    return ((tx_.cre == t.id_ &&      // inserted by the current transaction
+             cmd_.cre < t.cid() &&    // before this command, and
              (tx_exp == 0 ||          // the row has not been deleted, or
               (tx_exp == t.id_ &&     // it was deleted by the current
                                       // transaction
                cmd_exp >= t.cid())))  // but not before this command,
             ||                        // or
-            (cre_committed(tx.cre(), t) &&  // the record was inserted by a
-                                            // committed transaction, and
+            (cre_committed(tx_.cre, t) &&  // the record was inserted by a
+                                           // committed transaction, and
              (tx_exp == 0 ||              // the record has not been deleted, or
               (tx_exp == t.id_ &&         // the row is being deleted by this
                                           // transaction
@@ -80,27 +85,27 @@ class Record : public Version<T> {
   }
 
   void mark_created(const tx::Transaction &t) {
-    debug_assert(tx.cre() == 0, "Marking node as created twice.");
-    tx.cre(t.id_);
-    cmd.cre(t.cid());
+    debug_assert(tx_.cre == 0, "Marking node as created twice.");
+    tx_.cre = t.id_;
+    cmd_.cre = t.cid();
   }
 
-  void mark_deleted(const tx::Transaction &t) {
-    if (tx.exp() != 0) hints.exp.clear();
-    tx.exp(t.id_);
-    cmd.exp(t.cid());
+  void mark_expired(const tx::Transaction &t) {
+    if (tx_.exp != 0) hints_.exp.clear();
+    tx_.exp = t.id_;
+    cmd_.exp = t.cid();
   }
 
   bool exp_committed(tx::transaction_id_t id, const tx::Transaction &t) {
-    return committed(hints.exp, id, t);
+    return committed(hints_.exp, id, t);
   }
 
   bool exp_committed(tx::Engine &engine) {
-    return committed(hints.exp, tx.exp(), engine);
+    return committed(hints_.exp, tx_.exp, engine);
   }
 
   bool cre_committed(tx::transaction_id_t id, const tx::Transaction &t) {
-    return committed(hints.cre, id, t);
+    return committed(hints_.cre, id, t);
   }
 
   /**
@@ -114,7 +119,7 @@ class Record : public Version<T> {
                            tx::Engine &engine) const {
     // first get tx.exp so that all the subsequent checks operate on
     // the same id. otherwise there could be a race condition
-    auto exp_id = tx.exp();
+    auto exp_id = tx_.exp.load();
 
     // a record is NOT visible if:
     // 1. it creating transaction aborted (last check)
@@ -130,7 +135,7 @@ class Record : public Version<T> {
     //       newer transactions)
     return (exp_id != 0 && exp_id < snapshot.back() &&
             engine.clog().is_committed(exp_id) && !snapshot.contains(exp_id)) ||
-           engine.clog().is_aborted(tx.cre());
+           engine.clog().is_aborted(tx_.cre);
   }
 
   // TODO: Test this
@@ -145,8 +150,8 @@ class Record : public Version<T> {
     tx::command_id_t cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
-    return (tx.cre() == t.id_ &&      // inserted by the current transaction
-            cmd.cre() <= t.cid() &&   // before OR DURING this command, and
+    return (tx_.cre == t.id_ &&       // inserted by the current transaction
+            cmd_.cre <= t.cid() &&    // before OR DURING this command, and
             (tx_exp == 0 ||           // the row has not been deleted, or
              (tx_exp == t.id_ &&      // it was deleted by the current
                                       // transaction
@@ -158,19 +163,20 @@ class Record : public Version<T> {
    * of the given transaction.
    */
   bool is_created_by(const tx::Transaction &t) {
-    return tx.cre() == t.id_ && cmd.cre() == t.cid();
+    return tx_.cre == t.id_ && cmd_.cre == t.cid();
   }
 
   /**
-   * True if this record is deleted in the current command
+   * True if this record is expired in the current command
    * of the given transaction.
    */
-  bool is_deleted_by(const tx::Transaction &t) {
-    return tx.exp() == t.id_ && cmd.exp() == t.cid();
+  bool is_expired_by(const tx::Transaction &t) {
+    return tx_.exp == t.id_ && cmd_.exp == t.cid();
   }
 
  private:
-  /** Fetch the (transaction, command) expiration before the check
+  /**
+   * Fetch the (transaction, command) expiration before the check
    * because they can be concurrently modified by multiple transactions.
    * Do it in a loop to ensure that command is consistent with transaction.
    */
@@ -178,9 +184,9 @@ class Record : public Version<T> {
     tx::transaction_id_t tx_exp;
     tx::command_id_t cmd_exp;
     do {
-      tx_exp = tx.exp();
-      cmd_exp = cmd.exp();
-    } while (tx_exp != tx.exp());
+      tx_exp = tx_.exp;
+      cmd_exp = cmd_.exp;
+    } while (tx_exp != tx_.exp);
     return std::make_pair(tx_exp, cmd_exp);
   }
 

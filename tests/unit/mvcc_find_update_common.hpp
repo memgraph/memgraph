@@ -14,12 +14,13 @@ class TestClass : public mvcc::Record<TestClass> {
   TestClass(int &version_list_size) : version_list_size_(version_list_size) {
     ++version_list_size_;
   }
+  TestClass *CloneData() { return new TestClass(version_list_size_); }
   // version constructed in version list update
   TestClass(TestClass &other) : version_list_size_(other.version_list_size_) {
     version_list_size_++;
   }
   friend std::ostream &operator<<(std::ostream &stream, TestClass &test_class) {
-    stream << test_class.tx.cre() << " " << test_class.tx.exp();
+    stream << test_class.tx().cre << " " << test_class.tx().exp;
     return stream;
   }
   // reference to variable version_list_size in test SetUp, increases when new
@@ -77,12 +78,14 @@ class Mvcc : public ::testing::Test {
 #define T3_COMMIT t3->Commit();
 #define T2_ABORT t2->Abort();
 #define T3_ABORT t3->Abort();
-#define T3_BEGIN auto t3 = engine.Begin(); __attribute__((unused)) int id3 = t3->id_
+#define T3_BEGIN            \
+  auto t3 = engine.Begin(); \
+  __attribute__((unused)) int id3 = t3->id_
 #define T4_BEGIN auto t4 = engine.Begin();
 #define T2_REMOVE version_list.remove(*t2)
 #define T3_REMOVE version_list.remove(*t3)
-#define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx.cre(), id##expected)
-#define EXPECT_EXP(record, expected) EXPECT_EQ(record->tx.exp(), id##expected)
+#define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx().cre, id##expected)
+#define EXPECT_EXP(record, expected) EXPECT_EQ(record->tx().exp, id##expected)
 #define EXPECT_NXT(v1, v2) EXPECT_EQ(v1->next(), v2)
 #define EXPECT_SIZE(n) EXPECT_EQ(version_list_size, n)
 
