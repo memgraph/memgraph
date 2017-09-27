@@ -21,6 +21,8 @@ add_custom_target(test_data
                   COMMAND cp -r ${test_data_src} ${test_data_dst})
 # -----------------------------------------------------------------------------
 
+include_directories(${GTEST_INCLUDE_DIR})
+
 # benchmark test binaries
 add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
 

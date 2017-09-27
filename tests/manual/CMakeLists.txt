@@ -33,6 +33,7 @@ foreach(test_cpp ${test_type_cpps})
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
     # gtest
-    target_link_libraries(${target_name} gtest gtest_main gmock)
+    add_dependencies(${target_name} gtest)
+    target_link_libraries(${target_name} ${GTEST_LIBRARIES})
 
 endforeach()

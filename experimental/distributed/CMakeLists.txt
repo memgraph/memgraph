@@ -13,9 +13,7 @@ include_directories(${src_dir})
 
 # totally hacked, no idea why I need to include these again
 # TODO: ask teon
-include_directories(${CMAKE_SOURCE_DIR}/libs/fmt)
 include_directories(${CMAKE_SOURCE_DIR}/src)
-include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)
 # needed to include configured files (plan_compiler_flags.hpp)
 set(generated_headers_dir ${CMAKE_BINARY_DIR}/generated_headers)

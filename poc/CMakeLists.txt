@@ -1,4 +1,6 @@
 find_package(Threads REQUIRED)
+include_directories(${BENCHMARK_INCLUDE_DIR})
+include_directories(${GTEST_INCLUDE_DIR})
 
 # get all cpp abs file names recursively starting from current directory
 file(GLOB poc_cpps *.cpp)
@@ -26,9 +28,9 @@ foreach(poc_cpp ${poc_cpps})
 
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
-    # gtest
-    target_link_libraries(${target_name} gtest gtest_main gmock)
-    # google-benchmark
-    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
+    add_dependencies(${target_name} benchmark gtest)
+    target_link_libraries(${target_name} ${GTEST_LIBRARIES})
+    # google-benchmark requires threads
+    target_link_libraries(${target_name} ${BENCHMARK_LIBRARY} Threads::Threads)
 
 endforeach()

@@ -1,4 +1,5 @@
 find_package(Threads REQUIRED)
+include_directories(${BENCHMARK_INCLUDE_DIR})
 
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
@@ -28,7 +29,8 @@ foreach(test_cpp ${test_type_cpps})
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
     # google-benchmark
-    target_link_libraries(${target_name} benchmark ${CMAKE_THREAD_LIBS_INIT})
+    add_dependencies(${target_name} benchmark)
+    target_link_libraries(${target_name} ${BENCHMARK_LIBRARY} Threads::Threads)
 
     # register test
     set(output_path

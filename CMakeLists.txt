@@ -113,9 +113,8 @@ message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 
 # setup external dependencies -------------------------------------------------
 add_subdirectory(libs)
-# fmt
-set(fmt_source_dir ${libs_dir}/fmt)
 
+# TODO: is this clang-tidy target needed anymore?
 # linter setup (clang-tidy)
 # all source files for linting
 FILE(GLOB_RECURSE LINTER_SRC_FILES
@@ -127,15 +126,15 @@ MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
 # linter target clang-tidy
 find_program(CLANG_TIDY "clang-tidy")
 if(CLANG_TIDY)
-    add_custom_target(
-        clang-tidy
-        COMMAND /usr/bin/clang-tidy
-        ${LINTER_SRC_FILES}
-        -config=''
-        --
-        -std=c++1y
-        -I${CMAKE_SOURCE_DIR}/include -I${fmt_source_dir}
-    )
+  add_custom_target(
+      clang-tidy
+      COMMAND /usr/bin/clang-tidy
+      ${LINTER_SRC_FILES}
+      -config=''
+      --
+      -std=c++1y
+      -I${CMAKE_SOURCE_DIR}/include -I${FMT_INCLUDE_DIR}
+      DEPENDS fmt)
 endif()
 # -----------------------------------------------------------------------------
 
@@ -189,9 +188,10 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 
 # includes
 include_directories(${src_dir})
-include_directories(SYSTEM ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)  # cppitertools
+include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
+include_directories(SYSTEM ${FMT_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -264,8 +264,8 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib and memgraph_pic depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt
-    antlr_opencypher_parser_lib dl ${GLOG_LIBRARY} gflags)
+set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads ${FMT_LIBRARY}
+    antlr_opencypher_parser_lib dl ${GLOG_LIBRARY} ${GFLAGS_LIBRARY})
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
@@ -273,8 +273,7 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser
-                              glog)
+add_dependencies(memgraph_lib generate_opencypher_parser fmt gflags glog)
 # -----------------------------------------------------------------------------
 
 # proof of concepts

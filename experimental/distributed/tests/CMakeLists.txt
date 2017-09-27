@@ -11,6 +11,8 @@ get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 file(GLOB_RECURSE test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
+include_directories(${GTEST_INCLUDE_DIR})
+
 # for each cpp file build binary and register test
 foreach(test_cpp ${test_type_cpps})
 
@@ -38,7 +40,8 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} memgraph_lib)
     target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
     # gtest
-    target_link_libraries(${target_name} gtest gtest_main gmock)
+    add_dependencies(${target_name} gtest)
+    target_link_libraries(${target_name} ${GTEST_LIBRARIES})
     if(${TEST_COVERAGE})
         # for code coverage
         target_link_libraries(${target_name} gcov)

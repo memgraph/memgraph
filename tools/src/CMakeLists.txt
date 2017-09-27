@@ -14,7 +14,8 @@ add_executable(csv_to_snapshot
   )
 
 
-target_link_libraries(csv_to_snapshot stdc++fs Threads::Threads fmt gflags ${GLOG_LIBRARY})
-add_dependencies(csv_to_snapshot glog)
+target_link_libraries(csv_to_snapshot stdc++fs Threads::Threads ${FMT_LIBRARY}
+                      ${GFLAGS_LIBRARY} ${GLOG_LIBRARY})
+add_dependencies(csv_to_snapshot gflags glog fmt)
 install(TARGETS csv_to_snapshot
         RUNTIME DESTINATION .)
