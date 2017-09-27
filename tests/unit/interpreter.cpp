@@ -222,7 +222,7 @@ TEST(Interpreter, Bfs) {
   auto dba = dbms.active();
 
   interpreter.Interpret(
-      "MATCH (n {id: 0})-bfs[r](e, n | n.reachable and e.reachable, 5)->(m) "
+      "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and e.reachable)]->(m) "
       "RETURN r",
       *dba, stream, {});
 

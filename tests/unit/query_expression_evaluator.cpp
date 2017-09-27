@@ -662,43 +662,6 @@ TEST(ExpressionEvaluator, LabelsTest) {
   }
 }
 
-TEST(ExpressionEvaluator, EdgeTypeTest) {
-  AstTreeStorage storage;
-  NoContextExpressionEvaluator eval;
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("TYPE1"));
-  auto *identifier = storage.Create<Identifier>("e");
-  auto edge_symbol = eval.symbol_table.CreateSymbol("e", true);
-  eval.symbol_table[*identifier] = edge_symbol;
-  eval.frame[edge_symbol] = e;
-  {
-    auto *op = storage.Create<EdgeTypeTest>(
-        identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE1"),
-                        dba->EdgeType("TYPE2")});
-    auto value = op->Accept(eval.eval);
-    EXPECT_EQ(value.Value<bool>(), true);
-  }
-  {
-    auto *op = storage.Create<EdgeTypeTest>(
-        identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE2")});
-    auto value = op->Accept(eval.eval);
-    EXPECT_EQ(value.Value<bool>(), false);
-  }
-  {
-    eval.frame[edge_symbol] = TypedValue::Null;
-    auto *op = storage.Create<EdgeTypeTest>(
-        identifier, std::vector<GraphDbTypes::EdgeType>{
-                        dba->EdgeType("TYPE0"), dba->EdgeType("TYPE2")});
-    auto value = op->Accept(eval.eval);
-    EXPECT_TRUE(value.IsNull());
-  }
-}
-
 TEST(ExpressionEvaluator, Aggregation) {
   AstTreeStorage storage;
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),

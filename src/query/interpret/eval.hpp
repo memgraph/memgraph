@@ -305,26 +305,6 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     }
   }
 
-  TypedValue Visit(EdgeTypeTest &edge_type_test) override {
-    auto expression_result = edge_type_test.expression_->Accept(*this);
-    switch (expression_result.type()) {
-      case TypedValue::Type::Null:
-        return TypedValue::Null;
-      case TypedValue::Type::Edge: {
-        auto real_edge_type =
-            expression_result.Value<EdgeAccessor>().EdgeType();
-        for (const auto edge_type : edge_type_test.edge_types_) {
-          if (edge_type == real_edge_type) {
-            return true;
-          }
-        }
-        return false;
-      }
-      default:
-        throw QueryRuntimeException("Expected Edge in edge type test");
-    }
-  }
-
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.

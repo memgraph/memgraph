@@ -272,7 +272,8 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
    * This should never be called. Everything is done directly in
    * visitRelationshipPattern.
    */
-  antlrcpp::Any visitBfsDetail(CypherParser::BfsDetailContext *ctx) override;
+  antlrcpp::Any visitRelationshipLambda(
+      CypherParser::RelationshipLambdaContext *ctx) override;
 
   /**
    * @return vector<GraphDbTypes::EdgeType>
@@ -281,10 +282,10 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipTypesContext *ctx) override;
 
   /**
-   * @return pair<int64_t, int64_t>.
+   * @return std::tuple<bool, int64_t, int64_t>.
    */
-  antlrcpp::Any visitRangeLiteral(
-      CypherParser::RangeLiteralContext *ctx) override;
+  antlrcpp::Any visitVariableExpansion(
+      CypherParser::VariableExpansionContext *ctx) override;
 
   /**
    * Top level expression, does nothing.

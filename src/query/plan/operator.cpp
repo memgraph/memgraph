@@ -536,10 +536,10 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           ExpectType(self_.node_symbol_, existing_node,
                      TypedValue::Type::Vertex);
           in_edges_.emplace(
-              vertex.in_with_destination(existing_node.ValueVertex()));
+              vertex.in(existing_node.ValueVertex(), &self_.edge_types()));
         }
       } else {
-        in_edges_.emplace(vertex.in_with_types(&self_.edge_types()));
+        in_edges_.emplace(vertex.in(&self_.edge_types()));
       }
       in_edges_it_.emplace(in_edges_->begin());
     }
@@ -553,10 +553,10 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           ExpectType(self_.node_symbol_, existing_node,
                      TypedValue::Type::Vertex);
           out_edges_.emplace(
-              vertex.out_with_destination(existing_node.ValueVertex()));
+              vertex.out(existing_node.ValueVertex(), &self_.edge_types()));
         }
       } else {
-        out_edges_.emplace(vertex.out_with_types(&self_.edge_types()));
+        out_edges_.emplace(vertex.out(&self_.edge_types()));
       }
       out_edges_it_.emplace(out_edges_->begin());
     }
@@ -608,14 +608,14 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
   std::vector<decltype(wrapper(direction, vertex.in()))> chain_elements;
 
   if (direction != EdgeAtom::Direction::OUT && vertex.in_degree() > 0) {
-    auto edges = vertex.in_with_types(&edge_types);
+    auto edges = vertex.in(&edge_types);
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
           wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
   if (direction != EdgeAtom::Direction::IN && vertex.out_degree() > 0) {
-    auto edges = vertex.out_with_types(&edge_types);
+    auto edges = vertex.out(&edge_types);
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(
           wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
@@ -939,9 +939,11 @@ std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) const {
 ExpandBreadthFirst::ExpandBreadthFirst(
     Symbol node_symbol, Symbol edge_list_symbol, EdgeAtom::Direction direction,
     const std::vector<GraphDbTypes::EdgeType> &edge_types,
-    Expression *max_depth, Symbol inner_node_symbol, Symbol inner_edge_symbol,
-    Expression *where, const std::shared_ptr<LogicalOperator> &input,
-    Symbol input_symbol, bool existing_node, GraphView graph_view)
+    Expression *max_depth,
+    std::experimental::optional<Symbol> inner_node_symbol,
+    std::experimental::optional<Symbol> inner_edge_symbol, Expression *where,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_list_symbol_(edge_list_symbol),
       direction_(direction),
@@ -981,22 +983,23 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
     SwitchAccessor(edge, self_.graph_view_);
     SwitchAccessor(vertex, self_.graph_view_);
 
-    // to evaluate the where expression we need the inner
-    // values on the frame
-    frame[self_.inner_edge_symbol_] = edge;
-    frame[self_.inner_node_symbol_] = vertex;
-    TypedValue result = self_.where_->Accept(evaluator);
-    switch (result.type()) {
-      case TypedValue::Type::Null:
-        return;
-      case TypedValue::Type::Bool:
-        if (!result.Value<bool>()) return;
-        break;
-      default:
-        throw QueryRuntimeException(
-            "Expansion condition must be boolean or null");
+    if (self_.where_) {
+      // to evaluate the where expression we need the inner
+      // values on the frame
+      if (self_.inner_edge_symbol_) frame[*self_.inner_edge_symbol_] = edge;
+      if (self_.inner_node_symbol_) frame[*self_.inner_node_symbol_] = vertex;
+      TypedValue result = self_.where_->Accept(evaluator);
+      switch (result.type()) {
+        case TypedValue::Type::Null:
+          return;
+        case TypedValue::Type::Bool:
+          if (!result.Value<bool>()) return;
+          break;
+        default:
+          throw QueryRuntimeException(
+              "Expansion condition must be boolean or null");
+      }
     }
-
     to_visit_next_.emplace_back(edge, vertex);
     processed_.emplace(vertex, edge);
   };
@@ -1006,11 +1009,11 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
   // the "where" condition.
   auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
     if (self_.direction_ != EdgeAtom::Direction::IN) {
-      for (const EdgeAccessor &edge : vertex.out_with_types(&self_.edge_types_))
+      for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
         expand_pair(edge, edge.to());
     }
     if (self_.direction_ != EdgeAtom::Direction::OUT) {
-      for (const EdgeAccessor &edge : vertex.in_with_types(&self_.edge_types_))
+      for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
         expand_pair(edge, edge.from());
     }
   };
@@ -1032,8 +1035,10 @@ bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
       SwitchAccessor(vertex, self_.graph_view_);
       processed_.emplace(vertex, std::experimental::nullopt);
       expand_from_vertex(vertex);
-      max_depth_ = EvaluateInt(evaluator, self_.max_depth_,
-                               "Max depth in breadth-first expansion");
+      max_depth_ = self_.max_depth_
+                       ? EvaluateInt(evaluator, self_.max_depth_,
+                                     "Max depth in breadth-first expansion")
+                       : std::numeric_limits<int>::max();
       if (max_depth_ < 1)
         throw QueryRuntimeException(
             "Max depth in breadth-first expansion must be greater then zero");

@@ -10,7 +10,6 @@ class NamedExpression;
 class Identifier;
 class PropertyLookup;
 class LabelsTest;
-class EdgeTypeTest;
 class Aggregation;
 class Function;
 class All;
@@ -66,10 +65,10 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
     UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
-    MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation, Function,
-    All, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind>;
+    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, All, Create,
+    Match, Return, With, Pattern, NodeAtom, EdgeAtom, BreadthFirstAtom, Delete,
+    Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    Merge, Unwind>;
 
 using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
                                              ParameterLookup, CreateIndex>;
@@ -91,10 +90,10 @@ using TreeVisitor = ::utils::Visitor<
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
     InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
     UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
-    MapLiteral, PropertyLookup, LabelsTest, EdgeTypeTest, Aggregation, Function,
-    All, ParameterLookup, Create, Match, Return, With, Pattern, NodeAtom,
-    EdgeAtom, BreadthFirstAtom, Delete, Where, SetProperty, SetProperties,
-    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, Identifier,
-    PrimitiveLiteral, CreateIndex>;
+    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, All,
+    ParameterLookup, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
+    BreadthFirstAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral,
+    CreateIndex>;
 
 }  // namespace query

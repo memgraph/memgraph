@@ -672,8 +672,10 @@ class ExpandBreadthFirst : public LogicalOperator {
   ExpandBreadthFirst(Symbol node_symbol, Symbol edge_list_symbol,
                      EdgeAtom::Direction direction,
                      const std::vector<GraphDbTypes::EdgeType> &edge_types,
-                     Expression *max_depth, Symbol inner_node_symbol,
-                     Symbol inner_edge_symbol, Expression *where,
+                     Expression *max_depth,
+                     std::experimental::optional<Symbol> inner_node_symbol,
+                     std::experimental::optional<Symbol> inner_edge_symbol,
+                     Expression *where,
                      const std::shared_ptr<LogicalOperator> &input,
                      Symbol input_symbol, bool existing_node,
                      GraphView graph_view = GraphView::AS_IS);
@@ -717,8 +719,8 @@ class ExpandBreadthFirst : public LogicalOperator {
   Expression *max_depth_;
 
   // symbols for a single node and edge that are currently getting expanded
-  const Symbol inner_node_symbol_;
-  const Symbol inner_edge_symbol_;
+  const std::experimental::optional<Symbol> inner_node_symbol_;
+  const std::experimental::optional<Symbol> inner_edge_symbol_;
   // a filtering expression for skipping expansions during expansion
   // can refer to inner node and edges
   Expression *where_;

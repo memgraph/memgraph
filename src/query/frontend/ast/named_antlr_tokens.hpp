@@ -8,7 +8,7 @@ using antlropencypher::CypherParser;
 // grammar change since even changes in ordering of rules will cause antlr to
 // generate different constants for unnamed tokens.
 const auto kReturnAllTokenId = CypherParser::T__4;           // *
-const auto kDotsTokenId = CypherParser::T__11;               // ..
+const auto kDotsTokenId = CypherParser::T__10;               // ..
 const auto kEqTokenId = CypherParser::T__2;                  // =
 const auto kNeTokenId1 = CypherParser::T__18;                // <>
 const auto kNeTokenId2 = CypherParser::T__19;                // !=

@@ -530,13 +530,16 @@ std::vector<Expansion> NormalizePatterns(
     }
     if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge)) {
       // Get used symbols inside bfs filter expression and max depth.
-      bf_atom->filter_expression_->Accept(collector);
-      bf_atom->max_depth_->Accept(collector);
+      if (bf_atom->filter_expression_)
+        bf_atom->filter_expression_->Accept(collector);
+      if (bf_atom->upper_bound_) bf_atom->upper_bound_->Accept(collector);
       // Remove symbols which are bound by the bfs itself.
-      collector.symbols_.erase(
-          symbol_table.at(*bf_atom->traversed_edge_identifier_));
-      collector.symbols_.erase(
-          symbol_table.at(*bf_atom->next_node_identifier_));
+      if (bf_atom->traversed_edge_identifier_) {
+        collector.symbols_.erase(
+            symbol_table.at(*bf_atom->traversed_edge_identifier_));
+        collector.symbols_.erase(
+            symbol_table.at(*bf_atom->next_node_identifier_));
+      }
     }
     expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false,
                                       collector.symbols_, current_node});
@@ -974,35 +977,6 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     add_properties_filter(node);
   };
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
-    const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-    if (!edge->edge_types_.empty()) {
-      edge_type_filters_[edge_symbol].insert(edge->edge_types_.begin(),
-                                             edge->edge_types_.end());
-      if (edge->has_range_) {
-        // We need a new identifier and symbol for All.
-        auto *ident_in_all = edge->identifier_->Clone(storage);
-        symbol_table[*ident_in_all] =
-            symbol_table.CreateSymbol(ident_in_all->name_, false);
-        auto *edge_type_test =
-            storage.Create<EdgeTypeTest>(ident_in_all, edge->edge_types_);
-        all_filters_.emplace_back(FilterInfo{
-            storage.Create<All>(ident_in_all, edge->identifier_,
-                                storage.Create<Where>(edge_type_test)),
-            std::unordered_set<Symbol>{edge_symbol}, true});
-      } else if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge)) {
-        // BFS filters will be inlined inside the filter expression, so create
-        // EdgeTypeTest which relies on traversed edge identifier. Set of
-        // used symbols treats this as the original edge symbol.
-        all_filters_.emplace_back(FilterInfo{
-            storage.Create<EdgeTypeTest>(bf_atom->traversed_edge_identifier_,
-                                         bf_atom->edge_types_),
-            std::unordered_set<Symbol>{edge_symbol}, true});
-      } else {
-        all_filters_.emplace_back(FilterInfo{
-            storage.Create<EdgeTypeTest>(edge->identifier_, edge->edge_types_),
-            std::unordered_set<Symbol>{edge_symbol}});
-      }
-    }
     add_properties_filter(edge, edge->has_range_);
     add_node_filter(node);
   };

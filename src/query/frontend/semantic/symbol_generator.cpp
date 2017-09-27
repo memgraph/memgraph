@@ -196,34 +196,25 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
                                Symbol::Type::Path);
   } else if (scope_.in_pattern && scope_.in_pattern_atom_identifier) {
-    // Patterns can bind new symbols or reference already bound. But there
-    // are the following special cases:
-    //  1) Patterns used to create nodes and edges cannot redeclare already
-    //     established bindings. Declaration only happens in single node
-    //     patterns and in edge patterns. OpenCypher example,
-    //     `MATCH (n) CREATE (n)` should throw an error that `n` is already
-    //     declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
-    //     since `n` now references the bound node instead of declaring it.
-    //     Additionally, we will support edge referencing in pattern:
-    //     `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r`, which would
-    //     usually raise redeclaration of `r`.
+    //  Patterns used to create nodes and edges cannot redeclare already
+    //  established bindings. Declaration only happens in single node
+    //  patterns and in edge patterns. OpenCypher example,
+    //  `MATCH (n) CREATE (n)` should throw an error that `n` is already
+    //  declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
+    //  since `n` now references the bound node instead of declaring it.
     if ((scope_.in_create_node || scope_.in_create_edge) &&
         HasSymbol(ident.name_)) {
-      // Case 1)
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::Vertex;
     if (scope_.visiting_edge) {
-      if (scope_.visiting_edge->has_range_ && HasSymbol(ident.name_)) {
-        // TOOD: Support using variable paths with already obtained results from
-        // an existing symbol.
+      // Edge referencing is not allowed (like in Neo4j):
+      // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
+      if (HasSymbol(ident.name_)) {
         throw RedeclareVariableError(ident.name_);
       }
-      if (scope_.visiting_edge->has_range_) {
-        type = Symbol::Type::EdgeList;
-      } else {
-        type = Symbol::Type::Edge;
-      }
+      type = scope_.visiting_edge->has_range_ ? Symbol::Type::EdgeList
+                                              : Symbol::Type::Edge;
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope_.in_pattern && !scope_.in_pattern_atom_identifier &&
@@ -424,19 +415,20 @@ bool SymbolGenerator::PreVisit(BreadthFirstAtom &bf_atom) {
   if (scope_.in_create || scope_.in_merge) {
     throw SemanticException("BFS cannot be used to create edges.");
   }
-  // Visiting BFS filter and max_depth expressions is not a pattern.
+  // Visiting BFS filter and upper bound expressions is not a pattern.
   scope_.in_pattern = false;
-  bf_atom.max_depth_->Accept(*this);
-  VisitWithIdentifiers(
-      *bf_atom.filter_expression_,
-      {bf_atom.traversed_edge_identifier_, bf_atom.next_node_identifier_});
+  if (bf_atom.upper_bound_) {
+    bf_atom.upper_bound_->Accept(*this);
+  }
+  if (bf_atom.filter_expression_) {
+    VisitWithIdentifiers(
+        *bf_atom.filter_expression_,
+        {bf_atom.traversed_edge_identifier_, bf_atom.next_node_identifier_});
+  }
   scope_.in_pattern = true;
-  // XXX: Make BFS symbol be EdgeList.
-  bf_atom.has_range_ = true;
   scope_.in_pattern_atom_identifier = true;
   bf_atom.identifier_->Accept(*this);
   scope_.in_pattern_atom_identifier = false;
-  bf_atom.has_range_ = false;
   return false;
 }
 

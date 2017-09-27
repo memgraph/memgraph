@@ -8,7 +8,7 @@ Feature: Bfs
           """
       When executing query:
           """
-          MATCH (n {a:'0'})-bfs(e, m| true, 1)->(m) RETURN n.a, m.a
+          MATCH (n {a:'0'})-[*bfs..1]->(m) RETURN n.a, m.a
           """
       Then the result should be:
           | n.a | m.a   |
@@ -23,7 +23,7 @@ Feature: Bfs
           """
       When executing query:
           """
-          MATCH (n {a:'0'})-bfs(e, m| m.a = '1.1' OR m.a = '0', 10)->(m) RETURN n.a, m.a
+          MATCH (n {a:'0'})-[*bfs..10 (e, m| m.a = '1.1' OR m.a = '0')]->(m) RETURN n.a, m.a
           """
       Then the result should be:
           | n.a | m.a   |
@@ -37,7 +37,7 @@ Feature: Bfs
           """
       When executing query:
           """
-          MATCH (:Start)-bfs[r](e, m| true, 10)->(m) WHERE size(r) > 3
+          MATCH (:Start)-[r *bfs..10]->(m) WHERE size(r) > 3
           RETURN size(r) AS s, (r[0]).id AS r0, (r[2]).id AS r2
           """
       Then the result should be:
@@ -52,7 +52,7 @@ Feature: Bfs
           """
       When executing query:
           """
-          MATCH ()-bfs[r :r0](e, m| true, 10)->(m)
+          MATCH ()-[r:r0 *bfs..10]->(m)
           RETURN size(r) AS s, (r[0]).id AS r0
           """
       Then the result should be:
@@ -67,7 +67,7 @@ Feature: Bfs
           """
       When executing query:
           """
-          MATCH ()-bfs[r :r0|:r1](e, m| true, 10)->(m) WHERE size(r) > 1
+          MATCH ()-[r :r0|:r1 *bfs..10 ]->(m) WHERE size(r) > 1
           RETURN size(r) AS s, (r[0]).id AS r0, (r[1]).id AS r1
           """
       Then the result should be:

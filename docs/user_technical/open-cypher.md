@@ -410,30 +410,25 @@ Memgraph decided to offer the same functionality using the edge expansion syntax
 Finding the shortest path between nodes can be done using breadth-first
 expansion:
 
-  MATCH (a {id: 723})-bfs[r:Type](e, n | true, 10)-(b {id : 882}) RETURN *
+  MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN *
 
 The above query will find all paths of length up to 10 between nodes `a` and `b`.
-Just like in variable-length expansion, a single edge element in the query
-pattern denotes a possibly longer path.
+The edge type and maximum path length are used in the same way like in variable
+length expansion.
 
 To find only the shortest path, simply append LIMIT 1 to the RETURN clause.
 
-  MATCH (a {id: 723})-bfs[r:Type](e, n | true, 10)-(b {id : 882}) RETURN * LIMIT 1
+  MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN * LIMIT 1
 
 Breadth-fist expansion allows an arbitrary expression filter that determines
-if an expansion is allowed. In the above query that expression is `true`, meaning
-that all expansions are allowed. Following is an example in which expansion is
+if an expansion is allowed. Following is an example in which expansion is
 allowed only over edges whose `x` property is greater then `12` and nodes `y`
 whose property is lesser then `3`:
 
-  MATCH (a {id: 723})-bfs[](e, n | e.x > 12 and n.y < 3, 10)-() RETURN *
+  MATCH (a {id: 723})-[\*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
 
-Notice how the filtering expression uses `e` and `n` symbols. These symbols
-don't have a fixed name, which is exactly why they have to be declared as the first
-two arguments of the breadth-first expansion.
-
-The edge symbol and edge types in the square brackets can be omitted, just like
-in ordinary expansion. All other arguments (in the round brackets) are obligatory.
+The filter is defined as a lambda function over `e` and `n`, which denote the edge
+and node being expanded over in the breadth first search.
 
 There are a few benefits of the breadth-first expansion approach, as compared to
 the `shortestPath` function of Neo4j. For one, it is possible to inject
@@ -443,8 +438,9 @@ nodes regardless of their length. Also, it is possible to simply go through a no
 neighbourhood in breadth-first manner.
 
 It is fair to say there are a few drawbacks too. Currently, it isn't possible to get
-all shortest paths to a single node using Memgraph's breadth-first expansion. Also,
-the syntax is a bit unwieldy.
+all shortest paths to a single node using Memgraph's breadth-first expansion. Also
+property maps (in curly brackets) are not supported with a BFS. These features will
+most likely be included in subsequent Memgraph releases.
 
 #### UNWIND
 

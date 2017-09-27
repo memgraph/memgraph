@@ -408,7 +408,7 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   auto relationship = dba->EdgeType("relationship");
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", relationship), NODE("m"))),
         RETURN("n"));
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
 }
 
@@ -421,7 +421,7 @@ TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
   QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
       RETURN("n"));
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectProduce());
 }
 
@@ -434,7 +434,7 @@ TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
   QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
       WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n"));
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectFilter(),
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
 }
 
@@ -539,28 +539,6 @@ TEST(TestLogicalPlanner, MultiMatchSameStart) {
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
-}
-
-TEST(TestLogicalPlanner, MatchExistingEdge) {
-  // Test MATCH (n) -[r]- (m) -[r]- (j) RETURN n
-  AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("r"), NODE("j"))),
-        RETURN("n"));
-  // There is no ExpandUniquenessFilter for referencing the same edge.
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-            ExpectProduce());
-}
-
-TEST(TestLogicalPlanner, MultiMatchExistingEdgeOtherEdge) {
-  // Test MATCH (n) -[r]- (m) MATCH (m) -[r]- (j) -[e]- (l) RETURN n
-  AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("j"), EDGE("e"), NODE("l"))),
-        RETURN("n"));
-  // We need ExpandUniquenessFilter for edge `e` against `r` in second MATCH.
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-            ExpectExpand(), ExpectExpandUniquenessFilter<EdgeAccessor>(),
-            ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchWithReturn) {
@@ -772,7 +750,7 @@ TEST(TestLogicalPlanner, MatchMerge) {
                   ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
                   ON_CREATE(SET("m", IDENT("n")))),
             RETURN(ident_n, AS("n")));
-  std::list<BaseOpChecker *> on_match{new ExpectExpand(), new ExpectFilter(),
+  std::list<BaseOpChecker *> on_match{new ExpectExpand(),
                                       new ExpectSetProperty()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(),
                                        new ExpectSetProperties()};
@@ -1345,7 +1323,8 @@ TEST(TestLogicalPlanner, MatchBreadthFirst) {
   auto *bfs = storage.Create<query::BreadthFirstAtom>(
       IDENT("r"), Direction::OUT,
       std::vector<GraphDbTypes::EdgeType>{edge_type}, IDENT("r"), IDENT("n"),
-      IDENT("n"), LITERAL(10));
+      IDENT("n"));
+  bfs->upper_bound_ = LITERAL(10);
   QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
             ExpectProduce());

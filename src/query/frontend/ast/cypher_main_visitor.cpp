@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -417,65 +418,21 @@ antlrcpp::Any CypherMainVisitor::visitPatternElementChain(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     CypherParser::RelationshipPatternContext *ctx) {
-  auto *edge = ctx->bfsDetail() ? storage_.Create<BreadthFirstAtom>()
-                                : storage_.Create<EdgeAtom>();
-  if (ctx->bfsDetail()) {
-    if (ctx->bfsDetail()->bfs_variable) {
-      std::string variable = ctx->bfsDetail()->bfs_variable->accept(this);
-      edge->identifier_ = storage_.Create<Identifier>(variable);
-      users_identifiers.insert(variable);
-    }
-    auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(edge);
-    std::string traversed_edge_variable =
-        ctx->bfsDetail()->traversed_edge->accept(this);
-    if (ctx->bfsDetail()->relationshipTypes()) {
-      bf_atom->edge_types_ = ctx->bfsDetail()
-                                 ->relationshipTypes()
-                                 ->accept(this)
-                                 .as<std::vector<GraphDbTypes::EdgeType>>();
-    }
-    bf_atom->traversed_edge_identifier_ =
-        storage_.Create<Identifier>(traversed_edge_variable);
-    std::string next_node_variable = ctx->bfsDetail()->next_node->accept(this);
-    bf_atom->next_node_identifier_ =
-        storage_.Create<Identifier>(next_node_variable);
-    bf_atom->filter_expression_ =
-        ctx->bfsDetail()->expression()[0]->accept(this);
-    bf_atom->max_depth_ = ctx->bfsDetail()->expression()[1]->accept(this);
-  } else if (ctx->relationshipDetail()) {
-    if (ctx->relationshipDetail()->variable()) {
-      std::string variable =
-          ctx->relationshipDetail()->variable()->accept(this);
-      edge->identifier_ = storage_.Create<Identifier>(variable);
-      users_identifiers.insert(variable);
-    }
-    if (ctx->relationshipDetail()->relationshipTypes()) {
-      edge->edge_types_ = ctx->relationshipDetail()
-                              ->relationshipTypes()
-                              ->accept(this)
-                              .as<std::vector<GraphDbTypes::EdgeType>>();
-    }
-    if (ctx->relationshipDetail()->properties()) {
-      edge->properties_ =
-          ctx->relationshipDetail()
-              ->properties()
-              ->accept(this)
-              .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
-                           Expression *>>();
-    }
-    if (ctx->relationshipDetail()->rangeLiteral()) {
-      edge->has_range_ = true;
-      auto range = ctx->relationshipDetail()
-                       ->rangeLiteral()
-                       ->accept(this)
-                       .as<std::pair<Expression *, Expression *>>();
-      edge->lower_bound_ = range.first;
-      edge->upper_bound_ = range.second;
-    }
-  }
-  if (!edge->identifier_) {
-    anonymous_identifiers.push_back(&edge->identifier_);
-  }
+  auto relationshipDetail = ctx->relationshipDetail();
+  auto *variableExpansion =
+      relationshipDetail ? relationshipDetail->variableExpansion() : nullptr;
+  bool is_bfs = false;
+  // Range expressions, only used in variable length and BFS.
+  Expression *lower = nullptr;
+  Expression *upper = nullptr;
+  if (variableExpansion)
+    std::tie(is_bfs, lower, upper) =
+        variableExpansion->accept(this)
+            .as<std::tuple<bool, Expression *, Expression *>>();
+
+  auto *edge = (variableExpansion && is_bfs)
+                   ? storage_.Create<BreadthFirstAtom>()
+                   : storage_.Create<EdgeAtom>();
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
     edge->direction_ = EdgeAtom::Direction::IN;
@@ -486,6 +443,80 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     // grammar.
     edge->direction_ = EdgeAtom::Direction::BOTH;
   }
+
+  if (!relationshipDetail) {
+    anonymous_identifiers.push_back(&edge->identifier_);
+    return edge;
+  }
+
+  if (relationshipDetail->variable()) {
+    std::string variable = relationshipDetail->variable()->accept(this);
+    edge->identifier_ = storage_.Create<Identifier>(variable);
+    users_identifiers.insert(variable);
+  } else {
+    anonymous_identifiers.push_back(&edge->identifier_);
+  }
+
+  if (relationshipDetail->relationshipTypes()) {
+    edge->edge_types_ = ctx->relationshipDetail()
+                            ->relationshipTypes()
+                            ->accept(this)
+                            .as<std::vector<GraphDbTypes::EdgeType>>();
+  }
+
+  auto relationshipLambdas = relationshipDetail->relationshipLambda();
+  if (variableExpansion) {
+    edge->has_range_ = true;
+    edge->lower_bound_ = lower;
+    edge->upper_bound_ = upper;
+
+    switch (relationshipLambdas.size()) {
+      case 0:
+        break;
+      case 1: {
+        if (!is_bfs)
+          throw SemanticException("Relationship lambda only supported in BFS");
+
+        auto *lambda = relationshipLambdas[0];
+        auto *edge_bfs = dynamic_cast<BreadthFirstAtom *>(edge);
+        std::string traversed_edge_variable =
+            lambda->traversed_edge->accept(this);
+        edge_bfs->traversed_edge_identifier_ =
+            storage_.Create<Identifier>(traversed_edge_variable);
+        std::string traversed_node_variable =
+            lambda->traversed_node->accept(this);
+        edge_bfs->next_node_identifier_ =
+            storage_.Create<Identifier>(traversed_node_variable);
+        edge_bfs->filter_expression_ = lambda->expression()->accept(this);
+        break;
+      };
+      default:
+        throw SemanticException("Only one relationship lambda allowed");
+    }
+  } else if (!relationshipLambdas.empty()) {
+    throw SemanticException("Relationship lambda only supported in BFS");
+  }
+
+  auto properties = relationshipDetail->properties();
+  switch (properties.size()) {
+    case 0:
+      break;
+    case 1: {
+      // TODO support property filters in BFS
+      if (is_bfs)
+        throw SemanticException(
+            "BFS expansion and property maps not supported");
+      edge->properties_ =
+          properties[0]
+              ->accept(this)
+              .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
+                           Expression *>>();
+      break;
+    }
+    default:
+      throw SemanticException("Only one property map supported in edge");
+  }
+
   return edge;
 }
 
@@ -495,8 +526,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
   return 0;
 }
 
-antlrcpp::Any CypherMainVisitor::visitBfsDetail(
-    CypherParser::BfsDetailContext *) {
+antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(
+    CypherParser::RelationshipLambdaContext *) {
   debug_assert(false, "Should never be called. See documentation in hpp.");
   return 0;
 }
@@ -510,34 +541,41 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
   return types;
 }
 
-antlrcpp::Any CypherMainVisitor::visitRangeLiteral(
-    CypherParser::RangeLiteralContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
+    CypherParser::VariableExpansionContext *ctx) {
   debug_assert(ctx->expression().size() <= 2U,
                "Expected 0, 1 or 2 bounds in range literal.");
+
+  bool is_bfs = !ctx->getTokens(CypherParser::BFS).empty();
+  Expression *lower = nullptr;
+  Expression *upper = nullptr;
+
   if (ctx->expression().size() == 0U) {
     // Case -[*]-
-    return std::pair<Expression *, Expression *>(nullptr, nullptr);
   } else if (ctx->expression().size() == 1U) {
     auto dots_tokens = ctx->getTokens(kDotsTokenId);
     Expression *bound = ctx->expression()[0]->accept(this);
     if (!dots_tokens.size()) {
       // Case -[*bound]-
-      return std::pair<Expression *, Expression *>(bound, bound);
-    }
-    if (dots_tokens[0]->getSourceInterval().startsAfter(
-            ctx->expression()[0]->getSourceInterval())) {
+      lower = bound;
+      upper = bound;
+    } else if (dots_tokens[0]->getSourceInterval().startsAfter(
+                   ctx->expression()[0]->getSourceInterval())) {
       // Case -[*bound..]-
-      return std::pair<Expression *, Expression *>(bound, nullptr);
+      lower = bound;
     } else {
       // Case -[*..bound]-
-      return std::pair<Expression *, Expression *>(nullptr, bound);
+      upper = bound;
     }
   } else {
     // Case -[*lbound..rbound]-
-    Expression *lbound = ctx->expression()[0]->accept(this);
-    Expression *rbound = ctx->expression()[1]->accept(this);
-    return std::pair<Expression *, Expression *>(lbound, rbound);
+    lower = ctx->expression()[0]->accept(this);
+    upper = ctx->expression()[1]->accept(this);
   }
+
+  if (is_bfs && lower)
+    throw SemanticException("BFS does not support lower bounds");
+  return std::make_tuple(is_bfs, lower, upper);
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression(

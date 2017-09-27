@@ -1,6 +1,8 @@
 /// @file
 #pragma once
 
+#include <experimental/optional>
+
 #include "gflags/gflags.h"
 
 #include "query/frontend/ast/ast.hpp"
@@ -533,17 +535,14 @@ class RuleBasedPlanner {
         } else {
           match_context.new_symbols.emplace_back(edge_symbol);
         }
-        const auto edge_types_set =
-            utils::FindOr(matching.filters.edge_type_filters(), edge_symbol,
-                          std::unordered_set<GraphDbTypes::EdgeType>())
-                .first;
-        const std::vector<GraphDbTypes::EdgeType> edge_types(
-            edge_types_set.begin(), edge_types_set.end());
         if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
-          const auto &traversed_edge_symbol =
-              symbol_table.at(*bf_atom->traversed_edge_identifier_);
-          const auto &next_node_symbol =
-              symbol_table.at(*bf_atom->next_node_identifier_);
+          std::experimental::optional<Symbol> traversed_edge_symbol;
+          if (bf_atom->traversed_edge_identifier_)
+            traversed_edge_symbol =
+                symbol_table.at(*bf_atom->traversed_edge_identifier_);
+          std::experimental::optional<Symbol> next_node_symbol;
+          if (bf_atom->next_node_identifier_)
+            next_node_symbol = symbol_table.at(*bf_atom->next_node_identifier_);
           // Inline BFS edge filtering together with its filter expression.
           auto *filter_expr = impl::BoolJoin<AndOperator>(
               storage, impl::ExtractMultiExpandFilter(
@@ -551,8 +550,8 @@ class RuleBasedPlanner {
               bf_atom->filter_expression_);
           last_op = new ExpandBreadthFirst(
               node_symbol, edge_symbol, expansion.direction,
-              std::move(edge_types), bf_atom->max_depth_, next_node_symbol,
-              traversed_edge_symbol, filter_expr,
+              expansion.edge->edge_types_, bf_atom->upper_bound_,
+              next_node_symbol, traversed_edge_symbol, filter_expr,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
               existing_node, match_context.graph_view);
         } else if (expansion.edge->has_range_) {
@@ -560,7 +559,7 @@ class RuleBasedPlanner {
               bound_symbols, node_symbol, all_filters, storage);
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, expansion.direction,
-              std::move(edge_types), expansion.is_flipped,
+              expansion.edge->edge_types_, expansion.is_flipped,
               expansion.edge->lower_bound_, expansion.edge->upper_bound_,
               std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
               existing_node, existing_edge, match_context.graph_view,
@@ -583,7 +582,7 @@ class RuleBasedPlanner {
             }
           }
           last_op = new Expand(node_symbol, edge_symbol, expansion.direction,
-                               std::move(edge_types),
+                               expansion.edge->edge_types_,
                                std::shared_ptr<LogicalOperator>(last_op),
                                node1_symbol, existing_node, existing_edge,
                                match_context.graph_view);

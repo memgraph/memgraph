@@ -55,7 +55,7 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
 
   std::string expand = "-->";
   std::string variable = "-[*1]->";
-  std::string bfs = "-bfs[](n, e | true, 1)->";
+  std::string bfs = "-[*bfs..1]->";
 
   EXPECT_EQ(Exec(false, expand), 1);
   EXPECT_EQ(Exec(true, expand), 1);

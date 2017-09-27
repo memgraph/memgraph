@@ -73,23 +73,30 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
   /**
-   * Returns EdgeAccessors for all incoming edges whose destination is the given
-   * vertex.
+   * Returns EdgeAccessors for all incoming edges.
+   *
+   * @param dest - The destination vertex filter.
+   * @param edge_types - Edge types filter. At least one be matched. If nullptr
+   * or empty, the parameter is ignored.
    */
-  auto in_with_destination(const VertexAccessor &dest) const {
+  auto in(
+      const VertexAccessor &dest,
+      const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().in_.begin(dest.vlist_), current().in_.end(), db_accessor());
+        current().in_.begin(dest.vlist_, edge_types), current().in_.end(),
+        db_accessor());
   }
 
   /**
-   * Returns EdgeAccessors for all incoming edges whose type is one of the
-   * given. If the given collection of types is nullptr or empty, all edge types
-   * are valid.
+   * Returns EdgeAccessors for all incoming edges.
+   *
+   * @param edge_types - Edge types filter. At least one be matched. If nullptr
+   * or empty, the parameter is ignored.
    */
-  auto in_with_types(
-      const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+  auto in(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().in_.begin(edge_types), current().in_.end(), db_accessor());
+        current().in_.begin(nullptr, edge_types), current().in_.end(),
+        db_accessor());
   }
 
   /**
@@ -103,21 +110,29 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   /**
    * Returns EdgeAccessors for all outgoing edges whose destination is the given
    * vertex.
+   *
+   * @param dest - The destination vertex filter.
+   * @param edge_types - Edge types filter. At least one be matched. If nullptr
+   * or empty, the parameter is ignored.
    */
-  auto out_with_destination(const VertexAccessor &dest) const {
+  auto out(
+      const VertexAccessor &dest,
+      const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().out_.begin(dest.vlist_), current().out_.end(), db_accessor());
+        current().out_.begin(dest.vlist_, edge_types), current().out_.end(),
+        db_accessor());
   }
 
   /**
-   * Returns EdgeAccessors for all outgoing edges whose type is one of the
-   * given. If the given collection of types is nullptr or empty, all edge types
-   * are valid.
+   * Returns EdgeAccessors for all outgoing edges.
+   *
+   * @param edge_types - Edge types filter. At least one be matched. If nullptr
+   * or empty, the parameter is ignored.
    */
-  auto out_with_types(
-      const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+  auto out(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator<EdgeAccessor>(
-        current().out_.begin(edge_types), current().out_.end(), db_accessor());
+        current().out_.begin(nullptr, edge_types), current().out_.end(),
+        db_accessor());
   }
 };
 

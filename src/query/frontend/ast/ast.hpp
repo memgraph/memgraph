@@ -16,14 +16,14 @@ namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -737,35 +737,6 @@ class LabelsTest : public Expression {
       : Expression(uid), expression_(expression), labels_(labels) {}
 };
 
-class EdgeTypeTest : public Expression {
-  friend class AstTreeStorage;
-
- public:
-  DEFVISITABLE(TreeVisitor<TypedValue>);
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      expression_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
-
-  EdgeTypeTest *Clone(AstTreeStorage &storage) const override {
-    return storage.Create<EdgeTypeTest>(expression_->Clone(storage),
-                                        edge_types_);
-  }
-
-  Expression *expression_ = nullptr;
-  std::vector<GraphDbTypes::EdgeType> edge_types_;
-
- protected:
-  EdgeTypeTest(int uid, Expression *expression,
-               std::vector<GraphDbTypes::EdgeType> edge_types)
-      : Expression(uid), expression_(expression), edge_types_(edge_types) {
-    debug_assert(edge_types.size(),
-                 "EdgeTypeTest must have at least one edge_type");
-  }
-};
-
 class Function : public Expression {
   friend class AstTreeStorage;
 
@@ -1053,35 +1024,44 @@ class EdgeAtom : public PatternAtom {
 };
 
 class BreadthFirstAtom : public EdgeAtom {
-  // TODO: Reconsider inheriting from EdgeAtom, since only `direction_` and
-  // `edge_types_` are used.
   friend class AstTreeStorage;
+
+  template <typename TPtr>
+  static TPtr *CloneOpt(TPtr *ptr, AstTreeStorage &storage) {
+    return ptr ? ptr->Clone(storage) : nullptr;
+  }
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      identifier_->Accept(visitor) &&
-          traversed_edge_identifier_->Accept(visitor) &&
-          next_node_identifier_->Accept(visitor) &&
-          filter_expression_->Accept(visitor) && max_depth_->Accept(visitor);
+      bool cont = identifier_->Accept(visitor);
+      if (cont && traversed_edge_identifier_)
+        cont = traversed_edge_identifier_->Accept(visitor);
+      if (cont && next_node_identifier_)
+        cont = next_node_identifier_->Accept(visitor);
+      if (cont && filter_expression_)
+        cont = filter_expression_->Accept(visitor);
     }
     return visitor.PostVisit(*this);
   }
 
   BreadthFirstAtom *Clone(AstTreeStorage &storage) const override {
-    return storage.Create<BreadthFirstAtom>(
+    auto bfs_atom = storage.Create<BreadthFirstAtom>(
         identifier_->Clone(storage), direction_, edge_types_,
-        traversed_edge_identifier_->Clone(storage),
-        next_node_identifier_->Clone(storage),
-        filter_expression_->Clone(storage), max_depth_->Clone(storage));
+        CloneOpt(traversed_edge_identifier_, storage),
+        CloneOpt(next_node_identifier_, storage),
+        CloneOpt(filter_expression_, storage));
+    bfs_atom->has_range_ = has_range_;
+    bfs_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
+    bfs_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
+    return bfs_atom;
   }
 
   Identifier *traversed_edge_identifier_ = nullptr;
   Identifier *next_node_identifier_ = nullptr;
   // Expression which evaluates to true in order to continue the BFS.
   Expression *filter_expression_ = nullptr;
-  Expression *max_depth_ = nullptr;
 
  protected:
   using EdgeAtom::EdgeAtom;
@@ -1089,12 +1069,13 @@ class BreadthFirstAtom : public EdgeAtom {
                    const std::vector<GraphDbTypes::EdgeType> &edge_types,
                    Identifier *traversed_edge_identifier,
                    Identifier *next_node_identifier,
-                   Expression *filter_expression, Expression *max_depth)
+                   Expression *filter_expression)
       : EdgeAtom(uid, identifier, direction, edge_types),
         traversed_edge_identifier_(traversed_edge_identifier),
         next_node_identifier_(next_node_identifier),
-        filter_expression_(filter_expression),
-        max_depth_(max_depth) {}
+        filter_expression_(filter_expression) {
+    has_range_ = true;
+  }
 };
 
 class Pattern : public Tree {

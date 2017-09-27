@@ -1378,7 +1378,7 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
 
 TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   TypeParam ast_generator(
-      "MATCH (n) -bfs[r:type1|type2](e, n|e.prop = 42, 10)-> (m) RETURN r");
+      "MATCH (n) -[r:type1|type2 *bfs..10 (e, n|e.prop = 42)]-> (m) RETURN r");
   auto *query = ast_generator.query_;
   ASSERT_EQ(query->clauses_.size(), 2U);
   auto *match = dynamic_cast<Match *>(query->clauses_[0]);
@@ -1387,6 +1387,7 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
   auto *bfs = dynamic_cast<BreadthFirstAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(bfs);
+  EXPECT_TRUE(bfs->has_range_);
   EXPECT_EQ(bfs->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(
       bfs->edge_types_,
@@ -1395,7 +1396,7 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   EXPECT_EQ(bfs->identifier_->name_, "r");
   EXPECT_EQ(bfs->traversed_edge_identifier_->name_, "e");
   EXPECT_EQ(bfs->next_node_identifier_->name_, "n");
-  CheckLiteral(ast_generator.context_, bfs->max_depth_, 10);
+  CheckLiteral(ast_generator.context_, bfs->upper_bound_, 10);
   auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
   ASSERT_TRUE(eq);
 }

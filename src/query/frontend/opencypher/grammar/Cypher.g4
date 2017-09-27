@@ -117,17 +117,19 @@ nodePattern : '(' SP? ( variable SP? )? ( nodeLabels SP? )? ( properties SP? )? 
 
 patternElementChain : relationshipPattern SP? nodePattern ;
 
-relationshipPattern : ( leftArrowHead SP? dash SP? ( bfsDetail | relationshipDetail )? SP? dash SP? rightArrowHead )
-                    | ( leftArrowHead SP? dash SP? ( bfsDetail | relationshipDetail )? SP? dash )
-                    | ( dash SP? ( bfsDetail | relationshipDetail )? SP? dash SP? rightArrowHead )
-                    | ( dash SP? ( bfsDetail | relationshipDetail )? SP? dash )
+relationshipPattern : ( leftArrowHead SP? dash SP? ( relationshipDetail )? SP? dash SP? rightArrowHead )
+                    | ( leftArrowHead SP? dash SP? ( relationshipDetail )? SP? dash )
+                    | ( dash SP? ( relationshipDetail )? SP? dash SP? rightArrowHead )
+                    | ( dash SP? ( relationshipDetail )? SP? dash )
                     ;
 
-bfsDetail : BFS SP? ( '[' SP? ( bfs_variable=variable SP? )? ( relationshipTypes SP? )? SP? ']' )? SP? '(' SP? traversed_edge=variable SP? ',' SP? next_node=variable SP? '|' SP? expression SP? ',' SP? expression SP? ')' ;
+relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  properties SP? ']'
+                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  relationshipLambda SP? ']'
+                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )? ( (properties SP?) | (relationshipLambda SP?) )* ']';
 
-relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? properties SP? ']'
-                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( rangeLiteral SP? )? ( properties SP? )? ']'
-                   ;
+relationshipLambda: '(' SP? traversed_edge=variable SP? ',' SP? traversed_node=variable SP? '|' SP? expression SP? ')';
+
+variableExpansion : '*' SP? (BFS)? SP? ( expression SP? )? ( '..' ( SP? expression )? )? ;
 
 properties : mapLiteral
            | parameter
@@ -138,8 +140,6 @@ relationshipTypes : ':' SP? relTypeName ( SP? '|' SP? ':'? SP? relTypeName )* ;
 nodeLabels : nodeLabel ( SP? nodeLabel )* ;
 
 nodeLabel : ':' SP? labelName ;
-
-rangeLiteral : '*' SP? ( expression SP? )? ( '..' ( SP? expression )? )? ;
 
 labelName : symbolicName ;
 

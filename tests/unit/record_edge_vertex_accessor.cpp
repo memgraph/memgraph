@@ -261,25 +261,25 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
   auto e32 = dba->InsertEdge(v3, v2, edge_type);
   dba->AdvanceCommand();
 
-  TEST_EDGE_ITERABLE(v1.out_with_destination(v1));
-  TEST_EDGE_ITERABLE(v1.out_with_destination(v2), {e12});
-  TEST_EDGE_ITERABLE(v1.out_with_destination(v3));
-  TEST_EDGE_ITERABLE(v2.out_with_destination(v1));
-  TEST_EDGE_ITERABLE(v2.out_with_destination(v2), {e22});
-  TEST_EDGE_ITERABLE(v2.out_with_destination(v3), {e23a, e23b});
-  TEST_EDGE_ITERABLE(v3.out_with_destination(v1));
-  TEST_EDGE_ITERABLE(v3.out_with_destination(v2), {e32});
-  TEST_EDGE_ITERABLE(v3.out_with_destination(v3));
+  TEST_EDGE_ITERABLE(v1.out(v1));
+  TEST_EDGE_ITERABLE(v1.out(v2), {e12});
+  TEST_EDGE_ITERABLE(v1.out(v3));
+  TEST_EDGE_ITERABLE(v2.out(v1));
+  TEST_EDGE_ITERABLE(v2.out(v2), {e22});
+  TEST_EDGE_ITERABLE(v2.out(v3), {e23a, e23b});
+  TEST_EDGE_ITERABLE(v3.out(v1));
+  TEST_EDGE_ITERABLE(v3.out(v2), {e32});
+  TEST_EDGE_ITERABLE(v3.out(v3));
 
-  TEST_EDGE_ITERABLE(v1.in_with_destination(v1));
-  TEST_EDGE_ITERABLE(v1.in_with_destination(v2));
-  TEST_EDGE_ITERABLE(v1.in_with_destination(v3));
-  TEST_EDGE_ITERABLE(v2.in_with_destination(v1), {e12});
-  TEST_EDGE_ITERABLE(v2.in_with_destination(v2), {e22});
-  TEST_EDGE_ITERABLE(v2.in_with_destination(v3), {e32});
-  TEST_EDGE_ITERABLE(v3.in_with_destination(v1));
-  TEST_EDGE_ITERABLE(v3.in_with_destination(v2), {e23a, e23b});
-  TEST_EDGE_ITERABLE(v3.in_with_destination(v3));
+  TEST_EDGE_ITERABLE(v1.in(v1));
+  TEST_EDGE_ITERABLE(v1.in(v2));
+  TEST_EDGE_ITERABLE(v1.in(v3));
+  TEST_EDGE_ITERABLE(v2.in(v1), {e12});
+  TEST_EDGE_ITERABLE(v2.in(v2), {e22});
+  TEST_EDGE_ITERABLE(v2.in(v3), {e32});
+  TEST_EDGE_ITERABLE(v3.in(v1));
+  TEST_EDGE_ITERABLE(v3.in(v2), {e23a, e23b});
+  TEST_EDGE_ITERABLE(v3.in(v3));
 }
 
 TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
@@ -302,15 +302,15 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
   std::vector<GraphDbTypes::EdgeType> edges_a{a};
   std::vector<GraphDbTypes::EdgeType> edges_b{b};
   std::vector<GraphDbTypes::EdgeType> edges_ac{a, c};
-  TEST_EDGE_ITERABLE(v1.in_with_types(&edges_a));
-  TEST_EDGE_ITERABLE(v1.in_with_types(&edges_b), {eb_1, eb_2});
-  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_a), {ea});
-  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_b));
-  TEST_EDGE_ITERABLE(v1.out_with_types(&edges_ac), {ea, ec});
-  TEST_EDGE_ITERABLE(v2.in_with_types(&edges_a), {ea});
-  TEST_EDGE_ITERABLE(v2.in_with_types(&edges_b));
-  TEST_EDGE_ITERABLE(v2.out_with_types(&edges_a));
-  TEST_EDGE_ITERABLE(v2.out_with_types(&edges_b), {eb_1, eb_2});
+  TEST_EDGE_ITERABLE(v1.in(&edges_a));
+  TEST_EDGE_ITERABLE(v1.in(&edges_b), {eb_1, eb_2});
+  TEST_EDGE_ITERABLE(v1.out(&edges_a), {ea});
+  TEST_EDGE_ITERABLE(v1.out(&edges_b));
+  TEST_EDGE_ITERABLE(v1.out(&edges_ac), {ea, ec});
+  TEST_EDGE_ITERABLE(v2.in(&edges_a), {ea});
+  TEST_EDGE_ITERABLE(v2.in(&edges_b));
+  TEST_EDGE_ITERABLE(v2.out(&edges_a));
+  TEST_EDGE_ITERABLE(v2.out(&edges_b), {eb_1, eb_2});
 }
 
 #undef TEST_EDGE_ITERABLE

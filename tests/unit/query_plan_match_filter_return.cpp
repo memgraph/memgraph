@@ -1357,18 +1357,13 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {}, false, "m", false);
-  // add an edge type filter
-  r_m.edge_->edge_types_.push_back(type_1);
-  r_m.edge_->edge_types_.push_back(type_2);
-  auto *filter_expr = storage.Create<EdgeTypeTest>(r_m.edge_->identifier_,
-                                                   r_m.edge_->edge_types_);
-  auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
+  auto r_m =
+      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                 EdgeAtom::Direction::OUT, {type_1, type_2}, false, "m", false);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));
-  auto produce = MakeProduce(edge_filter, output);
+  auto produce = MakeProduce(r_m.op_, output);
 
   // fill up the symbol table
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);

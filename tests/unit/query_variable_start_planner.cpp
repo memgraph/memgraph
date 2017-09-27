@@ -308,8 +308,8 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   AstTreeStorage storage;
   auto *bfs = storage.Create<query::BreadthFirstAtom>(
       IDENT("r"), Direction::OUT, std::vector<GraphDbTypes::EdgeType>{},
-      IDENT("r"), IDENT("n"), NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3)),
-      LITERAL(10));
+      IDENT("r"), IDENT("n"), NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3)));
+  bfs->upper_bound_ = LITERAL(10);
   QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1]

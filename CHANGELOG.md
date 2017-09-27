@@ -13,6 +13,7 @@
 * `counter` and `counterSet` functions added.
 * `indexInfo` function added.
 * `collect` aggregation now supports Map collection.
+* Changed the BFS syntax.
 
 ### Bug Fixes and Other Changes
 
@@ -20,6 +21,7 @@
 * Keywords appearing in header (named expressions) keep original case.
 * Our Bolt protocol implementation is now completely compatible with the protocol version 1 specification. (https://boltprotocol.org/v1/)
 * Added a log warning when running out of memory and the `memory_warning_threshold` flag
+* Edges are no longer additionally filtered after expansion.
 
 ## v0.7.0
 
