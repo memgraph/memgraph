@@ -1,6 +1,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "gmock/gmock.h"
@@ -374,7 +375,8 @@ TEST(ExpressionEvaluator, MapIndexing) {
   Dbms dbms;
   auto dba = dbms.active();
   auto *map_literal = storage.Create<MapLiteral>(
-      std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>{
+      std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                         Expression *>{
           {PROPERTY_PAIR("a"), storage.Create<PrimitiveLiteral>(1)},
           {PROPERTY_PAIR("b"), storage.Create<PrimitiveLiteral>(2)},
           {PROPERTY_PAIR("c"), storage.Create<PrimitiveLiteral>(3)}});

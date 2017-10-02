@@ -5,9 +5,9 @@
 #include <codecvt>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -273,11 +273,11 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(
         ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
   }
   if (ctx->properties()) {
-    node->properties_ =
-        ctx->properties()
-            ->accept(this)
-            .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
-                         Expression *>>();
+    node->properties_ = ctx->properties()
+                            ->accept(this)
+                            .as<std::unordered_map<
+                                std::pair<std::string, GraphDbTypes::Property>,
+                                Expression *>>();
   }
   return node;
 }
@@ -306,7 +306,9 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     CypherParser::MapLiteralContext *ctx) {
-  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *> map;
+  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                     Expression *>
+      map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
     std::pair<std::string, GraphDbTypes::Property> key =
         ctx->propertyKeyName()[i]->accept(this);
@@ -509,8 +511,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       edge->properties_ =
           properties[0]
               ->accept(this)
-              .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
-                           Expression *>>();
+              .as<std::unordered_map<
+                  std::pair<std::string, GraphDbTypes::Property>,
+                  Expression *>>();
       break;
     }
     default:
@@ -887,8 +890,9 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     return static_cast<Expression *>(storage_.Create<MapLiteral>(
         ctx->mapLiteral()
             ->accept(this)
-            .as<std::map<std::pair<std::string, GraphDbTypes::Property>,
-                         Expression *>>()));
+            .as<std::unordered_map<
+                std::pair<std::string, GraphDbTypes::Property>,
+                Expression *>>()));
   }
   return visitChildren(ctx);
 }

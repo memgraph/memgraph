@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -477,10 +478,10 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define LIST(...)                     \
   storage.Create<query::ListLiteral>( \
       std::vector<query::Expression *>{__VA_ARGS__})
-#define MAP(...)                                               \
-  storage.Create<query::MapLiteral>(                           \
-      std::map<std::pair<std::string, GraphDbTypes::Property>, \
-               query::Expression *>{__VA_ARGS__})
+#define MAP(...)                                                         \
+  storage.Create<query::MapLiteral>(                                     \
+      std::unordered_map<std::pair<std::string, GraphDbTypes::Property>, \
+                         query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
   std::make_pair(property_name, dba->Property(property_name))
 #define PROPERTY_LOOKUP(...) \

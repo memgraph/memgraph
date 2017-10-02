@@ -12,6 +12,21 @@
 #include "query/typed_value.hpp"
 #include "utils/assert.hpp"
 
+// Hash function for the key in pattern atom property maps.
+namespace std {
+template <>
+struct hash<std::pair<std::string, GraphDbTypes::Property>> {
+  size_t operator()(
+      const std::pair<std::string, GraphDbTypes::Property> &pair) const {
+    return string_hash(pair.first) ^ property_hash(pair.second);
+  };
+
+ private:
+  std::hash<std::string> string_hash{};
+  std::hash<GraphDbTypes::Property> property_hash{};
+};
+}
+
 namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
@@ -644,14 +659,16 @@ class MapLiteral : public BaseLiteral {
   }
 
   // maps (property_name, property) to expressions
-  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                     Expression *>
       elements_;
 
  protected:
   MapLiteral(int uid) : BaseLiteral(uid) {}
-  MapLiteral(int uid,
-             const std::map<std::pair<std::string, GraphDbTypes::Property>,
-                            Expression *> &elements)
+  MapLiteral(
+      int uid,
+      const std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                               Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
 };
 
@@ -954,8 +971,8 @@ class NodeAtom : public PatternAtom {
 
   std::vector<GraphDbTypes::Label> labels_;
   // maps (property_name, property) to an expression
-  // TODO: change to unordered_map
-  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                     Expression *>
       properties_;
 
  protected:
@@ -1005,8 +1022,8 @@ class EdgeAtom : public PatternAtom {
   Direction direction_ = Direction::BOTH;
   std::vector<GraphDbTypes::EdgeType> edge_types_;
   // maps (property_name, property) to an expression
-  // TODO: change to unordered_map
-  std::map<std::pair<std::string, GraphDbTypes::Property>, Expression *>
+  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+                     Expression *>
       properties_;
   bool has_range_ = false;
   Expression *lower_bound_ = nullptr;
@@ -1584,4 +1601,4 @@ class CreateIndex : public Clause {
 
 #undef CLONE_BINARY_EXPRESSION
 #undef CLONE_UNARY_EXPRESSION
-}
+}  // namespace query
