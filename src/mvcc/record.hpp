@@ -7,7 +7,6 @@
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
 
-#include "mvcc/hints.hpp"
 #include "mvcc/version.hpp"
 #include "storage/locking/record_lock.hpp"
 
@@ -25,35 +24,6 @@ class Record : public Version<T> {
   Record(Record &&) = delete;
   Record &operator=(Record &&) = delete;
 
- private:
-  template <typename TId>
-  struct CreExp {
-    std::atomic<TId> cre{0};
-    std::atomic<TId> exp{0};
-  };
-
-  // tx.cre is the id of the transaction that created the record
-  // and tx.exp is the id of the transaction that deleted the record
-  // These values are used to determine the visibility of the record
-  // to the current transaction.
-  CreExp<tx::transaction_id_t> tx_;
-
-  // cmd.cre is the id of the command in this transaction that created the
-  // record and cmd.exp is the id of the command in this transaction that
-  // deleted the record. These values are used to determine the visibility
-  // of the record to the current command in the running transaction.
-  CreExp<tx::command_id_t> cmd_;
-
-  Hints hints_;
-
- public:
-  inline const auto &tx() const { return tx_; }
-  inline const auto &cmd() const { return cmd_; }
-
-  // NOTE: Wasn't used.
-  // this lock is used by write queries when they update or delete records
-  // RecordLock lock;
-
   // check if this record is visible to the transaction t
   bool visible(const tx::Transaction &t) {
     // Mike Olson says 17 march 1993: the tests in this routine are correct;
@@ -65,23 +35,24 @@ class Record : public Version<T> {
     tx::command_id_t cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
-    return ((tx_.cre == t.id_ &&      // inserted by the current transaction
-             cmd_.cre < t.cid() &&    // before this command, and
-             (tx_exp == 0 ||          // the row has not been deleted, or
-              (tx_exp == t.id_ &&     // it was deleted by the current
-                                      // transaction
-               cmd_exp >= t.cid())))  // but not before this command,
-            ||                        // or
-            (cre_committed(tx_.cre, t) &&  // the record was inserted by a
-                                           // committed transaction, and
-             (tx_exp == 0 ||              // the record has not been deleted, or
-              (tx_exp == t.id_ &&         // the row is being deleted by this
-                                          // transaction
-               cmd_exp >= t.cid()) ||     // but it's not deleted "yet", or
-              (tx_exp != t.id_ &&         // the row was deleted by another
-                                          // transaction
-               !exp_committed(tx_exp, t)  // that has not been committed
-               ))));
+    return (
+        (tx_.cre == t.id_ &&      // inserted by the current transaction
+         cmd_.cre < t.cid() &&    // before this command, and
+         (tx_exp == 0 ||          // the row has not been deleted, or
+          (tx_exp == t.id_ &&     // it was deleted by the current
+                                  // transaction
+           cmd_exp >= t.cid())))  // but not before this command,
+        ||                        // or
+        (committed(Hints::kCre, tx_.cre, t) &&  // the record was inserted by a
+                                                // committed transaction, and
+         (tx_exp == 0 ||           // the record has not been deleted, or
+          (tx_exp == t.id_ &&      // the row is being deleted by this
+                                   // transaction
+           cmd_exp >= t.cid()) ||  // but it's not deleted "yet", or
+          (tx_exp != t.id_ &&      // the row was deleted by another
+                                   // transaction
+           !committed(Hints::kExp, tx_exp, t)  // that has not been committed
+           ))));
   }
 
   void mark_created(const tx::Transaction &t) {
@@ -91,21 +62,13 @@ class Record : public Version<T> {
   }
 
   void mark_expired(const tx::Transaction &t) {
-    if (tx_.exp != 0) hints_.exp.clear();
+    if (tx_.exp != 0) hints_.Clear(Hints::kExp);
     tx_.exp = t.id_;
     cmd_.exp = t.cid();
   }
 
-  bool exp_committed(tx::transaction_id_t id, const tx::Transaction &t) {
-    return committed(hints_.exp, id, t);
-  }
-
   bool exp_committed(tx::Engine &engine) {
-    return committed(hints_.exp, tx_.exp, engine);
-  }
-
-  bool cre_committed(tx::transaction_id_t id, const tx::Transaction &t) {
-    return committed(hints_.cre, id, t);
+    return committed(Hints::kExp, tx_.exp, engine);
   }
 
   /**
@@ -174,9 +137,56 @@ class Record : public Version<T> {
     return tx_.exp == t.id_ && cmd_.exp == t.cid();
   }
 
+  const auto &tx() const { return tx_; }
+  const auto &cmd() const { return cmd_; }
+
  private:
   /**
-   * Fetch the (transaction, command) expiration before the check
+   * Fast indicators if a transaction has committed or aborted. It is possible
+   * the hints do not have that information, in which case the commit log needs
+   * to be consulted (a slower operation).
+   */
+  class Hints {
+   public:
+    /// Masks for the creation/expration and commit/abort positions.
+    static constexpr uint8_t kCre = 0b0011;
+    static constexpr uint8_t kExp = 0b1100;
+    static constexpr uint8_t kCmt = 0b0101;
+    static constexpr uint8_t kAbt = 0b1010;
+
+    /** Retruns true if any bit under the given mask is set. */
+    bool Get(uint8_t mask) const { return bits_ & mask; }
+
+    /** Sets all the bits under the given mask. */
+    void Set(uint8_t mask) { bits_.fetch_or(mask); }
+
+    /** Clears all the bits under the given mask. */
+    void Clear(uint8_t mask) { bits_.fetch_and(~mask); }
+
+   private:
+    std::atomic<uint8_t> bits_{0};
+  };
+
+  template <typename TId>
+  struct CreExp {
+    std::atomic<TId> cre{0};
+    std::atomic<TId> exp{0};
+  };
+
+  // tx.cre is the id of the transaction that created the record
+  // and tx.exp is the id of the transaction that deleted the record
+  // These values are used to determine the visibility of the record
+  // to the current transaction.
+  CreExp<tx::transaction_id_t> tx_;
+
+  // cmd.cre is the id of the command in this transaction that created the
+  // record and cmd.exp is the id of the command in this transaction that
+  // deleted the record. These values are used to determine the visibility
+  // of the record to the current command in the running transaction.
+  CreExp<tx::command_id_t> cmd_;
+
+  Hints hints_;
+  /** Fetch the (transaction, command) expiration before the check
    * because they can be concurrently modified by multiple transactions.
    * Do it in a loop to ensure that command is consistent with transaction.
    */
@@ -197,13 +207,15 @@ class Record : public Version<T> {
    * Evaluates to true if that transaction has committed,
    * it started before `t` and it's not in it's snapshot.
    *
-   * @param hints - hints to use to determine commit/abort
    * about transactions commit/abort status
+   * @param mask - Hint bits mask (either Hints::kCre or Hints::kExp).
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
-  template <class U>
-  bool committed(U &hints, tx::transaction_id_t id, const tx::Transaction &t) {
+  bool committed(uint8_t mask, tx::transaction_id_t id,
+                 const tx::Transaction &t) {
+    debug_assert(mask == Hints::kCre || mask == Hints::kExp,
+                 "Mask must be either kCre or kExp");
     // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
     // again. I know, it happened to me (and also to Matej Gradicek).
@@ -216,30 +228,30 @@ class Record : public Version<T> {
     // The creating transaction is still in progress (examine snapshot)
     if (t.snapshot().contains(id)) return false;
 
-    return committed(hints, id, t.engine_);
+    return committed(mask, id, t.engine_);
   }
 
   /**
    * @brief - Check if the transaction with the given `id`
    * is committed.
    *
-   * @param hints - hints to use to determine commit/abort
+   * @param mask - Hint bits mask (either Hints::kCre or Hints::kExp).
    * @param id - id to check if commited
    * @param engine - engine instance with information about transaction
    * statuses
    * @return true if it's commited, false otherwise
    */
-  template <class U>
-  bool committed(U &hints, tx::transaction_id_t id, tx::Engine &engine) {
-    auto hint_bits = hints.load();
+  bool committed(uint8_t mask, tx::transaction_id_t id, tx::Engine &engine) {
+    debug_assert(mask == Hints::kCre || mask == Hints::kExp,
+                 "Mask must be either kCre or kExp");
     // if hints are set, return if id is committed
-    if (!hint_bits.is_unknown()) return hint_bits.is_committed();
+    if (hints_.Get(mask)) return hints_.Get(Hints::kCmt & mask);
 
     // if hints are not set consult the commit log
-    auto is_commited = engine.clog().is_committed(id);
-
-    // committed
-    if (is_commited) return hints.set_committed(), true;
+    if (engine.clog().is_committed(id)) {
+      hints_.Set(Hints::kCmt & mask);
+      return true;
+    }
 
     // we can't set_aborted hints because of a race-condition that
     // can occurr when tx.exp gets changed by some transaction.
