@@ -66,9 +66,8 @@ git checkout ${googletest_tag}
 cd ..
 
 # google logging
-#git clone https://github.com/google/glog.git
-git clone git://deps.memgraph.io/glog.git
-glog_tag="a6a166db069520dbbd653c97c2e5b12e08a8bb26" # v0.3.5
+git clone https://github.com/memgraph/glog.git
+glog_tag="b5e33a7468cf7da6412eb50d1e8e704da471f49f" # custom version (v0.3.5+)
 cd glog
 git checkout ${glog_tag}
 cd ..
@@ -82,9 +81,8 @@ git checkout ${lcov_to_xml_tag}
 cd ..
 
 # google flags
-#git clone https://github.com/gflags/gflags.git
-git clone git://deps.memgraph.io/gflags.git
-gflags_tag="652651b421ca5ac7b722a34a301fb656deca5198" # May 6, 2017
+git clone https://github.com/memgraph/gflags.git
+gflags_tag="69ce2926338522788d500e916736ef47e70dd905" # custom version (May 6, 2017)
 cd gflags
 git checkout ${gflags_tag}
 cd ..

@@ -81,6 +81,11 @@ set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
 mark_as_advanced(GTEST_LIBRARIES GTEST_INCLUDE_DIR)
 
 # setup google flags
+set(GFLAGS_NO_FILENAMES "0")
+if ("${CMAKE_BUILD_TYPE}" MATCHES "^(R|r)(E|e)(L|l).+")
+  set(GFLAGS_NO_FILENAMES "1")
+endif()
+
 ExternalProject_Add(gflags
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/gflags
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/gflags
@@ -88,6 +93,7 @@ ExternalProject_Add(gflags
              # Not needed, since gflags is C++ only.
              # -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
              -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+             -DGFLAGS_NO_FILENAMES=${GFLAGS_NO_FILENAMES}
              -DBUILD_gflags_nothreads_LIB=OFF
              -DREGISTER_INSTALL_PREFIX=OFF
              -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/gflags)
@@ -98,6 +104,13 @@ set(GFLAGS_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/gflags/include
 mark_as_advanced(GFLAGS_LIBRARY GFLAGS_INCLUDE_DIR)
 
 # Setup google logging after gflags (so that glog can use it).
+set(GLOG_NO_FILENAMES "0")
+set(GLOG_NO_STACKTRACE "0")
+if ("${CMAKE_BUILD_TYPE}" MATCHES "^(R|r)(E|e)(L|l).+")
+  set(GLOG_NO_FILENAMES "1")
+  set(GLOG_NO_STACKTRACE "1")
+endif()
+
 ExternalProject_Add(glog DEPENDS gflags
   PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/glog
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glog
@@ -105,6 +118,8 @@ ExternalProject_Add(glog DEPENDS gflags
              -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
              -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
              -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/glog
+             -DGLOG_NO_FILENAMES=${GLOG_NO_FILENAMES}
+             -DGLOG_NO_STACKTRACE=${GLOG_NO_STACKTRACE}
              -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags)
 set(GLOG_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/glog/lib/libglog.a CACHE FILEPATH
     "Path to glog library" FORCE)

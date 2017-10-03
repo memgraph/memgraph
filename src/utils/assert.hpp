@@ -20,9 +20,8 @@
   std::cerr << "ASSERT: " << message << std::endl; \
   std::cerr << stacktrace.dump();
 #else
-#define __handle_assert_message(message)                                \
-  std::cerr << "ASSERT: " << message << " In file " << __FILE__ << " #" \
-            << __LINE__ << std::endl;
+#define __handle_assert_message(message)           \
+  std::cerr << "ASSERT: " << message << std::endl;
 #endif
 
 /**

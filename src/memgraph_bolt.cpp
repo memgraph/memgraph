@@ -94,7 +94,9 @@ void load_config(int &argc, char **&argv) {
 }
 
 int main(int argc, char **argv) {
+  google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
+
   load_config(argc, argv);
 
   google::InitGoogleLogging(argv[0]);
