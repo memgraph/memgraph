@@ -28,9 +28,8 @@ foreach(poc_cpp ${poc_cpps})
 
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
-    add_dependencies(${target_name} benchmark gtest)
-    target_link_libraries(${target_name} ${GTEST_LIBRARIES})
+    target_link_libraries(${target_name} gtest gtest_main)
     # google-benchmark requires threads
-    target_link_libraries(${target_name} ${BENCHMARK_LIBRARY} Threads::Threads)
+    target_link_libraries(${target_name} benchmark Threads::Threads)
 
 endforeach()

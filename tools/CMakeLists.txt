@@ -68,7 +68,6 @@ endif()
 add_subdirectory(${PROJECT_SOURCE_DIR}/../libs libs EXCLUDE_FROM_ALL)
 include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/../libs)  # cppitertools
 include_directories(SYSTEM ${FMT_INCLUDE_DIR})
 
 # Include memgraph headers

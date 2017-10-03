@@ -42,5 +42,4 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
 add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
 
 # property based test binaries
-include_directories(${CMAKE_SOURCE_DIR}/libs/rapidcheck/extras/gtest/include)
 add_subdirectory(${PROJECT_SOURCE_DIR}/property_based)

@@ -40,8 +40,7 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} memgraph_lib)
     target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
     # gtest
-    add_dependencies(${target_name} gtest)
-    target_link_libraries(${target_name} ${GTEST_LIBRARIES})
+    target_link_libraries(${target_name} gtest gtest_main)
     if(${TEST_COVERAGE})
         # for code coverage
         target_link_libraries(${target_name} gcov)

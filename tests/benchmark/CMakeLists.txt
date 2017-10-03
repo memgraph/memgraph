@@ -29,8 +29,7 @@ foreach(test_cpp ${test_type_cpps})
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
     # google-benchmark
-    add_dependencies(${target_name} benchmark)
-    target_link_libraries(${target_name} ${BENCHMARK_LIBRARY} Threads::Threads)
+    target_link_libraries(${target_name} benchmark Threads::Threads)
 
     # register test
     set(output_path

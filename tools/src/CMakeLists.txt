@@ -13,9 +13,7 @@ add_executable(csv_to_snapshot
   ${memgraph_src_dir}/transactions/transaction.cpp
   )
 
-
-target_link_libraries(csv_to_snapshot stdc++fs Threads::Threads ${FMT_LIBRARY}
-                      ${GFLAGS_LIBRARY} ${GLOG_LIBRARY})
-add_dependencies(csv_to_snapshot gflags glog fmt)
+target_link_libraries(csv_to_snapshot stdc++fs Threads::Threads fmt
+                      gflags glog cppitertools)
 install(TARGETS csv_to_snapshot
         RUNTIME DESTINATION .)

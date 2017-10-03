@@ -105,7 +105,7 @@ else()
 endif()
 
 # default build type is debug
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
 endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
@@ -188,7 +188,6 @@ message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
 
 # includes
 include_directories(${src_dir})
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/libs)  # cppitertools
 include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 include_directories(SYSTEM ${FMT_INCLUDE_DIR})
@@ -225,8 +224,7 @@ add_custom_target(generate_opencypher_parser
 include_directories(${ANTLR4_INCLUDE_DIR})
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
-add_dependencies(antlr_opencypher_parser_lib antlr4)
-target_link_libraries(antlr_opencypher_parser_lib ${ANTLR4_LIBRARY})
+target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # -----------------------------------------------------------------------------
 
 # all memgraph src files
@@ -264,8 +262,8 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib and memgraph_pic depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads ${FMT_LIBRARY}
-    antlr_opencypher_parser_lib dl ${GLOG_LIBRARY} ${GFLAGS_LIBRARY})
+set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
+    antlr_opencypher_parser_lib dl glog gflags)
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
 endif()
@@ -273,7 +271,7 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser fmt gflags glog)
+add_dependencies(memgraph_lib generate_opencypher_parser)
 # -----------------------------------------------------------------------------
 
 # proof of concepts
