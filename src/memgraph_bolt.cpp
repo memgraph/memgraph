@@ -37,8 +37,10 @@ DEFINE_string(port, "7687", "Communication port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_string(log_file, "memgraph.log",
+DEFINE_string(log_file, "",
               "Path to where the log should be stored.");
+DEFINE_string(log_link_basename, "",
+              "Basename used for symlink creation to the last log file.");
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning treshold, in MB. If Memgraph detects there is "
               "less available RAM available it will log a warning. Set to 0 to "
@@ -70,7 +72,7 @@ void load_config(int &argc, char **&argv) {
   for (const auto &config : configs)
     if (fs::exists(config)) {
       flagfile_arguments.emplace_back(
-          std::string("--flagfile=" + config.generic_string()));
+          std::string("--flag-file=" + config.generic_string()));
     }
 
   int custom_argc = static_cast<int>(flagfile_arguments.size()) + 1;
@@ -101,6 +103,7 @@ int main(int argc, char **argv) {
 
   google::InitGoogleLogging(argv[0]);
   google::SetLogDestination(google::INFO, FLAGS_log_file.c_str());
+  google::SetLogSymlink(google::INFO, FLAGS_log_link_basename.c_str());
 
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);

@@ -138,11 +138,9 @@ import_external_library(gflags STATIC
              -DGFLAGS_NO_FILENAMES=${GFLAGS_NO_FILENAMES})
 
 # Setup google logging after gflags (so that glog can use it).
-set(GLOG_NO_FILENAMES "0")
-set(GLOG_NO_STACKTRACE "0")
+set(GLOG_DISABLE_OPTIONS "0")
 if ("${CMAKE_BUILD_TYPE}" MATCHES "^(R|r)(E|e)(L|l).+")
-  set(GLOG_NO_FILENAMES "1")
-  set(GLOG_NO_STACKTRACE "1")
+  set(GLOG_DISABLE_OPTIONS "1")
 endif()
 
 # Setup google logging after gflags (so that glog can use it).
@@ -151,8 +149,9 @@ import_external_library(glog STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/glog/include
   DEPENDS gflags-proj
   CMAKE_ARGS -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags
-             -DGLOG_NO_FILENAMES=${GLOG_NO_FILENAMES}
-             -DGLOG_NO_STACKTRACE=${GLOG_NO_STACKTRACE})
+             -DGLOG_NO_FILENAMES=${GLOG_DISABLE_OPTIONS}
+             -DGLOG_NO_STACKTRACE=${GLOG_DISABLE_OPTIONS}
+             -DGLOG_NO_BUFFER_SETTINGS=${GLOG_DISABLE_OPTIONS})
 
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})

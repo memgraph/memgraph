@@ -135,7 +135,7 @@ if not os.path.exists(args.memgraph):
 cwd = os.path.dirname(args.memgraph)
 cmd = [args.memgraph, "--num-workers=" + str(THREADS)]
 if not args.verbose:
-    cmd += ["--minloglevel", "1"]
+    cmd += ["--min-log-level", "1"]
 if args.log_file:
     cmd += ["--log-file", args.log_file]
 if args.snapshot_directory:
