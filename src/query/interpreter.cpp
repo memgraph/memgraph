@@ -1,12 +1,14 @@
 #include "query/interpreter.hpp"
 
+#include <glog/logging.h>
+
+#include "query/exceptions.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
-DEFINE_bool(query_cost_planner, true,
-            "Use the cost-estimating query planner.");
+DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 DEFINE_bool(query_plan_cache, true, "Cache generated query plans");
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
                        "Time to live for cached query plans, in seconds.",
@@ -37,7 +39,18 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
       std::unique_lock<SpinLock> guard(antlr_lock_);
-      return std::make_unique<frontend::opencypher::Parser>(stripped.query());
+      try {
+        return std::make_unique<frontend::opencypher::Parser>(stripped.query());
+      } catch (const SyntaxException &e) {
+        // There is syntax exception in stripped query. Rerun parser with
+        // original query to get appropriate error messsage.
+        auto parser = std::make_unique<frontend::opencypher::Parser>(
+            stripped.original_query());
+        // If exception was not thrown here, it means StrippedQuery messed up
+        // something.
+        LOG(FATAL) << "Stripped query can't be parsed, original can";
+        return parser;
+      }
     }();
     auto low_level_tree = parser->tree();
     // AST -> high level tree

@@ -42,7 +42,7 @@ class Parser {
                      const std::string &message, std::exception_ptr) override {
       if (error_.empty()) {
         error_ = "line " + std::to_string(line) + ":" +
-                 std::to_string(position) + " " + message;
+                 std::to_string(position + 1) + " " + message;
       }
     }
 
