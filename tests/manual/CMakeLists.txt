@@ -1,10 +1,3 @@
-# optional readline
-find_package(Readline)
-if (READLINE_FOUND)
-  include_directories(SYSTEM ${READLINE_INCLUDE_DIR})
-  add_definitions(-DHAS_READLINE)
-endif()
-
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 

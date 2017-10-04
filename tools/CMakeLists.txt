@@ -36,9 +36,8 @@ disallow_in_source_build()
 find_package(Threads REQUIRED)
 
 # optional readline
-find_package(Readline REQUIRED)
+find_package(Readline)
 if (READLINE_FOUND)
-  include_directories(SYSTEM ${READLINE_INCLUDE_DIR})
   add_definitions(-DHAS_READLINE)
 endif()
 

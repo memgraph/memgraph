@@ -5,6 +5,11 @@
 # READLINE_LIBRARY will be a path to the library.
 # READLINE_INCLUDE_DIR will be a path to the include directory.
 # READLINE_FOUND will be TRUE if the library is found.
+#
+# If the library is found, an imported target `readline` will be provided. This
+# can be used for linking via `target_link_libraries`, without the need to
+# explicitly include READLINE_INCLUDE_DIR and link with READLINE_LIBRARY. For
+# example: `target_link_libraries(my_executable readline)`.
 if (READLINE_LIBRARY AND READLINE_INCLUDE_DIR)
   set(READLINE_FOUND TRUE)
 else()
@@ -24,4 +29,7 @@ else()
     endif()
   endif()
   mark_as_advanced(READLINE_LIBRARY READLINE_INCLUDE_DIR)
+  add_library(readline SHARED IMPORTED)
+  set_property(TARGET readline PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${READLINE_INCLUDE_DIR})
+  set_property(TARGET readline PROPERTY IMPORTED_LOCATION ${READLINE_LIBRARY})
 endif()

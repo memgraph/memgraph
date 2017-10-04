@@ -58,10 +58,13 @@ add_custom_target(clean_all
 find_package(Threads REQUIRED)
 
 # optional readline
-find_package(Readline REQUIRED)
-if (READLINE_FOUND)
-  include_directories(SYSTEM ${READLINE_INCLUDE_DIR})
-  add_definitions(-DHAS_READLINE)
+option(USE_READLINE "Use GNU Readline library if available (default ON). \
+Set this to OFF to prevent linking with Readline even if it is available." ON)
+if (USE_READLINE)
+  find_package(Readline)
+  if (READLINE_FOUND)
+    add_definitions(-DHAS_READLINE)
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
@@ -265,7 +268,7 @@ set(memgraph_src_files
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags)
 if (READLINE_FOUND)
-    list(APPEND MEMGRAPH_ALL_LIBS ${READLINE_LIBRARY})
+    list(APPEND MEMGRAPH_ALL_LIBS readline)
 endif()
 
 # STATIC library used by memgraph executables

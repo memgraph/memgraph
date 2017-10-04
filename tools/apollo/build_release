@@ -9,7 +9,7 @@ TIMEOUT=600 ./init
 bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
 
 cd build
-cmake -DCMAKE_BUILD_TYPE=release ..
+cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
 TIMEOUT=1000 make -j$THREADS
 
 cd ../tools
