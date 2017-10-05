@@ -28,7 +28,7 @@ BASE_FLAGS = [
     '-I./libs',
     '-I./libs/rapidcheck/include',
     '-I./libs/antlr4/runtime/Cpp/runtime/src',
-    '-I./build/libs/gflags/include',
+    '-I./libs/gflags/src/gflags-build/include',
     '-I./experimental/distributed/src',
     '-I./experimental/distributed/libs/cereal/include',
     '-I./libs/postgresql/include'

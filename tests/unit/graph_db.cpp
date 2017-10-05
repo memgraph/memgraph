@@ -7,37 +7,34 @@
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/label_property_index.hpp"
 
-class GraphDbTest : public testing::Test {
- protected:
+DECLARE_int32(gc_cycle_sec);
+
+TEST(GraphDbTest, GarbageCollectIndices) {
+  FLAGS_gc_cycle_sec = -1;
   GraphDb graph_db{"default", fs::path()};
   std::unique_ptr<GraphDbAccessor> dba =
       std::make_unique<GraphDbAccessor>(graph_db);
 
-  void Commit() {
+  auto commit = [&] {
     dba->Commit();
-    auto dba2 = std::make_unique<GraphDbAccessor>(graph_db);
-    dba.swap(dba2);
-  }
-};
-
-TEST_F(GraphDbTest, GarbageCollectIndices) {
+    dba = std::make_unique<GraphDbAccessor>(graph_db);
+  };
   auto label = dba->Label("label");
   auto property = dba->Property("property");
   dba->BuildIndex(label, property);
-  Commit();
+  commit();
 
   auto vertex = dba->InsertVertex();
   vertex.add_label(label);
   vertex.PropsSet(property, 42);
-  Commit();
+  commit();
 
   EXPECT_EQ(dba->VerticesCount(label, property), 1);
   auto vertex_transferred = dba->Transfer(vertex);
   dba->RemoveVertex(vertex_transferred.value());
   EXPECT_EQ(dba->VerticesCount(label, property), 1);
-  Commit();
+  commit();
   EXPECT_EQ(dba->VerticesCount(label, property), 1);
   graph_db.CollectGarbage();
   EXPECT_EQ(dba->VerticesCount(label, property), 0);
-
 }

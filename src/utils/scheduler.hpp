@@ -9,17 +9,15 @@
 #include "utils/assert.hpp"
 
 /**
- * Class used to run scheduled function execution. Class is templated with
- * mutex class TMutex which is used to synchronize threads. Default template
- * value is std::mutex.
+ * Class used to run scheduled function execution.
  */
 class Scheduler {
  public:
   Scheduler() {}
   /**
    * @param pause - Duration between two function executions. If function is
-   * still running when it should be ran again, it will not be ran and next
-   * start time will be increased to current time plus pause.
+   * still running when it should be ran again, it will run right after it
+   * finishes its previous run.
    * @param f - Function
    * @Tparam TRep underlying arithmetic type in duration
    * @Tparam TPeriod duration in seconds between two ticks
@@ -29,22 +27,24 @@ class Scheduler {
            const std::function<void()> &f) {
     debug_assert(is_working_ == false, "Thread already running.");
     debug_assert(pause > std::chrono::seconds(0), "Pause is invalid.");
+
     is_working_ = true;
     thread_ = std::thread([this, pause, f]() {
       auto start_time = std::chrono::system_clock::now();
-      for (;;) {
-        if (!is_working_.load()) break;
 
+      while (is_working_) {
         f();
 
         std::unique_lock<std::mutex> lk(mutex_);
-
         auto now = std::chrono::system_clock::now();
-        while (now >= start_time) start_time += pause;
-
-        condition_variable_.wait_for(
-            lk, start_time - now, [&] { return is_working_.load() == false; });
-        lk.unlock();
+        start_time += pause;
+        if (start_time > now) {
+          condition_variable_.wait_for(lk, start_time - now, [&] {
+            return is_working_.load() == false;
+          });
+        } else {
+          start_time = now;
+        }
       }
     });
   }

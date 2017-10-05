@@ -97,8 +97,9 @@ class Record : public Version<T> {
     //       snapshot (consequently also not in the snapshots of
     //       newer transactions)
     return (exp_id != 0 && exp_id < snapshot.back() &&
-            engine.clog().is_committed(exp_id) && !snapshot.contains(exp_id)) ||
-           engine.clog().is_aborted(tx_.cre);
+            committed(Hints::kExp, exp_id, engine) &&
+            !snapshot.contains(exp_id)) ||
+           cre_aborted(engine);
   }
 
   // TODO: Test this
@@ -185,7 +186,7 @@ class Record : public Version<T> {
   // of the record to the current command in the running transaction.
   CreExp<tx::command_id_t> cmd_;
 
-  Hints hints_;
+  mutable Hints hints_;
   /** Fetch the (transaction, command) expiration before the check
    * because they can be concurrently modified by multiple transactions.
    * Do it in a loop to ensure that command is consistent with transaction.
@@ -212,6 +213,8 @@ class Record : public Version<T> {
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
+  // TODO: Rename this function. Its semantics is different than of function
+  // below, but it has a same name.
   bool committed(uint8_t mask, tx::transaction_id_t id,
                  const tx::Transaction &t) {
     debug_assert(mask == Hints::kCre || mask == Hints::kExp,
@@ -232,8 +235,7 @@ class Record : public Version<T> {
   }
 
   /**
-   * @brief - Check if the transaction with the given `id`
-   * is committed.
+   * @brief - Check if the transaction with the given `id` is committed.
    *
    * @param mask - Hint bits mask (either Hints::kCre or Hints::kExp).
    * @param id - id to check if commited
@@ -241,29 +243,55 @@ class Record : public Version<T> {
    * statuses
    * @return true if it's commited, false otherwise
    */
-  bool committed(uint8_t mask, tx::transaction_id_t id, tx::Engine &engine) {
+  bool committed(uint8_t mask, tx::transaction_id_t id,
+                 const tx::Engine &engine) const {
     debug_assert(mask == Hints::kCre || mask == Hints::kExp,
                  "Mask must be either kCre or kExp");
-    // if hints are set, return if id is committed
+    // If hints are set, return if id is committed.
     if (hints_.Get(mask)) return hints_.Get(Hints::kCmt & mask);
 
-    // if hints are not set consult the commit log
-    if (engine.clog().is_committed(id)) {
+    // If hints are not set consult the commit log.
+    auto info = engine.clog().fetch_info(id);
+    if (info.is_committed()) {
       hints_.Set(Hints::kCmt & mask);
       return true;
     }
+    if (info.is_aborted() && mask == Hints::kCre) {
+      // We can't set hints for aborted if mask is kExp because of a
+      // race-condition that can occurr when tx.exp gets changed by some
+      // transaction.
+      //
+      // This is not a problem with hints.cre.X because only one transaction
+      // ever creates a record
+      hints_.Set(Hints::kAbt & mask);
+    }
 
-    // we can't set_aborted hints because of a race-condition that
-    // can occurr when tx.exp gets changed by some transaction.
-    // to be correct, tx.exp and hints.exp.set_aborted should be
-    // atomic.
-    //
-    // this is not a problem with hints.cre.X because
-    // only one transaction ever creates a record
-    //
-    // it's also not a problem with hints.exp.set_committed
-    // because only one transaction ever can expire a record
-    // and commit
+    return false;
+  }
+
+  /**
+   * @brief - Check if tx_.cre is aborted. If you need to check for exp
+   * transaction do it manually by looking at commit log. This function can't do
+   * that for you since hints can't be used for exp transaction (reason is
+   * described in function above).
+   *
+   * @param engine - engine instance with information about transaction
+   * statuses
+   * @return true if it's aborted, false otherwise
+   */
+  bool cre_aborted(const tx::Engine &engine) const {
+    // If hints are set, return if id is committed.
+    if (hints_.Get(Hints::kCre)) return hints_.Get(Hints::kAbt & Hints::kCre);
+
+    // If hints are not set consult the commit log.
+    auto info = engine.clog().fetch_info(tx_.cre);
+    if (info.is_aborted()) {
+      hints_.Set(Hints::kAbt & Hints::kCre);
+      return true;
+    }
+    if (info.is_committed()) {
+      hints_.Set(Hints::kCmt & Hints::kCre);
+    }
     return false;
   }
 };

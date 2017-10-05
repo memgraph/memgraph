@@ -9,6 +9,7 @@
 #include "durability/recovery.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
+#include "utils/timer.hpp"
 
 DEFINE_int32(gc_cycle_sec, 30,
              "Amount of time between starts of two cleaning cycles in seconds. "
@@ -96,30 +97,53 @@ void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
 void GraphDb::CollectGarbage() {
   // main garbage collection logic
   // see wiki documentation for logic explanation
-  const auto snapshot = this->tx_engine_.GcSnapshot();
+  LOG(INFO) << "Garbage collector started";
+  const auto snapshot = tx_engine_.GcSnapshot();
   {
     // This can be run concurrently
-    this->gc_vertices_.Run(snapshot, this->tx_engine_);
-    this->gc_edges_.Run(snapshot, this->tx_engine_);
+    utils::Timer x;
+    gc_vertices_.Run(snapshot, tx_engine_);
+    gc_edges_.Run(snapshot, tx_engine_);
+    VLOG(1) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
   }
   // This has to be run sequentially after gc because gc modifies
   // version_lists and changes the oldest visible record, on which Refresh
   // depends.
   {
     // This can be run concurrently
-    this->labels_index_.Refresh(snapshot, this->tx_engine_);
-    this->edge_types_index_.Refresh(snapshot, this->tx_engine_);
-    this->label_property_index_.Refresh(snapshot, this->tx_engine_);
+    utils::Timer x;
+    labels_index_.Refresh(snapshot, tx_engine_);
+    edge_types_index_.Refresh(snapshot, tx_engine_);
+    label_property_index_.Refresh(snapshot, tx_engine_);
+    VLOG(1) << "Garbage collector index phase time: " << x.Elapsed().count();
   }
-  // we free expired objects with snapshot.back(), which is
-  // the ID of the oldest active transaction (or next active, if there
-  // are no currently active). that's legal because that was the
-  // last possible transaction that could have obtained pointers
-  // to those records
-  this->edge_record_deleter_.FreeExpiredObjects(snapshot.back());
-  this->vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
-  this->edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
-  this->vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
+  {
+    // We free expired objects with snapshot.back(), which is
+    // the ID of the oldest active transaction (or next active, if there
+    // are no currently active). That's legal because that was the
+    // last possible transaction that could have obtained pointers
+    // to those records. New snapshot can be used, different than one used for
+    // first two phases of gc.
+    utils::Timer x;
+    const auto snapshot = tx_engine_.GcSnapshot();
+    edge_record_deleter_.FreeExpiredObjects(snapshot.back());
+    vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
+    edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
+    vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
+    VLOG(1) << "Garbage collector deferred deletion phase time: "
+            << x.Elapsed().count();
+  }
+
+  LOG(INFO) << "Garbage collector finished";
+  VLOG(2) << "gc snapshot: " << snapshot;
+  VLOG(2) << "edge_record_deleter_ size: " << edge_record_deleter_.Count();
+  VLOG(2) << "vertex record deleter_ size: " << vertex_record_deleter_.Count();
+  VLOG(2) << "edge_version_list_deleter_ size: "
+          << edge_version_list_deleter_.Count();
+  VLOG(2) << "vertex_version_list_deleter_ size: "
+          << vertex_version_list_deleter_.Count();
+  VLOG(2) << "vertices_ size: " << vertices_.access().size();
+  VLOG(2) << "edges_ size: " << edges_.access().size();
 }
 
 GraphDb::~GraphDb() {
@@ -149,13 +173,12 @@ GraphDb::~GraphDb() {
 
   // Delete vertices and edges which weren't collected before, also deletes
   // records inside version list
-  for (auto &vertex : this->vertices_.access()) delete vertex;
-  for (auto &edge : this->edges_.access()) delete edge;
+  for (auto &vertex : vertices_.access()) delete vertex;
+  for (auto &edge : edges_.access()) delete edge;
 
   // Free expired records with the maximal possible id from all the deleters.
-  this->edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
-  this->vertex_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
-  this->edge_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
-  this->vertex_version_list_deleter_.FreeExpiredObjects(
-      tx::Transaction::MaxId());
+  edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  vertex_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  edge_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
+  vertex_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
 }

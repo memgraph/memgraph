@@ -31,27 +31,30 @@ class CommitLog {
 
   void set_aborted(transaction_id_t id) { log.set(2 * id + 1); }
 
- private:
-  struct Info {
+  class Info {
+   public:
     enum Status {
       ACTIVE = 0,     // 00
       COMMITTED = 1,  // 01
       ABORTED = 2,    // 10
     };
+    Info(uint8_t flags) : flags_(flags) {}
 
-    bool is_active() const { return flags == ACTIVE; }
+    bool is_active() const { return flags_ == ACTIVE; }
 
-    bool is_committed() const { return flags & COMMITTED; }
+    bool is_committed() const { return flags_ & COMMITTED; }
 
-    bool is_aborted() const { return flags & ABORTED; }
+    bool is_aborted() const { return flags_ & ABORTED; }
 
-    operator uint8_t() const { return flags; }
+    operator uint8_t() const { return flags_; }
 
-    uint8_t flags;
+   private:
+    uint8_t flags_;
   };
 
   Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
 
+ private:
   DynamicBitset<uint8_t, 32768> log;
 };
 }

@@ -32,19 +32,6 @@ class Engine : Lockable<SpinLock> {
   static constexpr auto kMaxCommandId =
       std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
 
-  template <class T>
-  class SimpleCounter {
-   public:
-    SimpleCounter(T initial) : counter(initial) {}
-
-    T next() { return ++counter; }
-
-    T count() const { return counter; }
-
-   private:
-    T counter;
-  };
-
  public:
   /** Begins a transaction and returns a pointer to
    * it's object.
@@ -56,7 +43,7 @@ class Engine : Lockable<SpinLock> {
   Transaction *Begin() {
     auto guard = this->acquire_unique();
 
-    transaction_id_t id{counter_.next()};
+    transaction_id_t id{++counter_};
     auto t = new Transaction(id, active_, *this);
 
     active_.insert(id);
@@ -105,7 +92,7 @@ class Engine : Lockable<SpinLock> {
     // No active transactions.
     if (active_.size() == 0) {
       auto snapshot_copy = active_;
-      snapshot_copy.insert(counter_.count() + 1);
+      snapshot_copy.insert(counter_ + 1);
       return snapshot_copy;
     }
 
@@ -133,11 +120,16 @@ class Engine : Lockable<SpinLock> {
     Finalize(t);
   }
 
+  /** Returns transaction id of last transaction without taking a lock. New
+   * transactions can be created or destroyed during call of this function.
+   */
+  auto LockFreeCount() const { return counter_.load(); }
+
   /** The total number of transactions that have executed since the creation of
    * this engine */
   auto Count() const {
     auto guard = this->acquire_unique();
-    return counter_.count();
+    return counter_.load();
   }
 
   /** The count of currently active transactions */
@@ -170,10 +162,6 @@ class Engine : Lockable<SpinLock> {
     store_.del(t.id_);
   }
 
-  // Transaction counter. contains the number of transactions ever created till
-  // now.
-  SimpleCounter<transaction_id_t> counter_{0};
-
   // A snapshot of currently active transactions.
   Snapshot active_;
 
@@ -187,5 +175,6 @@ class Engine : Lockable<SpinLock> {
   // garbage collected and we are sure that we will not be having problems with
   // lifetimes of each object.
   ConcurrentMap<transaction_id_t, transaction_id_t> lock_graph_;
+  std::atomic<transaction_id_t> counter_{0};
 };
 }
