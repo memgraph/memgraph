@@ -20,15 +20,17 @@ DEFINE_string(port, "7687", "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 
-DEFINE_int32(vertex_count, 0, "The average number of vertices in the graph");
-DEFINE_int32(edge_count, 0, "The average number of edges in the graph");
+DEFINE_int32(vertex_count, 0,
+             "The average number of vertices in the graph per worker");
+DEFINE_int32(edge_count, 0,
+             "The average number of edges in the graph per worker");
 DEFINE_int32(prop_count, 5, "The max number of properties on a node");
 DEFINE_uint64(max_queries, 1 << 30, "Maximum number of queries to execute");
 DEFINE_int32(max_time, 1, "Maximum execution time in minutes");
 DEFINE_int32(verify, 0, "Interval (seconds) between checking local info");
 DEFINE_int32(worker_count, 1,
              "The number of workers that operate on the graph independently");
-DEFINE_bool(global_queries, false,
+DEFINE_bool(global_queries, true,
             "If queries that modifiy globally should be executed sometimes");
 
 /**
@@ -83,8 +85,14 @@ class GraphSession {
 
   bool Bernoulli(double p) { return GetRandom() < p; }
 
-  template <typename T>
-  T RandomElement(std::set<T> &data) {
+  uint64_t RandomElement(std::set<uint64_t> &data) {
+    uint64_t min = *data.begin(), max = *data.rbegin();
+    uint64_t val = std::floor(GetRandom() * (max - min) + min);
+    auto it = data.lower_bound(val);
+    return *it;
+  }
+
+  std::string RandomElement(std::set<std::string> &data) {
     uint64_t pos = std::floor(GetRandom() * data.size());
     auto it = data.begin();
     std::advance(it, pos);
@@ -264,8 +272,7 @@ class GraphSession {
 
     // generate report
     std::ostringstream report;
-    report << std::endl
-           << fmt::format("Runner {} graph verification success:", id_)
+    report << fmt::format("Runner {} graph verification success:", id_)
            << std::endl
            << fmt::format("\tExecuted {} queries in {:.2f} seconds",
                           executed_queries_, timer_.Elapsed().count())
@@ -290,14 +297,11 @@ class GraphSession {
 
  public:
   void Run() {
-    uint64_t vertex_count = FLAGS_vertex_count / FLAGS_worker_count;
-    uint64_t edge_count = FLAGS_edge_count / FLAGS_worker_count;
-
     // initial vertex creation
-    CreateVertices(vertex_count);
+    CreateVertices(FLAGS_vertex_count);
 
     // initial edge creation
-    CreateEdges(edge_count);
+    CreateEdges(FLAGS_edge_count);
 
     if (FLAGS_verify > 0) VerifyGraph();
     double last_verify = timer_.Elapsed().count();
@@ -311,8 +315,8 @@ class GraphSession {
         last_verify = timer_.Elapsed().count();
       }
 
-      double ratio_e = (double)edges_.size() / (double)edge_count;
-      double ratio_v = (double)vertices_.size() / (double)vertex_count;
+      double ratio_e = (double)edges_.size() / (double)FLAGS_edge_count;
+      double ratio_v = (double)vertices_.size() / (double)FLAGS_vertex_count;
 
       // try to edit vertices globally
       if (FLAGS_global_queries) {

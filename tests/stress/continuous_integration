@@ -28,12 +28,12 @@ SMALL_DATASET = [
     },
     {
         "test": "long_running.cpp",
-        "options": ["--vertex-count", "1000", "--edge-count", "1000", "--max-time", "1", "--verify", "20"],
+        "options": ["--vertex-count", "1000", "--edge-count", "5000", "--max-time", "1", "--verify", "20"],
         "timeout": 5,
     },
     {
         "test": "long_running.cpp",
-        "options": ["--vertex-count", "1000", "--edge-count", "1000", "--max-time", "2", "--verify", "30"],
+        "options": ["--vertex-count", "10000", "--edge-count", "50000", "--max-time", "2", "--verify", "30"],
         "timeout": 5,
     },
 ]
@@ -56,13 +56,13 @@ LARGE_DATASET = [
 ] + [
     {
         "test": "long_running.cpp",
-        "options": ["--vertex-count", "100000", "--edge-count", "100000", "--max-time", "5", "--verify", "60"],
+        "options": ["--vertex-count", "10000", "--edge-count", "40000", "--max-time", "5", "--verify", "60"],
         "timeout": 8,
     },
 ] * 6 + [
     {
         "test": "long_running.cpp",
-        "options": ["--vertex-count", "100000", "--edge-count", "20000000", "--max-time", "480", "--verify", "300"],
+        "options": ["--vertex-count", "1000000", "--edge-count", "4000000", "--max-time", "480", "--verify", "300"],
         "timeout": 500,
     },
 ]
