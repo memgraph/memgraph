@@ -155,19 +155,24 @@ class GraphSession {
 
   void CreateEdges(uint64_t edges_count) {
     if (edges_count == 0) return;
-    double probability =
-        (double)edges_count / (double)(vertices_.size() * vertices_.size());
+    auto edges_per_node = (double)edges_count / vertices_.size();
+    permanent_assert(
+        std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001,
+        "Edges per node not a whole number");
+
     auto ret = Execute(fmt::format(
-        "MATCH (a:{0}) WITH a MATCH (b:{0}) WITH a, b WHERE rand() < {1} "
-        "CREATE (a)-[e:EdgeType {{id: counter(\"edge{2}\")}}]->(b) RETURN "
+        "MATCH (a:{0}) WITH a "
+        "UNWIND range(0, {1}) AS i WITH a, tointeger(rand() * {2}) AS id "
+        "MATCH (b:{0} {{id: id}}) WITH a, b "
+        "CREATE (a)-[e:EdgeType {{id: counter(\"edge{3}\")}}]->(b) RETURN "
         "min(e.id), count(e)",
-        indexed_label_, probability, id_));
-    if (ret.records.size() > 0) {
-      uint64_t min_id = ret.records[0][0].ValueInt();
-      uint64_t count = ret.records[0][1].ValueInt();
-      for (uint64_t i = 0; i < count; ++i) {
-        edges_.insert(min_id + i);
-      }
+        indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(), id_));
+
+    permanent_assert(ret.records.size() == 1, "Failed to create edges");
+    uint64_t min_id = ret.records[0][0].ValueInt();
+    uint64_t count = ret.records[0][1].ValueInt();
+    for (uint64_t i = 0; i < count; ++i) {
+      edges_.insert(min_id + i);
     }
   }
 
@@ -294,6 +299,7 @@ class GraphSession {
     // initial edge creation
     CreateEdges(edge_count);
 
+    if (FLAGS_verify > 0) VerifyGraph();
     double last_verify = timer_.Elapsed().count();
 
     // run rest
