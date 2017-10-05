@@ -384,7 +384,7 @@ ExpandCommon::ExpandCommon(
     Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
     const std::vector<GraphDbTypes::EdgeType> &edge_types,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, bool existing_edge, GraphView graph_view)
+    bool existing_node, GraphView graph_view)
     : node_symbol_(node_symbol),
       edge_symbol_(edge_symbol),
       direction_(direction),
@@ -392,7 +392,6 @@ ExpandCommon::ExpandCommon(
       input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node),
-      existing_edge_(existing_edge),
       graph_view_(graph_view) {}
 
 bool ExpandCommon::HandleExistingNode(const VertexAccessor &new_node,
@@ -419,22 +418,6 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)), db_(db) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
-  // Helper function for handling existing-edge checking. Returns false only if
-  // existing_edge is true and the given new_edge is not equal to the existing
-  // one.
-  auto handle_existing_edge = [this, &frame](const EdgeAccessor &new_edge) {
-    if (self_.existing_edge_) {
-      TypedValue &old_edge_value = frame[self_.edge_symbol_];
-      // old_edge_value may be Null when using optional matching
-      if (old_edge_value.IsNull()) return false;
-      ExpectType(self_.edge_symbol_, old_edge_value, TypedValue::Type::Edge);
-      return old_edge_value.Value<EdgeAccessor>() == new_edge;
-    } else {
-      frame[self_.edge_symbol_] = new_edge;
-      return true;
-    }
-  };
-
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                   EdgeAtom::Direction direction) {
@@ -456,11 +439,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       EdgeAccessor edge = *(*in_edges_it_)++;
-      if (handle_existing_edge(edge)) {
-        pull_node(edge, EdgeAtom::Direction::IN);
-        return true;
-      } else
-        continue;
+      frame[self_.edge_symbol_] = edge;
+      pull_node(edge, EdgeAtom::Direction::IN);
+      return true;
     }
 
     // attempt to get a value from the outgoing edges
@@ -471,11 +452,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
       // already done in the block above
       if (self_.direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
         continue;
-      if (handle_existing_edge(edge)) {
-        pull_node(edge, EdgeAtom::Direction::OUT);
-        return true;
-      } else
-        continue;
+      frame[self_.edge_symbol_] = edge;
+      pull_node(edge, EdgeAtom::Direction::OUT);
+      return true;
     }
 
     // if we are here, either the edges have not been initialized,
@@ -566,18 +545,29 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
 }
 
 ExpandVariable::ExpandVariable(
-    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
+    EdgeAtom::Direction direction,
     const std::vector<GraphDbTypes::EdgeType> &edge_types, bool is_reverse,
     Expression *lower_bound, Expression *upper_bound,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, bool existing_edge, GraphView graph_view,
-    Expression *filter)
+    bool existing_node, Symbol inner_edge_symbol, Symbol inner_node_symbol,
+    Expression *filter, GraphView graph_view)
     : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
-                   input_symbol, existing_node, existing_edge, graph_view),
+                   input_symbol, existing_node, graph_view),
+      type_(type),
+      is_reverse_(is_reverse),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
-      is_reverse_(is_reverse),
-      filter_(filter) {}
+      inner_edge_symbol_(inner_edge_symbol),
+      inner_node_symbol_(inner_node_symbol),
+      filter_(filter) {
+  debug_assert(
+      type_ == EdgeAtom::Type::DEPTH_FIRST ||
+          type_ == EdgeAtom::Type::BREADTH_FIRST,
+      "ExpandVariable can only be used with breadth or depth first type");
+  debug_assert(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse),
+               "Breadth first expansion can't be reversed");
+}
 
 ACCEPT_WITH_INPUT(ExpandVariable)
 
@@ -658,16 +648,9 @@ class ExpandVariableCursor : public Cursor {
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
         if (lower_bound_ == 0) {
-          auto &edges_on_frame =
-              frame[self_.edge_symbol_].Value<std::vector<TypedValue>>();
           auto &start_vertex =
               frame[self_.input_symbol_].Value<VertexAccessor>();
-          // take into account existing_edge when yielding empty paths
-          if ((!self_.existing_edge_ || edges_on_frame.empty()) &&
-              // Place the start vertex on the frame.
-              self_.HandleExistingNode(start_vertex, frame)) {
-            if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_))
-              continue;
+          if (self_.HandleExistingNode(start_vertex, frame)) {
             return true;
           }
         }
@@ -704,7 +687,8 @@ class ExpandVariableCursor : public Cursor {
                                         self_.edge_types_))>
       edges_;
 
-  // an iterator indicating the possition in the corresponding edges_ element
+  // an iterator indicating the possition in the corresponding edges_
+  // element
   std::vector<decltype(edges_.begin()->begin())> edges_it_;
 
   /**
@@ -715,7 +699,8 @@ class ExpandVariableCursor : public Cursor {
    * is exhausted.
    */
   bool PullInput(Frame &frame, Context &context) {
-    // Input Vertex could be null if it is created by a failed optional match.
+    // Input Vertex could be null if it is created by a failed optional
+    // match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -751,82 +736,31 @@ class ExpandVariableCursor : public Cursor {
       }
 
       // reset the frame value to an empty edge list
-      if (!self_.existing_edge_)
-        frame[self_.edge_symbol_] = std::vector<TypedValue>();
+      frame[self_.edge_symbol_] = std::vector<TypedValue>();
 
       return true;
     }
   }
 
-  /**
-   * Enum that indicates what happened during attempted edge
-   * existence and placement check
-   * YIELD - indicates that either existence matched fully
-   *    or existence is disabled
-   * PREFIX - indicates that existence is enabled and the current
-   *    edge-list is a prefix of the existing one, so expansion
-   *    should continue but this particular edge-list should not
-   *    be yielded as a valid result
-   * MISMATCH - indicates that existence is enabled and the
-   *    current edge-list is not a match, this whole expansion
-   *    branch should be abandoned
-   */
-  enum class EdgePlacementResult { YIELD, PREFIX, MISMATCH };
-
-  /**
-   * Handles the placement of a new edge expansion on the frame
-   * (into the the list of edges already on the frame). Also handles
-   * the logic of existing-symbol checking. If we are expanding into
-   * the existing symbol, then this cursor will not modify the value
-   * on the frame but will only yield true when it's expansion matches.
-   * Return value of this function indicates those situations. If we
-   * are not expanding into an existing symbol, but a new one, this
-   * function will always append the new_edge to the ones on the
-   * frame and return EdgePlacementResult::YIELD.
-   */
-  EdgePlacementResult HandleEdgePlacement(
-      const EdgeAccessor &new_edge, std::vector<TypedValue> &edges_on_frame) {
-    if (self_.existing_edge_) {
-      // check if the edge to add corresponds to the existing set's
-      // corresponding element
-
-      if (edges_on_frame.size() < edges_.size())
-        return EdgePlacementResult::MISMATCH;
-
-      int last_edge_index =
-          self_.is_reverse_ ? 0 : static_cast<int>(edges_.size()) - 1;
-      EdgeAccessor &edge_on_frame =
-          edges_on_frame[last_edge_index].Value<EdgeAccessor>();
-      if (edge_on_frame != new_edge) return EdgePlacementResult::MISMATCH;
-
-      // the new_edge matches the corresponding frame element
-      // check if it's the last one (in which case we can yield)
-      // or a subset (in which case we continue expansion but don't yield)
-      if (edges_on_frame.size() == edges_.size())
-        return EdgePlacementResult::YIELD;
-      else
-        return EdgePlacementResult::PREFIX;
-
+  // Helper function for appending an edge to the list on the frame.
+  void AppendEdge(const EdgeAccessor &new_edge,
+                  std::vector<TypedValue> &edges_on_frame) {
+    // We are placing an edge on the frame. It is possible that there already
+    // exists an edge on the frame for this level. If so first remove it.
+    debug_assert(edges_.size() > 0, "Edges are empty");
+    if (self_.is_reverse_) {
+      // TODO: This is innefficient, we should look into replacing
+      // vector with something else for TypedValue::List.
+      size_t diff = edges_on_frame.size() -
+                    std::min(edges_on_frame.size(), edges_.size() - 1U);
+      if (diff > 0U)
+        edges_on_frame.erase(edges_on_frame.begin(),
+                             edges_on_frame.begin() + diff);
+      edges_on_frame.insert(edges_on_frame.begin(), new_edge);
     } else {
-      // we are placing an edge on the frame
-      // it is possible that there already exists an edge on the frame for
-      // this level. if so first remove it
-      debug_assert(edges_.size() > 0, "Edges are empty");
-      if (self_.is_reverse_) {
-        // TODO: This is innefficient, we should look into replacing
-        // vector with something else for TypedValue::List.
-        size_t diff = edges_on_frame.size() -
-                      std::min(edges_on_frame.size(), edges_.size() - 1U);
-        if (diff > 0U)
-          edges_on_frame.erase(edges_on_frame.begin(),
-                               edges_on_frame.begin() + diff);
-        edges_on_frame.insert(edges_on_frame.begin(), new_edge);
-      } else {
-        edges_on_frame.resize(
-            std::min(edges_on_frame.size(), edges_.size() - 1U));
-        edges_on_frame.emplace_back(new_edge);
-      }
-      return EdgePlacementResult::YIELD;
+      edges_on_frame.resize(
+          std::min(edges_on_frame.size(), edges_.size() - 1U));
+      edges_on_frame.emplace_back(new_edge);
     }
   }
 
@@ -843,10 +777,9 @@ class ExpandVariableCursor : public Cursor {
     ExpressionEvaluator evaluator(frame, context.parameters_,
                                   context.symbol_table_, db_,
                                   self_.graph_view_);
-    // some expansions might not be valid due to
-    // edge uniqueness, existing_edge, existing_node criterions,
-    // so expand in a loop until either the input vertex is
-    // exhausted or a valid variable-length expansion is available
+    // Some expansions might not be valid due to edge uniqueness and
+    // existing_node criterions, so expand in a loop until either the input
+    // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
@@ -866,17 +799,15 @@ class ExpandVariableCursor : public Cursor {
       // elements as edges_ due to edge-uniqueness (when a whole layer
       // gets exhausted but no edges are valid). for that reason only
       // pop from edges_on_frame if they contain enough elements
-      if (!self_.existing_edge_) {
-        if (self_.is_reverse_) {
-          auto diff = edges_on_frame.size() -
-                      std::min(edges_on_frame.size(), edges_.size());
-          if (diff > 0) {
-            edges_on_frame.erase(edges_on_frame.begin(),
-                                 edges_on_frame.begin() + diff);
-          }
-        } else {
-          edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
+      if (self_.is_reverse_) {
+        auto diff = edges_on_frame.size() -
+                    std::min(edges_on_frame.size(), edges_.size());
+        if (diff > 0) {
+          edges_on_frame.erase(edges_on_frame.begin(),
+                               edges_on_frame.begin() + diff);
         }
+      } else {
+        edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
       }
 
       // if we are here, we have a valid stack,
@@ -884,32 +815,26 @@ class ExpandVariableCursor : public Cursor {
       std::pair<EdgeAccessor, EdgeAtom::Direction> current_edge =
           *edges_it_.back()++;
 
-      // check edge-uniqueness
-      // only needs to be done if we're not expanding into existing edge
-      // otherwise it gives false positives
-      if (!self_.existing_edge_) {
-        bool found_existing = std::any_of(
-            edges_on_frame.begin(), edges_on_frame.end(),
-            [&current_edge](const TypedValue &edge) {
-              return current_edge.first == edge.Value<EdgeAccessor>();
-            });
-        if (found_existing) continue;
-      }
+      // Check edge-uniqueness.
+      bool found_existing =
+          std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
+                      [&current_edge](const TypedValue &edge) {
+                        return current_edge.first == edge.Value<EdgeAccessor>();
+                      });
+      if (found_existing) continue;
 
-      auto edge_placement_result =
-          HandleEdgePlacement(current_edge.first, edges_on_frame);
-      if (edge_placement_result == EdgePlacementResult::MISMATCH) continue;
-      // Skip expanding out of filtered expansion. It is assumed that the
-      // expression does not use the vertex which has yet to be put on frame.
-      // Therefore, this check is done as soon as the edge is on the frame.
-      if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_)) continue;
-
+      AppendEdge(current_edge.first, edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN
               ? current_edge.first.from()
               : current_edge.first.to();
 
       if (!self_.HandleExistingNode(current_vertex, frame)) continue;
+
+      // Skip expanding out of filtered expansion.
+      frame[self_.inner_edge_symbol_] = current_edge.first;
+      frame[self_.inner_node_symbol_] = current_vertex;
+      if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_)) continue;
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
@@ -920,11 +845,8 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
-      // we only yield true if we satisfy the lower bound, and frame
-      // edge placement indicated we are good
-      auto bound_ok =
-          static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_;
-      if (bound_ok && edge_placement_result == EdgePlacementResult::YIELD)
+      // We only yield true if we satisfy the lower bound.
+      if (static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_)
         return true;
       else
         continue;
@@ -932,165 +854,161 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) const {
-  return std::make_unique<ExpandVariableCursor>(*this, db);
-}
+class ExpandBreadthFirstCursor : public query::plan::Cursor {
+ public:
+  ExpandBreadthFirstCursor(const ExpandVariable &self, GraphDbAccessor &db)
+      : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
-ExpandBreadthFirst::ExpandBreadthFirst(
-    Symbol node_symbol, Symbol edge_list_symbol, EdgeAtom::Direction direction,
-    const std::vector<GraphDbTypes::EdgeType> &edge_types,
-    Expression *max_depth,
-    std::experimental::optional<Symbol> inner_node_symbol,
-    std::experimental::optional<Symbol> inner_edge_symbol, Expression *where,
-    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, GraphView graph_view)
-    : node_symbol_(node_symbol),
-      edge_list_symbol_(edge_list_symbol),
-      direction_(direction),
-      edge_types_(edge_types),
-      max_depth_(max_depth),
-      inner_node_symbol_(inner_node_symbol),
-      inner_edge_symbol_(inner_edge_symbol),
-      where_(where),
-      input_(input ? input : std::make_shared<Once>()),
-      input_symbol_(input_symbol),
-      existing_node_(existing_node),
-      graph_view_(graph_view) {}
+  bool Pull(Frame &frame, Context &context) override {
+    // evaulator for the filtering condition
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db_,
+                                  self_.graph_view_);
 
-ACCEPT_WITH_INPUT(ExpandBreadthFirst)
+    // for the given (edge, vertex) pair checks if they satisfy the
+    // "where" condition. if so, places them in the to_visit_ structure.
+    auto expand_pair = [this, &evaluator, &frame](EdgeAccessor edge,
+                                                  VertexAccessor vertex) {
+      // if we already processed the given vertex it doesn't get expanded
+      if (processed_.find(vertex) != processed_.end()) return;
 
-std::unique_ptr<Cursor> ExpandBreadthFirst::MakeCursor(
-    GraphDbAccessor &db) const {
-  return std::make_unique<ExpandBreadthFirst::Cursor>(*this, db);
-}
-
-ExpandBreadthFirst::Cursor::Cursor(const ExpandBreadthFirst &self,
-                                   GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
-
-bool ExpandBreadthFirst::Cursor::Pull(Frame &frame, Context &context) {
-  // evaulator for the filtering condition
-  ExpressionEvaluator evaluator(frame, context.parameters_,
-                                context.symbol_table_, db_, self_.graph_view_);
-
-  // for the given (edge, vertex) pair checks if they satisfy the
-  // "where" condition. if so, places them in the to_visit_ structure.
-  auto expand_pair = [this, &evaluator, &frame](EdgeAccessor edge,
-                                                VertexAccessor vertex) {
-    // if we already processed the given vertex it doesn't get expanded
-    if (processed_.find(vertex) != processed_.end()) return;
-
-    SwitchAccessor(edge, self_.graph_view_);
-    SwitchAccessor(vertex, self_.graph_view_);
-
-    if (self_.where_) {
-      // to evaluate the where expression we need the inner
-      // values on the frame
-      if (self_.inner_edge_symbol_) frame[*self_.inner_edge_symbol_] = edge;
-      if (self_.inner_node_symbol_) frame[*self_.inner_node_symbol_] = vertex;
-      TypedValue result = self_.where_->Accept(evaluator);
-      switch (result.type()) {
-        case TypedValue::Type::Null:
-          return;
-        case TypedValue::Type::Bool:
-          if (!result.Value<bool>()) return;
-          break;
-        default:
-          throw QueryRuntimeException(
-              "Expansion condition must be boolean or null");
-      }
-    }
-    to_visit_next_.emplace_back(edge, vertex);
-    processed_.emplace(vertex, edge);
-  };
-
-  // populates the to_visit_next_ structure with expansions
-  // from the given vertex. skips expansions that don't satisfy
-  // the "where" condition.
-  auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
-    if (self_.direction_ != EdgeAtom::Direction::IN) {
-      for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
-        expand_pair(edge, edge.to());
-    }
-    if (self_.direction_ != EdgeAtom::Direction::OUT) {
-      for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
-        expand_pair(edge, edge.from());
-    }
-  };
-
-  // do it all in a loop because we skip some elements
-  while (true) {
-    // if we have nothing to visit on the current depth, switch to next
-    if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
-
-    // if current is still empty, it means both are empty, so pull from input
-    if (to_visit_current_.empty()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-      processed_.clear();
-
-      auto vertex_value = frame[self_.input_symbol_];
-      // it is possible that the vertex is Null due to optional matching
-      if (vertex_value.IsNull()) continue;
-      auto vertex = vertex_value.Value<VertexAccessor>();
+      SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
-      processed_.emplace(vertex, std::experimental::nullopt);
-      expand_from_vertex(vertex);
-      max_depth_ = self_.max_depth_
-                       ? EvaluateInt(evaluator, self_.max_depth_,
-                                     "Max depth in breadth-first expansion")
-                       : std::numeric_limits<int>::max();
-      if (max_depth_ < 1)
-        throw QueryRuntimeException(
-            "Max depth in breadth-first expansion must be greater then zero");
 
-      // go back to loop start and see if we expanded anything
-      continue;
-    }
+      frame[self_.inner_edge_symbol_] = edge;
+      frame[self_.inner_node_symbol_] = vertex;
 
-    // take the next expansion from the queue
-    std::pair<EdgeAccessor, VertexAccessor> expansion =
-        to_visit_current_.front();
-    to_visit_current_.pop_front();
+      if (self_.filter_) {
+        TypedValue result = self_.filter_->Accept(evaluator);
+        switch (result.type()) {
+          case TypedValue::Type::Null:
+            return;
+          case TypedValue::Type::Bool:
+            if (!result.Value<bool>()) return;
+            break;
+          default:
+            throw QueryRuntimeException(
+                "Expansion condition must be boolean or null");
+        }
+      }
+      to_visit_next_.emplace_back(edge, vertex);
+      processed_.emplace(vertex, edge);
+    };
 
-    // create the frame value for the edges
-    std::vector<TypedValue> edge_list{expansion.first};
-    auto last_vertex = expansion.second;
+    // populates the to_visit_next_ structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
+    auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
+      if (self_.direction_ != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
+          expand_pair(edge, edge.to());
+      }
+      if (self_.direction_ != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
+          expand_pair(edge, edge.from());
+      }
+    };
+
+    // do it all in a loop because we skip some elements
     while (true) {
-      const EdgeAccessor &last_edge = edge_list.back().Value<EdgeAccessor>();
-      last_vertex =
-          last_edge.from() == last_vertex ? last_edge.to() : last_edge.from();
-      // origin_vertex must be in processed
-      const auto &previous_edge = processed_.find(last_vertex)->second;
-      if (!previous_edge) break;
+      // if we have nothing to visit on the current depth, switch to next
+      if (to_visit_current_.empty()) to_visit_current_.swap(to_visit_next_);
 
-      edge_list.push_back(previous_edge.value());
+      // if current is still empty, it means both are empty, so pull from
+      // input
+      if (to_visit_current_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        processed_.clear();
+
+        auto vertex_value = frame[self_.input_symbol_];
+        // it is possible that the vertex is Null due to optional matching
+        if (vertex_value.IsNull()) continue;
+        auto vertex = vertex_value.Value<VertexAccessor>();
+        SwitchAccessor(vertex, self_.graph_view_);
+        processed_.emplace(vertex, std::experimental::nullopt);
+        expand_from_vertex(vertex);
+        upper_bound_ = self_.upper_bound_
+                           ? EvaluateInt(evaluator, self_.upper_bound_,
+                                         "Max depth in breadth-first expansion")
+                           : std::numeric_limits<int>::max();
+        if (upper_bound_ < 1)
+          throw QueryRuntimeException(
+              "Max depth in breadth-first expansion must be greater then "
+              "zero");
+
+        // go back to loop start and see if we expanded anything
+        continue;
+      }
+
+      // take the next expansion from the queue
+      std::pair<EdgeAccessor, VertexAccessor> expansion =
+          to_visit_current_.front();
+      to_visit_current_.pop_front();
+
+      // create the frame value for the edges
+      std::vector<TypedValue> edge_list{expansion.first};
+      auto last_vertex = expansion.second;
+      while (true) {
+        const EdgeAccessor &last_edge = edge_list.back().Value<EdgeAccessor>();
+        last_vertex =
+            last_edge.from() == last_vertex ? last_edge.to() : last_edge.from();
+        // origin_vertex must be in processed
+        const auto &previous_edge = processed_.find(last_vertex)->second;
+        if (!previous_edge) break;
+
+        edge_list.push_back(previous_edge.value());
+      }
+
+      // expand only if what we've just expanded is less then max depth
+      if (static_cast<int>(edge_list.size()) < upper_bound_)
+        expand_from_vertex(expansion.second);
+
+      // place destination node on the frame, handle existence flag
+      if (self_.existing_node_) {
+        TypedValue &node = frame[self_.node_symbol_];
+        // due to optional matching the existing node could be null
+        if (node.IsNull() || (node != expansion.second).Value<bool>()) continue;
+      } else
+        frame[self_.node_symbol_] = expansion.second;
+
+      // place edges on the frame in the correct order
+      std::reverse(edge_list.begin(), edge_list.end());
+      frame[self_.edge_symbol_] = std::move(edge_list);
+
+      return true;
     }
-
-    // expand only if what we've just expanded is less then max depth
-    if (static_cast<int>(edge_list.size()) < max_depth_)
-      expand_from_vertex(expansion.second);
-
-    // place destination node on the frame, handle existence flag
-    if (self_.existing_node_) {
-      TypedValue &node = frame[self_.node_symbol_];
-      // due to optional matching the existing node could be null
-      if (node.IsNull() || (node != expansion.second).Value<bool>()) continue;
-    } else
-      frame[self_.node_symbol_] = expansion.second;
-
-    // place edges on the frame in the correct order
-    std::reverse(edge_list.begin(), edge_list.end());
-    frame[self_.edge_list_symbol_] = std::move(edge_list);
-
-    return true;
   }
-}
+  void Reset() override {
+    input_cursor_->Reset();
+    processed_.clear();
+    to_visit_next_.clear();
+    to_visit_current_.clear();
+  }
 
-void ExpandBreadthFirst::Cursor::Reset() {
-  input_cursor_->Reset();
-  processed_.clear();
-  to_visit_next_.clear();
-  to_visit_current_.clear();
+ private:
+  const ExpandVariable &self_;
+  GraphDbAccessor &db_;
+  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+  // maximum depth of the expansion. calculated on each pull
+  // from the input, the initial value is irrelevant.
+  int upper_bound_{-1};
+
+  // maps vertices to the edge they got expanded from. it is an optional
+  // edge because the root does not get expanded from anything.
+  // contains visited vertices as well as those scheduled to be visited.
+  std::unordered_map<VertexAccessor, std::experimental::optional<EdgeAccessor>>
+      processed_;
+  // edge/vertex pairs we have yet to visit, for current and next depth
+  std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
+  std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
+};
+
+std::unique_ptr<Cursor> ExpandVariable::MakeCursor(GraphDbAccessor &db) const {
+  if (type_ == EdgeAtom::Type::BREADTH_FIRST)
+    return std::make_unique<ExpandBreadthFirstCursor>(*this, db);
+  else
+    return std::make_unique<ExpandVariableCursor>(*this, db);
 }
 
 class ConstructNamedPathCursor : public Cursor {
@@ -1118,7 +1036,8 @@ class ConstructNamedPathCursor : public Cursor {
     query::Path path(start_vertex.ValueVertex());
 
     // If the last path element symbol was for an edge list, then
-    // the next symbol is a vertex and it should not append to the path because
+    // the next symbol is a vertex and it should not append to the path
+    // because
     // expansion already did it.
     bool last_was_edge_list = false;
 
@@ -1139,7 +1058,8 @@ class ConstructNamedPathCursor : public Cursor {
           break;
         case TypedValue::Type::List: {
           last_was_edge_list = true;
-          // We need to expand all edges in the list and intermediary vertices.
+          // We need to expand all edges in the list and intermediary
+          // vertices.
           const std::vector<TypedValue> &edges = expansion.ValueList();
           for (const auto &edge_value : edges) {
             const EdgeAccessor &edge = edge_value.ValueEdge();
@@ -1260,7 +1180,8 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, GraphDbAccessor &db)
 bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  // Delete should get the latest information, this way it is also possible to
+  // Delete should get the latest information, this way it is also possible
+  // to
   // delete newly added nodes and edges.
   ExpressionEvaluator evaluator(frame, context.parameters_,
                                 context.symbol_table_, db_, GraphView::NEW);
@@ -1294,7 +1215,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
         break;
       }
 
-      // skip Edges (already deleted) and Nulls (can occur in optional match)
+      // skip Edges (already deleted) and Nulls (can occur in optional
+      // match)
       case TypedValue::Type::Edge:
       case TypedValue::Type::Null:
         break;
@@ -1342,7 +1264,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
       // Skip setting properties on Null (can occur in optional match).
       break;
     case TypedValue::Type::Map:
-    // Semantically modifying a map makes sense, but it's not supported due to
+    // Semantically modifying a map makes sense, but it's not supported due
+    // to
     // all the copying we do (when PropertyValue -> TypedValue and in
     // ExpressionEvaluator). So even though we set a map property here, that
     // is never visible to the user and it's not stored.
@@ -1427,7 +1350,8 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
   }
 }
 
-// instantiate the SetProperties function with concrete TRecordAccessor types
+// instantiate the SetProperties function with concrete TRecordAccessor
+// types
 template void SetProperties::SetPropertiesCursor::Set(
     RecordAccessor<Vertex> &record, const TypedValue &rhs) const;
 template void SetProperties::SetPropertiesCursor::Set(
@@ -1597,9 +1521,9 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     TypedValue &expand_value = frame[self_.expand_symbol_];
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
-      // This shouldn't raise a TypedValueException, because the planner makes
-      // sure these are all of the expected type. In case they are not, an error
-      // should be raised long before this code is executed.
+      // This shouldn't raise a TypedValueException, because the planner
+      // makes sure these are all of the expected type. In case they are not, an
+      // error should be raised long before this code is executed.
       if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
     }
     return true;
@@ -1755,8 +1679,8 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame, Context &context) {
     pulled_all_input_ = true;
     aggregation_it_ = aggregation_.begin();
 
-    // in case there is no input and no group_bys we need to return true just
-    // this once
+    // in case there is no input and no group_bys we need to return true
+    // just this once
     if (aggregation_.empty() && self_.group_by_.empty()) {
       // place default aggregation values on the frame
       for (const auto &elem : self_.aggregations_)
@@ -1832,12 +1756,12 @@ void Aggregate::AggregateCursor::EnsureInitialized(
 void Aggregate::AggregateCursor::Update(
     Frame &, const SymbolTable &, ExpressionEvaluator &evaluator,
     Aggregate::AggregateCursor::AggregationValue &agg_value) {
-  debug_assert(
-      self_.aggregations_.size() == agg_value.values_.size(),
-      "Expected as much AggregationValue.values_ as there are aggregations.");
-  debug_assert(
-      self_.aggregations_.size() == agg_value.counts_.size(),
-      "Expected as much AggregationValue.counts_ as there are aggregations.");
+  debug_assert(self_.aggregations_.size() == agg_value.values_.size(),
+               "Expected as much AggregationValue.values_ as there are "
+               "aggregations.");
+  debug_assert(self_.aggregations_.size() == agg_value.counts_.size(),
+               "Expected as much AggregationValue.counts_ as there are "
+               "aggregations.");
 
   // we iterate over counts, values and aggregation info at the same time
   auto count_it = agg_value.counts_.begin();
@@ -2054,8 +1978,8 @@ Limit::LimitCursor::LimitCursor(const Limit &self, GraphDbAccessor &db)
 bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
   // we need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all
-  // we can do this before Pulling from the input because the limit expression
-  // is not allowed to contain any identifiers
+  // we can do this before Pulling from the input because the limit
+  // expression is not allowed to contain any identifiers
   if (limit_ == -1) {
     ExpressionEvaluator evaluator(frame, context.parameters_,
                                   context.symbol_table_, db_);
@@ -2280,7 +2204,8 @@ bool Merge::MergeCursor::Pull(Frame &frame, Context &context) {
       debug_assert(merge_create_pull_result, "MergeCreate must never fail");
       return true;
     }
-    // we have exhausted merge_match_cursor_ after 1 or more successful Pulls
+    // we have exhausted merge_match_cursor_ after 1 or more successful
+    // Pulls
     // attempt next input_cursor_ pull
     pull_input_ = true;
     return Pull(frame, context);

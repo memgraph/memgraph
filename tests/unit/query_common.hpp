@@ -139,24 +139,43 @@ auto GetPropertyLookup(
 }
 
 ///
-/// Create an EdgeAtom with given name, edge_type and direction.
+/// Create an EdgeAtom with given name, direction and edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 ///
 auto GetEdge(AstTreeStorage &storage, const std::string &name,
-             GraphDbTypes::EdgeType edge_type = nullptr,
-             EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH) {
-  auto edge = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), dir);
-  if (edge_type) edge->edge_types_.emplace_back(edge_type);
-  return edge;
+             EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
+             const std::vector<GraphDbTypes::EdgeType> &edge_types = {}) {
+  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
+                                  EdgeAtom::Type::SINGLE, dir, edge_types);
+}
+
+/// Generates a randomly chosen (uniformly) string from a population of 10 ** 20
+std::string random_string() {
+  std::string str = "rand_str_";
+  for (int i = 0; i < 20; i++) str += std::to_string(rand() % 10);
+  return str;
 }
 
 ///
-/// Create an EdgeAtom with given name and direction.
+/// Create a variable length expansion EdgeAtom with given name, direction and
+/// edge_type.
 ///
-auto GetEdge(AstTreeStorage &storage, const std::string &name,
-             EdgeAtom::Direction dir) {
-  return GetEdge(storage, name, nullptr, dir);
+/// Name is used to create the Identifier which is assigned to the edge.
+///
+auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
+                     EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
+                     const std::vector<GraphDbTypes::EdgeType> &edge_types = {},
+                     Identifier *inner_edge = nullptr,
+                     Identifier *inner_node = nullptr) {
+  auto r_val =
+      storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
+                               EdgeAtom::Type::DEPTH_FIRST, dir, edge_types);
+  r_val->inner_edge_ =
+      inner_edge ? inner_edge : storage.Create<Identifier>(random_string());
+  r_val->inner_node_ =
+      inner_node ? inner_node : storage.Create<Identifier>(random_string());
+  return r_val;
 }
 
 ///
@@ -169,13 +188,6 @@ auto GetNode(AstTreeStorage &storage, const std::string &name,
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
   if (label) node->labels_.emplace_back(label);
   return node;
-}
-
-/// Generates a randomly chosen (uniformly) string from a population of 10 ** 20
-std::string random_string() {
-  std::string str = "rand_str_";
-  for (int i = 0; i < 20; i++) str += std::to_string(rand() % 10);
-  return str;
 }
 
 ///
@@ -460,6 +472,8 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 ///
 #define NODE(...) query::test_common::GetNode(storage, __VA_ARGS__)
 #define EDGE(...) query::test_common::GetEdge(storage, __VA_ARGS__)
+#define EDGE_VARIABLE(...) \
+  query::test_common::GetEdgeVariable(storage, __VA_ARGS__)
 #define PATTERN(...) query::test_common::GetPattern(storage, {__VA_ARGS__})
 #define NAMED_PATTERN(name, ...) \
   query::test_common::GetPattern(storage, name, {__VA_ARGS__})

@@ -179,8 +179,7 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                        Symbol input_symbol, const std::string &edge_identifier,
                        EdgeAtom::Direction direction,
                        const std::vector<GraphDbTypes::EdgeType> &edge_types,
-                       bool existing_edge, const std::string &node_identifier,
-                       bool existing_node,
+                       const std::string &node_identifier, bool existing_node,
                        GraphView graph_view = GraphView::AS_IS) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
@@ -190,9 +189,9 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   symbol_table[*node->identifier_] = node_sym;
 
-  auto op = std::make_shared<Expand>(node_sym, edge_sym, direction, edge_types,
-                                     input, input_symbol, existing_node,
-                                     existing_edge, graph_view);
+  auto op =
+      std::make_shared<Expand>(node_sym, edge_sym, direction, edge_types, input,
+                               input_symbol, existing_node, graph_view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }

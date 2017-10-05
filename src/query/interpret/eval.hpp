@@ -44,7 +44,6 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   BLOCK_VISIT(Pattern);
   BLOCK_VISIT(NodeAtom);
   BLOCK_VISIT(EdgeAtom);
-  BLOCK_VISIT(BreadthFirstAtom);
   BLOCK_VISIT(Delete);
   BLOCK_VISIT(Where);
   BLOCK_VISIT(SetProperty);

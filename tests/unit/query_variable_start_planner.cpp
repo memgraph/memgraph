@@ -88,9 +88,8 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   AstTreeStorage storage;
-  QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m"))),
-      RETURN("n"));
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+        RETURN("n"));
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
   CheckPlansProduce(2, storage, *dba, [&](const auto &results) {
     // We expect to produce only a single (v1) node.
@@ -111,10 +110,9 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
     AstTreeStorage storage;
-    QUERY(
-        MATCH(PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m"),
-                      EDGE("e", nullptr, Direction::OUT), NODE("l"))),
-        RETURN("n"));
+    QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"),
+                        EDGE("e", Direction::OUT), NODE("l"))),
+          RETURN("n"));
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
     CheckPlansProduce(3, storage, *dba, [&](const auto &results) {
       // We expect to produce only a single (v1) node.
@@ -124,11 +122,9 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   {
     // Equivalent to `MATCH (n) -[r]-> (m), (m) -[e]-> (l) RETURN n`.
     AstTreeStorage storage;
-    QUERY(
-        MATCH(
-            PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m")),
-            PATTERN(NODE("m"), EDGE("e", nullptr, Direction::OUT), NODE("l"))),
-        RETURN("n"));
+    QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
+                PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
+          RETURN("n"));
     CheckPlansProduce(3, storage, *dba, [&](const auto &results) {
       AssertRows(results, {{v1}});
     });
@@ -148,9 +144,8 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
   AstTreeStorage storage;
   QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m"))),
-      OPTIONAL_MATCH(
-          PATTERN(NODE("m"), EDGE("e", nullptr, Direction::OUT), NODE("l"))),
+      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+      OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
       RETURN("n", "l"));
   // We have 2 nodes `n` and `m` from which we could start the MATCH, and 2
   // nodes for OPTIONAL MATCH. This should produce 2 * 2 plans.
@@ -175,10 +170,9 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
   AstTreeStorage storage;
   QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m"))),
-      OPTIONAL_MATCH(
-          PATTERN(NODE("m"), EDGE("e", nullptr, Direction::OUT), NODE("l"))),
-      MERGE(PATTERN(NODE("u"), EDGE("q", r_type, Direction::OUT), NODE("v"))),
+      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+      OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
+      MERGE(PATTERN(NODE("u"), EDGE("q", Direction::OUT, {r_type}), NODE("v"))),
       RETURN("n", "m", "l", "u", "v"));
   // Since MATCH, OPTIONAL MATCH and MERGE each have 2 nodes from which we can
   // start, we generate 2 * 2 * 2 plans.
@@ -198,11 +192,10 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   dba->AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
   AstTreeStorage storage;
-  QUERY(
-      MATCH(PATTERN(NODE("n"), EDGE("r", nullptr, Direction::OUT), NODE("m"))),
-      WITH("n"),
-      MATCH(PATTERN(NODE("m"), EDGE("r", nullptr, Direction::OUT), NODE("l"))),
-      RETURN("n", "m", "l"));
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+        WITH("n"),
+        MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))),
+        RETURN("n", "m", "l"));
   // We can start from 2 nodes in each match. Since WITH separates query parts,
   // we expect to get 2 plans for each, which totals 2 * 2.
   CheckPlansProduce(4, storage, *dba, [&](const auto &results) {
@@ -223,8 +216,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   dba->AdvanceCommand();
   // Test MATCH (n) -[r*]-> (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r", Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::OUT);
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
@@ -251,8 +243,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   dba->AdvanceCommand();
   // Test MATCH (n) -[r*..n.id]-> (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r", Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->upper_bound_ = PROPERTY_LOOKUP("n", id);
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   // We expect to get a single column with the following rows:
@@ -277,8 +268,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   dba->AdvanceCommand();
   // Test MATCH (n {id:1}) -[r*]- (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r", Direction::BOTH);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::BOTH);
   auto node_n = NODE("n");
   node_n->properties_[std::make_pair("id", id)] = LITERAL(1);
   QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
@@ -304,11 +294,14 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   auto r1 = dba->InsertEdge(v1, v2, dba->EdgeType("r1"));
   dba->InsertEdge(v2, v3, dba->EdgeType("r2"));
   dba->AdvanceCommand();
-  // Test MATCH (n) -bfs[r](r, n|n.id <> 3, 10)-> (m) RETURN r
+  // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   AstTreeStorage storage;
-  auto *bfs = storage.Create<query::BreadthFirstAtom>(
-      IDENT("r"), Direction::OUT, std::vector<GraphDbTypes::EdgeType>{},
-      IDENT("r"), IDENT("n"), NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3)));
+  auto *bfs = storage.Create<query::EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{});
+  bfs->inner_edge_ = IDENT("r");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));
   bfs->upper_bound_ = LITERAL(10);
   QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   // We expect to get a single column with the following rows:

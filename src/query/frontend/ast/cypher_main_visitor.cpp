@@ -420,21 +420,23 @@ antlrcpp::Any CypherMainVisitor::visitPatternElementChain(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     CypherParser::RelationshipPatternContext *ctx) {
+  auto *edge = storage_.Create<EdgeAtom>();
+
   auto relationshipDetail = ctx->relationshipDetail();
   auto *variableExpansion =
       relationshipDetail ? relationshipDetail->variableExpansion() : nullptr;
   bool is_bfs = false;
-  // Range expressions, only used in variable length and BFS.
-  Expression *lower = nullptr;
-  Expression *upper = nullptr;
   if (variableExpansion)
-    std::tie(is_bfs, lower, upper) =
+    std::tie(is_bfs, edge->lower_bound_, edge->upper_bound_) =
         variableExpansion->accept(this)
             .as<std::tuple<bool, Expression *, Expression *>>();
 
-  auto *edge = (variableExpansion && is_bfs)
-                   ? storage_.Create<BreadthFirstAtom>()
-                   : storage_.Create<EdgeAtom>();
+  if (!variableExpansion)
+    edge->type_ = EdgeAtom::Type::SINGLE;
+  else if (is_bfs)
+    edge->type_ = EdgeAtom::Type::BREADTH_FIRST;
+  else
+    edge->type_ = EdgeAtom::Type::DEPTH_FIRST;
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
     edge->direction_ = EdgeAtom::Direction::IN;
@@ -468,35 +470,31 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
-    edge->has_range_ = true;
-    edge->lower_bound_ = lower;
-    edge->upper_bound_ = upper;
-
     switch (relationshipLambdas.size()) {
       case 0:
+        // In variable length and BFS expansion inner variables are mandatory.
+        anonymous_identifiers.push_back(&edge->inner_edge_);
+        anonymous_identifiers.push_back(&edge->inner_node_);
         break;
       case 1: {
-        if (!is_bfs)
-          throw SemanticException("Relationship lambda only supported in BFS");
-
         auto *lambda = relationshipLambdas[0];
-        auto *edge_bfs = dynamic_cast<BreadthFirstAtom *>(edge);
         std::string traversed_edge_variable =
             lambda->traversed_edge->accept(this);
-        edge_bfs->traversed_edge_identifier_ =
+        edge->inner_edge_ =
             storage_.Create<Identifier>(traversed_edge_variable);
         std::string traversed_node_variable =
             lambda->traversed_node->accept(this);
-        edge_bfs->next_node_identifier_ =
+        edge->inner_node_ =
             storage_.Create<Identifier>(traversed_node_variable);
-        edge_bfs->filter_expression_ = lambda->expression()->accept(this);
+        edge->filter_expression_ = lambda->expression()->accept(this);
         break;
       };
       default:
         throw SemanticException("Only one relationship lambda allowed");
     }
   } else if (!relationshipLambdas.empty()) {
-    throw SemanticException("Relationship lambda only supported in BFS");
+    throw SemanticException(
+        "Relationship lambda only supported in variable length expansion");
   }
 
   auto properties = relationshipDetail->properties();
@@ -504,10 +502,6 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     case 0:
       break;
     case 1: {
-      // TODO support property filters in BFS
-      if (is_bfs)
-        throw SemanticException(
-            "BFS expansion and property maps not supported");
       edge->properties_ =
           properties[0]
               ->accept(this)

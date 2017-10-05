@@ -56,8 +56,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(NodeAtom &) override;
   bool PreVisit(EdgeAtom &) override;
   bool PostVisit(EdgeAtom &) override;
-  bool PreVisit(BreadthFirstAtom &) override;
-  bool PostVisit(BreadthFirstAtom &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of

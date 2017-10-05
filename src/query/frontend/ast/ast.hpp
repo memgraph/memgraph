@@ -982,7 +982,13 @@ class NodeAtom : public PatternAtom {
 class EdgeAtom : public PatternAtom {
   friend class AstTreeStorage;
 
+  template <typename TPtr>
+  static TPtr *CloneOpt(TPtr *ptr, AstTreeStorage &storage) {
+    return ptr ? ptr->Clone(storage) : nullptr;
+  }
+
  public:
+  enum class Type { SINGLE, DEPTH_FIRST, BREADTH_FIRST };
   enum class Direction { IN, OUT, BOTH };
 
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1007,92 +1013,57 @@ class EdgeAtom : public PatternAtom {
   EdgeAtom *Clone(AstTreeStorage &storage) const override {
     auto *edge_atom = storage.Create<EdgeAtom>(identifier_->Clone(storage));
     edge_atom->direction_ = direction_;
+    edge_atom->type_ = type_;
     edge_atom->edge_types_ = edge_types_;
     for (auto property : properties_) {
       edge_atom->properties_[property.first] = property.second->Clone(storage);
     }
-    edge_atom->has_range_ = has_range_;
-    edge_atom->lower_bound_ =
-        lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
-    edge_atom->upper_bound_ =
-        upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
+    edge_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
+    edge_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
+    edge_atom->inner_edge_ = CloneOpt(inner_edge_, storage);
+    edge_atom->inner_node_ = CloneOpt(inner_node_, storage);
+    edge_atom->filter_expression_ = CloneOpt(filter_expression_, storage);
     return edge_atom;
   }
 
+  bool IsVariable() const {
+    switch (type_) {
+      case Type::DEPTH_FIRST:
+      case Type::BREADTH_FIRST:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  Type type_ = Type::SINGLE;
   Direction direction_ = Direction::BOTH;
   std::vector<GraphDbTypes::EdgeType> edge_types_;
-  // maps (property_name, property) to an expression
   std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
                      Expression *>
       properties_;
-  bool has_range_ = false;
+
+  // Used in variable length and BFS expansions. Bounds can be nullptr. Inner
+  // element symbols can only be null in SINGLE expansion. Filter can be
+  // nullptr.
   Expression *lower_bound_ = nullptr;
   Expression *upper_bound_ = nullptr;
-
- protected:
-  using PatternAtom::PatternAtom;
-  EdgeAtom(int uid, Identifier *identifier, Direction direction)
-      : PatternAtom(uid, identifier), direction_(direction) {}
-  EdgeAtom(int uid, Identifier *identifier, Direction direction,
-           const std::vector<GraphDbTypes::EdgeType> &edge_types)
-      : PatternAtom(uid, identifier),
-        direction_(direction),
-        edge_types_(edge_types) {}
-};
-
-class BreadthFirstAtom : public EdgeAtom {
-  friend class AstTreeStorage;
-
-  template <typename TPtr>
-  static TPtr *CloneOpt(TPtr *ptr, AstTreeStorage &storage) {
-    return ptr ? ptr->Clone(storage) : nullptr;
-  }
-
- public:
-  DEFVISITABLE(TreeVisitor<TypedValue>);
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      bool cont = identifier_->Accept(visitor);
-      if (cont && traversed_edge_identifier_)
-        cont = traversed_edge_identifier_->Accept(visitor);
-      if (cont && next_node_identifier_)
-        cont = next_node_identifier_->Accept(visitor);
-      if (cont && filter_expression_)
-        cont = filter_expression_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
-
-  BreadthFirstAtom *Clone(AstTreeStorage &storage) const override {
-    auto bfs_atom = storage.Create<BreadthFirstAtom>(
-        identifier_->Clone(storage), direction_, edge_types_,
-        CloneOpt(traversed_edge_identifier_, storage),
-        CloneOpt(next_node_identifier_, storage),
-        CloneOpt(filter_expression_, storage));
-    bfs_atom->has_range_ = has_range_;
-    bfs_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
-    bfs_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
-    return bfs_atom;
-  }
-
-  Identifier *traversed_edge_identifier_ = nullptr;
-  Identifier *next_node_identifier_ = nullptr;
-  // Expression which evaluates to true in order to continue the BFS.
+  Identifier *inner_edge_ = nullptr;
+  Identifier *inner_node_ = nullptr;
   Expression *filter_expression_ = nullptr;
 
  protected:
-  using EdgeAtom::EdgeAtom;
-  BreadthFirstAtom(int uid, Identifier *identifier, Direction direction,
-                   const std::vector<GraphDbTypes::EdgeType> &edge_types,
-                   Identifier *traversed_edge_identifier,
-                   Identifier *next_node_identifier,
-                   Expression *filter_expression)
-      : EdgeAtom(uid, identifier, direction, edge_types),
-        traversed_edge_identifier_(traversed_edge_identifier),
-        next_node_identifier_(next_node_identifier),
-        filter_expression_(filter_expression) {
-    has_range_ = true;
-  }
+  using PatternAtom::PatternAtom;
+  EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction)
+      : PatternAtom(uid, identifier), type_(type), direction_(direction) {}
+
+  // Creates an edge atom for a SINGLE expansion with the given types.
+  EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction,
+           const std::vector<GraphDbTypes::EdgeType> &edge_types)
+      : PatternAtom(uid, identifier),
+        type_(type),
+        direction_(direction),
+        edge_types_(edge_types) {}
 };
 
 class Pattern : public Tree {

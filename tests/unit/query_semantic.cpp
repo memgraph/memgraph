@@ -154,10 +154,11 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                     CREATE(PATTERN(NODE("n"), EDGE("r", relationship,
-                                                    EdgeAtom::Direction::OUT),
-                                    NODE("l"))));
+  auto query =
+      QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+            CREATE(PATTERN(NODE("n"),
+                           EDGE("r", EdgeAtom::Direction::OUT, {relationship}),
+                           NODE("l"))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
 }
@@ -193,7 +194,7 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   auto dba = dbms.active();
   auto rel1 = dba->EdgeType("rel1");
   auto rel2 = dba->EdgeType("rel2");
-  auto edge = EDGE("r", rel1, EdgeAtom::Direction::OUT);
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
   edge->edge_types_.emplace_back(rel2);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
   SymbolTable symbol_table;
@@ -208,7 +209,8 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   Dbms dbms;
   auto dba = dbms.active();
   auto rel1 = dba->EdgeType("rel1");
-  auto query = QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", rel1), NODE("m"))));
+  auto query = QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -334,10 +336,10 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   auto p_type = dba->EdgeType("p");
   AstTreeStorage storage;
   auto node_n1 = NODE("n");
-  auto edge_r = EDGE("r", r_type, EdgeAtom::Direction::OUT);
+  auto edge_r = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_m = NODE("m");
   auto node_n2 = NODE("n");
-  auto edge_p = EDGE("p", p_type, EdgeAtom::Direction::OUT);
+  auto edge_p = EDGE("p", EdgeAtom::Direction::OUT, {p_type});
   auto node_l = NODE("l");
   auto query = QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
                             PATTERN(node_n2, edge_p, node_l)));
@@ -373,7 +375,7 @@ TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
-      CREATE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::OUT),
+      CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
                      NODE("n", label))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -388,8 +390,8 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   AstTreeStorage storage;
   auto n_prop = NODE("n");
   n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
-  auto query = QUERY(CREATE(
-      PATTERN(NODE("n"), EDGE("r", r_type, EdgeAtom::Direction::OUT), n_prop)));
+  auto query = QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -477,7 +479,7 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
-  auto edge = EDGE("r", r_type, EdgeAtom::Direction::OUT);
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("n");
   auto query = QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3)));
   SymbolTable symbol_table;
@@ -499,7 +501,7 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
-  auto edge = EDGE("r", r_type, EdgeAtom::Direction::OUT);
+  auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("m");
   auto query = QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")),
                      CREATE(PATTERN(node_2, edge, node_3)));
@@ -645,8 +647,10 @@ TEST(TestSymbolGenerator, MergeVariableError) {
     auto dba = dbms.active();
     auto rel = dba->EdgeType("rel");
     AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                       MERGE(PATTERN(NODE("a"), EDGE("r", rel), NODE("b"))));
+    auto query = QUERY(
+        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+        MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}),
+                      NODE("b"))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -673,7 +677,7 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   AstTreeStorage storage;
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
-  auto edge_r = EDGE("r", rel);
+  auto edge_r = EDGE("r", EdgeAtom::Direction::BOTH, {rel});
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto m_prop = PROPERTY_LOOKUP("m", prop);
@@ -827,7 +831,7 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
-      MERGE(PATTERN(NODE("m"), EDGE("r", r_type, EdgeAtom::Direction::OUT),
+      MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
                     NODE("n", label))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -860,8 +864,7 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   auto dba = dbms.active();
   auto prop = dba->Property("prop");
   AstTreeStorage storage;
-  auto edge = EDGE("r");
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
@@ -870,8 +873,9 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
-  // Symbols for pattern * 2, `n`, `r`, `m`, `l` and implicit in RETURN `r AS r`
-  EXPECT_EQ(symbol_table.max_position(), 7);
+  // Symbols for pattern * 2, `n`, `r`, inner_node, inner_edge, `m`, `l` and
+  // implicit in RETURN `r AS r`
+  EXPECT_EQ(symbol_table.max_position(), 9);
   auto l = symbol_table.at(*node_l->identifier_);
   EXPECT_EQ(l, symbol_table.at(*l_prop->expression_));
   auto r = symbol_table.at(*edge->identifier_);
@@ -884,8 +888,7 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   auto dba = dbms.active();
   auto prop = dba->Property("prop");
   AstTreeStorage storage;
-  auto edge = EDGE("r");
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
@@ -900,8 +903,7 @@ TEST(TestSymbolGenerator, CreateVariablePath) {
   // Test CREATE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
   AstTreeStorage storage;
-  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -912,8 +914,7 @@ TEST(TestSymbolGenerator, MergeVariablePath) {
   // Test MERGE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
   AstTreeStorage storage;
-  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
   auto query = QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -926,8 +927,7 @@ TEST(TestSymbolGenerator, RedeclareVariablePath) {
   // variable paths with already declared symbols. In the future, this test
   // should be changed to check for type errors.
   AstTreeStorage storage;
-  auto edge = EDGE("n", EdgeAtom::Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("n", EdgeAtom::Direction::OUT);
   auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n"));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -942,8 +942,7 @@ TEST(TestSymbolGenerator, VariablePathSameIdentifier) {
   auto dba = dbms.active();
   auto prop = dba->Property("prop");
   AstTreeStorage storage;
-  auto edge = EDGE("r", EdgeAtom::Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
   auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;
@@ -997,7 +996,7 @@ TEST(TestSymbolGenerator, WithReturnAll) {
 }
 
 TEST(TestSymbolGenerator, MatchBfsReturn) {
-  // Test MATCH (n) -bfs[r](r, n | r.prop, n.prop)-> (m) RETURN r AS r
+  // Test MATCH (n) -[r *bfs..n.prop] (r, n | r.prop)]-> (m) RETURN r AS r
   Dbms dbms;
   auto dba = dbms.active();
   auto prop = dba->Property("prop");
@@ -1005,9 +1004,12 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP("r", prop);
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
-  auto *bfs = storage.Create<BreadthFirstAtom>(
-      IDENT("r"), EdgeAtom::Direction::OUT,
-      std::vector<GraphDbTypes::EdgeType>{}, IDENT("r"), IDENT("n"), r_prop);
+  auto *bfs = storage.Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{});
+  bfs->inner_edge_ = IDENT("r");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = r_prop;
   bfs->upper_bound_ = n_prop;
   auto *ret_r = IDENT("r");
   auto *query =
@@ -1018,23 +1020,23 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   // Symbols for pattern, `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
-  EXPECT_NE(symbol_table.at(*ret_r),
-            symbol_table.at(*bfs->traversed_edge_identifier_));
-  EXPECT_EQ(symbol_table.at(*bfs->traversed_edge_identifier_),
+  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*bfs->inner_edge_));
+  EXPECT_EQ(symbol_table.at(*bfs->inner_edge_),
             symbol_table.at(*r_prop->expression_));
   EXPECT_NE(symbol_table.at(*node_n->identifier_),
-            symbol_table.at(*bfs->next_node_identifier_));
+            symbol_table.at(*bfs->inner_node_));
   EXPECT_EQ(symbol_table.at(*node_n->identifier_),
             symbol_table.at(*n_prop->expression_));
 }
 
 TEST(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
-  // Test MATCH (n) -bfs[r](e, n | r, 10)-> (m) RETURN r
+  // Test MATCH (n) -[r *bfs..10 (e, n | r)]-> (m) RETURN r
   AstTreeStorage storage;
-  auto *bfs =
-      storage.Create<BreadthFirstAtom>(IDENT("r"), EdgeAtom::Direction::OUT,
-                                       std::vector<GraphDbTypes::EdgeType>{},
-                                       IDENT("e"), IDENT("n"), IDENT("r"));
+  auto *bfs = storage.Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->inner_edge_ = IDENT("e");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = IDENT("r");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;
@@ -1043,13 +1045,14 @@ TEST(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
 }
 
 TEST(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
-  // Test MATCH (a) -bfs[r](e, n | a, 10)-> (m) RETURN r
+  // Test MATCH (a) -[r *bfs..10 (e, n | a)]-> (m) RETURN r
   AstTreeStorage storage;
   auto *node_a = NODE("a");
-  auto *bfs =
-      storage.Create<BreadthFirstAtom>(IDENT("r"), EdgeAtom::Direction::OUT,
-                                       std::vector<GraphDbTypes::EdgeType>{},
-                                       IDENT("e"), IDENT("n"), IDENT("a"));
+  auto *bfs = storage.Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->inner_edge_ = IDENT("e");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = IDENT("a");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;
@@ -1060,12 +1063,13 @@ TEST(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
 }
 
 TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
-  // Test MATCH (n) -bfs[r](e, n | m, 10)-> (m) RETURN r
+  // Test MATCH (n) -[r *bfs..10 (e, n | m)]-> (m) RETURN r
   AstTreeStorage storage;
-  auto *bfs =
-      storage.Create<BreadthFirstAtom>(IDENT("r"), EdgeAtom::Direction::OUT,
-                                       std::vector<GraphDbTypes::EdgeType>{},
-                                       IDENT("e"), IDENT("n"), IDENT("m"));
+  auto *bfs = storage.Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->inner_edge_ = IDENT("e");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = IDENT("m");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   SymbolTable symbol_table;

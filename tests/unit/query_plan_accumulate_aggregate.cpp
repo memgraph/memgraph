@@ -49,7 +49,7 @@ TEST(QueryPlan, Accumulate) {
 
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::BOTH, {}, false, "m", false);
+                          EdgeAtom::Direction::BOTH, {}, "m", false);
 
     auto one = LITERAL(1);
     auto n_p = PROPERTY_LOOKUP("n", prop);

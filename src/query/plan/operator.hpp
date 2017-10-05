@@ -68,7 +68,6 @@ class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class Expand;
 class ExpandVariable;
-class ExpandBreadthFirst;
 class ConstructNamedPath;
 class Filter;
 class Produce;
@@ -95,8 +94,8 @@ class CreateIndex;
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue, Expand,
-    ExpandVariable, ExpandBreadthFirst, ConstructNamedPath, Filter, Produce,
-    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
     Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
@@ -484,13 +483,12 @@ class ExpandCommon {
    *    that expansion should emanate from.
    * @param existing_node If or not the node to be expanded is already present
    *    in the Frame and should just be checked for equality.
-   * @param existing_edge Same like `existing_node`, but for edges.
    */
   ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                EdgeAtom::Direction direction,
                const std::vector<GraphDbTypes::EdgeType> &edge_types,
                const std::shared_ptr<LogicalOperator> &input,
-               Symbol input_symbol, bool existing_node, bool existing_edge,
+               Symbol input_symbol, bool existing_node,
                GraphView graph_view = GraphView::AS_IS);
 
   const auto &input_symbol() const { return input_symbol_; }
@@ -511,11 +509,9 @@ class ExpandCommon {
   const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
 
-  // if the given node and edge atom refer to symbols
-  // (query identifiers) that have already been expanded
-  // and should be just validated in the frame
+  // If the given node atom refer to a symbol that has already been expanded and
+  // should be just validated in the frame.
   const bool existing_node_;
-  const bool existing_edge_;
 
   // from which state the input node should get expanded
   const GraphView graph_view_;
@@ -598,10 +594,11 @@ class Expand : public LogicalOperator, public ExpandCommon {
  * pulled.
  */
 class ExpandVariable : public LogicalOperator, public ExpandCommon {
-  // the ExpandVariableCursor is not declared in the header because
+  // the Cursors are not declared in the header because
   // it's edges_ and edges_it_ are decltyped using a helper function
   // that should be inaccessible (private class function won't compile)
   friend class ExpandVariableCursor;
+  friend class ExpandBreadthFirstCursor;
 
  public:
   /**
@@ -611,6 +608,8 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
    * Expansion length bounds are both inclusive (as in Neo's Cypher
    * implementation).
    *
+   * @param type - Either Type::DEPTH_FIRST (default variable-length expansion),
+   * or Type::BREADTH_FIRST.
    * @param is_reverse Set to `true` if the edges written on frame should expand
    *    from `node_symbol` to `input_symbol`. Opposed to the usual expanding
    *    from `input_symbol` to `node_symbol`.
@@ -618,124 +617,44 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
    *    that get expanded (inclusive).
    * @param upper_bound An optional indicator of the maximum number of edges
    *    that get expanded (inclusive).
+   * @param inner_edge_symbol Like `inner_node_symbol`
+   * @param inner_node_symbol For each expansion the node expanded into is
+   *    assigned to this symbol so it can be evaulated by the 'where'
+   * expression.
+   * @param filter_ The filter that must be satisfied for an expansion to
+   * succeed. Can use inner(node|edge) symbols. If nullptr, it is ignored.
    */
-  ExpandVariable(Symbol node_symbol, Symbol edge_symbol,
+  ExpandVariable(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
                  EdgeAtom::Direction direction,
                  const std::vector<GraphDbTypes::EdgeType> &edge_types,
                  bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
-                 Symbol input_symbol, bool existing_node, bool existing_edge,
-                 GraphView graph_view = GraphView::AS_IS,
-                 Expression *filter = nullptr);
+                 Symbol input_symbol, bool existing_node,
+                 Symbol inner_edge_symbol, Symbol inner_node_symbol,
+                 Expression *filter = nullptr,
+                 GraphView graph_view = GraphView::AS_IS);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) const override;
 
+  auto type() const { return type_; }
+
  private:
+  const EdgeAtom::Type type_;
+  // True if the path should be written as expanding from node_symbol to
+  // input_symbol.
+  const bool is_reverse_;
   // lower and upper bounds of the variable length expansion
   // both are optional, defaults are (1, inf)
   Expression *lower_bound_;
   Expression *upper_bound_;
-  // True if the path should be written as expanding from node_symbol to
-  // input_symbol.
-  bool is_reverse_;
-  Expression *filter_;
-};
-
-/**
- * Variable length breadth-first expansion operator. For a node existing in the
- * frame it expands a variable number of edges and places them (in a list-type
- * TypedValue), as well as the final destination node, on the frame.
- *
- * This class does not handle node/edge filtering based on properties, labels
- * and edge types. However, it does handle filtering on existing node. Edge and
- * vertex uniqueness are inherent to breadth-first expansion, due to filtering
- * of already visited nodes.
- *
- * Most params are equivalent to @c ExpandCommon, and are documented there.
- * Additional param documentation follows:
- *
- * @param max_depth Expression that controls the maximum allowed length of the
- * expansion. Inclusive.
- * @param inner_node_symbol For each expansion the node expanded into is
- * assigned to this symbol so it can be evaulated by the 'where' expression.
- * @param inner_edge_symbol Like `inner_node_symbol`
- * @Param where An expression that controls whether an expansion is accepted or
- * not. It can use the `inner` node and edge symbols. The expansion succeeds
- * only if the expression evaluates to `true` for the expanded-into edge and
- * node. `false` and `Null` prevent expansion, while any other value results in
- * an exception.
- */
-class ExpandBreadthFirst : public LogicalOperator {
- public:
-  ExpandBreadthFirst(Symbol node_symbol, Symbol edge_list_symbol,
-                     EdgeAtom::Direction direction,
-                     const std::vector<GraphDbTypes::EdgeType> &edge_types,
-                     Expression *max_depth,
-                     std::experimental::optional<Symbol> inner_node_symbol,
-                     std::experimental::optional<Symbol> inner_edge_symbol,
-                     Expression *where,
-                     const std::shared_ptr<LogicalOperator> &input,
-                     Symbol input_symbol, bool existing_node,
-                     GraphView graph_view = GraphView::AS_IS);
-
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) const override;
-
- private:
-  class Cursor : public query::plan::Cursor {
-   public:
-    Cursor(const ExpandBreadthFirst &self, GraphDbAccessor &db);
-    bool Pull(Frame &, Context &) override;
-    void Reset() override;
-
-   private:
-    const ExpandBreadthFirst &self_;
-    GraphDbAccessor &db_;
-    const std::unique_ptr<query::plan::Cursor> input_cursor_;
-
-    // maximum depth of the expansion. calculated on each pull
-    // from the input, the initial value is irrelevant.
-    int max_depth_{-1};
-
-    // maps vertices to the edge they got expanded from. it is an optional
-    // edge because the root does not get expanded from anything.
-    // contains visited vertices as well as those scheduled to be visited.
-    std::unordered_map<VertexAccessor,
-                       std::experimental::optional<EdgeAccessor>>
-        processed_;
-    // edge/vertex pairs we have yet to visit, for current and next depth
-    std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
-    std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
-  };
-
-  // info on what's getting expanded
-  const Symbol node_symbol_;
-  const Symbol edge_list_symbol_;
-
-  const EdgeAtom::Direction direction_;
-  const std::vector<GraphDbTypes::EdgeType> edge_types_;
-  Expression *max_depth_;
-
   // symbols for a single node and edge that are currently getting expanded
-  const std::experimental::optional<Symbol> inner_node_symbol_;
-  const std::experimental::optional<Symbol> inner_edge_symbol_;
+  const Symbol inner_edge_symbol_;
+  const Symbol inner_node_symbol_;
   // a filtering expression for skipping expansions during expansion
   // can refer to inner node and edges
-  Expression *where_;
-
-  // the input op and the symbol under which the op's result
-  // can be found in the frame
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-
-  // if the node symbol already exists on the frame and this expansion
-  // should just match it
-  bool existing_node_;
-
-  // from which state the input node should get expanded
-  const GraphView graph_view_;
+  Expression *filter_;
 };
 
 /**

@@ -20,6 +20,7 @@ static void AddChainedMatches(int num_matches, query::AstTreeStorage &storage) {
         storage.Create<query::Identifier>(node1_name)));
     pattern->atoms_.emplace_back(storage.Create<query::EdgeAtom>(
         storage.Create<query::Identifier>("edge" + std::to_string(i)),
+        query::EdgeAtom::Type::SINGLE,
         query::EdgeAtom::Direction::BOTH));
     pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(
         storage.Create<query::Identifier>("node" + std::to_string(i))));

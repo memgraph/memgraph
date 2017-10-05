@@ -93,7 +93,7 @@ void AddNextExpansions(
           expansion.node2 &&
               symbol_table.at(*expansion.node2->identifier_) == node_symbol,
           "Expected node_symbol to be bound in node2");
-      if (!dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
+      if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         std::swap(expansion.node1, expansion.node2);
         expansion.is_flipped = true;

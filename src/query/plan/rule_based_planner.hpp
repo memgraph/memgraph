@@ -52,10 +52,6 @@ class Filters {
     Expression *expression;
     /// Set of used symbols by the filter @c expression.
     std::unordered_set<Symbol> used_symbols;
-    /// True if the filter is to be applied on multiple expanding edges.
-    /// This is used to inline filtering in an @c ExpandVariable and
-    /// @c ExpandBreadthFirst operators.
-    bool is_for_multi_expand = false;
   };
 
   /// List of FilterInfo objects corresponding to all filter expressions that
@@ -220,15 +216,13 @@ namespace impl {
 bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
                 const Symbol &symbol);
 
-// Looks for filter expressions, which can be inlined in an ExpandVariable
-// operator. Such expressions are merged into one (via `and`) and removed from
-// `all_filters`. If the expression uses `expands_to_node`, it is skipped. In
-// such a case, we cannot cut variable expand short, since filtering may be
-// satisfied by a node deeper in the path.
-Expression *ExtractMultiExpandFilter(
-    const std::unordered_set<Symbol> &bound_symbols,
-    const Symbol &expands_to_node,
-    std::vector<Filters::FilterInfo> &all_filters, AstTreeStorage &storage);
+// Iterates over `all_filters` joining them in one expression via
+// `AndOperator`. Filters which use unbound symbols are skipped
+// The function takes a single argument, `FilterInfo`. All the joined filters
+// are removed from `all_filters`.
+Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
+                           std::vector<Filters::FilterInfo> &all_filters,
+                           AstTreeStorage &storage);
 
 LogicalOperator *GenFilters(LogicalOperator *last_op,
                             const std::unordered_set<Symbol> &bound_symbols,
@@ -517,53 +511,52 @@ class RuleBasedPlanner {
       }
       // We have an edge, so generate Expand.
       if (expansion.edge) {
+        auto *edge = expansion.edge;
         // If the expand symbols were already bound, then we need to indicate
         // that they exist. The Expand will then check whether the pattern holds
         // instead of writing the expansion to symbols.
         const auto &node_symbol =
             symbol_table.at(*expansion.node2->identifier_);
-        auto existing_node = false;
-        if (!impl::BindSymbol(bound_symbols, node_symbol)) {
-          existing_node = true;
-        } else {
-          match_context.new_symbols.emplace_back(node_symbol);
-        }
-        const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
-        auto existing_edge = false;
-        if (!impl::BindSymbol(bound_symbols, edge_symbol)) {
-          existing_edge = true;
-        } else {
-          match_context.new_symbols.emplace_back(edge_symbol);
-        }
-        if (auto *bf_atom = dynamic_cast<BreadthFirstAtom *>(expansion.edge)) {
-          std::experimental::optional<Symbol> traversed_edge_symbol;
-          if (bf_atom->traversed_edge_identifier_)
-            traversed_edge_symbol =
-                symbol_table.at(*bf_atom->traversed_edge_identifier_);
-          std::experimental::optional<Symbol> next_node_symbol;
-          if (bf_atom->next_node_identifier_)
-            next_node_symbol = symbol_table.at(*bf_atom->next_node_identifier_);
-          // Inline BFS edge filtering together with its filter expression.
+        auto existing_node = utils::Contains(bound_symbols, node_symbol);
+        const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+        debug_assert(!utils::Contains(bound_symbols, edge_symbol),
+                     "Existing edges are not supported");
+        if (edge->IsVariable()) {
+          Symbol inner_edge_symbol = symbol_table.at(*edge->inner_edge_);
+          Symbol inner_node_symbol = symbol_table.at(*edge->inner_node_);
+          {
+            // Bind the inner edge and node symbols so they're available for
+            // inline filtering in ExpandVariable.
+            bool inner_edge_bound =
+                impl::BindSymbol(bound_symbols, inner_edge_symbol);
+            bool inner_node_bound =
+                impl::BindSymbol(bound_symbols, inner_node_symbol);
+            debug_assert(inner_edge_bound && inner_node_bound,
+                         "An inner edge and node can't be bound from before");
+          }
           auto *filter_expr = impl::BoolJoin<AndOperator>(
-              storage, impl::ExtractMultiExpandFilter(
-                           bound_symbols, node_symbol, all_filters, storage),
-              bf_atom->filter_expression_);
-          last_op = new ExpandBreadthFirst(
-              node_symbol, edge_symbol, expansion.direction,
-              expansion.edge->edge_types_, bf_atom->upper_bound_,
-              next_node_symbol, traversed_edge_symbol, filter_expr,
-              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              existing_node, match_context.graph_view);
-        } else if (expansion.edge->has_range_) {
-          auto *filter_expr = impl::ExtractMultiExpandFilter(
-              bound_symbols, node_symbol, all_filters, storage);
+              storage,
+              impl::ExtractFilters(bound_symbols, all_filters, storage),
+              edge->filter_expression_);
+          // At this point it's possible we have leftover filters for inline
+          // filtering (they use the inner symbols. If they were not collected,
+          // we have to remove them manually because no other filter-extraction
+          // will ever bind them again.
+          all_filters.erase(
+              std::remove_if(all_filters.begin(), all_filters.end(),
+                             [ e = inner_edge_symbol, n = inner_node_symbol ](
+                                 Filters::FilterInfo & fi) {
+                               return utils::Contains(fi.used_symbols, e) ||
+                                      utils::Contains(fi.used_symbols, n);
+                             }),
+              all_filters.end());
+
           last_op = new ExpandVariable(
-              node_symbol, edge_symbol, expansion.direction,
-              expansion.edge->edge_types_, expansion.is_flipped,
-              expansion.edge->lower_bound_, expansion.edge->upper_bound_,
-              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
-              existing_node, existing_edge, match_context.graph_view,
-              filter_expr);
+              node_symbol, edge_symbol, edge->type_, expansion.direction,
+              edge->edge_types_, expansion.is_flipped, edge->lower_bound_,
+              edge->upper_bound_, std::shared_ptr<LogicalOperator>(last_op),
+              node1_symbol, existing_node, inner_edge_symbol, inner_node_symbol,
+              filter_expr, match_context.graph_view);
         } else {
           if (!existing_node) {
             // Try to get better behaviour by creating an indexed scan and then
@@ -581,32 +574,37 @@ class RuleBasedPlanner {
               existing_node = true;
             }
           }
-          last_op = new Expand(node_symbol, edge_symbol, expansion.direction,
-                               expansion.edge->edge_types_,
-                               std::shared_ptr<LogicalOperator>(last_op),
-                               node1_symbol, existing_node, existing_edge,
-                               match_context.graph_view);
+          last_op = new Expand(
+              node_symbol, edge_symbol, expansion.direction, edge->edge_types_,
+              std::shared_ptr<LogicalOperator>(last_op), node1_symbol,
+              existing_node, match_context.graph_view);
         }
-        if (!existing_edge) {
-          // Ensure Cyphermorphism (different edge symbols always map to
-          // different edges).
-          for (const auto &edge_symbols : matching.edge_symbols) {
-            if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
+
+        // Bind the expanded edge and node.
+        impl::BindSymbol(bound_symbols, edge_symbol);
+        match_context.new_symbols.emplace_back(edge_symbol);
+        if (impl::BindSymbol(bound_symbols, node_symbol)) {
+          match_context.new_symbols.emplace_back(node_symbol);
+        }
+
+        // Ensure Cyphermorphism (different edge symbols always map to
+        // different edges).
+        for (const auto &edge_symbols : matching.edge_symbols) {
+          if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
+            continue;
+          }
+          std::vector<Symbol> other_symbols;
+          for (const auto &symbol : edge_symbols) {
+            if (symbol == edge_symbol ||
+                bound_symbols.find(symbol) == bound_symbols.end()) {
               continue;
             }
-            std::vector<Symbol> other_symbols;
-            for (const auto &symbol : edge_symbols) {
-              if (symbol == edge_symbol ||
-                  bound_symbols.find(symbol) == bound_symbols.end()) {
-                continue;
-              }
-              other_symbols.push_back(symbol);
-            }
-            if (!other_symbols.empty()) {
-              last_op = new ExpandUniquenessFilter<EdgeAccessor>(
-                  std::shared_ptr<LogicalOperator>(last_op), edge_symbol,
-                  other_symbols);
-            }
+            other_symbols.push_back(symbol);
+          }
+          if (!other_symbols.empty()) {
+            last_op = new ExpandUniquenessFilter<EdgeAccessor>(
+                std::shared_ptr<LogicalOperator>(last_op), edge_symbol,
+                other_symbols);
           }
         }
         last_op =

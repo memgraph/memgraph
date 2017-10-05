@@ -403,10 +403,9 @@ The following sections describe some of the other supported features.
 #### Breadth First Search
 
 A typical graph use-case is searching for the shortest path between nodes.
-The openCypher standard does not define this feature. Neo4j offers the
-`shortestPath` function-like invocation for this purpose.
+The openCypher standard does not define this feature, so Memgraph provides
+a custom implementation, based on the edge expansion syntax.
 
-Memgraph decided to offer the same functionality using the edge expansion syntax.
 Finding the shortest path between nodes can be done using breadth-first
 expansion:
 
@@ -430,8 +429,8 @@ whose property is lesser then `3`:
 The filter is defined as a lambda function over `e` and `n`, which denote the edge
 and node being expanded over in the breadth first search.
 
-There are a few benefits of the breadth-first expansion approach, as compared to
-the `shortestPath` function of Neo4j. For one, it is possible to inject
+There are a few benefits of the breadth-first expansion approach, as opposed to
+a specialized `shortestPath` function. For one, it is possible to inject
 expressions that filter on nodes and edges along the path itself, not just the final
 destination node. Furthermore, it's possible to find multiple paths to multiple destination
 nodes regardless of their length. Also, it is possible to simply go through a node's

@@ -278,7 +278,7 @@ TEST_F(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, GraphView graph_view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction,
-                          {}, false, "m", false, graph_view);
+                          {}, "m", false, graph_view);
 
     // make a named expression and a produce
     auto output = NEXPR("m", IDENT("m"));
@@ -315,7 +315,7 @@ TEST_F(ExpandFixture, Expand) {
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {}, false, "m", false);
+                        EdgeAtom::Direction::OUT, {}, "m", false);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
   auto path = std::make_shared<ConstructNamedPath>(
       r_m.op_, path_sym,
@@ -412,8 +412,8 @@ class QueryPlanExpandVariable : public testing::Test {
       const std::vector<GraphDbTypes::EdgeType> &edge_types,
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
-      bool existing_edge, const std::string &node_to,
-      GraphView graph_view = GraphView::AS_IS, bool is_reverse = false) {
+      const std::string &node_to, GraphView graph_view = GraphView::AS_IS,
+      bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, storage.Create<query::LabelsTest>(
@@ -430,13 +430,14 @@ class QueryPlanExpandVariable : public testing::Test {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
       return std::make_shared<ExpandVariable>(
-          n_to_sym, edge_sym, direction, edge_types, is_reverse, convert(lower),
-          convert(upper), filter_op, n_from.sym_, false, existing_edge,
-          graph_view);
+          n_to_sym, edge_sym, EdgeAtom::Type::DEPTH_FIRST, direction,
+          edge_types, is_reverse, convert(lower), convert(upper), filter_op,
+          n_from.sym_, false, symbol_table.CreateSymbol("inner_edge", false),
+          symbol_table.CreateSymbol("inner_node", false), nullptr, graph_view);
     } else
       return std::make_shared<Expand>(n_to_sym, edge_sym, direction, edge_types,
                                       filter_op, n_from.sym_, false,
-                                      existing_edge, graph_view);
+                                      graph_view);
   }
 
   /* Creates an edge (in the frame and symbol table). Returns the symbol. */
@@ -495,8 +496,7 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
     auto e = Edge("r", direction);
     return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower,
-                                 upper, e, false, "m", GraphView::AS_IS,
-                                 reverse),
+                                 upper, e, "m", GraphView::AS_IS, reverse),
         e);
   };
 
@@ -559,19 +559,18 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
     if (single_expansion_before) {
       symbols.push_back(Edge("r0", direction));
       last_op = AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower,
-                                 upper, symbols.back(), false, "m0");
+                                 upper, symbols.back(), "m0");
     }
 
     auto var_length_sym = Edge("r1", direction);
     symbols.push_back(var_length_sym);
-    last_op =
-        AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower,
-                                 upper, var_length_sym, false, "m1");
+    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {},
+                                       lower, upper, var_length_sym, "m1");
 
     if (!single_expansion_before) {
       symbols.push_back(Edge("r2", direction));
       last_op = AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower,
-                                 upper, symbols.back(), false, "m2");
+                                 upper, symbols.back(), "m2");
     }
 
     if (add_uniqueness_check) {
@@ -601,10 +600,10 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
                          bool add_uniqueness_check) {
     auto e1 = Edge("r1", direction);
     auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {},
-                                          lower, upper, e1, false, "m1");
+                                          lower, upper, e1, "m1");
     auto e2 = Edge("r2", direction);
     auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction, {},
-                                            lower, upper, e2, false, "m2");
+                                            lower, upper, e2, "m2");
     if (add_uniqueness_check) {
       last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
           last_op, e2, std::vector<Symbol>{e1});
@@ -619,42 +618,6 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
             (map_int{{2, 5 * 8}}));
 }
 
-TEST_F(QueryPlanExpandVariable, ExistingEdges) {
-  auto test_expand = [&](int layer, EdgeAtom::Direction direction,
-                         std::experimental::optional<size_t> lower,
-                         std::experimental::optional<size_t> upper,
-                         bool same_edge_symbol) {
-    auto e1 = Edge("r1", direction);
-    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {},
-                                          lower, upper, e1, false, "m1");
-    auto e2 = same_edge_symbol ? e1 : Edge("r2", direction);
-    auto second =
-        AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
-                                 upper, e2, same_edge_symbol, "m2");
-    return GetEdgeListSizes(second, e2);
-  };
-
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, false),
-            (map_int{{1, 4 * 4}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, 1, true),
-            (map_int{{1, 4}}));
-
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 1, false),
-            (map_int{{0, 2 * 6}, {1, 4 * 6}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 1, true),
-            (map_int{{0, 4}, {1, 4}}));
-
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false),
-            (map_int{{2, 8 * 8}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, true),
-            (map_int{{2, 8}}));
-
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, false),
-            (map_int{{1, 4 * 16}, {2, 12 * 16}}));
-  EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, 2, true),
-            (map_int{{1, 4}, {2, 12}}));
-}
-
 TEST_F(QueryPlanExpandVariable, GraphState) {
   auto test_expand = [&](
       GraphView graph_view,
@@ -662,7 +625,7 @@ TEST_F(QueryPlanExpandVariable, GraphState) {
     auto e = Edge("r", EdgeAtom::Direction::OUT);
     return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
-                                 edge_types, 2, 2, e, false, "m", graph_view),
+                                 edge_types, 2, 2, e, "m", graph_view),
         e);
   };
 
@@ -692,7 +655,7 @@ TEST_F(QueryPlanExpandVariable, GraphState) {
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
   auto expand = AddMatch<ExpandVariable>(
-      nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, false, "m");
+      nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m");
   auto find_symbol = [this](const std::string &name) {
     for (const auto &pos_sym : symbol_table.table())
       if (pos_sym.second.name() == name) return pos_sym.second;
@@ -802,11 +765,11 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
                         ? existing_node_input->sym_
                         : symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
-    last_op = std::make_shared<ExpandBreadthFirst>(
-        node_sym, edge_list_sym, direction,
-        std::vector<GraphDbTypes::EdgeType>{}, LITERAL(max_depth), inner_node,
-        inner_edge, where, last_op, n.sym_, existing_node_input != nullptr,
-        graph_view);
+    last_op = std::make_shared<ExpandVariable>(
+        node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
+        std::vector<GraphDbTypes::EdgeType>{}, false, nullptr,
+        LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
+        inner_edge, inner_node, where, graph_view);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(*dba);
@@ -975,7 +938,7 @@ TEST(QueryPlan, ExpandOptional) {
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {}, false, "m", false);
+                        EdgeAtom::Direction::OUT, {}, "m", false);
   auto optional = std::make_shared<plan::Optional>(
       n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
@@ -1050,7 +1013,7 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
   auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r",
-                        EdgeAtom::Direction::OUT, {}, false, "m", false);
+                        EdgeAtom::Direction::OUT, {}, "m", false);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
@@ -1099,63 +1062,12 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   symbol_table[*node->identifier_] = with_n_sym;
   auto expand = std::make_shared<plan::Expand>(
       with_n_sym, edge_sym, edge_direction,
-      std::vector<GraphDbTypes::EdgeType>{}, m.op_, m.sym_, true, false);
+      std::vector<GraphDbTypes::EdgeType>{}, m.op_, m.sym_, true);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = m.sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(expand, m_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
-  EXPECT_EQ(0, results.size());
-}
-
-TEST(QueryPlan, OptionalMatchThenExpandToMissingEdge) {
-  Dbms dbms;
-  auto dba = dbms.active();
-  // Make a graph with 2 connected, unlabeled nodes.
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto edge_type = dba->EdgeType("edge_type");
-  dba->InsertEdge(v1, v2, edge_type);
-  dba->AdvanceCommand();
-  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
-  EXPECT_EQ(1, CountIterable(dba->Edges(false)));
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-  // OPTIONAL MATCH (n :missing) -[r]- (m)
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto label_missing = dba->Label("missing");
-  n.node_->labels_.emplace_back(label_missing);
-  auto *filter_expr =
-      storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
-  auto r_m = MakeExpand(storage, symbol_table, node_filter, n.sym_, "r",
-                        EdgeAtom::Direction::BOTH, {}, false, "m", false);
-  auto optional = std::make_shared<plan::Optional>(
-      nullptr, r_m.op_,
-      std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
-  // WITH r
-  auto r_ne = NEXPR("r", IDENT("r"));
-  symbol_table[*r_ne->expression_] = r_m.edge_sym_;
-  auto with_r_sym = symbol_table.CreateSymbol("r", true);
-  symbol_table[*r_ne] = with_r_sym;
-  auto with = MakeProduce(optional, r_ne);
-  // MATCH (a) -[r]- (b)
-  auto a = MakeScanAll(storage, symbol_table, "a", with);
-  auto edge_direction = EdgeAtom::Direction::BOTH;
-  auto edge = EDGE("r", edge_direction);
-  symbol_table[*edge->identifier_] = with_r_sym;
-  auto node = NODE("n");
-  auto node_sym = symbol_table.CreateSymbol("b", true);
-  symbol_table[*node->identifier_] = node_sym;
-  auto expand = std::make_shared<plan::Expand>(
-      node_sym, with_r_sym, edge_direction,
-      std::vector<GraphDbTypes::EdgeType>{}, a.op_, a.sym_, false, true);
-  // RETURN a
-  auto a_ne = NEXPR("a", IDENT("a"));
-  symbol_table[*a_ne->expression_] = a.sym_;
-  symbol_table[*a_ne] = symbol_table.CreateSymbol("a", true);
-  auto produce = MakeProduce(expand, a_ne);
   auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
@@ -1178,14 +1090,13 @@ TEST(QueryPlan, ExpandExistingNode) {
 
   auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::OUT, {}, false, "n", with_existing);
+    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::OUT, {}, "n", with_existing);
     if (with_existing)
       r_n.op_ =
           std::make_shared<Expand>(n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
                                    std::vector<GraphDbTypes::EdgeType>{}, n.op_,
-                                   n.sym_, with_existing, false);
+                                   n.sym_, with_existing);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
@@ -1200,54 +1111,6 @@ TEST(QueryPlan, ExpandExistingNode) {
 
   test_existing(true, 1);
   test_existing(false, 2);
-}
-
-TEST(QueryPlan, ExpandExistingEdge) {
-  Dbms dbms;
-  auto dba = dbms.active();
-
-  // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  auto v1 = dba->InsertVertex();
-  v1.add_label((GraphDbTypes::Label)1);
-  auto v2 = dba->InsertVertex();
-  v2.add_label((GraphDbTypes::Label)2);
-  auto v3 = dba->InsertVertex();
-  v3.add_label((GraphDbTypes::Label)3);
-  auto edge_type = dba->EdgeType("Edge");
-  dba->InsertEdge(v1, v2, edge_type);
-  dba->InsertEdge(v1, v3, edge_type);
-  dba->AdvanceCommand();
-
-  AstTreeStorage storage;
-  SymbolTable symbol_table;
-
-  auto test_existing = [&](bool with_existing, int expected_result_count) {
-    auto i = MakeScanAll(storage, symbol_table, "i");
-    auto r_j = MakeExpand(storage, symbol_table, i.op_, i.sym_, "r",
-                          EdgeAtom::Direction::BOTH, {}, false, "j", false);
-    auto r_k =
-        MakeExpand(storage, symbol_table, r_j.op_, r_j.node_sym_, "r",
-                   EdgeAtom::Direction::BOTH, {}, with_existing, "k", false);
-    if (with_existing)
-      r_k.op_ = std::make_shared<Expand>(
-          r_k.node_sym_, r_j.edge_sym_, r_k.edge_->direction_,
-          std::vector<GraphDbTypes::EdgeType>{}, r_j.op_, r_j.node_sym_, false,
-          with_existing);
-
-    // make a named expression and a produce
-    auto output = NEXPR("r", IDENT("r"));
-    symbol_table[*output->expression_] = r_j.edge_sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
-    auto produce = MakeProduce(r_k.op_, output);
-
-    auto results = CollectProduce(produce.get(), symbol_table, *dba);
-    EXPECT_EQ(results.size(), expected_result_count);
-
-  };
-
-  test_existing(true, 4);
-  test_existing(false, 6);
 }
 
 TEST(QueryPlan, ExpandBothCycleEdgeCase) {
@@ -1265,7 +1128,7 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                       EdgeAtom::Direction::BOTH, {}, false, "_", false);
+                       EdgeAtom::Direction::BOTH, {}, "_", false);
   EXPECT_EQ(1, PullAll(r_.op_, *dba, symbol_table));
 }
 
@@ -1311,9 +1174,8 @@ TEST(QueryPlan, EdgeFilter) {
 
     auto n = MakeScanAll(storage, symbol_table, "n");
     const auto &edge_type = edge_types[0];
-    auto r_m =
-        MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                   EdgeAtom::Direction::OUT, {edge_type}, false, "m", false);
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                          EdgeAtom::Direction::OUT, {edge_type}, "m", false);
     r_m.edge_->edge_types_.push_back(edge_type);
     r_m.edge_->properties_[prop] = LITERAL(42);
     auto *filter_expr =
@@ -1357,9 +1219,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m =
-      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {type_1, type_2}, false, "m", false);
+  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                        EdgeAtom::Direction::OUT, {type_1, type_2}, "m", false);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));
@@ -1421,14 +1282,13 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
     auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
-                            EdgeAtom::Direction::OUT, {}, false, "n2", false);
+                            EdgeAtom::Direction::OUT, {}, "n2", false);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
     if (vertex_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
           last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
-    auto r2_n3 =
-        MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
-                   EdgeAtom::Direction::OUT, {}, false, "n3", false);
+    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_,
+                            "r2", EdgeAtom::Direction::OUT, {}, "n3", false);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(

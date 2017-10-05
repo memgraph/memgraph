@@ -165,23 +165,17 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
                  std::vector<GraphDbTypes::EdgeType>{}, last_op_, NextSymbol(),
-                 false, false);
+                 false);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
-  MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
+  MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(),
+                         EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
                          std::vector<GraphDbTypes::EdgeType>{}, false, nullptr,
-                         nullptr, last_op_, NextSymbol(), false, false);
+                         nullptr, last_op_, NextSymbol(), false, NextSymbol(),
+                         NextSymbol(), nullptr);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
-}
-
-TEST_F(QueryCostEstimator, ExpandBreadthFirst) {
-  MakeOp<ExpandBreadthFirst>(
-      NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-      std::vector<GraphDbTypes::EdgeType>{}, Literal(3), NextSymbol(),
-      NextSymbol(), Literal(true), last_op_, NextSymbol(), false);
-  EXPECT_COST(CardParam::kExpandBreadthFirst * CostParam::kExpandBreadthFirst);
 }
 
 // Helper for testing an operations cost and cardinality.

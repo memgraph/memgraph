@@ -55,7 +55,6 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
-  PRE_VISIT(ExpandBreadthFirst);
   PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(Produce);
@@ -125,8 +124,6 @@ using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectExpand = OpChecker<Expand>;
-using ExpectExpandVariable = OpChecker<ExpandVariable>;
-using ExpectExpandBreadthFirst = OpChecker<ExpandBreadthFirst>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
@@ -143,6 +140,20 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
+
+class ExpectExpandVariable : public OpChecker<ExpandVariable> {
+ public:
+  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
+    EXPECT_EQ(op.type(), query::EdgeAtom::Type::DEPTH_FIRST);
+  }
+};
+
+class ExpectExpandBreadthFirst : public OpChecker<ExpandVariable> {
+ public:
+  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
+    EXPECT_EQ(op.type(), query::EdgeAtom::Type::BREADTH_FIRST);
+  }
+};
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
@@ -341,8 +352,8 @@ TEST(TestLogicalPlanner, CreateExpand) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
-  QUERY(CREATE(
-      PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m"))));
+  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
+                       NODE("m"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand());
 }
 
@@ -360,7 +371,7 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("rel");
   QUERY(CREATE(
-      PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m")),
+      PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")),
       PATTERN(NODE("l"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateNode());
@@ -373,7 +384,7 @@ TEST(TestLogicalPlanner, CreateNamedPattern) {
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("rel");
   QUERY(CREATE(NAMED_PATTERN(
-      "p", NODE("n"), EDGE("r", relationship, Direction::OUT), NODE("m"))));
+      "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectConstructNamedPath());
 }
@@ -385,7 +396,7 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
   QUERY(MATCH(PATTERN(NODE("n"))),
-        CREATE(PATTERN(NODE("n"), EDGE("r", relationship, Direction::OUT),
+        CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
                        NODE("m"))));
   CheckPlan(storage, ExpectScanAll(), ExpectCreateExpand());
 }
@@ -406,10 +417,10 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", relationship), NODE("m"))),
+  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
+                      NODE("m"))),
         RETURN("n"));
-  CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
-            ExpectProduce());
+  CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
@@ -418,9 +429,10 @@ TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
-  QUERY(
-      MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
-      RETURN("n"));
+  QUERY(MATCH(NAMED_PATTERN("p", NODE("n"),
+                            EDGE("r", Direction::BOTH, {relationship}),
+                            NODE("m"))),
+        RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectProduce());
 }
@@ -431,9 +443,10 @@ TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
   Dbms dbms;
   auto dba = dbms.active();
   auto relationship = dba->EdgeType("relationship");
-  QUERY(
-      MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", relationship), NODE("m"))),
-      WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n"));
+  QUERY(MATCH(NAMED_PATTERN("p", NODE("n"),
+                            EDGE("r", Direction::BOTH, {relationship}),
+                            NODE("m"))),
+        WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
 }
@@ -569,8 +582,8 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
   auto r = dba->EdgeType("r");
   auto p = dba->EdgeType("p");
   AstTreeStorage storage;
-  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", r, Direction::OUT), NODE("m")),
-               PATTERN(NODE("n"), EDGE("p", p, Direction::OUT), NODE("l"))));
+  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
+               PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l"))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateExpand());
 }
@@ -631,9 +644,9 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
   auto dba = dbms.active();
   auto r_type = dba->EdgeType("r");
   AstTreeStorage storage;
-  QUERY(
-      MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
-      CREATE(PATTERN(NODE("a"), EDGE("r", r_type, Direction::OUT), NODE("b"))));
+  QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
+        CREATE(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}),
+                       NODE("b"))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
 }
 
@@ -708,10 +721,11 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   auto new_prop = PROPERTY_LOOKUP("new", prop);
   auto r_prop = PROPERTY_LOOKUP("r", prop);
   auto m_prop = PROPERTY_LOOKUP("m", prop);
-  auto query = QUERY(
-      CREATE(PATTERN(NODE("n"), EDGE("r", r_type, Direction::OUT), NODE("m"))),
-      WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
-      WHERE(LESS(m_prop, LITERAL(42))));
+  auto query =
+      QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}),
+                           NODE("m"))),
+            WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
+            WHERE(LESS(m_prop, LITERAL(42))));
   auto symbol_table = MakeSymbolTable(*query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
@@ -744,12 +758,12 @@ TEST(TestLogicalPlanner, MatchMerge) {
   auto prop = dba->Property("prop");
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("n"))),
-            MERGE(PATTERN(NODE("n"), EDGE("r", r_type), NODE("m")),
-                  ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
-                  ON_CREATE(SET("m", IDENT("n")))),
-            RETURN(ident_n, AS("n")));
+  auto query = QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
+            ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
+            ON_CREATE(SET("m", IDENT("n")))),
+      RETURN(ident_n, AS("n")));
   std::list<BaseOpChecker *> on_match{new ExpectExpand(),
                                       new ExpectSetProperty()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(),
@@ -1254,8 +1268,7 @@ TEST(TestLogicalPlanner, ReturnSumGroupByAll) {
 TEST(TestLogicalPlanner, MatchExpandVariable) {
   // Test MATCH (n) -[r *..3]-> (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r");
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r");
   edge->upper_bound_ = LITERAL(3);
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
@@ -1264,8 +1277,7 @@ TEST(TestLogicalPlanner, MatchExpandVariable) {
 TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
   // Test MATCH (n) -[r *]-> (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r");
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r");
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
@@ -1277,13 +1289,12 @@ TEST(TestLogicalPlanner, MatchExpandVariableInlinedFilter) {
   auto type = dba->EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
-  auto edge = EDGE("r", type);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = LITERAL(42);
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(),
-            ExpectExpandVariable(),  // Filter is inlined in expand
-            ExpectProduce());
+            ExpectExpandVariable(),  // Filter is both inlined and post-expand
+            ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
@@ -1293,8 +1304,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
   auto type = dba->EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
-  auto edge = EDGE("r", type);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(),
@@ -1304,8 +1314,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
 TEST(TestLogicalPlanner, UnwindMatchVariable) {
   // Test UNWIND [1,2,3] AS depth MATCH (n) -[r*d]-> (m) RETURN r
   AstTreeStorage storage;
-  auto edge = EDGE("r", Direction::OUT);
-  edge->has_range_ = true;
+  auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->lower_bound_ = IDENT("d");
   edge->upper_bound_ = IDENT("d");
   QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
@@ -1315,15 +1324,17 @@ TEST(TestLogicalPlanner, UnwindMatchVariable) {
 }
 
 TEST(TestLogicalPlanner, MatchBreadthFirst) {
-  // Test MATCH (n) -bfs[r:type](r, n|n, 10)-> (m) RETURN r
+  // Test MATCH (n) -[r:type *..10 (r, n|n)]-> (m) RETURN r
   Dbms dbms;
   auto dba = dbms.active();
   auto edge_type = dba->EdgeType("type");
   AstTreeStorage storage;
-  auto *bfs = storage.Create<query::BreadthFirstAtom>(
-      IDENT("r"), Direction::OUT,
-      std::vector<GraphDbTypes::EdgeType>{edge_type}, IDENT("r"), IDENT("n"),
-      IDENT("n"));
+  auto *bfs = storage.Create<query::EdgeAtom>(
+      IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
+      std::vector<GraphDbTypes::EdgeType>{edge_type});
+  bfs->inner_edge_ = IDENT("r");
+  bfs->inner_node_ = IDENT("n");
+  bfs->filter_expression_ = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
   QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),

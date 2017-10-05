@@ -213,8 +213,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       if (HasSymbol(ident.name_)) {
         throw RedeclareVariableError(ident.name_);
       }
-      type = scope_.visiting_edge->has_range_ ? Symbol::Type::EdgeList
-                                              : Symbol::Type::Edge;
+      type = scope_.visiting_edge->IsVariable() ? Symbol::Type::EdgeList
+                                                : Symbol::Type::Edge;
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope_.in_pattern && !scope_.in_pattern_atom_identifier &&
@@ -351,7 +351,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "Bidirectional relationship are not supported "
           "when creating an edge");
     }
-    if (edge_atom.has_range_) {
+    if (edge_atom.IsVariable()) {
       throw SemanticException(
           "Variable length relationships are not supported when creating an "
           "edge.");
@@ -360,7 +360,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
   for (auto kv : edge_atom.properties_) {
     kv.second->Accept(*this);
   }
-  if (edge_atom.has_range_) {
+  if (edge_atom.IsVariable()) {
     scope_.in_edge_range = true;
     if (edge_atom.lower_bound_) {
       edge_atom.lower_bound_->Accept(*this);
@@ -369,6 +369,15 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       edge_atom.upper_bound_->Accept(*this);
     }
     scope_.in_edge_range = false;
+    scope_.in_pattern = false;
+    if (edge_atom.filter_expression_) {
+      VisitWithIdentifiers(*edge_atom.filter_expression_,
+                           {edge_atom.inner_edge_, edge_atom.inner_node_});
+    } else {
+      for (auto i : {edge_atom.inner_edge_, edge_atom.inner_node_})
+        symbol_table_[*i] = CreateSymbol(i->name_, true);
+    }
+    scope_.in_pattern = true;
   }
   scope_.in_pattern_atom_identifier = true;
   edge_atom.identifier_->Accept(*this);
@@ -408,33 +417,6 @@ void SymbolGenerator::VisitWithIdentifiers(
       scope_.symbols.erase(identifier->name_);
     }
   }
-}
-
-bool SymbolGenerator::PreVisit(BreadthFirstAtom &bf_atom) {
-  scope_.visiting_edge = &bf_atom;
-  if (scope_.in_create || scope_.in_merge) {
-    throw SemanticException("BFS cannot be used to create edges.");
-  }
-  // Visiting BFS filter and upper bound expressions is not a pattern.
-  scope_.in_pattern = false;
-  if (bf_atom.upper_bound_) {
-    bf_atom.upper_bound_->Accept(*this);
-  }
-  if (bf_atom.filter_expression_) {
-    VisitWithIdentifiers(
-        *bf_atom.filter_expression_,
-        {bf_atom.traversed_edge_identifier_, bf_atom.next_node_identifier_});
-  }
-  scope_.in_pattern = true;
-  scope_.in_pattern_atom_identifier = true;
-  bf_atom.identifier_->Accept(*this);
-  scope_.in_pattern_atom_identifier = false;
-  return false;
-}
-
-bool SymbolGenerator::PostVisit(BreadthFirstAtom &) {
-  scope_.visiting_edge = nullptr;
-  return true;
 }
 
 bool SymbolGenerator::HasSymbol(const std::string &name) {

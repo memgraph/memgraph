@@ -900,7 +900,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
 }
@@ -912,7 +912,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   CheckLiteral(ast_generator.context_, edge->lower_bound_, 42);
   EXPECT_EQ(edge->upper_bound_, nullptr);
 }
@@ -924,7 +924,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   CheckLiteral(ast_generator.context_, edge->upper_bound_, 42);
 }
@@ -936,7 +936,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   CheckLiteral(ast_generator.context_, edge->lower_bound_, 24);
   CheckLiteral(ast_generator.context_, edge->upper_bound_, 42);
 }
@@ -948,7 +948,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   CheckLiteral(ast_generator.context_, edge->lower_bound_, 42);
   CheckLiteral(ast_generator.context_, edge->upper_bound_, 42);
 }
@@ -961,7 +961,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   CheckLiteral(ast_generator.context_, edge->lower_bound_, 1);
   CheckLiteral(ast_generator.context_, edge->upper_bound_, 0.2);
 }
@@ -973,7 +973,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
   CheckLiteral(ast_generator.context_,
@@ -988,7 +988,7 @@ TYPED_TEST(CypherMainVisitorTest,
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
   CheckLiteral(ast_generator.context_,
@@ -1005,13 +1005,14 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
   EdgeAtom *edge = nullptr;
   AssertMatchSingleEdgeAtom(match, edge);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_TRUE(edge->has_range_);
+  EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   CheckLiteral(ast_generator.context_, edge->upper_bound_, 2);
   CheckLiteral(ast_generator.context_,
                edge->properties_[ast_generator.PropPair("prop")], 42);
 }
 
+// TODO maybe uncomment
 // // PatternPart with variable.
 // TYPED_TEST(CypherMainVisitorTest, PatternPartVariable) {
 //   ParserTables parser("CREATE var=()--()");
@@ -1385,17 +1386,17 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   ASSERT_TRUE(match);
   ASSERT_EQ(match->patterns_.size(), 1U);
   ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
-  auto *bfs = dynamic_cast<BreadthFirstAtom *>(match->patterns_[0]->atoms_[1]);
+  auto *bfs = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(bfs);
-  EXPECT_TRUE(bfs->has_range_);
+  EXPECT_TRUE(bfs->IsVariable());
   EXPECT_EQ(bfs->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(
       bfs->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
                            ast_generator.db_accessor_->EdgeType("type2")));
   EXPECT_EQ(bfs->identifier_->name_, "r");
-  EXPECT_EQ(bfs->traversed_edge_identifier_->name_, "e");
-  EXPECT_EQ(bfs->next_node_identifier_->name_, "n");
+  EXPECT_EQ(bfs->inner_edge_->name_, "e");
+  EXPECT_EQ(bfs->inner_node_->name_, "n");
   CheckLiteral(ast_generator.context_, bfs->upper_bound_, 10);
   auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
   ASSERT_TRUE(eq);

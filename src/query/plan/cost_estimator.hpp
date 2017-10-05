@@ -44,7 +44,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
     static constexpr double kExpand{2.0};
     static constexpr double kExpandVariable{3.0};
-    static constexpr double kExpandBreadthFirst{5.0};
     static constexpr double kFilter{1.5};
     static constexpr double kExpandUniquenessFilter{1.5};
     static constexpr double kUnwind{1.3};
@@ -53,7 +52,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   struct CardParam {
     static constexpr double kExpand{3.0};
     static constexpr double kExpandVariable{9.0};
-    static constexpr double kExpandBreadthFirst{8.0};
     static constexpr double kFilter{0.25};
     static constexpr double kExpandUniquenessFilter{0.95};
   };
@@ -144,7 +142,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   POST_VISIT_CARD_FIRST(Expand);
   POST_VISIT_CARD_FIRST(ExpandVariable);
-  POST_VISIT_CARD_FIRST(ExpandBreadthFirst);
 
 #undef POST_VISIT_CARD_FIRST
 
