@@ -304,6 +304,20 @@ Feature: Match
             |     (:Person {age: 20})       |
             |  (:Person :Student {age: 20}) |
 
+    Scenario: Create and match pattern with cross referencing variables in property maps
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, y: 5, z: 3})-[:E]->({x: 10, y: 1, z: 3})
+            """
+        When executing query:
+            """
+            MATCH (n {x: m.y, z: m.z})-[]-(m {y: n.x, z: n.z}) RETURN n, m
+            """
+        Then the result should be:
+            |            n         |           m           |
+            | ({x: 1, y: 5, z: 3}) | ({x: 10, y: 1, z: 3}) |
+
     Scenario: Test match with order by
         Given an empty graph
         And having executed:
@@ -497,5 +511,5 @@ Feature: Match
             """
         Then the result should be:
             | size(path) |
-            | 0            |
-            | 1            |
+            | 0          |
+            | 1          |
