@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(${project_name}_tests)
+project(memgraph_tests)
 
 enable_testing()
 

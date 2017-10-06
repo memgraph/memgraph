@@ -14,8 +14,8 @@ foreach(test_cpp ${test_type_cpps})
     # get exec name (remove extension from the abs path)
     get_filename_component(exec_name ${test_cpp} NAME_WE)
 
-    # set target name in format {project_name}__{test_type}__{exec_name}
-    set(target_name ${project_name}__${test_type}__${exec_name})
+    # set target name in format {PROJECT_NAME}__{test_type}__{exec_name}
+    set(target_name ${PROJECT_NAME}__${test_type}__${exec_name})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})

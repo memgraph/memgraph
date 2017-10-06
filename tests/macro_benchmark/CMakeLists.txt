@@ -11,7 +11,7 @@ message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 set(postgres_dir ${libs_dir}/postgresql)
 
 # add target that depends on all other targets
-set(all_targets_target ${project_name}__${test_type})
+set(all_targets_target memgraph__${test_type})
 add_custom_target(${all_targets_target})
 
 # for each cpp file build binary and register test
@@ -20,8 +20,7 @@ foreach(test_cpp ${test_type_cpps})
     # get exec name (remove extension from the abs path)
     get_filename_component(exec_name ${test_cpp} NAME_WE)
 
-    # set target name in format {project_name}__{test_type}__{exec_name}
-    set(target_name ${project_name}__${test_type}__${exec_name})
+    set(target_name memgraph__${test_type}__${exec_name})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})

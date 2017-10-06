@@ -30,12 +30,7 @@ set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
 # -----------------------------------------------------------------------------
 
-# set project name
-# get directory name
-get_filename_component(project_name ${CMAKE_SOURCE_DIR} NAME)
-# replace whitespaces with underscores
-string(REPLACE " " "_" project_name ${project_name})
-project(${project_name} VERSION 0.7.0)
+project(memgraph VERSION 0.7.0)
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
@@ -85,7 +80,7 @@ set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
 # -----------------------------------------------------------------------------
 
 # Generate a version.hpp file
-set(VERSION_STRING ${${project_name}_VERSION})
+set(VERSION_STRING ${memgraph_VERSION})
 configure_file(${src_dir}/version.hpp.in include/version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 
@@ -294,22 +289,11 @@ add_subdirectory(tests)
 
 # memgraph build name
 execute_process(
-    OUTPUT_VARIABLE COMMIT_BRANCH
-    COMMAND git rev-parse --abbrev-ref HEAD
-)
-execute_process(
     OUTPUT_VARIABLE COMMIT_HASH
     COMMAND git rev-parse --short HEAD
 )
-execute_process(
-    OUTPUT_VARIABLE COMMIT_NO
-    COMMAND git rev-list --count HEAD
-)
-string(STRIP ${COMMIT_BRANCH} COMMIT_BRANCH)
-string(STRIP ${COMMIT_NO} COMMIT_NO)
 string(STRIP ${COMMIT_HASH} COMMIT_HASH)
-set(MEMGRAPH_BUILD_NAME
-    "memgraph_${COMMIT_NO}_${COMMIT_HASH}_${COMMIT_BRANCH}_${CMAKE_BUILD_TYPE}")
+set(MEMGRAPH_BUILD_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}")
 add_custom_target(memgraph_link_target ALL
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
 # -----------------------------------------------------------------------------
@@ -355,10 +339,11 @@ set(CPACK_PACKAGE_NAME memgraph)
 set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
-set(CPACK_PACKAGE_VERSION_MAJOR ${${project_name}_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${${project_name}_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${${project_name}_VERSION_PATCH})
-set(CPACK_PACKAGE_VERSION_TWEAK ${${project_name}_VERSION_TWEAK})
+set(CPACK_PACKAGE_VERSION_MAJOR ${memgraph_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${memgraph_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${memgraph_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION_TWEAK ${memgraph_VERSION_TWEAK})
+set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${memgraph_VERSION}-${COMMIT_HASH}${CPACK_SYSTEM_NAME})
 # TODO: Longer description, readme and license files.
 # DEB specific
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Memgraph Ltd.")

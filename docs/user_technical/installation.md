@@ -1,10 +1,10 @@
 ## Installation
 
-Memgraph is a 64-bit Linux compatible database management system. For the
-purpose of Alpha testing Memgraph has been packed into a
-[Docker](https://www.docker.com) image based on Ubuntu 16.04. Before
-proceeding with the installation, please install the Docker engine on your
-system.  Instructions how to install Docker can be found on the
+Memgraph is a 64-bit Linux compatible database management system. Currently,
+the Memgraph binary is offered only as a [Docker](https://www.docker.com)
+image based on Debian Stretch. Before proceeding with the installation, please
+install the Docker engine on the system. Instructions how to install Docker
+can be found on the
 [official Docker website](https://docs.docker.com/engine/installation).
 Memgraph Docker image was built with Docker version `1.12` and should be
 compatible with all latter versions.
@@ -15,7 +15,7 @@ After a successful download the Memgraph Docker image
 can be imported into Docker:
 
 ```
-docker load -i /path/to/memgraph_alpha_v0.7.0.tar.gz
+docker load -i /path/to/memgraph-<version>-docker.tar.gz
 ```
 
 ### Image Configuration & Running Memgraph
@@ -23,38 +23,65 @@ docker load -i /path/to/memgraph_alpha_v0.7.0.tar.gz
 Memgraph can be started by executing:
 
 ```
-docker run -it -p 7687:7687 memgraph_alpha_v0.7.0
+docker run -it -p 7687:7687 memgraph:<version>
 ```
 
 The `-it` option enables displaying Memgraph's logs inside the current shell.
 The `-p` option is used to specify the port on which Memgraph will listen for
 requests. Memgraph uses the Bolt protocol for network communication, which
-uses port `7687` by default.
+uses port `7687` by default. The `<version>` part are 3 numbers specifying the
+version, e.g. `1.2.3`.
 
 It is recommended to perform some additional Docker configuration. Memgraph is
 currently an in-memory database management system, but it periodically stores
 all data to the hard drive. These storages are referred to as *snapshots* and
-are used for recovering data in case of a restart.  When starting Memgraph, a
-folder for snapshots needs to be created and mounted on the host file system.
-It is also recommended to run the Docker container in the background.  On a
-Linux system all of that can be achieved with the following shell commands:
+are used for recovering data in case of a restart.
+
+When starting Memgraph, a folder for snapshots needs to be created and mounted on the host file system.
+This can be easily done using Docker's named volumes. For example:
+
+```
+# Run Memgraph.
+docker run -p 7687:7687 -v mg_data:/var/lib/memgraph memgraph:<version>
+```
+
+The `-v` option will make a named volume directory called `mg_data` and
+Memgraph will store snapshots there. Named volumes are usually found in
+`/var/lib/docker/volumes`.
+
+The same can be achieved for logs and configuration. All supported volumes
+which can be mounted are:
+
+  * `/var/lib/memgraph`, for storing snapshots;
+  * `/var/log/memgraph`, for storing logs and
+  * `/etc/memgraph`, for Memgraph configuration.
+
+Another way to expose the configuration and data is to use a full path to some
+directory on the system. In such a case, the directory first needs to be
+created and allow docker image to write inside. For example, to create a
+snapshots volume in the current directory:
 
 ```
 # Create the snapshots folder on the host.
-mkdir -p memgraph
+mkdir -m 777 mg_data
 # Docker expects full path to the created folder.
-FULL_OUTPUT_PATH=$PWD/memgraph
+FULL_OUTPUT_PATH=$PWD/mg_data
 # Run Memgraph.
-docker run -d -p 7687:7687 -v ${FULL_OUTPUT_PATH}:/var/lib/memgraph --name <memgraph_docker_container_name> memgraph_alpha_v0.7.0
+docker run -p 7687:7687 -v ${FULL_OUTPUT_PATH}:/var/lib/memgraph memgraph:<version>
 ```
 
-In the commands above `-d` means that the container will be detached (run in
-the background).  `-v` mounts a host folder to a path inside the Docker
-container. The output folder contains Memgraph's periodical snapshots and log
-file.  The log file should be uploaded to Memgraph's issue tracking system in
-case of an error.  With `--name` a custom name for the container can be set
-(useful for easier container management).  `<memgraph_docker_container_name>`
-could be any convenient name e.g.  `memgraph_alpha`.
+In this example, `-v` mounts a host folder `$PWD/mg_data` to a path inside the Docker
+container.
+
+Other than setting the configuration, it is also recommended to run the Docker
+container in the background. This is achieved with `-d` option. In such a
+case, the name should be set for the running container, so that it can be
+easily found and shut down when needed. For example:
+
+```
+# Run Memgraph.
+docker run -p 7687:7687 -d --name <memgraph_docker_container_name> memgraph:<version>
+```
 
 ### Memgraph Configuration Parameters
 

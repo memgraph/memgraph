@@ -1,0 +1,40 @@
+#!/bin/bash -e
+
+# Build and Package (docker image) Memgraph
+
+function print_help () {
+    echo "Usage: $0 BINARY_PACKAGE.tar.gz"
+    echo "Optional arguments:"
+    echo -e "  -h|--help           Print help."
+}
+
+working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+project_dir="${working_dir}/.."
+
+if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+  print_help
+  exit 1
+fi
+
+if [[ ! -f "$1" ]]; then
+  echo "File '$1' does not exist!"
+  exit 1
+fi
+
+tar_release=`realpath "$1"`
+package_name=`echo $(basename $1) | sed 's/.tar.gz//'`
+
+cd ${working_dir}
+
+# Unpack the release package.
+echo "Unpacking '$1' to '${working_dir}/${package_name}'"
+tar xf ${tar_release}
+version=`echo ${package_name} | sed 's/.*-\(.*\)-.*/\1/'`
+image_name="memgraph:${version}"
+# Build docker image.
+docker build -t ${image_name} -f ${working_dir}/community.dockerfile --build-arg build_name=${package_name} .
+docker save ${image_name} > ${package_name}-docker.tar.gz
+# Remove unpacked package.
+echo "Removing '${working_dir}/${package_name}'"
+rm -rf ${package_name}
+echo "Built Docker imate at '${working_dir}/${package_name}-docker.tar.gz'"
