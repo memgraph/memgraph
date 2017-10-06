@@ -38,10 +38,10 @@ DEFINE_string(relationships, "",
 
 auto ParseRepeatedFlag(const std::string &flagname, int argc, char *argv[]) {
   std::vector<std::string> values;
-  for (int i = 1; i < argc; i += 2) {
+  for (int i = 1; i < argc; ++i) {
     std::string flag(argv[i]);
     if ((flag == "--" + flagname || flag == "-" + flagname) && i + 1 < argc)
-      values.push_back(argv[i + 1]);
+      values.push_back(argv[++i]);
   }
   return values;
 }
@@ -337,8 +337,12 @@ void Convert(const std::vector<std::string> &nodes,
   buffer.WriteSummary(node_count, relationship_count);
 }
 
+static const char *usage =
+"[OPTION]... --out SNAPSHOT_FILE [--nodes=CSV_FILE]... [--edges=CSV_FILE]...\n"
+"Create a Memgraph recovery snapshot file from CSV.\n";
+
 int main(int argc, char *argv[]) {
-  gflags::SetUsageMessage("Create a Memgraph recovery snapshot file from CSV.");
+  gflags::SetUsageMessage(usage);
   auto nodes = ParseRepeatedFlag("nodes", argc, argv);
   auto relationships = ParseRepeatedFlag("relationships", argc, argv);
   gflags::ParseCommandLineFlags(&argc, &argv, true);

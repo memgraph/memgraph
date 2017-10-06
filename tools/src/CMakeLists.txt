@@ -13,6 +13,14 @@ add_executable(csv_to_snapshot
   ${memgraph_src_dir}/transactions/transaction.cpp
   )
 
+# Strip the executable in release build.
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET csv_to_snapshot POST_BUILD
+                     COMMAND strip -s csv_to_snapshot
+                     COMMENT Stripping symbols and sections from csv_to_snapshot)
+endif()
+
 target_link_libraries(csv_to_snapshot stdc++fs Threads::Threads fmt
                       gflags glog cppitertools)
 install(TARGETS csv_to_snapshot
