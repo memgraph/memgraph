@@ -58,19 +58,13 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
                                  const GraphDbTypes::Property &property) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
 
-  const LabelPropertyIndex::Key key(label, property);
-  if (db_.label_property_index_.CreateIndex(key) == false) {
-    throw IndexExistsException(
-        "Index is either being created by another transaction or already "
-        "exists.");
-  }
-
   {
     // switch the build_in_progress to true
     bool expected = false;
     if (!db_.index_build_in_progress_.compare_exchange_strong(expected, true))
       throw IndexBuildInProgressException();
   }
+
   // on function exit switch the build_in_progress to false
   utils::OnScopeExit on_exit([this] {
     bool expected = true;
@@ -78,6 +72,13 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
         db_.index_build_in_progress_.compare_exchange_strong(expected, false);
     debug_assert(success, "BuildIndexInProgress flag was not set during build");
   });
+
+  const LabelPropertyIndex::Key key(label, property);
+  if (db_.label_property_index_.CreateIndex(key) == false) {
+    throw IndexExistsException(
+        "Index is either being created by another transaction or already "
+        "exists.");
+  }
 
   // Everything that happens after the line above ended will be added to the
   // index automatically, but we still have to add to index everything that
@@ -115,17 +116,17 @@ void GraphDbAccessor::UpdateLabelIndices(const GraphDbTypes::Label &label,
                                          const VertexAccessor &vertex_accessor,
                                          const Vertex *const vertex) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-  this->db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
-  this->db_.label_property_index_.UpdateOnLabel(label, vertex_accessor.vlist_,
-                                                vertex);
+  db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
+  db_.label_property_index_.UpdateOnLabel(label, vertex_accessor.vlist_,
+                                          vertex);
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
     const GraphDbTypes::Property &property,
     const RecordAccessor<Vertex> &record_accessor, const Vertex *const vertex) {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-  this->db_.label_property_index_.UpdateOnProperty(
-      property, record_accessor.vlist_, vertex);
+  db_.label_property_index_.UpdateOnProperty(property, record_accessor.vlist_,
+                                             vertex);
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
