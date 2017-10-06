@@ -99,7 +99,13 @@ class BaseEncoder {
     for (auto &x : value) WriteTypedValue(x);
   }
 
-  void WriteMap(const std::map<std::string, query::TypedValue> &value) {
+  /**
+   * Writes a map value.
+   *
+   * @tparam TMap - an iterable of (std::string, TypedValue) pairs.
+   */
+  template <typename TMap>
+  void WriteMap(const TMap &value) {
     WriteTypeSize(value.size(), MarkerMap);
     for (auto &x : value) {
       WriteString(x.first);
@@ -169,8 +175,8 @@ class BaseEncoder {
     auto add_element = [&indices](auto &collection, const auto &element,
                                   int multiplier, int offset) {
       auto found = std::find(collection.begin(), collection.end(), element);
-      indices.emplace_back(
-          multiplier * (std::distance(collection.begin(), found) + offset));
+      indices.emplace_back(multiplier *
+                           (std::distance(collection.begin(), found) + offset));
       if (found == collection.end()) collection.emplace_back(element);
     };
 
