@@ -43,7 +43,8 @@ GraphDb::GraphDb(const std::string &name, const fs::path &snapshot_db_dir)
 
   if (FLAGS_query_execution_time_sec != -1) {
     transaction_killer_.Run(
-        std::chrono::seconds(std::max(1, FLAGS_query_execution_time_sec / 4)),
+        std::chrono::seconds(
+            std::max(1, std::min(5, FLAGS_query_execution_time_sec / 4))),
         [this]() {
           tx_engine_.ForEachActiveTransaction([](tx::Transaction &t) {
             if (t.creation_time() +

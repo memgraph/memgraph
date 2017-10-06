@@ -63,13 +63,16 @@ class TypeMismatchError : public SemanticException {
 class HintedAbortError : public QueryException {
  public:
   using QueryException::QueryException;
-  HintedAbortError() : QueryException("") {}
+  HintedAbortError()
+      : QueryException(
+            "Transaction was asked to abort, most likely because it was "
+            "executing longer than time specified by "
+            "--query-execution-time-sec flag") {}
 };
 
 class UnprovidedParameterError : public QueryException {
  public:
   using QueryException::QueryException;
-  UnprovidedParameterError() : QueryException("") {}
 };
 
 /**
