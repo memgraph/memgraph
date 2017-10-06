@@ -47,13 +47,13 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "disable.");
 
 // Load flags in this order, the last one has the highest priority:
-// 1) /etc/memgraph/config
+// 1) /etc/memgraph/memgraph.conf
 // 2) ~/.memgraph/config
 // 3) env - MEMGRAPH_CONFIG
 // 4) command line flags
 
 void load_config(int &argc, char **&argv) {
-  std::vector<fs::path> configs = {fs::path("/etc/memgraph/config")};
+  std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
   if (getenv("HOME") != nullptr)
     configs.emplace_back(fs::path(getenv("HOME")) /
                          fs::path(".memgraph/config"));

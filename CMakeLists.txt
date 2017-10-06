@@ -317,8 +317,8 @@ if (MEMGRAPH)
     install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
             DESTINATION bin RENAME memgraph)
     # Install the config file.
-    install(FILES ${CMAKE_SOURCE_DIR}/config/alpha.conf
-            DESTINATION /etc/memgraph RENAME config)
+    install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
+            DESTINATION /etc/memgraph RENAME memgraph.conf)
     # Create empty directories for default location of snapshots and logs.
     install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                        \$ENV{DESTDIR}/var/lib/memgraph/snapshots)")
