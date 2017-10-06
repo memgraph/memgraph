@@ -294,24 +294,6 @@ class GraphDbAccessor {
   }
 
   /**
-   * Return EdgeAccessors which contain the edge_type for the current
-   * transaction visibility.
-   * @param edge_type - edge_type for which to return EdgeAccessors
-   * @param current_state If true then the graph state for the
-   *    current transaction+command is returned (insertions, updates and
-   *    deletions performed in the current transaction+command are not
-   *    ignored).
-   * @return iterable collection
-   */
-  auto Edges(const GraphDbTypes::EdgeType &edge_type, bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-    return iter::imap(
-        [this](auto vlist) { return EdgeAccessor(*vlist, *this); },
-        db_.edge_types_index_.GetVlists(edge_type, *transaction_,
-                                        current_state));
-  }
-
-  /**
    * Creates and returns a new accessor that represents the same graph element
    * (node / version) as the given `accessor`, but in this `GraphDbAccessor`.
    *
@@ -436,14 +418,6 @@ class GraphDbAccessor {
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const;
-
-  /**
-   * Return approximate number of edges under indexes with the given edge_type.
-   * Note that this is always an over-estimate and never an under-estimate.
-   * @param edge_type - edge_type to check for
-   * @return number of edges with the given edge_type
-   */
-  int64_t EdgesCount(const GraphDbTypes::EdgeType &edge_type) const;
 
   /**
    * Obtains the Label for the label's name.
@@ -589,16 +563,6 @@ class GraphDbAccessor {
   void UpdateLabelIndices(const GraphDbTypes::Label &label,
                           const VertexAccessor &vertex_accessor,
                           const Vertex *const vertex);
-
-  /**
-   * Insert this edge into corresponding edge_type index.
-   * @param edge_type  - edge_type index into which to insert record
-   * @param edge_accessor - edge_accessor to insert
-   * @param edge - edge record to insert
-   */
-  void UpdateEdgeTypeIndex(const GraphDbTypes::EdgeType &edge_type,
-                           const EdgeAccessor &edge_accessor,
-                           const Edge *const edge);
 
   /**
    * Insert this vertex into corresponding any label + 'property' index.

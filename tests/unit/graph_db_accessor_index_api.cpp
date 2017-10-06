@@ -85,10 +85,8 @@ TEST_F(GraphDbAccessorIndex, LabelIndexIteration) {
   EXPECT_EQ(Count(dba->Vertices(label, true)), 7);
 }
 
-TEST_F(GraphDbAccessorIndex, EdgeTypeCount) {
+TEST_F(GraphDbAccessorIndex, EdgesCount) {
   auto edge_type2 = dba->EdgeType("edge_type2");
-  EXPECT_EQ(dba->EdgesCount(edge_type), 0);
-  EXPECT_EQ(dba->EdgesCount(edge_type2), 0);
   EXPECT_EQ(dba->EdgesCount(), 0);
 
   auto v1 = AddVertex();
@@ -97,8 +95,6 @@ TEST_F(GraphDbAccessorIndex, EdgeTypeCount) {
   for (int i = 0; i < 17; ++i) dba->InsertEdge(v1, v2, edge_type2);
   // even though xxx_count functions in GraphDbAccessor can over-estaimate
   // in this situation they should be exact (nothing was ever deleted)
-  EXPECT_EQ(dba->EdgesCount(edge_type), 11);
-  EXPECT_EQ(dba->EdgesCount(edge_type2), 17);
   EXPECT_EQ(dba->EdgesCount(), 28);
 }
 

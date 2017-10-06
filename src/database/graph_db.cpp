@@ -114,7 +114,6 @@ void GraphDb::CollectGarbage() {
     // This can be run concurrently
     utils::Timer x;
     labels_index_.Refresh(snapshot, tx_engine_);
-    edge_types_index_.Refresh(snapshot, tx_engine_);
     label_property_index_.Refresh(snapshot, tx_engine_);
     VLOG(1) << "Garbage collector index phase time: " << x.Elapsed().count();
   }

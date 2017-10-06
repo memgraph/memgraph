@@ -103,7 +103,6 @@ class GraphDb {
 
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
-  KeyIndex<GraphDbTypes::EdgeType, Edge> edge_types_index_;
   LabelPropertyIndex label_property_index_;
 
   // Flag indicating if index building is in progress. Memgraph does not support

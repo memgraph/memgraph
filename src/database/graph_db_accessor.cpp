@@ -257,26 +257,12 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   // This has to be here because there is no additional method for setting edge
   // type.
   const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
-  UpdateEdgeTypeIndex(edge_type, edge_accessor, &edge_accessor.current());
   return edge_accessor;
-}
-
-void GraphDbAccessor::UpdateEdgeTypeIndex(
-    const GraphDbTypes::EdgeType &edge_type, const EdgeAccessor &edge_accessor,
-    const Edge *const edge) {
-  debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-  this->db_.edge_types_index_.Update(edge_type, edge_accessor.vlist_, edge);
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {
   debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
   return db_.edges_.access().size();
-}
-
-int64_t GraphDbAccessor::EdgesCount(
-    const GraphDbTypes::EdgeType &edge_type) const {
-  debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-  return db_.edge_types_index_.Count(edge_type);
 }
 
 void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
