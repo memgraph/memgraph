@@ -61,7 +61,7 @@ function(add_external_project name)
   ExternalProject_Add_Step(
     ${name}-proj force-build
     COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/src/${name}-proj-stamp/${name}-proj-build
-    DEPENDERS build ALWAYS 1)
+    DEPENDERS configure ALWAYS 1)
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
