@@ -570,8 +570,6 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     upper = ctx->expression()[1]->accept(this);
   }
 
-  if (is_bfs && lower)
-    throw SemanticException("BFS does not support lower bounds");
   return std::make_tuple(is_bfs, lower, upper);
 }
 

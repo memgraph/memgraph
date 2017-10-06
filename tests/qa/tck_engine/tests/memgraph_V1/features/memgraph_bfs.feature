@@ -1,6 +1,6 @@
 Feature: Bfs
 
-  Scenario: Test match BFS depth blocked
+  Scenario: Test match BFS upper bound
       Given an empty graph
       And having executed:
           """
@@ -14,6 +14,21 @@ Feature: Bfs
           | n.a | m.a   |
           | '0' | '1.1' |
           | '0' | '1.2' |
+
+  Scenario: Test match BFS lower bound
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (n {a:'0'})-[:r]->({a:'1.1'})-[:r]->({a:'2.1'})-[:r]->({a:'3.1'})
+          """
+      When executing query:
+          """
+          MATCH (n {a:'0'})-[*bfs 2..]->(m) RETURN n.a, m.a
+          """
+      Then the result should be:
+          | n.a | m.a   |
+          | '0' | '2.1' |
+          | '0' | '3.1' |
 
   Scenario: Test match BFS filtered
       Given an empty graph

@@ -436,10 +436,8 @@ destination node. Furthermore, it's possible to find multiple paths to multiple 
 nodes regardless of their length. Also, it is possible to simply go through a node's
 neighbourhood in breadth-first manner.
 
-It is fair to say there are a few drawbacks too. Currently, it isn't possible to get
-all shortest paths to a single node using Memgraph's breadth-first expansion. Also
-property maps (in curly brackets) are not supported with a BFS. These features will
-most likely be included in subsequent Memgraph releases.
+Currently, it isn't possible to get all shortest paths to a single node using
+Memgraph's breadth-first expansion.
 
 #### UNWIND
 

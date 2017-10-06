@@ -927,6 +927,10 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
         SwitchAccessor(vertex, self_.graph_view_);
         processed_.emplace(vertex, std::experimental::nullopt);
         expand_from_vertex(vertex);
+        lower_bound_ = self_.lower_bound_
+                           ? EvaluateInt(evaluator, self_.lower_bound_,
+                                         "Min depth in breadth-first expansion")
+                           : 1;
         upper_bound_ = self_.upper_bound_
                            ? EvaluateInt(evaluator, self_.upper_bound_,
                                          "Max depth in breadth-first expansion")
@@ -963,6 +967,9 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
       if (static_cast<int>(edge_list.size()) < upper_bound_)
         expand_from_vertex(expansion.second);
 
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_)
+        continue;
+
       // place destination node on the frame, handle existence flag
       if (self_.existing_node_) {
         TypedValue &node = frame[self_.node_symbol_];
@@ -990,8 +997,9 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
   GraphDbAccessor &db_;
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
-  // maximum depth of the expansion. calculated on each pull
-  // from the input, the initial value is irrelevant.
+  // Depth bounds. Calculated on each pull from the input, the initial value is
+  // irrelevant.
+  int lower_bound_{-1};
   int upper_bound_{-1};
 
   // maps vertices to the edge they got expanded from. it is an optional
