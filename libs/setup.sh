@@ -82,7 +82,7 @@ cd ..
 
 # google flags
 git clone https://github.com/memgraph/gflags.git
-gflags_tag="18c4a5d151f7828c62d838ef513b4db290e5324c" # custom version (May 6, 2017)
+gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)
 cd gflags
 git checkout ${gflags_tag}
 cd ..

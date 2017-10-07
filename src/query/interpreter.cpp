@@ -8,7 +8,8 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
-DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
+DEFINE_HIDDEN_bool(query_cost_planner, true,
+                   "Use the cost-estimating query planner.");
 DEFINE_bool(query_plan_cache, true, "Cache generated query plans");
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
                        "Time to live for cached query plans, in seconds.",

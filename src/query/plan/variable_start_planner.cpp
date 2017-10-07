@@ -5,7 +5,7 @@
 
 #include "utils/flag_validation.hpp"
 
-DEFINE_VALIDATED_uint64(
+DEFINE_VALIDATED_HIDDEN_uint64(
     query_max_plans, 1000U, "Maximum number of generated plans for a query",
     FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
 

@@ -66,6 +66,15 @@
   }                                                                   \
   DEFINE_validator(flag_name, &validate_##flag_name)
 
+#define DEFINE_VALIDATED_HIDDEN_FLAG(flag_type, flag_name, default_value,    \
+                                     description, cpp_type, validation_body) \
+  DEFINE_HIDDEN_##flag_type(flag_name, default_value, description);          \
+  namespace {                                                                \
+  bool validate_##flag_name(const char *flagname,                            \
+                            cpp_type value) validation_body                  \
+  }                                                                          \
+  DEFINE_validator(flag_name, &validate_##flag_name)
+
 /// Define a boolean command line flag with validation.
 ///
 /// @sa DEFINE_VALIDATED_int32
@@ -77,6 +86,10 @@
                               validation_body)                             \
   DEFINE_VALIDATED_FLAG(bool, flag_name, default_value, description, bool, \
                         validation_body)
+#define DEFINE_VALIDATED_HIDDEN_bool(flag_name, default_value, description, \
+                                     validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(bool, flag_name, default_value, description, \
+                               bool, validation_body)
 
 /// Define an integer command line flag with validation.
 ///
@@ -89,6 +102,10 @@
                                validation_body)                       \
   DEFINE_VALIDATED_FLAG(int32, flag_name, default_value, description, \
                         std::int32_t, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_int32(flag_name, default_value, description, \
+                                      validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(int32, flag_name, default_value, description, \
+                               std::int32_t, validation_body)
 
 /// Define an integer command line flag with validation.
 ///
@@ -101,6 +118,10 @@
                                validation_body)                       \
   DEFINE_VALIDATED_FLAG(int64, flag_name, default_value, description, \
                         std::int64_t, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_int64(flag_name, default_value, description, \
+                                      validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(int64, flag_name, default_value, description, \
+                               std::int64_t, validation_body)
 
 /// Define an unsigned integer command line flag with validation.
 ///
@@ -113,6 +134,10 @@
                                 validation_body)                       \
   DEFINE_VALIDATED_FLAG(uint64, flag_name, default_value, description, \
                         std::uint64_t, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_uint64(flag_name, default_value, description, \
+                                       validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(uint64, flag_name, default_value, description, \
+                               std::uint64_t, validation_body)
 
 /// Define a double floating point command line flag with validation.
 ///
@@ -125,6 +150,10 @@
                                 validation_body)                               \
   DEFINE_VALIDATED_FLAG(double, flag_name, default_value, description, double, \
                         validation_body)
+#define DEFINE_VALIDATED_HIDDEN_double(flag_name, default_value, description, \
+                                       validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(double, flag_name, default_value, description, \
+                               double, validation_body)
 
 /// Define a character string command line flag with validation.
 ///
@@ -137,6 +166,10 @@
                                 validation_body)                       \
   DEFINE_VALIDATED_FLAG(string, flag_name, default_value, description, \
                         const std::string &, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_string(flag_name, default_value, description, \
+                                       validation_body)                       \
+  DEFINE_VALIDATED_HIDDEN_FLAG(string, flag_name, default_value, description, \
+                               const std::string &, validation_body)
 
 /// General flag validator for numeric flag values inside a range (inclusive).
 ///

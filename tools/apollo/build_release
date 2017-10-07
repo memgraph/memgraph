@@ -12,7 +12,7 @@ cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
 TIMEOUT=1000 make -j$THREADS
 # Create a binary package (which can then be used for Docker image).
-cpack -D CPACK_SET_DESTDIR=ON -G TGZ
+#cpack -D CPACK_SET_DESTDIR=ON -G TGZ
 
 cd ../tools
 
