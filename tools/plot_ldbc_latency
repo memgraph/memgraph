@@ -20,7 +20,7 @@ from matplotlib.cbook import get_sample_data
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-COLORS = ['#ff7300', '#008cc2'] # TODO: add more colors!
+COLORS = ['#ff7300', '#008cc2']  # TODO: add more colors!
 LDBC_TIME_FACTORS = {
     "SECONDS": 1.0,
     "MILLISECONDS": 1000.0,
@@ -53,6 +53,12 @@ def parse_args():
                       default="ms", help="The time unit that should be used.")
     argp.add_argument("--output", default="",
                       help="Save plot to file (instead of displaying it).")
+    argp.add_argument("--plot-width", type=int, default=1920,
+                      help="Pixel width of generated plots.")
+    argp.add_argument("--plot-height", type=int, default=1080,
+                      help="Pixel height of generated plots.")
+    argp.add_argument("--dpi", type=int, default=96,
+                      help="DPI of generated plots.")
     return argp.parse_args()
 
 
@@ -101,8 +107,8 @@ def main():
             results_data = json.load(results_file)
             for query_data in results_data["all_metrics"]:
                 mean_runtime = (query_data["run_time"]["mean"] /
-                        LDBC_TIME_FACTORS[results_data["unit"]] *
-                        TIME_FACTORS[args.time_unit])
+                                LDBC_TIME_FACTORS[results_data["unit"]] *
+                                TIME_FACTORS[args.time_unit])
                 query_name = shorten_query_name(query_data['name'])
                 vendor['results'].append((query_name, mean_runtime))
 
@@ -142,7 +148,8 @@ def main():
     ind = np.arange(len(query_names))   # the x locations for the groups
     width = 0.40                        # the width of the bars
     fig, ax = plt.subplots()            # figure setup
-    fig.set_size_inches(1920 / 96, 1080 / 96) # set figure size
+    fig.set_size_inches(args.plot_width / args.dpi,
+                        args.plot_height / args.dpi)  # set figure size
     ax.set_ylabel('Mean Latency (%s)' % (args.time_unit))  # YAxis title
     ax.set_facecolor('#dcdcdc')         # plot bg color (light gray)
     ax.set_xticks(ind + width / len(vendors))  # TODO: adjust (more vendors)
@@ -157,7 +164,7 @@ def main():
     # Set plot title
     ax.set_title(args.plot_title)
     # Draw logo or plot title
-    if args.logo_path != None:
+    if args.logo_path is not None:
         im = plt.imread(get_sample_data(os.path.join(os.getcwd(),
                                                      args.logo_path)))
         plt.gcf().subplots_adjust(top=0.85)
@@ -179,8 +186,7 @@ def main():
     if args.output == "":
         plt.show()
     else:
-        plt.savefig(args.output, dpi=96)
-
+        plt.savefig(args.output, dpi=args.dpi)
 
 
 if __name__ == '__main__':

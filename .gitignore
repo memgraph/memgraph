@@ -6,6 +6,7 @@
 *.pyc
 *.session.yaml
 *.so
+*.swn
 *.swo
 *.swp
 *~
