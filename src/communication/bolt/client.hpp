@@ -131,7 +131,7 @@ class Client {
     std::vector<std::vector<DecodedValue>> records;
     while (true) {
       if (!GetDataByChunk()) {
-        throw ClientInvalidDataException();
+        throw ClientSocketException();
       }
       if (!decoder_.ReadMessageHeader(&signature, &marker)) {
         throw ClientInvalidDataException();
@@ -198,7 +198,7 @@ class Client {
     while (buffer_.size() < len) {
       auto buff = buffer_.Allocate();
       int ret = socket_.Read(buff.data, buff.len);
-      if (ret == -1) return false;
+      if (ret <= 0) return false;
       buffer_.Written(ret);
     }
     return true;
@@ -213,7 +213,7 @@ class Client {
       }
       auto buff = buffer_.Allocate();
       int ret = socket_.Read(buff.data, buff.len);
-      if (ret == -1) return false;
+      if (ret <= 0) return false;
       buffer_.Written(ret);
     }
     return true;
