@@ -11,13 +11,19 @@ bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
 TIMEOUT=1000 make -j$THREADS
+
 # Create a binary package (which can then be used for Docker image).
-#cpack -D CPACK_SET_DESTDIR=ON -G TGZ
+mkdir output
+cd output
+cpack -D CPACK_SET_DESTDIR=ON -G TGZ --config ../CPackConfig.cmake
+cpack -G DEB --config ../CPackConfig.cmake
 
-cd ../tools
+# Create user technical documentation for community site
+cd ../../docs/user_technical
+./bundle_community
 
+cd ../../tools
 ./setup
 
 cd apollo
-
 ./generate release

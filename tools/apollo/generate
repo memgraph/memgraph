@@ -5,24 +5,6 @@ import shutil
 import subprocess
 import sys
 
-class UnbufferedFile:
-    def __init__(self, f):
-        self._file = f
-
-    def write(self, data):
-        self._file.write(data)
-        self.flush()
-
-    def flush(self):
-        self._file.flush()
-
-    def isatty(self):
-        return True
-
-# Remove buffering from output streams
-sys.stdout = UnbufferedFile(sys.stdout)
-sys.stderr = UnbufferedFile(sys.stderr)
-
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -99,7 +81,28 @@ docs_path = os.path.join(BASE_DIR, "docs", "doxygen", "html")
 archive = create_archive("doxygen_documentation", [docs_path], docs_path)
 ARCHIVES.append(generate_archive("Doxygen documentation", "doxygen_documentation", archive))
 
-# TODO: store user documentation to archive
+# store release deb and tarball to archive
+if mode == "release":
+    print("Copying release packages")
+    build_output_dir = os.path.join(BUILD_DIR, "output")
+    deb_name = run_cmd(["find", ".", "-maxdepth", "1", "-type", "f",
+            "-name", "memgraph*.deb"], build_output_dir).split("\n")[0][2:]
+    tarball_name = run_cmd(["find", ".", "-maxdepth", "1", "-type", "f",
+            "-name", "memgraph*.tar.gz"], build_output_dir).split("\n")[0][2:]
+    shutil.copyfile(os.path.join(build_output_dir, deb_name),
+            os.path.join(OUTPUT_DIR, "release.deb"))
+    shutil.copyfile(os.path.join(build_output_dir, tarball_name),
+            os.path.join(OUTPUT_DIR, "release.tar.gz"))
+    ARCHIVES.append(generate_archive("Release (deb package)", "release_deb", "release.deb"))
+    ARCHIVES.append(generate_archive("Release (tarball)", "release_tar", "release.tar.gz"))
+
+# store user documentation to archive
+if mode == "release":
+    print("Copying release documentation")
+    shutil.copyfile(os.path.join(BASE_DIR, "docs", "user_technical",
+            "docs.tar.gz"), os.path.join(OUTPUT_DIR, "release_user_docs.tar.gz"))
+    ARCHIVES.append(generate_archive("Release (user docs)", "release_user_docs",
+            "release_user_docs.tar.gz"))
 
 # cppcheck run
 cppcheck = os.path.join(BASE_DIR, "tools", "apollo", "cppcheck")
@@ -130,24 +133,14 @@ tests.sort()
 
 for test in tests:
     order, name, path = test
-
-    # TODO: integration_query_engine is currently ignored because it
-    # doesn't include its compile dependencies properly
-    if name == "integration__query_engine": continue
-
     dirname = os.path.dirname(path)
     cmakedir = os.path.join(dirname, "CMakeFiles",
             BASE_DIR_NAME + CTEST_DELIMITER + name + ".dir")
     files = [path, cmakedir]
 
     # extra files for specific tests
-    if name in ["unit__fswatcher", "integration__query_engine"]:
+    if name == "unit__fswatcher":
         files.append(os.path.normpath(os.path.join(dirname, "..", "data")))
-    if name == "integration__query_engine":
-        files.append(os.path.normpath(os.path.join(dirname, "..", "compiled")))
-        files.append(os.path.join(BUILD_DIR, "include"))
-        for i in ["hardcoded_query", "stream", "template"]:
-            files.append(os.path.join(dirname, i))
 
     # larger timeout for benchmark tests
     prefix = ""

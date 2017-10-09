@@ -53,6 +53,6 @@ target=docs.tar.gz
 if [ -f $target ]; then
     rm $target
 fi
-tar -czf $working_dir/$target .contents *
+tar -czf $working_dir/$target .contents *.html
 
 echo "Created archive: $working_dir/$target"
