@@ -967,8 +967,7 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
       if (static_cast<int>(edge_list.size()) < upper_bound_)
         expand_from_vertex(expansion.second);
 
-      if (static_cast<int64_t>(edge_list.size()) < lower_bound_)
-        continue;
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
       // place destination node on the frame, handle existence flag
       if (self_.existing_node_) {
@@ -2389,8 +2388,11 @@ class CreateIndexCursor : public Cursor {
   CreateIndexCursor(const CreateIndex &self, GraphDbAccessor &db)
       : self_(self), db_(db) {}
 
-  bool Pull(Frame &, Context &) override {
+  bool Pull(Frame &, Context &ctx) override {
     if (did_create_) return false;
+    if (ctx.in_explicit_transaction_) {
+      throw IndexInMulticommandTxException();
+    }
     try {
       db_.BuildIndex(self_.label(), self_.property());
     } catch (const IndexExistsException &) {
@@ -2402,7 +2404,7 @@ class CreateIndexCursor : public Cursor {
           "Index building already in progress on this database. Memgraph "
           "does not support concurrent index building.");
     }
-    did_create_ = true;
+    ctx.is_index_created_ = did_create_ = true;
     return true;
   }
 

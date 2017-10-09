@@ -6,6 +6,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
@@ -23,7 +24,7 @@ TEST(Interpreter, AstCache) {
   {
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {});
+    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -34,7 +35,7 @@ TEST(Interpreter, AstCache) {
     // Cached ast, different literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN 5 + 4", *dba, stream, {});
+    interpreter.Interpret("RETURN 5 + 4", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 9);
@@ -43,7 +44,7 @@ TEST(Interpreter, AstCache) {
     // Different ast (because of different types).
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN 5.5 + 4", *dba, stream, {});
+    interpreter.Interpret("RETURN 5.5 + 4", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 9.5);
@@ -52,7 +53,7 @@ TEST(Interpreter, AstCache) {
     // Cached ast, same literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {});
+    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
@@ -61,7 +62,7 @@ TEST(Interpreter, AstCache) {
     // Cached ast, different literals.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN 10.5 + 1", *dba, stream, {});
+    interpreter.Interpret("RETURN 10.5 + 1", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -70,7 +71,7 @@ TEST(Interpreter, AstCache) {
     // Cached ast, same literals, different whitespaces.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN  10.5 + 1", *dba, stream, {});
+    interpreter.Interpret("RETURN  10.5 + 1", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -79,7 +80,7 @@ TEST(Interpreter, AstCache) {
     // Cached ast, same literals, different named header.
     ResultStreamFaker stream;
     auto dba = dbms.active();
-    interpreter.Interpret("RETURN  10.5+1", *dba, stream, {});
+    interpreter.Interpret("RETURN  10.5+1", *dba, stream, {}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -96,7 +97,7 @@ TEST(Interpreter, Parameters) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
-                          {{"2", 10}, {"a b", 15}});
+                          {{"2", 10}, {"a b", 15}}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -108,7 +109,7 @@ TEST(Interpreter, Parameters) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
-                          {{"2", 10}, {"a b", 15}, {"c", 10}});
+                          {{"2", 10}, {"a b", 15}, {"c", 10}}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -120,7 +121,7 @@ TEST(Interpreter, Parameters) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
-                          {{"2", "da"}, {"a b", "ne"}});
+                          {{"2", "da"}, {"a b", "ne"}}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<std::string>(), "dane");
@@ -130,7 +131,8 @@ TEST(Interpreter, Parameters) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     interpreter.Interpret("RETURN $2", *dba, stream,
-                          {{"2", std::vector<query::TypedValue>{5, 2, 3}}});
+                          {{"2", std::vector<query::TypedValue>{5, 2, 3}}},
+                          false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToList<int64_t>(
@@ -142,7 +144,7 @@ TEST(Interpreter, Parameters) {
     ResultStreamFaker stream;
     auto dba = dbms.active();
     ASSERT_THROW(interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
-                                       {{"2", "da"}, {"ab", "ne"}}),
+                                       {{"2", "da"}, {"ab", "ne"}}, false),
                  query::UnprovidedParameterError);
   }
 }
@@ -224,7 +226,7 @@ TEST(Interpreter, Bfs) {
   interpreter.Interpret(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and e.reachable)]->(m) "
       "RETURN r",
-      *dba, stream, {});
+      *dba, stream, {}, false);
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "r");
@@ -257,6 +259,18 @@ TEST(Interpreter, Bfs) {
       remaining_nodes_in_level = kNumNodesPerLevel;
       ++expected_level;
     }
+  }
+}
+
+TEST(Interpreter, CreateIndexInMulticommandTransaction) {
+  query::Interpreter interpreter;
+  Dbms dbms;
+  {
+    ResultStreamFaker stream;
+    auto dba = dbms.active();
+    ASSERT_THROW(
+        interpreter.Interpret("CREATE INDEX ON :X(y)", *dba, stream, {}, true),
+        query::IndexInMulticommandTxException);
   }
 }
 }

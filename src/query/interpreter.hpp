@@ -60,10 +60,12 @@ class Interpreter {
   template <typename Stream>
   void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
                  Stream &stream,
-                 const std::map<std::string, TypedValue> &params) {
+                 const std::map<std::string, TypedValue> &params,
+                 bool in_explicit_transaction) {
     utils::Timer frontend_timer;
     Context ctx(db_accessor);
     ctx.is_query_cached_ = true;
+    ctx.in_explicit_transaction_ = in_explicit_transaction;
     std::map<std::string, TypedValue> summary;
 
     // query -> stripped query
@@ -146,7 +148,7 @@ class Interpreter {
     // Below this point, ast_storage should not be used. Other than not allowing
     // modifications, the ast_storage may have moved to a cache.
 
-    // generate frame based on symbol table max_position
+    // Generate frame based on symbol table max_position.
     Frame frame(ctx.symbol_table_.max_position());
     auto planning_time = planning_timer.Elapsed();
 
@@ -158,7 +160,7 @@ class Interpreter {
       // Since we have output symbols, this means that the query contains RETURN
       // clause, so stream out the results.
 
-      // generate header
+      // Generate header.
       for (const auto &symbol : output_symbols) {
         // When the symbol is aliased or expanded from '*' (inside RETURN or
         // WITH), then there is no token position, so use symbol name.
@@ -169,7 +171,7 @@ class Interpreter {
       }
       stream.Header(header);
 
-      // stream out results
+      // Stream out results.
       auto cursor = logical_plan->MakeCursor(db_accessor);
       while (cursor->Pull(frame, ctx)) {
         std::vector<TypedValue> values;
@@ -194,6 +196,15 @@ class Interpreter {
       throw QueryRuntimeException("Unknown top level LogicalOperator");
     }
     auto execution_time = execution_timer.Elapsed();
+
+    if (ctx.is_index_created_) {
+      // If index is created we invalidate cache so that we can try to generate
+      // better plan with that cache.
+      auto accessor = plan_cache_.access();
+      for (const auto &cached_plan : accessor) {
+        accessor.remove(cached_plan.first);
+      }
+    }
 
     summary["parsing_time"] = frontend_time.count();
     summary["planning_time"] = planning_time.count();

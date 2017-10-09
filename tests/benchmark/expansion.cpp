@@ -43,7 +43,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto dba = dbms_->active();
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_.Interpret(query, *dba, results, {});
+    interpeter_.Interpret(query, *dba, results, {}, false);
   }
 }
 
@@ -57,7 +57,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto dba = dbms_->active();
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_.Interpret(query, *dba, results, {});
+    interpeter_.Interpret(query, *dba, results, {}, false);
   }
 }
 

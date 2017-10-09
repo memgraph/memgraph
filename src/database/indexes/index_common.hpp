@@ -49,6 +49,7 @@ class SkipListSuffix {
   TIterator begin_;
   typename SkipList<TValue>::Accessor accessor_;
 };
+
 /**
  * @brief - Get all inserted vlists in TKey specific storage which
  * still return true for the 'exists' function.

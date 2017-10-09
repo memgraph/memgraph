@@ -69,6 +69,14 @@ class UnprovidedParameterError : public QueryException {
   using QueryException::QueryException;
 };
 
+class IndexInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  IndexInMulticommandTxException()
+      : QueryException(
+            "Index creation not allowed in multicommand transactions") {}
+};
+
 /**
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.

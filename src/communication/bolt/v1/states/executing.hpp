@@ -123,7 +123,8 @@ State HandleRun(Session &session, State state, Marker marker) {
     std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
                                                        params_map.end());
     session.interpreter_.Interpret(query.ValueString(), *session.db_accessor_,
-                                   session.output_stream_, params_tv);
+                                   session.output_stream_, params_tv,
+                                   in_explicit_transaction);
 
     if (!in_explicit_transaction) {
       session.Commit();

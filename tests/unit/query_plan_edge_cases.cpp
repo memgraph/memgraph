@@ -26,7 +26,7 @@ class QueryExecution : public testing::Test {
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
     ResultStreamFaker results;
-    query::Interpreter().Interpret(query, *db_, results, {});
+    query::Interpreter().Interpret(query, *db_, results, {}, false);
     return results.GetResults();
   }
 };
@@ -47,7 +47,8 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
     return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") +
                    (desc ? "DESC " : "") +
                    "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
-                   "MATCH (d)" + edge_pattern +
+                   "MATCH (d)" +
+                   edge_pattern +
                    "(f:Food) "
                    "RETURN p, d, f")
         .size();
