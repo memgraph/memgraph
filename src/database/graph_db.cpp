@@ -1,5 +1,7 @@
 #include <functional>
 
+#include <malloc.h>
+
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -131,6 +133,13 @@ void GraphDb::CollectGarbage() {
     edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());
     vertex_version_list_deleter_.FreeExpiredObjects(snapshot.back());
     VLOG(1) << "Garbage collector deferred deletion phase time: "
+            << x.Elapsed().count();
+  }
+
+  {
+    utils::Timer x;
+    malloc_trim(0);
+    VLOG(1) << "Garbage collector malloc trim phase time: "
             << x.Elapsed().count();
   }
 
