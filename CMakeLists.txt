@@ -30,7 +30,7 @@ set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
 # -----------------------------------------------------------------------------
 
-project(memgraph VERSION 0.7.0)
+project(memgraph VERSION 0.8.0)
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
