@@ -56,12 +56,6 @@ function(add_external_project name)
                                  -DCMAKE_INSTALL_PREFIX=${source_dir}
                                  ${KW_CMAKE_ARGS}
                       INSTALL_COMMAND ${KW_INSTALL_COMMAND})
-  # Force the build step (which will check if the source changed) by removing
-  # the stamped build file.
-  ExternalProject_Add_Step(
-    ${name}-proj force-build
-    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/src/${name}-proj-stamp/${name}-proj-build
-    DEPENDERS configure ALWAYS 1)
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
