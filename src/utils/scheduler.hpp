@@ -32,9 +32,13 @@ class Scheduler {
     thread_ = std::thread([this, pause, f]() {
       auto start_time = std::chrono::system_clock::now();
 
-      while (is_working_) {
-        f();
-
+      while (true) {
+        // First wait then execute the function. We do that in that order
+        // because most of the schedulers are started at the beginning of the
+        // program and there is probably no work to do in scheduled function at
+        // the start of the program. Since Server will log some messages on
+        // the program start we let him log first and we make sure by first
+        // waiting that funcion f will not log before it.
         std::unique_lock<std::mutex> lk(mutex_);
         auto now = std::chrono::system_clock::now();
         start_time += pause;
@@ -45,6 +49,9 @@ class Scheduler {
         } else {
           start_time = now;
         }
+
+        if (!is_working_) break;
+        f();
       }
     });
   }

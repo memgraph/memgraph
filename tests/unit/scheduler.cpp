@@ -10,20 +10,22 @@
  * value.
  */
 TEST(Scheduler, TestFunctionExecuting) {
-  std::atomic<int> x{0}, y{0};
-  std::function<void()> func{[&x, &y]() {
-    EXPECT_EQ(y.load(), x.load());
-    x++;
-  }};
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
   Scheduler scheduler;
   scheduler.Run(std::chrono::seconds(1), func);
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(980));
-  y++;
-  EXPECT_EQ(x.load(), y.load());
+  EXPECT_EQ(x, 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(900));
+  EXPECT_EQ(x, 0);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  EXPECT_EQ(x, 1);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+  EXPECT_EQ(x, 3);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   scheduler.Stop();
-  y++;
-  EXPECT_EQ(x.load(), y.load());
+  EXPECT_EQ(x, 3);
 }
