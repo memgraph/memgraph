@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <set>
 #include <thread>
@@ -154,4 +155,4 @@ class TimerScheduler {
   std::thread run_thread;
   std::atomic<bool> is_running;
 };
-}
+}  // namespace utils
