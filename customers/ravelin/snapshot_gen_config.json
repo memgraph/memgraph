@@ -1,0 +1,31 @@
+{
+   "indexes":[
+      "Node.id"
+   ],
+   "nodes":[
+      {
+         "count":40000000,
+         "labels":[
+            "Node"
+         ],
+         "properties":{
+            "id":{
+               "type":"counter",
+               "param":"Node.id"
+            },
+            "fraudulent":{
+               "type":"bernoulli",
+               "param":0.0005
+            }
+         }
+      }
+   ],
+   "edges":[
+      {
+         "count":80000000,
+         "from":"Node",
+         "to":"Node",
+         "type":"Edge"
+      }
+   ]
+}

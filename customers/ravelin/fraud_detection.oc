@@ -1,0 +1,5 @@
+WITH tointeger(rand() * 40000000) AS from_id
+MATCH (from:Node {id : from_id}) WITH from
+MATCH path = (from)-[*bfs..50 (e, n | degree(n) < 50)]->(to) WITH path LIMIT 10000 WHERE to.fraudulent
+RETURN path, size(path)
+
