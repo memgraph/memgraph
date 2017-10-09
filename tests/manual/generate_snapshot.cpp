@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <experimental/optional>
 #include <fstream>
 #include <memory>
 #include <random>
@@ -30,13 +31,22 @@ DEFINE_string(config, "", "Path to config JSON file");
  *       "count" : 10000,
  *       "labels" : ["Person"],
  *       "properties" : {
- *         "is_happy" :  { "type" : "bernoulli", "param" : 0.01 },
- *         "id" : { "type" : "counter", "Person.id" }
+ *         "id" : { "type" : "counter", "param": "Person.id" },
+ *         "name" : { "type" : "randstring", "param" :
+ *            { "type": "randint", "param" : [10, 20]}},
+ *         "is_happy" :  { "type" : "bernoulli", "param" : 0.2 }
  *       }
  *     },
  *     {
  *       "count" : 200,
- *       "labels" : ["Company"]
+ *       "labels" : ["Company"],
+ *       "properties" : {
+ *         "id" : { "type" : "counter", "param": "Company.id" },
+ *         "name" : { "type" : "randstring", "param" :
+ *            { "type": "randint", "param" : [10, 20]}},
+ *         "description" : { "type" : "optional", "param" :
+ *            [0.2, { "type" : "randstring", "param": 1024 }]}
+ *        }
  *     }
  *   ],
  *   "edges" : [
@@ -147,35 +157,54 @@ class GraphState {
 
 // Helper class for property value generation.
 class ValueGenerator {
+  using json = nlohmann::json;
+  using TypedValue = query::TypedValue;
+
  public:
   // Generates the whole property map based on the given config.
   std::unordered_map<std::string, query::TypedValue> MakeProperties(
-      const nlohmann::json &config) {
+      const json &config) {
     std::unordered_map<std::string, query::TypedValue> props;
     if (config.is_null()) return props;
 
     permanent_assert(config.is_object(), "Properties config must be a dict");
     for (auto it = config.begin(); it != config.end(); it++) {
-      if (it.value().is_object())
-        props.emplace(it.key(), MakeValue(it.value()));
-      else
-        permanent_fail("Unsupported value type");
+      auto value = MakeValue(it.value());
+      if (value) props.emplace(it.key(), *value);
     }
     return props;
   }
 
   // Generates a single value based on the given config.
-  query::TypedValue MakeValue(const nlohmann::json &config) {
-    permanent_assert(config.is_object(),
-                     "Random value gen config must be a dict");
-    const std::string &type = config["type"];
-    const auto &param = config["param"];
-    if (type == "bernoulli") {
-      return Bernoulli(param);
-    } else if (type == "counter")
-      return Counter(param);
-    else
-      permanent_fail("Unknown distribution");
+  std::experimental::optional<TypedValue> MakeValue(const json &config) {
+    if (config.is_object()) {
+      const std::string &type = config["type"];
+      const auto &param = config["param"];
+      if (type == "primitive")
+        return Primitive(param);
+      else if (type == "counter")
+        return TypedValue(Counter(param));
+      else if (type == "optional")
+        return Optional(param);
+      else if (type == "bernoulli")
+        return TypedValue(Bernoulli(param));
+      else if (type == "randint")
+        return TypedValue(RandInt(param));
+      else if (type == "randstring")
+        return TypedValue(RandString(param));
+      else
+        permanent_fail("Unknown value type");
+    } else
+      return Primitive(config);
+  }
+
+  TypedValue Primitive(const json &config) {
+    if (config.is_string()) return config.get<std::string>();
+    if (config.is_number_integer()) return config.get<int64_t>();
+    if (config.is_number_float()) return config.get<double>();
+    if (config.is_boolean()) return config.get<bool>();
+
+    permanent_fail("Unsupported primitive type");
   }
 
   int64_t Counter(const std::string &name) {
@@ -188,7 +217,39 @@ class ValueGenerator {
     }
   }
 
+  int64_t RandInt(const json &range) {
+    permanent_assert(range.is_array() && range.size() == 2,
+                     "RandInt value gen config must be a list with 2 elements");
+    auto from = MakeValue(range[0])->ValueInt();
+    auto to = MakeValue(range[1])->ValueInt();
+    permanent_assert(from < to,
+                     "RandInt lower range must be lesser then upper range");
+    return (int64_t)(rand_(gen_) * (to - from)) + from;
+  }
+
+  std::string RandString(const json &length) {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+
+    int length_int = MakeValue(length)->ValueInt();
+    std::string r_val(length_int, 'a');
+    for (int i = 0; i < length_int; ++i)
+      r_val[i] = alphanum[(int64_t)(rand_(gen_) * (sizeof(alphanum) - 1))];
+
+    return r_val;
+  }
+
   bool Bernoulli(double p) { return rand_(gen_) < p; }
+
+  std::experimental::optional<TypedValue> Optional(const json &config) {
+    permanent_assert(
+        config.is_array() && config.size() == 2,
+        "Optional value gen config must be a list with 2 elements");
+    return Bernoulli(config[0]) ? MakeValue(config[1])
+                                : std::experimental::nullopt;
+  }
 
  private:
   std::mt19937 gen_{std::random_device{}()};
