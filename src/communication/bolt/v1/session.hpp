@@ -72,7 +72,7 @@ class Session {
   /**
    * @return the socket id
    */
-  int Id() const { return socket_.id(); }
+  int Id() const { return socket_.fd(); }
 
   /**
    * Executes the session after data has been read into the buffer.

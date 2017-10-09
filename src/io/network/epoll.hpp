@@ -1,5 +1,8 @@
 #pragma once
 
+#include <errno.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <malloc.h>
 #include <sys/epoll.h>
 
@@ -8,11 +11,6 @@
 #include "utils/likely.hpp"
 
 namespace io::network {
-
-class EpollError : utils::StacktraceException {
- public:
-  using utils::StacktraceException::StacktraceException;
-};
 
 /**
  * Wrapper class for epoll.
@@ -25,24 +23,34 @@ class Epoll {
 
   Epoll(int flags) {
     epoll_fd_ = epoll_create1(flags);
-
-    if (UNLIKELY(epoll_fd_ == -1))
-      throw EpollError("Can't create epoll file descriptor");
+    // epoll_create1 returns an error if there is a logical error in our code
+    // (for example invalid flags) or if there is irrecoverable error. In both
+    // cases it is best to terminate.
+    CHECK(epoll_fd_ != -1) << "Error on epoll_create1, errno: " << errno
+                           << ", message: " << strerror(errno);
   }
 
-  template <class Stream>
-  void Add(Stream &stream, Event *event) {
-    auto status = epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, stream, event);
-
-    if (UNLIKELY(status))
-      throw EpollError("Can't add an event to epoll listener.");
+  void Add(int fd, Event *event) {
+    auto status = epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, event);
+    // epoll_ctl can return an error on our logical error or on irrecoverable
+    // error. There is a third possibility that some system limit is reached. In
+    // that case we could return an erorr and close connection. Chances of
+    // reaching system limit in normally working memgraph is extremely unlikely,
+    // so it is correct to terminate even in that case.
+    CHECK(!status) << "Error on epoll_ctl, errno: " << errno
+                   << ", message: " << strerror(errno);
   }
 
   int Wait(Event *events, int max_events, int timeout) {
-    return epoll_wait(epoll_fd_, events, max_events, timeout);
+    auto num_events = epoll_wait(epoll_fd_, events, max_events, timeout);
+    // If this check fails there was logical error in our code.
+    CHECK(num_events != -1 || errno == EINTR)
+        << "Error on epoll_wait, errno: " << errno
+        << ", message: " << strerror(errno);
+    // num_events can be -1 if errno was EINTR (epoll_wait interrupted by signal
+    // handler). We treat that as no events, so we return 0.
+    return num_events == -1 ? 0 : num_events;
   }
-
-  int id() const { return epoll_fd_; }
 
  private:
   int epoll_fd_;

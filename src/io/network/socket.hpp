@@ -1,8 +1,9 @@
 #pragma once
 
-#include "io/network/network_endpoint.hpp"
-
+#include <experimental/optional>
 #include <iostream>
+
+#include "io/network/network_endpoint.hpp"
 
 namespace io::network {
 
@@ -14,10 +15,11 @@ namespace io::network {
  */
 class Socket {
  public:
-  Socket();
-  Socket(const Socket &s);
-  Socket(Socket &&other);
-  Socket &operator=(Socket &&other);
+  Socket() = default;
+  Socket(const Socket &) = delete;
+  Socket &operator=(const Socket &) = delete;
+  Socket(Socket &&);
+  Socket &operator=(Socket &&);
   ~Socket();
 
   /**
@@ -72,14 +74,9 @@ class Socket {
    * Accepts a new connection.
    * This function accepts a new connection on a listening socket.
    *
-   * @param s Socket object that will be instantiated with the new connection
-   *
-   * @return accept success status:
-   *             true if a new connection was accepted and the socket 's' was
-   *                  instantiated
-   *             false if a new connection accept failed
+   * @return socket if accepted, nullopt otherwise.
    */
-  bool Accept(Socket *s);
+  std::experimental::optional<Socket> Accept();
 
   /**
    * Sets the socket to non-blocking.
@@ -122,14 +119,10 @@ class Socket {
    */
   bool SetTimeout(long sec, long usec);
 
-  // TODO: this will be removed
-  operator int();
-
   /**
-   * Returns the socket ID.
-   * The socket ID is its unix file descriptor number.
+   * Returns the socket file descriptor.
    */
-  int id() const;
+  int fd() const { return socket_; }
 
   /**
    * Returns the currently active endpoint of the socket.
@@ -167,9 +160,10 @@ class Socket {
   int Read(void *buffer, size_t len);
 
  private:
-  Socket(int sock, const NetworkEndpoint &endpoint);
+  Socket(int fd, const NetworkEndpoint &endpoint)
+      : socket_(fd), endpoint_(endpoint) {}
 
-  int socket_;
+  int socket_ = -1;
   NetworkEndpoint endpoint_;
 };
 }

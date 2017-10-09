@@ -27,14 +27,13 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(socket_t &&socket, TestData &data)
-      : socket_(std::move(socket)) {
+  TestSession(socket_t &&socket, TestData &) : socket_(std::move(socket)) {
     event_.data.ptr = this;
   }
 
   bool Alive() { return socket_.IsOpen(); }
 
-  int Id() const { return socket_.id(); }
+  int Id() const { return socket_.fd(); }
 
   void Execute() { this->socket_.Write(buffer_.data(), buffer_.size()); }
 

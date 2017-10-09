@@ -176,5 +176,5 @@ int main(int argc, char **argv) {
   // Start worker threads.
   server.Start(FLAGS_num_workers);
 
-  return EXIT_SUCCESS;
+  return 0;
 }

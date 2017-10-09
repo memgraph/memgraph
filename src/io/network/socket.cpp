@@ -22,19 +22,18 @@
 
 namespace io::network {
 
-Socket::Socket() : socket_(-1) {}
-
-Socket::Socket(int sock, const NetworkEndpoint &endpoint)
-    : socket_(sock), endpoint_(endpoint) {}
-
-Socket::Socket(const Socket &s) : socket_(s.id()) {}
-
-Socket::Socket(Socket &&other) { *this = std::forward<Socket>(other); }
+Socket::Socket(Socket &&other) {
+  socket_ = other.socket_;
+  endpoint_ = std::move(other.endpoint_);
+  other.socket_ = -1;
+}
 
 Socket &Socket::operator=(Socket &&other) {
-  socket_ = other.socket_;
-  endpoint_ = other.endpoint_;
-  other.socket_ = -1;
+  if (this != &other) {
+    socket_ = other.socket_;
+    endpoint_ = std::move(other.endpoint_);
+    other.socket_ = -1;
+  }
   return *this;
 }
 
@@ -52,7 +51,7 @@ void Socket::Close() {
 bool Socket::IsOpen() { return socket_ != -1; }
 
 bool Socket::Connect(const NetworkEndpoint &endpoint) {
-  if (UNLIKELY(socket_ != -1)) return false;
+  if (socket_ != -1) return false;
 
   auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
 
@@ -71,7 +70,7 @@ bool Socket::Connect(const NetworkEndpoint &endpoint) {
 }
 
 bool Socket::Bind(const NetworkEndpoint &endpoint) {
-  if (UNLIKELY(socket_ != -1)) return false;
+  if (socket_ != -1) return false;
 
   auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
 
@@ -163,7 +162,7 @@ bool Socket::SetTimeout(long sec, long usec) {
 
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
-bool Socket::Accept(Socket *s) {
+std::experimental::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
@@ -172,7 +171,7 @@ bool Socket::Accept(Socket *s) {
   unsigned char family;
 
   int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
-  if (UNLIKELY(sfd == -1)) return false;
+  if (UNLIKELY(sfd == -1)) return std::experimental::nullopt;
 
   if (addr.ss_family == AF_INET) {
     addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);
@@ -190,17 +189,12 @@ bool Socket::Accept(Socket *s) {
   try {
     endpoint = NetworkEndpoint(addr_decoded, port);
   } catch (NetworkEndpointException &e) {
-    return false;
+    return std::experimental::nullopt;
   }
 
-  *s = Socket(sfd, endpoint);
-
-  return true;
+  return Socket(sfd, endpoint);
 }
 
-Socket::operator int() { return socket_; }
-
-int Socket::id() const { return socket_; }
 const NetworkEndpoint &Socket::endpoint() const { return endpoint_; }
 
 bool Socket::Write(const std::string &str) {
