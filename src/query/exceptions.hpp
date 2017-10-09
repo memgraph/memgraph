@@ -6,7 +6,11 @@
 
 namespace query {
 
-/** @brief Base class of all query language related exceptions.
+/**
+ * @brief Base class of all query language related exceptions. All exceptions
+ * derived from this one will be interpreted as ClientError-s, i. e. if client
+ * executes same query again without making modifications to the database data,
+ * query will fail again.
  */
 class QueryException : public utils::BasicException {
   using utils::BasicException::BasicException;
@@ -60,16 +64,6 @@ class TypeMismatchError : public SemanticException {
             name, datum, expected)) {}
 };
 
-class HintedAbortError : public QueryException {
- public:
-  using QueryException::QueryException;
-  HintedAbortError()
-      : QueryException(
-            "Transaction was asked to abort, most likely because it was "
-            "executing longer than time specified by "
-            "--query-execution-time-sec flag") {}
-};
-
 class UnprovidedParameterError : public QueryException {
  public:
   using QueryException::QueryException;
@@ -84,20 +78,17 @@ class QueryRuntimeException : public QueryException {
   using QueryException::QueryException;
 };
 
-// TODO: Move this elsewhere, it has no place in query.
-class DecoderException : public utils::StacktraceException {
+// This one is inherited from BasicException and will be treated as
+// TransientError, i. e. client will be encouraged to retry execution because it
+// could succeed if executed again.
+class HintedAbortError : public utils::BasicException {
  public:
-  using utils::StacktraceException::StacktraceException;
-};
-
-class PlanCompilationException : public utils::StacktraceException {
- public:
-  using utils::StacktraceException::StacktraceException;
-};
-
-class PlanExecutionException : public utils::StacktraceException {
- public:
-  using utils::StacktraceException::StacktraceException;
+  using utils::BasicException::BasicException;
+  HintedAbortError()
+      : utils::BasicException(
+            "Transaction was asked to abort, most likely because it was "
+            "executing longer than time specified by "
+            "--query-execution-time-sec flag") {}
 };
 
 }  // namespace query

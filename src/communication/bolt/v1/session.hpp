@@ -10,8 +10,8 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
+#include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
-#include "communication/bolt/v1/states/idle_result.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
