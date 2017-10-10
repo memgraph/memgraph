@@ -5,7 +5,7 @@ graph databases. It aims to be intuitive and easy to learn, while
 providing a powerful interface for working with graph based data.
 
 *Memgraph* supports most of the commonly used constructs of the language. This
-chapter contains the details of features which are implemented. Additionally,
+chapter contains the details of implemented features. Additionally,
 not yet supported features of the language are listed.
 
   * [Reading Existing Data](#reading-existing-data)
@@ -576,18 +576,81 @@ user experience.
 We don't allow symbolic names (variables, label names...) to be openCypher
 keywords (WHERE, MATCH, COUNT, SUM...).
 
-#### Matching the Same Edge
-
-We support using the same edge name to match that edge across the whole pattern.
-For example:
-
-    MATCH ()-[r]-()-[r]-() RETURN r
-
-The above would find the edge `r` which forms a circular connection on a node.
-This behaviour is not supported in openCypher reference and the query would
-fail.
-
-#### Unicode codepoints in string literal
+#### Unicode Codepoints in String Literal
 
 Use `\u` followed by 4 hex digits in string literal for UTF-16 codepoint and
-'\U' with 8 hex digits for UTF-32 codepoint in memgraph.
+'\U' with 8 hex digits for UTF-32 codepoint in Memgraph.
+
+
+### Difference from Neo4j's Cypher Implementation
+
+The openCypher initiative stems from Neo4j's Cypher query language. Following is a list
+of most important differences between Neo's Cypher and Memgraph's openCypher implementation,
+for users that are already familiar with Neo4j. There might be other differences not documented
+here (especially subtle semantic ones).
+
+#### Unsupported Constructs
+
+Data importing. Memgraph doesn't support Cypher's CSV importing capabilities.
+
+The `UNION` keyword for merging query results.
+
+The `FOREACH` language construct for performing an operation on every list element.
+
+The `CALL` construct for a standalone function call. This can be expressed using
+`RETURN functioncall()`. For example, with Memgraph you can get information about
+the indexes present in the database using the `RETURN indexinfo()` openCypher query.
+
+Stored procedures.
+
+Regular expressions for string matching.
+
+`shortestPath` and `allShortestPaths` functions. `shortestPath` can be expressed using
+Memgraph's breadth-first expansion syntax already described in this document.
+
+Patterns in expressions. For example, Memgraph doesn't support `size((n)-->())`. Most of the time
+the same functionalities can be expressed differently in Memgraph using `OPTIONAL` expansions,
+function calls etc.
+
+Map projections such as `MATCH (n) RETURN n {.property1, .property2}`.
+
+#### Unsupported Functions
+
+General purpose functions:
+* `id()` - Memgraph does not expose a public unique node identifier.
+* `exists(n.property)` - This can be expressed using `n.property IS NOT NULL`.
+* `length()` is named `size()` in Memgraph.
+
+Path functions:
+* `nodes()`
+* `relationships()`
+* `extract()`
+
+Aggregation functions:
+* `count(DISTINCT variable)` - This can be expressed using `WITH DISTINCT variable RETURN count(variable)`.
+
+Mathematical functions:
+* `percentileDisc()`
+* `stDev()`
+* `point()`
+* `distance()`
+* `degrees()`
+
+String functions:
+* `replace()`
+* `substring()`
+* `left()`
+* `trim()`
+* `toupper()`
+* `tolower()`
+* `split()`
+* `reverse()`
+
+List functions:
+* `all()`
+* `any()`
+* `none()`
+* `single()`
+* `head()`
+* `last()`
+* `tail()`
