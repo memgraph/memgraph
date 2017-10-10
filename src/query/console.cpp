@@ -63,7 +63,7 @@ std::string TypedValueToString(const query::TypedValue &value) {
 /**
  * Prints out all the given results to standard out.
  */
-void PrintResults(ResultStreamFaker results) {
+void PrintResults(const ResultStreamFaker &results) {
   const std::vector<std::string> &header = results.GetHeader();
   std::vector<int> column_widths(header.size());
   std::transform(header.begin(), header.end(), column_widths.begin(),

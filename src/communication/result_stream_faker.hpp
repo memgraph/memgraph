@@ -13,6 +13,12 @@
  */
 class ResultStreamFaker {
  public:
+  ResultStreamFaker() = default;
+  ResultStreamFaker(const ResultStreamFaker &) = delete;
+  ResultStreamFaker &operator=(const ResultStreamFaker &) = delete;
+  ResultStreamFaker(ResultStreamFaker &&) = default;
+  ResultStreamFaker &operator=(ResultStreamFaker &&) = default;
+
   void Header(const std::vector<std::string> &fields) {
     debug_assert(current_state_ == State::Start,
                  "Headers can only be written in the beginning");
@@ -32,14 +38,14 @@ class ResultStreamFaker {
     current_state_ = State::Done;
   }
 
-  const auto &GetHeader() {
+  const auto &GetHeader() const {
     debug_assert(current_state_ != State::Start, "Header not written");
     return header_;
   }
 
-  const auto &GetResults() { return results_; }
+  const auto &GetResults() const { return results_; }
 
-  const auto &GetSummary() {
+  const auto &GetSummary() const {
     debug_assert(current_state_ == State::Done, "Summary not written");
     return summary_;
   }
