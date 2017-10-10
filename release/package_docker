@@ -3,15 +3,22 @@
 # Build and Package (docker image) Memgraph
 
 function print_help () {
-    echo "Usage: $0 BINARY_PACKAGE.tar.gz"
+    echo "Usage: $0 [--latest] BINARY_PACKAGE.tar.gz"
     echo "Optional arguments:"
     echo -e "  -h|--help           Print help."
+    echo -e "  --latest            Tag image as latest version."
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 project_dir="${working_dir}/.."
 
-if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+latest_image=""
+tag_latest=""
+if [[ $# -eq 2 && "$1" == "--latest" ]]; then
+  latest_image="memgraph:latest"
+  tag_latest="-t memgraph:latest"
+  shift
+elif [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
   print_help
   exit 1
 fi
@@ -32,8 +39,8 @@ tar xf ${tar_release}
 version=`echo ${package_name} | sed 's/.*-\(.*\)-.*/\1/'`
 image_name="memgraph:${version}"
 # Build docker image.
-docker build -t ${image_name} -f ${working_dir}/community.dockerfile --build-arg build_name=${package_name} .
-docker save ${image_name} > ${package_name}-docker.tar.gz
+docker build -t ${image_name} ${tag_latest} -f ${working_dir}/community.dockerfile --build-arg build_name=${package_name} .
+docker save ${image_name} ${latest_image} > ${package_name}-docker.tar.gz
 # Remove unpacked package.
 echo "Removing '${working_dir}/${package_name}'"
 rm -rf ${package_name}
