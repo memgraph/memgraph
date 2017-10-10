@@ -75,5 +75,5 @@ class AccessorBase {
   size_t size() const { return accessor.size(); }
 
  protected:
-  typename list::Accessor accessor;
+  typename list::template Accessor<SkipList<T>> accessor;
 };

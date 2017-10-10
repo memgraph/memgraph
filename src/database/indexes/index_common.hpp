@@ -17,7 +17,7 @@ namespace IndexUtils {
  * iterating, i.e. it allows us to iterate over the suffix of some skiplist
  * hence the name SkipListSuffix.
  */
-template <class TIterator, class TValue>
+template <class TIterator, class TValue, typename TAccessor>
 class SkipListSuffix {
  public:
   class Iterator {
@@ -39,15 +39,16 @@ class SkipListSuffix {
     TIterator current_;
   };
 
-  SkipListSuffix(const TIterator begin,
-                 typename SkipList<TValue>::Accessor &&accessor)
+  SkipListSuffix(
+      const TIterator begin,
+      typename SkipList<TValue>::template Accessor<TAccessor> &&accessor)
       : begin_(begin), accessor_(std::move(accessor)) {}
 
   Iterator begin() const { return Iterator(begin_); }
   Iterator end() { return Iterator(accessor_.end()); }
 
   TIterator begin_;
-  typename SkipList<TValue>::Accessor accessor_;
+  typename SkipList<TValue>::template Accessor<TAccessor> accessor_;
 };
 
 /**
@@ -67,21 +68,24 @@ class SkipListSuffix {
  *    ignored).
  * @Tparam TIndexEntry - index entry inside skiplist
  * @Tparam TRecord - type of record under index (edge/vertex usually.)
+ * @Tparam TAccessor - type of accessor to use (const skiplist/non const
+ * skiplist).
  * @return iterable collection of distinct vlist records<TRecord> for which
  * exists function evaluates as true
  */
-template <class TIterator, class TIndexEntry, class TRecord>
+template <class TIterator, class TIndexEntry, class TRecord, typename TAccessor>
 static auto GetVlists(
-    typename SkipList<TIndexEntry>::Accessor &&skiplist_accessor,
+    typename SkipList<TIndexEntry>::template Accessor<TAccessor>
+        &&skiplist_accessor,
     TIterator begin,
     const std::function<bool(const TIndexEntry &entry)> predicate,
     const tx::Transaction &t,
     const std::function<bool(const TIndexEntry &, const TRecord *)> exists,
     bool current_state = false) {
   TIndexEntry *prev = nullptr;
-  auto range =
-      iter::takewhile(predicate, SkipListSuffix<TIterator, TIndexEntry>(
-                                     begin, std::move(skiplist_accessor)));
+  auto range = iter::takewhile(
+      predicate, SkipListSuffix<TIterator, TIndexEntry, TAccessor>(
+                     begin, std::move(skiplist_accessor)));
   auto filtered = iter::filter(
       [&t, exists, prev, current_state](TIndexEntry &entry) mutable {
         // Check if the current entry could offer new possible return value
@@ -176,4 +180,4 @@ static void Refresh(
     }
   }
 }
-};  // IndexUtils
+};  // namespace IndexUtils

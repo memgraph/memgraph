@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <type_traits>
 
 #include "utils/assert.hpp"
 #include "utils/crtp.hpp"
@@ -451,10 +452,11 @@ class SkipList : private Lockable<lock_t> {
 
   friend class Accessor;
 
+  template <typename TSkipList>
   class Accessor {
     friend class SkipList;
 
-    Accessor(SkipList *skiplist)
+    Accessor(TSkipList *skiplist)
         : skiplist(skiplist), status_(skiplist->gc.CreateNewAccessor()) {
       debug_assert(skiplist != nullptr, "Skiplist is nullptr.");
     }
@@ -473,15 +475,37 @@ class SkipList : private Lockable<lock_t> {
       status_.alive_ = false;
     }
 
-    Iterator begin() { return skiplist->begin(); }
+    // TODO(dgleich): Remove after C++17 compile flag.
+    template <class B>
+    struct negation : std::integral_constant<bool, !bool(B::value)> {};
 
-    ConstIterator begin() const { return skiplist->cbegin(); }
+    template <typename TIsConst = TSkipList>
+    Iterator begin(typename std::enable_if<
+                       negation<std::is_const<TIsConst>>::value>::type * = 0) {
+      return skiplist->begin();
+    }
+
+    template <typename TIsConst = TSkipList>
+    ConstIterator begin(
+        typename std::enable_if<std::is_const<TIsConst>::value>::type * =
+            0) const {
+      return skiplist->cbegin();
+    }
 
     ConstIterator cbegin() const { return skiplist->cbegin(); }
 
-    Iterator end() { return skiplist->end(); }
+    template <typename TIsConst = TSkipList>
+    Iterator end(typename std::enable_if<
+                     negation<std::is_const<TIsConst>>::value>::type * = 0) {
+      return skiplist->end();
+    }
 
-    ConstIterator end() const { return skiplist->cend(); }
+    template <typename TIsConst = TSkipList>
+    ConstIterator end(
+        typename std::enable_if<std::is_const<TIsConst>::value>::type * =
+            0) const {
+      return skiplist->cend();
+    }
 
     ConstIterator cend() const { return skiplist->cend(); }
 
@@ -517,25 +541,25 @@ class SkipList : private Lockable<lock_t> {
       return skiplist->reverse(item);
     }
 
-  /**
-   * Returns an iterator pointing to the element equal to
-   * item, or the first larger element.
-   *
-   * @param item An item that is comparable to skiplist element type.
-   * @tparam TItem item type
-   */
+    /**
+     * Returns an iterator pointing to the element equal to
+     * item, or the first larger element.
+     *
+     * @param item An item that is comparable to skiplist element type.
+     * @tparam TItem item type
+     */
     template <class TItem>
     Iterator find_or_larger(const TItem &item) {
-      return skiplist->find_or_larger<Iterator, TItem>(item);
+      return skiplist->template find_or_larger<Iterator, TItem>(item);
     }
 
-  /**
-   * Returns an iterator pointing to the element equal to
-   * item, or the first larger element.
-   *
-   * @param item An item that is comparable to skiplist element type.
-   * @tparam TItem item type
-   */
+    /**
+     * Returns an iterator pointing to the element equal to
+     * item, or the first larger element.
+     *
+     * @param item An item that is comparable to skiplist element type.
+     * @tparam TItem item type
+     */
     template <class TItem>
     ConstIterator find_or_larger(const TItem &item) const {
       return static_cast<const SkipList &>(*skiplist)
@@ -621,7 +645,7 @@ class SkipList : private Lockable<lock_t> {
       // now we need to estimate the count of elements equal to item
       // we'll do that by looking for the first element that is greater
       // than item, and counting how far we have to look
-      
+
       // first find the rightmost (highest) succ that has value == item
       int count_level = 0;
       for (int i = position_level; i >= 0; i--)
@@ -669,14 +693,16 @@ class SkipList : private Lockable<lock_t> {
     }
 
    private:
-    SkipList *skiplist;
+    TSkipList *skiplist;
     Node *preds[H], *succs[H];
     typename SkipListGC<Node>::AccessorStatus &status_;
   };
 
-  Accessor access() { return Accessor(this); }
+  Accessor<SkipList> access() { return Accessor<SkipList>(this); }
 
-  const Accessor access() const { return Accessor(this); }
+  Accessor<const SkipList> caccess() const {
+    return Accessor<const SkipList>(this);
+  }
 
  private:
   using guard_t = std::unique_lock<lock_t>;
@@ -1022,5 +1048,5 @@ class SkipList : private Lockable<lock_t> {
    */
   std::atomic<size_t> count{0};
   Node *header;
-  SkipListGC<Node> gc;
+  mutable SkipListGC<Node> gc;
 };

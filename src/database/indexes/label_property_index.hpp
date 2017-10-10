@@ -86,7 +86,7 @@ class LabelPropertyIndex {
    * be populated with, and can be used from this moment forward without missing
    * any records.
    * @param key - index which finished being populated.
-  */
+   */
   void IndexFinishedBuilding(const Key &key) {
     ready_for_use_.access().insert(key);
   }
@@ -172,7 +172,7 @@ class LabelPropertyIndex {
     auto access = GetKeyStorage(key)->access();
     auto begin = access.begin();
     return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
-                                 IndexEntry, Vertex>(
+                                 IndexEntry, Vertex, SkipList<IndexEntry>>(
         std::move(access), begin, [](const IndexEntry &) { return true; }, t,
         [key](const IndexEntry &entry, const Vertex *const vertex) {
           return LabelPropertyIndex::Exists(key, entry.value_, vertex);
@@ -269,10 +269,9 @@ class LabelPropertyIndex {
     auto access = GetKeyStorage(key)->access();
 
     // create the iterator startpoint based on the lower bound
-    auto start_iter = lower
-                          ? access.find_or_larger(make_index_bound(
-                                lower, lower.value().IsInclusive()))
-                          : access.begin();
+    auto start_iter = lower ? access.find_or_larger(make_index_bound(
+                                  lower, lower.value().IsInclusive()))
+                            : access.begin();
 
     // a function that defines if an entry staisfies the filtering predicate.
     // since we already handled the lower bound, we only need to deal with the
@@ -394,8 +393,7 @@ class LabelPropertyIndex {
    */
   std::vector<Key> Keys() {
     std::vector<Key> keys;
-    for (auto &kv : indices_.access())
-      keys.push_back(kv.first);
+    for (auto &kv : indices_.access()) keys.push_back(kv.first);
     return keys;
   }
 
