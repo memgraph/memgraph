@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 
 // Like option just for pointers. More efficent than option.
 template <class T>
@@ -12,7 +12,7 @@ class OptionPtr {
   bool is_present() { return ptr != nullptr; }
 
   T *get() {
-    debug_assert(is_present(), "Data is not present.");
+    DCHECK(is_present()) << "Data is not present.";
     return ptr;
   }
 

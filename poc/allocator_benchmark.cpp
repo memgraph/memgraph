@@ -3,9 +3,10 @@
 #include <thread>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "memory/allocator.hpp"
 #include "memory/maker.hpp"
-#include "utils/assert.hpp"
 #include "utils/measure_time.hpp"
 
 struct TestStructure {
@@ -50,9 +51,9 @@ int main(void) {
     }
   });
   std::cout << "Fast (fast allocator): " << elapsed_fast << "ms" << std::endl;
-  permanent_assert(elapsed_fast < elapsed_classic,
-                   "Custom fast allocator "
-                   "has to perform faster on simple array allocation");
+  CHECK(elapsed_fast < elapsed_classic)
+      << "Custom fast allocator "
+         "has to perform faster on simple array allocation";
 
   return 0;
 }

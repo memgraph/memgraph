@@ -50,9 +50,9 @@ int main(int argc, char **argv) {
 
   auto accessor = skiplist.access();
   for (int i = 0; i < key_range; i++) {
-    permanent_assert(set[i] == 0 || set[i] == 1 ||
-                         (set[i] == 1) ^ accessor.contains(std::to_string(i)),
-                     "Set doesn't hold it's guarantees.");
+    CHECK(set[i] == 0 || set[i] == 1 ||
+          (set[i] == 1) ^ accessor.contains(std::to_string(i)))
+        << "Set doesn't hold it's guarantees.";
   }
 
   for (auto &e : accessor) {
@@ -60,4 +60,5 @@ int main(int argc, char **argv) {
   }
 
   check_zero(key_range, set, "Set");
+  return 0;
 }

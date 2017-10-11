@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
         do {
           if (owned.size() != 0 && rand_op()) {
             auto rem = rand() % owned.size();
-            permanent_assert(acc.remove(owned[rem]), "Owned data removed");
+            CHECK(acc.remove(owned[rem])) << "Owned data removed";
             owned.erase(owned.begin() + rem);
             downcount--;
           } else {
@@ -46,4 +46,5 @@ int main(int argc, char **argv) {
   }
   check_size<map_t>(accessor, count);
   check_order<map_t>(accessor);
+  return 0;
 }

@@ -2,9 +2,9 @@
 
 #include <atomic>
 
+#include "glog/logging.h"
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
-#include "utils/assert.hpp"
 
 /**
  * A sequentially ordered non-unique lock-free concurrent collection of bits.
@@ -36,17 +36,17 @@ class DynamicBitset {
     static constexpr size_t kSize = sizeof(block_t) * 8;
 
     block_t at(size_t k, size_t n) const {
-      debug_assert(k + n - 1 < kSize, "Invalid index.");
+      DCHECK(k + n - 1 < kSize) << "Invalid index.";
       return (block_.load() >> k) & bitmask(n);
     }
 
     void set(size_t k, size_t n) {
-      debug_assert(k + n - 1 < kSize, "Invalid index.");
+      DCHECK(k + n - 1 < kSize) << "Invalid index.";
       block_.fetch_or(bitmask(n) << k);
     }
 
     void clear(size_t k, size_t n) {
-      debug_assert(k + n - 1 < kSize, "Invalid index.");
+      DCHECK(k + n - 1 < kSize) << "Invalid index.";
       block_.fetch_and(~(bitmask(n) << k));
     }
 
@@ -151,12 +151,12 @@ class DynamicBitset {
  private:
   // Finds the chunk to which k-th bit belongs fails if k is out of bounds.
   const Chunk &FindChunk(size_t &k) const {
-    debug_assert(k < head_.load()->high(), "Index out of bounds");
+    DCHECK(k < head_.load()->high()) << "Index out of bounds";
     Chunk *chunk = head_;
 
     while (k < chunk->low()) {
       chunk = chunk->next_;
-      debug_assert(chunk != nullptr, "chunk is nullptr");
+      DCHECK(chunk != nullptr) << "chunk is nullptr";
     }
     k -= chunk->low();
     return *chunk;

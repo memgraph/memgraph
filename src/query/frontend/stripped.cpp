@@ -6,13 +6,14 @@
 #include <string>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
 #include "query/frontend/stripped_lexer_constants.hpp"
-#include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
 
@@ -64,8 +65,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // A helper function that stores literal and its token position in a
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
-  auto replace_stripped = [this, &token_strings](
-      int position, const TypedValue &value, const std::string &new_value) {
+  auto replace_stripped = [this, &token_strings](int position,
+                                                 const TypedValue &value,
+                                                 const std::string &new_value) {
     literals_.Add(position, value);
     token_strings.push_back(new_value);
   };
@@ -88,7 +90,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     int token_index = token_strings.size() * 2 + parameters_.size();
     switch (token.first) {
       case Token::UNMATCHED:
-        debug_assert(false, "Shouldn't happen");
+        LOG(FATAL) << "Shouldn't happen";
       case Token::KEYWORD: {
         token.second = utils::ToLowerCase(token.second);
         const auto &s = token.second;
@@ -505,4 +507,4 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   if (state != State::OUT) return comment_position - start;
   return i - start;
 }
-}
+}  // namespace query

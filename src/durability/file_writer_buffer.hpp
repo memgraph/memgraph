@@ -64,8 +64,8 @@ class FileWriterBuffer {
    * writing was successful.
    */
   void WriteSummary(int64_t vertex_num, int64_t edge_num) {
-    debug_assert(vertex_num >= 0, "Number of vertices should't be negative");
-    debug_assert(vertex_num >= 0, "Number of edges should't be negative");
+    DCHECK(vertex_num >= 0) << "Number of vertices should't be negative";
+    DCHECK(vertex_num >= 0) << "Number of edges should't be negative";
     WriteLong(vertex_num);
     WriteLong(edge_num);
     WriteLong(hasher_.hash());

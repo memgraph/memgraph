@@ -2,8 +2,8 @@
 
 #include <map>
 
+#include "glog/logging.h"
 #include "query/typed_value.hpp"
-#include "utils/assert.hpp"
 
 /**
  * A mocker for the data output record stream.
@@ -20,33 +20,33 @@ class ResultStreamFaker {
   ResultStreamFaker &operator=(ResultStreamFaker &&) = default;
 
   void Header(const std::vector<std::string> &fields) {
-    debug_assert(current_state_ == State::Start,
-                 "Headers can only be written in the beginning");
+    DCHECK(current_state_ == State::Start)
+        << "Headers can only be written in the beginning";
     header_ = fields;
     current_state_ = State::WritingResults;
   }
 
   void Result(const std::vector<query::TypedValue> &values) {
-    debug_assert(current_state_ == State::WritingResults,
-                 "Can't accept results before header nor after summary");
+    DCHECK(current_state_ == State::WritingResults)
+        << "Can't accept results before header nor after summary";
     results_.push_back(values);
   }
 
   void Summary(const std::map<std::string, query::TypedValue> &summary) {
-    debug_assert(current_state_ != State::Done, "Can only send a summary once");
+    DCHECK(current_state_ != State::Done) << "Can only send a summary once";
     summary_ = summary;
     current_state_ = State::Done;
   }
 
   const auto &GetHeader() const {
-    debug_assert(current_state_ != State::Start, "Header not written");
+    DCHECK(current_state_ != State::Start) << "Header not written";
     return header_;
   }
 
   const auto &GetResults() const { return results_; }
 
   const auto &GetSummary() const {
-    debug_assert(current_state_ == State::Done, "Summary not written");
+    DCHECK(current_state_ == State::Done) << "Summary not written";
     return summary_;
   }
 

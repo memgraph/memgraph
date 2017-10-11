@@ -2,10 +2,10 @@
 #include <memory>
 #include <vector>
 
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "utils/assert.hpp"
 
 /* The following tests validate the SkipList::position_and_count estimation
  * functionality. That function has a tunable speed vs. accuracy. The tests
@@ -25,7 +25,7 @@ auto SkiplistRange(int count) {
 
 auto Median(std::vector<int> &elements) {
   auto elem_size = elements.size();
-  debug_assert(elem_size > 0, "Provide some elements to get median!");
+  DCHECK(elem_size > 0) << "Provide some elements to get median!";
   std::sort(elements.begin(), elements.end());
   if (elem_size % 2)
     return elements[elem_size / 2];

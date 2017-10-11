@@ -9,15 +9,16 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "threading/sync/lock_timeout_exception.hpp"
+#include "glog/logging.h"
 #include "threading/sync/cpu_relax.hpp"
+#include "threading/sync/lock_timeout_exception.hpp"
 
 namespace sys {
 inline int futex(void *addr1, int op, int val1, const struct timespec *timeout,
                  void *addr2, int val3) {
   return syscall(SYS_futex, addr1, op, val1, timeout, addr2, val3);
 };
-}
+}  // namespace sys
 
 class Futex {
   using futex_t = uint32_t;

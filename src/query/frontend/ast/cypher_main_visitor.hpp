@@ -5,6 +5,8 @@
 #include <utility>
 
 #include "antlr4-runtime.h"
+#include "glog/logging.h"
+
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/named_antlr_tokens.hpp"
@@ -14,8 +16,8 @@
 namespace query {
 namespace frontend {
 
-using query::Context;
 using antlropencypher::CypherParser;
+using query::Context;
 
 class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
  public:
@@ -100,7 +102,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       std::vector<TExpression *> _expressions,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    debug_assert(_expressions.size(), "can't happen");
+    DCHECK(_expressions.size()) << "can't happen";
     std::vector<Expression *> expressions;
     auto operators = ExtractOperators(all_children, allowed_operators);
 
@@ -121,7 +123,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       TExpression *_expression,
       std::vector<antlr4::tree::ParseTree *> all_children,
       const std::vector<size_t> &allowed_operators) {
-    debug_assert(_expression, "can't happen");
+    DCHECK(_expression) << "can't happen";
     auto operators = ExtractOperators(all_children, allowed_operators);
 
     Expression *expression = _expression->accept(this);
@@ -575,5 +577,5 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   // return.
   bool in_with_ = false;
 };
-}
-}
+}  // namespace frontend
+}  // namespace query

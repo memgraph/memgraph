@@ -5,7 +5,7 @@
 #include <iostream>
 #include <string>
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 
 /**
  * Bitset data structure with a number of bits provided in constructor.
@@ -27,9 +27,9 @@ class Bitset {
    *  @param idx position of bit.
    */
   void Set(int idx) {
-    debug_assert(idx >= 0, "Invalid bit location.");
-    debug_assert(idx < static_cast<int64_t>(blocks_.size()) * block_size_,
-                 "Invalid bit location.");
+    DCHECK(idx >= 0) << "Invalid bit location.";
+    DCHECK(idx < static_cast<int64_t>(blocks_.size()) * block_size_)
+        << "Invalid bit location.";
     int bucket = idx / block_size_;
     blocks_[bucket] |= TStore(1) << idx % block_size_;
   }
@@ -39,9 +39,9 @@ class Bitset {
    *  @return 1/0.
    */
   bool At(int idx) const {
-    debug_assert(idx >= 0, "Invalid bit location.");
-    debug_assert(idx < static_cast<int64_t>(blocks_.size()) * block_size_,
-                 "Invalid bit location.");
+    DCHECK(idx >= 0) << "Invalid bit location.";
+    DCHECK(idx < static_cast<int64_t>(blocks_.size()) * block_size_)
+        << "Invalid bit location.";
     int bucket = idx / block_size_;
     return (blocks_[bucket] >> (idx % block_size_)) & 1;
   }
@@ -51,8 +51,8 @@ class Bitset {
    *  @return intersection.
    */
   Bitset<TStore> Intersect(const Bitset<TStore> &other) const {
-    debug_assert(this->blocks_.size() == other.blocks_.size(),
-                 "Bitsets are not of equal size.");
+    DCHECK(this->blocks_.size() == other.blocks_.size())
+        << "Bitsets are not of equal size.";
     Bitset<TStore> ret(this->blocks_.size() * this->block_size_);
     for (int i = 0; i < (int)this->blocks_.size(); ++i) {
       ret.blocks_[i] = this->blocks_[i] & other.blocks_[i];

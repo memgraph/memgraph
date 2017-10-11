@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "database/graph_db_datatypes.hpp"
+#include "glog/logging.h"
 #include "mvcc/version_list.hpp"
 #include "utils/algorithm.hpp"
 
@@ -89,9 +90,10 @@ class Edges {
      * present in this iterator. */
     void update_position() {
       if (vertex_) {
-        position_ = std::find_if(
-            position_, end_,
-            [v = this->vertex_](const Element &e) { return e.vertex == v; });
+        position_ = std::find_if(position_,
+                                 end_, [v = this->vertex_](const Element &e) {
+                                   return e.vertex == v;
+                                 });
       }
       if (edge_types_) {
         position_ = std::find_if(position_, end_, [this](const Element &e) {
@@ -122,8 +124,7 @@ class Edges {
     auto found = std::find_if(
         storage_.begin(), storage_.end(),
         [edge](const Element &element) { return edge == element.edge; });
-    debug_assert(found != storage_.end(),
-                 "Removing an edge that is not present");
+    DCHECK(found != storage_.end()) << "Removing an edge that is not present";
     *found = std::move(storage_.back());
     storage_.pop_back();
   }

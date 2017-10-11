@@ -12,7 +12,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 
 namespace query {
@@ -31,9 +30,9 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 
   using TreeVisitor<TypedValue>::Visit;
 
-#define BLOCK_VISIT(TREE_TYPE)                                          \
-  TypedValue Visit(TREE_TYPE &) override {                              \
-    permanent_fail("ExpressionEvaluator should not visit " #TREE_TYPE); \
+#define BLOCK_VISIT(TREE_TYPE)                                        \
+  TypedValue Visit(TREE_TYPE &) override {                            \
+    LOG(FATAL) << "ExpressionEvaluator should not visit " #TREE_TYPE; \
   }
 
   BLOCK_VISIT(Query);
@@ -388,7 +387,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
             vertex.SwitchOld();
             break;
           default:
-            permanent_fail("Unhandled GraphView enum");
+            LOG(FATAL) << "Unhandled GraphView enum";
         }
         break;
       }
@@ -402,7 +401,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
             edge.SwitchOld();
             break;
           default:
-            permanent_fail("Unhandled GraphView enum");
+            LOG(FATAL) << "Unhandled GraphView enum";
         }
         break;
       }

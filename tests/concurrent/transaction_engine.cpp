@@ -1,8 +1,9 @@
 #include <thread>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "transactions/engine.hpp"
-#include "utils/assert.hpp"
 
 int main() {
   // (try to) test correctness of the transaction life cycle
@@ -41,5 +42,6 @@ int main() {
   for (uint64_t i = 1; i <= THREADS * TRANSACTIONS; ++i) sum_actual += i;
 
   std::cout << sum_computed << " " << sum_actual << std::endl;
-  permanent_assert(sum_computed == sum_actual, "sums have to be the same");
+  CHECK(sum_computed == sum_actual) << "sums have to be the same";
+  return 0;
 }

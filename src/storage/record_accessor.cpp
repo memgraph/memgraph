@@ -1,8 +1,9 @@
-#include "storage/record_accessor.hpp"
+#include "glog/logging.h"
+
 #include "database/graph_db_accessor.hpp"
 #include "storage/edge.hpp"
+#include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
-#include "utils/assert.hpp"
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
@@ -51,8 +52,8 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
     // to the same value as it has now, and the amount of work is the
     // same as just looking for a new_ record
     if (!Reconstruct())
-      debug_fail(
-          "RecordAccessor::SwitchNew - accessor invalid after Reconstruct");
+      DLOG(FATAL)
+          << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
   }
   current_ = new_ ? new_ : old_;
   return *this;
@@ -72,14 +73,13 @@ bool RecordAccessor<TRecord>::Reconstruct() {
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
   db_accessor().Update(*this);
-  debug_assert(new_ != nullptr, "RecordAccessor.new_ is null after update");
+  DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
 
 template <typename TRecord>
 const TRecord &RecordAccessor<TRecord>::current() const {
-  debug_assert(current_ != nullptr,
-               "RecordAccessor.current_ pointer is nullptr");
+  DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
   return *current_;
 }
 

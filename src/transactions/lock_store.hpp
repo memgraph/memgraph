@@ -2,10 +2,10 @@
 
 #include <memory>
 #include <vector>
+#include "glog/logging.h"
 #include "storage/locking/lock_status.hpp"
 #include "storage/locking/record_lock.hpp"
 #include "transactions/type.hpp"
-#include "utils/assert.hpp"
 
 namespace tx {
 
@@ -19,7 +19,7 @@ class LockStore {
 
     LockHolder(RecordLock *lock, const Transaction &tx, tx::Engine &engine)
         : lock_(lock) {
-      debug_assert(lock != nullptr, "Lock is nullptr.");
+      DCHECK(lock != nullptr) << "Lock is nullptr.";
       auto status = lock_->Lock(tx, engine);
 
       if (status != LockStatus::Acquired) {
@@ -64,4 +64,4 @@ class LockStore {
  private:
   std::vector<LockHolder> locks_;
 };
-}
+}  // namespace tx

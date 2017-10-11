@@ -7,6 +7,8 @@
 #include <experimental/optional>
 #include <unordered_set>
 
+#include "glog/logging.h"
+
 #include "utils/algorithm.hpp"
 
 namespace query {
@@ -298,8 +300,8 @@ bool SymbolGenerator::PreVisit(All &all) {
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
   scope_.in_pattern = true;
   if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
-    debug_assert(dynamic_cast<NodeAtom *>(pattern.atoms_[0]),
-                 "Expected a single NodeAtom in Pattern");
+    DCHECK(dynamic_cast<NodeAtom *>(pattern.atoms_[0]))
+        << "Expected a single NodeAtom in Pattern";
     scope_.in_create_node = true;
   }
   return true;

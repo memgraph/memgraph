@@ -55,7 +55,7 @@ State StateErrorRun(Session &session, State state) {
     } else if (state == State::ErrorWaitForRollback) {
       return State::WaitForRollback;
     } else {
-      permanent_assert(false, "Shouldn't happen");
+      LOG(FATAL) << "Shouldn't happen";
     }
   } else {
     uint8_t value = underlying_cast(marker);
@@ -89,4 +89,4 @@ State StateErrorRun(Session &session, State state) {
     return state;
   }
 }
-}
+}  // namespace communication::bolt

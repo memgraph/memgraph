@@ -5,9 +5,10 @@
 #include <memory>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "communication/bolt/v1/constants.hpp"
 #include "io/network/stream_buffer.hpp"
-#include "utils/assert.hpp"
 #include "utils/bswap.hpp"
 
 namespace communication::bolt {
@@ -54,7 +55,7 @@ class Buffer {
    */
   void Written(size_t len) {
     size_ += len;
-    debug_assert(size_ <= Size, "Written more than storage has space!");
+    DCHECK(size_ <= Size) << "Written more than storage has space!";
   }
 
   /**
@@ -65,7 +66,7 @@ class Buffer {
    *            the buffer
    */
   void Shift(size_t len) {
-    debug_assert(len <= size_, "Tried to shift more data than the buffer has!");
+    DCHECK(len <= size_) << "Tried to shift more data than the buffer has!";
     memmove(data_, data_ + len, size_ - len);
     size_ -= len;
   }
@@ -90,4 +91,4 @@ class Buffer {
   uint8_t data_[Size];
   size_t size_{0};
 };
-}
+}  // namespace communication::bolt

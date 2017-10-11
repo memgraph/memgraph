@@ -63,8 +63,8 @@ State HandleRun(Session &session, State state, Marker marker) {
     return State::Close;
   }
 
-  debug_assert(!session.encoder_buffer_.HasData(),
-               "There should be no data to write in this state");
+  DCHECK(!session.encoder_buffer_.HasData())
+      << "There should be no data to write in this state";
 
   DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
   bool in_explicit_transaction = false;
@@ -313,4 +313,4 @@ State StateExecutingRun(Session &session, State state) {
     return State::Close;
   }
 }
-}
+}  // namespace communication::bolt

@@ -3,6 +3,7 @@
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 #include "cppitertools/takewhile.hpp"
+#include "glog/logging.h"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
@@ -162,7 +163,7 @@ static void Refresh(
 
         [[gnu::unused]] auto success =
             indices_entries_accessor.remove(indices_entry);
-        debug_assert(success, "Unable to delete entry.");
+        DCHECK(success) << "Unable to delete entry.";
       }
 
       // if the record is still visible,

@@ -5,7 +5,6 @@
 
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
-#include "utils/assert.hpp"
 #include "utils/hashing/fnv.hpp"
 
 namespace query {
@@ -90,4 +89,4 @@ class StrippedQuery {
   // Hash based on the stripped query.
   HashType hash_;
 };
-}
+}  // namespace query

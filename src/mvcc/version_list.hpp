@@ -81,7 +81,7 @@ class VersionList {
    * @return pair<status, to_delete>; status is true - If version list is empty
    * after garbage collection. to_delete points to the newest record that is not
    * visible anymore. If none exists to_delete will point to nullptr.
-  */
+   */
   std::pair<bool, T *> GcDeleted(const tx::Snapshot &snapshot,
                                  const tx::Engine &engine) {
     //    nullptr
@@ -194,7 +194,7 @@ class VersionList {
    * @param t The transaction
    */
   T *update(tx::Transaction &t) {
-    debug_assert(head_ != nullptr, "Head is nullptr on update.");
+    DCHECK(head_ != nullptr) << "Head is nullptr on update.";
     T *old_record = nullptr;
     T *new_record = nullptr;
     find_set_old_new(t, old_record, new_record);
@@ -204,16 +204,16 @@ class VersionList {
     if (new_record) return new_record;
 
     // check if we found any visible records
-    permanent_assert(old_record != nullptr, "Updating nullptr record");
+    CHECK(old_record != nullptr) << "Updating nullptr record";
 
     return update(old_record, t);
   }
 
   void remove(tx::Transaction &t) {
-    debug_assert(head_ != nullptr, "Head is nullptr on removal.");
+    DCHECK(head_ != nullptr) << "Head is nullptr on removal.";
     auto record = find(t);
 
-    permanent_assert(record != nullptr, "Removing nullptr record");
+    CHECK(record != nullptr) << "Removing nullptr record";
 
     // TODO: Is this lock and validate necessary
     lock_and_validate(record, t);
@@ -223,15 +223,14 @@ class VersionList {
   // TODO(flor): This should also be private but can't be right now because of
   // the way graph_db_accessor works.
   void remove(T *record, tx::Transaction &t) {
-    debug_assert(record != nullptr, "Record is nullptr on removal.");
+    DCHECK(record != nullptr) << "Record is nullptr on removal.";
     lock_and_validate(record, t);
     record->mark_expired(t);
   }
 
  private:
   void lock_and_validate(T *record, tx::Transaction &t) {
-    debug_assert(record != nullptr,
-                 "Record is nullptr on lock and validation.");
+    DCHECK(record != nullptr) << "Record is nullptr on lock and validation.";
 
     // take a lock on this node
     t.TakeLock(lock_);
@@ -245,7 +244,7 @@ class VersionList {
   }
 
   T *update(T *record, tx::Transaction &t) {
-    debug_assert(record != nullptr, "Record is nullptr on update.");
+    DCHECK(record != nullptr) << "Record is nullptr on update.";
     lock_and_validate(record, t);
 
     // It could be done with unique_ptr but while this could mean memory
@@ -269,4 +268,4 @@ class VersionList {
   std::atomic<T *> head_{nullptr};
   RecordLock lock_;
 };
-}
+}  // namespace mvcc

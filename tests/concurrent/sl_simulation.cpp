@@ -43,8 +43,8 @@ int main(int argc, char **argv) {
             }
           } else {
             auto value = acc.find(num);
-            permanent_assert(value == acc.end() || value->second == data,
-                             "Data is invalid");
+            CHECK(value == acc.end() || value->second == data)
+                << "Data is invalid";
           }
         }
 
@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
   for (auto &e : accessor) {
     sums -= e.second;
   }
-  permanent_assert(sums == 0, "Same values aren't present");
+  CHECK(sums == 0) << "Same values aren't present";
   check_size<map_t>(accessor, counters);
   check_order<map_t>(accessor);
 }

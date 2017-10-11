@@ -3,7 +3,7 @@
 #include <atomic>
 #include <mutex>
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 
 /** @brief A queue with lock-free concurrent push and
  * single-threaded deletion.
@@ -57,15 +57,14 @@ class ConcurrentPushQueue {
     bool operator!=(const Iterator &rhs) const { return !(*this == rhs); }
 
     Iterator &operator++() {
-      debug_assert(current_ != nullptr, "Prefix increment on invalid iterator");
+      DCHECK(current_ != nullptr) << "Prefix increment on invalid iterator";
       previous_ = current_;
       current_ = current_->next_;
       return *this;
     }
 
     Iterator operator++(int) {
-      debug_assert(current_ != nullptr,
-                   "Postfix increment on invalid iterator");
+      DCHECK(current_ != nullptr) << "Postfix increment on invalid iterator";
       Iterator rval(queue_, current_);
       previous_ = current_;
       current_ = current_->next_;
@@ -73,12 +72,12 @@ class ConcurrentPushQueue {
     }
 
     TElement &operator*() {
-      debug_assert(current_ != nullptr,
-                   "Dereferencing operator on invalid iterator");
+      DCHECK(current_ != nullptr)
+          << "Dereferencing operator on invalid iterator";
       return current_->element_;
     }
     TElement *operator->() {
-      debug_assert(current_ != nullptr, "Arrow operator on invalid iterator");
+      DCHECK(current_ != nullptr) << "Arrow operator on invalid iterator";
       return &current_->element_;
     }
 

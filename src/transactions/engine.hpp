@@ -4,6 +4,7 @@
 #include <limits>
 #include <vector>
 
+#include "glog/logging.h"
 #include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
@@ -63,12 +64,12 @@ class Engine : Lockable<SpinLock> {
     auto guard = this->acquire_unique();
 
     auto *t = store_.get(id);
-    debug_assert(t != nullptr,
-                 "Transaction::advance on non-existing transaction");
+    DCHECK(t != nullptr) << "Transaction::advance on non-existing transaction";
 
     if (t->cid_ == kMaxCommandId)
       throw TransactionError(
-          "Reached maximum number of commands in this transaction.");
+          "Reached maximum number of commands in this "
+          "transaction.");
 
     t->cid_++;
     return *t;
@@ -177,4 +178,4 @@ class Engine : Lockable<SpinLock> {
   ConcurrentMap<transaction_id_t, transaction_id_t> lock_graph_;
   std::atomic<transaction_id_t> counter_{0};
 };
-}
+}  // namespace tx

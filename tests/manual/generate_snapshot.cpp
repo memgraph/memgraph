@@ -142,7 +142,7 @@ class GraphState {
   // Gets the ID of a random node that has the given label.
   int64_t RandomNode(const std::string &label) {
     auto found = label_nodes_.find(label);
-    permanent_assert(found != label_nodes_.end(), "Label not found");
+    CHECK(found != label_nodes_.end()) << "Label not found";
     return found->second[rand_(gen_) * found->second.size()];
   }
 
@@ -167,7 +167,7 @@ class ValueGenerator {
     std::unordered_map<std::string, query::TypedValue> props;
     if (config.is_null()) return props;
 
-    permanent_assert(config.is_object(), "Properties config must be a dict");
+    CHECK(config.is_object()) << "Properties config must be a dict";
     for (auto it = config.begin(); it != config.end(); it++) {
       auto value = MakeValue(it.value());
       if (value) props.emplace(it.key(), *value);
@@ -193,7 +193,7 @@ class ValueGenerator {
       else if (type == "randstring")
         return TypedValue(RandString(param));
       else
-        permanent_fail("Unknown value type");
+        LOG(FATAL) << "Unknown value type";
     } else
       return Primitive(config);
   }
@@ -204,7 +204,7 @@ class ValueGenerator {
     if (config.is_number_float()) return config.get<double>();
     if (config.is_boolean()) return config.get<bool>();
 
-    permanent_fail("Unsupported primitive type");
+    LOG(FATAL) << "Unsupported primitive type";
   }
 
   int64_t Counter(const std::string &name) {
@@ -218,12 +218,11 @@ class ValueGenerator {
   }
 
   int64_t RandInt(const json &range) {
-    permanent_assert(range.is_array() && range.size() == 2,
-                     "RandInt value gen config must be a list with 2 elements");
+    CHECK(range.is_array() && range.size() == 2)
+        << "RandInt value gen config must be a list with 2 elements";
     auto from = MakeValue(range[0])->ValueInt();
     auto to = MakeValue(range[1])->ValueInt();
-    permanent_assert(from < to,
-                     "RandInt lower range must be lesser then upper range");
+    CHECK(from < to) << "RandInt lower range must be lesser then upper range";
     return (int64_t)(rand_(gen_) * (to - from)) + from;
   }
 
@@ -244,9 +243,8 @@ class ValueGenerator {
   bool Bernoulli(double p) { return rand_(gen_) < p; }
 
   std::experimental::optional<TypedValue> Optional(const json &config) {
-    permanent_assert(
-        config.is_array() && config.size() == 2,
-        "Optional value gen config must be a list with 2 elements");
+    CHECK(config.is_array() && config.size() == 2)
+        << "Optional value gen config must be a list with 2 elements";
     return Bernoulli(config[0]) ? MakeValue(config[1])
                                 : std::experimental::nullopt;
   }
@@ -285,18 +283,16 @@ int main(int argc, char **argv) {
 
   // Create nodes
   const auto &nodes_config = config["nodes"];
-  permanent_assert(
-      nodes_config.is_array() && nodes_config.size() > 0,
-      "Generator config must have 'nodes' array with at least one element");
+  CHECK(nodes_config.is_array() && nodes_config.size() > 0)
+      << "Generator config must have 'nodes' array with at least one element";
   for (const auto &node_config : config["nodes"]) {
-    permanent_assert(node_config.is_object(), "Node config must be a dict");
+    CHECK(node_config.is_object()) << "Node config must be a dict";
 
     for (int i = 0; i < node_config["count"]; i++) {
       const auto &labels_config = node_config["labels"];
-      permanent_assert(labels_config.is_array(),
-                       "Must provide an array of node labels");
-      permanent_assert(node_config.size() > 0,
-                       "Node labels array must contain at lest one element");
+      CHECK(labels_config.is_array()) << "Must provide an array of node labels";
+      CHECK(node_config.size() > 0)
+          << "Node labels array must contain at lest one element";
       auto node_bolt_id = writer.WriteNode(
           labels_config,
           value_generator.MakeProperties(node_config["properties"]));
@@ -308,7 +304,7 @@ int main(int argc, char **argv) {
 
   // Create edges
   for (const auto &edge_config : config["edges"]) {
-    permanent_assert(edge_config.is_object(), "Edge config must be a dict");
+    CHECK(edge_config.is_object()) << "Edge config must be a dict";
     const std::string &from = edge_config["from"];
     const std::string &to = edge_config["to"];
     for (int i = 0; i < edge_config["count"]; i++)

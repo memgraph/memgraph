@@ -4,9 +4,9 @@
 #include <iostream>
 #include <vector>
 
+#include "glog/logging.h"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/assert.hpp"
 
 namespace tx {
 
@@ -42,9 +42,8 @@ class Snapshot {
    */
   void insert(transaction_id_t id) {
     transaction_ids_.push_back(id);
-    debug_assert(
-        std::is_sorted(transaction_ids_.begin(), transaction_ids_.end()),
-        "Snapshot must be sorted");
+    DCHECK(std::is_sorted(transaction_ids_.begin(), transaction_ids_.end()))
+        << "Snapshot must be sorted";
   }
 
   /** Removes the given transaction id from this Snapshot.
@@ -58,12 +57,12 @@ class Snapshot {
   }
 
   transaction_id_t front() const {
-    debug_assert(transaction_ids_.size(), "Snapshot.front() on empty Snapshot");
+    DCHECK(transaction_ids_.size()) << "Snapshot.front() on empty Snapshot";
     return transaction_ids_.front();
   }
 
   transaction_id_t back() const {
-    debug_assert(transaction_ids_.size(), "Snapshot.back() on empty Snapshot");
+    DCHECK(transaction_ids_.size()) << "Snapshot.back() on empty Snapshot";
     return transaction_ids_.back();
   }
 
@@ -88,4 +87,4 @@ class Snapshot {
  private:
   std::vector<transaction_id_t> transaction_ids_;
 };
-}
+}  // namespace tx

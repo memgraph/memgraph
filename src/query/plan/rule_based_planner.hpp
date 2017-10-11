@@ -300,8 +300,8 @@ class RuleBasedPlanner {
       }
       int merge_id = 0;
       for (auto &clause : query_part.remaining_clauses) {
-        debug_assert(dynamic_cast<Match *>(clause) == nullptr,
-                     "Unexpected Match in remaining clauses");
+        DCHECK(dynamic_cast<Match *>(clause) == nullptr)
+            << "Unexpected Match in remaining clauses";
         if (auto *ret = dynamic_cast<Return *>(clause)) {
           input_op =
               impl::GenReturn(*ret, input_op, context.symbol_table, is_write,
@@ -332,7 +332,7 @@ class RuleBasedPlanner {
                                unwind->named_expression_->expression_, symbol);
         } else if (auto *create_index =
                        dynamic_cast<query::CreateIndex *>(clause)) {
-          debug_assert(!input_op, "Unexpected operator before CreateIndex");
+          DCHECK(!input_op) << "Unexpected operator before CreateIndex";
           input_op = new plan::CreateIndex(create_index->label_,
                                            create_index->property_);
         } else {
@@ -403,8 +403,8 @@ class RuleBasedPlanner {
 
   const GraphDbTypes::Label &FindBestLabelIndex(
       const std::unordered_set<GraphDbTypes::Label> &labels) {
-    debug_assert(!labels.empty(),
-                 "Trying to find the best label without any labels.");
+    DCHECK(!labels.empty())
+        << "Trying to find the best label without any labels.";
     return *std::min_element(labels.begin(), labels.end(),
                              [this](const auto &label1, const auto &label2) {
                                return context_.db.VerticesCount(label1) <
@@ -454,9 +454,8 @@ class RuleBasedPlanner {
             best_property.first, prop_filter.lower_bound,
             prop_filter.upper_bound, match_ctx.graph_view);
       } else {
-        debug_assert(
-            prop_filter.expression,
-            "Property filter should either have bounds or an expression.");
+        DCHECK(prop_filter.expression)
+            << "Property filter should either have bounds or an expression.";
         return new ScanAllByLabelPropertyValue(
             std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
             best_property.first, prop_filter.expression, match_ctx.graph_view);
@@ -519,8 +518,8 @@ class RuleBasedPlanner {
             symbol_table.at(*expansion.node2->identifier_);
         auto existing_node = utils::Contains(bound_symbols, node_symbol);
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-        debug_assert(!utils::Contains(bound_symbols, edge_symbol),
-                     "Existing edges are not supported");
+        DCHECK(!utils::Contains(bound_symbols, edge_symbol))
+            << "Existing edges are not supported";
         if (edge->IsVariable()) {
           Symbol inner_edge_symbol = symbol_table.at(*edge->inner_edge_);
           Symbol inner_node_symbol = symbol_table.at(*edge->inner_node_);
@@ -531,8 +530,8 @@ class RuleBasedPlanner {
                 impl::BindSymbol(bound_symbols, inner_edge_symbol);
             bool inner_node_bound =
                 impl::BindSymbol(bound_symbols, inner_node_symbol);
-            debug_assert(inner_edge_bound && inner_node_bound,
-                         "An inner edge and node can't be bound from before");
+            DCHECK(inner_edge_bound && inner_node_bound)
+                << "An inner edge and node can't be bound from before";
           }
           auto *filter_expr = impl::BoolJoin<AndOperator>(
               storage,
@@ -614,7 +613,7 @@ class RuleBasedPlanner {
             impl::GenFilters(last_op, bound_symbols, all_filters, storage);
       }
     }
-    debug_assert(all_filters.empty(), "Expected to generate all filters");
+    DCHECK(all_filters.empty()) << "Expected to generate all filters";
     return last_op;
   }
 
@@ -633,12 +632,12 @@ class RuleBasedPlanner {
     for (auto &set : merge.on_create_) {
       on_create = impl::HandleWriteClause(set, on_create, context_.symbol_table,
                                           context_.bound_symbols);
-      debug_assert(on_create, "Expected SET in MERGE ... ON CREATE");
+      DCHECK(on_create) << "Expected SET in MERGE ... ON CREATE";
     }
     for (auto &set : merge.on_match_) {
       on_match = impl::HandleWriteClause(set, on_match, context_.symbol_table,
                                          context_.bound_symbols);
-      debug_assert(on_match, "Expected SET in MERGE ... ON MATCH");
+      DCHECK(on_match) << "Expected SET in MERGE ... ON MATCH";
     }
     return new plan::Merge(std::shared_ptr<LogicalOperator>(input_op),
                            std::shared_ptr<LogicalOperator>(on_match),

@@ -11,11 +11,12 @@
 #include <utility>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "database/graph_db.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
@@ -91,7 +92,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       }
       has_create_index = true;
     } else {
-      debug_assert(false, "Can't happen");
+      DLOG(FATAL) << "Can't happen";
     }
   }
   if (!has_update && !has_return && !has_create_index) {
@@ -338,9 +339,9 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     CypherParser::SymbolicNameContext *ctx) {
   if (ctx->EscapedSymbolicName()) {
     auto quoted_name = ctx->getText();
-    debug_assert(quoted_name.size() >= 2U && quoted_name[0] == '`' &&
-                     quoted_name.back() == '`',
-                 "Can't happen. Grammar ensures this");
+    DCHECK(quoted_name.size() >= 2U && quoted_name[0] == '`' &&
+           quoted_name.back() == '`')
+        << "Can't happen. Grammar ensures this";
     // Remove enclosing backticks.
     std::string escaped_name =
         quoted_name.substr(1, static_cast<int>(quoted_name.size()) - 2);
@@ -353,7 +354,7 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
           name.push_back('`');
           escaped = false;
         } else {
-          debug_assert(false, "Can't happen. Grammar ensures that.");
+          DLOG(FATAL) << "Can't happen. Grammar ensures that.";
         }
       } else if (c == '`') {
         escaped = true;
@@ -519,13 +520,13 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipDetail(
     CypherParser::RelationshipDetailContext *) {
-  debug_assert(false, "Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(
     CypherParser::RelationshipLambdaContext *) {
-  debug_assert(false, "Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
@@ -540,8 +541,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
 
 antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     CypherParser::VariableExpansionContext *ctx) {
-  debug_assert(ctx->expression().size() <= 2U,
-               "Expected 0, 1 or 2 bounds in range literal.");
+  DCHECK(ctx->expression().size() <= 2U)
+      << "Expected 0, 1 or 2 bounds in range literal.";
 
   bool is_bfs = !ctx->getTokens(CypherParser::BFS).empty();
   Expression *lower = nullptr;
@@ -667,7 +668,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(
 
 antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
     CypherParser::PartialComparisonExpressionContext *) {
-  debug_assert(false, "Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
@@ -743,7 +744,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
 
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(
     CypherParser::StringAndNullOperatorsContext *) {
-  debug_assert(false, "Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
@@ -776,7 +777,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3b(
 
 antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(
     CypherParser::ListIndexingOrSlicingContext *) {
-  debug_assert(false, "Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
@@ -874,7 +875,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
       return static_cast<Expression *>(storage_.Create<PrimitiveLiteral>(
           ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
     }
-    debug_fail("Expected to handle all cases above");
+    LOG(FATAL) << "Expected to handle all cases above";
   } else if (ctx->listLiteral()) {
     return static_cast<Expression *>(storage_.Create<ListLiteral>(
         ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
@@ -903,7 +904,7 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(
   } else {
     // This should never happen, except grammar changes and we don't notice
     // change in this production.
-    debug_assert(false, "can't happen");
+    DLOG(FATAL) << "can't happen";
     throw std::exception();
   }
 }
@@ -985,7 +986,7 @@ antlrcpp::Any CypherMainVisitor::visitBooleanLiteral(
   if (ctx->getTokens(CypherParser::FALSE).size()) {
     return false;
   }
-  debug_assert(false, "Shouldn't happend");
+  DLOG(FATAL) << "Shouldn't happend";
   throw std::exception();
 }
 
@@ -1112,7 +1113,7 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(
 
 antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(
     CypherParser::CaseAlternativesContext *) {
-  debug_fail("Should never be called. See documentation in hpp.");
+  DLOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 
@@ -1138,7 +1139,7 @@ antlrcpp::Any CypherMainVisitor::visitMerge(CypherParser::MergeContext *ctx) {
     if (merge_action->MATCH()) {
       merge->on_match_.insert(merge->on_match_.end(), set.begin(), set.end());
     } else {
-      debug_assert(merge_action->CREATE(), "Expected ON MATCH or ON CREATE");
+      DCHECK(merge_action->CREATE()) << "Expected ON MATCH or ON CREATE";
       merge->on_create_.insert(merge->on_create_.end(), set.begin(), set.end());
     }
   }
@@ -1155,7 +1156,7 @@ antlrcpp::Any CypherMainVisitor::visitUnwind(CypherParser::UnwindContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitFilterExpression(
     CypherParser::FilterExpressionContext *) {
-  debug_fail("Should never be called. See documentation in hpp.");
+  LOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
 }
 

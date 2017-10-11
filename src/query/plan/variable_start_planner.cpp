@@ -3,6 +3,8 @@
 #include <limits>
 #include <queue>
 
+#include "glog/logging.h"
+
 #include "utils/flag_validation.hpp"
 
 DEFINE_VALIDATED_HIDDEN_uint64(
@@ -89,10 +91,9 @@ void AddNextExpansions(
     }
     if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
       // We are not expanding from node1, so flip the expansion.
-      debug_assert(
-          expansion.node2 &&
-              symbol_table.at(*expansion.node2->identifier_) == node_symbol,
-          "Expected node_symbol to be bound in node2");
+      DCHECK(expansion.node2 &&
+             symbol_table.at(*expansion.node2->identifier_) == node_symbol)
+          << "Expected node_symbol to be bound in node2";
       if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         std::swap(expansion.node1, expansion.node2);
@@ -214,9 +215,9 @@ class VaryMatchingStart {
         current_matching_.expansions = ExpansionsFrom(
             **start_nodes_it_, self_.matching_, self_.symbol_table_);
       }
-      debug_assert(
-          start_nodes_it_ || self_.nodes_.empty(),
-          "start_nodes_it_ should only be nullopt when self_.nodes_ is empty");
+      DCHECK(start_nodes_it_ || self_.nodes_.empty())
+          << "start_nodes_it_ should only be nullopt when self_.nodes_ is "
+             "empty";
       if (is_done) {
         start_nodes_it_ = self.nodes_.end();
       }
@@ -224,9 +225,9 @@ class VaryMatchingStart {
 
     iterator &operator++() {
       if (!start_nodes_it_) {
-        debug_assert(self_.nodes_.empty(),
-                     "start_nodes_it_ should only be nullopt when self_.nodes_ "
-                     "is empty");
+        DCHECK(self_.nodes_.empty())
+            << "start_nodes_it_ should only be nullopt when self_.nodes_ "
+               "is empty";
         start_nodes_it_ = self_.nodes_.end();
       }
       if (*start_nodes_it_ == self_.nodes_.end()) {

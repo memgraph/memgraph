@@ -25,7 +25,6 @@ namespace fs = std::experimental::filesystem;
 #include <glog/logging.h>
 
 #include "utils/algorithm.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/likely.hpp"
 #include "utils/underlying_cast.hpp"
@@ -45,7 +44,7 @@ void set_non_blocking(int fd) {
   if (UNLIKELY(status == -1))
     throw BasicException("Can't set NON_BLOCK flag to file descriptor");
 }
-}
+}  // namespace linux_os
 
 /**
  * Goes from first to last item in a container, if an element satisfying the
@@ -149,8 +148,7 @@ struct FSEventBase {
 struct WatchDescriptor : public FSEventBase {
   WatchDescriptor(const fs::path &directory, const FSEventType type)
       : FSEventBase(directory, type) {
-    debug_assert(fs::is_directory(path),
-                 "The path parameter should be directory");
+    DCHECK(fs::is_directory(path)) << "The path parameter should be directory";
   }
 };
 
@@ -356,10 +354,10 @@ class FSWatcher {
           // TODO: figure out why (it is not easy)
           if (((p - buffer_) + in_event_length) > IN_BUFF_LEN) break;
           // here should be an assertion
-          // debug_assert(in_event_length <= IN_BUFF_SLOT_LEN,
+          // DCHECK(in_event_length <= IN_BUFF_SLOT_LEN) <<
           //                "Inotify event length cannot be bigger
           //                than "
-          //                "Inotify slot length");
+          //                "Inotify slot length";
 
           // skip if in_event is undefined OR is equal to IN_IGNORED
           if ((in_event->len == 0 && in_event->mask == 0) ||
@@ -471,4 +469,4 @@ class FSWatcher {
    */
   char *buffer_[IN_BUFF_LEN];
 };
-}
+}  // namespace utils

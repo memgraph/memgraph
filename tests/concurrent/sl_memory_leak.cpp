@@ -35,8 +35,8 @@ int main(int, char **argv) {
   // get skiplist size
   {
     auto accessor = skiplist.access();
-    permanent_assert(accessor.size() == THREADS_NO * elems_per_thread,
-                     "all elements in skiplist");
+    CHECK(accessor.size() == THREADS_NO * elems_per_thread)
+        << "all elements in skiplist";
   }
 
   for (size_t thread_i = 0; thread_i < THREADS_NO; ++thread_i) {
@@ -44,7 +44,7 @@ int main(int, char **argv) {
         [&skiplist](size_t start, size_t end) {
           auto accessor = skiplist.access();
           for (size_t elem_i = start; elem_i < end; ++elem_i) {
-            permanent_assert(accessor.remove(elem_i) == true, "");
+            CHECK(accessor.remove(elem_i) == true) << "";
           }
         },
         thread_i * elems_per_thread,
@@ -58,8 +58,8 @@ int main(int, char **argv) {
   // check size
   {
     auto accessor = skiplist.access();
-    permanent_assert(accessor.size() == 0, "Size should be 0, but size is "
-                                               << accessor.size());
+    CHECK(accessor.size() == 0)
+        << "Size should be 0, but size is " << accessor.size();
   }
 
   // check count
@@ -70,6 +70,7 @@ int main(int, char **argv) {
       ++iterator_counter;
       cout << elem.first << " ";
     }
-    permanent_assert(iterator_counter == 0, "deleted elements");
+    CHECK(iterator_counter == 0) << "deleted elements";
   }
+  return 0;
 }

@@ -16,32 +16,38 @@ TEST(ConcurrentSet, Mix) {
 
   auto accessor = set.access();
 
-  permanent_assert(accessor.insert(1).second == true,
-                   "added non-existing 1? (true)");
+  // added non-existing 1? (true)
+  EXPECT_TRUE(accessor.insert(1).second);
 
-  permanent_assert(accessor.insert(1).second == false,
-                   "added already existing 1? (false)");
+  // added already existing 1? (false)
+  EXPECT_FALSE(accessor.insert(1).second);
 
-  permanent_assert(accessor.insert(2).second == true,
-                   "added non-existing 2? (true)");
+  // added non-existing 2? (true)
+  EXPECT_TRUE(accessor.insert(2).second);
 
-  permanent_assert(accessor.find(3) == accessor.end(),
-                   "item 3 doesn't exist? (true)");
+  // item 3 doesn't exist? (true)
+  EXPECT_EQ(accessor.find(3), accessor.end());
 
-  permanent_assert(accessor.contains(3) == false, "item 3 exists? (false)");
+  // item 3 exists? (false)
+  EXPECT_FALSE(accessor.contains(3));
 
-  permanent_assert(accessor.find(2) != accessor.end(), "item 2 exists? (true)");
+  // item 2 exists? (true)
+  EXPECT_NE(accessor.find(2), accessor.end());
 
-  permanent_assert(*accessor.find(2) == 2, "find item 2");
+  // find item 2
+  EXPECT_EQ(*accessor.find(2), 2);
 
-  permanent_assert(accessor.remove(1) == true, "removed existing 1? (true)");
+  // removed existing 1? (true)
+  EXPECT_TRUE(accessor.remove(1));
 
-  permanent_assert(accessor.remove(3) == false,
-                   "try to remove non existing element");
+  // try to remove non existing element
+  EXPECT_FALSE(accessor.remove(3));
 
-  permanent_assert(accessor.insert(1).second == true, "add 1 again");
+  // add 1 again
+  EXPECT_TRUE(accessor.insert(1).second);
 
-  permanent_assert(accessor.insert(4).second == true, "add 4");
+  // add 4
+  EXPECT_TRUE(accessor.insert(4).second);
 
   print_skiplist(accessor);
 }

@@ -73,8 +73,8 @@ class FileReaderBuffer {
    *    reference to a summary object where summary should be written.
    */
   bool ReadSummary(snapshot::Summary &summary) {
-    debug_assert(input_stream_.tellg() == 0,
-                 "Summary should be read before other data!");
+    DCHECK(input_stream_.tellg() == 0)
+        << "Summary should be read before other data!";
     input_stream_.seekg(-static_cast<int64_t>(sizeof(snapshot::Summary)),
                         std::ios::end);
     if (input_stream_.fail()) return false;

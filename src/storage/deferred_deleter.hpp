@@ -5,9 +5,9 @@
 #include <limits>
 #include <list>
 
+#include "glog/logging.h"
 #include "mvcc/record.hpp"
 #include "transactions/transaction.hpp"
-#include "utils/assert.hpp"
 
 /**
  * @brief - Implements deferred deletion.
@@ -31,8 +31,8 @@ class DeferredDeleter {
    * @brief - check if everything is freed
    */
   ~DeferredDeleter() {
-    permanent_assert(objects_.size() == 0,
-                     "Objects are not freed when calling the destructor.");
+    CHECK(objects_.size() == 0U)
+        << "Objects are not freed when calling the destructor.";
   }
 
   /**

@@ -3,12 +3,14 @@
 #include <type_traits>
 #include <utility>
 
-#include "query/plan/operator.hpp"
+#include "glog/logging.h"
 
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/eval.hpp"
+
+#include "query/plan/operator.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -251,8 +253,8 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
     : input_(input ? input : std::make_shared<Once>()),
       output_symbol_(output_symbol),
       graph_view_(graph_view) {
-  permanent_assert(graph_view != GraphView::AS_IS,
-                   "ScanAll must have explicitly defined GraphView");
+  CHECK(graph_view != GraphView::AS_IS)
+      << "ScanAll must have explicitly defined GraphView";
 }
 
 ACCEPT_WITH_INPUT(ScanAll)
@@ -290,7 +292,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
       property_(property),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
-  debug_assert(lower_bound_ || upper_bound_, "Only one bound can be left out");
+  DCHECK(lower_bound_ || upper_bound_) << "Only one bound can be left out";
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
@@ -302,10 +304,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -321,7 +323,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
       label_(label),
       property_(property),
       expression_(expression) {
-  debug_assert(expression, "Expression is not optional.");
+  DCHECK(expression) << "Expression is not optional.";
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
@@ -430,7 +432,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
         frame[self_.node_symbol_] = new_edge.to();
         break;
       case EdgeAtom::Direction::BOTH:
-        permanent_fail("Must indicate exact expansion direction here");
+        LOG(FATAL) << "Must indicate exact expansion direction here";
     }
   };
 
@@ -561,12 +563,11 @@ ExpandVariable::ExpandVariable(
       inner_edge_symbol_(inner_edge_symbol),
       inner_node_symbol_(inner_node_symbol),
       filter_(filter) {
-  debug_assert(
-      type_ == EdgeAtom::Type::DEPTH_FIRST ||
-          type_ == EdgeAtom::Type::BREADTH_FIRST,
-      "ExpandVariable can only be used with breadth or depth first type");
-  debug_assert(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse),
-               "Breadth first expansion can't be reversed");
+  DCHECK(type_ == EdgeAtom::Type::DEPTH_FIRST ||
+         type_ == EdgeAtom::Type::BREADTH_FIRST)
+      << "ExpandVariable can only be used with breadth or depth first type";
+  DCHECK(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse))
+      << "Breadth first expansion can't be reversed";
 }
 
 ACCEPT_WITH_INPUT(ExpandVariable)
@@ -747,7 +748,7 @@ class ExpandVariableCursor : public Cursor {
                   std::vector<TypedValue> &edges_on_frame) {
     // We are placing an edge on the frame. It is possible that there already
     // exists an edge on the frame for this level. If so first remove it.
-    debug_assert(edges_.size() > 0, "Edges are empty");
+    DCHECK(edges_.size() > 0) << "Edges are empty";
     if (self_.is_reverse_) {
       // TODO: This is innefficient, we should look into replacing
       // vector with something else for TypedValue::List.
@@ -1027,8 +1028,8 @@ class ConstructNamedPathCursor : public Cursor {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     auto symbol_it = self_.path_elements().begin();
-    debug_assert(symbol_it != self_.path_elements().end(),
-                 "Named path must contain at least one node");
+    DCHECK(symbol_it != self_.path_elements().end())
+        << "Named path must contain at least one node";
 
     TypedValue start_vertex = frame[*symbol_it++];
 
@@ -1038,8 +1039,8 @@ class ConstructNamedPathCursor : public Cursor {
       return true;
     }
 
-    debug_assert(start_vertex.IsVertex(),
-                 "First named path element must be a vertex");
+    DCHECK(start_vertex.IsVertex())
+        << "First named path element must be a vertex";
     query::Path path(start_vertex.ValueVertex());
 
     // If the last path element symbol was for an edge list, then
@@ -1079,7 +1080,7 @@ class ConstructNamedPathCursor : public Cursor {
           break;
         }
         default:
-          permanent_fail("Unsupported type in named path construction");
+          LOG(FATAL) << "Unsupported type in named path construction";
 
           break;
       }
@@ -1763,12 +1764,12 @@ void Aggregate::AggregateCursor::EnsureInitialized(
 void Aggregate::AggregateCursor::Update(
     Frame &, const SymbolTable &, ExpressionEvaluator &evaluator,
     Aggregate::AggregateCursor::AggregationValue &agg_value) {
-  debug_assert(self_.aggregations_.size() == agg_value.values_.size(),
-               "Expected as much AggregationValue.values_ as there are "
-               "aggregations.");
-  debug_assert(self_.aggregations_.size() == agg_value.counts_.size(),
-               "Expected as much AggregationValue.counts_ as there are "
-               "aggregations.");
+  DCHECK(self_.aggregations_.size() == agg_value.values_.size())
+      << "Expected as much AggregationValue.values_ as there are "
+         "aggregations.";
+  DCHECK(self_.aggregations_.size() == agg_value.counts_.size())
+      << "Expected as much AggregationValue.counts_ as there are "
+         "aggregations.";
 
   // we iterate over counts, values and aggregation info at the same time
   auto count_it = agg_value.counts_.begin();
@@ -1909,9 +1910,9 @@ void Aggregate::AggregateCursor::EnsureOkForAvgSum(
 bool TypedValueVectorEqual::operator()(
     const std::vector<TypedValue> &left,
     const std::vector<TypedValue> &right) const {
-  debug_assert(left.size() == right.size(),
-               "TypedValueVector comparison should only be done over vectors "
-               "of the same size");
+  DCHECK(left.size() == right.size())
+      << "TypedValueVector comparison should only be done over vectors "
+         "of the same size";
   return std::equal(left.begin(), left.end(), right.begin(),
                     TypedValue::BoolEqual{});
 }
@@ -2075,9 +2076,9 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
   if (cache_it_ == cache_.end()) return false;
 
   // place the output values on the frame
-  debug_assert(self_.output_symbols_.size() == cache_it_->second.size(),
-               "Number of values does not match the number of output symbols "
-               "in OrderBy");
+  DCHECK(self_.output_symbols_.size() == cache_it_->second.size())
+      << "Number of values does not match the number of output symbols "
+         "in OrderBy";
   auto output_sym_it = self_.output_symbols_.begin();
   for (const TypedValue &output : cache_it_->second)
     frame[*output_sym_it++] = output;
@@ -2131,7 +2132,7 @@ bool OrderBy::TypedValueCompare(const TypedValue &a, const TypedValue &b) {
       throw QueryRuntimeException(
           "Comparison is not defined for values of type {}", a.type());
     default:
-      permanent_fail("Unhandled comparison for types");
+      LOG(FATAL) << "Unhandled comparison for types";
   }
 }
 
@@ -2140,8 +2141,8 @@ bool OrderBy::TypedValueVectorCompare::operator()(
     const std::vector<TypedValue> &c2) const {
   // ordering is invalid if there are more elements in the collections
   // then there are in the ordering_ vector
-  debug_assert(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
-               "Collections contain more elements then there are orderings");
+  DCHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
+      << "Collections contain more elements then there are orderings";
 
   auto c1_it = c1.begin();
   auto c2_it = c2.begin();
@@ -2208,7 +2209,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, Context &context) {
       // and failed to pull from merge_match, we should create
       __attribute__((unused)) bool merge_create_pull_result =
           merge_create_cursor_->Pull(frame, context);
-      debug_assert(merge_create_pull_result, "MergeCreate must never fail");
+      DCHECK(merge_create_pull_result) << "MergeCreate must never fail";
       return true;
     }
     // we have exhausted merge_match_cursor_ after 1 or more successful

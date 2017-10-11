@@ -535,7 +535,8 @@ TypedValue Counter(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
   return dba.Counter(args[0].ValueString());
 }
 
-TypedValue CounterSet(const std::vector<TypedValue> &args, GraphDbAccessor &dba) {
+TypedValue CounterSet(const std::vector<TypedValue> &args,
+                      GraphDbAccessor &dba) {
   if (args.size() != 2U) {
     throw QueryRuntimeException("counterSet takes two arguments");
   }
@@ -556,7 +557,7 @@ TypedValue IndexInfo(const std::vector<TypedValue> &args,
   auto info = dba.IndexInfo();
   return std::vector<TypedValue>(info.begin(), info.end());
 }
-}  // annonymous namespace
+}  // namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
 NameToFunction(const std::string &function_name) {

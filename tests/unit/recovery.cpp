@@ -2,13 +2,13 @@
 #include <experimental/filesystem>
 
 #include "gflags/gflags.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/dbms.hpp"
 #include "durability/file_reader_buffer.hpp"
 #include "durability/recovery.hpp"
-#include "utils/assert.hpp"
 
 DECLARE_int32(snapshot_cycle_sec);
 
@@ -88,8 +88,7 @@ void TakeSnapshot(Dbms &dbms, int snapshot_max_retained_) {
 std::string GetLatestSnapshot() {
   std::vector<fs::path> files =
       GetFilesFromDir(SNAPSHOTS_RECOVERY_DEFAULT_DB_DIR);
-  permanent_assert(static_cast<int>(files.size()) == 1,
-                   "No snapshot files in folder.");
+  CHECK(static_cast<int>(files.size()) == 1) << "No snapshot files in folder.";
   std::sort(files.rbegin(), files.rend());
   return files[0];
 }
@@ -180,8 +179,7 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
     edges.push_back(edge);
     edge_count++;
   }
-  permanent_assert(static_cast<int>(edges.size()) == 2,
-                   "There should be two edges.");
+  CHECK(static_cast<int>(edges.size()) == 2) << "There should be two edges.";
 
   EXPECT_EQ(edge_count, 2);
   EXPECT_TRUE(edges[0].to() == edges[1].to());

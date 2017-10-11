@@ -23,9 +23,8 @@ void test_lock(int) {
       std::unique_lock<Futex> guard(futex);
       x++;
       std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
-      permanent_assert(x == 1,
-                       "Other thread shouldn't be able to "
-                       "change the value of x");
+      CHECK(x == 1) << "Other thread shouldn't be able to "
+                       "change the value of x";
       x--;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));

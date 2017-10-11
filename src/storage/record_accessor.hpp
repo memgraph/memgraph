@@ -5,6 +5,7 @@
 #include "storage/property_value.hpp"
 #include "utils/total_ordering.hpp"
 
+#include "glog/logging.h"
 #include "storage/property_value_store.hpp"
 
 class GraphDbAccessor;
@@ -88,14 +89,14 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * not actual values inside RecordAccessors.
    */
   bool operator<(const RecordAccessor &other) const {
-    debug_assert(db_accessor_ == other.db_accessor_,
-                 "Not in the same transaction.");
+    DCHECK(db_accessor_ == other.db_accessor_)
+        << "Not in the same transaction.";
     return vlist_ < other.vlist_;
   }
 
   bool operator==(const RecordAccessor &other) const {
-    debug_assert(db_accessor_ == other.db_accessor_,
-                 "Not in the same transaction.");
+    DCHECK(db_accessor_ == other.db_accessor_)
+        << "Not in the same transaction.";
     return vlist_ == other.vlist_;
   }
 

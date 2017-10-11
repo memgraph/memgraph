@@ -10,6 +10,7 @@
 
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
+#include "glog/logging.h"
 
 #include "graph_db.hpp"
 #include "storage/edge_accessor.hpp"
@@ -107,7 +108,7 @@ class GraphDbAccessor {
    *    ignored).
    */
   auto Vertices(bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
         iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
@@ -136,7 +137,7 @@ class GraphDbAccessor {
    * @return iterable collection
    */
   auto Vertices(const GraphDbTypes::Label &label, bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(*vlist, *this); },
         db_.labels_index_.GetVlists(label, *transaction_, current_state));
@@ -155,10 +156,10 @@ class GraphDbAccessor {
    */
   auto Vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property, bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-    debug_assert(db_.label_property_index_.IndexExists(
-                     LabelPropertyIndex::Key(label, property)),
-                 "Label+property index doesn't exist.");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+    DCHECK(db_.label_property_index_.IndexExists(
+        LabelPropertyIndex::Key(label, property)))
+        << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(*vlist, *this); },
         db_.label_property_index_.GetVlists(
@@ -182,12 +183,12 @@ class GraphDbAccessor {
   auto Vertices(const GraphDbTypes::Label &label,
                 const GraphDbTypes::Property &property,
                 const PropertyValue &value, bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-    debug_assert(db_.label_property_index_.IndexExists(
-                     LabelPropertyIndex::Key(label, property)),
-                 "Label+property index doesn't exist.");
-    permanent_assert(value.type() != PropertyValue::Type::Null,
-                     "Can't query index for propery value type null.");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+    DCHECK(db_.label_property_index_.IndexExists(
+        LabelPropertyIndex::Key(label, property)))
+        << "Label+property index doesn't exist.";
+    CHECK(value.type() != PropertyValue::Type::Null)
+        << "Can't query index for propery value type null.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(*vlist, *this); },
         db_.label_property_index_.GetVlists(
@@ -227,10 +228,10 @@ class GraphDbAccessor {
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
-    debug_assert(db_.label_property_index_.IndexExists(
-                     LabelPropertyIndex::Key(label, property)),
-                 "Label+property index doesn't exist.");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+    DCHECK(db_.label_property_index_.IndexExists(
+        LabelPropertyIndex::Key(label, property)))
+        << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(*vlist, *this); },
         db_.label_property_index_.GetVlists(
@@ -274,7 +275,7 @@ class GraphDbAccessor {
    *    ignored).
    */
   auto Edges(bool current_state) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
     // wrap version lists into accessors, which will look for visible versions
     auto accessors =
@@ -349,7 +350,7 @@ class GraphDbAccessor {
    */
   bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
                                 const GraphDbTypes::Property &property) const {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return db_.label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
   }
@@ -358,7 +359,7 @@ class GraphDbAccessor {
    * @brief - Returns vector of keys of label-property indices.
    */
   std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return db_.label_property_index_.GetIndicesKeys();
   }
 
@@ -493,7 +494,7 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   bool Reconstruct(RecordAccessor<TRecord> &accessor) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     accessor.vlist_->find_set_old_new(*transaction_, accessor.old_,
                                       accessor.new_);
     accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
@@ -516,18 +517,16 @@ class GraphDbAccessor {
    */
   template <typename TRecord>
   void Update(RecordAccessor<TRecord> &accessor) {
-    debug_assert(!commited_ && !aborted_, "Accessor committed or aborted");
+    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     // can't update a deleted record if:
     // - we only have old_ and it hasn't been deleted
     // - we have new_ and it hasn't been deleted
     if (!accessor.new_) {
-      debug_assert(
-          !accessor.old_->is_expired_by(*transaction_),
-          "Can't update a record deleted in the current transaction+command");
+      DCHECK(!accessor.old_->is_expired_by(*transaction_))
+          << "Can't update a record deleted in the current transaction+commad";
     } else {
-      debug_assert(
-          !accessor.new_->is_expired_by(*transaction_),
-          "Can't update a record deleted in the current transaction+command");
+      DCHECK(!accessor.new_->is_expired_by(*transaction_))
+          << "Can't update a record deleted in the current transaction+command";
     }
 
     if (!accessor.new_) accessor.new_ = accessor.vlist_->update(*transaction_);

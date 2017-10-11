@@ -15,7 +15,7 @@ constexpr size_t no_insert_for_one_delete = 1;
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   ConcurrentList<std::pair<int, int>> list;
-  permanent_assert(list.size() == 0, "The list isn't empty");
+  CHECK(list.size() == 0) << "The list isn't empty";
 
   auto futures =
       run<std::pair<long long, long long>>(THREADS_NO, [&](auto index) mutable {
@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
           } else {
             for (auto &v : list) {
               if (v.first == num) {
-                permanent_assert(v.second == data, "Data is invalid");
+                CHECK(v.second == data) << "Data is invalid";
                 break;
               }
             }
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
     sums -= e.second;
   }
 
-  permanent_assert(sums == 0, "Same values aren't present");
+  CHECK(sums == 0) << "Same values aren't present";
   check_size_list<ConcurrentList<std::pair<int, int>>>(list, counters);
 
   std::this_thread::sleep_for(1s);

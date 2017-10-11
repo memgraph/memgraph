@@ -168,7 +168,7 @@ class Decoder {
  private:
   bool ReadNull(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadNull] Start";
-    debug_assert(marker == Marker::Null, "Received invalid marker!");
+    DCHECK(marker == Marker::Null) << "Received invalid marker!";
     *data = DecodedValue();
     DLOG(INFO) << "[ReadNull] Success";
     return true;
@@ -176,8 +176,8 @@ class Decoder {
 
   bool ReadBool(const Marker &marker, DecodedValue *data) {
     DLOG(INFO) << "[ReadBool] Start";
-    debug_assert(marker == Marker::False || marker == Marker::True,
-                 "Received invalid marker!");
+    DCHECK(marker == Marker::False || marker == Marker::True)
+        << "Received invalid marker!";
     if (marker == Marker::False) {
       *data = DecodedValue(false);
     } else {
@@ -243,7 +243,7 @@ class Decoder {
     uint64_t value;
     double ret;
     DLOG(INFO) << "[ReadDouble] Start";
-    debug_assert(marker == Marker::Float64, "Received invalid marker!");
+    DCHECK(marker == Marker::Float64) << "Received invalid marker!";
     if (!buffer_.Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) {
       DLOG(WARNING) << "[ReadDouble] Missing data!";
       return false;
@@ -523,7 +523,8 @@ class Decoder {
     }
     for (const auto &vertex : dv.ValueList()) {
       if (vertex.type() != DecodedValue::Type::Vertex) {
-        DLOG(WARNING) << "[ReadPath] Received a '" << vertex.type() << "' element in the vertices list!";
+        DLOG(WARNING) << "[ReadPath] Received a '" << vertex.type()
+                      << "' element in the vertices list!";
         return false;
       }
       path.vertices.emplace_back(vertex.ValueVertex());
@@ -536,7 +537,8 @@ class Decoder {
     }
     for (const auto &edge : dv.ValueList()) {
       if (edge.type() != DecodedValue::Type::UnboundedEdge) {
-        DLOG(WARNING) << "[ReadPath] Received a '" << edge.type() << "' element in the edges list!";
+        DLOG(WARNING) << "[ReadPath] Received a '" << edge.type()
+                      << "' element in the edges list!";
         return false;
       }
       path.edges.emplace_back(edge.ValueUnboundedEdge());
@@ -549,7 +551,8 @@ class Decoder {
     }
     for (const auto &index : dv.ValueList()) {
       if (index.type() != DecodedValue::Type::Int) {
-        DLOG(WARNING) << "[ReadPath] Received a '" << index.type() << "' element in the indices list (expected an int)!";
+        DLOG(WARNING) << "[ReadPath] Received a '" << index.type()
+                      << "' element in the indices list (expected an int)!";
         return false;
       }
       path.indices.emplace_back(index.ValueInt());
@@ -562,4 +565,4 @@ class Decoder {
     return true;
   }
 };
-}
+}  // namespace communication::bolt

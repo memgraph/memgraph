@@ -56,7 +56,7 @@ class Record : public Version<T> {
   }
 
   void mark_created(const tx::Transaction &t) {
-    debug_assert(tx_.cre == 0, "Marking node as created twice.");
+    DCHECK(tx_.cre == 0) << "Marking node as created twice.";
     tx_.cre = t.id_;
     cmd_.cre = t.cid();
   }
@@ -217,8 +217,8 @@ class Record : public Version<T> {
   // below, but it has a same name.
   bool committed(uint8_t mask, tx::transaction_id_t id,
                  const tx::Transaction &t) {
-    debug_assert(mask == Hints::kCre || mask == Hints::kExp,
-                 "Mask must be either kCre or kExp");
+    DCHECK(mask == Hints::kCre || mask == Hints::kExp)
+        << "Mask must be either kCre or kExp";
     // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
     // if you think they're not, you're wrong, and you should think about it
     // again. I know, it happened to me (and also to Matej Gradicek).
@@ -245,8 +245,8 @@ class Record : public Version<T> {
    */
   bool committed(uint8_t mask, tx::transaction_id_t id,
                  const tx::Engine &engine) const {
-    debug_assert(mask == Hints::kCre || mask == Hints::kExp,
-                 "Mask must be either kCre or kExp");
+    DCHECK(mask == Hints::kCre || mask == Hints::kExp)
+        << "Mask must be either kCre or kExp";
     // If hints are set, return if id is committed.
     if (hints_.Get(mask)) return hints_.Get(Hints::kCmt & mask);
 
@@ -295,4 +295,4 @@ class Record : public Version<T> {
     return false;
   }
 };
-}
+}  // namespace mvcc

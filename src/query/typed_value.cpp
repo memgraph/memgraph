@@ -5,8 +5,9 @@
 #include <iostream>
 #include <memory>
 
+#include "glog/logging.h"
+
 #include "utils/algorithm.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
 
@@ -46,7 +47,7 @@ TypedValue::TypedValue(const PropertyValue &value) {
       return;
     }
   }
-  permanent_fail("Unsupported type");
+  LOG(FATAL) << "Unsupported type";
 }
 
 TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
@@ -81,7 +82,7 @@ TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
       new (&path_v) Path(other.path_v);
       return;
   }
-  permanent_fail("Unsupported TypedValue::Type");
+  LOG(FATAL) << "Unsupported TypedValue::Type";
 }
 
 TypedValue::operator PropertyValue() const {
@@ -186,7 +187,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type type) {
     case TypedValue::Type::Path:
       return os << "path";
   }
-  permanent_fail("Unsupported TypedValue::Type");
+  LOG(FATAL) << "Unsupported TypedValue::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
@@ -219,7 +220,7 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
     case TypedValue::Type::Path:
       return os << value.Value<Path>();
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 TypedValue &TypedValue::operator=(const TypedValue &other) {
@@ -259,7 +260,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&path_v) Path(other.path_v);
         return *this;
     }
-    permanent_fail("Unsupported TypedValue::Type");
+    LOG(FATAL) << "Unsupported TypedValue::Type";
   }
   return *this;
 }
@@ -301,7 +302,7 @@ TypedValue::~TypedValue() {
       path_v.~Path();
       return;
   }
-  permanent_fail("Unsupported TypedValue::Type");
+  LOG(FATAL) << "Unsupported TypedValue::Type";
 }
 
 /**
@@ -423,7 +424,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Path:
       return a.ValuePath() == b.ValuePath();
     default:
-      permanent_fail("Unhandled comparison for types");
+      LOG(FATAL) << "Unhandled comparison for types";
   }
 }
 
@@ -619,9 +620,9 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
     case TypedValue::Type::Null:
       return false;
     default:
-      permanent_fail(
-          "Equality between two TypedValues resulted in something other "
-          "then Null or bool");
+      LOG(FATAL)
+          << "Equality between two TypedValues resulted in something other "
+             "then Null or bool";
   }
 }
 
@@ -662,7 +663,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
              FnvCollection<std::vector<EdgeAccessor>, EdgeAccessor>{}(
                  value.ValuePath().edges());
   }
-  permanent_fail("Unhandled TypedValue.type() in hash function");
+  LOG(FATAL) << "Unhandled TypedValue.type() in hash function";
 }
 
 }  // namespace query

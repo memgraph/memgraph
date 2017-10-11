@@ -5,12 +5,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "glog/logging.h"
+
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
-#include "utils/assert.hpp"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
@@ -25,20 +26,20 @@ struct hash<std::pair<std::string, GraphDbTypes::Property>> {
   std::hash<std::string> string_hash{};
   std::hash<GraphDbTypes::Property> property_hash{};
 };
-}
+}  // namespace std
 
 namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -498,10 +499,9 @@ class IfOperator : public Expression {
         condition_(condition),
         then_expression_(then_expression),
         else_expression_(else_expression) {
-    debug_assert(
-        condition_ != nullptr && then_expression_ != nullptr &&
-            else_expression_ != nullptr,
-        "clause_, then_expression_ and else_expression_ can't be nullptr");
+    DCHECK(condition_ != nullptr && then_expression_ != nullptr &&
+           else_expression_ != nullptr)
+        << "clause_, then_expression_ and else_expression_ can't be nullptr";
   }
 };
 
@@ -782,9 +782,10 @@ class Function : public Expression {
   std::vector<Expression *> arguments_;
 
  protected:
-  Function(int uid, std::function<TypedValue(const std::vector<TypedValue> &,
-                                             GraphDbAccessor &)>
-                        function,
+  Function(int uid,
+           std::function<TypedValue(const std::vector<TypedValue> &,
+                                    GraphDbAccessor &)>
+               function,
            const std::vector<Expression *> &arguments)
       : Expression(uid), function_(function), arguments_(arguments) {}
 };
@@ -824,11 +825,11 @@ class Aggregation : public BinaryOperator {
   Aggregation(int uid, Expression *expression1, Expression *expression2, Op op)
       : BinaryOperator(uid, expression1, expression2), op_(op) {
     // COUNT without expression denotes COUNT(*) in cypher.
-    debug_assert(expression1 || op == Aggregation::Op::COUNT,
-                 "All aggregations, except COUNT require expression");
-    debug_assert(expression2 == nullptr ^ op == Aggregation::Op::COLLECT_MAP,
-                 "The second expression is obligatory in COLLECT_MAP and "
-                 "invalid otherwise");
+    DCHECK(expression1 || op == Aggregation::Op::COUNT)
+        << "All aggregations, except COUNT require expression";
+    DCHECK(expression2 == nullptr ^ op == Aggregation::Op::COLLECT_MAP)
+        << "The second expression is obligatory in COLLECT_MAP and "
+           "invalid otherwise";
   }
 };
 
@@ -862,9 +863,9 @@ class All : public Expression {
         identifier_(identifier),
         list_expression_(list_expression),
         where_(where) {
-    debug_assert(identifier, "identifier must not be nullptr");
-    debug_assert(list_expression, "list_expression must not be nullptr");
-    debug_assert(where, "where must not be nullptr");
+    DCHECK(identifier) << "identifier must not be nullptr";
+    DCHECK(list_expression) << "list_expression must not be nullptr";
+    DCHECK(where) << "where must not be nullptr";
   }
 };
 
@@ -1545,8 +1546,8 @@ class Unwind : public Clause {
  protected:
   Unwind(int uid, NamedExpression *named_expression)
       : Clause(uid), named_expression_(named_expression) {
-    debug_assert(named_expression,
-                 "Unwind cannot take nullptr for named_expression")
+    DCHECK(named_expression)
+        << "Unwind cannot take nullptr for named_expression";
   }
 };
 

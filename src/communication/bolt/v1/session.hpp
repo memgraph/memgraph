@@ -1,5 +1,7 @@
 #pragma once
 
+#include "glog/logging.h"
+
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 
@@ -60,8 +62,8 @@ class Session {
   }
 
   ~Session() {
-    debug_assert(!db_accessor_,
-                 "Transaction should have already be closed in Close");
+    DCHECK(!db_accessor_)
+        << "Transaction should have already be closed in Close";
   }
 
   /**
@@ -167,7 +169,7 @@ class Session {
    * Commits associated transaction.
    */
   void Commit() {
-    debug_assert(db_accessor_, "Commit called and there is no transaction");
+    DCHECK(db_accessor_) << "Commit called and there is no transaction";
     db_accessor_->Commit();
     db_accessor_ = nullptr;
   }
@@ -176,7 +178,7 @@ class Session {
    * Aborts associated transaction.
    */
   void Abort() {
-    debug_assert(db_accessor_, "Abort called and there is no transaction");
+    DCHECK(db_accessor_) << "Abort called and there is no transaction";
     db_accessor_->Abort();
     db_accessor_ = nullptr;
   }
@@ -215,4 +217,4 @@ class Session {
     Close();
   }
 };
-}
+}  // namespace communication::bolt

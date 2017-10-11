@@ -87,8 +87,7 @@ class Server {
         : io::network::BaseListener(socket), server_(server) {}
 
     void OnData() {
-      debug_assert(server_.idx_ < server_.workers_.size(),
-                   "Invalid worker id.");
+      DCHECK(server_.idx_ < server_.workers_.size()) << "Invalid worker id.";
       DLOG(INFO) << "On connect";
       auto connection = AcceptConnection();
       if (UNLIKELY(!connection)) {

@@ -125,7 +125,7 @@ class GraphSession {
         Execute(fmt::format("UNWIND RANGE(1, {}) AS r CREATE (n:{} {{id: "
                             "counter(\"vertex{}\")}}) RETURN min(n.id)",
                             vertices_count, indexed_label_, id_));
-    permanent_assert(ret.records.size() == 1, "Vertices creation failed!");
+    CHECK(ret.records.size() == 1) << "Vertices creation failed!";
     uint64_t min_id = ret.records[0][0].ValueInt();
     for (uint64_t i = 0; i < vertices_count; ++i) {
       vertices_.insert(min_id + i);
@@ -164,9 +164,8 @@ class GraphSession {
   void CreateEdges(uint64_t edges_count) {
     if (edges_count == 0) return;
     auto edges_per_node = (double)edges_count / vertices_.size();
-    permanent_assert(
-        std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001,
-        "Edges per node not a whole number");
+    CHECK(std::abs(edges_per_node - (int64_t)edges_per_node) < 0.0001)
+        << "Edges per node not a whole number";
 
     auto ret = Execute(fmt::format(
         "MATCH (a:{0}) WITH a "
@@ -176,7 +175,7 @@ class GraphSession {
         "min(e.id), count(e)",
         indexed_label_, (int64_t)edges_per_node - 1, vertices_.size(), id_));
 
-    permanent_assert(ret.records.size() == 1, "Failed to create edges");
+    CHECK(ret.records.size() == 1) << "Failed to create edges";
     uint64_t min_id = ret.records[0][0].ValueInt();
     uint64_t count = ret.records[0][1].ValueInt();
     for (uint64_t i = 0; i < count; ++i) {
@@ -361,9 +360,8 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  permanent_assert(FLAGS_vertex_count > 0,
-                   "Vertex count must be greater than 0!");
-  permanent_assert(FLAGS_edge_count > 0, "Edge count must be greater than 0!");
+  CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
+  CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";
 
   LOG(INFO) << "Starting Memgraph long running test";
 

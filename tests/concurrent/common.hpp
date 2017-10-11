@@ -11,7 +11,6 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
-#include "utils/assert.hpp"
 
 // NOTE: this file is highly coupled to data_structures
 // TODO: REFACTOR
@@ -44,8 +43,7 @@ template <typename S>
 void check_present_same(typename S::Accessor &acc, size_t data,
                         std::vector<size_t> &owned) {
   for (auto num : owned) {
-    permanent_assert(acc.find(num)->second == data,
-                     "My data is present and my");
+    CHECK(acc.find(num)->second == data) << "My data is present and my";
   }
 }
 
@@ -61,8 +59,8 @@ template <typename S>
 void check_size_list(S &acc, long long size) {
   // check size
 
-  permanent_assert(acc.size() == size,
-                   "Size should be " << size << ", but size is " << acc.size());
+  CHECK(acc.size() == size)
+      << "Size should be " << size << ", but size is " << acc.size();
 
   // check count
 
@@ -71,16 +69,16 @@ void check_size_list(S &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(static_cast<int64_t>(iterator_counter) == size,
-                   "Iterator count should be " << size << ", but size is "
-                                               << iterator_counter);
+  CHECK(static_cast<int64_t>(iterator_counter) == size)
+      << "Iterator count should be " << size << ", but size is "
+      << iterator_counter;
 }
 template <typename S>
 void check_size(typename S::Accessor &acc, long long size) {
   // check size
 
-  permanent_assert(acc.size() == size,
-                   "Size should be " << size << ", but size is " << acc.size());
+  CHECK(acc.size() == size)
+      << "Size should be " << size << ", but size is " << acc.size();
 
   // check count
 
@@ -89,9 +87,9 @@ void check_size(typename S::Accessor &acc, long long size) {
   for ([[gnu::unused]] auto elem : acc) {
     ++iterator_counter;
   }
-  permanent_assert(static_cast<int64_t>(iterator_counter) == size,
-                   "Iterator count should be " << size << ", but size is "
-                                               << iterator_counter);
+  CHECK(static_cast<int64_t>(iterator_counter) == size)
+      << "Iterator count should be " << size << ", but size is "
+      << iterator_counter;
 }
 
 // Checks if order in list is maintened. It expects map
@@ -110,16 +108,14 @@ void check_order(typename S::Accessor &acc) {
 
 void check_zero(size_t key_range, long array[], const char *str) {
   for (int i = 0; i < static_cast<int>(key_range); i++) {
-    permanent_assert(array[i] == 0,
-                     str << " doesn't hold it's guarantees. It has " << array[i]
-                         << " extra elements.");
+    CHECK(array[i] == 0) << str << " doesn't hold it's guarantees. It has "
+                         << array[i] << " extra elements.";
   }
 }
 
 void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
   for (int i = 0; i < static_cast<int>(set.size()); i++) {
-    permanent_assert(!(set[i] ^ db.at(i)),
-                     "Set constraints aren't fullfilled.");
+    CHECK(!(set[i] ^ db.at(i))) << "Set constraints aren't fullfilled.";
   }
 }
 

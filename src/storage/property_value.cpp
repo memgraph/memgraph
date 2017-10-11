@@ -5,7 +5,7 @@
 #include <iostream>
 #include <memory>
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 
 // Value extraction template instantiations
 template <>
@@ -89,7 +89,7 @@ PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
       return;
   }
 
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
@@ -109,7 +109,7 @@ std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
     case PropertyValue::Type::Map:
       return os << "map";
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
@@ -138,7 +138,7 @@ std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
       }
       return os << "}";
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
@@ -169,7 +169,7 @@ PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         return *this;
     }
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
 const PropertyValue PropertyValue::Null = PropertyValue();
@@ -194,5 +194,5 @@ PropertyValue::~PropertyValue() {
       map_v.~shared_ptr<std::map<std::string, PropertyValue>>();
       return;
   }
-  permanent_fail("Unsupported PropertyValue::Type");
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
 }

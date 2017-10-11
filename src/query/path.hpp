@@ -3,9 +3,10 @@
 #include <functional>
 #include <utility>
 
+#include "glog/logging.h"
+
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "utils/assert.hpp"
 
 namespace query {
 
@@ -29,15 +30,15 @@ class Path {
 
   /** Expands the path with the given vertex. */
   void Expand(const VertexAccessor &vertex) {
-    debug_assert(vertices_.size() == edges_.size(),
-                 "Illegal path construction order");
+    DCHECK(vertices_.size() == edges_.size())
+        << "Illegal path construction order";
     vertices_.emplace_back(vertex);
   }
 
   /** Expands the path with the given edge. */
   void Expand(const EdgeAccessor &edge) {
-    debug_assert(vertices_.size() - 1 == edges_.size(),
-                 "Illegal path construction order");
+    DCHECK(vertices_.size() - 1 == edges_.size())
+        << "Illegal path construction order";
     edges_.emplace_back(edge);
   }
 
@@ -61,8 +62,8 @@ class Path {
   }
 
   friend std::ostream &operator<<(std::ostream &os, const Path &path) {
-    debug_assert(path.vertices_.size() > 0U,
-                 "Attempting to stream out an invalid path");
+    DCHECK(path.vertices_.size() > 0U)
+        << "Attempting to stream out an invalid path";
     os << path.vertices_[0];
     for (int i = 0; i < static_cast<int>(path.edges_.size()); i++) {
       bool arrow_to_left = path.vertices_[i] == path.edges_[i].to();

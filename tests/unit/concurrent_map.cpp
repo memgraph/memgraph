@@ -19,43 +19,36 @@ TEST(ConcurrentMapSkiplist, Mix) {
   auto accessor = skiplist.access();
 
   // insert 10
-  permanent_assert(accessor.insert(1, 10).second == true, "add first element");
+  EXPECT_TRUE(accessor.insert(1, 10).second);
 
   // try insert 10 again (should fail)
-  permanent_assert(accessor.insert(1, 10).second == false,
-                   "add the same element, should fail");
+  EXPECT_FALSE(accessor.insert(1, 10).second);
 
   // insert 20
-  permanent_assert(accessor.insert(2, 20).second == true,
-                   "insert new unique element");
+  EXPECT_TRUE(accessor.insert(2, 20).second);
 
   print_skiplist(accessor);
 
   // value at key 3 shouldn't exist
-  permanent_assert((accessor.find(3) == accessor.end()) == true,
-                   "try to find element which doesn't exist");
+  EXPECT_TRUE(accessor.find(3) == accessor.end());
 
   // value at key 2 should exist
-  permanent_assert((accessor.find(2) != accessor.end()) == true,
-                   "find iterator");
+  EXPECT_TRUE(accessor.find(2) != accessor.end());
 
   // at key 2 is 20 (true)
-  permanent_assert(accessor.find(2)->second == 20, "find element");
+  EXPECT_EQ(accessor.find(2)->second, 20);
 
   // removed existing (1)
-  permanent_assert(accessor.remove(1) == true, "try to remove element");
+  EXPECT_TRUE(accessor.remove(1));
 
   // removed non-existing (3)
-  permanent_assert(accessor.remove(3) == false,
-                   "try to remove element which doesn't exist");
+  EXPECT_FALSE(accessor.remove(3));
 
   // insert (1, 10)
-  permanent_assert(accessor.insert(1, 10).second == true,
-                   "insert unique element");
+  EXPECT_TRUE(accessor.insert(1, 10).second);
 
   // insert (4, 40)
-  permanent_assert(accessor.insert(4, 40).second == true,
-                   "insert unique element");
+  EXPECT_TRUE(accessor.insert(4, 40).second);
 
   print_skiplist(accessor);
 }

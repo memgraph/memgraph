@@ -2,7 +2,7 @@
 
 #include <atomic>
 #include <utility>
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 #include "utils/crtp.hpp"
 
 // TODO: reimplement this. It's correct but somewhat inefecient and it could be
@@ -63,7 +63,7 @@ class ConcurrentList {
     IteratorBase() : list(nullptr), curr(nullptr) {}
 
     IteratorBase(ConcurrentList *list) : list(list) {
-      debug_assert(list != nullptr, "List is nullptr.");
+      DCHECK(list != nullptr) << "List is nullptr.";
       // Increment number of iterators accessing list.
       list->active_threads_no_++;
       // Start from the begining of list.
@@ -97,7 +97,7 @@ class ConcurrentList {
           head_rem != nullptr &&  // There is some garbage
           cas<Node *>(list->removed, head_rem,
                       nullptr)  // No new garbage was added.
-          ) {
+      ) {
         // Delete all removed node following chain of next_rem starting
         // from head_rem.
         auto now = head_rem;
@@ -113,11 +113,11 @@ class ConcurrentList {
     IteratorBase &operator=(IteratorBase &&other) = delete;
 
     T &operator*() const {
-      debug_assert(valid(), "Not valid data.");
+      DCHECK(valid()) << "Not valid data.";
       return curr->data;
     }
     T *operator->() const {
-      debug_assert(valid(), "Not valid data.");
+      DCHECK(valid()) << "Not valid data.";
       return &(curr->data);
     }
 
@@ -125,7 +125,7 @@ class ConcurrentList {
 
     // Iterating is wait free.
     It &operator++() {
-      debug_assert(valid(), "Not valid data.");
+      DCHECK(valid()) << "Not valid data.";
       do {
         // We don't care about previous unless it's alive. If it's not alive we
         // are going to look for it again and just incurr performance hit
@@ -141,7 +141,7 @@ class ConcurrentList {
     It &operator++(int) { return operator++(); }
 
     bool is_removed() {
-      debug_assert(valid(), "Not valid data.");
+      DCHECK(valid()) << "Not valid data.";
       return load(curr->removed);
     }
 
@@ -180,7 +180,7 @@ class ConcurrentList {
     // This can be improved with combinig the removed flag with prev.next or
     // curr.next
     bool remove() {
-      debug_assert(valid(), "Not valid data.");
+      DCHECK(valid()) << "Not valid data.";
       // Try to logically remove it.
       if (cas(curr->removed, false, true)) {
         // I removed it!!!

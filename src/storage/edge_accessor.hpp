@@ -3,7 +3,6 @@
 #include "database/graph_db.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
-#include "utils/assert.hpp"
 
 // forward declaring the VertexAccessor because it's returned
 // by some functions
@@ -58,4 +57,4 @@ template <>
 struct hash<EdgeAccessor> {
   size_t operator()(const EdgeAccessor &e) const { return e.temporary_id(); };
 };
-}
+}  // namespace std

@@ -39,8 +39,8 @@ struct Parameters {
                               [&](const std::pair<int, query::TypedValue> a) {
                                 return a.first == position;
                               });
-    permanent_assert(found != storage_.end(),
-                     "Token position must be present in container");
+    CHECK(found != storage_.end())
+        << "Token position must be present in container";
     return found->second;
   }
 
@@ -52,8 +52,7 @@ struct Parameters {
    * @return Token position and value for sought param.
    */
   const std::pair<int, query::TypedValue> &At(int position) const {
-    permanent_assert(position < static_cast<int>(storage_.size()),
-                     "Invalid position");
+    CHECK(position < static_cast<int>(storage_.size())) << "Invalid position";
     return storage_[position];
   }
 

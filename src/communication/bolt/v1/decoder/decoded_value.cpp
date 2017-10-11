@@ -1,3 +1,5 @@
+#include "glog/logging.h"
+
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 
 namespace communication::bolt {
@@ -74,7 +76,7 @@ DecodedValue::DecodedValue(const DecodedValue &other) : type_(other.type_) {
       new (&path_v) DecodedPath(other.path_v);
       return;
   }
-  permanent_fail("Unsupported DecodedValue::Type");
+  LOG(FATAL) << "Unsupported DecodedValue::Type";
 }
 
 DecodedValue &DecodedValue::operator=(const DecodedValue &other) {
@@ -117,7 +119,7 @@ DecodedValue &DecodedValue::operator=(const DecodedValue &other) {
         new (&path_v) DecodedPath(other.path_v);
         return *this;
     }
-    permanent_fail("Unsupported DecodedValue::Type");
+    LOG(FATAL) << "Unsupported DecodedValue::Type";
   }
   return *this;
 }
@@ -160,7 +162,7 @@ DecodedValue::~DecodedValue() {
       path_v.~DecodedPath();
       return;
   }
-  permanent_fail("Unsupported DecodedValue::Type");
+  LOG(FATAL) << "Unsupported DecodedValue::Type";
 }
 
 DecodedValue::operator query::TypedValue() const {
@@ -224,8 +226,7 @@ std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge) {
 
 std::ostream &operator<<(std::ostream &os, const DecodedPath &path) {
   os << path.vertices[0];
-  debug_assert(path.indices.size() % 2 == 0,
-               "Must have even number of indices");
+  DCHECK(path.indices.size() % 2 == 0) << "Must have even number of indices";
   for (auto it = path.indices.begin(); it != path.indices.end();) {
     auto edge_ind = *it++;
     auto vertex_ind = *it++;
@@ -276,7 +277,7 @@ std::ostream &operator<<(std::ostream &os, const DecodedValue &value) {
     case DecodedValue::Type::Path:
       return os << value.ValuePath();
   }
-  permanent_fail("Unsupported DecodedValue::Type");
+  LOG(FATAL) << "Unsupported DecodedValue::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type) {
@@ -304,6 +305,6 @@ std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type) {
     case DecodedValue::Type::Path:
       return os << "path";
   }
-  permanent_fail("Unsupported DecodedValue::Type");
+  LOG(FATAL) << "Unsupported DecodedValue::Type";
 }
 }

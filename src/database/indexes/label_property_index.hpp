@@ -168,7 +168,7 @@ class LabelPropertyIndex {
    * key sorted ascendingly by the property value.
    */
   auto GetVlists(const Key &key, const tx::Transaction &t, bool current_state) {
-    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
     auto access = GetKeyStorage(key)->access();
     auto begin = access.begin();
     return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
@@ -196,7 +196,7 @@ class LabelPropertyIndex {
    */
   auto GetVlists(const Key &key, const PropertyValue &value,
                  const tx::Transaction &t, bool current_state) {
-    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
     auto access = GetKeyStorage(key)->access();
     auto min_ptr = std::numeric_limits<std::uintptr_t>::min();
     auto start_iter = access.find_or_larger(IndexEntry(
@@ -246,14 +246,14 @@ class LabelPropertyIndex {
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       const tx::Transaction &transaction, bool current_state) {
-    debug_assert(ready_for_use_.access().contains(key), "Index not yet ready.");
+    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
 
     auto type = [](const auto &bound) { return bound.value().value().type(); };
-    permanent_assert(lower || upper, "At least one bound must be provided");
-    permanent_assert(!lower || type(lower) != PropertyValue::Type::Null,
-                     "Null value is not a valid index bound");
-    permanent_assert(!upper || type(upper) != PropertyValue::Type::Null,
-                     "Null value is not a valid index bound");
+    CHECK(lower || upper) << "At least one bound must be provided";
+    CHECK(!lower || type(lower) != PropertyValue::Type::Null)
+        << "Null value is not a valid index bound";
+    CHECK(!upper || type(upper) != PropertyValue::Type::Null)
+        << "Null value is not a valid index bound";
 
     // helper function for creating a bound with an IndexElement
     auto make_index_bound = [](const auto &optional_bound, bool bottom) {
@@ -328,9 +328,8 @@ class LabelPropertyIndex {
    */
   int64_t Count(const Key &key) {
     auto index = GetKeyStorage(key);
-    permanent_assert(index != nullptr, "Index doesn't exist.");
-    permanent_assert(ready_for_use_.access().contains(key),
-                     "Index not yet ready.");
+    CHECK(index != nullptr) << "Index doesn't exist.";
+    CHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
     return index->access().size();
   }
 
@@ -468,15 +467,15 @@ class LabelPropertyIndex {
                                            mb.end(), cmp);
           }
           default:
-            permanent_fail("Unimplemented type operator.");
+            LOG(FATAL) << "Unimplemented type operator.";
         }
       }
 
       // helper for getting a double from PropertyValue, if possible
       auto get_double = [](const PropertyValue &value) {
-        debug_assert(value.type() == PropertyValue::Type::Int ||
-                         value.type() == PropertyValue::Type::Double,
-                     "Invalid data type.");
+        DCHECK(value.type() == PropertyValue::Type::Int ||
+               value.type() == PropertyValue::Type::Double)
+            << "Invalid data type.";
         if (value.type() == PropertyValue::Type::Int)
           return static_cast<double>(value.Value<int64_t>());
         return value.Value<double>();
@@ -539,7 +538,7 @@ class LabelPropertyIndex {
    */
   static bool Exists(const Key &key, const PropertyValue &value,
                      const Vertex *const v) {
-    debug_assert(v != nullptr, "Vertex is nullptr.");
+    DCHECK(v != nullptr) << "Vertex is nullptr.";
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
     // removed from the index.

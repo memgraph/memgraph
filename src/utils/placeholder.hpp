@@ -2,20 +2,20 @@
 
 #include <utility>
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 
 #include <ext/aligned_buffer.h>
 
 /**
-  * @class Placeholder
-  *
-  * @brief
-  * Placeholder is used to allocate memory for an object on heap providing
-  * methods for setting and getting the object and making sure that the
-  * object is initialized.
-  *
-  * @tparam T type of object to be wrapped in the placeholder
-  */
+ * @class Placeholder
+ *
+ * @brief
+ * Placeholder is used to allocate memory for an object on heap providing
+ * methods for setting and getting the object and making sure that the
+ * object is initialized.
+ *
+ * @tparam T type of object to be wrapped in the placeholder
+ */
 
 template <class T>
 class Placeholder {
@@ -38,7 +38,7 @@ class Placeholder {
   bool is_initialized() { return initialized; }
 
   T &get() noexcept {
-    debug_assert(initialized, "Placeholder object not initialized");
+    DCHECK(initialized) << "Placeholder object not initialized";
     return *data._M_ptr();
   }
 
@@ -46,7 +46,7 @@ class Placeholder {
    * @return const reference to object.
    */
   const T &get() const noexcept {
-    debug_assert(initialized, "Placeholder object not initialized");
+    DCHECK(initialized) << "Placeholder object not initialized";
     return *data._M_ptr();
   }
 
@@ -56,7 +56,7 @@ class Placeholder {
    * @param T& item reference to the item initialized in allocated memory
    */
   void set(const T &item) {
-    debug_assert(!initialized, "Placeholder object already initialized");
+    DCHECK(!initialized) << "Placeholder object already initialized";
     new (data._M_addr()) T(item);
     initialized = true;
   }
@@ -67,7 +67,7 @@ class Placeholder {
    * @param T&& rvalue reference to the item which is moved to allocated memory
    */
   void set(T &&item) {
-    debug_assert(!initialized, "Placeholder object already initialized");
+    DCHECK(!initialized) << "Placeholder object already initialized";
     new (data._M_addr()) T(std::move(item));
     initialized = true;
   }
@@ -81,7 +81,7 @@ class Placeholder {
    */
   template <class... Args>
   void emplace(Args &&... args) {
-    debug_assert(!initialized, "Placeholder object already initialized");
+    DCHECK(!initialized) << "Placeholder object already initialized";
     new (data._M_addr()) T(args...);
     initialized = true;
   }

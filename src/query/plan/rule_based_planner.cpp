@@ -43,20 +43,20 @@ template <typename T>
 auto ReducePattern(
     Pattern &pattern, std::function<T(NodeAtom *)> base,
     std::function<T(T, NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  debug_assert(!pattern.atoms_.empty(), "Missing atoms in pattern");
+  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-  debug_assert(current_node, "First pattern atom is not a node");
+  DCHECK(current_node) << "First pattern atom is not a node";
   auto last_res = base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
-    debug_assert(edge, "Expected an edge atom in pattern.");
-    debug_assert(atoms_it != pattern.atoms_.end(),
-                 "Edge atom should not end the pattern.");
+    DCHECK(edge) << "Expected an edge atom in pattern.";
+    DCHECK(atoms_it != pattern.atoms_.end())
+        << "Edge atom should not end the pattern.";
     auto prev_node = current_node;
     current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-    debug_assert(current_node, "Expected a node atom in pattern.");
+    DCHECK(current_node) << "Expected a node atom in pattern.";
     last_res = collect(last_res, prev_node, edge, current_node);
   }
   return last_res;
@@ -65,20 +65,20 @@ auto ReducePattern(
 void ForEachPattern(
     Pattern &pattern, std::function<void(NodeAtom *)> base,
     std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  debug_assert(!pattern.atoms_.empty(), "Missing atoms in pattern");
+  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-  debug_assert(current_node, "First pattern atom is not a node");
+  DCHECK(current_node) << "First pattern atom is not a node";
   base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
-    debug_assert(edge, "Expected an edge atom in pattern.");
-    debug_assert(atoms_it != pattern.atoms_.end(),
-                 "Edge atom should not end the pattern.");
+    DCHECK(edge) << "Expected an edge atom in pattern.";
+    DCHECK(atoms_it != pattern.atoms_.end())
+        << "Edge atom should not end the pattern.";
     auto prev_node = current_node;
     current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-    debug_assert(current_node, "Expected a node atom in pattern.");
+    DCHECK(current_node) << "Expected a node atom in pattern.";
     collect(prev_node, edge, current_node);
   }
 }
@@ -100,8 +100,8 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   explicit UsedSymbolsCollector(const SymbolTable &symbol_table)
       : symbol_table_(symbol_table) {}
 
-  using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
 
   bool PostVisit(All &all) override {
@@ -181,14 +181,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       if (where) {
         where->Accept(*this);
       }
-      debug_assert(aggregations_.empty(),
-                   "Unexpected aggregations in ORDER BY or WHERE");
+      DCHECK(aggregations_.empty())
+          << "Unexpected aggregations in ORDER BY or WHERE";
     }
   }
 
+  using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
-  using HierarchicalTreeVisitor::PostVisit;
 
   bool Visit(PrimitiveLiteral &) override {
     has_aggregation_.emplace_back(false);
@@ -196,9 +196,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(ListLiteral &list_literal) override {
-    debug_assert(
-        list_literal.elements_.size() <= has_aggregation_.size(),
-        "Expected has_aggregation_ flags as much as there are list elements.");
+    DCHECK(list_literal.elements_.size() <= has_aggregation_.size())
+        << "Expected has_aggregation_ flags as much as there are list "
+           "elements.";
     bool has_aggr = false;
     auto it = has_aggregation_.end();
     std::advance(it, -list_literal.elements_.size());
@@ -211,9 +211,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(MapLiteral &map_literal) override {
-    debug_assert(
-        map_literal.elements_.size() <= has_aggregation_.size(),
-        "Expected has_aggregation_ flags as much as there are map elements.");
+    DCHECK(map_literal.elements_.size() <= has_aggregation_.size())
+        << "Expected has_aggregation_ flags as much as there are map elements.";
     bool has_aggr = false;
     auto it = has_aggregation_.end();
     std::advance(it, -map_literal.elements_.size());
@@ -229,8 +228,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by all, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*all.identifier_));
-    debug_assert(has_aggregation_.size() >= 3U,
-                 "Expected 3 has_aggregation_ flags for ALL arguments");
+    DCHECK(has_aggregation_.size() >= 3U)
+        << "Expected 3 has_aggregation_ flags for ALL arguments";
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
@@ -289,14 +288,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     has_aggregation_.emplace_back(has_aggr);
     // TODO: Once we allow aggregations here, insert appropriate stuff in
     // group_by.
-    debug_assert(!has_aggr, "Currently aggregations in CASE are not allowed");
+    DCHECK(!has_aggr) << "Currently aggregations in CASE are not allowed";
     return false;
   }
 
   bool PostVisit(Function &function) override {
-    debug_assert(function.arguments_.size() <= has_aggregation_.size(),
-                 "Expected has_aggregation_ flags as much as there are "
-                 "function arguments.");
+    DCHECK(function.arguments_.size() <= has_aggregation_.size())
+        << "Expected has_aggregation_ flags as much as there are "
+           "function arguments.";
     bool has_aggr = false;
     auto it = has_aggregation_.end();
     std::advance(it, -function.arguments_.size());
@@ -310,8 +309,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 #define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
   bool PostVisit(BinaryOperator &op) override {                            \
-    debug_assert(has_aggregation_.size() >= 2U,                            \
-                 "Expected at least 2 has_aggregation_ flags.");           \
+    DCHECK(has_aggregation_.size() >= 2U)                                  \
+        << "Expected at least 2 has_aggregation_ flags.";                  \
     /* has_aggregation_ stack is reversed, last result is from the 2nd */  \
     /* expression. */                                                      \
     bool aggr2 = has_aggregation_.back();                                  \
@@ -368,8 +367,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
-    debug_assert(has_aggregation_.size() == 1U,
-                 "Expected to reduce has_aggregation_ to single boolean.");
+    DCHECK(has_aggregation_.size() == 1U)
+        << "Expected to reduce has_aggregation_ to single boolean.";
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
     }
@@ -391,11 +390,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // This should be used when body.all_identifiers is true, to generate
   // expressions for Produce operator.
   void ExpandUserSymbols() {
-    debug_assert(
-        named_expressions_.empty(),
-        "ExpandUserSymbols should be first to fill named_expressions_");
-    debug_assert(output_symbols_.empty(),
-                 "ExpandUserSymbols should be first to fill output_symbols_");
+    DCHECK(named_expressions_.empty())
+        << "ExpandUserSymbols should be first to fill named_expressions_";
+    DCHECK(output_symbols_.empty())
+        << "ExpandUserSymbols should be first to fill output_symbols_";
     for (const auto &symbol : bound_symbols_) {
       if (!symbol.user_declared()) {
         continue;
@@ -536,7 +534,7 @@ std::vector<Expansion> NormalizePatterns(
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-      debug_assert(node, "First pattern atom is not a node");
+      DCHECK(node) << "First pattern atom is not a node";
       expansions.emplace_back(Expansion{node});
     } else {
       ForEachPattern(*pattern, ignore_node, collect_expansion);
@@ -719,7 +717,7 @@ LogicalOperator *GenCreateForPattern(
       node_existing = true;
     }
     if (!BindSymbol(bound_symbols, symbol_table.at(*edge->identifier_))) {
-      permanent_fail("Symbols used for created edges cannot be redeclared.");
+      LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
     }
     return new CreateExpand(node, edge,
                             std::shared_ptr<LogicalOperator>(last_op),
@@ -1004,8 +1002,8 @@ std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
         AddMatching(*match, symbol_table, storage,
                     query_part->optional_matching.back());
       } else {
-        debug_assert(query_part->optional_matching.empty(),
-                     "Match clause cannot follow optional match.");
+        DCHECK(query_part->optional_matching.empty())
+            << "Match clause cannot follow optional match.";
         AddMatching(*match, symbol_table, storage, query_part->matching);
       }
     } else {

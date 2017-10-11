@@ -1,8 +1,8 @@
+#include "glog/logging.h"
 #include "thread.hpp"
-#include "utils/assert.hpp"
 
 Thread::Thread(Thread &&other) {
-  debug_assert(thread_id == UNINITIALIZED, "Thread was initialized before.");
+  DCHECK(thread_id == UNINITIALIZED) << "Thread was initialized before.";
   thread_id = other.thread_id;
   thread = std::move(other.thread);
 }

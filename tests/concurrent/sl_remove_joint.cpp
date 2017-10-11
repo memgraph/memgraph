@@ -56,7 +56,8 @@ int main(int argc, char **argv) {
   for (auto &e : accessor) {
     sums -= e.second;
   }
-  permanent_assert(sums == 0, "Aproximetly Same values are present");
+  CHECK(sums == 0) << "Aproximetly Same values are present";
   check_size<map_t>(accessor, counters);
   check_order<map_t>(accessor);
+  return 0;
 }

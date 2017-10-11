@@ -7,10 +7,11 @@
 #include <iostream>
 #include <thread>
 
+#include "glog/logging.h"
+
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "utils/assert.hpp"
 #include "utils/random/xorshift128plus.hpp"
 
 static thread_local Xorshift128plus rnd;
@@ -44,7 +45,7 @@ int main(void) {
   auto max = std::accumulate(
       buckets.begin(), buckets.end(), 0u,
       [](auto& acc, auto& x) { return std::max(acc, x.load()); });
-  debug_assert(max != 0u, "max is 0.");
+  DCHECK(max != 0u) << "max is 0.";
 
   std::cout << std::fixed;
 

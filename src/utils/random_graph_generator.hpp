@@ -27,7 +27,7 @@ namespace utils {
  * in the [from, to) range.
  */
 auto RandomIntGenerator(int from, int to) {
-  permanent_assert(from < to, "Must have from < to");
+  CHECK(from < to) << "Must have from < to";
   int range = to - from;
   return [from, range]() -> int { return rand() % range + from; };
 }
@@ -119,8 +119,8 @@ class RandomGraphGenerator {
           auto from =
               dba.Transfer(vertices_from[rand() % vertices_from.size()]);
           auto to = dba.Transfer(vertices_to[rand() % vertices_to.size()]);
-          debug_assert(from, "From not visible in current GraphDbAccessor");
-          debug_assert(to, "From not visible in current GraphDbAccessor");
+          DCHECK(from) << "From not visible in current GraphDbAccessor";
+          DCHECK(to) << "From not visible in current GraphDbAccessor";
           dba.InsertEdge(from.value(), to.value(), edge_type);
           NotifyProgressListeners();
         },
@@ -195,7 +195,7 @@ class RandomGraphGenerator {
    */
   void Map(std::function<void(GraphDbAccessor &)> f, int count,
            int thread_count, int elements_per_commit) {
-    debug_assert(thread_count > 0, "Can't work on less then 1 thread");
+    DCHECK(thread_count > 0) << "Can't work on less then 1 thread";
 
     // split count across thread_count
     int count_per_thread = count / thread_count;
@@ -228,4 +228,4 @@ class RandomGraphGenerator {
     for (auto &thread : threads) thread.join();
   }
 };
-}
+}  // namespace utils

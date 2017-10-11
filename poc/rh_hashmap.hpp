@@ -3,8 +3,9 @@
 #include <cstring>
 #include <functional>
 
+#include "glog/logging.h"
+
 #include "option_ptr.hpp"
-#include "utils/assert.hpp"
 #include "utils/crtp.hpp"
 
 // RobinHood base.
@@ -95,20 +96,20 @@ class RhBase {
     IteratorBase(IteratorBase &&) = default;
 
     D *operator*() {
-      debug_assert(index < map->capacity && map->array[index].valid(),
-                   "Either index is invalid or data is not valid.");
+      DCHECK(index < map->capacity && map->array[index].valid())
+          << "Either index is invalid or data is not valid.";
       return map->array[index].ptr();
     }
 
     D *operator->() {
-      debug_assert(index < map->capacity && map->array[index].valid(),
-                   "Either index is invalid or data is not valid.");
+      DCHECK(index < map->capacity && map->array[index].valid())
+          << "Either index is invalid or data is not valid.";
       return map->array[index].ptr();
     }
 
     It &operator++() {
-      debug_assert(index < map->capacity && map->array[index].valid(),
-                   "Either index is invalid or data is not valid.");
+      DCHECK(index < map->capacity && map->array[index].valid())
+          << "Either index is invalid or data is not valid.";
       auto mask = map->mask();
       do {
         advanced++;
@@ -298,14 +299,14 @@ class RhBase {
  * K must be comparable with ==.
  * HashMap behaves as if it isn't owner of entries.
  * BE CAREFUL - this structure assumes that the pointer to Data is 8-alligned!
-*/
+ */
 template <class K, class D, size_t init_size_pow2 = 2>
 class RhHashMap : public RhBase<K, D, init_size_pow2> {
   typedef RhBase<K, D, init_size_pow2> base;
   using base::array;
-  using base::index;
   using base::capacity;
   using base::count;
+  using base::index;
   using typename base::Combined;
 
   void increase_size() {
@@ -357,8 +358,8 @@ class RhHashMap : public RhBase<K, D, init_size_pow2> {
 
   // Inserts element. Returns true if element wasn't in the map.
   bool insert(D *data) {
-    permanent_assert(!(((uint64_t) static_cast<void *>(data) & 7)),
-                     "Data is not 8-alligned.");
+    CHECK(!(((uint64_t) static_cast<void *>(data) & 7)))
+        << "Data is not 8-alligned.";
     if (count < capacity) {
       size_t mask = this->mask();
       auto key = std::ref(data->get_key());

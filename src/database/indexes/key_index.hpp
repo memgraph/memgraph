@@ -1,5 +1,7 @@
 #pragma once
 
+#include "glog/logging.h"
+
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
@@ -171,7 +173,7 @@ class KeyIndex {
    * @return true if it contains, false otherwise.
    */
   static bool Exists(const GraphDbTypes::Label &label, const Vertex *const v) {
-    debug_assert(v != nullptr, "Vertex is nullptr.");
+    DCHECK(v != nullptr) << "Vertex is nullptr.";
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
     // removed from the index.
@@ -186,7 +188,7 @@ class KeyIndex {
    */
   static bool Exists(const GraphDbTypes::EdgeType &edge_type,
                      const Edge *const e) {
-    debug_assert(e != nullptr, "Edge is nullptr.");
+    DCHECK(e != nullptr) << "Edge is nullptr.";
     // We have to check for equality of edge types because the transaction
     // might not see the edge type, or the edge type was deleted and not yet
     // removed from the index.

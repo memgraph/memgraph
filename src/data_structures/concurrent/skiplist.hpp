@@ -5,7 +5,7 @@
 #include <memory>
 #include <type_traits>
 
-#include "utils/assert.hpp"
+#include "glog/logging.h"
 #include "utils/crtp.hpp"
 #include "utils/placeholder.hpp"
 #include "utils/random/fast_binomial.hpp"
@@ -256,38 +256,38 @@ class SkipList : private Lockable<lock_t> {
     IteratorBase(const IteratorBase &) = default;
 
     const T &operator*() const {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return node->value();
     }
 
     const T *operator->() const {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return &node->value();
     }
 
     T &operator*() {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return node->value();
     }
 
     T *operator->() {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return &node->value();
     }
 
     operator T &() {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return node->value();
     }
 
     It &operator++() {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       node = node->forward(0);
       return this->derived();
     }
 
     bool has_next() {
-      debug_assert(node != nullptr, "Node is nullptr.");
+      DCHECK(node != nullptr) << "Node is nullptr.";
       return node->forward(0) != nullptr;
     }
 
@@ -357,22 +357,22 @@ class SkipList : private Lockable<lock_t> {
     }
 
     T &operator*() {
-      debug_assert(node_ != nullptr, "Node is nullptr.");
+      DCHECK(node_ != nullptr) << "Node is nullptr.";
       return node_->value();
     }
 
     T *operator->() {
-      debug_assert(node_ != nullptr, "Node is nullptr.");
+      DCHECK(node_ != nullptr) << "Node is nullptr.";
       return &node_->value();
     }
 
     operator T &() {
-      debug_assert(node_ != nullptr, "Node is nullptr.");
+      DCHECK(node_ != nullptr) << "Node is nullptr.";
       return node_->value();
     }
 
     ReverseIterator &operator++() {
-      debug_assert(node_ != nullptr, "Node is nullptr.");
+      DCHECK(node_ != nullptr) << "Node is nullptr.";
       do {
         next();
       } while (node_->flags.is_marked());
@@ -458,7 +458,7 @@ class SkipList : private Lockable<lock_t> {
 
     Accessor(TSkipList *skiplist)
         : skiplist(skiplist), status_(skiplist->gc.CreateNewAccessor()) {
-      debug_assert(skiplist != nullptr, "Skiplist is nullptr.");
+      DCHECK(skiplist != nullptr) << "Skiplist is nullptr.";
     }
 
    public:
