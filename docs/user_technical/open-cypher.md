@@ -409,7 +409,7 @@ a custom implementation, based on the edge expansion syntax.
 Finding the shortest path between nodes can be done using breadth-first
 expansion:
 
-  MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN *
+    MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN *
 
 The above query will find all paths of length up to 10 between nodes `a` and `b`.
 The edge type and maximum path length are used in the same way like in variable
@@ -417,14 +417,14 @@ length expansion.
 
 To find only the shortest path, simply append LIMIT 1 to the RETURN clause.
 
-  MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN * LIMIT 1
+    MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN * LIMIT 1
 
 Breadth-fist expansion allows an arbitrary expression filter that determines
 if an expansion is allowed. Following is an example in which expansion is
 allowed only over edges whose `x` property is greater then `12` and nodes `y`
 whose property is lesser then `3`:
 
-  MATCH (a {id: 723})-[\*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
+    MATCH (a {id: 723})-[\*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
 
 The filter is defined as a lambda function over `e` and `n`, which denote the edge
 and node being expanded over in the breadth first search.
