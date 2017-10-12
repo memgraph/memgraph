@@ -42,9 +42,11 @@ class Item : public TotalOrdering<Item<K, T>>,
 
 // Common base for accessor of all derived containers(ConcurrentMap,
 // ConcurrentSet, ...) from SkipList.
-template <typename T>
+template <typename T, bool IsConst>
 class AccessorBase {
-  typedef SkipList<T> list;
+  typedef
+      typename std::conditional<IsConst, const SkipList<T>, SkipList<T>>::type
+          list;
   typedef typename SkipList<T>::Iterator list_it;
   typedef typename SkipList<T>::ConstIterator list_it_con;
 
@@ -60,20 +62,20 @@ class AccessorBase {
 
   size_t size() { return accessor.size(); };
 
-  list_it begin() { return accessor.begin(); }
+  auto begin() { return accessor.begin(); }
 
-  list_it_con begin() const { return accessor.cbegin(); }
+  auto begin() const { return accessor.cbegin(); }
 
   list_it_con cbegin() const { return accessor.cbegin(); }
 
-  list_it end() { return accessor.end(); }
+  auto end() { return accessor.end(); }
 
-  list_it_con end() const { return accessor.cend(); }
+  auto end() const { return accessor.cend(); }
 
   list_it_con cend() const { return accessor.cend(); }
 
   size_t size() const { return accessor.size(); }
 
  protected:
-  typename list::template Accessor<SkipList<T>> accessor;
+  decltype(std::declval<list>().access()) accessor;
 };

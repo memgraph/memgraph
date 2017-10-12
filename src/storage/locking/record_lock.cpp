@@ -18,7 +18,7 @@ namespace {
 // returned.
 std::experimental::optional<tx::transaction_id_t> FindOldestTxInLockCycle(
     tx::transaction_id_t start,
-    ConcurrentMap<tx::transaction_id_t, tx::transaction_id_t>::Accessor
+    ConcurrentMap<tx::transaction_id_t, tx::transaction_id_t>::Accessor<>
         &graph_accessor) {
   std::vector<tx::transaction_id_t> path;
   std::unordered_set<tx::transaction_id_t> visited;

@@ -21,13 +21,14 @@ class ConcurrentMap {
  public:
   ConcurrentMap() {}
 
-  class Accessor : public AccessorBase<item_t> {
+  template <bool IsConst = false>
+  class Accessor : public AccessorBase<item_t, IsConst> {
     friend class ConcurrentMap;
 
-    using AccessorBase<item_t>::AccessorBase;
+    using AccessorBase<item_t, IsConst>::AccessorBase;
 
    private:
-    using AccessorBase<item_t>::accessor;
+    using AccessorBase<item_t, IsConst>::accessor;
 
    public:
     std::pair<list_it, bool> insert(const K &key, const T &data) {
@@ -71,10 +72,8 @@ class ConcurrentMap {
     bool remove(const K &key) { return accessor.remove(key); }
   };
 
-  Accessor access() { return Accessor(&skiplist); }
-
-  // TODO:
-  // const Accessor access() const { return Accessor(&skiplist); }
+  auto access() { return Accessor<false>(&skiplist); }
+  auto access() const { return Accessor<true>(&skiplist); }
 
  private:
   list skiplist;

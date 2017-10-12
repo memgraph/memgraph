@@ -14,13 +14,14 @@ class ConcurrentSet {
  public:
   ConcurrentSet() {}
 
-  class Accessor : public AccessorBase<T> {
+  template <bool IsConst = false>
+  class Accessor : public AccessorBase<T, IsConst> {
     friend class ConcurrentSet;
 
-    using AccessorBase<T>::AccessorBase;
+    using AccessorBase<T, IsConst>::AccessorBase;
 
    private:
-    using AccessorBase<T>::accessor;
+    using AccessorBase<T, IsConst>::accessor;
 
    public:
     std::pair<list_it, bool> insert(const T &item) {
@@ -60,9 +61,8 @@ class ConcurrentSet {
     bool remove(const T &item) { return accessor.remove(item); }
   };
 
-  Accessor access() { return Accessor(&skiplist); }
-
-  const Accessor access() const { return Accessor(&skiplist); }
+  auto access() { return Accessor<false>(&skiplist); }
+  auto access() const { return Accessor<true>(&skiplist); }
 
  private:
   list skiplist;

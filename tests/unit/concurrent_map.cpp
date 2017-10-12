@@ -8,7 +8,7 @@
 
 using concurrent_map_t = ConcurrentMap<int, int>;
 
-void print_skiplist(const concurrent_map_t::Accessor &map) {
+void print_skiplist(const concurrent_map_t::Accessor<false> &map) {
   DLOG(INFO) << "Map now has: ";
   for (auto &kv : map)
     DLOG(INFO) << fmt::format("    ({}, {})", kv.first, kv.second);

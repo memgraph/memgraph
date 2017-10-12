@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
 
   auto futures =
       run<std::vector<long>>(THREADS_NO, skiplist, [](auto acc, auto index) {
+
         auto rand = rand_gen(key_range);
         auto rand_op = rand_gen_bool(no_insert_for_one_delete);
         long long downcount = op_per_thread;

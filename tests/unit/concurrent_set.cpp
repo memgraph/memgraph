@@ -6,7 +6,7 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "utils/assert.hpp"
 
-void print_skiplist(const ConcurrentSet<int>::Accessor &skiplist) {
+void print_skiplist(const ConcurrentSet<int>::Accessor<false> &skiplist) {
   DLOG(INFO) << "Skiplist set now has:";
   for (auto &item : skiplist) DLOG(INFO) << item;
 }

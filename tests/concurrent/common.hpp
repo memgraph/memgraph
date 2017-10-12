@@ -40,7 +40,7 @@ auto rand_gen_bool(size_t n = 1) {
 
 // Checks for all owned keys if there data is data.
 template <typename S>
-void check_present_same(typename S::Accessor &acc, size_t data,
+void check_present_same(typename S::template Accessor<> &acc, size_t data,
                         std::vector<size_t> &owned) {
   for (auto num : owned) {
     CHECK(acc.find(num)->second == data) << "My data is present and my";
@@ -49,7 +49,7 @@ void check_present_same(typename S::Accessor &acc, size_t data,
 
 // Checks for all owned.second keys if there data is owned.first.
 template <typename S>
-void check_present_same(typename S::Accessor &acc,
+void check_present_same(typename S::template Accessor<> &acc,
                         std::pair<size_t, std::vector<size_t>> &owned) {
   check_present_same<S>(acc, owned.first, owned.second);
 }
@@ -74,7 +74,7 @@ void check_size_list(S &acc, long long size) {
       << iterator_counter;
 }
 template <typename S>
-void check_size(typename S::Accessor &acc, long long size) {
+void check_size(typename S::template Accessor<> &acc, long long size) {
   // check size
 
   CHECK(acc.size() == size)
@@ -94,7 +94,7 @@ void check_size(typename S::Accessor &acc, long long size) {
 
 // Checks if order in list is maintened. It expects map
 template <typename S>
-void check_order(typename S::Accessor &acc) {
+void check_order(typename S::template Accessor<> &acc) {
   if (acc.begin() != acc.end()) {
     auto last = acc.begin()->first;
     for (auto elem : acc) {
@@ -122,10 +122,9 @@ void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
 // Runs given function in threads_no threads and returns vector of futures for
 // there
 // results.
-template <class R, typename S>
-std::vector<std::future<std::pair<size_t, R>>> run(
-    size_t threads_no, S &skiplist,
-    std::function<R(typename S::Accessor, size_t)> f) {
+template <class R, typename S, class FunT>
+std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
+                                                   S &skiplist, FunT f) {
   std::vector<std::future<std::pair<size_t, R>>> futures;
 
   for (size_t thread_i = 0; thread_i < threads_no; ++thread_i) {
@@ -181,7 +180,7 @@ std::vector<bool> collect_set(
 // Returns object which tracs in owned which (key,data) where added and
 // downcounts.
 template <class K, class D, class S>
-auto insert_try(typename S::Accessor &acc, long long &downcount,
+auto insert_try(typename S::template Accessor<> &acc, long long &downcount,
                 std::vector<K> &owned) {
   return [&](K key, D data) mutable {
     if (acc.insert(key, data).second) {

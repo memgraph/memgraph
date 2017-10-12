@@ -475,37 +475,11 @@ class SkipList : private Lockable<lock_t> {
       status_.alive_ = false;
     }
 
-    // TODO(dgleich): Remove after C++17 compile flag.
-    template <class B>
-    struct negation : std::integral_constant<bool, !bool(B::value)> {};
-
-    template <typename TIsConst = TSkipList>
-    Iterator begin(typename std::enable_if<
-                       negation<std::is_const<TIsConst>>::value>::type * = 0) {
-      return skiplist->begin();
-    }
-
-    template <typename TIsConst = TSkipList>
-    ConstIterator begin(
-        typename std::enable_if<std::is_const<TIsConst>::value>::type * =
-            0) const {
-      return skiplist->cbegin();
-    }
+    auto begin() const { return skiplist->begin(); }
 
     ConstIterator cbegin() const { return skiplist->cbegin(); }
 
-    template <typename TIsConst = TSkipList>
-    Iterator end(typename std::enable_if<
-                     negation<std::is_const<TIsConst>>::value>::type * = 0) {
-      return skiplist->end();
-    }
-
-    template <typename TIsConst = TSkipList>
-    ConstIterator end(
-        typename std::enable_if<std::is_const<TIsConst>::value>::type * =
-            0) const {
-      return skiplist->cend();
-    }
+    auto end() const { return skiplist->end(); }
 
     ConstIterator cend() const { return skiplist->cend(); }
 
@@ -700,7 +674,7 @@ class SkipList : private Lockable<lock_t> {
 
   Accessor<SkipList> access() { return Accessor<SkipList>(this); }
 
-  Accessor<const SkipList> caccess() const {
+  Accessor<const SkipList> access() const {
     return Accessor<const SkipList>(this);
   }
 

@@ -3,40 +3,40 @@
 
 #include <vector>
 
-#include "data_structures/concurrent/skiplist.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 
-TEST(SkipList, Access) {
-  SkipList<int> input;
+TEST(ConcurrentMap, Access) {
+  ConcurrentMap<int, int> input;
   {
     auto accessor = input.access();
-    accessor.insert(1);
-    accessor.insert(2);
-    accessor.insert(3);
+    accessor.insert(1, 1);
+    accessor.insert(2, 2);
+    accessor.insert(3, 3);
   }
 
   auto accessor = input.access();
   std::vector<int> results;
   for (auto it = accessor.begin(); it != accessor.end(); ++it)
-    results.push_back(*it);
+    results.push_back(it->first);
 
   EXPECT_THAT(results, testing::ElementsAre(1, 2, 3));
 }
 
-TEST(SkipList, ConstAccess) {
-  SkipList<int> input;
+TEST(ConcurrentMap, ConstAccess) {
+  ConcurrentMap<int, int> input;
   {
     auto accessor = input.access();
-    accessor.insert(1);
-    accessor.insert(2);
-    accessor.insert(3);
+    accessor.insert(1, 1);
+    accessor.insert(2, 2);
+    accessor.insert(3, 3);
   }
 
-  const SkipList<int> &skiplist = input;
-  auto accessor = skiplist.access();
+  const ConcurrentMap<int, int> &map = input;
+  auto accessor = map.access();
 
   std::vector<int> results;
   for (auto it = accessor.begin(); it != accessor.end(); ++it)
-    results.push_back(*it);
+    results.push_back(it->first);
 
   EXPECT_THAT(results, testing::ElementsAre(1, 2, 3));
 }
