@@ -1,6 +1,5 @@
 #include "io/network/socket.hpp"
 
-#include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <iostream>

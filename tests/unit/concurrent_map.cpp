@@ -1,10 +1,10 @@
 #include <iostream>
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "utils/assert.hpp"
 
 using concurrent_map_t = ConcurrentMap<int, int>;
 

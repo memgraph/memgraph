@@ -3,7 +3,6 @@
 #include "storage/locking/record_lock.hpp"
 #include "threading/sync/lockable.hpp"
 #include "transactions/transaction.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 
 namespace mvcc {

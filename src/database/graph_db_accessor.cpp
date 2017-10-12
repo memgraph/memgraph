@@ -5,7 +5,6 @@
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "utils/assert.hpp"
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)

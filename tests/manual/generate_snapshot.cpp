@@ -13,7 +13,6 @@
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/file_writer_buffer.hpp"
-#include "utils/assert.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 

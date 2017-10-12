@@ -136,18 +136,6 @@ if(CLANG_TIDY)
 endif()
 # -----------------------------------------------------------------------------
 
-# custom assert control parameters
-
-# by default on custom assert only the message, filename and line number will be
-# printed on stderr, if STACKTRACE_ASSERT is ON the whole stacktrace is going to
-# be printed on stderr
-option(STACKTRACE_ASSERT "Dump stacktrace on custom assert" OFF)
-message(STATUS "STACKTRACE_ASSERT: ${STACKTRACE_ASSERT}")
-if(STACKTRACE_ASSERT)
-    add_definitions(-DSTACKTRACE_ASSERT_ON)
-endif()
-# -----------------------------------------------------------------------------
-
 # ndebug
 option(NDEBUG "No debug" OFF)
 message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \

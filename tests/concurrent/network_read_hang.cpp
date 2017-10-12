@@ -3,7 +3,6 @@
 #endif
 
 #include <array>
-#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <iostream>

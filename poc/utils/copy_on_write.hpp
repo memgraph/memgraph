@@ -2,8 +2,6 @@
 
 #include <memory>
 
-#include "utils/assert.hpp"
-
 namespace utils {
 
 /**

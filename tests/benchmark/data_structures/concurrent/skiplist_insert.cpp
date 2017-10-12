@@ -12,7 +12,6 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "skiplist_helper.hpp"
-#include "utils/assert.hpp"
 
 void Insert(benchmark::State &state) {
   SkipList<int> skiplist;

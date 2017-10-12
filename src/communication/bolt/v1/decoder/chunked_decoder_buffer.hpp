@@ -5,11 +5,11 @@
 #include <memory>
 #include <vector>
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/buffer.hpp"
-#include "utils/assert.hpp"
 
 namespace communication::bolt {
 

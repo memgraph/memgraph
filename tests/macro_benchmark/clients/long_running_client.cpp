@@ -22,7 +22,6 @@
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/assert.hpp"
 #include "utils/timer.hpp"
 
 using communication::bolt::DecodedValue;

@@ -5,7 +5,6 @@
 #include <gtest/gtest.h>
 
 #include "timer.hpp"
-#include "utils/assert.hpp"
 
 using namespace std::chrono_literals;
 using namespace utils;

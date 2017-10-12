@@ -8,7 +8,6 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/constants.hpp"
-#include "utils/assert.hpp"
 #include "utils/bswap.hpp"
 
 namespace communication::bolt {

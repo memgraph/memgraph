@@ -4,7 +4,6 @@
 #include <thread>
 
 #include "threading/sync/futex.hpp"
-#include "utils/assert.hpp"
 
 Futex futex;
 int x = 0;

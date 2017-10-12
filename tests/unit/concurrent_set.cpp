@@ -4,7 +4,6 @@
 #include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_set.hpp"
-#include "utils/assert.hpp"
 
 void print_skiplist(const ConcurrentSet<int>::Accessor<false> &skiplist) {
   DLOG(INFO) << "Skiplist set now has:";

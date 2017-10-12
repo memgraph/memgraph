@@ -7,7 +7,6 @@
 #include "query/typed_value.hpp"
 #include "storage/property_value.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/assert.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {

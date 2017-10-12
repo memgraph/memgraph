@@ -12,7 +12,6 @@
 
 #include "communication/worker.hpp"
 #include "io/network/socket_event_dispatcher.hpp"
-#include "utils/assert.hpp"
 
 namespace communication {
 
