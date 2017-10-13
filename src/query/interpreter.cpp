@@ -74,21 +74,23 @@ Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage,
   std::unique_ptr<plan::LogicalOperator> logical_plan;
   double min_cost = std::numeric_limits<double>::max();
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+  auto planning_context = plan::MakePlanningContext(
+      ast_storage, context.symbol_table_, vertex_counts);
   if (FLAGS_query_cost_planner) {
-    auto plans = plan::MakeLogicalPlan<plan::VariableStartPlanner>(
-        ast_storage, context.symbol_table_, vertex_counts);
-    for (auto &plan : plans) {
+    auto plans =
+        plan::MakeLogicalPlan<plan::VariableStartPlanner>(planning_context);
+    for (auto plan : plans) {
       auto cost = EstimatePlanCost(vertex_counts, context.parameters_, *plan);
       if (!logical_plan || cost < min_cost) {
-        // We won't be iterating over plans anymore, so it's ok to invalidate
-        // unique_ptrs inside.
+        // Plans are generated lazily and the current plan will disappear, so
+        // it's ok to move it.
         logical_plan = std::move(plan);
         min_cost = cost;
       }
     }
   } else {
-    logical_plan = plan::MakeLogicalPlan<plan::RuleBasedPlanner>(
-        ast_storage, context.symbol_table_, vertex_counts);
+    logical_plan =
+        plan::MakeLogicalPlan<plan::RuleBasedPlanner>(planning_context);
     min_cost =
         EstimatePlanCost(vertex_counts, context.parameters_, *logical_plan);
   }

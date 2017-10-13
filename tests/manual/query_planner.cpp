@@ -621,10 +621,11 @@ auto MakeLogicalPlans(query::AstTreeStorage &ast,
                       InteractiveDbAccessor &dba) {
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
       plans_with_cost;
-  auto plans = query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
-      ast, symbol_table, dba);
+  auto ctx = query::plan::MakePlanningContext(ast, symbol_table, dba);
+  auto plans =
+      query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
   Parameters parameters;
-  for (auto &plan : plans) {
+  for (auto plan : plans) {
     query::plan::CostEstimator<InteractiveDbAccessor> estimator(dba,
                                                                 parameters);
     plan->Accept(estimator);

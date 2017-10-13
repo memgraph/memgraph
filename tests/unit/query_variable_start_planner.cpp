@@ -67,8 +67,8 @@ void CheckPlansProduce(
     size_t expected_plan_count, AstTreeStorage &storage, GraphDbAccessor &dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plans =
-      MakeLogicalPlan<VariableStartPlanner>(storage, symbol_table, dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, dba);
+  auto plans = MakeLogicalPlan<VariableStartPlanner>(planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());

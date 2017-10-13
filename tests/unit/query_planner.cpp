@@ -16,8 +16,8 @@
 using namespace query::plan;
 using query::AstTreeStorage;
 using query::Symbol;
-using query::SymbolTable;
 using query::SymbolGenerator;
+using query::SymbolTable;
 using Direction = query::EdgeAtom::Direction;
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
@@ -32,9 +32,9 @@ class BaseOpChecker {
 
 class PlanChecker : public HierarchicalLogicalOperatorVisitor {
  public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
 
   PlanChecker(const std::list<BaseOpChecker *> &checkers,
               const SymbolTable &symbol_table)
@@ -321,8 +321,9 @@ template <class... TChecker>
 auto CheckPlan(AstTreeStorage &storage, TChecker... checker) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   Dbms dbms;
-  auto plan =
-      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dbms.active());
+  auto planning_context =
+      MakePlanningContext(storage, symbol_table, *dbms.active());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, checker...);
 }
 
@@ -341,8 +342,9 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   Dbms dbms;
-  auto plan =
-      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dbms.active());
+  auto planning_context =
+      MakePlanningContext(storage, symbol_table, *dbms.active());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, ExpectProduce());
 }
 
@@ -631,7 +633,8 @@ TEST(TestLogicalPlanner, CreateWithSum) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr,
@@ -669,8 +672,9 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   Dbms dbms;
-  auto plan =
-      MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dbms.active());
+  auto planning_context =
+      MakePlanningContext(storage, symbol_table, *dbms.active());
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   // Since we have a write query, we need to have Accumulate. This is a bit
   // different than Neo4j 3.0, which optimizes WITH followed by RETURN as a
   // single RETURN clause and then moves Skip and Limit before Accumulate. This
@@ -693,7 +697,8 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
             ExpectSkip(), ExpectLimit());
 }
@@ -733,7 +738,8 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
       symbol_table.at(*r_prop->expression_),  // `r` in ORDER BY
       symbol_table.at(*m_prop->expression_),  // `m` in WHERE
   });
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc,
             ExpectProduce(), ExpectOrderBy(), ExpectFilter());
 }
@@ -771,7 +777,8 @@ TEST(TestLogicalPlanner, MatchMerge) {
   auto symbol_table = MakeSymbolTable(*query);
   // We expect Accumulate after Merge, because it is considered as a write.
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectScanAll(),
             ExpectMerge(on_match, on_create), acc, ExpectProduce());
   for (auto &op : on_match) delete op;
@@ -826,7 +833,8 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
             ExpectDistinct(), ExpectFilter(), ExpectProduce());
 }
@@ -905,7 +913,8 @@ TEST(TestLogicalPlanner, MatchReturnAsterisk) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret);
   auto symbol_table = MakeSymbolTable(*query);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
   std::vector<std::string> output_names;
@@ -927,7 +936,8 @@ TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
   auto symbol_table = MakeSymbolTable(*query);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   auto *produce = dynamic_cast<Produce *>(plan.get());
   ASSERT_TRUE(produce);
   const auto &named_expressions = produce->named_expressions();
@@ -1072,7 +1082,8 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
   node->properties_[not_indexed] = LITERAL(0);
   QUERY(MATCH(PATTERN(node)), RETURN("n"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label, property, lit_42),
             ExpectFilter(), ExpectProduce());
@@ -1097,7 +1108,8 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
                       IDENT("n"), std::vector<GraphDbTypes::Label>{label}))),
         RETURN("n"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label, property, lit_42),
             ExpectFilter(), ExpectProduce());
@@ -1116,7 +1128,8 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   QUERY(MATCH(PATTERN(NODE("n", label))),
         WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label, property, lit_42),
             ExpectFilter(), ExpectProduce());
@@ -1149,7 +1162,8 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
                   EQ(PROPERTY_LOOKUP("n", better), lit_42))),
         RETURN("n"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label, better, lit_42),
             ExpectFilter(), ExpectProduce());
@@ -1176,7 +1190,8 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
                   EQ(PROPERTY_LOOKUP("m", prop2), lit_2))),
         RETURN("n", "m"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
             ExpectFilter(),
@@ -1196,13 +1211,15 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
   AstTreeStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &dba](
-      const auto &rel_expr, auto lower_bound, auto upper_bound) {
+  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr,
+                                                       auto lower_bound,
+                                                       auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstTreeStorage storage;
     QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr), RETURN("n"));
     auto symbol_table = MakeSymbolTable(*storage.query());
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+    auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyRange(label, property, lower_bound,
                                                 upper_bound),
@@ -1248,7 +1265,8 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
       WHERE(EQ(PROPERTY_LOOKUP("n", property), PROPERTY_LOOKUP("n", property))),
       RETURN("n"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   // We can only get ScanAllByLabelIndex, because we are comparing properties
   // with those on the same node.
   CheckPlan(*plan, symbol_table, ExpectScanAllByLabel(), ExpectFilter(),
@@ -1350,7 +1368,8 @@ TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
   AstTreeStorage storage;
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   // We expect 2x ScanAll and then Expand, since we are guessing that is
   // faster (due to low label index vertex count).
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectScanAllByLabel(),
@@ -1382,7 +1401,8 @@ TEST(TestLogicalPlanner, MatchScanToExpand) {
   node_m->properties_[std::make_pair("property", property)] = LITERAL(1);
   QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r"));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(storage, symbol_table, *dba);
+  auto planning_context = MakePlanningContext(storage, symbol_table, *dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   // We expect 1x ScanAllByLabel and then Expand, since we are guessing that is
   // faster (due to high label index vertex count).
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),

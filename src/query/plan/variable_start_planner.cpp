@@ -15,34 +15,6 @@ namespace query::plan::impl {
 
 namespace {
 
-class NodeSymbolHash {
- public:
-  explicit NodeSymbolHash(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
-
-  size_t operator()(const NodeAtom *node_atom) const {
-    return std::hash<Symbol>{}(symbol_table_.at(*node_atom->identifier_));
-  }
-
- private:
-  const SymbolTable &symbol_table_;
-};
-
-class NodeSymbolEqual {
- public:
-  explicit NodeSymbolEqual(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
-
-  bool operator()(const NodeAtom *node_atom1,
-                  const NodeAtom *node_atom2) const {
-    return symbol_table_.at(*node_atom1->identifier_) ==
-           symbol_table_.at(*node_atom2->identifier_);
-  }
-
- private:
-  const SymbolTable &symbol_table_;
-};
-
 // Add applicable expansions for `node_symbol` to `next_expansions`. These
 // expansions are removed from `node_symbol_to_expansions`, while
 // `seen_expansions` and `expanded_symbols` are populated with new data.
@@ -184,172 +156,153 @@ auto ExpansionNodes(const std::vector<Expansion> &expansions,
   return nodes;
 }
 
-// Generates n matchings, where n is the number of nodes to match. Each Matching
-// will have a different node as a starting node for expansion.
-class VaryMatchingStart {
- public:
-  VaryMatchingStart(const Matching &matching, const SymbolTable &symbol_table)
-      : matching_(matching),
-        symbol_table_(symbol_table),
-        nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
-
-  class iterator {
-   public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef Matching value_type;
-    typedef long difference_type;
-    typedef const Matching &reference;
-    typedef const Matching *pointer;
-
-    iterator(VaryMatchingStart &self, bool is_done)
-        : self_(self),
-          // Use the original matching as the first matching. We are only
-          // interested in changing the expansions part, so the remaining fields
-          // should stay the same. This also produces a matching for the case
-          // when there are no nodes.
-          current_matching_(self.matching_) {
-      if (!self_.nodes_.empty()) {
-        // Overwrite the original matching expansions with the new ones by
-        // generating it from the first start node.
-        start_nodes_it_ = self_.nodes_.begin();
-        current_matching_.expansions = ExpansionsFrom(
-            **start_nodes_it_, self_.matching_, self_.symbol_table_);
-      }
-      DCHECK(start_nodes_it_ || self_.nodes_.empty())
-          << "start_nodes_it_ should only be nullopt when self_.nodes_ is "
-             "empty";
-      if (is_done) {
-        start_nodes_it_ = self.nodes_.end();
-      }
-    }
-
-    iterator &operator++() {
-      if (!start_nodes_it_) {
-        DCHECK(self_.nodes_.empty())
-            << "start_nodes_it_ should only be nullopt when self_.nodes_ "
-               "is empty";
-        start_nodes_it_ = self_.nodes_.end();
-      }
-      if (*start_nodes_it_ == self_.nodes_.end()) {
-        return *this;
-      }
-      ++*start_nodes_it_;
-      // start_nodes_it_ can become equal to `end` and we shouldn't dereference
-      // iterator in that case.
-      if (*start_nodes_it_ == self_.nodes_.end()) {
-        return *this;
-      }
-      const auto &start_node = **start_nodes_it_;
-      current_matching_.expansions =
-          ExpansionsFrom(start_node, self_.matching_, self_.symbol_table_);
-      return *this;
-    }
-
-    bool operator==(const iterator &other) const {
-      return &self_ == &other.self_ && start_nodes_it_ == other.start_nodes_it_;
-    }
-
-    bool operator!=(const iterator &other) const { return !(*this == other); }
-
-    reference operator*() const { return current_matching_; }
-    pointer operator->() const { return &current_matching_; }
-
-   private:
-    VaryMatchingStart &self_;
-    Matching current_matching_;
-    // Iterator over start nodes. Optional is used for differentiating the case
-    // when there are no start nodes vs. VaryMatchingStart::iterator itself
-    // being at the end. When there are no nodes, this iterator needs to produce
-    // a single result, which is the original matching passed in. Setting
-    // start_nodes_it_ to end signifies the end of our iteration.
-    std::experimental::optional<std::unordered_set<NodeAtom *, NodeSymbolHash,
-                                                   NodeSymbolEqual>::iterator>
-        start_nodes_it_;
-  };
-
-  auto begin() { return iterator(*this, false); }
-  auto end() { return iterator(*this, true); }
-
- private:
-  friend class iterator;
-  const Matching &matching_;
-  const SymbolTable &symbol_table_;
-  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes_;
-};
-
-// Similar to VaryMatchingStart, but varies the starting nodes for all given
-// matchings. After all matchings produce multiple alternative starts, the
-// Cartesian product of all of them is returned.
-auto VaryMultiMatchingStarts(const std::vector<Matching> &matchings,
-                             const SymbolTable &symbol_table) {
-  std::vector<std::vector<Matching>> variants;
-  for (const auto &matching : matchings) {
-    auto variant = iter::slice(VaryMatchingStart(matching, symbol_table), 0UL,
-                               FLAGS_query_max_plans);
-    variants.emplace_back(
-        std::vector<Matching>(variant.begin(), variant.end()));
-  }
-  return iter::slice(MakeCartesianProduct(std::move(variants)), 0UL,
-                     FLAGS_query_max_plans);
-}
-
 }  // namespace
 
-// Produces alternative query parts out of a single part by varying how each
-// graph matching is done.
-std::vector<QueryPart> VaryQueryPartMatching(const QueryPart &query_part,
-                                             const SymbolTable &symbol_table) {
-  std::vector<QueryPart> variants;
-  // Get multiple regular matchings, each starting from different node.
-  auto matchings = VaryMatchingStart(query_part.matching, symbol_table);
-  // Get multiple optional matchings, where each combination has different
-  // starting nodes.
-  auto optional_matchings =
-      VaryMultiMatchingStarts(query_part.optional_matching, symbol_table);
-  // Like optional matching, but for merge matchings.
-  auto merge_matchings =
-      VaryMultiMatchingStarts(query_part.merge_matching, symbol_table);
-  // After we have all valid combinations of each matching, we need to produce
-  // combinations of them. This is similar to Cartesian product, but some
-  // matchings can be empty (optional and merge) and `matchings` is of different
-  // type (vector) than `optional_matchings` and `merge_matchings` (which are
-  // vectors of vectors).
-  for (const auto &matching : matchings) {
-    // matchings will always have at least a single element, so we can use a for
-    // loop. On the other hand, optional and merge matchings can be empty so we
-    // need an iterator and do...while loop.
-    auto optional_it = optional_matchings.begin();
-    auto optional_end = optional_matchings.end();
-    do {
-      auto merge_it = merge_matchings.begin();
-      auto merge_end = merge_matchings.end();
-      do {
-        // Produce parts for each possible combination. E.g. if we have:
-        //    * matchings (m1) and (m2)
-        //    * optional matchings (o1) and (o2)
-        //    * merge matching (g1)
-        // We want to produce parts for:
-        //    * (m1), (o1), (g1)
-        //    * (m1), (o2), (g1)
-        //    * (m2), (o1), (g1)
-        //    * (m2), (o2), (g1)
-        variants.emplace_back(QueryPart{matching});
-        variants.back().remaining_clauses = query_part.remaining_clauses;
-        if (optional_it != optional_matchings.end()) {
-          // In case we started with empty optional matchings.
-          variants.back().optional_matching = *optional_it;
-        }
-        if (merge_it != merge_matchings.end()) {
-          // In case we started with empty merge matchings.
-          variants.back().merge_matching = *merge_it;
-        }
-        // Since we can start with the iterator at the end, we have to first
-        // compare it and then increment it. After we increment, we need to
-        // check again to avoid generating with empty matching.
-      } while (merge_it != merge_end && ++merge_it != merge_end);
-    } while (optional_it != optional_end && ++optional_it != optional_end);
+VaryMatchingStart::VaryMatchingStart(Matching matching,
+                                     const SymbolTable &symbol_table)
+    : matching_(matching),
+      symbol_table_(symbol_table),
+      nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
+
+VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
+    : self_(self),
+      // Use the original matching as the first matching. We are only
+      // interested in changing the expansions part, so the remaining fields
+      // should stay the same. This also produces a matching for the case
+      // when there are no nodes.
+      current_matching_(self->matching_) {
+  if (!self_->nodes_.empty()) {
+    // Overwrite the original matching expansions with the new ones by
+    // generating it from the first start node.
+    start_nodes_it_ = self_->nodes_.begin();
+    current_matching_.expansions = ExpansionsFrom(
+        **start_nodes_it_, self_->matching_, self_->symbol_table_);
   }
-  return variants;
+  DCHECK(start_nodes_it_ || self_->nodes_.empty())
+      << "start_nodes_it_ should only be nullopt when self_->nodes_ is empty";
+  if (is_done) {
+    start_nodes_it_ = self_->nodes_.end();
+  }
+}
+
+VaryMatchingStart::iterator &VaryMatchingStart::iterator::operator++() {
+  if (!start_nodes_it_) {
+    DCHECK(self_->nodes_.empty())
+        << "start_nodes_it_ should only be nullopt when self_->nodes_ is empty";
+    start_nodes_it_ = self_->nodes_.end();
+  }
+  if (*start_nodes_it_ == self_->nodes_.end()) {
+    return *this;
+  }
+  ++*start_nodes_it_;
+  // start_nodes_it_ can become equal to `end` and we shouldn't dereference
+  // iterator in that case.
+  if (*start_nodes_it_ == self_->nodes_.end()) {
+    return *this;
+  }
+  const auto &start_node = **start_nodes_it_;
+  current_matching_.expansions =
+      ExpansionsFrom(start_node, self_->matching_, self_->symbol_table_);
+  return *this;
+}
+
+CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
+    const std::vector<Matching> &matchings, const SymbolTable &symbol_table) {
+  std::vector<VaryMatchingStart> variants;
+  variants.reserve(matchings.size());
+  for (const auto &matching : matchings) {
+    variants.emplace_back(VaryMatchingStart(matching, symbol_table));
+  }
+  return MakeCartesianProduct(std::move(variants));
+}
+
+VaryQueryPartMatching::VaryQueryPartMatching(QueryPart query_part,
+                                             const SymbolTable &symbol_table)
+    : query_part_(std::move(query_part)),
+      matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
+      optional_matchings_(
+          VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
+      merge_matchings_(
+          VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)) {}
+
+VaryQueryPartMatching::iterator::iterator(
+    const QueryPart &query_part, VaryMatchingStart::iterator matchings_begin,
+    VaryMatchingStart::iterator matchings_end,
+    CartesianProduct<VaryMatchingStart>::iterator optional_begin,
+    CartesianProduct<VaryMatchingStart>::iterator optional_end,
+    CartesianProduct<VaryMatchingStart>::iterator merge_begin,
+    CartesianProduct<VaryMatchingStart>::iterator merge_end)
+    : current_query_part_(query_part),
+      matchings_it_(matchings_begin),
+      matchings_end_(matchings_end),
+      optional_it_(optional_begin),
+      optional_begin_(optional_begin),
+      optional_end_(optional_end),
+      merge_it_(merge_begin),
+      merge_begin_(merge_begin),
+      merge_end_(merge_end) {
+  if (matchings_it_ != matchings_end_) {
+    // Fill the query part with the first variation of matchings
+    SetCurrentQueryPart();
+  }
+}
+
+VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
+  // Produce parts for each possible combination. E.g. if we have:
+  //    * matchings (m1) and (m2)
+  //    * optional matchings (o1) and (o2)
+  //    * merge matching (g1)
+  // We want to produce parts for:
+  //    * (m1), (o1), (g1)
+  //    * (m1), (o2), (g1)
+  //    * (m2), (o1), (g1)
+  //    * (m2), (o2), (g1)
+  // Create variations by changing the merge part first.
+  if (merge_it_ != merge_end_) ++merge_it_;
+  // If all merge variations are done, start them from beginning and move to the
+  // next optional matching variation.
+  if (merge_it_ == merge_end_) {
+    merge_it_ = merge_begin_;
+    if (optional_it_ != optional_end_) ++optional_it_;
+  }
+  // If all optional matching variations are done (after exhausting merge
+  // variations), start them from beginning and move to the next regular
+  // matching variation.
+  if (optional_it_ == optional_end_ && merge_it_ == merge_begin_) {
+    optional_it_ = optional_begin_;
+    if (matchings_it_ != matchings_end_) ++matchings_it_;
+  }
+  // We have reached the end, so return;
+  if (matchings_it_ == matchings_end_) return *this;
+  // Fill the query part with the new variation of matchings.
+  SetCurrentQueryPart();
+  return *this;
+}
+
+void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
+  current_query_part_.matching = *matchings_it_;
+  DCHECK(optional_it_ != optional_end_ || optional_begin_ == optional_end_)
+      << "Either there are no optional matchings or we can always "
+         "generate a variation";
+  if (optional_it_ != optional_end_) {
+    current_query_part_.optional_matching = *optional_it_;
+  }
+  DCHECK(merge_it_ != merge_end_ || merge_begin_ == merge_end_)
+      << "Either there are no merge matchings or we can always generate "
+         "a variation";
+  if (merge_it_ != merge_end_) {
+    current_query_part_.merge_matching = *merge_it_;
+  }
+}
+
+bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
+  if (matchings_it_ == other.matchings_it_ && matchings_it_ == matchings_end_) {
+    // matchings_it_ is the primary iterator. If both are at the end, then other
+    // iterators can be at any position.
+    return true;
+  }
+  return matchings_it_ == other.matchings_it_ &&
+         optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_;
 }
 
 }  // namespace query::plan::impl

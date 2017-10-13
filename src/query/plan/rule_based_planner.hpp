@@ -185,6 +185,12 @@ struct PlanningContext {
   std::unordered_set<Symbol> bound_symbols{};
 };
 
+template <class TDbAccessor>
+auto MakePlanningContext(AstTreeStorage &ast_storage, SymbolTable &symbol_table,
+                         const TDbAccessor &db) {
+  return PlanningContext<TDbAccessor>{symbol_table, ast_storage, db};
+}
+
 // Contextual information used for generating match operators.
 struct MatchContext {
   const Matching &matching;
@@ -279,7 +285,7 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(std::vector<QueryPart> &query_parts) {
+  PlanResult Plan(const std::vector<QueryPart> &query_parts) {
     auto &context = context_;
     LogicalOperator *input_op = nullptr;
     // Set to true if a query command writes to the database.

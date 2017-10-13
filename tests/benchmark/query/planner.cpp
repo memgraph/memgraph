@@ -20,8 +20,7 @@ static void AddChainedMatches(int num_matches, query::AstTreeStorage &storage) {
         storage.Create<query::Identifier>(node1_name)));
     pattern->atoms_.emplace_back(storage.Create<query::EdgeAtom>(
         storage.Create<query::Identifier>("edge" + std::to_string(i)),
-        query::EdgeAtom::Type::SINGLE,
-        query::EdgeAtom::Direction::BOTH));
+        query::EdgeAtom::Type::SINGLE, query::EdgeAtom::Direction::BOTH));
     pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(
         storage.Create<query::Identifier>("node" + std::to_string(i))));
     storage.query()->clauses_.emplace_back(match);
@@ -39,9 +38,15 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     query::SymbolTable symbol_table;
     query::SymbolGenerator symbol_generator(symbol_table);
     storage.query()->Accept(symbol_generator);
+    auto ctx = query::plan::MakePlanningContext(storage, symbol_table, *dba);
     state.ResumeTiming();
-    query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
-        storage, symbol_table, *dba);
+    query::plan::LogicalOperator *current_plan;
+    auto plans =
+        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    for (const auto &plan : plans) {
+      // Exhaust through all generated plans, since they are lazily generated.
+      benchmark::DoNotOptimize(current_plan = plan.get());
+    }
   }
 }
 
@@ -106,10 +111,10 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     query::SymbolGenerator symbol_generator(symbol_table);
     storage.query()->Accept(symbol_generator);
     state.ResumeTiming();
+    auto ctx = query::plan::MakePlanningContext(storage, symbol_table, *dba);
     auto plans =
-        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
-            storage, symbol_table, *dba);
-    for (auto &plan : plans) {
+        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    for (auto plan : plans) {
       query::plan::EstimatePlanCost(*dba, parameters, *plan);
     }
   }
@@ -136,10 +141,11 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     query::SymbolGenerator symbol_generator(symbol_table);
     storage.query()->Accept(symbol_generator);
     state.ResumeTiming();
+    auto ctx =
+        query::plan::MakePlanningContext(storage, symbol_table, vertex_counts);
     auto plans =
-        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(
-            storage, symbol_table, vertex_counts);
-    for (auto &plan : plans) {
+        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    for (auto plan : plans) {
       query::plan::EstimatePlanCost(vertex_counts, parameters, *plan);
     }
   }
