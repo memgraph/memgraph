@@ -1,5 +1,3 @@
-find_package(Threads REQUIRED)
-
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
@@ -7,8 +5,9 @@ get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 file(GLOB_RECURSE test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
-# postgres directory
-set(postgres_dir ${libs_dir}/postgresql)
+add_library(postgres SHARED IMPORTED)
+set_property(TARGET postgres PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${libs_dir}/postgresql/include)
+set_property(TARGET postgres PROPERTY IMPORTED_LOCATION ${libs_dir}/postgresql/lib/libpq.so)
 
 # add target that depends on all other targets
 set(all_targets_target memgraph__${test_type})
@@ -24,7 +23,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})
-    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake
@@ -32,11 +30,7 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} memgraph_lib)
-
-    # libpq includes
-    target_link_libraries(${target_name} "${postgres_dir}/lib/libpq.so")
-    target_include_directories(${target_name} PUBLIC "${postgres_dir}/include")
+    target_link_libraries(${target_name} memgraph_lib postgres)
 
     # add target to dependencies
     add_dependencies(${all_targets_target} ${target_name})

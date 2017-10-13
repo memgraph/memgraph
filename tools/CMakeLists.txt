@@ -22,7 +22,7 @@ endif(CCACHE_FOUND AND USE_CCACHE)
 set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
 
-project("memgraph_tools")
+project(memgraph_tools)
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
@@ -41,10 +41,8 @@ if (READLINE_FOUND)
   add_definitions(-DHAS_READLINE)
 endif()
 
-# c++14
-# TODO: set here 17 once it will be available in the cmake version (3.8)
-set(cxx_standard 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
+# Explicitly set -std= flag for C++17.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall")
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")

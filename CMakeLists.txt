@@ -64,10 +64,11 @@ endif()
 
 # -----------------------------------------------------------------------------
 
-# c++14
 # TODO: set here 17 once it will be available in the cmake version (3.8)
-set(cxx_standard 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Wno-c++1z-extensions")
+# set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# For now, explicitly set -std= flag for C++17.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall")
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
@@ -112,30 +113,6 @@ message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # setup external dependencies -------------------------------------------------
 add_subdirectory(libs)
 
-# TODO: is this clang-tidy target needed anymore?
-# linter setup (clang-tidy)
-# all source files for linting
-FILE(GLOB_RECURSE LINTER_SRC_FILES
-    ${src_dir}/*.cpp
-    ${CMAKE_SOURCE_DIR}/tests/.cpp
-    ${CMAKE_SOURCE_DIR}/poc/.cpp
-)
-MESSAGE(STATUS "All cpp files for linting are: ${LINTER_SRC_FILES}")
-# linter target clang-tidy
-find_program(CLANG_TIDY "clang-tidy")
-if(CLANG_TIDY)
-  add_custom_target(
-      clang-tidy
-      COMMAND /usr/bin/clang-tidy
-      ${LINTER_SRC_FILES}
-      -config=''
-      --
-      -std=c++1y
-      -I${CMAKE_SOURCE_DIR}/include -I${FMT_INCLUDE_DIR}
-      DEPENDS fmt)
-endif()
-# -----------------------------------------------------------------------------
-
 # ndebug
 option(NDEBUG "No debug" OFF)
 message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \
@@ -145,22 +122,6 @@ if(NDEBUG)
 endif()
 # -----------------------------------------------------------------------------
 
-# -- GLIBCXX_DEBUG ------------------------------------------------------------
-# glibcxx debug (useful for gdb)
-# the problem is that the query engine doesn't work as it should work if
-# this flag is present (TODO: figure out why)
-option(GLIBCXX_DEBUG "glibc debug" OFF)
-message(STATUS "GLIBCXX_DEBUG: ${GLIBCXX_DEBUG} (solves problem with \
-_M_dataplus member during a debugging process)")
-if(GLIBCXX_DEBUG)
-    set(CMAKE_CXX_FLAGS_DEBUG "-D_GLIBCXX_DEBUG ${CMAKE_CXX_FLAGS_DEBUG}")
-endif()
-# -----------------------------------------------------------------------------
-
-# option binaries
-# memgraph
-option(MEMGRAPH "Build memgraph binary" ON)
-message(STATUS "MEMGRAPH binary: ${MEMGRAPH}")
 # proof of concept
 option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
@@ -247,7 +208,7 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
-# memgraph_lib and memgraph_pic depend on these libraries
+# memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags)
 if (READLINE_FOUND)
@@ -272,6 +233,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 # tests
+enable_testing()
 add_subdirectory(tests)
 # -----------------------------------------------------------------------------
 
@@ -287,39 +249,26 @@ add_custom_target(memgraph_link_target ALL
 # -----------------------------------------------------------------------------
 
 # memgraph main executable
-if (MEMGRAPH)
-    add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-    set_property(TARGET ${MEMGRAPH_BUILD_NAME}
-                 PROPERTY CXX_STANDARD ${cxx_standard})
-    target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
-    # Strip the executable in release build.
-    string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
-    if (lower_build_type STREQUAL "release")
-      add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
-                         COMMAND strip -s ${MEMGRAPH_BUILD_NAME}
-                         COMMENT Stripping symbols and sections from
-                                 ${MEMGRAPH_BUILD_NAME})
-    endif()
-    # Install and rename executable to just 'memgraph' Since we have to rename,
-    # we cannot use the recommended `install(TARGETS ...)`.
-    install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
-            DESTINATION bin RENAME memgraph)
-    # Install the config file.
-    install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
-            DESTINATION /etc/memgraph RENAME memgraph.conf)
-    # Create empty directories for default location of snapshots and logs.
-    install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
-                       \$ENV{DESTDIR}/var/lib/memgraph/snapshots)")
+add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
+target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
+# Strip the executable in release build.
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
+                     COMMAND strip -s ${MEMGRAPH_BUILD_NAME}
+                     COMMENT Stripping symbols and sections from
+                             ${MEMGRAPH_BUILD_NAME})
 endif()
-
-# make CLion aware of all source files so we get refactoring etc
-# this target won't be built
-file(GLOB_RECURSE __SOURCES ${CMAKE_SOURCE_DIR}/src/*.hpp
-                            ${CMAKE_SOURCE_DIR}/src/*.cpp)
-add_executable(__refactor_target ${__SOURCES})
-set_target_properties(__refactor_target PROPERTIES EXCLUDE_FROM_ALL 1)
-
-get_target_cxx_flags(memgraph_lib compile_flags)
+# Install and rename executable to just 'memgraph' Since we have to rename,
+# we cannot use the recommended `install(TARGETS ...)`.
+install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
+        DESTINATION bin RENAME memgraph)
+# Install the config file.
+install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
+        DESTINATION /etc/memgraph RENAME memgraph.conf)
+# Create empty directories for default location of snapshots and logs.
+install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
+                   \$ENV{DESTDIR}/var/lib/memgraph/snapshots)")
 
 # ---- Setup CPack --------
 # General setup

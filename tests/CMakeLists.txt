@@ -1,9 +1,3 @@
-cmake_minimum_required(VERSION 3.1)
-
-project(memgraph_tests)
-
-enable_testing()
-
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/unit)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/benchmark)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test_results/property_based)
@@ -24,22 +18,22 @@ add_custom_target(test_data
 include_directories(${GTEST_INCLUDE_DIR})
 
 # benchmark test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/benchmark)
+add_subdirectory(benchmark)
 
 # macro_benchmark test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/macro_benchmark)
+add_subdirectory(macro_benchmark)
 
 # stress test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/stress)
+add_subdirectory(stress)
 
 # concurrent test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/concurrent)
+add_subdirectory(concurrent)
 
 # manual test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/manual)
+add_subdirectory(manual)
 
 # unit test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/unit)
+add_subdirectory(unit)
 
 # property based test binaries
-add_subdirectory(${PROJECT_SOURCE_DIR}/property_based)
+add_subdirectory(property_based)

@@ -1,9 +1,3 @@
-cmake_minimum_required(VERSION 3.1)
-
-project(memgraph_tests)
-
-enable_testing()
-
 # set current directory name as a test type
 get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 
@@ -23,7 +17,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})
-    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
     if(${TEST_COVERAGE})
         set_target_properties(${target_name} PROPERTIES COMPILE_FLAGS "-g -O0 -Wall -fprofile-arcs -ftest-coverage")
         set_target_properties(${target_name} PROPERTIES LINK_FLAGS "--coverage -fprofile-arcs -ftest-coverage")
@@ -35,9 +28,7 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} distributed_lib)
-    target_link_libraries(${target_name} memgraph_lib)
-    target_link_libraries(${target_name} ${MEMGRAPH_ALL_LIBS})
+    target_link_libraries(${target_name} distributed_lib memgraph_lib)
     # gtest
     target_link_libraries(${target_name} gtest gtest_main)
     if(${TEST_COVERAGE})

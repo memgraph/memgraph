@@ -1,4 +1,3 @@
-find_package(Threads REQUIRED)
 include_directories(${BENCHMARK_INCLUDE_DIR})
 
 # set current directory name as a test type
@@ -18,7 +17,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})
-    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake

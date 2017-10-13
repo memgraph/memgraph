@@ -70,6 +70,8 @@ class Session {
  public:
   Session(Socket &&socket, Data &data);
 
+  int Id() const { return socket_.fd(); }
+
   /**
    * Returns the protocol alive state
    */

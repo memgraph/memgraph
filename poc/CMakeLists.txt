@@ -18,7 +18,6 @@ foreach(poc_cpp ${poc_cpps})
 
     # build exe file
     add_executable(${target_name} ${poc_cpp})
-    set_property(TARGET ${target_name} PROPERTY CXX_STANDARD ${cxx_standard})
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake

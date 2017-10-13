@@ -1,12 +1,12 @@
-#include "reactors_distributed.hpp"
-
 #include <iostream>
 #include <fstream>
 
 #include <glog/logging.h>
 
+#include "memgraph_config.hpp"
+#include "reactors_distributed.hpp"
+
 DEFINE_int64(my_mnid, 0, "Memgraph node id"); // TODO(zuza): this should be assigned by the leader once in the future
-DEFINE_string(config_filename, "", "File containing list of all processes");
 
 class MemgraphDistributed {
  private:
