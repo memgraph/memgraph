@@ -914,7 +914,7 @@ class SkipList : private Lockable<lock_t> {
       if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
       return {insert_here(Node::create(std::forward<TItem>(data), height),
-                          preds, succs, height, guards),
+                          preds, succs, height),
               true};
     }
   }
@@ -948,7 +948,7 @@ class SkipList : private Lockable<lock_t> {
       if (!lock_nodes<true>(height, guards, preds, succs)) continue;
 
       return {insert_here(Node::emplace(height, std::forward<Args>(args)...),
-                          preds, succs, height, guards),
+                          preds, succs, height),
               true};
     }
   }
@@ -956,9 +956,8 @@ class SkipList : private Lockable<lock_t> {
   /**
    * Inserts data to specified locked location.
    */
-  Iterator insert_here(Node *new_node, Node *preds[], Node *succs[], int height,
-                       guard_t guards[]) {
-    // TODO: guards unused
+  Iterator insert_here(Node *new_node, Node *preds[], Node *succs[],
+                       int height) {
     // link the predecessors and successors, e.g.
     //
     // 4 HEAD ... P ------------------------> S ... NULL
