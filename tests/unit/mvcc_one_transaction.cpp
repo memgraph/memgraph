@@ -108,3 +108,9 @@ TEST_F(Mvcc, RemoveAdvanceRemove) {
   EXPECT_EQ(T2_FIND, nullptr);
   EXPECT_DEATH(T2_REMOVE, ".*nullptr.*");
 }
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  return RUN_ALL_TESTS();
+}

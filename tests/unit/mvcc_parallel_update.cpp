@@ -3,7 +3,6 @@
 #undef T4_FIND
 #define T4_FIND version_list.find(*t4)
 
-
 // IMPORTANT: look definiton of EXPECT_CRE and EXPECT_EXP macros in
 // tests/mvcc_find_update_common.hpp. Numbers in those macros represent
 // transaction ids when transactions where created.
@@ -554,4 +553,10 @@ TEST_F(Mvcc, RemAbtRemAbt3) {
   EXPECT_SIZE(1);
   T4_BEGIN;
   EXPECT_EQ(T4_FIND, v1);
+}
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  return RUN_ALL_TESTS();
 }
