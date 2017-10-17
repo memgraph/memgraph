@@ -208,19 +208,7 @@ class VersionList {
     return update(old_record, t);
   }
 
-  void remove(tx::Transaction &t) {
-    DCHECK(head_ != nullptr) << "Head is nullptr on removal.";
-    auto record = find(t);
-
-    CHECK(record != nullptr) << "Removing nullptr record";
-
-    // TODO: Is this lock and validate necessary
-    lock_and_validate(record, t);
-    remove(record, t);
-  }
-
-  // TODO(flor): This should also be private but can't be right now because of
-  // the way graph_db_accessor works.
+  /** Makes the given record as being expired by the given transaction. */
   void remove(T *record, tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on removal.";
     lock_and_validate(record, t);

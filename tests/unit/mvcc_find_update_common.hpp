@@ -82,8 +82,8 @@ class Mvcc : public ::testing::Test {
   auto t3 = engine.Begin(); \
   __attribute__((unused)) int id3 = t3->id_
 #define T4_BEGIN auto t4 = engine.Begin();
-#define T2_REMOVE version_list.remove(*t2)
-#define T3_REMOVE version_list.remove(*t3)
+#define T2_REMOVE version_list.remove(version_list.find(*t2), *t2)
+#define T3_REMOVE version_list.remove(version_list.find(*t3), *t3)
 #define EXPECT_CRE(record, expected) EXPECT_EQ(record->tx().cre, id##expected)
 #define EXPECT_EXP(record, expected) EXPECT_EQ(record->tx().exp, id##expected)
 #define EXPECT_NXT(v1, v2) EXPECT_EQ(v1->next(), v2)

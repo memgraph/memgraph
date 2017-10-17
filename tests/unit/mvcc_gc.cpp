@@ -48,7 +48,7 @@ class MvccGcTest : public ::testing::Test {
 
 TEST_F(MvccGcTest, RemoveAndAbort) {
   auto t = engine.Begin();
-  version_list.remove(*t);
+  version_list.remove(version_list.find(*t), *t);
   t->Abort();
   auto ret = GcDeleted();
   EXPECT_EQ(ret.first, false);
@@ -72,7 +72,7 @@ TEST_F(MvccGcTest, UpdateAndAbort) {
 
 TEST_F(MvccGcTest, RemoveAndCommit) {
   auto t = engine.Begin();
-  version_list.remove(*t);
+  version_list.remove(version_list.find(*t), *t);
   t->Commit();
   auto ret = GcDeleted();
   EXPECT_EQ(ret.first, true);
@@ -100,7 +100,7 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
   // does not see the expiration and sees the record
   auto t1 = engine.Begin();
   auto t2 = engine.Begin();
-  version_list.remove(*t1);
+  version_list.remove(version_list.find(*t1), *t1);
   t1->Commit();
 
   auto ret = GcDeleted(t2);
@@ -137,7 +137,7 @@ TEST(GarbageCollector, GcClean) {
 
   // delete the only record in the version-list in transaction t2
   auto t2 = engine.Begin();
-  vl->remove(*t2);
+  vl->remove(vl->find(*t2), *t2);
   t2->Commit();
   gc.Run(GcSnapshot(engine, nullptr), engine);
 
