@@ -329,14 +329,9 @@ class GraphSession {
         }
       }
 
-      // prefer adding/removing edges whenever there is an edge
-      // disbalance and there is enough vertices
-      if (ratio_v > 0.5 && std::fabs(1.0 - ratio_e) > 0.2) {
-        if (Bernoulli(ratio_e / 2.0)) {
-          RemoveEdge();
-        } else {
-          CreateEdge();
-        }
+      // if we're missing edges (due to vertex detach delete), add some!
+      if (Bernoulli(ratio_e < 0.9)) {
+        CreateEdge();
         continue;
       }
 
