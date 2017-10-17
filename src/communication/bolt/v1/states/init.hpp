@@ -12,9 +12,9 @@
 namespace communication::bolt {
 
 /**
- * Init state run function
+ * Init state run function.
  * This function runs everything to initialize a Bolt session with the client.
- * @param session the session that should be used for the run
+ * @param session the session that should be used for the run.
  */
 template <typename Session>
 State StateInitRun(Session &session) {

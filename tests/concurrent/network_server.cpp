@@ -8,32 +8,23 @@ static constexpr const char interface[] = "127.0.0.1";
 
 unsigned char data[SIZE];
 
-test_server_t *serverptr;
-
 TEST(Network, Server) {
   // initialize test data
   initialize_data(data, SIZE);
 
   // initialize listen socket
-  endpoint_t endpoint(interface, "0");
-  socket_t socket;
-  ASSERT_TRUE(socket.Bind(endpoint));
-  ASSERT_TRUE(socket.SetNonBlocking());
-  ASSERT_TRUE(socket.Listen(1024));
-
-  // get bound address
-  auto ep = socket.endpoint();
-  printf("ADDRESS: %s, PORT: %d\n", ep.address(), ep.port());
+  NetworkEndpoint endpoint(interface, "0");
+  printf("ADDRESS: %s, PORT: %d\n", endpoint.address(), endpoint.port());
 
   // initialize server
   TestData session_data;
-  test_server_t server(std::move(socket), session_data);
-  serverptr = &server;
+  ServerT server(endpoint, session_data);
 
   // start server
   int N = (std::thread::hardware_concurrency() + 1) / 2;
-  std::thread server_thread(server_start, serverptr, N);
+  std::thread server_thread([&] { server.Start(N); });
 
+  const auto &ep = server.endpoint();
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < N; ++i)

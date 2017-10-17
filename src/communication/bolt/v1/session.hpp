@@ -4,24 +4,24 @@
 
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
+#include "io/network/stream_buffer.hpp"
 
 #include "database/dbms.hpp"
 #include "query/interpreter.hpp"
 #include "transactions/transaction.hpp"
 
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
+#include "communication/bolt/v1/decoder/decoder.hpp"
+#include "communication/bolt/v1/encoder/encoder.hpp"
+#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 
-#include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
-#include "communication/bolt/v1/decoder/decoder.hpp"
-#include "communication/bolt/v1/encoder/encoder.hpp"
-#include "communication/bolt/v1/encoder/result_stream.hpp"
-
-#include "io/network/stream_buffer.hpp"
+DECLARE_int32(session_inactivity_timeout);
 
 namespace communication::bolt {
 
@@ -30,11 +30,7 @@ namespace communication::bolt {
  *
  * This class is responsible for holding references to Dbms and Interpreter
  * that are passed through the network server and worker to the session.
- *
- * @tparam OutputStream type of output stream (could be a bolt output stream or
- *                      a test output stream)
  */
-template <typename OutputStream>
 struct SessionData {
   Dbms dbms;
   query::Interpreter interpreter;
@@ -45,31 +41,39 @@ struct SessionData {
  *
  * This class is responsible for handling a single client connection.
  *
- * @tparam Socket type of socket (could be a network socket or test socket)
+ * @tparam TSocket type of socket (could be a network socket or test socket)
  */
-template <typename Socket>
+template <typename TSocket>
 class Session {
- private:
-  using OutputStream = ResultStream<Encoder<ChunkedEncoderBuffer<Socket>>>;
+ public:
+  // Wrapper around socket that checks if session has timed out on write
+  // failures, used in encoder buffer.
+  class TimeoutSocket {
+   public:
+    explicit TimeoutSocket(Session &session) : session_(session) {}
+
+    bool Write(const uint8_t *data, size_t len) {
+      return session_.socket_.Write(data, len,
+                                    [this] { return !session_.TimedOut(); });
+    }
+
+   private:
+    Session &session_;
+  };
+
+  using ResultStreamT =
+      ResultStream<Encoder<ChunkedEncoderBuffer<TimeoutSocket>>>;
   using StreamBuffer = io::network::StreamBuffer;
 
- public:
-  Session(Socket &&socket, SessionData<OutputStream> &data)
+  Session(TSocket &&socket, SessionData &data)
       : socket_(std::move(socket)),
         dbms_(data.dbms),
-        interpreter_(data.interpreter) {
-    event_.data.ptr = this;
-  }
+        interpreter_(data.interpreter) {}
 
   ~Session() {
     DCHECK(!db_accessor_)
         << "Transaction should have already be closed in Close";
   }
-
-  /**
-   * @return is the session in a valid state
-   */
-  bool Alive() const { return state_ != State::Close; }
 
   /**
    * @return the socket id
@@ -155,6 +159,19 @@ class Session {
   void Written(size_t len) { buffer_.Written(len); }
 
   /**
+   * Returns true if session has timed out. Session times out if there was no
+   * activity in FLAGS_sessions_inactivity_timeout seconds or if there is a
+   * active transaction with shoul_abort flag set to true.
+   */
+  bool TimedOut() const {
+    return db_accessor_
+               ? db_accessor_->should_abort()
+               : last_event_time_ + std::chrono::seconds(
+                                        FLAGS_session_inactivity_timeout) <
+                     std::chrono::steady_clock::now();
+  }
+
+  /**
    * Closes the session (client socket).
    */
   void Close() {
@@ -183,37 +200,40 @@ class Session {
     db_accessor_ = nullptr;
   }
 
-  // TODO: Rethink if there is a way to hide some members. At the momemnt all of
-  // them are public.
-  Socket socket_;
+  // TODO: Rethink if there is a way to hide some members. At the momement all
+  // of them are public.
+  TSocket socket_;
   Dbms &dbms_;
   query::Interpreter &interpreter_;
 
-  ChunkedEncoderBuffer<Socket> encoder_buffer_{socket_};
-  Encoder<ChunkedEncoderBuffer<Socket>> encoder_{encoder_buffer_};
-  OutputStream output_stream_{encoder_};
+  TimeoutSocket timeout_socket_{*this};
+  ChunkedEncoderBuffer<TimeoutSocket> encoder_buffer_{timeout_socket_};
+  Encoder<ChunkedEncoderBuffer<TimeoutSocket>> encoder_{encoder_buffer_};
+  ResultStreamT output_stream_{encoder_};
 
   Buffer<> buffer_;
   ChunkedDecoderBuffer decoder_buffer_{buffer_};
   Decoder<ChunkedDecoderBuffer> decoder_{decoder_buffer_};
 
-  io::network::Epoll::Event event_;
   bool handshake_done_{false};
   State state_{State::Handshake};
-  // GraphDbAccessor of active transaction in the session, can be null if there
-  // is no associated transaction.
+  // GraphDbAccessor of active transaction in the session, can be null if
+  // there is no associated transaction.
   std::unique_ptr<GraphDbAccessor> db_accessor_;
+  // Time of the last event.
+  std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
+      std::chrono::steady_clock::now();
 
  private:
   void ClientFailureInvalidData() {
-    // set the state to Close
+    // Set the state to Close.
     state_ = State::Close;
-    // don't care about the return status because this is always
-    // called when we are about to close the connection to the client
+    // We don't care about the return status because this is called when we
+    // are about to close the connection to the client.
     encoder_buffer_.Clear();
     encoder_.MessageFailure({{"code", "Memgraph.InvalidData"},
                              {"message", "The client has sent invalid data!"}});
-    // close the connection
+    // Close the connection.
     Close();
   }
 };

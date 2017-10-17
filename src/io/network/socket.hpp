@@ -1,6 +1,7 @@
 #pragma once
 
 #include <experimental/optional>
+#include <functional>
 #include <iostream>
 
 #include "io/network/network_endpoint.hpp"
@@ -34,7 +35,7 @@ class Socket {
    *             true if the socket is open
    *             false if the socket is closed
    */
-  bool IsOpen();
+  bool IsOpen() const;
 
   /**
    * Connects the socket to the specified endpoint.
@@ -127,23 +128,29 @@ class Socket {
   /**
    * Returns the currently active endpoint of the socket.
    */
-  const NetworkEndpoint &endpoint() const;
+  const NetworkEndpoint &endpoint() const { return endpoint_; }
 
   /**
    * Write data to the socket.
    * Theese functions guarantee that all data will be written.
    *
-   * @param str std::string to write to the socket
-   * @param data char* or uint8_t* to data that should be written
+   * @param data uint8_t* to data that should be written
    * @param len length of char* or uint8_t* data
+   * @param keep_retrying while function executes to true socket will retry to
+   * write data if nonterminal error occurred on socket (EAGAIN, EWOULDBLOCK,
+   * EINTR)... useful if socket is in nonblocking mode or timeout is set on a
+   * socket. By default Write doesn't retry if any error occurrs.
+   *
+   * TODO: Logic for retrying can be in derived class or in a wrapper of this
+   * class, unfortunately from current return value we don't know what error
+   * occured nor how much data was written.
    *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const std::string &str);
-  bool Write(const char *data, size_t len);
-  bool Write(const uint8_t *data, size_t len);
+  bool Write(const uint8_t *data, size_t len,
+             const std::function<bool()> &keep_retrying = [] { return false; });
 
   /**
    * Read data from the socket.
@@ -157,6 +164,10 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
+  // TODO: Return type should be something like StatusOr<int> which would return
+  // number of read bytes if read succeeded and error code and error message
+  // otherwise (deduced from errno). We can implement that type easily on top of
+  // std::variant once c++17 becomes available in memgraph.
   int Read(void *buffer, size_t len);
 
  private:

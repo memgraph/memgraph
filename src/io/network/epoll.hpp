@@ -21,8 +21,7 @@ class Epoll {
  public:
   using Event = struct epoll_event;
 
-  Epoll(int flags) {
-    epoll_fd_ = epoll_create1(flags);
+  Epoll(int flags) : epoll_fd_(epoll_create1(flags)) {
     // epoll_create1 returns an error if there is a logical error in our code
     // (for example invalid flags) or if there is irrecoverable error. In both
     // cases it is best to terminate.
@@ -53,6 +52,6 @@ class Epoll {
   }
 
  private:
-  int epoll_fd_;
+  const int epoll_fd_;
 };
 }

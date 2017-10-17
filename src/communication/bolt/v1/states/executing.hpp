@@ -15,8 +15,8 @@
 
 namespace communication::bolt {
 
-template <typename Session>
-State HandleRun(Session &session, State state, Marker marker) {
+template <typename TSession>
+State HandleRun(TSession &session, State state, Marker marker) {
   const std::map<std::string, query::TypedValue> kEmptyFields = {
       {"fields", std::vector<query::TypedValue>{}}};
 

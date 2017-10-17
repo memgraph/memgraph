@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "io/network/addrinfo.hpp"
+#include "threading/sync/cpu_relax.hpp"
 #include "utils/likely.hpp"
 
 namespace io::network {
@@ -47,7 +48,7 @@ void Socket::Close() {
   socket_ = -1;
 }
 
-bool Socket::IsOpen() { return socket_ != -1; }
+bool Socket::IsOpen() const { return socket_ != -1; }
 
 bool Socket::Connect(const NetworkEndpoint &endpoint) {
   if (socket_ != -1) return false;
@@ -194,25 +195,27 @@ std::experimental::optional<Socket> Socket::Accept() {
   return Socket(sfd, endpoint);
 }
 
-const NetworkEndpoint &Socket::endpoint() const { return endpoint_; }
-
-bool Socket::Write(const std::string &str) {
-  return Write(str.c_str(), str.size());
-}
-
-bool Socket::Write(const char *data, size_t len) {
-  return Write(reinterpret_cast<const uint8_t *>(data), len);
-}
-
-bool Socket::Write(const uint8_t *data, size_t len) {
+bool Socket::Write(const uint8_t *data, size_t len,
+                   const std::function<bool()> &keep_retrying) {
   while (len > 0) {
-    // MSG_NOSIGNAL is here to disable raising a SIGPIPE
-    // signal when a connection dies mid-write, the socket
-    // will only return an EPIPE error
+    // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
+    // connection dies mid-write, the socket will only return an EPIPE error.
     auto written = send(socket_, data, len, MSG_NOSIGNAL);
-    if (UNLIKELY(written == -1)) return false;
-    len -= written;
-    data += written;
+    if (written == -1) {
+      if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+        // Terminal error, return failure.
+        return false;
+      }
+      // TODO: This can still cause timed out session to continue for a very
+      // long time. For example if timeout on send is 1 second and after every
+      // sencond we succeed in writing only one byte that this function can
+      // block for len seconds. Change semantics of keep_retrying function so
+      // that this check can be done in while loop even if send succeeds.
+      if (!keep_retrying()) return false;
+    } else {
+      len -= written;
+      data += written;
+    }
   }
   return true;
 }

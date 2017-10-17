@@ -2,6 +2,7 @@
 
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
 
@@ -12,8 +13,8 @@ namespace communication::bolt {
  * This function runs everything to make a Bolt handshake with the client.
  * @param session the session that should be used for the run
  */
-template <typename Session>
-State StateHandshakeRun(Session &session) {
+template <typename TSession>
+State StateHandshakeRun(TSession &session) {
   auto precmp = memcmp(session.buffer_.data(), kPreamble, sizeof(kPreamble));
   if (UNLIKELY(precmp != 0)) {
     DLOG(WARNING) << "Received a wrong preamble!";
@@ -21,10 +22,10 @@ State StateHandshakeRun(Session &session) {
   }
 
   // TODO so far we only support version 1 of the protocol so it doesn't
-  // make sense to check which version the client prefers
-  // this will change in the future
+  // make sense to check which version the client prefers this will change in
+  // the future.
 
-  if (!session.socket_.Write(kProtocol, sizeof(kProtocol))) {
+  if (!session.timeout_socket_.Write(kProtocol, sizeof(kProtocol))) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }

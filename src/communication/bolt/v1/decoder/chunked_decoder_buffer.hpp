@@ -116,7 +116,6 @@ class ChunkedDecoderBuffer {
       return ChunkState::Partial;
     }
 
-    data_.reserve(data_.size() + chunk_size);
     std::copy(data + 2, data + chunk_size + 2, std::back_inserter(data_));
     buffer_.Shift(chunk_size + 2);
 

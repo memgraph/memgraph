@@ -43,14 +43,13 @@ class SocketEventDispatcher {
       // probably what we want to do.
       try {
         // Hangup event.
-        if (UNLIKELY(event.events & EPOLLRDHUP)) {
+        if (event.events & EPOLLRDHUP) {
           listener.OnClose();
           continue;
         }
 
         // There was an error on the server side.
-        if (UNLIKELY(!(event.events & EPOLLIN) ||
-                     event.events & (EPOLLHUP | EPOLLERR))) {
+        if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
           listener.OnError();
           continue;
         }
@@ -88,16 +87,11 @@ class BaseListener {
   void OnData() {}
 
   void OnException(const std::exception &e) {
-    // TODO: this actually sounds quite bad, maybe we should close socket here
-    // because we don'y know in which state Listener class is.
-    LOG(ERROR) << "Exception was thrown while processing event on socket "
+    LOG(FATAL) << "Exception was thrown while processing event on socket "
                << socket_.fd() << " with message: " << e.what();
   }
 
-  void OnError() {
-    LOG(ERROR) << "Error on server side occured in epoll";
-    socket_.Close();
-  }
+  void OnError() { LOG(FATAL) << "Error on server side occured in epoll"; }
 
  protected:
   Socket &socket_;

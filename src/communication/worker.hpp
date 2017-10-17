@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <iomanip>
 #include <memory>
@@ -9,9 +10,11 @@
 #include <sstream>
 #include <thread>
 
+#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include "io/network/network_error.hpp"
+#include "io/network/socket.hpp"
 #include "io/network/socket_event_dispatcher.hpp"
 #include "io/network/stream_buffer.hpp"
 #include "threading/sync/spinlock.hpp"
@@ -27,20 +30,19 @@ namespace communication {
  * Listens for incomming data on connections and accepts new connections.
  * Also, executes sessions on incomming data.
  *
- * @tparam Session the worker can handle different Sessions, each session
+ * @tparam TSession the worker can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
- * @tparam Socket the input/output socket that should be used
- * @tparam SessionData the class with objects that will be forwarded to the
+ * @tparam TSessionData the class with objects that will be forwarded to the
  *         session
  */
-template <typename Session, typename Socket, typename SessionData>
+template <typename TSession, typename TSessionData>
 class Worker {
-  using StreamBuffer = io::network::StreamBuffer;
+  using Socket = io::network::Socket;
 
  public:
   void AddConnection(Socket &&connection) {
-    std::unique_lock<SpinLock> gurad(lock_);
+    std::unique_lock<SpinLock> guard(lock_);
     // Remember fd before moving connection into SessionListener.
     int fd = connection.fd();
     session_listeners_.push_back(
@@ -51,11 +53,31 @@ class Worker {
                             EPOLLIN | EPOLLRDHUP);
   }
 
-  Worker(SessionData &session_data) : session_data_(session_data) {}
+  Worker(TSessionData &session_data) : session_data_(session_data) {}
 
   void Start(std::atomic<bool> &alive) {
     while (alive) {
       dispatcher_.WaitAndProcessEvents();
+
+      bool check_sessions_for_timeouts = true;
+      while (check_sessions_for_timeouts) {
+        check_sessions_for_timeouts = false;
+
+        std::unique_lock<SpinLock> guard(lock_);
+        for (auto &session_listener : session_listeners_) {
+          if (session_listener->session().TimedOut()) {
+            // We need to unlock here, because OnSessionAndTxTimeout will need
+            // to acquire same lock.
+            guard.unlock();
+            session_listener->OnSessionAndTxTimeout();
+            // Since we released lock we can't continue iteration so we need to
+            // break. There could still be more sessions that timed out so we
+            // set check_sessions_for_timeout back to true.
+            check_sessions_for_timeouts = true;
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -65,76 +87,96 @@ class Worker {
   class SessionSocketListener : public io::network::BaseListener {
    public:
     SessionSocketListener(Socket &&socket,
-                          Worker<Session, Socket, SessionData> &worker)
+                          Worker<TSession, TSessionData> &worker)
         : BaseListener(session_.socket_),
           session_(std::move(socket), worker.session_data_),
           worker_(worker) {}
 
-    void OnError() {
-      LOG(ERROR) << "Error occured in this session";
-      OnClose();
-    }
+    auto &session() { return session_; }
+    const auto &session() const { return session_; }
+    const auto &TimedOut() const { return session_.TimedOut(); }
 
     void OnData() {
+      session_.last_event_time_ = std::chrono::steady_clock::now();
       DLOG(INFO) << "On data";
-
-      if (UNLIKELY(!session_.Alive())) {
-        DLOG(WARNING) << "Calling OnClose because the stream isn't alive!";
-        OnClose();
-        return;
-      }
-
       // allocate the buffer to fill the data
       auto buf = session_.Allocate();
-
       // read from the buffer at most buf.len bytes
       int len = session_.socket_.Read(buf.data, buf.len);
 
       // check for read errors
       if (len == -1) {
-        // this means we have read all available data
-        if (LIKELY(errno == EAGAIN || errno == EWOULDBLOCK)) {
+        // This means read would block or read was interrupted by signal.
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
           return;
         }
-
-        // some other error occurred, check errno
+        // Some other error occurred, check errno.
         OnError();
         return;
       }
-
-      // end of file, the client has closed the connection
-      if (UNLIKELY(len == 0)) {
+      // The client has closed the connection.
+      if (len == 0) {
         DLOG(WARNING) << "Calling OnClose because the socket is closed!";
         OnClose();
         return;
       }
 
-      // notify the stream that it has new data
+      // Notify the stream that it has new data.
       session_.Written(len);
-
       DLOG(INFO) << "OnRead";
-
       try {
         session_.Execute();
       } catch (const std::exception &e) {
-        LOG(ERROR) << "Error occured while executing statement. " << std::endl
+        LOG(ERROR) << "Error occured while executing statement with message: "
                    << e.what();
-        // TODO: report to client
+        OnError();
       }
-      // TODO: Should we even continue with this session if error occurs while
-      // reading.
+      session_.last_event_time_ = std::chrono::steady_clock::now();
+    }
+
+    // TODO: Remove duplication in next three functions.
+    void OnError() {
+      LOG(ERROR) << fmt::format(
+          "Error occured in session associated with {}:{}",
+          session_.socket_.endpoint().address(),
+          session_.socket_.endpoint().port());
+      CloseSession();
+    }
+
+    void OnException(const std::exception &e) {
+      LOG(ERROR) << fmt::format(
+          "Exception was thrown while processing event in session associated "
+          "with {}:{} with message: {}",
+          session_.socket_.endpoint().address(),
+          session_.socket_.endpoint().port(), e.what());
+      CloseSession();
+    }
+
+    void OnSessionAndTxTimeout() {
+      LOG(WARNING) << fmt::format(
+          "Session or transaction associated with {}:{} timed out.",
+          session_.socket_.endpoint().address(),
+          session_.socket_.endpoint().port());
+      // TODO: report to client what happend.
+      CloseSession();
     }
 
     void OnClose() {
       LOG(INFO) << fmt::format("Client {}:{} closed the connection.",
                                session_.socket_.endpoint().address(),
-                               session_.socket_.endpoint().port())
-                << std::endl;
+                               session_.socket_.endpoint().port());
+      CloseSession();
+    }
+
+   private:
+    void CloseSession() {
       session_.Close();
-      std::unique_lock<SpinLock> gurad(worker_.lock_);
+
+      std::unique_lock<SpinLock> guard(worker_.lock_);
       auto it = std::find_if(
           worker_.session_listeners_.begin(), worker_.session_listeners_.end(),
           [&](const auto &l) { return l->session_.Id() == session_.Id(); });
+
       CHECK(it != worker_.session_listeners_.end())
           << "Trying to remove session that is not found in worker's sessions";
       int i = it - worker_.session_listeners_.begin();
@@ -142,13 +184,12 @@ class Worker {
       worker_.session_listeners_.pop_back();
     }
 
-   private:
-    Session session_;
+    TSession session_;
     Worker &worker_;
   };
 
   SpinLock lock_;
-  SessionData &session_data_;
+  TSessionData &session_data_;
   io::network::SocketEventDispatcher<SessionSocketListener> dispatcher_;
   std::vector<std::unique_ptr<SessionSocketListener>> session_listeners_;
 };

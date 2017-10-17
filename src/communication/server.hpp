@@ -11,6 +11,7 @@
 #include <glog/logging.h>
 
 #include "communication/worker.hpp"
+#include "io/network/socket.hpp"
 #include "io/network/socket_event_dispatcher.hpp"
 
 namespace communication {
@@ -27,30 +28,44 @@ namespace communication {
  * Current Server achitecture:
  * incomming connection -> server -> worker -> session
  *
- * @tparam Session the server can handle different Sessions, each session
+ * @tparam TSession the server can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
- * @tparam Socket the input/output socket that should be used
- * @tparam SessionData the class with objects that will be forwarded to the
+ * @tparam TSessionData the class with objects that will be forwarded to the
  *         session
  */
-// TODO: Remove Socket templatisation. Socket requirements are very specific.
-// It needs to be in non blocking mode, etc.
-template <typename Session, typename Socket, typename SessionData>
+template <typename TSession, typename TSessionData>
 class Server {
  public:
-  using worker_t = Worker<Session, Socket, SessionData>;
+  using WorkerT = Worker<TSession, TSessionData>;
+  using Socket = io::network::Socket;
 
-  Server(Socket &&socket, SessionData &session_data)
-      : socket_(std::move(socket)), session_data_(session_data) {}
+  Server(const io::network::NetworkEndpoint &endpoint,
+         TSessionData &session_data)
+      : session_data_(session_data) {
+    // Without server we can't continue with application so we can just
+    // terminate here.
+    if (!socket_.Bind(endpoint)) {
+      LOG(FATAL) << "Cannot bind to socket on " << endpoint.address() << " at "
+                 << endpoint.port();
+    }
+    if (!socket_.SetNonBlocking()) {
+      LOG(FATAL) << "Cannot set socket to non blocking!";
+    }
+    if (!socket_.Listen(1024)) {
+      LOG(FATAL) << "Cannot listen on socket!";
+    }
+  }
+
+  const auto &endpoint() const { return socket_.endpoint(); }
 
   void Start(size_t n) {
     std::cout << fmt::format("Starting {} workers", n) << std::endl;
     workers_.reserve(n);
     for (size_t i = 0; i < n; ++i) {
-      workers_.push_back(std::make_unique<worker_t>(session_data_));
+      workers_.push_back(std::make_unique<WorkerT>(session_data_));
       worker_threads_.emplace_back(
-          [this](worker_t &worker) -> void { worker.Start(alive_); },
+          [this](WorkerT &worker) -> void { worker.Start(alive_); },
           std::ref(*workers_.back()));
     }
     std::cout << "Server is fully armed and operational" << std::endl;
@@ -81,15 +96,14 @@ class Server {
  private:
   class ConnectionAcceptor : public io::network::BaseListener {
    public:
-    ConnectionAcceptor(Socket &socket,
-                       Server<Session, Socket, SessionData> &server)
+    ConnectionAcceptor(Socket &socket, Server<TSession, TSessionData> &server)
         : io::network::BaseListener(socket), server_(server) {}
 
     void OnData() {
       DCHECK(server_.idx_ < server_.workers_.size()) << "Invalid worker id.";
       DLOG(INFO) << "On connect";
       auto connection = AcceptConnection();
-      if (UNLIKELY(!connection)) {
+      if (!connection) {
         // Connection is not available anymore or configuration failed.
         return;
       }
@@ -112,21 +126,22 @@ class Server {
           s->fd(), s->endpoint().address(), s->endpoint().family(),
           s->endpoint().port());
 
+      if (!s->SetTimeout(1, 0)) return std::experimental::nullopt;
       if (!s->SetKeepAlive()) return std::experimental::nullopt;
       if (!s->SetNoDelay()) return std::experimental::nullopt;
       return s;
     }
 
-    Server<Session, Socket, SessionData> &server_;
+    Server<TSession, TSessionData> &server_;
   };
 
-  std::vector<std::unique_ptr<worker_t>> workers_;
+  std::vector<std::unique_ptr<WorkerT>> workers_;
   std::vector<std::thread> worker_threads_;
   std::atomic<bool> alive_{true};
   int idx_{0};
 
   Socket socket_;
-  SessionData &session_data_;
+  TSessionData &session_data_;
 };
 
 }  // namespace communication

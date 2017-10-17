@@ -10,8 +10,6 @@ static constexpr const char interface[] = "127.0.0.1";
 
 unsigned char data[SIZE];
 
-test_server_t *serverptr;
-
 using namespace std::chrono_literals;
 
 TEST(Network, SessionLeak) {
@@ -19,28 +17,21 @@ TEST(Network, SessionLeak) {
   initialize_data(data, SIZE);
 
   // initialize listen socket
-  endpoint_t endpoint(interface, "0");
-  socket_t socket;
-  ASSERT_TRUE(socket.Bind(endpoint));
-  ASSERT_TRUE(socket.SetNonBlocking());
-  ASSERT_TRUE(socket.Listen(1024));
-
-  // get bound address
-  auto ep = socket.endpoint();
-  printf("ADDRESS: %s, PORT: %d\n", ep.address(), ep.port());
+  NetworkEndpoint endpoint(interface, "0");
+  printf("ADDRESS: %s, PORT: %d\n", endpoint.address(), endpoint.port());
 
   // initialize server
   TestData session_data;
-  test_server_t server(std::move(socket), session_data);
-  serverptr = &server;
+  ServerT server(endpoint, session_data);
 
   // start server
-  std::thread server_thread(server_start, serverptr, 2);
+  std::thread server_thread([&] { server.Start(2); });
 
   // start clients
   int N = 50;
   std::vector<std::thread> clients;
 
+  const auto &ep = server.endpoint();
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
     clients.push_back(std::thread(client_run, i, interface, ep.port_str(), data,

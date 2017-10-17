@@ -31,7 +31,8 @@ BASE_FLAGS = [
     '-I./libs/gflags/include',
     '-I./experimental/distributed/src',
     '-I./experimental/distributed/libs/cereal/include',
-    '-I./libs/postgresql/include'
+    '-I./libs/postgresql/include',
+    '-I./build/include'
 ]
 
 SOURCE_EXTENSIONS = [

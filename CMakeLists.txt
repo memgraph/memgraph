@@ -180,6 +180,7 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # all memgraph src files
 set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/decoder/decoded_value.cpp
+    ${src_dir}/communication/bolt/v1/session.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp

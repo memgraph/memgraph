@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <random>
@@ -11,24 +12,26 @@
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;
 
-using endpoint_t = io::network::NetworkEndpoint;
-using socket_t = io::network::Socket;
+using io::network::NetworkEndpoint;
+using io::network::Socket;
 
 class TestData {};
 
 class TestSession {
  public:
-  TestSession(socket_t &&socket, TestData &) : socket_(std::move(socket)) {
+  TestSession(Socket &&socket, TestData &) : socket_(std::move(socket)) {
     event_.data.ptr = this;
   }
 
-  bool Alive() { return socket_.IsOpen(); }
+  bool Alive() const { return socket_.IsOpen(); }
+  bool TimedOut() const { return false; }
 
   int Id() const { return socket_.fd(); }
 
@@ -56,15 +59,12 @@ class TestSession {
   }
 
   communication::bolt::Buffer<SIZE * 2> buffer_;
-  socket_t socket_;
+  Socket socket_;
   io::network::Epoll::Event event_;
+  std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
 };
 
-using test_server_t = communication::Server<TestSession, socket_t, TestData>;
-
-void server_start(void *serverptr, int num) {
-  ((test_server_t *)serverptr)->Start(num);
-}
+using ServerT = communication::Server<TestSession, TestData>;
 
 void client_run(int num, const char *interface, const char *port,
                 const unsigned char *data, int lo, int hi) {
@@ -72,8 +72,8 @@ void client_run(int num, const char *interface, const char *port,
   name << "Client " << num;
   unsigned char buffer[SIZE * REPLY], head[2];
   int have, read;
-  endpoint_t endpoint(interface, port);
-  socket_t socket;
+  NetworkEndpoint endpoint(interface, port);
+  Socket socket;
   ASSERT_TRUE(socket.Connect(endpoint));
   ASSERT_TRUE(socket.SetTimeout(2, 0));
   DLOG(INFO) << "Socket create: " << socket.fd();

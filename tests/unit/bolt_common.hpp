@@ -1,5 +1,6 @@
 #include <array>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -13,26 +14,19 @@
  */
 class TestSocket {
  public:
-  TestSocket(int socket) : socket(socket) {}
-  TestSocket(const TestSocket &s) : socket(s.id()){};
-  TestSocket(TestSocket &&other) { *this = std::forward<TestSocket>(other); }
+  explicit TestSocket(int socket) : socket_(socket) {}
+  TestSocket(const TestSocket &) = default;
+  TestSocket &operator=(const TestSocket &) = default;
+  TestSocket(TestSocket &&) = default;
+  TestSocket &operator=(TestSocket &&) = default;
 
-  TestSocket &operator=(TestSocket &&other) {
-    this->socket = other.socket;
-    other.socket = -1;
-    return *this;
-  }
+  void Close() { socket_ = -1; }
+  bool IsOpen() { return socket_ != -1; }
 
-  void Close() { socket = -1; }
-  bool IsOpen() { return socket != -1; }
+  int id() const { return socket_; }
 
-  int id() const { return socket; }
-
-  bool Write(const std::string &str) { return Write(str.c_str(), str.size()); }
-  bool Write(const char *data, size_t len) {
-    return Write(reinterpret_cast<const uint8_t *>(data), len);
-  }
-  bool Write(const uint8_t *data, size_t len) {
+  bool Write(const uint8_t *data, size_t len,
+             const std::function<bool()> & = [] { return false; }) {
     if (!write_success_) return false;
     for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
     return true;
@@ -43,7 +37,7 @@ class TestSocket {
   std::vector<uint8_t> output;
 
  protected:
-  int socket;
+  int socket_;
   bool write_success_{true};
 };
 

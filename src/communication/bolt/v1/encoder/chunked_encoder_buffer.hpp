@@ -92,7 +92,6 @@ class ChunkedEncoderBuffer {
 
     // 3. Copy whole chunk into the buffer.
     size_ += pos_;
-    buffer_.reserve(size_);
     std::copy(chunk_.begin(), chunk_.begin() + pos_,
               std::back_inserter(buffer_));
 

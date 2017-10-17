@@ -21,15 +21,12 @@
 #include "version.hpp"
 
 namespace fs = std::experimental::filesystem;
-using endpoint_t = io::network::NetworkEndpoint;
-using socket_t = io::network::Socket;
-using session_t = communication::bolt::Session<socket_t>;
-using result_stream_t =
-    communication::bolt::ResultStream<communication::bolt::Encoder<
-        communication::bolt::ChunkedEncoderBuffer<socket_t>>>;
-using session_data_t = communication::bolt::SessionData<result_stream_t>;
-using bolt_server_t =
-    communication::Server<session_t, socket_t, session_data_t>;
+using io::network::NetworkEndpoint;
+using io::network::Socket;
+using communication::bolt::SessionData;
+using SessionT = communication::bolt::Session<Socket>;
+using ResultStreamT = SessionT::ResultStreamT;
+using ServerT = communication::Server<SessionT, SessionData>;
 
 DEFINE_string(interface, "0.0.0.0",
               "Communication interface on which to listen.");
@@ -37,8 +34,7 @@ DEFINE_string(port, "7687", "Communication port on which to listen.");
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
-DEFINE_string(log_file, "",
-              "Path to where the log should be stored.");
+DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_string(log_link_basename, "",
               "Basename used for symlink creation to the last log file.");
 DEFINE_uint64(memory_warning_threshold, 1024,
@@ -52,7 +48,7 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 // 3) env - MEMGRAPH_CONFIG
 // 4) command line flags
 
-void load_config(int &argc, char **&argv) {
+void LoadConfig(int &argc, char **&argv) {
   std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
   if (getenv("HOME") != nullptr)
     configs.emplace_back(fs::path(getenv("HOME")) /
@@ -99,7 +95,7 @@ int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
-  load_config(argc, argv);
+  LoadConfig(argc, argv);
 
   google::InitGoogleLogging(argv[0]);
   google::SetLogDestination(google::INFO, FLAGS_log_file.c_str());
@@ -123,31 +119,19 @@ int main(int argc, char **argv) {
   });
 
   // Initialize bolt session data (Dbms and Interpreter).
-  session_data_t session_data;
+  SessionData session_data;
 
   // Initialize endpoint.
-  endpoint_t endpoint;
-  try {
-    endpoint = endpoint_t(FLAGS_interface, FLAGS_port);
-  } catch (io::network::NetworkEndpointException &e) {
-    LOG(FATAL) << e.what();
-  }
-
-  // Initialize socket.
-  socket_t socket;
-  if (!socket.Bind(endpoint)) {
-    LOG(FATAL) << "Cannot bind to socket on " << FLAGS_interface << " at "
-               << FLAGS_port;
-  }
-  if (!socket.SetNonBlocking()) {
-    LOG(FATAL) << "Cannot set socket to non blocking!";
-  }
-  if (!socket.Listen(1024)) {
-    LOG(FATAL) << "Cannot listen on socket!";
-  }
+  NetworkEndpoint endpoint = [&] {
+    try {
+      return NetworkEndpoint(FLAGS_interface, FLAGS_port);
+    } catch (io::network::NetworkEndpointException &e) {
+      LOG(FATAL) << e.what();
+    }
+  }();
 
   // Initialize server.
-  bolt_server_t server(std::move(socket), session_data);
+  ServerT server(endpoint, session_data);
 
   // register SIGTERM handler
   SignalHandler::register_handler(Signal::Terminate,
