@@ -106,7 +106,7 @@ TEST_F(Mvcc, RemoveAdvanceRemove) {
   EXPECT_EQ(T2_FIND, v1);
   engine.Advance(t2->id_);
   EXPECT_EQ(T2_FIND, nullptr);
-  EXPECT_DEATH(T2_REMOVE, ".*nullptr.*");
+  EXPECT_FALSE(T2_FIND);
 }
 
 int main(int argc, char **argv) {

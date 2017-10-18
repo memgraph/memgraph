@@ -2,6 +2,8 @@
 
 #undef T4_FIND
 #define T4_FIND version_list.find(*t4)
+#undef T3_FIND
+#define T3_FIND version_list.find(*t3)
 
 // IMPORTANT: look definiton of EXPECT_CRE and EXPECT_EXP macros in
 // tests/mvcc_find_update_common.hpp. Numbers in those macros represent
@@ -61,7 +63,7 @@ TEST_F(Mvcc, RemCmtRemCmt1) {
   T2_REMOVE;
   T2_COMMIT;
   T3_BEGIN;
-  EXPECT_DEATH(T3_REMOVE, ".*nullptr.*");
+  EXPECT_FALSE(T3_FIND);
 }
 
 TEST_F(Mvcc, UpdCmtUpdAbt1) {
@@ -108,7 +110,7 @@ TEST_F(Mvcc, RemCmtRemAbt1) {
   T2_REMOVE;
   T2_COMMIT;
   T3_BEGIN;
-  EXPECT_DEATH(T3_REMOVE, ".*nullptr.*");
+  EXPECT_FALSE(T3_FIND);
 }
 
 TEST_F(Mvcc, UpdAbtUpdCmt1) {
