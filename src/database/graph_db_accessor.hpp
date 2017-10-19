@@ -482,6 +482,9 @@ class GraphDbAccessor {
    */
   bool should_abort() const;
 
+  /** Returns the transaction of this accessor */
+  const tx::Transaction &transaction() const { return *transaction_; }
+
   /**
    * Initializes the record pointers in the given accessor.
    * The old_ and new_ pointers need to be initialized

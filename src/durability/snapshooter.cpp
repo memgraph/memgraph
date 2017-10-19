@@ -8,6 +8,7 @@
 #include "utils/datetime/timestamp.hpp"
 
 #include "durability/snapshooter.hpp"
+#include "durability/version.hpp"
 
 bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
                                const fs::path &snapshot_folder,
@@ -35,14 +36,28 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     int64_t vertex_num = 0, edge_num = 0;
     buffer.Open(snapshot_file);
 
-    std::vector<query::TypedValue> label_property_vector;
-    for (const auto &key : db_accessor_.GetIndicesKeys()) {
-      query::TypedValue label(*key.label_);
-      query::TypedValue property(*key.property_);
-      label_property_vector.push_back(label);
-      label_property_vector.push_back(property);
+    encoder.WriteRAW(durability::kMagicNumber.data(),
+                     durability::kMagicNumber.size());
+    encoder.WriteInt(durability::kVersion);
+
+    // Write the transaction snapshot into the snapshot. It's used when
+    // recovering from the combination of snapshot and write-ahead-log.
+    {
+      std::vector<query::TypedValue> tx_snapshot;
+      for (int64_t tx : db_accessor_.transaction().snapshot())
+        tx_snapshot.emplace_back(tx);
+      encoder.WriteList(tx_snapshot);
     }
-    encoder.WriteList(label_property_vector);
+
+    // Write label+property indexes as list ["label", "property", ...]
+    {
+      std::vector<query::TypedValue> index_vec;
+      for (const auto &key : db_accessor_.GetIndicesKeys()) {
+        index_vec.emplace_back(db_accessor_.LabelName(key.label_));
+        index_vec.emplace_back(db_accessor_.PropertyName(key.property_));
+      }
+      encoder.WriteList(index_vec);
+    }
 
     for (const auto &vertex : db_accessor_.Vertices(false)) {
       encoder.WriteVertex(vertex);

@@ -145,6 +145,23 @@ class DecodedValue {
 
 #undef DECL_GETTER_BY_REFERNCE
 
+#define TYPE_CHECKER(type) \
+  bool Is##type() const { return type_ == Type::type ; }
+
+  TYPE_CHECKER(Bool)
+  TYPE_CHECKER(Int)
+  TYPE_CHECKER(Double)
+  TYPE_CHECKER(String)
+  TYPE_CHECKER(List)
+  TYPE_CHECKER(Map)
+  TYPE_CHECKER(Vertex)
+  TYPE_CHECKER(Edge)
+  TYPE_CHECKER(UnboundedEdge)
+  TYPE_CHECKER(Path)
+
+#undef TYPE_CHECKER
+
+
   // conversion function to TypedValue
   operator query::TypedValue() const;
 

@@ -1,5 +1,17 @@
 # Change Log
 
+## Next release
+
+### Breaking Changes
+
+* Snapshot format changed (not backward compatible).
+
+### Major Features and Improvements
+
+
+### Bug Fixes and Other Changes
+
+
 ## v0.8.0
 
 ### Major Features and Improvements

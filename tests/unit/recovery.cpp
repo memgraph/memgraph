@@ -9,6 +9,7 @@
 #include "database/dbms.hpp"
 #include "durability/file_reader_buffer.hpp"
 #include "durability/recovery.hpp"
+#include "durability/version.hpp"
 
 DECLARE_int32(snapshot_cycle_sec);
 
@@ -108,8 +109,18 @@ TEST_F(RecoveryTest, TestEncoding) {
   snapshot::Summary summary;
   buffer.Open(snapshot, summary);
 
+  auto magic_number = durability::kMagicNumber;
+  buffer.Read(magic_number.data(), magic_number.size());
+  ASSERT_EQ(magic_number, durability::kMagicNumber);
   communication::bolt::DecodedValue dv;
   decoder.ReadValue(&dv);
+  ASSERT_EQ(dv.ValueInt(), durability::kVersion);
+  // Transactional Snapshot, igore value, just check type.
+  decoder.ReadValue(&dv);
+  ASSERT_TRUE(dv.IsList());
+  // Label property indices.
+  decoder.ReadValue(&dv);
+  ASSERT_EQ(dv.ValueList().size(), 0);
 
   std::vector<int64_t> ids;
   std::vector<std::string> edge_types;

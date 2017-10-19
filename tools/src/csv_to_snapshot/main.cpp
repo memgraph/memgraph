@@ -10,6 +10,7 @@
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/file_writer_buffer.hpp"
+#include "durability/version.hpp"
 #include "utils/string.hpp"
 
 bool ValidateNotEmpty(const char *flagname, const std::string &value) {
@@ -322,10 +323,17 @@ void Convert(const std::vector<std::string> &nodes,
   int64_t relationship_count = 0;
   MemgraphNodeIdMap node_id_map;
   // Snapshot file has the following contents in order:
-  //   1) list of label+property index
-  //   2) all nodes, sequentially, but not encoded as a list
-  //   3) all relationships, sequentially, but not encoded as a list
-  //   3) summary with node count, relationship count and hash digest
+  //   1) magic number
+  //   2) transactional snapshot of the snapshoter. When the snapshot is
+  //   generated it's an empty list.
+  //   3) list of label+property index
+  //   4) all nodes, sequentially, but not encoded as a list
+  //   5) all relationships, sequentially, but not encoded as a list
+  //   5) summary with node count, relationship count and hash digest
+  encoder.WriteRAW(durability::kMagicNumber.data(),
+                   durability::kMagicNumber.size());
+  encoder.WriteTypedValue(durability::kVersion);
+  encoder.WriteList({});  // Transactional snapshot.
   encoder.WriteList({});  // Label + property indexes.
   for (const auto &nodes_file : nodes) {
     node_count += ConvertNodes(nodes_file, node_id_map, encoder);
@@ -338,8 +346,8 @@ void Convert(const std::vector<std::string> &nodes,
 }
 
 static const char *usage =
-"[OPTION]... --out SNAPSHOT_FILE [--nodes=CSV_FILE]... [--edges=CSV_FILE]...\n"
-"Create a Memgraph recovery snapshot file from CSV.\n";
+    "[OPTION]... --out SNAPSHOT_FILE [--nodes=CSV_FILE]... [--edges=CSV_FILE]...\n"
+    "Create a Memgraph recovery snapshot file from CSV.\n";
 
 int main(int argc, char *argv[]) {
   gflags::SetUsageMessage(usage);

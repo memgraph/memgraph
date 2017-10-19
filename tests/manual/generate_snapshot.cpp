@@ -13,6 +13,8 @@
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/file_writer_buffer.hpp"
+#include "durability/version.hpp"
+#include "transactions/type.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
@@ -75,15 +77,19 @@ class Writer {
    * @Param indexes - A list of (label, property) indexes to create, each in the
    * "Label.property" form.
    */
-  Writer(const std::string &path, const std::vector<std::string> &indexes)
-      : buffer_(path), encoder_(buffer_) {
-    std::vector<std::string> indexes_flat;
-    for (const auto &index : indexes)
-      for (const auto &index_part : utils::Split(index, "."))
-        indexes_flat.emplace_back(index_part);
+  Writer(const std::string &path) : buffer_(path), encoder_(buffer_) {
+    encoder_.WriteRAW(durability::kMagicNumber.data(),
+                      durability::kMagicNumber.size());
+    encoder_.WriteTypedValue(durability::kVersion);
 
-    encoder_.WriteList(std::vector<query::TypedValue>(indexes_flat.begin(),
-                                                      indexes_flat.end()));
+    // Transactional Snapshot is an empty list of transaction IDs.
+    encoder_.WriteList(std::vector<query::TypedValue>{});
+  }
+
+  template <typename TValue>
+  void WriteList(const std::vector<TValue> &list) {
+    encoder_.WriteList(
+        std::vector<query::TypedValue>(list.begin(), list.end()));
   }
 
   int64_t WriteNode(
@@ -273,12 +279,15 @@ int main(int argc, char **argv) {
     config_file >> config;
   }
 
-  std::vector<std::string> indexes;
-  for (const auto &index : GetWithDefault(config, "indexes", {}))
-    indexes.push_back(index);
-  Writer writer(FLAGS_out, indexes);
+  Writer writer(FLAGS_out);
   GraphState state;
   ValueGenerator value_generator;
+
+  std::vector<std::string> indexes;
+  for (const auto &index : GetWithDefault(config, "indexes", {}))
+    for (const auto &index_part : utils::Split(index, "."))
+      indexes.push_back(index_part);
+  writer.WriteList(indexes);
 
   // Create nodes
   const auto &nodes_config = config["nodes"];
