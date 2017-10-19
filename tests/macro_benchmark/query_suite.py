@@ -175,7 +175,7 @@ class _QueryRunner:
     def __init__(self, args, database):
         self.log = logging.getLogger("_HarnessClientRunner")
         self.database = database
-        self.query_client = QueryClient(args, [2, 3])
+        self.query_client = QueryClient(args)
 
     def start(self):
         self.database.start()
@@ -200,7 +200,7 @@ class MemgraphRunner(_QueryRunner):
         argp.add_argument("--num-workers", help="Number of workers")
         self.args, remaining_args = argp.parse_known_args(args)
         database = Memgraph(remaining_args, self.args.runner_config,
-                            self.args.num_workers, [1])
+                            self.args.num_workers)
         super(MemgraphRunner, self).__init__(remaining_args, database)
 
 
@@ -214,5 +214,5 @@ class NeoRunner(_QueryRunner):
                           default=get_absolute_path("config/neo4j.conf"),
                           help="Path to neo config file")
         self.args, remaining_args = argp.parse_known_args(args)
-        database = Neo(remaining_args, self.args.runner_config, [1])
+        database = Neo(remaining_args, self.args.runner_config)
         super(NeoRunner, self).__init__(remaining_args, database)

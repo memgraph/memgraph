@@ -3,26 +3,23 @@ import os
 import time
 import json
 import tempfile
-from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY
+from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY, set_cpus
 
 log = logging.getLogger(__name__)
 
 try:
     import jail
-    APOLLO = True
 except:
     import jail_faker as jail
-    APOLLO = False
 
 
 # This could be a function, not a class, but we want to reuse jail process since
 # we can instantiate only 8 of them.
 class QueryClient:
-    def __init__(self, args, cpus=None):
+    def __init__(self, args):
         self.log = logging.getLogger("QueryClient")
         self.client = jail.get_process()
-        if cpus:
-            self.client.set_cpus(cpus)
+        set_cpus("client-cpu-ids", self.client, args)
 
     def __call__(self, queries, database, num_client_workers):
         self.log.debug("execute('%s')", str(queries))
@@ -79,11 +76,10 @@ class QueryClient:
 
 
 class LongRunningClient:
-    def __init__(self, args, cpus=None):
+    def __init__(self, args):
         self.log = logging.getLogger("LongRunningClient")
         self.client = jail.get_process()
-        if cpus:
-            self.client.set_cpus(cpus)
+        set_cpus("client-cpu-ids", self.client, args)
 
     # TODO: This is quite similar to __call__ method of QueryClient. Remove
     # duplication.

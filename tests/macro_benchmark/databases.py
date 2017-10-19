@@ -6,14 +6,12 @@ from collections import defaultdict
 import tempfile
 import shutil
 import time
-from common import get_absolute_path
+from common import get_absolute_path, set_cpus
 
 try:
     import jail
-    APOLLO = True
 except:
     import jail_faker as jail
-    APOLLO = False
 
 
 def wait_for_server(port, delay=1.0):
@@ -27,7 +25,7 @@ class Memgraph:
     """
     Knows how to start and stop memgraph.
     """
-    def __init__(self, args, config, num_workers, cpus=None):
+    def __init__(self, args, config, num_workers):
         self.log = logging.getLogger("MemgraphRunner")
         argp = ArgumentParser("MemgraphArgumentParser")
         argp.add_argument("--runner-bin",
@@ -39,8 +37,7 @@ class Memgraph:
         self.config = config
         self.num_workers = num_workers
         self.database_bin = jail.get_process()
-        if cpus:
-            self.database_bin.set_cpus(cpus)
+        set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):
         self.log.info("start")
@@ -70,7 +67,7 @@ class Neo:
     """
     Knows how to start and stop neo4j.
     """
-    def __init__(self, args, config, cpus=None):
+    def __init__(self, args, config):
         self.log = logging.getLogger("NeoRunner")
         argp = ArgumentParser("NeoArgumentParser")
         argp.add_argument("--runner-bin", default=get_absolute_path(
@@ -83,8 +80,7 @@ class Neo:
         self.args, _ = argp.parse_known_args(args)
         self.config = config
         self.database_bin = jail.get_process()
-        if cpus:
-            self.database_bin.set_cpus(cpus)
+        set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):
         self.log.info("start")
@@ -141,7 +137,7 @@ class Postgres:
         self.args, _ = argp.parse_known_args(args)
         self.username = "macro_benchmark"
         self.database_bin = jail.get_process()
-        self.database_bin.set_cpus(cpus)
+        set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):
         self.log.info("start")
