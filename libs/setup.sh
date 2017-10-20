@@ -107,3 +107,10 @@ cd json
 #wget "https://raw.githubusercontent.com/nlohmann/json/91e003285312167ad8365f387438ea371b465a7e/src/json.hpp"
 wget -nv http://deps.memgraph.io/json.hpp
 cd ..
+
+#ltalloc
+git clone https://github.com/r-lyeh/ltalloc.git
+ltalloc_tag="aefde2afa5cd49c9d1a797aa08ec08b2bec13a36" # Sep 15, 2017
+cd ltalloc
+git checkout ${ltalloc_tag}
+cd ..

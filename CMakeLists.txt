@@ -52,6 +52,10 @@ add_custom_target(clean_all
 # threading
 find_package(Threads REQUIRED)
 
+# optional Ltalloc
+option(USE_LTALLOC "Use Ltalloc instead of default allocator (default ON). \
+Set this to OFF to prevent linking with Ltalloc." ON)
+
 # optional readline
 option(USE_READLINE "Use GNU Readline library if available (default ON). \
 Set this to OFF to prevent linking with Readline even if it is available." ON)
@@ -69,6 +73,7 @@ endif()
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # For now, explicitly set -std= flag for C++17.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall")
+
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
@@ -215,6 +220,13 @@ set(memgraph_src_files
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags)
+
+if (USE_LTALLOC)
+    list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
+# TODO(mferencevic): Enable this when clang is updated on apollo.
+#    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+endif()
+
 if (READLINE_FOUND)
     list(APPEND MEMGRAPH_ALL_LIBS readline)
 endif()

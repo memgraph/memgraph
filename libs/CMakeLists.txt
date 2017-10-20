@@ -94,6 +94,12 @@ import_external_library(fmt STATIC
   # Skip testing.
   CMAKE_ARGS -DFMT_TEST=OFF)
 
+
+# Setup ltalloc library
+add_library(ltalloc STATIC ltalloc/ltalloc.cc)
+# TODO(mferencevic): Enable this when clang on apollo is updated
+#target_compile_options(ltalloc PUBLIC -flto)
+
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
 set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)
