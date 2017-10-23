@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import argparse
 import os
 import sys
 
@@ -74,7 +75,7 @@ def compare_values(data_cur, data_prev):
                     fmt += " //({:+.2%})//{}"
                     item = fmt.format(item_cur * scale, diff, sign)
                 else:
-                    fmt += "//(new)// {{icon plus color=blue}}"
+                    fmt += " //(new)// {{icon plus color=blue}}"
                     item = fmt.format(item_cur * scale)
                     performance_change = True
             ret[-1].append(item)
@@ -99,29 +100,30 @@ def generate_remarkup(data):
       ret += "No performance change detected.\n"
     return ret
 
-if len(sys.argv) > 4 or len(sys.argv) < 3:
-    print("usage: {} current_values previous_values output_file".format(sys.argv[0]))
-    print("    output_file is optional, if not specified the script outputs")
-    print("    to stdout, if set to '-' then it overwrites current_values")
-    sys.exit(1)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Process macro benchmark summary.")
+    parser.add_argument("--current", nargs = "+", required = True,
+            help = "current summary files")
+    parser.add_argument("--previous", nargs = "+", required = True,
+            help = "previous summary files")
+    parser.add_argument("--output", default = "",
+            help = "output file, if not specified the script outputs to stdout")
 
-if len(sys.argv) == 4:
-    infile_cur, infile_prev, outfile = sys.argv[1:]
-else:
-    infile_cur, infile_prev = sys.argv[1:]
-    outfile = ""
+    args = parser.parse_args()
 
-data_cur = parse_file(infile_cur)
-data_prev = parse_file(infile_prev)
+    data_cur, data_prev = [], []
+    for i, current in enumerate(args.current):
+        off = 0 if i == 0 else 1
+        data_cur += parse_file(current)[off:]
+    for i, previous in enumerate(args.previous):
+        off = 0 if i == 0 else 1
+        data_prev += parse_file(previous)[off:]
 
-markup = generate_remarkup(compare_values(data_cur, data_prev))
+    markup = generate_remarkup(compare_values(data_cur, data_prev))
 
-if outfile == "":
-    sys.stdout.write(markup)
-    sys.exit(0)
+    if args.output == "":
+        sys.stdout.write(markup)
+        sys.exit(0)
 
-if outfile == "-":
-    outfile = infile_cur
-
-with open(outfile, "w") as f:
-    f.write(generate_remarkup(compare_values(data_cur, data_prev)))
+    with open(args.output, "w") as f:
+        f.write(markup)

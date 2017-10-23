@@ -1,4 +1,3 @@
 {
-    "iterations": 5,
-    "num_client_workers": 16
+    "iterations": 3
 }

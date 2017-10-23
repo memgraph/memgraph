@@ -44,7 +44,7 @@ class Memgraph:
         env = {"MEMGRAPH_CONFIG": self.config}
         database_args = ["--port", self.args.port]
         if self.num_workers:
-            database_args += ["--num_workers", self.num_workers]
+            database_args += ["--num_workers", str(self.num_workers)]
 
         # find executable path
         runner_bin = self.args.runner_bin

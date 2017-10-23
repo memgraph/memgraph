@@ -16,12 +16,14 @@ except:
 # This could be a function, not a class, but we want to reuse jail process since
 # we can instantiate only 8 of them.
 class QueryClient:
-    def __init__(self, args):
+    def __init__(self, args, default_num_workers):
         self.log = logging.getLogger("QueryClient")
         self.client = jail.get_process()
         set_cpus("client-cpu-ids", self.client, args)
+        self.default_num_workers = default_num_workers
 
-    def __call__(self, queries, database, num_client_workers):
+    def __call__(self, queries, database, num_workers=None):
+        if num_workers is None: num_workers = self.default_num_workers
         self.log.debug("execute('%s')", str(queries))
 
         client_path = "tests/macro_benchmark/query_client"
@@ -46,7 +48,7 @@ class QueryClient:
         os.close(output_fd)
 
         client_args = ["--port", database.args.port,
-                       "--num-workers", str(num_client_workers),
+                       "--num-workers", str(num_workers),
                        "--output", output]
 
         cpu_time_start = database.database_bin.get_usage()["cpu"]

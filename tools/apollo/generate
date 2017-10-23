@@ -188,6 +188,12 @@ MACRO_BENCHMARK_ARGS = (
     "QuerySuite MemgraphRunner "
     "--groups aggregation 1000_create unwind_create dense_expand match "
     "--no-strict --database-cpu-ids 1 --client-cpu-ids 2")
+MACRO_PARALLEL_BENCHMARK_ARGS = (
+    "QueryParallelSuite MemgraphRunner --groups aggregation_parallel "
+    "--database-cpu-ids 1 2 3 4 5 6 7 8 9 "
+    "--client-cpu-ids 10 11 12 13 14 15 16 17 18 19 "
+    "--num-database-workers 9 --num-clients-workers 30 --no-strict")
+
 macro_bench_path = os.path.join(BASE_DIR, "tests", "macro_benchmark")
 harness_client_binaries = os.path.join(BUILD_RELEASE_DIR, "tests",
         "macro_benchmark")
@@ -197,9 +203,17 @@ infile = create_archive("macro_benchmark", [binary_release_path,
         harness_client_binaries, postgresql_lib_dir], cwd = WORKSPACE_DIR)
 supervisor = "./memgraph/tests/macro_benchmark/harness.py"
 outfile_paths = "\./memgraph/tests/macro_benchmark/\.harness_summary"
-RUNS.append(generate_run("macro_benchmark", supervisor = supervisor,
-        arguments = MACRO_BENCHMARK_ARGS, infile = infile,
+RUNS.append(generate_run("macro_benchmark__query_suite",
+        supervisor = supervisor,
+        arguments = MACRO_BENCHMARK_ARGS,
+        infile = infile,
         outfile_paths = outfile_paths))
+RUNS.append(generate_run("macro_benchmark__query_parallel_suite",
+        supervisor = supervisor,
+        arguments = MACRO_PARALLEL_BENCHMARK_ARGS,
+        infile = infile,
+        outfile_paths = outfile_paths,
+        slave_group = "remote_20c140g"))
 
 # macro benchmark parent tests
 if mode == "diff":
@@ -221,8 +235,17 @@ if mode == "diff":
     supervisor = "./parent/tests/macro_benchmark/harness.py"
     args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
     outfile_paths = "\./parent/tests/macro_benchmark/\.harness_summary"
-    RUNS.append(generate_run("macro_benchmark_parent", supervisor = supervisor,
-            arguments = args, infile = infile, outfile_paths = outfile_paths))
+    RUNS.append(generate_run("macro_benchmark_parent__query_suite",
+            supervisor = supervisor,
+            arguments = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path,
+            infile = infile,
+            outfile_paths = outfile_paths))
+    RUNS.append(generate_run("macro_benchmark_parent__query_parallel_suite",
+            supervisor = supervisor,
+            arguments = MACRO_PARALLEL_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path,
+            infile = infile,
+            outfile_paths = outfile_paths,
+            slave_group = "remote_20c140g"))
 
     # macro benchmark comparison data process
     script_path = os.path.join(BASE_DIR, "tools", "apollo",
@@ -230,9 +253,13 @@ if mode == "diff":
     infile = create_archive("macro_benchmark_summary", [script_path],
             cwd = WORKSPACE_DIR)
     cmd = "./memgraph/tools/apollo/macro_benchmark_summary " \
-            "macro_benchmark/memgraph/tests/macro_benchmark/.harness_summary " \
-            "macro_benchmark_parent/parent/tests/macro_benchmark/.harness_summary " \
-            ".harness_summary"
+            "--current " \
+            "macro_benchmark__query_suite/memgraph/tests/macro_benchmark/.harness_summary " \
+            "macro_benchmark__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary " \
+            "--previous " \
+            "macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary " \
+            "macro_benchmark_parent__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary " \
+            "--output .harness_summary"
     outfile_paths = "\./.harness_summary"
     DATA_PROCESS.append(generate_run("macro_benchmark_summary", typ = "data process",
             commands = cmd, infile = infile, outfile_paths = outfile_paths))

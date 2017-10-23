@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 from collections import defaultdict
 import tempfile
 from statistics import median
-from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY
+from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY, APOLLO
 from databases import Memgraph, Neo
 from clients import QueryClient
 
@@ -40,7 +40,7 @@ class _QuerySuite:
         scenario_config = scenario.get("config")
         scenario_config = next(scenario_config()) if scenario_config else {}
 
-        def execute(config_name, num_client_workers=1):
+        def execute(config_name, num_client_workers=None):
             queries = scenario.get(config_name)
             start_time = time.time()
             if queries:
@@ -65,7 +65,6 @@ class _QuerySuite:
                     pass
 
         measurements = []
-
         measurement_lists = defaultdict(list)
 
         # Run the whole test 3 times because memgraph is sometimes
@@ -78,7 +77,7 @@ class _QuerySuite:
             for _ in range(min(scenario_config.get("iterations", 1),
                                scenario_config.get("warmup", 2))):
                 execute("itersetup")
-                execute("run", scenario_config.get("num_client_workers", 1))
+                execute("run")
                 execute("iterteardown")
 
             # TODO per scenario/run runner configuration
@@ -89,8 +88,7 @@ class _QuerySuite:
                 # have to start and stop the client for each iteration, it would
                 # most likely run faster
                 execute("itersetup")
-                run_result = execute("run",
-                                     scenario_config.get("num_client_workers", 1))
+                run_result = execute("run")
                 add_measurement(run_result, iteration, CPU_TIME)
                 add_measurement(run_result, iteration, MAX_MEMORY)
                 assert len(run_result["groups"]) == 1, \
@@ -158,8 +156,8 @@ class QueryParallelSuite(_QuerySuite):
         _QuerySuite.__init__(self, args)
 
     def runners(self):
-        # TODO: We should use different runners which will use more threads.
-        return {"MemgraphRunner" : MemgraphRunner, "NeoRunner" : NeoRunner}
+        return {"MemgraphRunner" : MemgraphParallelRunner, "NeoRunner" :
+                NeoParallelRunner}
 
     def groups(self):
         return ["aggregation_parallel", "create_parallel"]
@@ -172,10 +170,10 @@ class _QueryRunner:
     Execution returns benchmarking data (execution times, memory
     usage etc).
     """
-    def __init__(self, args, database):
+    def __init__(self, args, database, num_client_workers):
         self.log = logging.getLogger("_HarnessClientRunner")
         self.database = database
-        self.query_client = QueryClient(args)
+        self.query_client = QueryClient(args, num_client_workers)
 
     def start(self):
         self.database.start()
@@ -195,13 +193,11 @@ class MemgraphRunner(_QueryRunner):
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
         argp.add_argument("--runner-config", default=get_absolute_path(
-                "benchmarking_latency.conf", "config"),
+                "benchmarking.conf", "config"),
                 help="Path to memgraph config")
-        argp.add_argument("--num-workers", help="Number of workers")
         self.args, remaining_args = argp.parse_known_args(args)
-        database = Memgraph(remaining_args, self.args.runner_config,
-                            self.args.num_workers)
-        super(MemgraphRunner, self).__init__(remaining_args, database)
+        database = Memgraph(remaining_args, self.args.runner_config, 1)
+        super(MemgraphRunner, self).__init__(remaining_args, database, 1)
 
 
 class NeoRunner(_QueryRunner):
@@ -216,3 +212,46 @@ class NeoRunner(_QueryRunner):
         self.args, remaining_args = argp.parse_known_args(args)
         database = Neo(remaining_args, self.args.runner_config)
         super(NeoRunner, self).__init__(remaining_args, database)
+
+
+class NeoParallelRunner(_QueryRunner):
+    """
+    Configures neo4j database for QuerySuite execution.
+    """
+    def __init__(self, args):
+        argp = ArgumentParser("NeoRunnerArgumentParser")
+        argp.add_argument("--runner-config",
+                          default=get_absolute_path("config/neo4j.conf"),
+                          help="Path to neo config file")
+        argp.add_argument("--num-client-workers", type=int, default=24,
+                          help="Number of clients")
+        self.args, remaining_args = argp.parse_known_args(args)
+        assert not APOLLO or self.args.num_client_workers, \
+                "--client-num-clients is obligatory flag on apollo"
+        database = Neo(remaining_args, self.args.runner_config)
+        super(NeoRunner, self).__init__(
+                remaining_args, database, self.args.num_client_workers)
+
+
+class MemgraphParallelRunner(_QueryRunner):
+    """
+    Configures memgraph database for QuerySuite execution.
+    """
+    def __init__(self, args):
+        argp = ArgumentParser("MemgraphRunnerArgumentParser")
+        argp.add_argument("--runner-config", default=get_absolute_path(
+                "benchmarking.conf", "config"),
+                help="Path to memgraph config")
+        argp.add_argument("--num-database-workers", type=int, default=8,
+                          help="Number of workers")
+        argp.add_argument("--num-client-workers", type=int, default=24,
+                          help="Number of clients")
+        self.args, remaining_args = argp.parse_known_args(args)
+        assert not APOLLO or self.args.num_database_workers, \
+                "--num-database--workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, \
+                "--num-client-workers is obligatory flag on apollo"
+        database = Memgraph(remaining_args, self.args.runner_config,
+                            self.args.num_database_workers)
+        super(MemgraphParallelRunner, self).__init__(
+                remaining_args, database, self.args.num_client_workers)
