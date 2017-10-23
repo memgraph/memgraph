@@ -8,5 +8,5 @@ namespace tx {
   using transaction_id_t = uint64_t;
 
   /** Type of a tx::Transcation's command id member */
-  using command_id_t = uint64_t;
+  using command_id_t = uint16_t;
 }
