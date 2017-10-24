@@ -258,7 +258,7 @@ if mode == "diff":
             "macro_benchmark__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary " \
             "--previous " \
             "macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary " \
-            "macro_benchmark_parent__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary " \
+            "macro_benchmark_parent__query_parallel_suite/parent/tests/macro_benchmark/.harness_summary " \
             "--output .harness_summary"
     outfile_paths = "\./.harness_summary"
     DATA_PROCESS.append(generate_run("macro_benchmark_summary", typ = "data process",
