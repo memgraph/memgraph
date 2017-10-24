@@ -410,7 +410,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   auto dba = dbms.active();
   auto label = dba->Label("label");
   QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n"));
-  CheckPlan(storage, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
+  CheckPlan(storage, ExpectScanAllByLabel(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchPathReturn) {
@@ -1132,7 +1132,7 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label, property, lit_42),
-            ExpectFilter(), ExpectProduce());
+            ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, BestPropertyIndexed) {
@@ -1194,9 +1194,8 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
   auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
-            ExpectFilter(),
             ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2),
-            ExpectFilter(), ExpectProduce());
+            ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
@@ -1223,7 +1222,7 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyRange(label, property, lower_bound,
                                                 upper_bound),
-              ExpectFilter(), ExpectProduce());
+              ExpectProduce());
   };
   {
     // Test relation operators which form an upper bound for range.
@@ -1373,7 +1372,7 @@ TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
   // We expect 2x ScanAll and then Expand, since we are guessing that is
   // faster (due to low label index vertex count).
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectScanAllByLabel(),
-            ExpectExpand(), ExpectFilter(), ExpectProduce());
+            ExpectExpand(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchScanToExpand) {

@@ -62,27 +62,6 @@ auto ReducePattern(
   return last_res;
 }
 
-void ForEachPattern(
-    Pattern &pattern, std::function<void(NodeAtom *)> base,
-    std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
-  auto atoms_it = pattern.atoms_.begin();
-  auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-  DCHECK(current_node) << "First pattern atom is not a node";
-  base(current_node);
-  // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
-  while (atoms_it != pattern.atoms_.end()) {
-    auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
-    DCHECK(edge) << "Expected an edge atom in pattern.";
-    DCHECK(atoms_it != pattern.atoms_.end())
-        << "Edge atom should not end the pattern.";
-    auto prev_node = current_node;
-    current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
-    DCHECK(current_node) << "Expected a node atom in pattern.";
-    collect(prev_node, edge, current_node);
-  }
-}
-
 auto GenCreate(Create &create, LogicalOperator *input_op,
                const SymbolTable &symbol_table,
                std::unordered_set<Symbol> &bound_symbols) {
@@ -94,38 +73,8 @@ auto GenCreate(Create &create, LogicalOperator *input_op,
   return last_op;
 }
 
-// Collects symbols from identifiers found in visited AST nodes.
-class UsedSymbolsCollector : public HierarchicalTreeVisitor {
- public:
-  explicit UsedSymbolsCollector(const SymbolTable &symbol_table)
-      : symbol_table_(symbol_table) {}
-
-  using HierarchicalTreeVisitor::PostVisit;
-  using HierarchicalTreeVisitor::PreVisit;
-  using HierarchicalTreeVisitor::Visit;
-
-  bool PostVisit(All &all) override {
-    // Remove the symbol which is bound by all, because we are only interested
-    // in free (unbound) symbols.
-    symbols_.erase(symbol_table_.at(*all.identifier_));
-    return true;
-  }
-
-  bool Visit(Identifier &ident) override {
-    symbols_.insert(symbol_table_.at(ident));
-    return true;
-  }
-
-  bool Visit(PrimitiveLiteral &) override { return true; }
-  bool Visit(ParameterLookup &) override { return true; }
-  bool Visit(query::CreateIndex &) override { return true; }
-
-  std::unordered_set<Symbol> symbols_;
-  const SymbolTable &symbol_table_;
-};
-
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols,
-                           const Filters::FilterInfo &filter) {
+                           const FilterInfo &filter) {
   for (const auto &symbol : filter.used_symbols) {
     if (bound_symbols.find(symbol) == bound_symbols.end()) {
       return false;
@@ -505,137 +454,18 @@ auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
   return last_op;
 }
 
-// Converts multiple Patterns to Expansions. Each Pattern can contain an
-// arbitrarily long chain of nodes and edges. The conversion to an Expansion is
-// done by splitting a pattern into triplets (node1, edge, node2). The triplets
-// conserve the semantics of the pattern. For example, in a pattern:
-// (m) -[e]- (n) -[f]- (o) the same can be achieved with:
-// (m) -[e]- (n), (n) -[f]- (o).
-// This representation makes it easier to permute from which node or edge we
-// want to start expanding.
-std::vector<Expansion> NormalizePatterns(
-    const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
-  std::vector<Expansion> expansions;
-  auto ignore_node = [&](auto *) {};
-  auto collect_expansion = [&](auto *prev_node, auto *edge,
-                               auto *current_node) {
-    UsedSymbolsCollector collector(symbol_table);
-    // Remove symbols which are bound by variable expansions.
-    if (edge->IsVariable()) {
-      if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
-      if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      collector.symbols_.erase(symbol_table.at(*edge->inner_edge_));
-      collector.symbols_.erase(symbol_table.at(*edge->inner_node_));
-      if (edge->filter_expression_) edge->filter_expression_->Accept(collector);
-    }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false,
-                                      collector.symbols_, current_node});
-  };
-  for (const auto &pattern : patterns) {
-    if (pattern->atoms_.size() == 1U) {
-      auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-      DCHECK(node) << "First pattern atom is not a node";
-      expansions.emplace_back(Expansion{node});
-    } else {
-      ForEachPattern(*pattern, ignore_node, collect_expansion);
-    }
-  }
-  return expansions;
-}
-
-// Fills the given Matching, by converting the Match patterns to normalized
-// representation as Expansions. Filters used in the Match are also collected,
-// as well as edge symbols which determine Cyphermorphism. Collecting filters
-// will lift them out of a pattern and generate new expressions (just like they
-// were in a Where clause).
-void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
-                 SymbolTable &symbol_table, AstTreeStorage &storage,
-                 Matching &matching) {
-  auto expansions = NormalizePatterns(symbol_table, patterns);
-  std::unordered_set<Symbol> edge_symbols;
-  for (const auto &expansion : expansions) {
-    // Matching may already have some expansions, so offset our index.
-    const int expansion_ix = matching.expansions.size();
-    // Map node1 symbol to expansion
-    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
-    // Add node1 to all symbols.
-    matching.expansion_symbols.insert(node1_sym);
-    if (expansion.edge) {
-      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
-      // Fill edge symbols for Cyphermorphism.
-      edge_symbols.insert(edge_sym);
-      // Map node2 symbol to expansion
-      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
-      // Add edge and node2 to all symbols
-      matching.expansion_symbols.insert(edge_sym);
-      matching.expansion_symbols.insert(node2_sym);
-    }
-    matching.expansions.push_back(expansion);
-  }
-  if (!edge_symbols.empty()) {
-    matching.edge_symbols.emplace_back(edge_symbols);
-  }
-  for (auto *pattern : patterns) {
-    matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
-    if (pattern->identifier_->user_declared_) {
-      std::vector<Symbol> path_elements;
-      for (auto *pattern_atom : pattern->atoms_)
-        path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
-      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_),
-                                   std::move(path_elements));
-    }
-  }
-  if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
-  }
-}
-void AddMatching(const Match &match, SymbolTable &symbol_table,
-                 AstTreeStorage &storage, Matching &matching) {
-  return AddMatching(match.patterns_, match.where_, symbol_table, storage,
-                     matching);
-}
-
-auto SplitExpressionOnAnd(Expression *expression) {
-  std::vector<Expression *> expressions;
-  std::stack<Expression *> pending_expressions;
-  pending_expressions.push(expression);
-  while (!pending_expressions.empty()) {
-    auto *current_expression = pending_expressions.top();
-    pending_expressions.pop();
-    if (auto *and_op = dynamic_cast<AndOperator *>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
-    }
-  }
-  return expressions;
-}
-
 }  // namespace
 
 namespace impl {
 
-// Returns false if the symbol was already bound, otherwise binds it and
-// returns true.
-bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
-                const Symbol &symbol) {
-  auto insertion = bound_symbols.insert(symbol);
-  return insertion.second;
-}
-
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
-                           std::vector<Filters::FilterInfo> &all_filters,
-                           AstTreeStorage &storage) {
+                           Filters &filters, AstTreeStorage &storage) {
   Expression *filter_expr = nullptr;
-  for (auto filters_it = all_filters.begin();
-       filters_it != all_filters.end();) {
+  for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
       filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr,
                                                 filters_it->expression);
-      filters_it = all_filters.erase(filters_it);
+      filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
@@ -645,9 +475,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
 
 LogicalOperator *GenFilters(LogicalOperator *last_op,
                             const std::unordered_set<Symbol> &bound_symbols,
-                            std::vector<Filters::FilterInfo> &all_filters,
-                            AstTreeStorage &storage) {
-  auto *filter_expr = ExtractFilters(bound_symbols, all_filters, storage);
+                            Filters &filters, AstTreeStorage &storage) {
+  auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
   if (filter_expr) {
     last_op =
         new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
@@ -700,7 +529,7 @@ LogicalOperator *GenCreateForPattern(
     const SymbolTable &symbol_table,
     std::unordered_set<Symbol> &bound_symbols) {
   auto base = [&](NodeAtom *node) -> LogicalOperator * {
-    if (BindSymbol(bound_symbols, symbol_table.at(*node->identifier_)))
+    if (bound_symbols.insert(symbol_table.at(*node->identifier_)).second)
       return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
     else
       return input_op;
@@ -713,10 +542,10 @@ LogicalOperator *GenCreateForPattern(
     // If the expand node was already bound, then we need to indicate this,
     // so that CreateExpand only creates an edge.
     bool node_existing = false;
-    if (!BindSymbol(bound_symbols, symbol_table.at(*node->identifier_))) {
+    if (!bound_symbols.insert(symbol_table.at(*node->identifier_)).second) {
       node_existing = true;
     }
-    if (!BindSymbol(bound_symbols, symbol_table.at(*edge->identifier_))) {
+    if (!bound_symbols.insert(symbol_table.at(*edge->identifier_)).second) {
       LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
     }
     return new CreateExpand(node, edge,
@@ -792,238 +621,11 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
   // Reset bound symbols, so that only those in WITH are exposed.
   bound_symbols.clear();
   for (const auto &symbol : body.output_symbols()) {
-    BindSymbol(bound_symbols, symbol);
+    bound_symbols.insert(symbol);
   }
   return last_op;
 }
 
 }  // namespace impl
-
-// Analyzes the filter expression by collecting information on filtering labels
-// and properties to be used with indexing. Note that `all_filters_` are never
-// updated here, but only `label_filters_` and `property_filters_` are.
-void Filters::AnalyzeFilter(Expression *expr, const SymbolTable &symbol_table) {
-  using Bound = ScanAllByLabelPropertyRange::Bound;
-  auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
-                                auto *&ident) {
-    return (prop_lookup = dynamic_cast<PropertyLookup *>(maybe_lookup)) &&
-           (ident = dynamic_cast<Identifier *>(prop_lookup->expression_));
-  };
-  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) {
-    PropertyLookup *prop_lookup = nullptr;
-    Identifier *ident = nullptr;
-    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
-      UsedSymbolsCollector collector(symbol_table);
-      val_expr->Accept(collector);
-      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
-          .emplace_back(PropertyFilter{collector.symbols_, val_expr});
-    }
-  };
-  auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) {
-    PropertyLookup *prop_lookup = nullptr;
-    Identifier *ident = nullptr;
-    if (get_property_lookup(expr1, prop_lookup, ident)) {
-      // n.prop > value
-      UsedSymbolsCollector collector(symbol_table);
-      expr2->Accept(collector);
-      auto prop_filter = PropertyFilter{collector.symbols_};
-      prop_filter.lower_bound = Bound{expr2, bound_type};
-      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
-          .emplace_back(std::move(prop_filter));
-    }
-    if (get_property_lookup(expr2, prop_lookup, ident)) {
-      // value > n.prop
-      UsedSymbolsCollector collector(symbol_table);
-      expr1->Accept(collector);
-      auto prop_filter = PropertyFilter{collector.symbols_};
-      prop_filter.upper_bound = Bound{expr1, bound_type};
-      property_filters_[symbol_table.at(*ident)][prop_lookup->property_]
-          .emplace_back(std::move(prop_filter));
-    }
-  };
-  // We are only interested to see the insides of And, because Or prevents
-  // indexing since any labels and properties found there may be optional.
-  if (auto *and_op = dynamic_cast<AndOperator *>(expr)) {
-    AnalyzeFilter(and_op->expression1_, symbol_table);
-    AnalyzeFilter(and_op->expression2_, symbol_table);
-  } else if (auto *labels_test = dynamic_cast<LabelsTest *>(expr)) {
-    // Since LabelsTest may contain any expression, we can only use the
-    // simplest test on an identifier.
-    if (auto *ident = dynamic_cast<Identifier *>(labels_test->expression_)) {
-      const auto &symbol = symbol_table.at(*ident);
-      label_filters_[symbol].insert(labels_test->labels_.begin(),
-                                    labels_test->labels_.end());
-    }
-  } else if (auto *eq = dynamic_cast<EqualOperator *>(expr)) {
-    // Try to get property equality test from the top expressions.
-    // Unfortunately, we cannot go deeper inside Equal, because chained equals
-    // need not correspond to And. For example, `(n.prop = value) = false)`:
-    //         EQ
-    //       /    \
-    //      EQ   false  -- top expressions
-    //    /    \
-    // n.prop  value
-    // Here the `prop` may be different than `value` resulting in `false`. This
-    // would compare with the top level `false`, producing `true`. Therefore, it
-    // is incorrect to pick up `n.prop = value` for scanning by property index.
-    add_prop_equal(eq->expression1_, eq->expression2_);
-    // And reversed.
-    add_prop_equal(eq->expression2_, eq->expression1_);
-  } else if (auto *gt = dynamic_cast<GreaterOperator *>(expr)) {
-    add_prop_greater(gt->expression1_, gt->expression2_,
-                     Bound::Type::EXCLUSIVE);
-  } else if (auto *ge = dynamic_cast<GreaterEqualOperator *>(expr)) {
-    add_prop_greater(ge->expression1_, ge->expression2_,
-                     Bound::Type::INCLUSIVE);
-  } else if (auto *lt = dynamic_cast<LessOperator *>(expr)) {
-    // Like greater, but in reverse.
-    add_prop_greater(lt->expression2_, lt->expression1_,
-                     Bound::Type::EXCLUSIVE);
-  } else if (auto *le = dynamic_cast<LessEqualOperator *>(expr)) {
-    // Like greater equal, but in reverse.
-    add_prop_greater(le->expression2_, le->expression1_,
-                     Bound::Type::INCLUSIVE);
-  }
-  // TODO: Collect comparisons like `expr1 < n.prop < expr2` for potential
-  // indexing by range. Note, that the generated Ast uses AND for chained
-  // relation operators. Therefore, `expr1 < n.prop < expr2` will be represented
-  // as `expr1 < n.prop AND n.prop < expr2`.
-}
-
-void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
-                                    AstTreeStorage &storage) {
-  UsedSymbolsCollector collector(symbol_table);
-
-  auto add_properties_variable = [&](EdgeAtom *atom) {
-    const auto &symbol = symbol_table.at(*atom->identifier_);
-    for (auto &prop_pair : atom->properties_) {
-      // We need to store two property-lookup filters in all_filters. One is
-      // used for inlining property filters into variable expansion, and
-      // utilizes the inner_edge symbol. The other is used for post-expansion
-      // filtering and does not use the inner_edge symbol, but the edge symbol
-      // (a list of edges).
-      {
-        collector.symbols_.clear();
-        prop_pair.second->Accept(collector);
-        collector.symbols_.emplace(symbol_table.at(*atom->inner_node_));
-        collector.symbols_.emplace(symbol_table.at(*atom->inner_edge_));
-        // First handle the inline property filter.
-        auto *property_lookup =
-            storage.Create<PropertyLookup>(atom->inner_edge_, prop_pair.first);
-        auto *prop_equal =
-            storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-        all_filters_.emplace_back(FilterInfo{prop_equal, collector.symbols_});
-      }
-      {
-        collector.symbols_.clear();
-        prop_pair.second->Accept(collector);
-        collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
-        // Now handle the post-expansion filter.
-        // Create a new identifier and a symbol which will be filled in All.
-        auto *identifier = atom->identifier_->Clone(storage);
-        symbol_table[*identifier] =
-            symbol_table.CreateSymbol(identifier->name_, false);
-        // Create an equality expression and store it in all_filters_.
-        auto *property_lookup =
-            storage.Create<PropertyLookup>(identifier, prop_pair.first);
-        auto *prop_equal =
-            storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-        all_filters_.emplace_back(
-            FilterInfo{storage.Create<All>(identifier, atom->identifier_,
-                                           storage.Create<Where>(prop_equal)),
-                       collector.symbols_});
-      }
-    }
-  };
-  auto add_properties = [&](auto *atom) {
-    const auto &symbol = symbol_table.at(*atom->identifier_);
-    for (auto &prop_pair : atom->properties_) {
-      collector.symbols_.clear();
-      prop_pair.second->Accept(collector);
-      // Store a PropertyFilter on the value of the property.
-      property_filters_[symbol][prop_pair.first.second].emplace_back(
-          PropertyFilter{collector.symbols_, prop_pair.second});
-      // Create an equality expression and store it in all_filters_.
-      auto *property_lookup =
-          storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
-      auto *prop_equal =
-          storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-      collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
-      all_filters_.emplace_back(FilterInfo{prop_equal, collector.symbols_});
-    }
-  };
-  auto add_node_filter = [&](NodeAtom *node) {
-    const auto &node_symbol = symbol_table.at(*node->identifier_);
-    if (!node->labels_.empty()) {
-      // Store the filtered labels.
-      label_filters_[node_symbol].insert(node->labels_.begin(),
-                                         node->labels_.end());
-      // Create a LabelsTest and store it in all_filters_.
-      all_filters_.emplace_back(FilterInfo{
-          storage.Create<LabelsTest>(node->identifier_, node->labels_),
-          std::unordered_set<Symbol>{node_symbol}});
-    }
-    add_properties(node);
-  };
-  auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
-    if (edge->IsVariable())
-      add_properties_variable(edge);
-    else
-      add_properties(edge);
-    add_node_filter(node);
-  };
-  ForEachPattern(pattern, add_node_filter, add_expand_filter);
-}
-
-// Adds the where filter expression to `all_filters_` and collects additional
-// information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where,
-                                 const SymbolTable &symbol_table) {
-  auto where_filters = SplitExpressionOnAnd(where.expression_);
-  for (const auto &filter : where_filters) {
-    UsedSymbolsCollector collector(symbol_table);
-    filter->Accept(collector);
-    all_filters_.emplace_back(FilterInfo{filter, collector.symbols_});
-    AnalyzeFilter(filter, symbol_table);
-  }
-}
-
-// Converts a Query to multiple QueryParts. In the process new Ast nodes may be
-// created, e.g. filter expressions.
-std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
-                                         AstTreeStorage &storage) {
-  auto query = storage.query();
-  std::vector<QueryPart> query_parts(1);
-  auto *query_part = &query_parts.back();
-  for (auto &clause : query->clauses_) {
-    if (auto *match = dynamic_cast<Match *>(clause)) {
-      if (match->optional_) {
-        query_part->optional_matching.emplace_back(Matching{});
-        AddMatching(*match, symbol_table, storage,
-                    query_part->optional_matching.back());
-      } else {
-        DCHECK(query_part->optional_matching.empty())
-            << "Match clause cannot follow optional match.";
-        AddMatching(*match, symbol_table, storage, query_part->matching);
-      }
-    } else {
-      query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
-        query_part->merge_matching.emplace_back(Matching{});
-        AddMatching({merge->pattern_}, nullptr, symbol_table, storage,
-                    query_part->merge_matching.back());
-      } else if (dynamic_cast<With *>(clause) ||
-                 dynamic_cast<query::Unwind *>(clause)) {
-        // This query part is done, continue with a new one.
-        query_parts.emplace_back(QueryPart{});
-        query_part = &query_parts.back();
-      } else if (dynamic_cast<Return *>(clause)) {
-        // TODO: Support RETURN UNION ...
-        return query_parts;
-      }
-    }
-  }
-  return query_parts;
-}
 
 }  // namespace query::plan

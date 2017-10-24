@@ -7,158 +7,11 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/preprocess.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
 namespace query::plan {
-
-/// Normalized representation of a pattern that needs to be matched.
-struct Expansion {
-  /// The first node in the expansion, it can be a single node.
-  NodeAtom *node1 = nullptr;
-  /// Optional edge which connects the 2 nodes.
-  EdgeAtom *edge = nullptr;
-  /// Direction of the edge, it may be flipped compared to original
-  /// @c EdgeAtom during plan generation.
-  EdgeAtom::Direction direction = EdgeAtom::Direction::BOTH;
-  /// True if the direction and nodes were flipped.
-  bool is_flipped = false;
-  /// Set of symbols found inside the range expressions of a variable path edge.
-  std::unordered_set<Symbol> symbols_in_range{};
-  /// Optional node at the other end of an edge. If the expansion
-  /// contains an edge, then this node is required.
-  NodeAtom *node2 = nullptr;
-};
-
-/// Stores information on filters used inside the @c Matching of a @c QueryPart.
-class Filters {
- public:
-  /// Stores the symbols and expression used to filter a property.
-  struct PropertyFilter {
-    using Bound = ScanAllByLabelPropertyRange::Bound;
-
-    /// Set of used symbols in the @c expression.
-    std::unordered_set<Symbol> used_symbols;
-    /// Expression which when evaluated produces the value a property must
-    /// equal.
-    Expression *expression = nullptr;
-    std::experimental::optional<Bound> lower_bound{};
-    std::experimental::optional<Bound> upper_bound{};
-  };
-
-  /// Stores additional information for a filter expression.
-  struct FilterInfo {
-    /// The filter expression which must be satisfied.
-    Expression *expression;
-    /// Set of used symbols by the filter @c expression.
-    std::unordered_set<Symbol> used_symbols;
-  };
-
-  /// List of FilterInfo objects corresponding to all filter expressions that
-  /// should be generated.
-  auto &all_filters() { return all_filters_; }
-  const auto &all_filters() const { return all_filters_; }
-  /// Mapping from a symbol to labels that are filtered on it. These should be
-  /// used only for generating indexed scans.
-  const auto &label_filters() const { return label_filters_; }
-  /// Mapping from a symbol to edge types that are filtered on it. These should
-  /// be used for generating indexed expansions.
-  const auto &edge_type_filters() const { return edge_type_filters_; }
-  /// Mapping from a symbol to properties that are filtered on it. These should
-  /// be used only for generating indexed scans.
-  const auto &property_filters() const { return property_filters_; }
-
-  /// Collects filtering information from a pattern.
-  ///
-  /// Goes through all the atoms in a pattern and generates filter expressions
-  /// for found labels, properties and edge types. The generated expressions are
-  /// stored in @c all_filters. Also, @c label_filters and @c property_filters
-  /// are populated.
-  void CollectPatternFilters(Pattern &, SymbolTable &, AstTreeStorage &);
-  /// Collects filtering information from a where expression.
-  ///
-  /// Takes the where expression and stores it in @c all_filters, then analyzes
-  /// the expression for additional information. The additional information is
-  /// used to populate @c label_filters and @c property_filters, so that indexed
-  /// scanning can use it.
-  void CollectWhereFilter(Where &, const SymbolTable &);
-
- private:
-  void AnalyzeFilter(Expression *, const SymbolTable &);
-
-  std::vector<FilterInfo> all_filters_;
-  std::unordered_map<Symbol, std::unordered_set<GraphDbTypes::Label>>
-      label_filters_;
-  std::unordered_map<Symbol, std::unordered_set<GraphDbTypes::EdgeType>>
-      edge_type_filters_;
-  std::unordered_map<Symbol, std::unordered_map<GraphDbTypes::Property,
-                                                std::vector<PropertyFilter>>>
-      property_filters_;
-};
-
-/// Normalized representation of a single or multiple Match clauses.
-///
-/// For example, `MATCH (a :Label) -[e1]- (b) -[e2]- (c) MATCH (n) -[e3]- (m)
-/// WHERE c.prop < 42` will produce the following.
-/// Expansions will store `(a) -[e1]-(b)`, `(b) -[e2]- (c)` and
-/// `(n) -[e3]- (m)`.
-/// Edge symbols for Cyphermorphism will only contain the set `{e1, e2}` for the
-/// first `MATCH` and the set `{e3}` for the second.
-/// Filters will contain 2 pairs. One for testing `:Label` on symbol `a` and the
-/// other obtained from `WHERE` on symbol `c`.
-struct Matching {
-  /// All expansions that need to be performed across @c Match clauses.
-  std::vector<Expansion> expansions;
-  /// Symbols for edges established in match, used to ensure Cyphermorphism.
-  ///
-  /// There are multiple sets, because each Match clause determines a single
-  /// set.
-  std::vector<std::unordered_set<Symbol>> edge_symbols;
-  /// Information on used filter expressions while matching.
-  Filters filters;
-  /// Maps node symbols to expansions which bind them.
-  std::unordered_map<Symbol, std::set<int>> node_symbol_to_expansions{};
-  /// Maps named path symbols to a vector of Symbols that define its pattern.
-  std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
-  /// All node and edge symbols across all expansions (from all matches).
-  std::unordered_set<Symbol> expansion_symbols{};
-};
-
-/// @brief Represents a read (+ write) part of a query. Parts are split on
-/// `WITH` clauses.
-///
-/// Each part ends with either:
-///
-///  * `RETURN` clause;
-///  * `WITH` clause or
-///  * any of the write clauses.
-///
-/// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
-/// generated QueryPart will have `matching` generated for the `MATCH`.
-/// `remaining_clauses` will contain `Merge`, `SetProperty` and `Merge` clauses
-/// in that exact order. The pattern inside the first `MERGE` will be used to
-/// generate the first `merge_matching` element, and the second `MERGE` pattern
-/// will produce the second `merge_matching` element. This way, if someone
-/// traverses `remaining_clauses`, the order of appearance of `Merge` clauses is
-/// in the same order as their respective `merge_matching` elements.
-struct QueryPart {
-  /// @brief All `MATCH` clauses merged into one @c Matching.
-  Matching matching;
-  /// @brief Each `OPTIONAL MATCH` converted to @c Matching.
-  std::vector<Matching> optional_matching{};
-  /// @brief @c Matching for each `MERGE` clause.
-  ///
-  /// Storing the normalized pattern of a @c Merge does not preclude storing the
-  /// @c Merge clause itself inside `remaining_clauses`. The reason is that we
-  /// need to have access to other parts of the clause, such as `SET` clauses
-  /// which need to be run.
-  ///
-  /// Since @c Merge is contained in `remaining_clauses`, this vector contains
-  /// matching in the same order as @c Merge appears.
-  std::vector<Matching> merge_matching{};
-  /// @brief All the remaining clauses (without @c Match).
-  std::vector<Clause *> remaining_clauses{};
-};
 
 /// @brief Context which contains variables commonly used during planning.
 template <class TDbAccessor>
@@ -205,40 +58,26 @@ struct MatchContext {
   std::vector<Symbol> new_symbols{};
 };
 
-/// @brief Convert the AST to multiple @c QueryParts.
-///
-/// This function will normalize patterns inside @c Match and @c Merge clauses
-/// and do some other preprocessing in order to generate multiple @c QueryPart
-/// structures. @c AstTreeStorage and @c SymbolTable may be used to create new
-/// AST nodes.
-std::vector<QueryPart> CollectQueryParts(SymbolTable &, AstTreeStorage &);
-
 namespace impl {
 
 // These functions are an internal implementation of RuleBasedPlanner. To avoid
 // writing the whole code inline in this header file, they are declared here and
 // defined in the cpp file.
 
-bool BindSymbol(std::unordered_set<Symbol> &bound_symbols,
-                const Symbol &symbol);
+// Iterates over `Filters` joining them in one expression via
+// `AndOperator` if symbols they use are bound.. All the joined filters are
+// removed from `Filters`.
+Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &,
+                           AstTreeStorage &);
 
-// Iterates over `all_filters` joining them in one expression via
-// `AndOperator`. Filters which use unbound symbols are skipped
-// The function takes a single argument, `FilterInfo`. All the joined filters
-// are removed from `all_filters`.
-Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
-                           std::vector<Filters::FilterInfo> &all_filters,
-                           AstTreeStorage &storage);
+LogicalOperator *GenFilters(LogicalOperator *,
+                            const std::unordered_set<Symbol> &, Filters &,
+                            AstTreeStorage &);
 
-LogicalOperator *GenFilters(LogicalOperator *last_op,
-                            const std::unordered_set<Symbol> &bound_symbols,
-                            std::vector<Filters::FilterInfo> &all_filters,
-                            AstTreeStorage &storage);
-//
-/// For all given `named_paths` checks if the all it's symbols have been bound.
-/// If so it creates a logical operator for named path generation, binds it's
-/// symbol, removes that path from the collection of unhandled ones and returns
-/// the new op. Otherwise it returns nullptr.
+// For all given `named_paths` checks if all its symbols have been bound.
+// If so, it creates a logical operator for named path generation, binds its
+// symbol, removes that path from the collection of unhandled ones and returns
+// the new op. Otherwise, returns `nullptr`.
 LogicalOperator *GenNamedPaths(
     LogicalOperator *last_op, std::unordered_set<Symbol> &bound_symbols,
     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths);
@@ -306,7 +145,7 @@ class RuleBasedPlanner {
       }
       int merge_id = 0;
       for (auto &clause : query_part.remaining_clauses) {
-        DCHECK(dynamic_cast<Match *>(clause) == nullptr)
+        DCHECK(!dynamic_cast<Match *>(clause))
             << "Unexpected Match in remaining clauses";
         if (auto *ret = dynamic_cast<Return *>(clause)) {
           input_op =
@@ -332,7 +171,7 @@ class RuleBasedPlanner {
         } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
           const auto &symbol =
               context.symbol_table.at(*unwind->named_expression_);
-          impl::BindSymbol(context.bound_symbols, symbol);
+          context.bound_symbols.insert(symbol);
           input_op =
               new plan::Unwind(std::shared_ptr<LogicalOperator>(input_op),
                                unwind->named_expression_->expression_, symbol);
@@ -352,59 +191,49 @@ class RuleBasedPlanner {
  private:
   TPlanningContext &context_;
 
+  struct LabelPropertyIndex {
+    GraphDbTypes::Label label;
+    // FilterInfo with PropertyFilter.
+    FilterInfo filter;
+    int64_t vertex_count;
+  };
+
   // Finds the label-property combination which has indexed the lowest amount of
-  // vertices. `best_label` and `best_property` will be set to that combination
-  // and the function will return (`true`, vertex count in index). If the index
-  // cannot be found, the function will return (`false`, maximum int64_t), while
-  // leaving `best_label` and `best_property` unchanged.
-  std::pair<bool, int64_t> FindBestLabelPropertyIndex(
-      const std::unordered_set<GraphDbTypes::Label> &labels,
-      const std::unordered_map<GraphDbTypes::Property,
-                               std::vector<Filters::PropertyFilter>>
-          &property_filters,
-      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols,
-      GraphDbTypes::Label &best_label,
-      std::pair<GraphDbTypes::Property, Filters::PropertyFilter>
-          &best_property) {
+  // vertices. If the index cannot be found, nullopt is returned.
+  std::experimental::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(
+      const Symbol &symbol, const Filters &filters,
+      const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
-        if (bound_symbols.find(used_symbol) == bound_symbols.end()) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
           return false;
         }
       }
       return true;
     };
-    bool found = false;
-    int64_t min_count = std::numeric_limits<int64_t>::max();
-    for (const auto &label : labels) {
-      for (const auto &prop_pair : property_filters) {
-        const auto &property = prop_pair.first;
+    std::experimental::optional<LabelPropertyIndex> found;
+    for (const auto &label : filters.FilteredLabels(symbol)) {
+      for (const auto &filter : filters.PropertyFilters(symbol)) {
+        const auto &property = filter.property_filter->property_;
         if (context_.db.LabelPropertyIndexExists(label, property)) {
-          int64_t vertices_count = context_.db.VerticesCount(label, property);
-          if (vertices_count < min_count) {
-            for (const auto &prop_filter : prop_pair.second) {
-              if (prop_filter.used_symbols.find(symbol) !=
-                  prop_filter.used_symbols.end()) {
-                // Skip filter expressions which use the symbol whose property
-                // we are looking up. We cannot scan by such expressions. For
-                // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`,
-                // so we cannot scan `n` by property index.
-                continue;
-              }
-              if (are_bound(prop_filter.used_symbols)) {
-                // Take the first property filter which uses bound symbols.
-                best_label = label;
-                best_property = {property, prop_filter};
-                min_count = vertices_count;
-                found = true;
-                break;
-              }
+          int64_t vertex_count = context_.db.VerticesCount(label, property);
+          if (!found || vertex_count < found->vertex_count) {
+            if (filter.property_filter->is_symbol_in_value_) {
+              // Skip filter expressions which use the symbol whose property
+              // we are looking up. We cannot scan by such expressions. For
+              // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`,
+              // so we cannot scan `n` by property index.
+              continue;
+            }
+            if (are_bound(filter.used_symbols)) {
+              // Take the property filter which uses bound symbols.
+              found = LabelPropertyIndex{label, filter, vertex_count};
             }
           }
         }
       }
     }
-    return {found, min_count};
+    return found;
   }
 
   const GraphDbTypes::Label &FindBestLabelIndex(
@@ -426,45 +255,37 @@ class RuleBasedPlanner {
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `last_op` is not chained.
   ScanAll *GenScanByIndex(LogicalOperator *last_op, const Symbol &node_symbol,
-                          const MatchContext &match_ctx,
+                          const MatchContext &match_ctx, Filters &filters,
                           const std::experimental::optional<int64_t>
                               &max_vertex_count = std::experimental::nullopt) {
-    const auto labels =
-        utils::FindOr(match_ctx.matching.filters.label_filters(), node_symbol,
-                      std::unordered_set<GraphDbTypes::Label>())
-            .first;
+    const auto labels = filters.FilteredLabels(node_symbol);
     if (labels.empty()) {
       // Without labels, we cannot generated any indexed ScanAll.
       return nullptr;
     }
-    const auto properties =
-        utils::FindOr(
-            match_ctx.matching.filters.property_filters(), node_symbol,
-            std::unordered_map<GraphDbTypes::Property,
-                               std::vector<Filters::PropertyFilter>>())
-            .first;
     // First, try to see if we can use label+property index. If not, use just
     // the label index (which ought to exist).
-    GraphDbTypes::Label best_label;
-    std::pair<GraphDbTypes::Property, Filters::PropertyFilter> best_property;
-    auto found_index = FindBestLabelPropertyIndex(
-        labels, properties, node_symbol, match_ctx.bound_symbols, best_label,
-        best_property);
-    if (found_index.first &&
+    auto found_index = FindBestLabelPropertyIndex(node_symbol, filters,
+                                                  match_ctx.bound_symbols);
+    if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
-        (!max_vertex_count || *max_vertex_count >= found_index.second)) {
-      const auto &prop_filter = best_property.second;
-      if (prop_filter.lower_bound || prop_filter.upper_bound) {
+        (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
+      // Copy the property filter and then erase it from filters.
+      const auto prop_filter = *found_index->filter.property_filter;
+      filters.EraseFilter(found_index->filter);
+      filters.EraseLabelFilter(node_symbol, found_index->label);
+      if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
         return new ScanAllByLabelPropertyRange(
-            std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
-            best_property.first, prop_filter.lower_bound,
-            prop_filter.upper_bound, match_ctx.graph_view);
+            std::shared_ptr<LogicalOperator>(last_op), node_symbol,
+            found_index->label, prop_filter.property_, prop_filter.lower_bound_,
+            prop_filter.upper_bound_, match_ctx.graph_view);
       } else {
-        DCHECK(prop_filter.expression)
-            << "Property filter should either have bounds or an expression.";
+        DCHECK(prop_filter.value_) << "Property filter should either have "
+                                      "bounds or a value expression.";
         return new ScanAllByLabelPropertyValue(
-            std::shared_ptr<LogicalOperator>(last_op), node_symbol, best_label,
-            best_property.first, prop_filter.expression, match_ctx.graph_view);
+            std::shared_ptr<LogicalOperator>(last_op), node_symbol,
+            found_index->label, prop_filter.property_, prop_filter.value_,
+            match_ctx.graph_view);
       }
     }
     auto label = FindBestLabelIndex(labels);
@@ -474,6 +295,7 @@ class RuleBasedPlanner {
       // than the allowed count.
       return nullptr;
     }
+    filters.EraseLabelFilter(node_symbol, label);
     return new ScanAllByLabel(std::shared_ptr<LogicalOperator>(last_op),
                               node_symbol, label, match_ctx.graph_view);
   }
@@ -484,21 +306,20 @@ class RuleBasedPlanner {
     auto &storage = context_.ast_storage;
     const auto &symbol_table = match_context.symbol_table;
     const auto &matching = match_context.matching;
-    // Copy all_filters, because we will modify the list as we generate Filters.
-    auto all_filters = matching.filters.all_filters();
+    // Copy filters, because we will modify them as we generate Filters.
+    auto filters = matching.filters;
     // Copy the named_paths for the same reason.
     auto named_paths = matching.named_paths;
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
-    auto *last_op =
-        impl::GenFilters(input_op, bound_symbols, all_filters, storage);
+    auto *last_op = impl::GenFilters(input_op, bound_symbols, filters, storage);
     for (const auto &expansion : matching.expansions) {
       const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-      if (impl::BindSymbol(bound_symbols, node1_symbol)) {
+      if (bound_symbols.insert(node1_symbol).second) {
         // We have just bound this symbol, so generate ScanAll which fills it.
         if (auto *indexed_scan =
-                GenScanByIndex(last_op, node1_symbol, match_context)) {
+                GenScanByIndex(last_op, node1_symbol, match_context, filters)) {
           // First, try to get an indexed scan.
           last_op = indexed_scan;
         } else {
@@ -508,11 +329,9 @@ class RuleBasedPlanner {
                                 node1_symbol, match_context.graph_view);
         }
         match_context.new_symbols.emplace_back(node1_symbol);
-        last_op =
-            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenFilters(last_op, bound_symbols, filters, storage);
         last_op = impl::GenNamedPaths(last_op, bound_symbols, named_paths);
-        last_op =
-            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenFilters(last_op, bound_symbols, filters, storage);
       }
       // We have an edge, so generate Expand.
       if (expansion.edge) {
@@ -533,28 +352,30 @@ class RuleBasedPlanner {
             // Bind the inner edge and node symbols so they're available for
             // inline filtering in ExpandVariable.
             bool inner_edge_bound =
-                impl::BindSymbol(bound_symbols, inner_edge_symbol);
+                bound_symbols.insert(inner_edge_symbol).second;
             bool inner_node_bound =
-                impl::BindSymbol(bound_symbols, inner_node_symbol);
+                bound_symbols.insert(inner_node_symbol).second;
             DCHECK(inner_edge_bound && inner_node_bound)
                 << "An inner edge and node can't be bound from before";
           }
+          // Join regular filters with lambda filter expression, so that they
+          // are done inline together. Semantic analysis should guarantee that
+          // lambda filtering uses bound symbols.
           auto *filter_expr = impl::BoolJoin<AndOperator>(
-              storage,
-              impl::ExtractFilters(bound_symbols, all_filters, storage),
+              storage, impl::ExtractFilters(bound_symbols, filters, storage),
               edge->filter_expression_);
           // At this point it's possible we have leftover filters for inline
           // filtering (they use the inner symbols. If they were not collected,
           // we have to remove them manually because no other filter-extraction
           // will ever bind them again.
-          all_filters.erase(
-              std::remove_if(all_filters.begin(), all_filters.end(),
-                             [ e = inner_edge_symbol, n = inner_node_symbol ](
-                                 Filters::FilterInfo & fi) {
+          filters.erase(
+              std::remove_if(filters.begin(), filters.end(),
+                             [ e = inner_edge_symbol,
+                               n = inner_node_symbol ](FilterInfo & fi) {
                                return utils::Contains(fi.used_symbols, e) ||
                                       utils::Contains(fi.used_symbols, n);
                              }),
-              all_filters.end());
+              filters.end());
 
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, edge->type_, expansion.direction,
@@ -572,7 +393,7 @@ class RuleBasedPlanner {
             // It would be better to somehow test whether the input vertex
             // degree is larger than the destination vertex index count.
             auto *indexed_scan =
-                GenScanByIndex(last_op, node_symbol, match_context,
+                GenScanByIndex(last_op, node_symbol, match_context, filters,
                                FLAGS_query_vertex_count_to_expand_existing);
             if (indexed_scan) {
               last_op = indexed_scan;
@@ -586,9 +407,9 @@ class RuleBasedPlanner {
         }
 
         // Bind the expanded edge and node.
-        impl::BindSymbol(bound_symbols, edge_symbol);
+        bound_symbols.insert(edge_symbol);
         match_context.new_symbols.emplace_back(edge_symbol);
-        if (impl::BindSymbol(bound_symbols, node_symbol)) {
+        if (bound_symbols.insert(node_symbol).second) {
           match_context.new_symbols.emplace_back(node_symbol);
         }
 
@@ -612,14 +433,12 @@ class RuleBasedPlanner {
                 other_symbols);
           }
         }
-        last_op =
-            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenFilters(last_op, bound_symbols, filters, storage);
         last_op = impl::GenNamedPaths(last_op, bound_symbols, named_paths);
-        last_op =
-            impl::GenFilters(last_op, bound_symbols, all_filters, storage);
+        last_op = impl::GenFilters(last_op, bound_symbols, filters, storage);
       }
     }
-    DCHECK(all_filters.empty()) << "Expected to generate all filters";
+    DCHECK(filters.empty()) << "Expected to generate all filters";
     return last_op;
   }
 

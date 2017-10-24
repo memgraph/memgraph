@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "query/plan/preprocess.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 

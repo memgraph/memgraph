@@ -204,6 +204,7 @@ set(memgraph_src_files
     ${src_dir}/query/interpret/awesome_memgraph_functions.cpp
     ${src_dir}/query/interpreter.cpp
     ${src_dir}/query/plan/operator.cpp
+    ${src_dir}/query/plan/preprocess.cpp
     ${src_dir}/query/plan/rule_based_planner.cpp
     ${src_dir}/query/plan/variable_start_planner.cpp
     ${src_dir}/query/typed_value.cpp
