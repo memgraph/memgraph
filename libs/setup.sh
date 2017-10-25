@@ -116,6 +116,7 @@ git clone git://deps.memgraph.io/ltalloc.git
 ltalloc_tag="aefde2afa5cd49c9d1a797aa08ec08b2bec13a36" # Sep 15, 2017
 cd ltalloc
 git checkout ${ltalloc_tag}
+cd ..
 
 # cereal
 git clone https://github.com/USCiLab/cereal.git
