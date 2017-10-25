@@ -9,6 +9,11 @@ namespace fs = std::experimental::filesystem;
 class GraphDbAccessor;
 
 /**
+ * Returns path to new snapshot file in format snapshot_folder/timestamp.
+ */
+fs::path GetSnapshotFileName(const fs::path &snapshot_folder);
+
+/**
  * Class responsible for making snapshots. Snapshots are stored in folder
  * memgraph/build/$snapshot_folder/$db_name using bolt protocol.
  */
@@ -29,11 +34,6 @@ class Snapshooter {
                     int snapshot_max_retained);
 
  private:
-  /**
-   * Method returns path to new snapshot file in format
-   * memgraph/build/$snapshot_folder/$db_name/$timestamp
-   */
-  fs::path GetSnapshotFileName(const fs::path &snapshot_folder);
   /**
    * Method used to keep given number of snapshots in snapshot folder. Newest
    * max_retained_files snapshots are kept, other snapshots are deleted. If

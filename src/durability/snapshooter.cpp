@@ -69,7 +69,7 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     }
     buffer.WriteSummary(vertex_num, edge_num);
     buffer.Close();
-  } catch (std::ifstream::failure e) {
+  } catch (const std::ifstream::failure &) {
     if (fs::exists(snapshot_file) && !fs::remove(snapshot_file)) {
       LOG(ERROR) << "Error while removing corrupted snapshot file: "
                  << snapshot_file;
@@ -79,7 +79,7 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
   return true;
 }
 
-fs::path Snapshooter::GetSnapshotFileName(const fs::path &snapshot_folder) {
+fs::path GetSnapshotFileName(const fs::path &snapshot_folder) {
   std::string date_str =
       Timestamp(Timestamp::now())
           .to_string("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");

@@ -13,6 +13,8 @@ BASE_DIR_NAME = os.path.basename(BASE_DIR)
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 LIBS_DIR = os.path.join(BASE_DIR, "libs")
 TESTS_DIR = os.path.join(BUILD_DIR, "tests")
+TOOLS_DIR = os.path.join(BASE_DIR, "tools")
+TOOLS_BUILD_DIR = os.path.join(TOOLS_DIR, "build")
 OUTPUT_DIR = os.path.join(BUILD_DIR, "apollo")
 
 # output lists
@@ -284,11 +286,11 @@ if mode == "release":
 if mode == "release":
     ldbc_path = os.path.join(BASE_DIR, "tests", "public_benchmark", "ldbc")
     neo4j_path = os.path.join(BASE_DIR, "libs", "neo4j")
-    csv_to_snapshot_path = os.path.join(BASE_DIR, "tools", "csv_to_snapshot")
+    mg_import_csv_path = os.path.join(BASE_DIR, "tools", "mg_import_csv")
     plot_ldbc_latency_path = os.path.join(BASE_DIR, "tools", "plot_ldbc_latency")
     infile = create_archive("ldbc", [binary_release_path, ldbc_path,
             binary_release_link_path, neo4j_path, config_path,
-            csv_to_snapshot_path, plot_ldbc_latency_path],
+            mg_import_csv_path, plot_ldbc_latency_path],
             cwd = WORKSPACE_DIR)
     cmd = "cd memgraph/tests/public_benchmark/ldbc\n. continuous_integration\n"
     outfile_paths = "\./memgraph/tests/public_benchmark/ldbc/results/.+\n" \
@@ -296,6 +298,18 @@ if mode == "release":
     RUNS.append(generate_run("public_benchmark__ldbc", commands = cmd,
             infile = infile, outfile_paths = outfile_paths,
             slave_group = "remote_20c140g", enable_network = True))
+
+# tools tests
+ctest_output = run_cmd(["ctest", "-N"], TOOLS_BUILD_DIR)
+tools_infile = create_archive("tools_test", [TOOLS_BUILD_DIR], cwd = WORKSPACE_DIR)
+for row in ctest_output.split("\n"):
+    # Filter rows only containing tests.
+    if "Test #" not in row: continue
+    test_name = row.split(":")[1].strip()
+    test_dir = os.path.relpath(TOOLS_BUILD_DIR, WORKSPACE_DIR)
+    commands = "cd {}\nctest --output-on-failure -R \"^{}$\"".format(test_dir, test_name)
+    run = generate_run("tools_" + test_name, commands = commands, infile = tools_infile)
+    RUNS.append(run)
 
 # store ARCHIVES and RUNS
 store_metadata(OUTPUT_DIR, "archives", ARCHIVES)

@@ -72,3 +72,5 @@ set(memgraph_src_dir ${PROJECT_SOURCE_DIR}/../src)
 include_directories(${memgraph_src_dir})
 
 add_subdirectory(src)
+enable_testing()
+add_subdirectory(tests)

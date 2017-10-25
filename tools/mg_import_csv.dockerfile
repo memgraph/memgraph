@@ -1,6 +1,6 @@
 FROM debian:stretch
 
-COPY csv_to_snapshot /usr/local/bin/csv_to_snapshot
+COPY mg_import_csv /usr/local/bin/mg_import_csv
 
 # Setup memgraph user and group.
 RUN groupadd -r memgraph
@@ -16,7 +16,7 @@ USER memgraph:memgraph
 VOLUME /data
 WORKDIR /data
 
-ENTRYPOINT ["csv_to_snapshot"]
+ENTRYPOINT ["mg_import_csv"]
 # Print help and usage by default, since at least one --nodes argument is
 # required.
 CMD ["--help"]

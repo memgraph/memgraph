@@ -9,9 +9,12 @@
 #include "glog/logging.h"
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "config.hpp"
 #include "durability/file_writer_buffer.hpp"
+#include "durability/snapshooter.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
+#include "utils/timer.hpp"
 
 bool ValidateNotEmpty(const char *flagname, const std::string &value) {
   if (utils::Trim(value).empty()) {
@@ -21,8 +24,10 @@ bool ValidateNotEmpty(const char *flagname, const std::string &value) {
   return true;
 }
 
-DEFINE_string(out, "", "Destination for the created snapshot file");
-DEFINE_validator(out, &ValidateNotEmpty);
+DEFINE_string(out, "",
+              "Destination for the created snapshot file. Without it, snapshot "
+              "is written inside the expected snapshots directory of Memgraph "
+              "installation.");
 DEFINE_bool(overwrite, false, "Overwrite the output file if it exists");
 DEFINE_string(array_delimiter, ";",
               "Delimiter between elements of array values, default is ';'");
@@ -108,6 +113,7 @@ std::vector<std::string> ReadRow(std::istream &stream) {
   std::vector<char> column;
   char c;
   while (!stream.get(c).eof()) {
+    if (!stream) LOG(FATAL) << "Unable to read CSV row";
     if (quoting) {
       if (c == quoting)
         quoting = 0;
@@ -316,38 +322,73 @@ auto ConvertRelationships(
 }
 
 void Convert(const std::vector<std::string> &nodes,
-             const std::vector<std::string> &relationships) {
-  FileWriterBuffer buffer(FLAGS_out);
-  communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer);
-  int64_t node_count = 0;
-  int64_t relationship_count = 0;
-  MemgraphNodeIdMap node_id_map;
-  // Snapshot file has the following contents in order:
-  //   1) magic number
-  //   2) transactional snapshot of the snapshoter. When the snapshot is
-  //   generated it's an empty list.
-  //   3) list of label+property index
-  //   4) all nodes, sequentially, but not encoded as a list
-  //   5) all relationships, sequentially, but not encoded as a list
-  //   5) summary with node count, relationship count and hash digest
-  encoder.WriteRAW(durability::kMagicNumber.data(),
-                   durability::kMagicNumber.size());
-  encoder.WriteTypedValue(durability::kVersion);
-  encoder.WriteList({});  // Transactional snapshot.
-  encoder.WriteList({});  // Label + property indexes.
-  for (const auto &nodes_file : nodes) {
-    node_count += ConvertNodes(nodes_file, node_id_map, encoder);
+             const std::vector<std::string> &relationships,
+             const std::string &output_path) {
+  try {
+    FileWriterBuffer buffer(output_path);
+    communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer);
+    int64_t node_count = 0;
+    int64_t relationship_count = 0;
+    MemgraphNodeIdMap node_id_map;
+    // Snapshot file has the following contents in order:
+    //   1) magic number
+    //   2) transactional snapshot of the snapshoter. When the snapshot is
+    //   generated it's an empty list.
+    //   3) list of label+property index
+    //   4) all nodes, sequentially, but not encoded as a list
+    //   5) all relationships, sequentially, but not encoded as a list
+    //   5) summary with node count, relationship count and hash digest
+    encoder.WriteRAW(durability::kMagicNumber.data(),
+                     durability::kMagicNumber.size());
+    encoder.WriteTypedValue(durability::kVersion);
+    encoder.WriteList({});  // Transactional snapshot.
+    encoder.WriteList({});  // Label + property indexes.
+    for (const auto &nodes_file : nodes) {
+      node_count += ConvertNodes(nodes_file, node_id_map, encoder);
+    }
+    for (const auto &relationships_file : relationships) {
+      relationship_count +=
+          ConvertRelationships(relationships_file, node_id_map, encoder);
+    }
+    buffer.WriteSummary(node_count, relationship_count);
+  } catch (const std::ios_base::failure &) {
+    // Only FileWriterBuffer sets the underlying fstream to throw.
+    LOG(FATAL) << fmt::format("Unable to write to '{}'", output_path);
   }
-  for (const auto &relationships_file : relationships) {
-    relationship_count +=
-        ConvertRelationships(relationships_file, node_id_map, encoder);
-  }
-  buffer.WriteSummary(node_count, relationship_count);
 }
 
 static const char *usage =
-    "[OPTION]... --out SNAPSHOT_FILE [--nodes=CSV_FILE]... [--edges=CSV_FILE]...\n"
+    "[OPTION]... [--out=SNAPSHOT_FILE] [--nodes=CSV_FILE]... "
+    "[--relationships=CSV_FILE]...\n"
     "Create a Memgraph recovery snapshot file from CSV.\n";
+
+// Used only to get the value from memgraph's configuration files.
+DEFINE_HIDDEN_string(snapshot_directory, "", "Snapshot directory");
+
+std::string GetOutputPath() {
+  // If we have the 'out' flag, use that.
+  if (!utils::Trim(FLAGS_out).empty()) return FLAGS_out;
+  // Without the 'out', fall back to reading the memgraph configuration for
+  // snapshot_directory. Hopefully, memgraph configuration doesn't contain other
+  // flags which are defined in this file.
+  LoadConfig();
+  // Without snapshot_directory, we have to require 'out' flag.
+  if (utils::Trim(FLAGS_snapshot_directory).empty())
+    LOG(FATAL) << "Unable to determine snapshot output location. Please, "
+                  "provide the 'out' flag";
+  // TODO: Remove 'default' when Dbms is purged.
+  std::string snapshot_dir = FLAGS_snapshot_directory + "/default";
+  try {
+    if (!std::experimental::filesystem::exists(snapshot_dir) &&
+        !std::experimental::filesystem::create_directories(snapshot_dir)) {
+      LOG(FATAL) << fmt::format("Cannot create snapshot directory '{}'",
+                                snapshot_dir);
+    }
+  } catch (const std::experimental::filesystem::filesystem_error &error) {
+    LOG(FATAL) << error.what();
+  }
+  return std::string(GetSnapshotFileName(snapshot_dir));
+}
 
 int main(int argc, char *argv[]) {
   gflags::SetUsageMessage(usage);
@@ -355,17 +396,21 @@ int main(int argc, char *argv[]) {
   auto relationships = ParseRepeatedFlag("relationships", argc, argv);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  if (std::experimental::filesystem::exists(FLAGS_out) && !FLAGS_overwrite) {
+  std::string output_path(GetOutputPath());
+  if (std::experimental::filesystem::exists(output_path) && !FLAGS_overwrite) {
     LOG(FATAL) << fmt::format(
         "File exists: '{}'. Pass --overwrite if you want to overwrite.",
-        FLAGS_out);
+        output_path);
   }
   auto iter_all_inputs = iter::chain(nodes, relationships);
   std::vector<std::string> all_inputs(iter_all_inputs.begin(),
                                       iter_all_inputs.end());
   LOG(INFO) << fmt::format("Converting {} to '{}'",
-                           utils::Join(all_inputs, ", "), FLAGS_out);
-  Convert(nodes, relationships);
-  LOG(INFO) << fmt::format("Created '{}'", FLAGS_out);
+                           utils::Join(all_inputs, ", "), output_path);
+  utils::Timer conversion_timer;
+  Convert(nodes, relationships, output_path);
+  double conversion_sec = conversion_timer.Elapsed().count();
+  LOG(INFO) << fmt::format("Created '{}' in {:.2f} seconds", output_path,
+                           conversion_sec);
   return 0;
 }
