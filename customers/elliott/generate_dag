@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Generates a DAG from JSON spec in [config] and outputs nodes to
+[filename]_nodes, and edges to [filename]_edges in format convertible
+to Memgraph snapshot.
+
+Here's an example JSON spec:
+
+    {
+        "layers": [
+            {
+                "name": "A",
+                "sublayers": 1,
+                "degree_lo": 1,
+                "degree_hi": 3,
+                "nodes": 4
+            },
+            {
+                "name": "B",
+                "sublayers": 3,
+                "degree_lo": 2,
+                "degree_hi": 3,
+                "nodes": 10
+            },
+            {
+                "name": "C",
+                "sublayers": 1,
+                "degree_lo": 1,
+                "degree_hi": 1,
+                "nodes": 5
+            }
+        ]
+    }
+
+Nodes from each layer will be randomly divided into sublayers.  A node can
+only have edges pointing to nodes in lower sublayers of the same layer, or
+to nodes from the layer directly below it. Out-degree is chosen uniformly
+random from [degree_lo, degree_hi] interval."""
+
+import argparse
+from itertools import accumulate
+import json
+import random
+
+
+def _split_into_sum(n, k):
+    assert 1 <= n, "n should be at least 1"
+    assert k <= n, "k shouldn't be greater than n"
+    xs = [0] + sorted(random.sample(range(1, n), k-1)) + [n]
+    return [b - a for a, b in zip(xs, xs[1:])]
+
+
+def generate_dag(graph_config, seed=None):
+    random.seed(seed)
+
+    nodes = []
+    edges = []
+
+    layer_lo = 1
+    for layer in graph_config:
+        sublayers = _split_into_sum(layer['nodes'], layer['sublayers'])
+        sub_range = accumulate([layer_lo] + sublayers)
+        layer['sublayer_range'] = list(sub_range)
+        nodes.extend([
+            (u, layer['name'])
+            for u in range(layer_lo, layer_lo + layer['nodes'])
+        ])
+        layer_lo += layer['nodes']
+
+    edges = []
+
+    for layer, next_layer in zip(graph_config, graph_config[1:]):
+        degree_lo = layer['degree_lo']
+        degree_hi = layer['degree_hi']
+
+        sub_range = layer['sublayer_range']
+        sub_range_next = next_layer['sublayer_range']
+
+        layer_lo = sub_range[0]
+        next_layer_hi = sub_range_next[-1]
+
+        for sub_lo, sub_hi in zip(sub_range, sub_range[1:]):
+            for u in range(sub_lo, sub_hi):
+                num_edges = random.randint(degree_lo, degree_hi)
+                for _ in range(num_edges):
+                    v = random.randint(sub_hi, next_layer_hi - 1)
+                    edges.append((u, v))
+
+        for sub_lo, sub_hi in zip(sub_range_next, sub_range_next[1:]):
+            for u in range(sub_lo, sub_hi):
+                v = random.randint(layer_lo, sub_lo - 1)
+                edges.append((v, u))
+
+    return nodes, edges
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__)
+    parser.add_argument('config', type=str, help='graph config JSON file')
+    parser.add_argument('filename', type=str,
+                        help='nodes will be stored to filename_nodes, '
+                        'edges to filename_edges')
+    parser.add_argument('--seed', type=int,
+                        help='seed for the random generator (default = '
+                        'current system time)')
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as f:
+        graph_config = json.loads(f.read())['layers']
+
+    nodes, edges = generate_dag(graph_config, seed=args.seed)
+
+    #  print nodes into CSV file
+    with open('{}_nodes'.format(args.filename), 'w') as out:
+        out.write('nodeId:ID(Node),name,topological_index:Int,:LABEL\n')
+        for node_id, layer in nodes:
+            out.write('{0},{1}{0},{0},{1}\n'.format(node_id, layer))
+
+    # print edges into CSV file
+    with open('{}_edges'.format(args.filename), 'w') as out:
+        out.write(':START_ID(Node),:END_ID(Node),:TYPE\n')
+        for u, v in edges:
+            out.write('{},{},child\n'.format(u, v))

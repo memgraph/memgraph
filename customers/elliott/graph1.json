@@ -1,0 +1,39 @@
+{
+    "layers": [
+        { 
+            "name": "Root",
+            "sublayers": 1,
+            "degree_lo": 1,
+            "degree_hi": 10,
+            "nodes": 20000
+        },
+        { 
+            "name": "Category",
+            "sublayers": 5,
+            "degree_lo": 1,
+            "degree_hi": 10,
+            "nodes": 20000
+        },
+        {   
+            "name": "Group",
+            "sublayers": 1,
+            "degree_lo": 20,
+            "degree_hi": 40,
+            "nodes": 20000
+        },
+        {
+            "name": "CustomGroup",
+            "sublayers": 15,
+            "degree_lo": 20,
+            "degree_hi": 40,
+            "nodes": 20000
+        },
+        { 
+            "name": "Leaf",
+            "sublayers": 1,
+            "degree_lo": 1,
+            "degree_hi": 1,
+            "nodes": 20000
+        }
+    ]
+}
