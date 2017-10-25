@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <iostream>
 #include <iterator>
 #include <regex>
 #include <sstream>
@@ -90,29 +91,70 @@ inline std::string Replace(std::string src, const std::string &match,
 
 /**
  * Split string by delimeter and return vector of results.
- * If the delimiter is not provided, a different splitting algorithm is used.
- * Runs of consecutive whitespace are regarded as a single delimiter.
- * Additionally, the result will not contain empty strings at the start of end
- * as if the string was trimmed before splitting.
+ *
+ * @param src - The string to split.
+ * @param delimitier - The delimiter to split on.
+ * @param splits - The maximum number of splits. For the given value N the
+ * returned vector will contain at most (N + 1) elements. If given a negative
+ * value, all possible splits are performed.
+ * @return - a vector of splits.
  */
 inline std::vector<std::string> Split(const std::string &src,
-                                      const std::string &delimiter) {
+                                      const std::string &delimiter,
+                                      int splits = -1) {
+  std::vector<std::string> res;
   if (src.empty()) {
-    return {};
+    return res;
   }
   size_t index = 0;
-  size_t n = std::string::npos;
-  std::vector<std::string> res;
-  do {
-    n = src.find(delimiter, index);
+  while (splits < 0 || splits-- != 0) {
+    auto n = src.find(delimiter, index);
+    if (n == std::string::npos) break;
     res.emplace_back(src.substr(index, n - index));
     index = n + delimiter.size();
-  } while (n != std::string::npos);
+  }
+
+  res.emplace_back(src.substr(index));
+  return res;
+}
+
+/**
+ * Split string by delimeter, from right to left, and return vector of results.
+ * For example, RSplit("a.b.c.", ".", 1) results in {"a.b", "c"}.
+ *
+ * @param src - The string to split.
+ * @param delimitier - The delimiter to split on.
+ * @param splits - The maximum number of splits. For the given value N the
+ * returned vector will contain at most (N + 1) elements. If given a negative
+ * value, all possible splits are performed.
+ */
+inline std::vector<std::string> RSplit(const std::string &src,
+                                       const std::string &delimiter,
+                                       int splits = -1) {
+  std::vector<std::string> res;
+  if (src.empty()) {
+    return res;
+  }
+  size_t index = src.size();
+  while (splits < 0 || splits-- != 0) {
+    auto n = src.rfind(delimiter, index - 1);
+    if (n == std::string::npos) break;
+    res.emplace_back(
+        src.substr(n + delimiter.size(), index - n - delimiter.size()));
+    index = n;
+    if (n == 0) break;
+  }
+
+  res.emplace_back(src.substr(0, index));
+  std::reverse(res.begin(), res.end());
   return res;
 }
 
 /**
  * Split string by whitespace and return vector of results.
+ * Runs of consecutive whitespace are regarded as a single delimiter.
+ * Additionally, the result will not contain empty strings at the start of end
+ * as if the string was trimmed before splitting.
  */
 inline std::vector<std::string> Split(const std::string &src) {
   if (src.empty()) {
@@ -160,5 +202,4 @@ inline bool EndsWith(const std::string &s, const std::string &suffix) {
 inline bool StartsWith(const std::string &s, const std::string &prefix) {
   return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
 }
-
 }
