@@ -10,7 +10,7 @@
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "config.hpp"
-#include "durability/file_writer_buffer.hpp"
+#include "durability/hashed_file_writer.hpp"
 #include "durability/snapshooter.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
@@ -196,7 +196,7 @@ std::string GetIdSpace(const std::string &type) {
 void WriteNodeRow(const std::vector<Field> &fields,
                   const std::vector<std::string> &row,
                   MemgraphNodeIdMap &node_id_map,
-                  communication::bolt::BaseEncoder<FileWriterBuffer> &encoder) {
+                  communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
   std::experimental::optional<int64_t> id;
   std::vector<query::TypedValue> labels;
   std::map<std::string, query::TypedValue> properties;
@@ -237,7 +237,7 @@ void WriteNodeRow(const std::vector<Field> &fields,
 }
 
 auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
-                  communication::bolt::BaseEncoder<FileWriterBuffer> &encoder) {
+                  communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
   int64_t node_count = 0;
   std::ifstream nodes_file(nodes_path);
   CHECK(nodes_file) << fmt::format("Unable to open '{}'", nodes_path);
@@ -257,7 +257,7 @@ auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
 void WriteRelationshipsRow(
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const MemgraphNodeIdMap &node_id_map, int64_t relationship_id,
-    communication::bolt::BaseEncoder<FileWriterBuffer> &encoder) {
+    communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
   std::experimental::optional<int64_t> start_id;
   std::experimental::optional<int64_t> end_id;
   std::experimental::optional<std::string> relationship_type;
@@ -302,7 +302,7 @@ void WriteRelationshipsRow(
 
 auto ConvertRelationships(
     const std::string &relationships_path, const MemgraphNodeIdMap &node_id_map,
-    communication::bolt::BaseEncoder<FileWriterBuffer> &encoder) {
+    communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
   int64_t relationship_count = 0;
   std::ifstream relationships_file(relationships_path);
   CHECK(relationships_file)
@@ -325,8 +325,8 @@ void Convert(const std::vector<std::string> &nodes,
              const std::vector<std::string> &relationships,
              const std::string &output_path) {
   try {
-    FileWriterBuffer buffer(output_path);
-    communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer);
+    HashedFileWriter buffer(output_path);
+    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t node_count = 0;
     int64_t relationship_count = 0;
     MemgraphNodeIdMap node_id_map;
@@ -350,9 +350,11 @@ void Convert(const std::vector<std::string> &nodes,
       relationship_count +=
           ConvertRelationships(relationships_file, node_id_map, encoder);
     }
-    buffer.WriteSummary(node_count, relationship_count);
+    buffer.WriteValue(node_count);
+    buffer.WriteValue(relationship_count);
+    buffer.WriteValue(buffer.hash());
   } catch (const std::ios_base::failure &) {
-    // Only FileWriterBuffer sets the underlying fstream to throw.
+    // Only HashedFileWriter sets the underlying fstream to throw.
     LOG(FATAL) << fmt::format("Unable to write to '{}'", output_path);
   }
 }

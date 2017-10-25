@@ -1,12 +1,26 @@
-#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "durability/recovery.hpp"
+
+#include "communication/bolt/v1/decoder/decoder.hpp"
+#include "durability/hashed_file_reader.hpp"
+#include "durability/version.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 
-#include "durability/file_reader_buffer.hpp"
-#include "durability/version.hpp"
-
 using communication::bolt::DecodedValue;
+
+namespace durability {
+bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
+                         int64_t &edge_count, uint64_t &hash) {
+  auto pos = buffer.Tellg();
+  auto offset = sizeof(vertex_count) + sizeof(edge_count) + sizeof(hash);
+  buffer.Seek(-offset, std::ios_base::end);
+  bool r_val = buffer.ReadType(vertex_count, false) &&
+               buffer.ReadType(edge_count, false) &&
+               buffer.ReadType(hash, false);
+  buffer.Seek(pos);
+  return r_val;
+}
+}
 
 bool Recovery::Recover(const fs::path &snapshot_file,
                        GraphDbAccessor &db_accessor) {
@@ -27,16 +41,22 @@ bool Recovery::Recover(const fs::path &snapshot_file,
 
 bool Recovery::Decode(const fs::path &snapshot_file,
                       GraphDbAccessor &db_accessor) {
-  FileReaderBuffer buffer;
-  communication::bolt::Decoder<FileReaderBuffer> decoder(buffer);
+  HashedFileReader buffer;
+  communication::bolt::Decoder<HashedFileReader> decoder(buffer);
 
-  snapshot::Summary summary;
-  RETURN_IF_NOT(buffer.Open(snapshot_file, summary));
+  RETURN_IF_NOT(buffer.Open(snapshot_file));
   std::unordered_map<uint64_t, VertexAccessor> vertices;
 
   auto magic_number = durability::kMagicNumber;
   buffer.Read(magic_number.data(), magic_number.size());
   RETURN_IF_NOT(magic_number == durability::kMagicNumber);
+
+  // Read the vertex and edge count, and the hash, from the end of the snapshot.
+  int64_t vertex_count;
+  int64_t edge_count;
+  uint64_t hash;
+  RETURN_IF_NOT(
+      durability::ReadSnapshotSummary(buffer, vertex_count, edge_count, hash));
 
   DecodedValue dv;
 
@@ -59,7 +79,7 @@ bool Recovery::Decode(const fs::path &snapshot_file,
                            db_accessor.Property(property.ValueString()));
   }
 
-  for (int64_t i = 0; i < summary.vertex_num_; ++i) {
+  for (int64_t i = 0; i < vertex_count; ++i) {
     DecodedValue vertex_dv;
     RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, DecodedValue::Type::Vertex));
     auto &vertex = vertex_dv.ValueVertex();
@@ -73,7 +93,7 @@ bool Recovery::Decode(const fs::path &snapshot_file,
     }
     vertices.insert({vertex.id, vertex_accessor});
   }
-  for (int64_t i = 0; i < summary.edge_num_; ++i) {
+  for (int64_t i = 0; i < edge_count; ++i) {
     DecodedValue edge_dv;
     RETURN_IF_NOT(decoder.ReadValue(&edge_dv, DecodedValue::Type::Edge));
     auto &edge = edge_dv.ValueEdge();
@@ -88,9 +108,12 @@ bool Recovery::Decode(const fs::path &snapshot_file,
                              query::TypedValue(property_pair.second));
   }
 
-  uint64_t hash = buffer.hash();
-  if (!buffer.Close()) return false;
-  return hash == summary.hash_;
+  // Vertex and edge counts are included in the hash. Re-read them to update the
+  // hash.
+  buffer.ReadType(vertex_count);
+  buffer.ReadType(edge_count);
+
+  return (buffer.Close() && buffer.hash() == hash);
 }
 
 #undef RETURN_IF_NOT

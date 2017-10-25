@@ -2,10 +2,19 @@
 
 #include <experimental/filesystem>
 #include <unordered_map>
+
 #include "database/graph_db_accessor.hpp"
+#include "durability/hashed_file_reader.hpp"
 #include "storage/vertex_accessor.hpp"
 
 namespace fs = std::experimental::filesystem;
+
+namespace durability {
+// TODO review: replacement of Recovery class with a function is coming in
+// another diff.
+bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
+                         int64_t &edge_count, uint64_t &hash);
+}
 
 /**
  * Class used to recover database from snapshot file.

@@ -7,7 +7,7 @@
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/dbms.hpp"
-#include "durability/file_reader_buffer.hpp"
+#include "durability/hashed_file_reader.hpp"
 #include "durability/recovery.hpp"
 #include "durability/version.hpp"
 
@@ -103,11 +103,14 @@ TEST_F(RecoveryTest, TestEncoding) {
   TakeSnapshot(dbms, snapshot_max_retained_);
   std::string snapshot = GetLatestSnapshot();
 
-  FileReaderBuffer buffer;
-  communication::bolt::Decoder<FileReaderBuffer> decoder(buffer);
+  HashedFileReader buffer;
+  communication::bolt::Decoder<HashedFileReader> decoder(buffer);
 
-  snapshot::Summary summary;
-  buffer.Open(snapshot, summary);
+  int64_t vertex_count, edge_count;
+  uint64_t hash;
+  ASSERT_TRUE(buffer.Open(snapshot));
+  ASSERT_TRUE(
+      durability::ReadSnapshotSummary(buffer, vertex_count, edge_count, hash));
 
   auto magic_number = durability::kMagicNumber;
   buffer.Read(magic_number.data(), magic_number.size());
@@ -124,14 +127,14 @@ TEST_F(RecoveryTest, TestEncoding) {
 
   std::vector<int64_t> ids;
   std::vector<std::string> edge_types;
-  for (int i = 0; i < summary.vertex_num_; ++i) {
+  for (int i = 0; i < vertex_count; ++i) {
     communication::bolt::DecodedValue vertex_dv;
     decoder.ReadValue(&vertex_dv);
     auto &vertex = vertex_dv.ValueVertex();
     ids.push_back(vertex.id);
   }
   std::vector<int64_t> from, to;
-  for (int i = 0; i < summary.edge_num_; ++i) {
+  for (int i = 0; i < edge_count; ++i) {
     communication::bolt::DecodedValue edge_dv;
     decoder.ReadValue(&edge_dv);
     auto &edge = edge_dv.ValueEdge();
@@ -139,11 +142,15 @@ TEST_F(RecoveryTest, TestEncoding) {
     to.push_back(edge.to);
     edge_types.push_back(edge.type);
   }
+  // Vertex and edge counts are included in the hash. Re-read them to update the
+  // hash.
+  buffer.ReadType(vertex_count);
+  buffer.ReadType(edge_count);
   buffer.Close();
 
   ASSERT_EQ(to.size(), 2U);
   ASSERT_EQ(from.size(), 2U);
-  EXPECT_EQ(buffer.hash(), summary.hash_);
+  EXPECT_EQ(buffer.hash(), hash);
   EXPECT_NE(edge_types.end(),
             std::find(edge_types.begin(), edge_types.end(), "hates"));
   EXPECT_NE(edge_types.end(),
@@ -168,7 +175,7 @@ TEST_F(RecoveryTest, TestEncodingAndDecoding) {
   auto dba_recover = dbms_recover.active();
 
   Recovery recovery;
-  EXPECT_TRUE(recovery.Recover(snapshot, *dba_recover));
+  ASSERT_TRUE(recovery.Recover(snapshot, *dba_recover));
 
   std::vector<VertexAccessor> vertices;
   std::vector<EdgeAccessor> edges;

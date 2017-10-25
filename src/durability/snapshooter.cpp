@@ -2,13 +2,13 @@
 
 #include <glog/logging.h>
 
+#include "durability/snapshooter.hpp"
+
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "durability/file_writer_buffer.hpp"
-#include "utils/datetime/timestamp.hpp"
-
-#include "durability/snapshooter.hpp"
+#include "durability/hashed_file_writer.hpp"
 #include "durability/version.hpp"
+#include "utils/datetime/timestamp.hpp"
 
 bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
                                const fs::path &snapshot_folder,
@@ -30,11 +30,9 @@ bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
 bool Snapshooter::Encode(const fs::path &snapshot_file,
                          GraphDbAccessor &db_accessor_) {
   try {
-    FileWriterBuffer buffer;
-    // BaseEncoder encodes graph elements.
-    communication::bolt::BaseEncoder<FileWriterBuffer> encoder(buffer);
+    HashedFileWriter buffer(snapshot_file);
+    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t vertex_num = 0, edge_num = 0;
-    buffer.Open(snapshot_file);
 
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
@@ -67,7 +65,9 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
       encoder.WriteEdge(edge);
       edge_num++;
     }
-    buffer.WriteSummary(vertex_num, edge_num);
+    buffer.WriteValue(vertex_num);
+    buffer.WriteValue(edge_num);
+    buffer.WriteValue(buffer.hash());
     buffer.Close();
   } catch (const std::ifstream::failure &) {
     if (fs::exists(snapshot_file) && !fs::remove(snapshot_file)) {

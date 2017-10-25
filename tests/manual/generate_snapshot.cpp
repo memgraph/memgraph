@@ -12,7 +12,7 @@
 #include <json/json.hpp>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "durability/file_writer_buffer.hpp"
+#include "durability/hashed_file_writer.hpp"
 #include "durability/version.hpp"
 #include "transactions/type.hpp"
 #include "utils/string.hpp"
@@ -70,14 +70,7 @@ DEFINE_string(config, "", "Path to config JSON file");
 // Utilities for writing to the snapshot file.
 class Writer {
  public:
-  /**
-   * Creates a writer.
-   *
-   * @param path - Path to the output file.
-   * @Param indexes - A list of (label, property) indexes to create, each in the
-   * "Label.property" form.
-   */
-  Writer(const std::string &path) : buffer_(path), encoder_(buffer_) {
+  Writer(const std::string &path) : buffer_(path) {
     encoder_.WriteRAW(durability::kMagicNumber.data(),
                       durability::kMagicNumber.size());
     encoder_.WriteTypedValue(durability::kVersion);
@@ -98,7 +91,7 @@ class Writer {
     encoder_.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
                       3);
     encoder_.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
-    auto id = node_counter++;
+    auto id = node_counter_++;
     encoder_.WriteInt(id);
     encoder_.WriteList(
         std::vector<query::TypedValue>{labels.begin(), labels.end()});
@@ -123,13 +116,18 @@ class Writer {
     return id;
   }
 
-  void Close() { buffer_.WriteSummary(node_counter, edge_counter_); }
+  void Close() {
+    buffer_.WriteValue(node_counter_);
+    buffer_.WriteValue(edge_counter_);
+    buffer_.WriteValue(buffer_.hash());
+    buffer_.Close();
+  }
 
  private:
-  int64_t node_counter{0};
+  int64_t node_counter_{0};
   int64_t edge_counter_{0};
-  FileWriterBuffer buffer_;
-  communication::bolt::BaseEncoder<FileWriterBuffer> encoder_;
+  HashedFileWriter buffer_;
+  communication::bolt::BaseEncoder<HashedFileWriter> encoder_{buffer_};
 };
 
 // Helper class for tracking info about the generated graph.
