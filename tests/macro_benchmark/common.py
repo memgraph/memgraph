@@ -45,4 +45,4 @@ def set_cpus(flag_name, process, args):
     assert not APOLLO or cpus, \
             "flag --{} is obligatory on Apollo".format(flag_name)
     if cpus:
-        process.set_cpus(cpus)
+        process.set_cpus(cpus, hyper = False)
