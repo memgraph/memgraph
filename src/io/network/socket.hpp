@@ -151,6 +151,8 @@ class Socket {
    */
   bool Write(const uint8_t *data, size_t len,
              const std::function<bool()> &keep_retrying = [] { return false; });
+  bool Write(const std::string &s,
+             const std::function<bool()> &keep_retrying = [] { return false; });
 
   /**
    * Read data from the socket.

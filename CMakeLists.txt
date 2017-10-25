@@ -186,10 +186,11 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4)
 set(memgraph_src_files
     ${src_dir}/communication/bolt/v1/decoder/decoded_value.cpp
     ${src_dir}/communication/bolt/v1/session.cpp
+    ${src_dir}/communication/reactor/reactor_local.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
+    ${src_dir}/database/dbms.cpp
     ${src_dir}/database/graph_db.cpp
     ${src_dir}/database/graph_db_accessor.cpp
-    ${src_dir}/database/dbms.cpp
     ${src_dir}/durability/recovery.cpp
     ${src_dir}/durability/snapshooter.cpp
     ${src_dir}/io/network/addrinfo.cpp
@@ -219,7 +220,7 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
+set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools cereal
     antlr_opencypher_parser_lib dl glog gflags)
 
 if (USE_LTALLOC)

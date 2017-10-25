@@ -163,3 +163,6 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Setup cereal
+import_header_library(cereal "${CMAKE_CURRENT_SOURCE_DIR}/cereal/include")

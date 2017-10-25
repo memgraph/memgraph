@@ -220,6 +220,12 @@ bool Socket::Write(const uint8_t *data, size_t len,
   return true;
 }
 
+bool Socket::Write(const std::string &s,
+                   const std::function<bool()> &keep_retrying) {
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(),
+               keep_retrying);
+}
+
 int Socket::Read(void *buffer, size_t len) {
   return read(socket_, buffer, len);
 }

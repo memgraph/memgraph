@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/network_endpoint.hpp"
@@ -40,7 +42,8 @@ class Message;
  * Currently the server is implemented to handle more than one message after
  * the initial handshake, but the client can only send one message.
  */
-namespace Protocol {
+namespace protocol {
+
 using Endpoint = io::network::NetworkEndpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
@@ -100,6 +103,8 @@ class Session {
    */
   void Written(size_t len);
 
+  bool TimedOut() { return false; }
+
   /**
    * Closes the session (client socket).
    */
@@ -108,6 +113,8 @@ class Session {
   io::network::Epoll::Event event_;
   Socket socket_;
 
+  std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
+
  private:
   SizeT GetLength(int offset = 0);
   std::string GetStringAndShift(SizeT len);
@@ -115,6 +122,7 @@ class Session {
 
   bool alive_{true};
   bool handshake_done_{false};
+
   std::string reactor_{""};
   std::string channel_{""};
 

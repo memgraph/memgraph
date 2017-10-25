@@ -4,9 +4,9 @@
 
 #include "reactors_distributed.hpp"
 
-#include <unordered_map>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -17,20 +17,18 @@ class MemgraphDistributed {
  public:
   /**
    * Get the (singleton) instance of MemgraphDistributed.
-   *
-   * More info: https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
    */
   static MemgraphDistributed &GetInstance() {
-    static MemgraphDistributed memgraph; // guaranteed to be destroyed, initialized on first use
+    static MemgraphDistributed memgraph;
     return memgraph;
   }
 
-  EventStream* FindChannel(MnidT mnid,
-                           const std::string &reactor,
+  EventStream *FindChannel(MnidT mnid, const std::string &reactor,
                            const std::string &channel) {
-    std::unique_lock<std::recursive_mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
     const auto &location = mnodes_.at(mnid);
-    return Distributed::GetInstance().FindChannel(location.first, location.second, reactor, channel);
+    return Distributed::GetInstance().FindChannel(
+        location.first, location.second, reactor, channel);
   }
 
   void RegisterConfig(const Config &config) {
@@ -51,23 +49,22 @@ class MemgraphDistributed {
   /**
    * The leader is currently the first node in the config.
    */
-  MnidT LeaderMnid() {
-    return config_.nodes.front().mnid;
-  }
+  MnidT LeaderMnid() const { return config_.nodes.front().mnid; }
 
  protected:
   MemgraphDistributed() {}
 
   /** Register memgraph node id to the given location. */
-  void RegisterMemgraphNode(MnidT mnid, const std::string &address, uint16_t port) {
-    std::unique_lock<std::recursive_mutex> lock(mutex_);
+  void RegisterMemgraphNode(MnidT mnid, const std::string &address,
+                            uint16_t port) {
+    std::unique_lock<std::mutex> lock(mutex_);
     mnodes_[mnid] = Location(address, port);
   }
 
  private:
   Config config_;
 
-  std::recursive_mutex mutex_;
+  std::mutex mutex_;
   std::unordered_map<MnidT, Location> mnodes_;
 
   MemgraphDistributed(const MemgraphDistributed &) = delete;

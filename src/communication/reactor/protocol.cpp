@@ -5,10 +5,9 @@
 
 #include "glog/logging.h"
 
-namespace Protocol {
+namespace protocol {
 
-Session::Session(Socket &&socket, Data &)
-    : socket_(std::move(socket)) {
+Session::Session(Socket &&socket, Data &) : socket_(std::move(socket)) {
   event_.data.ptr = this;
 }
 
@@ -22,9 +21,12 @@ std::string Session::GetStringAndShift(SizeT len) {
 
 void Session::Execute() {
   if (!handshake_done_) {
-    // Note: this function can be multiple times before the buffer has the full packet.
-    //   We currently have to check for this case and return without shifting the buffer.
-    //   In other words, only shift anything from the buffer if you can read the entire (sub)message.
+    // Note: this function can be multiple times before the buffer has the full
+    // packet.
+    //   We currently have to check for this case and return without shifting
+    //   the buffer.
+    //   In other words, only shift anything from the buffer if you can read the
+    //   entire (sub)message.
 
     if (buffer_.size() < 2 * sizeof(SizeT)) return;
     SizeT len_reactor = GetLength();
@@ -56,7 +58,7 @@ void Session::Execute() {
 
   // TODO: check for exceptions
   std::istringstream stream;
-  stream.str(std::string(reinterpret_cast<char*>(buffer_.data()), len_data));
+  stream.str(std::string(reinterpret_cast<char *>(buffer_.data()), len_data));
   cereal::BinaryInputArchive iarchive{stream};
   std::unique_ptr<Message> message{nullptr};
   iarchive(message);
@@ -157,7 +159,7 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
     LOG(INFO) << "Couldn't send message size!";
     return false;
   }
-  if (!socket.Write(buffer.data(), buffer.size())) {
+  if (!socket.Write(buffer)) {
     LOG(INFO) << "Couldn't send message data!";
     return false;
   }

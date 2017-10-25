@@ -1,12 +1,14 @@
-#include <iostream>
 #include <fstream>
+#include <iostream>
 
 #include <glog/logging.h>
 
 #include "memgraph_config.hpp"
 #include "reactors_distributed.hpp"
 
-DEFINE_int64(my_mnid, 0, "Memgraph node id"); // TODO(zuza): this should be assigned by the leader once in the future
+DEFINE_int64(my_mnid, 0, "Memgraph node id");  // TODO(zuza): this should be
+                                               // assigned by the leader once in
+                                               // the future
 
 class MemgraphDistributed {
  private:
@@ -16,32 +18,35 @@ class MemgraphDistributed {
   /**
    * Get the (singleton) instance of MemgraphDistributed.
    *
-   * More info: https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
+   * More info:
+   * https://stackoverflow.com/questions/1008019/c-singleton-design-pattern
    */
   static MemgraphDistributed &GetInstance() {
-    static MemgraphDistributed memgraph; // guaranteed to be destroyed, initialized on first use
+    static MemgraphDistributed
+        memgraph;  // guaranteed to be destroyed, initialized on first use
     return memgraph;
   }
 
   /** Register memgraph node id to the given location. */
-  void RegisterMemgraphNode(int64_t mnid, const std::string &address, uint16_t port) {
-    std::unique_lock<std::recursive_mutex> lock(mutex_);
+  void RegisterMemgraphNode(int64_t mnid, const std::string &address,
+                            uint16_t port) {
+    std::unique_lock<std::mutex> lock(mutex_);
     mnodes_[mnid] = Location(address, port);
   }
 
-  EventStream* FindChannel(int64_t mnid,
-                           const std::string &reactor,
+  EventStream *FindChannel(int64_t mnid, const std::string &reactor,
                            const std::string &channel) {
-    std::unique_lock<std::recursive_mutex> lock(mutex_);
+    std::unique_lock<std::mutex> lock(mutex_);
     const auto &location = mnodes_.at(mnid);
-    return Distributed::GetInstance().FindChannel(location.first, location.second, reactor, channel);
+    return Distributed::GetInstance().FindChannel(
+        location.first, location.second, reactor, channel);
   }
 
  protected:
   MemgraphDistributed() {}
 
  private:
-  std::recursive_mutex mutex_;
+  std::mutex mutex_;
   std::unordered_map<int64_t, Location> mnodes_;
 
   MemgraphDistributed(const MemgraphDistributed &) = delete;
@@ -64,8 +69,8 @@ class MemgraphDistributed {
  *
  * @return Pair (master mnid, list of worker's id).
  */
-std::pair<int64_t, std::vector<int64_t>>
-  ParseConfigAndRegister(const std::string &filename) {
+std::pair<int64_t, std::vector<int64_t>> ParseConfigAndRegister(
+    const std::string &filename) {
   std::ifstream file(filename, std::ifstream::in);
   assert(file.good());
   int64_t master_mnid;
@@ -78,8 +83,7 @@ std::pair<int64_t, std::vector<int64_t>>
   memgraph.RegisterMemgraphNode(master_mnid, address, port);
   while (file.good()) {
     file >> mnid >> address >> port;
-    if (file.eof())
-      break ;
+    if (file.eof()) break;
     memgraph.RegisterMemgraphNode(mnid, address, port);
     worker_mnids.push_back(mnid);
   }
@@ -91,9 +95,9 @@ std::pair<int64_t, std::vector<int64_t>>
  * Sends a text message and has a return address.
  */
 class TextMessage : public ReturnAddressMsg {
-public:
+ public:
   TextMessage(std::string reactor, std::string channel, std::string s)
-    : ReturnAddressMsg(reactor, channel), text(s) {}
+      : ReturnAddressMsg(reactor, channel), text(s) {}
 
   template <class Archive>
   void serialize(Archive &archive) {
@@ -102,51 +106,52 @@ public:
 
   std::string text;
 
-protected:
+ protected:
   friend class cereal::access;
-  TextMessage() {} // Cereal needs access to a default constructor.
+  TextMessage() {}  // Cereal needs access to a default constructor.
 };
 CEREAL_REGISTER_TYPE(TextMessage);
-
 
 class Master : public Reactor {
  public:
   Master(std::string name, int64_t mnid, std::vector<int64_t> &&worker_mnids)
-    : Reactor(name), mnid_(mnid),
-      worker_mnids_(std::move(worker_mnids)) {}
+      : Reactor(name), mnid_(mnid), worker_mnids_(std::move(worker_mnids)) {}
 
   virtual void Run() {
     MemgraphDistributed &memgraph = MemgraphDistributed::GetInstance();
     Distributed &distributed = Distributed::GetInstance();
 
-    std::cout << "Master (" << mnid_ << ") @ " << distributed.network().Address()
-              << ":" << distributed.network().Port() << std::endl;
+    std::cout << "Master (" << mnid_ << ") @ "
+              << distributed.network().Address() << ":"
+              << distributed.network().Port() << std::endl;
 
     auto stream = main_.first;
 
     // wait until every worker sends a ReturnAddressMsg back, then close
-    stream->OnEvent<TextMessage>([this](const TextMessage &msg,
-                                          const Subscription &subscription) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
-      ++workers_seen;
-      if (workers_seen == worker_mnids_.size()) {
-        subscription.Unsubscribe();
-        // Sleep for a while so we can read output in the terminal.
-        // (start_distributed.py runs each process in a new tab which is
-        //  closed immediately after process has finished)
-        std::this_thread::sleep_for(std::chrono::seconds(4));
-        CloseChannel("main");
-      }
-    });
+    stream->OnEvent<TextMessage>(
+        [this](const TextMessage &msg, const Subscription &subscription) {
+          std::cout << "Message from " << msg.Address() << ":" << msg.Port()
+                    << " .. " << msg.text << "\n";
+          ++workers_seen;
+          if (workers_seen == static_cast<int64_t>(worker_mnids_.size())) {
+            subscription.Unsubscribe();
+            // Sleep for a while so we can read output in the terminal.
+            // (start_distributed.py runs each process in a new tab which is
+            //  closed immediately after process has finished)
+            std::this_thread::sleep_for(std::chrono::seconds(4));
+            CloseChannel("main");
+          }
+        });
 
     // send a TextMessage to each worker
     for (auto wmnid : worker_mnids_) {
       auto stream = memgraph.FindChannel(wmnid, "worker", "main");
-      stream->OnEventOnce()
-        .ChainOnce<ChannelResolvedMessage>([this, stream](const ChannelResolvedMessage &msg, const Subscription&){
-          msg.channelWriter()->Send<TextMessage>("master", "main", "hi from master");
-          stream->Close();
-        });
+      stream->OnEventOnce().ChainOnce<ChannelResolvedMessage>([this, stream](
+          const ChannelResolvedMessage &msg, const Subscription &) {
+        msg.channelWriter()->Send<TextMessage>("master", "main",
+                                               "hi from master");
+        stream->Close();
+      });
     }
   }
 
@@ -159,35 +164,35 @@ class Master : public Reactor {
 class Worker : public Reactor {
  public:
   Worker(std::string name, int64_t mnid, int64_t master_mnid)
-      : Reactor(name), mnid_(mnid),
-        master_mnid_(master_mnid) {}
+      : Reactor(name), mnid_(mnid), master_mnid_(master_mnid) {}
 
   virtual void Run() {
     Distributed &distributed = Distributed::GetInstance();
 
-    std::cout << "Worker (" << mnid_ << ") @ " << distributed.network().Address()
-              << ":" << distributed.network().Port() << std::endl;
+    std::cout << "Worker (" << mnid_ << ") @ "
+              << distributed.network().Address() << ":"
+              << distributed.network().Port() << std::endl;
 
     auto stream = main_.first;
     // wait until master sends us a TextMessage, then reply back and close
-    stream->OnEventOnce()
-      .ChainOnce<TextMessage>([this](const TextMessage &msg, const Subscription&) {
-      std::cout << "Message from " << msg.Address() << ":" << msg.Port() << " .. " << msg.text << "\n";
+    stream->OnEventOnce().ChainOnce<TextMessage>(
+        [this](const TextMessage &msg, const Subscription &) {
+          std::cout << "Message from " << msg.Address() << ":" << msg.Port()
+                    << " .. " << msg.text << "\n";
 
-      msg.GetReturnChannelWriter()
-        ->Send<TextMessage>("worker", "main", "hi from worker");
+          msg.GetReturnChannelWriter()->Send<TextMessage>("worker", "main",
+                                                          "hi from worker");
 
-      // Sleep for a while so we can read output in the terminal.
-      std::this_thread::sleep_for(std::chrono::seconds(4));
-      CloseChannel("main");
-    });
+          // Sleep for a while so we can read output in the terminal.
+          std::this_thread::sleep_for(std::chrono::seconds(4));
+          CloseChannel("main");
+        });
   }
 
  protected:
   const int64_t mnid_;
   const int64_t master_mnid_;
 };
-
 
 int main(int argc, char *argv[]) {
   google::InitGoogleLogging(argv[0]);
