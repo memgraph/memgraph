@@ -56,18 +56,20 @@ def compare_values(data_cur, data_prev):
                 if j != len(row_cur) - 1:
                     fmt = "{:.3f}ms"
                     scale = 1000.0
+                    treshold = 0.050
                 else:
                     fmt = "{:.2f}MiB"
                     scale = 1.0 / 1024.0
+                    treshold = 0.025
                 if item_prev != None:
                     if item_prev != 0.0:
                         diff = (item_cur - item_prev) / item_prev
                     else:
                         diff = 0.0
-                    if diff < -0.05 and item_cur > 0.0005:
+                    if diff < -treshold and item_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-down color=green}"
-                    elif diff > 0.05 and item_cur > 0.0005:
+                    elif diff > treshold and item_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-up color=red}"
                     else:
