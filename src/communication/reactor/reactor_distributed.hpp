@@ -91,7 +91,7 @@ class Network {
     client_run_ = true;
 
     for (int i = 0; i < worker_count; ++i) {
-      pool_.push_back(std::thread([worker_count, this]() {
+      pool_.push_back(std::thread([this]() {
         while (this->client_run_) {
           this->mutex_.lock();
           if (!this->queue_.empty()) {
