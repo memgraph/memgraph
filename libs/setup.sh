@@ -113,7 +113,7 @@ cd ..
 # ltalloc
 # git clone https://github.com/r-lyeh/ltalloc.git
 git clone git://deps.memgraph.io/ltalloc.git
-ltalloc_tag="aefde2afa5cd49c9d1a797aa08ec08b2bec13a36" # Sep 15, 2017
+ltalloc_tag="6d99c791bff50106683948ded30a9f9b62de1b40" # Oct 20, 2017
 cd ltalloc
 git checkout ${ltalloc_tag}
 cd ..
