@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import itertools
+import subprocess
 import json
 from argparse import ArgumentParser
 from collections import defaultdict
@@ -33,7 +34,10 @@ class _QuerySuite:
                       WALL_TIME, CPU_TIME, MAX_MEMORY)
 
     def __init__(self, args):
-        pass
+        argp = ArgumentParser("MemgraphRunnerArgumentParser")
+        argp.add_argument("--perf", default=False, action="store_true",
+            help="Run perf on running tests and store data")
+        self.args, remaining_args = argp.parse_known_args(args)
 
     def run(self, scenario, group_name, scenario_name, runner):
         log.debug("QuerySuite.run() with scenario: %s", scenario)
@@ -67,9 +71,9 @@ class _QuerySuite:
         measurements = []
         measurement_lists = defaultdict(list)
 
-        # Run the whole test 3 times because memgraph is sometimes
+        # Run the whole test three times because memgraph is sometimes
         # consistently slow and with this hack we get a good median
-        for i in range(3):
+        for rerun_cnt in range(3):
             runner.start()
             execute("setup")
 
@@ -88,7 +92,24 @@ class _QuerySuite:
                 # have to start and stop the client for each iteration, it would
                 # most likely run faster
                 execute("itersetup")
+
+                if self.args.perf:
+                    file_directory = './perf_results/run_%d/%s/%s/' \
+                                      % (rerun_cnt, group_name, scenario_name)
+                    os.makedirs(file_directory, exist_ok=True)
+                    file_name = '%d.perf.data' % iteration
+                    path = file_directory + file_name
+                    database_pid = str(runner.database.database_bin._proc.pid)
+                    self.perf_proc = subprocess.Popen(
+                        ["perf", "record", "-F", "999", "-g", "-o", path, "-p",
+                        database_pid])
+
                 run_result = execute("run")
+
+                if self.args.perf:
+                    self.perf_proc.terminate() 
+                    self.perf_proc.wait()
+
                 add_measurement(run_result, iteration, CPU_TIME)
                 add_measurement(run_result, iteration, MAX_MEMORY)
                 assert len(run_result["groups"]) == 1, \
