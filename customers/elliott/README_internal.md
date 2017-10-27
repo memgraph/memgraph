@@ -26,7 +26,7 @@ Now we initialize the values of all other nodes in the graph:
 
 Change the value of a leaf:
 
-    MATCH (u:Leaf {id: "9"}) SET u.value = 10
+    MATCH (u:Leaf {id: "18"}) SET u.value = 10
 
 We have to reset all the updated nodes to a neutral element:
 
@@ -45,12 +45,12 @@ There are a few assumptions made worth pointing out.
   of vertices in the graph.
 
 * It is possible to accumulate the value of the function.  Formally: 
-  $$f(x_1, x_2, ..., x_n) = g(...(g(g(x_1, x_2), x_3), ...), x_n).$$
+  $$f(x_1, x_2, ..., x_n) = g(...(g(g(x_1, x_2), x_3), ...), x_n)$$
 
 * There is a neutral element for the operation. However, this
   assumption can be dropped by introducing an artificial neutral element.
 
-Number of operations required is proportional to sum of degrees of affected
+Number of operations required is proportional to the sum of degrees of affected
 nodes.
 
 We generated graph with $10^5$ nodes ($20\ 000$ nodes in each layer),  varied the
