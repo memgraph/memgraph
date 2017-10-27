@@ -3,12 +3,11 @@
 #include <chrono>
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
+#include "communication/reactor/reactor_local.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
-
-class Message;
 
 /**
  * @brief Protocol
@@ -42,14 +41,16 @@ class Message;
  * Currently the server is implemented to handle more than one message after
  * the initial handshake, but the client can only send one message.
  */
-namespace protocol {
+namespace communication::reactor {
+
+class Message;
 
 using Endpoint = io::network::NetworkEndpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
 
 // this buffer should be larger than the largest serialized message
-using Buffer = communication::bolt::Buffer<262144>;
+using Buffer = bolt::Buffer<262144>;
 using SizeT = uint16_t;
 
 /**
@@ -57,8 +58,8 @@ using SizeT = uint16_t;
  *
  * This typically holds living data shared by all sessions. Currently empty.
  */
-struct Data {
-  // empty
+struct SessionData {
+  System system;
 };
 
 /**
@@ -71,7 +72,7 @@ struct Data {
 class Session {
  private:
  public:
-  Session(Socket &&socket, Data &data);
+  Session(Socket &&socket, SessionData &data);
 
   int Id() const { return socket_.fd(); }
 
@@ -112,6 +113,7 @@ class Session {
 
   io::network::Epoll::Event event_;
   Socket socket_;
+  System &system_;
 
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
 

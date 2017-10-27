@@ -1,13 +1,14 @@
 #include <sstream>
 
-#include "protocol.hpp"
-#include "reactors_distributed.hpp"
+#include "communication/reactor/protocol.hpp"
+#include "communication/reactor/reactor_distributed.hpp"
 
 #include "glog/logging.h"
 
-namespace protocol {
+namespace communication::reactor {
 
-Session::Session(Socket &&socket, Data &) : socket_(std::move(socket)) {
+Session::Session(Socket &&socket, SessionData &data)
+    : socket_(std::move(socket)), system_(data.system) {
   event_.data.ptr = this;
 }
 
@@ -43,7 +44,7 @@ void Session::Execute() {
     DLOG(INFO) << "Reactor: " << reactor_ << "; Channel: " << channel_
                << std::endl;
 
-    auto channel = System::GetInstance().FindChannel(reactor_, channel_);
+    auto channel = system_.FindChannel(reactor_, channel_);
     SendSuccess(channel != nullptr);
 
     handshake_done_ = true;
@@ -59,12 +60,12 @@ void Session::Execute() {
   // TODO: check for exceptions
   std::istringstream stream;
   stream.str(std::string(reinterpret_cast<char *>(buffer_.data()), len_data));
-  cereal::BinaryInputArchive iarchive{stream};
+  ::cereal::BinaryInputArchive iarchive{stream};
   std::unique_ptr<Message> message{nullptr};
   iarchive(message);
   buffer_.Shift(len_data);
 
-  auto channel = System::GetInstance().FindChannel(reactor_, channel_);
+  auto channel = system_.FindChannel(reactor_, channel_);
   if (channel == nullptr) {
     SendSuccess(false);
     return;
@@ -145,13 +146,13 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
   }
 
   bool success = GetSuccess(socket);
-  if (message == nullptr or !success) {
+  if (message == nullptr || !success) {
     return success;
   }
 
   // Serialize and send message
   std::ostringstream stream;
-  cereal::BinaryOutputArchive oarchive(stream);
+  ::cereal::BinaryOutputArchive oarchive(stream);
   oarchive(message);
 
   const std::string &buffer = stream.str();
@@ -164,6 +165,7 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
     return false;
   }
 
+  // TODO: send message is blocking because of this. This is potential problem.
   return GetSuccess(socket);
 }
 }

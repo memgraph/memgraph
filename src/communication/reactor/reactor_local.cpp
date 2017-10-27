@@ -4,8 +4,6 @@
 
 namespace communication::reactor {
 
-thread_local Reactor *current_reactor_ = nullptr;
-
 void EventStream::Subscription::Unsubscribe() const {
   event_queue_.RemoveCallback(*this);
 }
@@ -26,7 +24,7 @@ void Channel::Close() {
   // TODO(zuza): there will be major problems if a reactor tries to close a
   // stream that isn't theirs luckily this should never happen if the framework
   // is used as expected.
-  current_reactor_->CloseChannel(channel_name_);
+  reactor_.CloseChannel(channel_name_);
 }
 
 std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Reactor::Open(
@@ -36,11 +34,11 @@ std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Reactor::Open(
     throw utils::BasicException("Channel with name " + channel_name +
                                 "already exists");
   }
-  auto it =
-      channels_
-          .emplace(channel_name, std::make_shared<Channel>(Channel::Params{
-                                     name_, channel_name, mutex_, cvar_}))
-          .first;
+  auto it = channels_
+                .emplace(channel_name,
+                         std::make_shared<Channel>(Channel::Params{
+                             name_, channel_name, mutex_, cvar_, *this}))
+                .first;
   it->second->self_ptr_ = it->second;
   return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
 }
@@ -51,11 +49,11 @@ std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Reactor::Open() {
     std::string channel_name =
         "stream-" + std::to_string(channel_name_counter_++);
     if (channels_.count(channel_name) == 0) {
-      auto it =
-          channels_
-              .emplace(channel_name, std::make_shared<Channel>(Channel::Params{
-                                         name_, channel_name, mutex_, cvar_}))
-              .first;
+      auto it = channels_
+                    .emplace(channel_name,
+                             std::make_shared<Channel>(Channel::Params{
+                                 name_, channel_name, mutex_, cvar_, *this}))
+                    .first;
       it->second->self_ptr_ = it->second;
       return make_pair(&it->second->stream_, it->second->LockedOpenChannel());
     }

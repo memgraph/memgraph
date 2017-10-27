@@ -18,8 +18,6 @@ class Reactor;
 class System;
 class Channel;
 
-extern thread_local Reactor *current_reactor_;
-
 /**
  * Base class for messages.
  */
@@ -63,11 +61,20 @@ class ChannelWriter {
 
   virtual std::string ReactorName() const = 0;
   virtual std::string Name() const = 0;
+};
 
-  template <class Archive>
-  void serialize(Archive &archive) {
-    archive(ReactorName(), Name());
-  }
+class ChannelFinder {
+ public:
+  virtual ~ChannelFinder() {}
+
+  // Find local channel.
+  virtual std::shared_ptr<ChannelWriter> FindChannel(
+      const std::string &reactor_name, const std::string &channel_name) = 0;
+
+  // Find remote channel.
+  virtual std::shared_ptr<ChannelWriter> FindChannel(
+      const std::string &address, uint16_t port,
+      const std::string &reactor_name, const std::string &channel_name) = 0;
 };
 
 /**
@@ -270,7 +277,8 @@ class Channel {
         reactor_name_(params.reactor_name),
         mutex_(params.mutex),
         cvar_(params.cvar),
-        stream_(mutex_, this) {}
+        stream_(mutex_, this),
+        reactor_(params.reactor) {}
 
   /**
    * LocalChannelWriter represents the channels to reactors living in the same
@@ -361,6 +369,7 @@ class Channel {
     std::string channel_name;
     std::shared_ptr<std::mutex> mutex;
     std::shared_ptr<std::condition_variable> cvar;
+    Reactor &reactor;
   };
 
   void Push(std::unique_ptr<Message> m) {
@@ -410,6 +419,7 @@ class Channel {
   // dctor, so must be recursive.
   std::shared_ptr<std::mutex> mutex_;
   std::shared_ptr<std::condition_variable> cvar_;
+
   /**
    * A weak_ptr to itself.
    *
@@ -417,6 +427,7 @@ class Channel {
    */
   std::weak_ptr<Channel> self_ptr_;
   LocalEventStream stream_;
+  Reactor &reactor_;
   std::unordered_map<std::type_index,
                      std::unordered_map<uint64_t, EventStream::Callback>>
       callbacks_;
@@ -432,7 +443,7 @@ class Channel {
 class Reactor {
   friend class System;
 
-  Reactor(System &system, std::string name,
+  Reactor(ChannelFinder &system, std::string name,
           std::function<void(Reactor &)> setup)
       : system_(system), name_(name), setup_(setup), main_(Open("main")) {}
 
@@ -461,7 +472,7 @@ class Reactor {
   Reactor &operator=(const Reactor &other) = delete;
   Reactor &operator=(Reactor &&other) = default;
 
-  System &system_;
+  ChannelFinder &system_;
   std::string name_;
   std::function<void(Reactor &)> setup_;
 
@@ -479,6 +490,8 @@ class Reactor {
    */
   std::unordered_map<std::string, std::shared_ptr<Channel>> channels_;
   int64_t channel_name_counter_ = 0;
+  // I don't understand why ChannelWriter is shared. ChannelWriter is just
+  // endpoint that could be copied to every user.
   std::pair<EventStream *, std::shared_ptr<ChannelWriter>> main_;
 
  private:
@@ -501,18 +514,21 @@ class Reactor {
  * Placeholder for all reactors.
  * Make sure object of this class outlives all Reactors created by it.
  */
-class System {
+class System : public ChannelFinder {
  public:
   friend class Reactor;
   System() = default;
 
-  void Spawn(const std::string &name, std::function<void(Reactor &)> setup) {
+  void Spawn(const std::string &name, std::function<void(Reactor &)> setup,
+             ChannelFinder *finder = nullptr) {
+    if (!finder) {
+      finder = this;
+    }
     std::unique_lock<std::mutex> lock(mutex_);
-    std::unique_ptr<Reactor> reactor(new Reactor(*this, name, setup));
-    std::thread reactor_thread([ this, raw_reactor = reactor.get() ] {
-      current_reactor_ = raw_reactor;
-      raw_reactor->setup_(*raw_reactor);
-      raw_reactor->RunEventLoop();
+    std::unique_ptr<Reactor> reactor(new Reactor(*finder, name, setup));
+    std::thread reactor_thread([reactor = reactor.get()] {
+      reactor->setup_(*reactor);
+      reactor->RunEventLoop();
     });
     auto got = reactors_.emplace(
         name, std::pair<decltype(reactor), std::thread>{
@@ -520,16 +536,28 @@ class System {
     CHECK(got.second) << "Reactor with name: '" << name << "' already exists";
   }
 
-  const std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &reactor_name, const std::string &channel_name) {
+  std::shared_ptr<ChannelWriter> FindChannel(
+      const std::string &reactor_name,
+      const std::string &channel_name) override {
     std::unique_lock<std::mutex> lock(mutex_);
     auto it_reactor = reactors_.find(reactor_name);
     if (it_reactor == reactors_.end()) return nullptr;
     return it_reactor->second.first->FindChannel(channel_name);
   }
 
+  std::shared_ptr<ChannelWriter> FindChannel(const std::string &, uint16_t,
+                                             const std::string &,
+                                             const std::string &) override {
+    // TODO: This is awful design, but at this point I just want to make
+    // reactors work. We should templatize Reactor by system instead of dealing
+    // with interfaces then System would spawn Reactor<System> and
+    // DistributedSystem would spawn Reactor<DistributedSystem>.
+    LOG(FATAL) << "Tried to resolve remote channel in local System";
+  }
+
   // TODO: Think about interaction with destructor. Should we call this in
-  // destructor, complain in destructor if there are alive threads or stop them
+  // destructor, complain in destructor if there are alive threads or stop
+  // them
   // in some way.
   void AwaitShutdown() {
     for (auto &key_value : reactors_) {
@@ -550,4 +578,6 @@ class System {
                      std::pair<std::unique_ptr<Reactor>, std::thread>>
       reactors_;
 };
+
+using Subscription = Channel::LocalEventStream::Subscription;
 }
