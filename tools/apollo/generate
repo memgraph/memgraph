@@ -144,6 +144,10 @@ for test in tests:
     if name == "unit__fswatcher":
         files.append(os.path.normpath(os.path.join(dirname, "..", "data")))
 
+    # skip benchmark tests on diffs
+    if name.startswith("benchmark") and mode == "diff":
+        continue
+
     # larger timeout for benchmark tests
     prefix = ""
     if name.startswith("benchmark"):
