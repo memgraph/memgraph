@@ -5,9 +5,8 @@
 /// example:
 ///
 ///     AstTreeStorage storage;  // Macros rely on storage being in scope.
-///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros also rely on a graph DB
-///     // accessor
-///     std::unique_ptr<GraphDbAccessor> dba;
+///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros also rely on GraphDb
+///     GraphDb db;
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
 ///           WHERE(LESS(PROPERTY_LOOKUP("e", edge_prop), LITERAL(3))),
@@ -30,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "database/dbms.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -110,29 +108,27 @@ auto GetOrderBy(T... exprs) {
 ///
 /// Name is used to create the Identifier which is used for property lookup.
 ///
-auto GetPropertyLookup(AstTreeStorage &storage,
-                       std::unique_ptr<GraphDbAccessor> &dba,
+auto GetPropertyLookup(AstTreeStorage &storage, GraphDb &db,
                        const std::string &name,
                        GraphDbTypes::Property property) {
+  GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
-                                        dba->PropertyName(property), property);
+                                        dba.PropertyName(property), property);
 }
-auto GetPropertyLookup(AstTreeStorage &storage,
-                       std::unique_ptr<GraphDbAccessor> &dba, Expression *expr,
+auto GetPropertyLookup(AstTreeStorage &storage, GraphDb &db, Expression *expr,
                        GraphDbTypes::Property property) {
-  return storage.Create<PropertyLookup>(expr, dba->PropertyName(property),
+  GraphDbAccessor dba(db);
+  return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
                                         property);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &,
-    const std::string &name,
+    AstTreeStorage &storage, GraphDb &, const std::string &name,
     const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, std::unique_ptr<GraphDbAccessor> &,
-    Expression *expr,
+    AstTreeStorage &storage, GraphDb &, Expression *expr,
     const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
                                         prop_pair.second);
@@ -497,9 +493,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
       std::unordered_map<std::pair<std::string, GraphDbTypes::Property>, \
                          query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
-  std::make_pair(property_name, dba->Property(property_name))
+  std::make_pair(property_name, GraphDbAccessor(db).Property(property_name))
 #define PROPERTY_LOOKUP(...) \
-  query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+  query::test_common::GetPropertyLookup(storage, db, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:

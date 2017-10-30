@@ -19,9 +19,9 @@
 #include "version.hpp"
 
 namespace fs = std::experimental::filesystem;
+using communication::bolt::SessionData;
 using io::network::NetworkEndpoint;
 using io::network::Socket;
-using communication::bolt::SessionData;
 using SessionT = communication::bolt::Session<Socket>;
 using ResultStreamT = SessionT::ResultStreamT;
 using ServerT = communication::Server<SessionT, SessionData>;
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
               << stacktrace.dump() << std::endl;
   });
 
-  // Initialize bolt session data (Dbms and Interpreter).
+  // Initialize bolt session data (GraphDb and Interpreter).
   SessionData session_data;
 
   // Initialize endpoint.
@@ -85,18 +85,17 @@ int main(int argc, char **argv) {
   // Initialize server.
   ServerT server(endpoint, session_data);
 
+  auto shutdown = [&server, &session_data]() {
+    // Server needs to be shutdown first and then the database. This prevents a
+    // race condition when a transaction is accepted during server shutdown.
+    server.Shutdown();
+    session_data.db.Shutdown();
+  };
   // register SIGTERM handler
-  SignalHandler::register_handler(Signal::Terminate,
-                                  [&server, &session_data]() {
-                                    server.Shutdown();
-                                    session_data.dbms.Shutdown();
-                                  });
+  SignalHandler::register_handler(Signal::Terminate, shutdown);
 
   // register SIGINT handler
-  SignalHandler::register_handler(Signal::Interupt, [&server, &session_data]() {
-    server.Shutdown();
-    session_data.dbms.Shutdown();
-  });
+  SignalHandler::register_handler(Signal::Interupt, shutdown);
 
   // Start memory warning logger.
   Scheduler mem_log_scheduler;

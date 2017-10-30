@@ -11,7 +11,7 @@ DECLARE_int32(gc_cycle_sec);
 
 TEST(GraphDbTest, GarbageCollectIndices) {
   FLAGS_gc_cycle_sec = -1;
-  GraphDb graph_db{"default", fs::path()};
+  GraphDb graph_db;
   std::unique_ptr<GraphDbAccessor> dba =
       std::make_unique<GraphDbAccessor>(graph_db);
 

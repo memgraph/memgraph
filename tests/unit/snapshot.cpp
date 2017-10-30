@@ -3,7 +3,8 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
-#include "database/dbms.hpp"
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "durability/snapshooter.hpp"
 
 DECLARE_bool(snapshot_on_exit);
@@ -13,9 +14,7 @@ DECLARE_string(snapshot_directory);
 namespace fs = std::experimental::filesystem;
 
 char tmp[] = "XXXXXX";
-const fs::path SNAPSHOTS_FOLDER_ALL_DB = mkdtemp(tmp);
-const fs::path SNAPSHOTS_TEST_DEFAULT_DB_DIR =
-    SNAPSHOTS_FOLDER_ALL_DB / "default";
+const fs::path SNAPSHOTS_DIR = mkdtemp(tmp);
 
 // Other functionality is tested in recovery tests.
 
@@ -28,8 +27,8 @@ std::vector<fs::path> GetFilesFromDir(
 }
 
 void CleanDbDir() {
-  if (!fs::exists(SNAPSHOTS_TEST_DEFAULT_DB_DIR)) return;
-  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+  if (!fs::exists(SNAPSHOTS_DIR)) return;
+  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_DIR);
   for (auto file : files) {
     fs::remove(file);
   }
@@ -48,66 +47,66 @@ class SnapshotTest : public ::testing::Test {
 
 TEST_F(SnapshotTest, CreateLessThanMaxRetainedSnapshotsTests) {
   const int snapshot_max_retained = 10;
-  Dbms dbms;
+  GraphDb db;
 
   for (int i = 0; i < 3; ++i) {
-    auto dba = dbms.active();
+    GraphDbAccessor dba(db);
     Snapshooter snapshooter;
-    snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
+    snapshooter.MakeSnapshot(dba, SNAPSHOTS_DIR,
                              snapshot_max_retained);
   }
 
-  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_DIR);
   EXPECT_EQ(files.size(), 3);
 }
 
 TEST_F(SnapshotTest, CreateMoreThanMaxRetainedSnapshotsTests) {
   const int snapshot_max_retained = 2;
-  Dbms dbms;
+  GraphDb db;
 
   fs::path first_snapshot;
   for (int i = 0; i < 3; ++i) {
-    auto dba = dbms.active();
+    GraphDbAccessor dba(db);
     Snapshooter snapshooter;
-    snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
+    snapshooter.MakeSnapshot(dba, SNAPSHOTS_DIR,
                              snapshot_max_retained);
     if (i == 0) {
       std::vector<fs::path> files_begin =
-          GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+          GetFilesFromDir(SNAPSHOTS_DIR);
       EXPECT_EQ(files_begin.size(), 1);
       first_snapshot = files_begin[0];
     }
   }
 
   std::vector<fs::path> files_end =
-      GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+      GetFilesFromDir(SNAPSHOTS_DIR);
   EXPECT_EQ(files_end.size(), 2);
   EXPECT_EQ(fs::exists(first_snapshot), false);
 }
 
 TEST_F(SnapshotTest, CreateSnapshotWithUnlimitedMaxRetainedSnapshots) {
   const int snapshot_max_retained = -1;
-  Dbms dbms;
+  GraphDb db;
 
   for (int i = 0; i < 10; ++i) {
-    auto dba = dbms.active();
+    GraphDbAccessor dba(db);
     Snapshooter snapshooter;
-    snapshooter.MakeSnapshot(*dba.get(), SNAPSHOTS_TEST_DEFAULT_DB_DIR,
+    snapshooter.MakeSnapshot(dba, SNAPSHOTS_DIR,
                              snapshot_max_retained);
   }
 
-  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_DIR);
   EXPECT_EQ(files.size(), 10);
 }
 
 TEST_F(SnapshotTest, TestSnapshotFileOnDbDestruct) {
   {
-    FLAGS_snapshot_directory = SNAPSHOTS_FOLDER_ALL_DB;
+    FLAGS_snapshot_directory = SNAPSHOTS_DIR;
     FLAGS_snapshot_on_exit = true;
-    Dbms dbms;
-    auto dba = dbms.active();
+    GraphDb db;
+    GraphDbAccessor dba(db);
   }
-  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_TEST_DEFAULT_DB_DIR);
+  std::vector<fs::path> files = GetFilesFromDir(SNAPSHOTS_DIR);
   // snapshot is created on dbms destruction
   EXPECT_EQ(files.size(), 1);
 }

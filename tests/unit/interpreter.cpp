@@ -1,11 +1,9 @@
 #include <cstdlib>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/dbms.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "query/exceptions.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
@@ -20,11 +18,11 @@ namespace {
 // ast is read from cache.
 TEST(Interpreter, AstCache) {
   query::Interpreter interpreter;
-  Dbms dbms;
+  GraphDb db;
   {
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN 2 + 3", dba, stream, {}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -34,8 +32,8 @@ TEST(Interpreter, AstCache) {
   {
     // Cached ast, different literals.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN 5 + 4", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN 5 + 4", dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 9);
@@ -43,8 +41,8 @@ TEST(Interpreter, AstCache) {
   {
     // Different ast (because of different types).
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN 5.5 + 4", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN 5.5 + 4", dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 9.5);
@@ -52,8 +50,8 @@ TEST(Interpreter, AstCache) {
   {
     // Cached ast, same literals.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN 2 + 3", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN 2 + 3", dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
@@ -61,8 +59,8 @@ TEST(Interpreter, AstCache) {
   {
     // Cached ast, different literals.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN 10.5 + 1", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN 10.5 + 1", dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -70,8 +68,8 @@ TEST(Interpreter, AstCache) {
   {
     // Cached ast, same literals, different whitespaces.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN  10.5 + 1", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN  10.5 + 1", dba, stream, {}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
@@ -79,8 +77,8 @@ TEST(Interpreter, AstCache) {
   {
     // Cached ast, same literals, different named header.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN  10.5+1", *dba, stream, {}, false);
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN  10.5+1", dba, stream, {}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -92,11 +90,11 @@ TEST(Interpreter, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TEST(Interpreter, Parameters) {
   query::Interpreter interpreter;
-  Dbms dbms;
+  GraphDb db;
   {
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
                           {{"2", 10}, {"a b", 15}}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
@@ -107,8 +105,8 @@ TEST(Interpreter, Parameters) {
   {
     // Not needed parameter.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
                           {{"2", 10}, {"a b", 15}, {"c", 10}}, false);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
@@ -119,8 +117,8 @@ TEST(Interpreter, Parameters) {
   {
     // Cached ast, different parameters.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
                           {{"2", "da"}, {"a b", "ne"}}, false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
@@ -129,8 +127,8 @@ TEST(Interpreter, Parameters) {
   {
     // Non-primitive literal.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    interpreter.Interpret("RETURN $2", *dba, stream,
+    GraphDbAccessor dba(db);
+    interpreter.Interpret("RETURN $2", dba, stream,
                           {{"2", std::vector<query::TypedValue>{5, 2, 3}}},
                           false);
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -142,8 +140,8 @@ TEST(Interpreter, Parameters) {
   {
     // Cached ast, unprovided parameter.
     ResultStreamFaker stream;
-    auto dba = dbms.active();
-    ASSERT_THROW(interpreter.Interpret("RETURN $2 + $`a b`", *dba, stream,
+    GraphDbAccessor dba(db);
+    ASSERT_THROW(interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
                                        {{"2", "da"}, {"ab", "ne"}}, false),
                  query::UnprovidedParameterError);
   }
@@ -161,26 +159,26 @@ TEST(Interpreter, Bfs) {
   const auto kId = "id";
 
   query::Interpreter interpreter;
-  Dbms dbms;
+  GraphDb db;
   ResultStreamFaker stream;
   std::vector<std::vector<VertexAccessor>> levels(kNumLevels);
   int id = 0;
 
   // Set up.
   {
-    auto dba = dbms.active();
+    GraphDbAccessor dba(db);
     auto add_node = [&](int level, bool reachable) {
-      auto node = dba->InsertVertex();
-      node.PropsSet(dba->Property(kId), id++);
-      node.PropsSet(dba->Property(kReachable), reachable);
+      auto node = dba.InsertVertex();
+      node.PropsSet(dba.Property(kId), id++);
+      node.PropsSet(dba.Property(kReachable), reachable);
       levels[level].push_back(node);
       return node;
     };
 
     auto add_edge = [&](VertexAccessor &v1, VertexAccessor &v2,
                         bool reachable) {
-      auto edge = dba->InsertEdge(v1, v2, dba->EdgeType("edge"));
-      edge.PropsSet(dba->Property(kReachable), reachable);
+      auto edge = dba.InsertEdge(v1, v2, dba.EdgeType("edge"));
+      edge.PropsSet(dba.Property(kReachable), reachable);
     };
 
     // Add source node.
@@ -218,15 +216,15 @@ TEST(Interpreter, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    dba->Commit();
+    dba.Commit();
   }
 
-  auto dba = dbms.active();
+  GraphDbAccessor dba(db);
 
   interpreter.Interpret(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and e.reachable)]->(m) "
       "RETURN r",
-      *dba, stream, {}, false);
+      dba, stream, {}, false);
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "r");
@@ -243,13 +241,13 @@ TEST(Interpreter, Bfs) {
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
-    EXPECT_EQ(edges[0].from().PropsAt(dba->Property(kId)).Value<int64_t>(), 0);
+    EXPECT_EQ(edges[0].from().PropsAt(dba.Property(kId)).Value<int64_t>(), 0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
       EXPECT_EQ(edges[i - 1].to(), edges[i].from());
     }
     auto matched_id =
-        edges.back().to().PropsAt(dba->Property(kId)).Value<int64_t>();
+        edges.back().to().PropsAt(dba.Property(kId)).Value<int64_t>();
     // Check that we didn't match that node already.
     EXPECT_TRUE(matched_ids.insert(matched_id).second);
     // Check that shortest path was found.
@@ -264,16 +262,16 @@ TEST(Interpreter, Bfs) {
 
 TEST(Interpreter, CreateIndexInMulticommandTransaction) {
   query::Interpreter interpreter;
-  Dbms dbms;
+  GraphDb db;
   {
     ResultStreamFaker stream;
-    auto dba = dbms.active();
+    GraphDbAccessor dba(db);
     ASSERT_THROW(
-        interpreter.Interpret("CREATE INDEX ON :X(y)", *dba, stream, {}, true),
+        interpreter.Interpret("CREATE INDEX ON :X(y)", dba, stream, {}, true),
         query::IndexInMulticommandTxException);
   }
 }
-}
+}  // namespace
 
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);

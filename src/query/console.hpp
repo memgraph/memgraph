@@ -8,16 +8,14 @@
 #include <list>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/dbms.hpp"
 
 namespace query {
 
 /**
- * Read Evaluate Print Loop,
- * for interacting with a database
- * (the active database in the given DBMS).
- * Immediately starts the user-input loop
- * and interprets the entered queries.
+ * Read Evaluate Print Loop, for interacting with a database (the database in
+ * the given GraphDb). Immediately starts the user-input loop and interprets the
+ * entered queries.
  */
-void Repl(Dbms &dbms);
-}
+void Repl(GraphDb &);
+
+}  // namespace query

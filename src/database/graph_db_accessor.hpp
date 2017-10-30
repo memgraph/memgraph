@@ -66,11 +66,6 @@ class GraphDbAccessor {
   GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
 
   /**
-   * Returns the name of the database of this accessor.
-   */
-  const std::string &name() const;
-
-  /**
    * Creates a new Vertex and returns an accessor to it.
    *
    * @return See above.

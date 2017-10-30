@@ -10,7 +10,6 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
-#include "database/dbms.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -646,7 +645,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  Dbms dbms;
+  GraphDb db;
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(
       in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0, planning_timer);
@@ -659,8 +658,8 @@ int main(int argc, char *argv[]) {
     if (!line || *line == "quit") break;
     if (line->empty()) continue;
     try {
-      auto dba = dbms.active();
-      auto ast = MakeAst(*line, *dba);
+      GraphDbAccessor dba(db);
+      auto ast = MakeAst(*line, dba);
       auto symbol_table = MakeSymbolTable(ast);
       planning_timer.Start();
       auto plans = MakeLogicalPlans(ast, symbol_table, interactive_db);

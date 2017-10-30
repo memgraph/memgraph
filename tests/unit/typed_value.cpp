@@ -7,8 +7,9 @@
 #include <set>
 #include <vector>
 
-#include "database/dbms.hpp"
 #include "gtest/gtest.h"
+
+#include "database/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
 
 using query::TypedValue;
@@ -17,8 +18,8 @@ using query::TypedValueException;
 class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
-  Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> dba_ = dbms_.active();
+  GraphDb db_;
+  GraphDbAccessor dba_{db_};
 
   void SetUp() override {
     values_.emplace_back(TypedValue::Null);
@@ -34,11 +35,10 @@ class AllTypesFixture : public testing::Test {
                                           {"c", 42},
                                           {"d", 0.5},
                                           {"e", TypedValue::Null}});
-    auto vertex = dba_->InsertVertex();
+    auto vertex = dba_.InsertVertex();
     values_.emplace_back(vertex);
-    values_.emplace_back(
-        dba_->InsertEdge(vertex, vertex, dba_->EdgeType("et")));
-    values_.emplace_back(query::Path(dba_->InsertVertex()));
+    values_.emplace_back(dba_.InsertEdge(vertex, vertex, dba_.EdgeType("et")));
+    values_.emplace_back(query::Path(dba_.InsertVertex()));
   }
 };
 

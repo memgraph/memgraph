@@ -5,7 +5,6 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/dbms.hpp"
 #include "query/console.hpp"
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"
@@ -44,8 +43,8 @@ class ProgressReporter {
   std::mutex mutex_{};
 };
 
-void random_generate(Dbms &dbms, int64_t node_count, int64_t edge_count) {
-  utils::RandomGraphGenerator generator(dbms);
+void random_generate(GraphDb &db, int64_t node_count, int64_t edge_count) {
+  utils::RandomGraphGenerator generator(db);
   ProgressReporter reporter(node_count, edge_count,
                             std::max(1l, (node_count + edge_count) / 100));
   generator.AddProgressListener([&reporter](auto &rgg) { reporter(rgg); });
@@ -70,10 +69,10 @@ int main(int argc, char *argv[]) {
   // TODO switch to GFlags, once finally available
   if (argc > 3) google::InitGoogleLogging(argv[0]);
 
-  Dbms dbms;
+  GraphDb db;
   std::cout << "Generating graph..." << std::endl;
-  //  fill_db(dbms);
-  random_generate(dbms, node_count, edge_count);
-  query::Repl(dbms);
+  //  fill_db;
+  random_generate(db, node_count, edge_count);
+  query::Repl(db);
   return 0;
 }

@@ -2,7 +2,6 @@
 
 #include "gtest/gtest.h"
 
-#include "database/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -85,8 +84,8 @@ TEST(TestSymbolGenerator, CreatePropertyUnbound) {
   AstTreeStorage storage;
   // AST with unbound variable in create: CREATE ({prop: x})
   auto node = NODE("anon");
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   node->properties_[PROPERTY_PAIR("prop")] = IDENT("x");
   auto query_ast = QUERY(CREATE(PATTERN(node)));
   SymbolGenerator symbol_generator(symbol_table);
@@ -151,9 +150,9 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   AstTreeStorage storage;
   // AST with redeclaring a match edge variable in create:
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto relationship = dba->EdgeType("relationship");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto relationship = dba.EdgeType("relationship");
   auto query =
       QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
             CREATE(PATTERN(NODE("n"),
@@ -190,10 +189,10 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   AstTreeStorage storage;
   // Multiple edge relationship are not allowed when creating edges.
   // CREATE (n) -[r :rel1 | :rel2]-> (m)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto rel1 = dba->EdgeType("rel1");
-  auto rel2 = dba->EdgeType("rel2");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto rel1 = dba.EdgeType("rel1");
+  auto rel2 = dba.EdgeType("rel2");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
   edge->edge_types_.emplace_back(rel2);
   auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
@@ -206,9 +205,9 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   AstTreeStorage storage;
   // Bidirectional relationships are not allowed when creating edges.
   // CREATE (n) -[r :rel1]- (m)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto rel1 = dba->EdgeType("rel1");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto rel1 = dba.EdgeType("rel1");
   auto query = QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m"))));
   SymbolTable symbol_table;
@@ -290,9 +289,9 @@ TEST(TestSymbolGenerator, MatchWithReturnUnbound) {
 
 TEST(TestSymbolGenerator, MatchWithWhere) {
   // Test MATCH (old) WITH old AS n WHERE n.prop < 42
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto node = NODE("old");
   auto old_ident = IDENT("old");
@@ -316,9 +315,9 @@ TEST(TestSymbolGenerator, MatchWithWhere) {
 
 TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto query =
       QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
@@ -330,10 +329,10 @@ TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
 
 TEST(TestSymbolGenerator, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
-  auto p_type = dba->EdgeType("p");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
+  auto p_type = dba.EdgeType("p");
   AstTreeStorage storage;
   auto node_n1 = NODE("n");
   auto edge_r = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
@@ -368,10 +367,10 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
 
 TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
-  auto label = dba->Label("label");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
+  auto label = dba.Label("label");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -384,9 +383,9 @@ TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
 
 TEST(TestSymbolGenerator, CreateExpandProperty) {
   // Test CREATE (n) -[r :r]-> (n {prop: 42})
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
   auto n_prop = NODE("n");
   n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
@@ -399,9 +398,9 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
 
 TEST(TestSymbolGenerator, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto node = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
@@ -423,9 +422,9 @@ TEST(TestSymbolGenerator, MatchReturnSum) {
 
 TEST(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -437,9 +436,9 @@ TEST(TestSymbolGenerator, NestedAggregation) {
 
 TEST(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto query = QUERY(MATCH(PATTERN(NODE("n"))),
                      WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
@@ -451,8 +450,8 @@ TEST(TestSymbolGenerator, WrongAggregationContext) {
 
 TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   // Test MATCH (n) CREATE (m {prop: n.prop})
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
@@ -473,9 +472,9 @@ TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
 
 TEST(TestSymbolGenerator, CreateNodeEdge) {
   // Test CREATE (n), (n) -[r :r]-> (n)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
@@ -495,9 +494,9 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
 
 TEST(TestSymbolGenerator, MatchWithCreate) {
   // Test MATCH (n) WITH n AS m CREATE (m) -[r :r]-> (m)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
@@ -643,9 +642,9 @@ TEST(TestSymbolGenerator, MergeVariableError) {
   }
   // Test MATCH (n) -[r]- (m) MERGE (a) -[r :rel]- (b)
   {
-    Dbms dbms;
-    auto dba = dbms.active();
-    auto rel = dba->EdgeType("rel");
+    GraphDb db;
+    GraphDbAccessor dba(db);
+    auto rel = dba.EdgeType("rel");
     AstTreeStorage storage;
     auto query = QUERY(
         MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -670,10 +669,10 @@ TEST(TestSymbolGenerator, MergeEdgeWithoutType) {
 TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
   //      ON CREATE SET m.prop = 42 RETURN r AS r
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto rel = dba->EdgeType("rel");
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto rel = dba.EdgeType("rel");
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
@@ -745,8 +744,8 @@ TEST(TestSymbolGenerator, WithUnwindReturn) {
 
 TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
   // MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
@@ -776,9 +775,9 @@ TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
 
 TEST(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   // MATCH (n) -[e]- (m) WITH * RETURN *, n.prop
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto ret = RETURN(n_prop, AS("n.prop"));
@@ -824,10 +823,10 @@ TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
 
 TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto r_type = dba->EdgeType("r");
-  auto label = dba->Label("label");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto r_type = dba.EdgeType("r");
+  auto label = dba.Label("label");
   AstTreeStorage storage;
   auto query = QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -840,8 +839,8 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
 
 TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   // Test MATCH (n) -[r {prop: n.prop}]- (m) RETURN r
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto edge = EDGE("r");
@@ -860,9 +859,9 @@ TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
 
 TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m), (l) RETURN r
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
@@ -884,9 +883,9 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
 
 TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   // Test MATCH (n) -[r *..l.prop]- (m) MATCH (l) RETURN r
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r");
   auto l_prop = PROPERTY_LOOKUP("l", prop);
@@ -938,9 +937,9 @@ TEST(TestSymbolGenerator, VariablePathSameIdentifier) {
   // Test MATCH (n) -[r *r.prop..]-> (m) RETURN r raises UnboundVariableError.
   // `r` cannot be used inside the range expression, since it is bound by the
   // variable expansion itself.
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
@@ -954,8 +953,8 @@ TEST(TestSymbolGenerator, MatchPropertySameIdentifier) {
   // Test MATCH (n {prop: n.prop}) RETURN n
   // Using `n.prop` needs to work, because filters are run after the value for
   // matched symbol is obtained.
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
@@ -997,9 +996,9 @@ TEST(TestSymbolGenerator, WithReturnAll) {
 
 TEST(TestSymbolGenerator, MatchBfsReturn) {
   // Test MATCH (n) -[r *bfs..n.prop] (r, n | r.prop)]-> (m) RETURN r AS r
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto prop = dba->Property("prop");
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP("r", prop);

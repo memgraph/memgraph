@@ -7,7 +7,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "database/dbms.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -20,9 +19,9 @@
 #include "query_common.hpp"
 
 using namespace query;
-using testing::UnorderedElementsAre;
-using testing::ElementsAre;
 using query::test_common::ToList;
+using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 
 namespace {
 
@@ -30,20 +29,20 @@ struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
   SymbolTable symbol_table;
-  Dbms dbms;
-  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba{db};
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
-                            const std::vector<TypedValue> &args, Dbms &dbms) {
+                            const std::vector<TypedValue> &args, GraphDb &db) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  auto dba = dbms.active();
+  GraphDbAccessor dba(db);
   Frame frame{128};
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
 
   std::vector<Expression *> expressions;
   for (const auto &arg : args) {
@@ -56,8 +55,8 @@ TypedValue EvaluateFunction(const std::string &function_name,
 
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args) {
-  Dbms dbms;
-  return EvaluateFunction(function_name, args, dbms);
+  GraphDb db;
+  return EvaluateFunction(function_name, args, db);
 }
 
 TEST(ExpressionEvaluator, OrOperator) {
@@ -372,8 +371,8 @@ TEST(ExpressionEvaluator, ListMapIndexingOperator) {
 TEST(ExpressionEvaluator, MapIndexing) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   auto *map_literal = storage.Create<MapLiteral>(
       std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
                          Expression *>{
@@ -579,8 +578,8 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
  protected:
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  Dbms dbms;
-  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba{db};
   std::pair<std::string, GraphDbTypes::Property> prop_age =
       PROPERTY_PAIR("age");
   std::pair<std::string, GraphDbTypes::Property> prop_height =
@@ -597,7 +596,7 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
 };
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-  auto v1 = dba->InsertVertex();
+  auto v1 = dba.InsertVertex();
   v1.PropsSet(prop_age.second, 10);
   eval.frame[symbol] = v1;
   EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
@@ -605,9 +604,9 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("edge_type"));
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("edge_type"));
   e12.PropsSet(prop_age.second, 10);
   eval.frame[symbol] = e12;
   EXPECT_EQ(Value(prop_age).Value<int64_t>(), 10);
@@ -628,28 +627,28 @@ TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
 TEST(ExpressionEvaluator, LabelsTest) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("ANIMAL"));
-  v1.add_label(dba->Label("DOG"));
-  v1.add_label(dba->Label("NICE_DOG"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("ANIMAL"));
+  v1.add_label(dba.Label("DOG"));
+  v1.add_label(dba.Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
   eval.symbol_table[*identifier] = node_symbol;
   eval.frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
-        identifier, std::vector<GraphDbTypes::Label>{dba->Label("DOG"),
-                                                     dba->Label("ANIMAL")});
+        identifier, std::vector<GraphDbTypes::Label>{dba.Label("DOG"),
+                                                     dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<GraphDbTypes::Label>{
-            dba->Label("DOG"), dba->Label("BAD_DOG"), dba->Label("ANIMAL")});
+        std::vector<GraphDbTypes::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                         dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -657,8 +656,8 @@ TEST(ExpressionEvaluator, LabelsTest) {
     eval.frame[node_symbol] = TypedValue::Null;
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<GraphDbTypes::Label>{
-            dba->Label("DOG"), dba->Label("BAD_DOG"), dba->Label("ANIMAL")});
+        std::vector<GraphDbTypes::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                         dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -673,10 +672,10 @@ TEST(ExpressionEvaluator, Aggregation) {
   symbol_table[*aggr] = aggr_sym;
   Frame frame{symbol_table.max_position()};
   frame[aggr_sym] = TypedValue(1);
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, *dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
   auto value = aggr->Accept(eval);
   EXPECT_EQ(value.Value<int64_t>(), 1);
 }
@@ -711,16 +710,16 @@ TEST(ExpressionEvaluator, FunctionEndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("ENDNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("ENDNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba->Label("label2")));
+                  .has_label(dba.Label("label2")));
   ASSERT_THROW(EvaluateFunction("ENDNODE", {2}), QueryRuntimeException);
 }
 
@@ -740,15 +739,15 @@ TEST(ExpressionEvaluator, FunctionProperties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("PROPERTIES", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.PropsSet(dba->Property("height"), 5);
-  v1.PropsSet(dba->Property("age"), 10);
-  auto v2 = dba->InsertVertex();
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
-  e.PropsSet(dba->Property("height"), 3);
-  e.PropsSet(dba->Property("age"), 15);
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.PropsSet(dba.Property("height"), 5);
+  v1.PropsSet(dba.Property("age"), 10);
+  auto v2 = dba.InsertVertex();
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
+  e.PropsSet(dba.Property("height"), 3);
+  e.PropsSet(dba.Property("age"), 15);
 
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
@@ -792,13 +791,13 @@ TEST(ExpressionEvaluator, FunctionSize) {
             3);
   ASSERT_THROW(EvaluateFunction("SIZE", {5}), QueryRuntimeException);
 
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v0 = dba->InsertVertex();
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v0 = dba.InsertVertex();
   query::Path path(v0);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 0);
-  auto v1 = dba->InsertVertex();
-  path.Expand(dba->InsertEdge(v0, v1, dba->EdgeType("type")));
+  auto v1 = dba.InsertVertex();
+  path.Expand(dba.InsertEdge(v0, v1, dba.EdgeType("type")));
   path.Expand(v1);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 1);
 }
@@ -807,16 +806,16 @@ TEST(ExpressionEvaluator, FunctionStartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("STARTNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("STARTNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba->Label("label1")));
+                  .has_label(dba.Label("label1")));
   ASSERT_THROW(EvaluateFunction("STARTNODE", {2}), QueryRuntimeException);
 }
 
@@ -824,13 +823,13 @@ TEST(ExpressionEvaluator, FunctionDegree) {
   ASSERT_THROW(EvaluateFunction("DEGREE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("DEGREE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  auto v2 = dba->InsertVertex();
-  auto v3 = dba->InsertVertex();
-  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
-  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("DEGREE", {v1}).Value<int64_t>(), 1);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v2}).Value<int64_t>(), 2);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v3}).Value<int64_t>(), 1);
@@ -881,13 +880,13 @@ TEST(ExpressionEvaluator, FunctionType) {
   ASSERT_THROW(EvaluateFunction("TYPE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TYPE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.add_label(dba->Label("label1"));
-  auto v2 = dba->InsertVertex();
-  v2.add_label(dba->Label("label2"));
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.add_label(dba.Label("label1"));
+  auto v2 = dba.InsertVertex();
+  v2.add_label(dba.Label("label2"));
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
   ASSERT_EQ(EvaluateFunction("TYPE", {e}).Value<std::string>(), "type1");
   ASSERT_THROW(EvaluateFunction("TYPE", {2}), QueryRuntimeException);
 }
@@ -896,11 +895,11 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("LABELS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v = dba->InsertVertex();
-  v.add_label(dba->Label("label1"));
-  v.add_label(dba->Label("label2"));
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v = dba.InsertVertex();
+  v.add_label(dba.Label("label1"));
+  v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
   auto _labels =
       EvaluateFunction("LABELS", {v}).Value<std::vector<TypedValue>>();
@@ -941,15 +940,15 @@ TEST(ExpressionEvaluator, FunctionKeys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("KEYS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  Dbms dbms;
-  auto dba = dbms.active();
-  auto v1 = dba->InsertVertex();
-  v1.PropsSet(dba->Property("height"), 5);
-  v1.PropsSet(dba->Property("age"), 10);
-  auto v2 = dba->InsertVertex();
-  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("type1"));
-  e.PropsSet(dba->Property("width"), 3);
-  e.PropsSet(dba->Property("age"), 15);
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto v1 = dba.InsertVertex();
+  v1.PropsSet(dba.Property("height"), 5);
+  v1.PropsSet(dba.Property("age"), 10);
+  auto v2 = dba.InsertVertex();
+  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
+  e.PropsSet(dba.Property("width"), 3);
+  e.PropsSet(dba.Property("age"), 15);
 
   auto prop_keys_to_string = [](TypedValue t) {
     std::vector<std::string> keys;
@@ -1175,49 +1174,49 @@ TEST(ExpressionEvaluator, ParameterLookup) {
 }
 
 TEST(ExpressionEvaluator, FunctionCounter) {
-  Dbms dbms;
-  EXPECT_THROW(EvaluateFunction("COUNTER", {}, dbms), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, dbms),
+  GraphDb db;
+  EXPECT_THROW(EvaluateFunction("COUNTER", {}, db), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, db),
                QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 1);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 2);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 2);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 1);
 }
 
 TEST(ExpressionEvaluator, FunctionCounterSet) {
-  Dbms dbms;
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, dbms), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, dbms),
+  GraphDb db;
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, db), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, db),
                QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}, dbms),
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}, db),
                QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}, dbms),
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}, db),
                QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 0);
-  EvaluateFunction("COUNTERSET", {"c1", 12}, dbms);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 12);
-  EvaluateFunction("COUNTERSET", {"c2", 42}, dbms);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 42);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, dbms).ValueInt(), 13);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, dbms).ValueInt(), 43);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 0);
+  EvaluateFunction("COUNTERSET", {"c1", 12}, db);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 12);
+  EvaluateFunction("COUNTERSET", {"c2", 42}, db);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 42);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 13);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 43);
 }
 
 TEST(ExpressionEvaluator, FunctionIndexInfo) {
-  Dbms dbms;
-  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, dbms), QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, dbms).ValueList().size(), 0);
-  auto dba = dbms.active();
-  dba->InsertVertex().add_label(dba->Label("l1"));
+  GraphDb db;
+  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, db), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, db).ValueList().size(), 0);
+  GraphDbAccessor dba(db);
+  dba.InsertVertex().add_label(dba.Label("l1"));
   {
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, dbms));
+    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, db));
     EXPECT_EQ(info.size(), 1);
     EXPECT_EQ(info[0], ":l1");
   }
   {
-    dba->BuildIndex(dba->Label("l1"), dba->Property("prop"));
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, dbms));
+    dba.BuildIndex(dba.Label("l1"), dba.Property("prop"));
+    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, db));
     EXPECT_EQ(info.size(), 2);
     EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
   }

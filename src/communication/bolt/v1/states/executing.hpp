@@ -72,16 +72,17 @@ State HandleRun(TSession &session, State state, Marker marker) {
     // Transaction already exists.
     in_explicit_transaction = true;
   } else {
-    // Create new transaction.
-    session.db_accessor_ = session.dbms_.active();
-    if (!session.db_accessor_) {
-      // Dbms is shutting down and doesn't accept new transactions so we should
+    // TODO: Possible (but very unlikely) race condition, where we have alive
+    // session during shutdown, but is_accepting_transactions_ isn't yet false.
+    // We should probably create transactions under some locking mechanism.
+    if (!session.db_.is_accepting_transactions_) {
+      // Db is shutting down and doesn't accept new transactions so we should
       // close this session.
       return State::Close;
     }
+    // Create new transaction.
+    session.db_accessor_ = std::make_unique<GraphDbAccessor>(session.db_);
   }
-
-  DLOG(INFO) << fmt::format("[ActiveDB] '{}'", session.db_accessor_->name());
 
   // If there was not explicitly started transaction before maybe we are
   // starting one now.

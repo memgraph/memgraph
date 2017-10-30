@@ -16,8 +16,6 @@ GraphDbAccessor::~GraphDbAccessor() {
   }
 }
 
-const std::string &GraphDbAccessor::name() const { return db_.name_; }
-
 void GraphDbAccessor::AdvanceCommand() {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   transaction_->engine_.Advance(transaction_->id_);

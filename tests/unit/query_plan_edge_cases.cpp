@@ -2,31 +2,41 @@
 // that's not easily testable with single-phase testing. instead, for
 // easy testing and latter readability they are tested end-to-end.
 
+#include <experimental/optional>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
-#include "database/dbms.hpp"
 #include "query/interpreter.hpp"
 
 class QueryExecution : public testing::Test {
  protected:
-  Dbms dbms_;
-  std::unique_ptr<GraphDbAccessor> db_ = dbms_.active();
+  std::experimental::optional<GraphDb> db_;
+  std::experimental::optional<GraphDbAccessor> dba_;
 
-  /** Commits the current transaction and refreshes the db_
+  void SetUp() {
+    db_.emplace();
+    dba_.emplace(*db_);
+  }
+
+  void TearDown() {
+    dba_ = std::experimental::nullopt;
+    db_ = std::experimental::nullopt;
+  }
+
+  /** Commits the current transaction and refreshes the dba_
    * variable to hold a new accessor with a new transaction */
   void Commit() {
-    db_->Commit();
-    auto next_db = dbms_.active();
-    db_.swap(next_db);
+    dba_->Commit();
+    dba_.emplace(*db_);
   }
 
   /** Executes the query and returns the results.
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
     ResultStreamFaker results;
-    query::Interpreter().Interpret(query, *db_, results, {}, false);
+    query::Interpreter().Interpret(query, *dba_, results, {}, false);
     return results.GetResults();
   }
 };

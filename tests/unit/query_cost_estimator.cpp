@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <memory>
 
-#include "database/dbms.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/cost_estimator.hpp"
@@ -22,8 +21,8 @@ using MiscParam = CostEstimator<GraphDbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  Dbms dbms;
-  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  GraphDb db;
+  std::experimental::optional<GraphDbAccessor> dba{db};
   GraphDbTypes::Label label = dba->Label("label");
   GraphDbTypes::Property property = dba->Property("property");
 
@@ -39,8 +38,7 @@ class QueryCostEstimator : public ::testing::Test {
   void SetUp() {
     // create the index in the current db accessor and then swap it to a new one
     dba->BuildIndex(label, property);
-    auto new_dba = dbms.active();
-    dba.swap(new_dba);
+    dba.emplace(db);
   }
 
   Symbol NextSymbol() {
@@ -200,11 +198,12 @@ TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(
-              last_op_, storage_.Create<ListLiteral>(
-                            std::vector<Expression *>(7, nullptr)),
-              NextSymbol()),
-          CostParam::kUnwind, 7);
+  TEST_OP(
+      MakeOp<query::plan::Unwind>(
+          last_op_,
+          storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
+          NextSymbol()),
+      CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {

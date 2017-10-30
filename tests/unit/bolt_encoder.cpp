@@ -2,7 +2,6 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/encoder/encoder.hpp"
-#include "database/dbms.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
@@ -165,10 +164,10 @@ TEST(BoltEncoder, VertexAndEdge) {
   output.clear();
 
   // create vertex
-  Dbms dbms;
-  auto db_accessor = dbms.active();
-  auto va1 = db_accessor->InsertVertex();
-  auto va2 = db_accessor->InsertVertex();
+  GraphDb db;
+  GraphDbAccessor db_accessor(db);
+  auto va1 = db_accessor.InsertVertex();
+  auto va2 = db_accessor.InsertVertex();
   std::string l1("label1"), l2("label2");
   va1.add_label(&l1);
   va1.add_label(&l2);
@@ -179,7 +178,7 @@ TEST(BoltEncoder, VertexAndEdge) {
 
   // create edge
   std::string et("edgetype");
-  auto ea = db_accessor->InsertEdge(va1, va2, &et);
+  auto ea = db_accessor.InsertEdge(va1, va2, &et);
   std::string p3("prop3"), p4("prop4");
   PropertyValue pv3(42), pv4(1234);
   ea.PropsSet(&p3, pv3);

@@ -3,7 +3,8 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
-#include "database/dbms.hpp"
+#include "database/graph_db.hpp"
+#include "durability/recovery.hpp"
 #include "query/typed_value.hpp"
 
 static const char *usage =
@@ -19,28 +20,29 @@ class RecoveryTest : public ::testing::Test {
   void SetUp() override {
     Recovery recovery;
     std::string snapshot(FLAGS_snapshot_dir + "/snapshot");
-    recovery.Recover(snapshot, *dbms_.active());
+    GraphDbAccessor dba(db_);
+    recovery.Recover(snapshot, dba);
   }
 
-  Dbms dbms_;
+  GraphDb db_;
 };
 
 TEST_F(RecoveryTest, TestVerticesRecovered) {
-  auto dba = dbms_.active();
-  EXPECT_EQ(dba->VerticesCount(), 10);
-  EXPECT_EQ(dba->VerticesCount(dba->Label("Comment")), 5);
-  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
-    EXPECT_TRUE(vertex.has_label(dba->Label("Message")));
+  GraphDbAccessor dba(db_);
+  EXPECT_EQ(dba.VerticesCount(), 10);
+  EXPECT_EQ(dba.VerticesCount(dba.Label("Comment")), 5);
+  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
+    EXPECT_TRUE(vertex.has_label(dba.Label("Message")));
   }
-  EXPECT_EQ(dba->VerticesCount(dba->Label("Forum")), 5);
+  EXPECT_EQ(dba.VerticesCount(dba.Label("Forum")), 5);
 }
 
 TEST_F(RecoveryTest, TestPropertyNull) {
-  auto dba = dbms_.active();
+  GraphDbAccessor dba(db_);
   bool found = false;
-  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
-    auto id_prop = query::TypedValue(vertex.PropsAt(dba->Property("id")));
-    auto browser = query::TypedValue(vertex.PropsAt(dba->Property("browser")));
+  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
+    auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
+    auto browser = query::TypedValue(vertex.PropsAt(dba.Property("browser")));
     if (id_prop.IsString() && id_prop.Value<std::string>() == "2") {
       EXPECT_FALSE(found);
       found = true;
@@ -53,10 +55,10 @@ TEST_F(RecoveryTest, TestPropertyNull) {
 }
 
 TEST_F(RecoveryTest, TestEdgesRecovered) {
-  auto dba = dbms_.active();
-  EXPECT_EQ(dba->EdgesCount(), 5);
-  for (const auto &edge : dba->Edges(false)) {
-    EXPECT_TRUE(edge.EdgeType() == dba->EdgeType("POSTED_ON"));
+  GraphDbAccessor dba(db_);
+  EXPECT_EQ(dba.EdgesCount(), 5);
+  for (const auto &edge : dba.Edges(false)) {
+    EXPECT_TRUE(edge.EdgeType() == dba.EdgeType("POSTED_ON"));
   }
 }
 

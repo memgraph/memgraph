@@ -4,7 +4,6 @@ add_executable(mg_recovery_check
   mg_recovery_check.cpp
   ${memgraph_src_dir}/communication/bolt/v1/decoder/decoded_value.cpp
   ${memgraph_src_dir}/data_structures/concurrent/skiplist_gc.cpp
-  ${memgraph_src_dir}/database/dbms.cpp
   ${memgraph_src_dir}/database/graph_db.cpp
   ${memgraph_src_dir}/database/graph_db_accessor.cpp
   ${memgraph_src_dir}/durability/recovery.cpp

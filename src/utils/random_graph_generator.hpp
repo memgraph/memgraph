@@ -7,12 +7,12 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <experimental/optional>
 #include <functional>
 #include <thread>
 #include <vector>
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "database/dbms.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
@@ -37,7 +37,7 @@ auto RandomIntGenerator(int from, int to) {
  */
 class RandomGraphGenerator {
  public:
-  explicit RandomGraphGenerator(Dbms &dbms) : dbms_(dbms) {}
+  explicit RandomGraphGenerator(GraphDb &db) : db_(db) {}
 
   /**
    * Adds a progress listener that gets notified when
@@ -65,10 +65,10 @@ class RandomGraphGenerator {
    */
   void AddVertices(int count, const std::vector<std::string> &label_names,
                    int thread_count, int batch_size = 2000) {
-    auto dba = dbms_.active();
+    GraphDbAccessor dba(db_);
     std::vector<GraphDbTypes::Label> labels;
     for (const auto &label_name : label_names)
-      labels.push_back(dba->Label(label_name));
+      labels.push_back(dba.Label(label_name));
 
     Map(
         [&labels, this](GraphDbAccessor &dba) {
@@ -83,7 +83,7 @@ class RandomGraphGenerator {
    * Returns the number of vertices created by this generator,
    * regardless of their labels.
    */
-  int64_t VertexCount() const { return dbms_.active()->VerticesCount(); }
+  int64_t VertexCount() const { return GraphDbAccessor(db_).VerticesCount(); }
 
   /**
    * Adds the given number of edges to the graph.
@@ -106,12 +106,12 @@ class RandomGraphGenerator {
     auto vertices_from = FilterVertices(from_filter);
     auto vertices_to = FilterVertices(to_filter);
 
-    auto dba = dbms_.active();
-    auto edge_type = dba->EdgeType(edge_type_name);
+    GraphDbAccessor dba(db_);
+    auto edge_type = dba.EdgeType(edge_type_name);
 
     // for small vertex counts reduce the batch size
     batch_size =
-        std::min(batch_size, static_cast<int>(dba->VerticesCount() / 1000 + 1));
+        std::min(batch_size, static_cast<int>(dba.VerticesCount() / 1000 + 1));
 
     Map(
         [&vertices_from, &vertices_to, edge_type, this](GraphDbAccessor &dba) {
@@ -130,7 +130,7 @@ class RandomGraphGenerator {
    * Returns the number of edges created by this generator,
    * regardless of their types and origin/destination labels.
    */
-  int64_t EdgeCount() const { return dbms_.active()->EdgesCount(); }
+  int64_t EdgeCount() const { return GraphDbAccessor(db_).EdgesCount(); }
 
   /**
    * Sets a generated property on a random vertex.
@@ -146,15 +146,15 @@ class RandomGraphGenerator {
       const std::string &prop_name, std::function<TValue()> value_generator,
       std::function<bool(VertexAccessor &va)> predicate = {}) {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
-    auto dba = dbms_.active();
-    auto property = dba->Property(prop_name);
-    for (VertexAccessor va : dba->Vertices(false))
+    GraphDbAccessor dba(db_);
+    auto property = dba.Property(prop_name);
+    for (VertexAccessor va : dba.Vertices(false))
       if (predicate(va)) va.PropsSet(property, value_generator());
-    dba->Commit();
+    dba.Commit();
   }
 
  private:
-  Dbms &dbms_;
+  GraphDb &db_;
 
   // progress listeners, they get notified about vertices and edges being
   // created
@@ -167,7 +167,7 @@ class RandomGraphGenerator {
    *
    *
    * @param predicate A predicate. By default always true.
-   * @return A vector of vertex accessors. They belong to a GraphDbAccesor
+   * @return A vector of vertex accessors. They belong to a GraphDbAccessor
    *   that is dead when this function retuns, make sure to
    *   GraphDbAccessor::Transfer them.
    */
@@ -175,8 +175,8 @@ class RandomGraphGenerator {
       std::function<bool(VertexAccessor &item)> predicate = {}) {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
     std::vector<VertexAccessor> r_val;
-    auto dba = dbms_.active();
-    for (VertexAccessor &item : dba->Vertices(false))
+    GraphDbAccessor dba(db_);
+    for (VertexAccessor &item : dba.Vertices(false))
       if (predicate(item)) r_val.emplace_back(item);
 
     return r_val;
@@ -204,7 +204,7 @@ class RandomGraphGenerator {
     for (int thread_ind = 0; thread_ind < thread_count; thread_ind++) {
       if (thread_ind == thread_count - 1) count_per_thread += count_remainder;
       threads.emplace_back([count_per_thread, &f, this, elements_per_commit]() {
-        auto dba = dbms_.active();
+        std::experimental::optional<GraphDbAccessor> dba(db_);
         for (int i = 0; i < count_per_thread; i++) {
           try {
             f(*dba);
@@ -218,8 +218,8 @@ class RandomGraphGenerator {
           if (i == (count_per_thread - 1) ||
               (i >= 0 && i % elements_per_commit == 0)) {
             dba->Commit();
-            auto dba2 = dbms_.active();
-            dba.swap(dba2);
+            dba = std::experimental::nullopt;
+            dba.emplace(db_);
           }
         }
       });

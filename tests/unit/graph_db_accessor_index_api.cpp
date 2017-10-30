@@ -5,7 +5,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "database/dbms.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "utils/bound.hpp"
 
@@ -22,8 +21,8 @@ auto Count(TIterable iterable) {
  */
 class GraphDbAccessorIndex : public testing::Test {
  protected:
-  Dbms dbms;
-  std::unique_ptr<GraphDbAccessor> dba = dbms.active();
+  GraphDb db;
+  std::experimental::optional<GraphDbAccessor> dba{db};
   GraphDbTypes::Property property = dba->Property("property");
   GraphDbTypes::Label label = dba->Label("label");
   GraphDbTypes::EdgeType edge_type = dba->EdgeType("edge_type");
@@ -44,8 +43,7 @@ class GraphDbAccessorIndex : public testing::Test {
   // commits the current dba, and replaces it with a new one
   void Commit() {
     dba->Commit();
-    auto dba2 = dbms.active();
-    dba.swap(dba2);
+    dba.emplace(db);
   }
 };
 
@@ -134,20 +132,19 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
 }
 
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
 
   // We need to build indices in other threads.
-  auto build_index_async = [&dbms](int &success, int index) {
-    std::thread([&dbms, &success, index]() {
-      auto dba = dbms.active();
+  auto build_index_async = [&db](int &success, int index) {
+    std::thread([&db, &success, index]() {
+      GraphDbAccessor dba(db);
       try {
-        dba->BuildIndex(dba->Label("l" + std::to_string(index)),
-                        dba->Property("p" + std::to_string(index)));
-        dba->Commit();
+        dba.BuildIndex(dba.Label("l" + std::to_string(index)),
+                       dba.Property("p" + std::to_string(index)));
         success = 1;
       } catch (IndexBuildInProgressException &) {
-        dba->Abort();
+        dba.Abort();
         success = 0;
       }
     }).detach();
@@ -166,7 +163,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
   EXPECT_EQ(build_2_success, 0);
 
   // End dba and expect that first build index finished successfully.
-  dba->Commit();
+  dba.Commit();
   std::this_thread::sleep_for(std::chrono::milliseconds(30));
   EXPECT_EQ(build_1_success, 1);
 }

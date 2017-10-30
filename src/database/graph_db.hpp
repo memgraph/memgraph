@@ -23,43 +23,55 @@
 
 namespace fs = std::experimental::filesystem;
 
-// TODO: Maybe split this in another layer between Db and Dbms. Where the new
-// layer would hold SnapshotEngine and his kind of concept objects. Some
-// guidelines would be: retain objects which are necessary to implement querys
-// in Db, the rest can be moved to the new layer.
 /**
  * Main class which represents Database concept in code.
  * This class is essentially a data structure. It exposes
  * all the data publicly, and should therefore not be directly
  * exposed to client functions. The GraphDbAccessor is used for that.
+ *
+ * Always be sure that GraphDb object is destructed before main exits, i. e.
+ * GraphDb object shouldn't be part of global/static variable, except if its
+ * destructor is explicitly called before main exits. Consider code:
+ *
+ * GraphDb db;  // KeyIndex is created as a part of db.
+ * int main() {
+ *   GraphDbAccessor dba(db);
+ *   auto v = dba.InsertVertex();
+ *   v.add_label(dba.Label(
+ *       "Start"));  // New SkipList is created in KeyIndex for LabelIndex.
+ *                   // That SkipList creates SkipListGc which
+ *                   // initialises static Executor object.
+ *   return 0;
+ * }
+ *
+ * After main exits: 1. Executor is destructed, 2. KeyIndex is destructed.
+ * Destructor of KeyIndex calls delete on created SkipLists which destroy
+ * SkipListGc that tries to use Excutioner object that doesn't exist anymore.
+ * -> CRASH
  */
 class GraphDb {
  public:
-  /**
-   * Construct database with a custom name.
-   *
-   * @param name database name
-   * @param import_snapshot will in constructor import latest snapshot
-   *                        into the db.
-   */
-  GraphDb(const std::string &name, const fs::path &snapshot_db_dir);
-  /**
-   * @brief - Destruct database object. Delete all vertices and edges and free
-   * all deferred deleters.
-   */
+  GraphDb();
+  /** Delete all vertices and edges and free all deferred deleters. */
   ~GraphDb();
 
-  /**
-   * Database object can't be copied.
-   */
+  /** Database object can't be copied. */
   GraphDb(const GraphDb &db) = delete;
   GraphDb(GraphDb &&other) = default;
   GraphDb &operator=(const GraphDb &other) = default;
   GraphDb &operator=(GraphDb &&other) = default;
 
-  /**
-   * Starts database snapshooting.
-   */
+  /** Stop all transactions and set is_accepting_transactions_ to false. */
+  void Shutdown();
+
+  void CollectGarbage();
+
+  /** When this is false, no new transactions should be created. */
+  std::atomic<bool> is_accepting_transactions_{true};
+
+ private:
+  friend class GraphDbAccessor;
+
   void StartSnapshooting();
 
   /**
@@ -68,16 +80,8 @@ class GraphDb {
    */
   void RecoverDatabase(const fs::path &snapshot_db_path);
 
-  /**
-   * Collects garbage.
-   */
-  void CollectGarbage();
-
   /** transaction engine related to this database */
   tx::Engine tx_engine_;
-
-  // database name
-  const std::string name_;
 
   // main storage for the graph
   SkipList<mvcc::VersionList<Vertex> *> vertices_;
@@ -105,10 +109,12 @@ class GraphDb {
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
 
-  // Flag indicating if index building is in progress. Memgraph does not support
-  // concurrent index builds on the same database (transaction engine), so we
-  // reject index builds if there is one in progress. See
-  // GraphDbAccessor::BuildIndex.
+  /**
+   * Flag indicating if index building is in progress. Memgraph does not support
+   * concurrent index builds on the same database (transaction engine), so we
+   * reject index builds if there is one in progress. See
+   * GraphDbAccessor::BuildIndex.
+   */
   std::atomic<bool> index_build_in_progress_{false};
 
   // snapshooter
@@ -121,6 +127,6 @@ class GraphDb {
   // time to stop their execution.
   Scheduler transaction_killer_;
 
-  // DB level global counters, used in the "counter" function
+  /** DB level global counters, used in the "counter" function. */
   ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
 };

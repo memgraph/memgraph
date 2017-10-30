@@ -6,7 +6,6 @@
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 
-#include "database/dbms.hpp"
 #include "query/interpreter.hpp"
 #include "transactions/transaction.hpp"
 
@@ -32,7 +31,7 @@ namespace communication::bolt {
  * that are passed through the network server and worker to the session.
  */
 struct SessionData {
-  Dbms dbms;
+  GraphDb db;
   query::Interpreter interpreter;
 };
 
@@ -67,7 +66,7 @@ class Session {
 
   Session(TSocket &&socket, SessionData &data)
       : socket_(std::move(socket)),
-        dbms_(data.dbms),
+        db_(data.db),
         interpreter_(data.interpreter) {}
 
   ~Session() {
@@ -203,7 +202,7 @@ class Session {
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
   TSocket socket_;
-  Dbms &dbms_;
+  GraphDb &db_;
   query::Interpreter &interpreter_;
 
   TimeoutSocket timeout_socket_{*this};

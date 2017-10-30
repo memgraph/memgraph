@@ -123,7 +123,7 @@ void PrintResults(const ResultStreamFaker &results) {
   std::cout << "}" << std::endl;
 }
 
-void query::Repl(Dbms &dbms) {
+void query::Repl(GraphDb &db) {
   std::cout
       << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"
       << std::endl;
@@ -138,11 +138,11 @@ void query::Repl(Dbms &dbms) {
 
     // regular cypher queries
     try {
-      auto dba = dbms.active();
+      GraphDbAccessor dba(db);
       ResultStreamFaker results;
-      interpeter.Interpret(command, *dba, results, {}, false);
+      interpeter.Interpret(command, dba, results, {}, false);
       PrintResults(results);
-      dba->Commit();
+      dba.Commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::LexingException &e) {

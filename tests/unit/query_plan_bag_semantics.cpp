@@ -12,7 +12,6 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
-#include "database/dbms.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
@@ -23,8 +22,8 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, Skip) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -32,28 +31,28 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
 
-  for (int i = 0; i < 10; ++i) dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(11, PullAll(skip, *dba, symbol_table));
+  for (int i = 0; i < 10; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(11, PullAll(skip, dba, symbol_table));
 }
 
 TEST(QueryPlan, Limit) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -61,34 +60,34 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
 
-  dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
 
-  for (int i = 0; i < 10; ++i) dba->InsertVertex();
-  dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  for (int i = 0; i < 10; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
 }
 
 TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  Dbms dbms;
-  auto dba = dbms.active();
-  dba->InsertVertex();
-  dba->InsertVertex();
-  dba->AdvanceCommand();
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  dba.InsertVertex();
+  dba.InsertVertex();
+  dba.AdvanceCommand();
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -99,17 +98,17 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(m, n.op_);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
-  dba->AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
+  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
+  dba.AdvanceCommand();
+  EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
 }
 
 TEST(QueryPlan, OrderBy) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba->Property("prop");
+  auto prop = dba.Property("prop");
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
@@ -125,9 +124,9 @@ TEST(QueryPlan, OrderBy) {
   for (const auto &order_value_pair : orderable) {
     const auto &values = order_value_pair.second;
     // empty database
-    for (auto &vertex : dba->Vertices(false)) dba->DetachRemoveVertex(vertex);
-    dba->AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba->Vertices(false)));
+    for (auto &vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
+    dba.AdvanceCommand();
+    ASSERT_EQ(0, CountIterable(dba.Vertices(false)));
 
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
@@ -144,8 +143,8 @@ TEST(QueryPlan, OrderBy) {
 
     // create the vertices
     for (const auto &value : shuffled)
-      dba->InsertVertex().PropsSet(prop, value);
-    dba->AdvanceCommand();
+      dba.InsertVertex().PropsSet(prop, value);
+    dba.AdvanceCommand();
 
     // order by and collect results
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -159,7 +158,7 @@ TEST(QueryPlan, OrderBy) {
     auto n_p_ne = NEXPR("n.p", n_p);
     symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
     auto produce = MakeProduce(order_by, n_p_ne);
-    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    auto results = CollectProduce(produce.get(), symbol_table, dba);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j)
       EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
@@ -167,13 +166,13 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  auto p1 = dba->Property("p1");
-  auto p2 = dba->Property("p2");
+  auto p1 = dba.Property("p1");
+  auto p2 = dba.Property("p2");
 
   // create a bunch of vertices that in two properties
   // have all the variations (with repetition) of N values.
@@ -184,11 +183,11 @@ TEST(QueryPlan, OrderByMultiple) {
   for (int i = 0; i < N * N; ++i) prop_values.emplace_back(i % N, i / N);
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
-    auto v = dba->InsertVertex();
+    auto v = dba.InsertVertex();
     v.PropsSet(p1, pair.first);
     v.PropsSet(p2, pair.second);
   }
-  dba->AdvanceCommand();
+  dba.AdvanceCommand();
 
   // order by and collect results
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -212,7 +211,7 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p2_ne = NEXPR("n.p2", n_p2);
   symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2", true);
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  auto results = CollectProduce(produce.get(), symbol_table, dba);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
     ASSERT_EQ(results[j][0].type(), TypedValue::Type::Int);
@@ -223,11 +222,11 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  Dbms dbms;
-  auto dba = dbms.active();
+  GraphDb db;
+  GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  auto prop = dba->Property("prop");
+  auto prop = dba.Property("prop");
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
@@ -243,16 +242,16 @@ TEST(QueryPlan, OrderByExceptions) {
 
   for (const auto &pair : exception_pairs) {
     // empty database
-    for (auto &vertex : dba->Vertices(false)) dba->DetachRemoveVertex(vertex);
-    dba->AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba->Vertices(false)));
+    for (auto &vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
+    dba.AdvanceCommand();
+    ASSERT_EQ(0, CountIterable(dba.Vertices(false)));
 
     // make two vertices, and set values
-    dba->InsertVertex().PropsSet(prop, pair.first);
-    dba->InsertVertex().PropsSet(prop, pair.second);
-    dba->AdvanceCommand();
-    ASSERT_EQ(2, CountIterable(dba->Vertices(false)));
-    for (const auto &va : dba->Vertices(false))
+    dba.InsertVertex().PropsSet(prop, pair.first);
+    dba.InsertVertex().PropsSet(prop, pair.second);
+    dba.AdvanceCommand();
+    ASSERT_EQ(2, CountIterable(dba.Vertices(false)));
+    for (const auto &va : dba.Vertices(false))
       ASSERT_NE(va.PropsAt(prop).type(), PropertyValue::Type::Null);
 
     // order by and expect an exception
@@ -263,6 +262,6 @@ TEST(QueryPlan, OrderByExceptions) {
         n.op_,
         std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});
-    EXPECT_THROW(PullAll(order_by, *dba, symbol_table), QueryRuntimeException);
+    EXPECT_THROW(PullAll(order_by, dba, symbol_table), QueryRuntimeException);
   }
 }
