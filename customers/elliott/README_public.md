@@ -1,7 +1,24 @@
+---
+title: "Elliott Management"
+subtitle: "Proof of Concept Report"
+header-title: "Elliott Management POC"
+date: 2017-10-28
+copyright: "©2017 Memgraph Ltd. All rights reserved."
+titlepage: true
+titlepage-color: FFFFFF
+titlepage-text-color: 101010
+titlepage-rule-color: 101010
+titlepage-rule-height: 1
+...
+
+# Introduction
+
 We tried generating a few sample graphs from the description given at
 the in-person meetings.  Then, we tried writing queries that would solve
 the problem of updating nodes when a leaf value changes, assuming all the
 internal nodes compute only the sum function.
+
+# Technical details
 
 We started by creating an index on `id` property to improve initial lookup
 performance:
