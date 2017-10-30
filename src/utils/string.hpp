@@ -27,10 +27,10 @@ inline std::string Trim(const std::string &s) {
     // Need to check this to be sure that prev(end) exists.
     return s;
   }
-  while (begin != end && isspace(*begin)) {
+  while (begin < end && isspace(*begin)) {
     ++begin;
   }
-  while (prev(end) != begin && isspace(*prev(end))) {
+  while (end > begin && isspace(*prev(end))) {
     --end;
   }
   return std::string(begin, end);
@@ -49,7 +49,6 @@ inline std::string ToLowerCase(std::string s) {
  * Return string with all uppercased characters (locale independent).
  */
 inline std::string ToUpperCase(std::string s) {
-  std::string s2(s.size(), ' ');
   std::transform(s.begin(), s.end(), s.begin(),
                  [](char c) { return toupper(c); });
   return s;
