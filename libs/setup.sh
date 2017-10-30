@@ -119,7 +119,8 @@ git checkout ${ltalloc_tag}
 cd ..
 
 # cereal
-git clone https://github.com/USCiLab/cereal.git
+#git clone https://github.com/USCiLab/cereal.git
+git clone git://deps.memgraph.io/cereal.git
 cd cereal
 git checkout v1.2.2
 cd ..
