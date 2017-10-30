@@ -516,6 +516,34 @@ Feature: Functions
             | n    | a      | b |
             | null | [1, 2] | 1 |
 
+    Scenario: Nodes test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:L1)-[:E1]->(:L2)-[:E2]->(:L3)
+            """
+        When executing query:
+            """
+            MATCH p=()-[]->()-[]->() RETURN nodes(p) AS ns
+            """
+        Then the result should be:
+            |           ns          |
+            | [(:L1), (:L2), (:L3)] |
+
+    Scenario: Relationships test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:L1)-[:E1]->(:L2)-[:E2]->(:L3)
+            """
+        When executing query:
+            """
+            MATCH p=()-[]->()-[]->() RETURN relationships(p) as rels
+            """
+        Then the result should be:
+            |      rels      |
+            | [[:E1], [:E2]] |
+
     Scenario: Labels test:
         Given an empty graph
         And having executed:

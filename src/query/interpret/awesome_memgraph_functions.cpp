@@ -30,7 +30,6 @@ namespace {
 // TODO: Implement timestamp, every time it is called in a query it needs to
 // return same time. We need to store query start time somwhere.
 // TODO: Implement rest of the list functions.
-// TODO: Implement rand
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement string and spatial functions
 
@@ -298,6 +297,31 @@ TypedValue Labels(const std::vector<TypedValue> &args,
     default:
       throw QueryRuntimeException("labels called with incompatible type");
   }
+}
+
+TypedValue Nodes(const std::vector<TypedValue> &args, GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("nodes requires one argument");
+  }
+  if (args[0].IsNull()) return TypedValue::Null;
+  if (!args[0].IsPath()) {
+    throw QueryRuntimeException("nodes called with incompatible type");
+  }
+  auto &vertices = args[0].ValuePath().vertices();
+  return std::vector<TypedValue>(vertices.begin(), vertices.end());
+}
+
+TypedValue Relationships(const std::vector<TypedValue> &args,
+                         GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("relationships requires one argument");
+  }
+  if (args[0].IsNull()) return TypedValue::Null;
+  if (!args[0].IsPath()) {
+    throw QueryRuntimeException("relationships called with incompatible type");
+  }
+  auto &edges = args[0].ValuePath().edges();
+  return std::vector<TypedValue>(edges.begin(), edges.end());
 }
 
 TypedValue Range(const std::vector<TypedValue> &args, GraphDbAccessor &) {
@@ -575,6 +599,8 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "TYPE") return Type;
   if (function_name == "KEYS") return Keys;
   if (function_name == "LABELS") return Labels;
+  if (function_name == "NODES") return Nodes;
+  if (function_name == "RELATIONSHIPS") return Relationships;
   if (function_name == "RANGE") return Range;
   if (function_name == "TAIL") return Tail;
   if (function_name == "ABS") return Abs;

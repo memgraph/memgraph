@@ -8,6 +8,7 @@
 
 ### Major Features and Improvements
 
+* `nodes` and `relationships` functions added.
 
 ### Bug Fixes and Other Changes
 

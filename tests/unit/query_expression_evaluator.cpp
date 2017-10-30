@@ -14,6 +14,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/path.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
@@ -908,6 +909,41 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   }
   ASSERT_THAT(labels, UnorderedElementsAre("label1", "label2"));
   ASSERT_THROW(EvaluateFunction("LABELS", {2}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionNodesRelationships) {
+  EXPECT_THROW(EvaluateFunction("NODES", {}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("RELATIONSHIPS", {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction("NODES", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue::Null}).IsNull());
+
+  {
+    GraphDb db;
+    GraphDbAccessor dba(db);
+    auto v1 = dba.InsertVertex();
+    auto v2 = dba.InsertVertex();
+    auto v3 = dba.InsertVertex();
+    auto e1 = dba.InsertEdge(v1, v2, dba.EdgeType("Type"));
+    auto e2 = dba.InsertEdge(v2, v3, dba.EdgeType("Type"));
+    query::Path path(v1, e1, v2, e2, v3);
+
+    auto _nodes = EvaluateFunction("NODES", {path}).ValueList();
+    std::vector<VertexAccessor> nodes;
+    for (const auto &node : _nodes) {
+      nodes.push_back(node.ValueVertex());
+    }
+    EXPECT_THAT(nodes, ElementsAre(v1, v2, v3));
+
+    auto _edges = EvaluateFunction("RELATIONSHIPS", {path}).ValueList();
+    std::vector<EdgeAccessor> edges;
+    for (const auto &edge : _edges) {
+      edges.push_back(edge.ValueEdge());
+    }
+    EXPECT_THAT(edges, ElementsAre(e1, e2));
+  }
+
+  EXPECT_THROW(EvaluateFunction("NODES", {2}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("RELATIONSHIPS", {2}), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionRange) {
