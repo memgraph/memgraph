@@ -108,8 +108,31 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   TypedValue(const Path &path) : type_(Type::Path) { new (&path_v) Path(path); }
   TypedValue(const PropertyValue &value);
 
-  // assignment ops
-  TypedValue &operator=(const TypedValue &other);
+/**
+ * There are all sorts of explicit assignments here because this way we avoid
+ * destructor and constructor of TypedValue for creating intermediary values,
+ * and can fill the typed value storage directly if it has the same underlying
+ * type.
+ */
+#define DECLARE_TYPED_VALUE_ASSIGNMENT(type_param) \
+  TypedValue &operator=(const type_param &other);
+
+  using value_map_t = std::map<std::string, TypedValue>;
+  // Don't delete char * const assignment because char* strings will be assigned
+  // using boolean assignment (not good).
+  DECLARE_TYPED_VALUE_ASSIGNMENT(char *const)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(int)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(bool)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(int64_t)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(double)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(std::string)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(std::vector<TypedValue>)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(TypedValue::value_map_t)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(VertexAccessor)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(EdgeAccessor)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(Path)
+  DECLARE_TYPED_VALUE_ASSIGNMENT(TypedValue)
+#undef DECLARE_TYPED_VALUE_ASSIGNMENT
 
   TypedValue(const TypedValue &other);
   ~TypedValue();
@@ -129,7 +152,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   const T &Value() const;
 
-// TODO consider adding getters for primitives by value (and not by ref)
+  // TODO consider adding getters for primitives by value (and not by ref)
 
 #define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, field)          \
   /** Gets the value of type field. Throws if value is not field*/ \
@@ -139,7 +162,6 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   /** Checks if it's the value is of the given type */             \
   bool Is##field() const;
 
-  using value_map_t = std::map<std::string, TypedValue>;
   DECLARE_VALUE_AND_TYPE_GETTERS(bool, Bool)
   DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
   DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)

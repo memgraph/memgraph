@@ -223,6 +223,31 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
   LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
+#define DEFINE_TYPED_VALUE_ASSIGNMENT(type_param, typed_value_type, member) \
+  TypedValue &TypedValue::operator=(const type_param &other) {              \
+    if (this->type_ == TypedValue::Type::typed_value_type) {                \
+      this->member = other;                                                 \
+    } else {                                                                \
+      *this = TypedValue(other);                                            \
+    }                                                                       \
+                                                                            \
+    return *this;                                                           \
+  }
+
+DEFINE_TYPED_VALUE_ASSIGNMENT(char *const, String, string_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(int, Int, int_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(bool, Bool, bool_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(int64_t, Int, int_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(double, Double, double_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(std::string, String, string_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(std::vector<TypedValue>, List, list_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(TypedValue::value_map_t, Map, map_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
+DEFINE_TYPED_VALUE_ASSIGNMENT(Path, Path, path_v)
+
+#undef DEFINE_TYPED_VALUE_ASSIGNMENT
+
 TypedValue &TypedValue::operator=(const TypedValue &other) {
   if (this != &other) {
     this->~TypedValue();
