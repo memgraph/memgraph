@@ -34,18 +34,18 @@ following query.
 
 Finding connected nodes can be achieved by using the query:
 
-    MATCH (node1) -[connection]- (node2) RETURN node1, connection, node2
+    MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
 
 In addition to general pattern matching, you can narrow the search down by
 specifying node labels and properties. Similarly, edge types and properties
 can also be specified. For example, finding each node labeled as `Person` and
 with property `age` being 42, is done with the following query.
 
-    MATCH (n :Person {age: 42}) RETURN n.
+    MATCH (n :Person {age: 42}) RETURN n
 
 While their friends can be found with the following.
 
-    MATCH (n :Person {age: 42}) -[:FriendOf]- (friend) RETURN friend.
+    MATCH (n :Person {age: 42})-[:FriendOf]-(friend) RETURN friend
 
 There are cases when a user needs to find data which is connected by
 traversing a path of connections, but the user doesn't know how many
@@ -55,22 +55,21 @@ with *variable path lengths*. Matching such a path is achieved by using the
 traversing from `node1` to `node2` by following any number of connections in a
 single direction can be achieved with:
 
-    MATCH (node1) -[r*]-> (node2) RETURN node1, r, node2
+    MATCH (node1)-[r*]->(node2) RETURN node1, r, node2
 
 If paths are very long, finding them could take a long time. To prevent that,
 a user can provide the minimum and maximum length of the path. For example,
 paths of length between 2 and 4 can be obtained with a query like:
 
-    MATCH (node1) -[r*2..4]-> (node2) RETURN node1, r, node2
+    MATCH (node1)-[r*2..4]->(node2) RETURN node1, r, node2
 
 It is possible to name patterns in the query and return the resulting paths.
 This is especially useful when matching variable length paths:
 
-    MATCH path = () -[r*2..4]-> () RETURN path
+    MATCH path = ()-[r*2..4]->() RETURN path
 
 More details on how `MATCH` works can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/match/).
-Note that *named paths* are not yet supported.
 
 The `MATCH` clause can be modified by prepending the `OPTIONAL` keyword.
 `OPTIONAL MATCH` clause behaves the same as a regular `MATCH`, but when it
@@ -109,11 +108,11 @@ When you want to get everything that was matched, you can use the `*`
 
 This query:
 
-    MATCH (node1) -[connection]- (node2) RETURN *
+    MATCH (node1)-[connection]-(node2) RETURN *
 
 is equivalent to:
 
-    MATCH (node1) -[connection]- (node2) RETURN node1, connection, node2
+    MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
 
 `RETURN` can be followed by the `DISTINCT` operator, which will remove
 duplicate results. For example, getting unique names of people can be achieved
@@ -230,7 +229,7 @@ You can still use the `RETURN` clause to produce results after writing, but it
 is not mandatory.
 
 Details on which kind of data can be stored in *Memgraph* can be found in
-[Storable Data Types](data-types.md) chapter.
+**Storable Data Types** chapter.
 
 #### CREATE
 
@@ -239,7 +238,7 @@ is done by providing a pattern, similarly to `MATCH` clause.
 
 For example, to create 2 new nodes connected with a new edge, use this query.
 
-    CREATE (node1) -[:edge_type]-> (node2)
+    CREATE (node1)-[:edge_type]->(node2)
 
 Labels and properties can be set during creation using the same syntax as in
 [MATCH](#match) patterns. For example, creating a node with a label and a
@@ -269,7 +268,7 @@ This clause is used to delete nodes and edges from the database.
 
 Example. Removing all edges of a single type.
 
-    MATCH () -[edge :type]- () DELETE edge
+    MATCH ()-[edge :type]-() DELETE edge
 
 When testing the database, you want to often have a clean start by deleting
 every node and edge in the database. It is reasonable that deleting each node
@@ -328,7 +327,7 @@ created. In a way, this clause is like a combination of `MATCH` and `CREATE`.
 
 Example. Ensure that a person has at least one friend.
 
-    MATCH (n :Person) MERGE (n) -[:FriendOf]-> (m)
+    MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
 
 The clause also provides additional features for updating the values depending
 on whether the pattern was created or matched. This is achieved with `ON
@@ -336,7 +335,7 @@ CREATE` and `ON MATCH` sub clauses.
 
 Example. Set a different properties depending on what `MERGE` did.
 
-    MATCH (n :Person) MERGE (n) -[:FriendOf]-> (m)
+    MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
     ON CREATE SET m.prop = "created" ON MATCH SET m.prop = "existed"
 
 For more details, click [this
@@ -409,22 +408,22 @@ a custom implementation, based on the edge expansion syntax.
 Finding the shortest path between nodes can be done using breadth-first
 expansion:
 
-    MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN *
+    MATCH (a {id: 723})-[r:Type *bfs..10]-(b {id: 882}) RETURN *
 
 The above query will find all paths of length up to 10 between nodes `a` and `b`.
 The edge type and maximum path length are used in the same way like in variable
 length expansion.
 
-To find only the shortest path, simply append LIMIT 1 to the RETURN clause.
+To find only the shortest path, simply append `LIMIT 1` to the `RETURN` clause.
 
-    MATCH (a {id: 723})-[r:Type \*bfs..10]-(b {id : 882}) RETURN * LIMIT 1
+    MATCH (a {id: 723})-[r:Type *bfs..10]-(b {id: 882}) RETURN * LIMIT 1
 
 Breadth-fist expansion allows an arbitrary expression filter that determines
 if an expansion is allowed. Following is an example in which expansion is
 allowed only over edges whose `x` property is greater then `12` and nodes `y`
 whose property is lesser then `3`:
 
-    MATCH (a {id: 723})-[\*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
+    MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
 
 The filter is defined as a lambda function over `e` and `n`, which denote the edge
 and node being expanded over in the breadth first search.
@@ -509,11 +508,11 @@ functions.
 Apart from comparison and concatenation operators openCypher provides special
 string operators for easier matching of substrings:
 
-Operator         | Description
------------------|------------
- a STARTS WITH b | Returns true if prefix of string a is equal to string b.
- a ENDS WITH b   | Returns true if suffix of string a is equal to string b.
- a CONTAINS b    | Returns true if some substring of string a is equal to string b.
+Operator           | Description
+-------------------|------------
+ `a STARTS WITH b` | Returns true if prefix of string a is equal to string b.
+ `a ENDS WITH b`   | Returns true if suffix of string a is equal to string b.
+ `a CONTAINS b`    | Returns true if some substring of string a is equal to string b.
 
 #### Parameters
 
@@ -523,7 +522,7 @@ filtering results or similar, while the rest of the query remains the same.
 
 Parameters allow reusing the same query, but with different parameter values.
 The syntax uses the `$` symbol to designate a parameter name. We don't allow
-old Cypher parameter syntax using curly brace. For example, you can parameterize
+old Cypher parameter syntax using curly braces. For example, you can parameterize
 filtering a node property:
 
     MATCH (node1 {property: $propertyValue}) RETURN node1
@@ -551,17 +550,17 @@ documentation.
 #### CASE
 
 Conditional expressions can be expressed in openCypher language by simple and
-generic form of CASE expression. A simple form is used to compare an expression
+generic form of `CASE` expression. A simple form is used to compare an expression
 against multiple predicates. For the first matched predicate result of the
-expression provided after the THEN keyword is returned.  If no expression is
-matched value following ELSE is returned is provided, or null if ELSE is not
+expression provided after the `THEN` keyword is returned.  If no expression is
+matched value following `ELSE` is returned is provided, or `null` if `ELSE` is not
 used:
 
     MATCH (n)
     RETURN CASE n.currency WHEN "DOLLAR" THEN "$" WHEN "EURO" THEN "€" ELSE "UNKNOWN" END
 
-In generic form, you don't provided expression whose value is compared to
-predicates, but you list multiple predicates and the first one that evaluates
+In generic form, you don't need to provide an expression whose value is compared to
+predicates, but you can list multiple predicates and the first one that evaluates
 to true is matched:
 
     MATCH (n)
@@ -581,7 +580,7 @@ keywords (WHERE, MATCH, COUNT, SUM...).
 #### Unicode Codepoints in String Literal
 
 Use `\u` followed by 4 hex digits in string literal for UTF-16 codepoint and
-'\U' with 8 hex digits for UTF-32 codepoint in Memgraph.
+`\U` with 8 hex digits for UTF-32 codepoint in Memgraph.
 
 
 ### Difference from Neo4j's Cypher Implementation
@@ -593,28 +592,20 @@ here (especially subtle semantic ones).
 
 #### Unsupported Constructs
 
-Data importing. Memgraph doesn't support Cypher's CSV importing capabilities.
-
-The `UNION` keyword for merging query results.
-
-The `FOREACH` language construct for performing an operation on every list element.
-
-The `CALL` construct for a standalone function call. This can be expressed using
-`RETURN functioncall()`. For example, with Memgraph you can get information about
-the indexes present in the database using the `RETURN indexinfo()` openCypher query.
-
-Stored procedures.
-
-Regular expressions for string matching.
-
-`shortestPath` and `allShortestPaths` functions. `shortestPath` can be expressed using
-Memgraph's breadth-first expansion syntax already described in this document.
-
-Patterns in expressions. For example, Memgraph doesn't support `size((n)-->())`. Most of the time
-the same functionalities can be expressed differently in Memgraph using `OPTIONAL` expansions,
-function calls etc.
-
-Map projections such as `MATCH (n) RETURN n {.property1, .property2}`.
+* Data importing. Memgraph doesn't support Cypher's CSV importing capabilities.
+* The `UNION` keyword for merging query results.
+* The `FOREACH` language construct for performing an operation on every list element.
+* The `CALL` construct for a standalone function call. This can be expressed using
+  `RETURN functioncall()`. For example, with Memgraph you can get information about
+  the indexes present in the database using the `RETURN indexinfo()` openCypher query.
+* Stored procedures.
+* Regular expressions for string matching.
+* `shortestPath` and `allShortestPaths` functions. `shortestPath` can be expressed using
+  Memgraph's breadth-first expansion syntax already described in this document.
+* Patterns in expressions. For example, Memgraph doesn't support `size((n)-->())`. Most of the time
+  the same functionalities can be expressed differently in Memgraph using `OPTIONAL` expansions,
+  function calls etc.
+* Map projections such as `MATCH (n) RETURN n {.property1, .property2}`.
 
 #### Unsupported Functions
 

@@ -10,6 +10,14 @@ Memgraph supports the openCypher query language which has been developed by
 vendor-independent standardization process. It's a declarative language
 developed specifically for interaction with graph databases.
 
+### Multiple-Query Transactions
+
+Memgraph supports transactions containing multiple queries. In other words,
+one can set an explicit transaction start and stop. All of the queries inside
+will be executed as a single transaction. This means that if a single query
+execution fails, all of the executed queries will be reverted and the
+transaction aborted.
+
 ### Bolt
 
 Clients connect to Memgraph using the
@@ -46,9 +54,9 @@ neo4j-client bolt://<IP_ADDRESS>:<PORT> --insecure --user u --pass p
 
 Where `<IP_ADDRESS>` and `<PORT>` should be replaced with the network location
 where Memgraph is reachable. The `--insecure` option specifies that SLL should
-be disabled (Memgraph alpha does not support SSL).  `--user` and `--pass`
-parameter values are ignored by Memgraph (alpha is single-user), but need to
-be provided for the client to connect automatically.
+be disabled (Memgraph currently does not support SSL).  `--user` and `--pass`
+parameter values are ignored by Memgraph (currently the database is
+single-user), but need to be provided for the client to connect automatically.
 
 After the client has started it should present a command prompt similar to:
 
@@ -171,10 +179,10 @@ can be disabled by passing `{encrypted: 'ENCRYPTION_OFF'}` during the driver
 construction.
 
 Here is an example related to `Node.js`. Memgraph doesn't have integrated
-support for `Web Socket` which is required during the execution in any web
+support for `WebSocket` which is required during the execution in any web
 browser. If you want to run `openCypher` queries from a web browser,
 [websockify](https://github.com/novnc/websockify) has to be up and running.
-Requests from web browsers are wrapped into `Web Socket` messages, and a proxy
+Requests from web browsers are wrapped into `WebSocket` messages, and a proxy
 is needed to handle the overhead. The proxy has to be configured to point out
 to Memgraph's Bolt port and web browser driver has to send requests to the
 proxy port.
@@ -217,22 +225,8 @@ run_query("MATCH (n) DETACH DELETE n", function (result) {
 
 ### Limitations
 
-Memgraph is currently in alpha stage, and has a number of limitations we plan
+Memgraph is currently in early stage, and has a number of limitations we plan
 to remove in future versions.
-
-#### Single query length
-
-The maximum length of a query that can be sent from a driver in Python is
-`16378` characters, from a driver in Java `8184` and from a driver in
-JavaScript `1392` characters.
-
-#### Multiple-Query Transactions
-
-Even though Memgraph is a transactional database engine, transactions
-containing multiple queries are not yet supported. In other words, explicit
-transaction start and stop aren't yet supported. A transaction is created and
-committed implicitly for each executed query. If query execution fails, the
-transaction is aborted.
 
 #### Multiple Users & Authorization
 
@@ -248,7 +242,7 @@ Memgraph processes.
 
 #### Secure Sockets Layer (SSL)
 
-Secure connections are not supported in alpha. For this reason each client
+Secure connections are not supported. For this reason each client
 driver needs to be configured not to use encryption. Consult driver-specific
 guides for details.
 

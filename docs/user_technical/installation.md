@@ -7,7 +7,7 @@ install the Docker engine on the system. Instructions how to install Docker
 can be found on the
 [official Docker website](https://docs.docker.com/engine/installation).
 Memgraph Docker image was built with Docker version `1.12` and should be
-compatible with all latter versions.
+compatible with all later versions.
 
 ### Docker Import
 
@@ -124,7 +124,7 @@ All of the parameters can also be found in `/etc/memgraph/memgraph.conf`.
 [^1]: Maximum number of concurrent executions on the current CPU.
 
 To find more about how to execute queries on Memgraph please proceed to
-[Quick Start](quick-start.md).
+**Quick Start**.
 
 ### Cleanup
 

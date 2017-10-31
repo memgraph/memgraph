@@ -30,7 +30,7 @@ types. Following is a table of supported data types.
 -----------|------------
  `Null`    | Denotes that the property has no value. This is the same as if the property does not exist.
  `String`  | A character string, i.e. text.
- `Boolean` | A Boolean value, either `true` or `false`.
+ `Boolean` | A boolean value, either `true` or `false`.
  `Integer` | An integer number.
  `Float`   | A floating-point number, i.e. a real number.
  `List`    | A list containing any number of property values of any supported type. It can be used to store multiple values under a single property name.
