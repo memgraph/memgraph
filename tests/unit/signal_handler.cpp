@@ -8,7 +8,7 @@
 #include "utils/stacktrace.hpp"
 
 TEST(SignalHandler, SegmentationFaultTest) {
-  SignalHandler::register_handler(Signal::SegmentationFault, []() {
+  SignalHandler::RegisterHandler(Signal::SegmentationFault, []() {
     std::cout << "Segmentation Fault" << std::endl;
     Stacktrace stacktrace;
     std::cout << stacktrace.dump() << std::endl;

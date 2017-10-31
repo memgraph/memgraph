@@ -1,3 +1,4 @@
+#include <csignal>
 #include <experimental/filesystem>
 #include <iostream>
 
@@ -40,6 +41,13 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM available it will log a warning. Set to 0 to "
               "disable.");
 
+// Needed to correctly handle memgraph destruction from a signal handler.
+// Without having some sort of a flag, it is possible that a signal is handled
+// when we are exiting main, inside destructors of GraphDb and similar. The
+// signal handler may then initiate another shutdown on memgraph which is in
+// half destructed state, causing invalid memory access and crash.
+volatile sig_atomic_t is_shutting_down = 0;
+
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
@@ -56,20 +64,6 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
 
-  // Signal handling init.
-  SignalHandler::register_handler(Signal::SegmentationFault, []() {
-    // Log that we got SIGSEGV and abort the program, because returning from
-    // SIGSEGV handler is undefined behaviour.
-    std::cerr << "SegmentationFault signal raised" << std::endl;
-    std::abort();  // This will continue into our SIGABRT handler.
-  });
-  SignalHandler::register_handler(Signal::Abort, []() {
-    // Log the stacktrace and let the abort continue.
-    Stacktrace stacktrace;
-    std::cerr << "Abort signal raised" << std::endl
-              << stacktrace.dump() << std::endl;
-  });
-
   // Initialize bolt session data (GraphDb and Interpreter).
   SessionData session_data;
 
@@ -85,17 +79,30 @@ int main(int argc, char **argv) {
   // Initialize server.
   ServerT server(endpoint, session_data);
 
+  // Handler for regular termination signals
   auto shutdown = [&server, &session_data]() {
+    if (is_shutting_down) return;
+    is_shutting_down = 1;
     // Server needs to be shutdown first and then the database. This prevents a
     // race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
     session_data.db.Shutdown();
   };
-  // register SIGTERM handler
-  SignalHandler::register_handler(Signal::Terminate, shutdown);
 
-  // register SIGINT handler
-  SignalHandler::register_handler(Signal::Interupt, shutdown);
+  // Prevent handling shutdown inside a shutdown. For example, SIGINT handler
+  // being interrupted by SIGTERM before is_shutting_down is set, thus causing
+  // double shutdown.
+  sigset_t block_shutdown_signals;
+  sigemptyset(&block_shutdown_signals);
+  sigaddset(&block_shutdown_signals, SIGTERM);
+  sigaddset(&block_shutdown_signals, SIGINT);
+
+  CHECK(SignalHandler::RegisterHandler(Signal::Terminate, shutdown,
+                                       block_shutdown_signals))
+      << "Unable to register SIGTERM handler!";
+  CHECK(SignalHandler::RegisterHandler(Signal::Interupt, shutdown,
+                                       block_shutdown_signals))
+      << "Unable to register SIGINT handler!";
 
   // Start memory warning logger.
   Scheduler mem_log_scheduler;

@@ -89,13 +89,13 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
 
   // Signal handling init.
-  SignalHandler::register_handler(Signal::SegmentationFault, []() {
+  SignalHandler::RegisterHandler(Signal::SegmentationFault, []() {
     // Log that we got SIGSEGV and abort the program, because returning from
     // SIGSEGV handler is undefined behaviour.
     std::cerr << "SegmentationFault signal raised" << std::endl;
     std::abort();  // This will continue into our SIGABRT handler.
   });
-  SignalHandler::register_handler(Signal::Abort, []() {
+  SignalHandler::RegisterHandler(Signal::Abort, []() {
     // Log the stacktrace and let the abort continue.
     Stacktrace stacktrace;
     std::cerr << "Abort signal raised" << std::endl

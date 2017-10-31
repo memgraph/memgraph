@@ -23,22 +23,30 @@ class SignalHandler {
  private:
   static std::map<int, std::function<void()>> handlers_;
 
-  static void handle(int signal) { handlers_[signal](); }
+  static void Handle(int signal) { handlers_[signal](); }
 
  public:
-  static void register_handler(Signal signal, Function func) {
-    int signal_number = static_cast<int>(signal);
-    handlers_[signal_number] = func;
-    std::signal(signal_number, SignalHandler::handle);
+  /// Install a signal handler.
+  static bool RegisterHandler(Signal signal, Function func) {
+    sigset_t signal_mask;
+    sigemptyset(&signal_mask);
+    return RegisterHandler(signal, func, signal_mask);
   }
 
-  // TODO possible changes if signelton needed later
-  /*
-    static SignalHandler& instance() {
-      static SignalHandler instance;
-      return instance;
-    }
-  */
+  /// Like RegisterHandler, but takes a `signal_mask` argument for blocking
+  /// signals during execution of the handler. `signal_mask` should be created
+  /// using `sigemptyset` and `sigaddset` functions from `<signal.h>`.
+  static bool RegisterHandler(Signal signal, Function func,
+                              sigset_t signal_mask) {
+    int signal_number = static_cast<int>(signal);
+    handlers_[signal_number] = func;
+    struct sigaction action;
+    action.sa_handler = SignalHandler::Handle;
+    action.sa_mask = signal_mask;
+    action.sa_flags = SA_RESTART;
+    if (sigaction(signal_number, &action, NULL) == -1) return false;
+    return true;
+  }
 };
 
 std::map<int, std::function<void()>> SignalHandler::handlers_ = {};
