@@ -10,14 +10,6 @@ Memgraph supports the openCypher query language which has been developed by
 vendor-independent standardization process. It's a declarative language
 developed specifically for interaction with graph databases.
 
-### Multiple-Query Transactions
-
-Memgraph supports transactions containing multiple queries. In other words,
-one can set an explicit transaction start and stop. All of the queries inside
-will be executed as a single transaction. This means that if a single query
-execution fails, all of the executed queries will be reverted and the
-transaction aborted.
-
 ### Bolt
 
 Clients connect to Memgraph using the
@@ -222,6 +214,14 @@ run_query("MATCH (n) DETACH DELETE n", function (result) {
   });
 });
 ```
+
+### Multiple-Query Transactions
+
+Memgraph supports transactions containing multiple queries. In other words,
+one can set an explicit transaction start and stop. All of the queries inside
+will be executed as a single transaction. This means that if a single query
+execution fails, all of the executed queries will be reverted and the
+transaction aborted.
 
 ### Limitations
 
