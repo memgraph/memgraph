@@ -7,7 +7,7 @@
 
 class RingBufferMultiThreaded : public benchmark::Fixture {
  protected:
-  RingBuffer<int, 1024> buffer;
+  RingBuffer<int> buffer{1024};
 };
 
 BENCHMARK_DEFINE_F(RingBufferMultiThreaded, MT)(benchmark::State &st) {

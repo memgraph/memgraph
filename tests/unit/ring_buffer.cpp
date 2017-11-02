@@ -13,7 +13,7 @@ TEST(RingBuffer, MultithreadedUsage) {
 
     std::unordered_set<int> consumed;
     SpinLock consumed_lock;
-    RingBuffer<int, 20> buffer;
+    RingBuffer<int> buffer{20};
 
     std::vector<std::thread> producers;
     for (int i = 0; i < producer_count; i++)
@@ -61,7 +61,7 @@ TEST(RingBuffer, MultithreadedUsage) {
 }
 
 TEST(RingBuffer, ComplexValues) {
-  RingBuffer<std::vector<int>, 10> buffer;
+  RingBuffer<std::vector<int>> buffer{10};
   std::vector<int> element;
   for (int i = 0 ; i < 5 ; i++) {
     element.emplace_back(i);
@@ -78,7 +78,7 @@ TEST(RingBuffer, ComplexValues) {
 }
 
 TEST(RingBuffer, NonCopyable) {
-  RingBuffer<std::unique_ptr<std::string>, 10> buffer;
+  RingBuffer<std::unique_ptr<std::string>> buffer{10};
   buffer.emplace(new std::string("string"));
   buffer.emplace(new std::string("kifla"));
 

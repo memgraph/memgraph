@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "glog/logging.h"
 
@@ -17,10 +18,11 @@
  *
  * @tparam TElement - type of element the buffer tracks.
  */
-template <typename TElement, int capacity>
+template <typename TElement>
 class RingBuffer {
  public:
-  RingBuffer() = default;
+  RingBuffer(int capacity) : buffer_(capacity) {}
+
   RingBuffer(const RingBuffer &) = delete;
   RingBuffer(RingBuffer &&) = delete;
   RingBuffer &operator=(const RingBuffer &) = delete;
@@ -31,9 +33,9 @@ class RingBuffer {
     while (true) {
       {
         std::lock_guard<SpinLock> guard(lock_);
-        if (size_ < capacity) {
+        if (size_ < buffer_.size()) {
           buffer_[write_pos_++] = TElement(std::forward<TArgs>(args)...);
-          write_pos_ %= capacity;
+          write_pos_ %= buffer_.size();
           size_++;
           return;
         }
@@ -52,12 +54,12 @@ class RingBuffer {
     size_--;
     std::experimental::optional<TElement> result(
         std::move(buffer_[read_pos_++]));
-    read_pos_ %= capacity;
+    read_pos_ %= buffer_.size();
     return result;
   }
 
  private:
-  TElement buffer_[capacity];
+  std::vector<TElement> buffer_;
   SpinLock lock_;
   int read_pos_{0};
   int write_pos_{0};
