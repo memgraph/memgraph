@@ -217,6 +217,7 @@ set(memgraph_src_files
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/threading/thread.cpp
     ${src_dir}/transactions/transaction.cpp
+    ${src_dir}/utils/watchdog.cpp
 )
 # -----------------------------------------------------------------------------
 
