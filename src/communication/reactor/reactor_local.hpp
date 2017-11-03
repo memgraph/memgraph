@@ -525,15 +525,15 @@ class System : public ChannelFinder {
       finder = this;
     }
     std::unique_lock<std::mutex> lock(mutex_);
+    CHECK(reactors_.find(name) == reactors_.end())
+        << "Reactor with name: '" << name << "' already exists.";
     std::unique_ptr<Reactor> reactor(new Reactor(*finder, name, setup));
     std::thread reactor_thread([reactor = reactor.get()] {
       reactor->setup_(*reactor);
       reactor->RunEventLoop();
     });
-    auto got = reactors_.emplace(
-        name, std::pair<decltype(reactor), std::thread>{
-                  std::move(reactor), std::move(reactor_thread)});
-    CHECK(got.second) << "Reactor with name: '" << name << "' already exists";
+    reactors_.emplace(name, std::pair<decltype(reactor), std::thread>{
+                                std::move(reactor), std::move(reactor_thread)});
   }
 
   std::shared_ptr<ChannelWriter> FindChannel(
