@@ -259,8 +259,11 @@ def main():
     run["runner"] = runner.__class__.__name__
     run["runner_config"] = vars(runner.args)
     run.update(args.additional_run_fields)
-    for result in results:
-        jail.store_data(result)
+
+    # Currently this output is not used anywhere, and has a tendancy to create huge files..
+    # TODO(dgleich): Revise this in the near future.
+    #for result in results:
+    #    jail.store_data(result)
 
     # Print summary.
     print("\n\nMacro benchmark summary:")
