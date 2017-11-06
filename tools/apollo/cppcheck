@@ -3,6 +3,7 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR/../../"
 
+tmpfile="$DIR/.cppcheck_errors.tmp"
 errfile="$DIR/.cppcheck_errors"
 
 if [ "$1" == "" ]; then
@@ -18,7 +19,10 @@ else
     files=src/
     flags="-j$THREADS -Isrc"
 fi
-cppcheck --enable=all --force --suppress=missingInclude $flags $files 2>"$errfile"
+cppcheck --enable=all --force --suppress=missingInclude --suppress=unusedFunction --suppress=unusedStructMember $flags $files 2>"$tmpfile"
+
+cat "$tmpfile" | grep -v "(information) Unmatched suppression" > "$errfile"
+rm $tmpfile
 
 cat "$errfile" >&2
 
