@@ -87,19 +87,19 @@ def compare_values(data_cur, data_prev):
 def generate_remarkup(data):
     ret = "==== Macro benchmark summary: ====\n\n"
     if len(data) > 1:
-      ret += "<table>\n"
-      for row in data:
-          ret += "  <tr>\n"
-          for item in row:
-              if row == data[0]:
-                  fmt = "    <th>{}</th>\n"
-              else:
-                  fmt = "    <td>{}</td>\n"
-              ret += fmt.format(item)
-          ret += "  </tr>\n"
-      ret += "</table>\n"
+        ret += "<table>\n"
+        for row in data:
+            ret += "  <tr>\n"
+            for item in row:
+                if row == data[0]:
+                    fmt = "    <th>{}</th>\n"
+                else:
+                    fmt = "    <td>{}</td>\n"
+                ret += fmt.format(item)
+            ret += "  </tr>\n"
+        ret += "</table>\n"
     else:
-      ret += "No performance change detected.\n"
+        ret += "No performance change detected.\n"
     return ret
 
 if __name__ == "__main__":
