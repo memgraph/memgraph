@@ -6,7 +6,6 @@
 #include <mutex>
 #include <thread>
 #include <utility>
-#include <vector>
 
 #include "glog/logging.h"
 
@@ -21,21 +20,27 @@
 template <typename TElement>
 class RingBuffer {
  public:
-  RingBuffer(int capacity) : buffer_(capacity) {}
+  RingBuffer(int capacity) : capacity_(capacity) {
+    buffer_ = new TElement[capacity_];
+  }
 
   RingBuffer(const RingBuffer &) = delete;
   RingBuffer(RingBuffer &&) = delete;
   RingBuffer &operator=(const RingBuffer &) = delete;
   RingBuffer &operator=(RingBuffer &&) = delete;
 
+  ~RingBuffer() {
+    delete[] buffer_;
+  }
+
   template <typename... TArgs>
   void emplace(TArgs &&... args) {
     while (true) {
       {
         std::lock_guard<SpinLock> guard(lock_);
-        if (size_ < buffer_.size()) {
+        if (size_ < capacity_) {
           buffer_[write_pos_++] = TElement(std::forward<TArgs>(args)...);
-          write_pos_ %= buffer_.size();
+          write_pos_ %= capacity_;
           size_++;
           return;
         }
@@ -54,12 +59,13 @@ class RingBuffer {
     size_--;
     std::experimental::optional<TElement> result(
         std::move(buffer_[read_pos_++]));
-    read_pos_ %= buffer_.size();
+    read_pos_ %= capacity_;
     return result;
   }
 
  private:
-  std::vector<TElement> buffer_;
+  int capacity_;
+  TElement *buffer_;
   SpinLock lock_;
   int read_pos_{0};
   int write_pos_{0};
