@@ -14,10 +14,10 @@ except:
     import jail_faker as jail
 
 
-def wait_for_server(port, delay=1.0):
+def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
     while subprocess.call(cmd) != 0:
-        time.sleep(0.5)
+        time.sleep(0.01)
     time.sleep(delay)
 
 
