@@ -181,7 +181,7 @@ class QueryParallelSuite(_QuerySuite):
                 NeoParallelRunner}
 
     def groups(self):
-        return ["aggregation_parallel", "create_parallel"]
+        return ["aggregation_parallel", "create_parallel", "bfs_parallel"]
 
 
 class _QueryRunner:

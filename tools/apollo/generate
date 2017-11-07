@@ -196,7 +196,7 @@ MACRO_BENCHMARK_ARGS = (
     "--no-strict --database-cpu-ids 1 --client-cpu-ids 2")
 MACRO_PARALLEL_BENCHMARK_ARGS = (
     "QueryParallelSuite MemgraphRunner --groups aggregation_parallel "
-    "--database-cpu-ids 1 2 3 4 5 6 7 8 9 "
+    "create_parallel bfs_parallel --database-cpu-ids 1 2 3 4 5 6 7 8 9 "
     "--client-cpu-ids 10 11 12 13 14 15 16 17 18 19 "
     "--num-database-workers 9 --num-clients-workers 30 --no-strict")
 
