@@ -1,3 +1,7 @@
+# csharp driver
+csharp/*.dll
+csharp/*.exe
+
 # java driver
 java/*.jar
 java/*.class

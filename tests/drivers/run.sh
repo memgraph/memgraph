@@ -15,7 +15,7 @@ for i in *; do
     if [ ! -d $i ]; then continue; fi
     pushd $i
     echo "Running: $i"
-    ./run.sh || exit 1
+    ./run.sh  || exit 1
     echo
     popd
 done

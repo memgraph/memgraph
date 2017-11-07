@@ -21,7 +21,7 @@ if [ ! -d "ve3" ]; then
 fi
 source ve3/bin/activate
 $PIP install --upgrade pip
-$PIP install neo4j-driver
+$PIP install neo4j-driver==1.5.0
 
 # execute test
 $PYTHON basic.py
