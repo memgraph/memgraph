@@ -271,6 +271,18 @@ def main():
     with open(get_absolute_path(".harness_summary"), "w") as f:
         print(suite.summary, file=f)
 
+    # Export data points.
+    with open(get_absolute_path(".apollo_data"), "w") as f:
+        apollo_data = ""
+        data = list(filter(lambda x: x.strip(), suite.summary.split("\n")))
+        headers = data[0].strip().split()
+        for row in data[1:]:
+            row = row.strip().split()
+            group, scenario = row[0:2]
+            for header, value in zip(headers[2:], row[2:]):
+                apollo_data += "{}.{}.{} {}\n".format(group, scenario, header, value)
+        f.write(apollo_data)
+
 
 if __name__ == "__main__":
     main()
