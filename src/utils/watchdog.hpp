@@ -9,16 +9,17 @@
 #include <thread>
 
 /**
- * @brief - Keeps track of how long it's been since `Notify` method was
- * called. If it wasn't called for a sufficiently long time interval (randomly
- * chosen between `min_timeout` and `max_timeout`), the watchdog will
- * periodically call `callback` until it is notified or destroyed.
+ * @brief - Keeps track of how long it's been since `Notify` method was called.
+ * If it wasn't called for a sufficiently long time interval (randomly chosen
+ * between `min_timeout` and `max_timeout`), the watchdog will periodically call
+ * `callback` until it is notified or destroyed.  If `blocked` is set to true,
+ * watchdog will be blocked on startup.
  */
 class Watchdog {
  public:
   Watchdog(const std::chrono::milliseconds &min_timeout,
            const std::chrono::milliseconds &max_timeout,
-           const std::function<void()> &callback);
+           const std::function<void()> &callback, bool blocked = false);
   ~Watchdog();
   Watchdog(Watchdog &&) = delete;
   Watchdog(const Watchdog &) = delete;

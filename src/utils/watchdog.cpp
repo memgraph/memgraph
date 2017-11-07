@@ -13,14 +13,15 @@ using std::chrono::steady_clock;
 
 Watchdog::Watchdog(const milliseconds &min_timeout,
                    const milliseconds &max_timeout,
-                   const std::function<void()> &callback)
+                   const std::function<void()> &callback,
+                   bool blocked)
     : min_timeout_(min_timeout),
       max_timeout_(max_timeout),
       generator_(std::random_device{}()),
       distribution_(min_timeout.count(), max_timeout_.count()),
       callback_(callback),
       draining_(false),
-      blocked_(false) {
+      blocked_(blocked) {
   DCHECK(min_timeout_ <= max_timeout_)
       << "Min timeout should be less than max timeout";
   Notify();
