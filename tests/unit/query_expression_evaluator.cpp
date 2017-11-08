@@ -113,11 +113,40 @@ TEST(ExpressionEvaluator, AndOperatorShortCircuit) {
     EXPECT_EQ(value.Value<bool>(), false);
   }
   {
+    auto *op =
+        storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(5),
+                                    storage.Create<PrimitiveLiteral>(false));
+    // We are evaluating left to right, so we don't short circuit here and raise
+    // due to `5`. This differs from neo4j, where they evaluate both sides and
+    // return `false` without checking for type of the first expression.
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
+}
+
+TEST(ExpressionEvaluator, AndOperatorNull) {
+  AstTreeStorage storage;
+  NoContextExpressionEvaluator eval;
+  {
+    // Null doesn't short circuit
     auto *op = storage.Create<AndOperator>(
         storage.Create<PrimitiveLiteral>(TypedValue::Null),
         storage.Create<PrimitiveLiteral>(5));
+    EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
+  }
+  {
+    auto *op = storage.Create<AndOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(true));
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
+  }
+  {
+    auto *op = storage.Create<AndOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(false));
+    auto value = op->Accept(eval.eval);
+    ASSERT_TRUE(value.IsBool());
+    EXPECT_EQ(value.Value<bool>(), false);
   }
 }
 

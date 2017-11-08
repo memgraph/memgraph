@@ -115,11 +115,17 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
-    if (value1.IsNull() || !value1.Value<bool>()) {
-      // If first expression is null or false, don't execute the second one.
+    if (value1.IsBool() && !value1.Value<bool>()) {
+      // If first expression is false, don't evaluate the second one.
       return value1;
     }
-    return op.expression2_->Accept(*this);
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return value1 && value2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for 'AND'",
+                                  value1.type(), value2.type());
+    }
   }
 
   TypedValue Visit(IfOperator &if_operator) override {
