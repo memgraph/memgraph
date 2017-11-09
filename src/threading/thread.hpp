@@ -15,7 +15,7 @@ class Thread {
   static constexpr unsigned MAIN_THREAD = 0;
 
   template <class F>
-  Thread(F f) {
+  explicit Thread(F f) {
     thread_id = thread_counter.fetch_add(1, std::memory_order_acq_rel);
     thread = std::thread([this, f]() { start_thread(f); });
   }

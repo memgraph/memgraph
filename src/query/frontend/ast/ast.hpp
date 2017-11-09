@@ -87,7 +87,7 @@ class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
   virtual Tree *Clone(AstTreeStorage &storage) const = 0;
 
  protected:
-  Tree(int uid) : uid_(uid) {}
+  explicit Tree(int uid) : uid_(uid) {}
 
  private:
   const int uid_;
@@ -102,7 +102,7 @@ class Expression : public Tree {
   Expression *Clone(AstTreeStorage &storage) const override = 0;
 
  protected:
-  Expression(int uid) : Tree(uid) {}
+  explicit Expression(int uid) : Tree(uid) {}
 };
 
 class Where : public Tree {
@@ -124,7 +124,7 @@ class Where : public Tree {
   Expression *expression_ = nullptr;
 
  protected:
-  Where(int uid) : Tree(uid) {}
+  explicit Where(int uid) : Tree(uid) {}
   Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
 };
 
@@ -138,7 +138,7 @@ class BinaryOperator : public Expression {
   BinaryOperator *Clone(AstTreeStorage &storage) const override = 0;
 
  protected:
-  BinaryOperator(int uid) : Expression(uid) {}
+  explicit BinaryOperator(int uid) : Expression(uid) {}
   BinaryOperator(int uid, Expression *expression1, Expression *expression2)
       : Expression(uid), expression1_(expression1), expression2_(expression2) {}
 };
@@ -152,7 +152,7 @@ class UnaryOperator : public Expression {
   UnaryOperator *Clone(AstTreeStorage &storage) const override = 0;
 
  protected:
-  UnaryOperator(int uid) : Expression(uid) {}
+  explicit UnaryOperator(int uid) : Expression(uid) {}
   UnaryOperator(int uid, Expression *expression)
       : Expression(uid), expression_(expression) {}
 };
@@ -580,7 +580,7 @@ class BaseLiteral : public Expression {
   BaseLiteral *Clone(AstTreeStorage &storage) const override = 0;
 
  protected:
-  BaseLiteral(int uid) : Expression(uid) {}
+  explicit BaseLiteral(int uid) : Expression(uid) {}
 };
 
 class PrimitiveLiteral : public BaseLiteral {
@@ -601,7 +601,7 @@ class PrimitiveLiteral : public BaseLiteral {
   int token_position_ = -1;
 
  protected:
-  PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
+  explicit PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
   template <typename T>
   PrimitiveLiteral(int uid, T value) : BaseLiteral(uid), value_(value) {}
   template <typename T>
@@ -633,7 +633,7 @@ class ListLiteral : public BaseLiteral {
   std::vector<Expression *> elements_;
 
  protected:
-  ListLiteral(int uid) : BaseLiteral(uid) {}
+  explicit ListLiteral(int uid) : BaseLiteral(uid) {}
   ListLiteral(int uid, const std::vector<Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
 };
@@ -664,7 +664,7 @@ class MapLiteral : public BaseLiteral {
       elements_;
 
  protected:
-  MapLiteral(int uid) : BaseLiteral(uid) {}
+  explicit MapLiteral(int uid) : BaseLiteral(uid) {}
   MapLiteral(
       int uid,
       const std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
@@ -722,7 +722,7 @@ class PropertyLookup : public Expression {
         property_name_(property_name),
         property_(property) {}
   PropertyLookup(int uid, Expression *expression,
-                 std::pair<std::string, GraphDbTypes::Property> property)
+                 const std::pair<std::string, GraphDbTypes::Property> &property)
       : Expression(uid),
         expression_(expression),
         property_name_(property.first),
@@ -750,7 +750,7 @@ class LabelsTest : public Expression {
 
  protected:
   LabelsTest(int uid, Expression *expression,
-             std::vector<GraphDbTypes::Label> labels)
+             const std::vector<GraphDbTypes::Label> &labels)
       : Expression(uid), expression_(expression), labels_(labels) {}
 };
 
@@ -783,9 +783,8 @@ class Function : public Expression {
 
  protected:
   Function(int uid,
-           std::function<TypedValue(const std::vector<TypedValue> &,
-                                    GraphDbAccessor &)>
-               function,
+           const std::function<TypedValue(const std::vector<TypedValue> &,
+                                          GraphDbAccessor &)> &function,
            const std::vector<Expression *> &arguments)
       : Expression(uid), function_(function), arguments_(arguments) {}
 };
@@ -827,7 +826,7 @@ class Aggregation : public BinaryOperator {
     // COUNT without expression denotes COUNT(*) in cypher.
     DCHECK(expression1 || op == Aggregation::Op::COUNT)
         << "All aggregations, except COUNT require expression";
-    DCHECK(expression2 == nullptr ^ op == Aggregation::Op::COLLECT_MAP)
+    DCHECK((expression2 == nullptr) ^ (op == Aggregation::Op::COLLECT_MAP))
         << "The second expression is obligatory in COLLECT_MAP and "
            "invalid otherwise";
   }
@@ -886,7 +885,7 @@ class ParameterLookup : public Expression {
   int token_position_ = -1;
 
  protected:
-  ParameterLookup(int uid) : Expression(uid) {}
+  explicit ParameterLookup(int uid) : Expression(uid) {}
   ParameterLookup(int uid, int token_position)
       : Expression(uid), token_position_(token_position) {}
 };
@@ -916,7 +915,7 @@ class NamedExpression : public Tree {
   int token_position_ = -1;
 
  protected:
-  NamedExpression(int uid) : Tree(uid) {}
+  explicit NamedExpression(int uid) : Tree(uid) {}
   NamedExpression(int uid, const std::string &name) : Tree(uid), name_(name) {}
   NamedExpression(int uid, const std::string &name, Expression *expression)
       : Tree(uid), name_(name), expression_(expression) {}
@@ -939,7 +938,7 @@ class PatternAtom : public Tree {
   PatternAtom *Clone(AstTreeStorage &storage) const override = 0;
 
  protected:
-  PatternAtom(int uid) : Tree(uid) {}
+  explicit PatternAtom(int uid) : Tree(uid) {}
   PatternAtom(int uid, Identifier *identifier)
       : Tree(uid), identifier_(identifier) {}
 };
@@ -1005,7 +1004,7 @@ class EdgeAtom : public PatternAtom {
         cont = lower_bound_->Accept(visitor);
       }
       if (cont && upper_bound_) {
-        cont = upper_bound_->Accept(visitor);
+        upper_bound_->Accept(visitor);
       }
     }
     return visitor.PostVisit(*this);
@@ -1095,7 +1094,7 @@ class Pattern : public Tree {
   std::vector<PatternAtom *> atoms_;
 
  protected:
-  Pattern(int uid) : Tree(uid) {}
+  explicit Pattern(int uid) : Tree(uid) {}
 };
 
 // Clauses
@@ -1104,7 +1103,7 @@ class Clause : public Tree {
   friend class AstTreeStorage;
 
  public:
-  Clause(int uid) : Tree(uid) {}
+  explicit Clause(int uid) : Tree(uid) {}
 
   Clause *Clone(AstTreeStorage &storage) const override = 0;
 };
@@ -1135,14 +1134,14 @@ class Query : public Tree {
   std::vector<Clause *> clauses_;
 
  protected:
-  Query(int uid) : Tree(uid) {}
+  explicit Query(int uid) : Tree(uid) {}
 };
 
 class Create : public Clause {
   friend class AstTreeStorage;
 
  public:
-  Create(int uid) : Clause(uid) {}
+  explicit Create(int uid) : Clause(uid) {}
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
@@ -1199,7 +1198,7 @@ class Match : public Clause {
   bool optional_ = false;
 
  protected:
-  Match(int uid) : Clause(uid) {}
+  explicit Match(int uid) : Clause(uid) {}
   Match(int uid, bool optional) : Clause(uid), optional_(optional) {}
 };
 
@@ -1266,7 +1265,7 @@ class Return : public Clause {
   ReturnBody body_;
 
  protected:
-  Return(int uid) : Clause(uid) {}
+  explicit Return(int uid) : Clause(uid) {}
 };
 
 class With : public Clause {
@@ -1309,7 +1308,7 @@ class With : public Clause {
   Where *where_ = nullptr;
 
  protected:
-  With(int uid) : Clause(uid) {}
+  explicit With(int uid) : Clause(uid) {}
 };
 
 class Delete : public Clause {
@@ -1339,7 +1338,7 @@ class Delete : public Clause {
   bool detach_ = false;
 
  protected:
-  Delete(int uid) : Clause(uid) {}
+  explicit Delete(int uid) : Clause(uid) {}
 };
 
 class SetProperty : public Clause {
@@ -1363,7 +1362,7 @@ class SetProperty : public Clause {
   Expression *expression_ = nullptr;
 
  protected:
-  SetProperty(int uid) : Clause(uid) {}
+  explicit SetProperty(int uid) : Clause(uid) {}
   SetProperty(int uid, PropertyLookup *property_lookup, Expression *expression)
       : Clause(uid),
         property_lookup_(property_lookup),
@@ -1392,7 +1391,7 @@ class SetProperties : public Clause {
   bool update_ = false;
 
  protected:
-  SetProperties(int uid) : Clause(uid) {}
+  explicit SetProperties(int uid) : Clause(uid) {}
   SetProperties(int uid, Identifier *identifier, Expression *expression,
                 bool update = false)
       : Clause(uid),
@@ -1421,7 +1420,7 @@ class SetLabels : public Clause {
   std::vector<GraphDbTypes::Label> labels_;
 
  protected:
-  SetLabels(int uid) : Clause(uid) {}
+  explicit SetLabels(int uid) : Clause(uid) {}
   SetLabels(int uid, Identifier *identifier,
             const std::vector<GraphDbTypes::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
@@ -1446,7 +1445,7 @@ class RemoveProperty : public Clause {
   PropertyLookup *property_lookup_ = nullptr;
 
  protected:
-  RemoveProperty(int uid) : Clause(uid) {}
+  explicit RemoveProperty(int uid) : Clause(uid) {}
   RemoveProperty(int uid, PropertyLookup *property_lookup)
       : Clause(uid), property_lookup_(property_lookup) {}
 };
@@ -1471,7 +1470,7 @@ class RemoveLabels : public Clause {
   std::vector<GraphDbTypes::Label> labels_;
 
  protected:
-  RemoveLabels(int uid) : Clause(uid) {}
+  explicit RemoveLabels(int uid) : Clause(uid) {}
   RemoveLabels(int uid, Identifier *identifier,
                const std::vector<GraphDbTypes::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
@@ -1522,7 +1521,7 @@ class Merge : public Clause {
   std::vector<Clause *> on_create_;
 
  protected:
-  Merge(int uid) : Clause(uid) {}
+  explicit Merge(int uid) : Clause(uid) {}
 };
 
 class Unwind : public Clause {

@@ -8,7 +8,7 @@ template <class T>
 class Version {
  public:
   Version() = default;
-  Version(T *older) : older_(older) {}
+  explicit Version(T *older) : older_(older) {}
 
   ~Version() { delete older_.load(std::memory_order_seq_cst); }
 
@@ -29,4 +29,4 @@ class Version {
  private:
   std::atomic<T *> older_{nullptr};
 };
-}
+}  // namespace mvcc

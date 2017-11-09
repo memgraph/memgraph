@@ -53,7 +53,7 @@ class Worker {
                             EPOLLIN | EPOLLRDHUP);
   }
 
-  Worker(TSessionData &session_data) : session_data_(session_data) {}
+  explicit Worker(TSessionData &session_data) : session_data_(session_data) {}
 
   void Start(std::atomic<bool> &alive) {
     while (alive) {
@@ -193,4 +193,4 @@ class Worker {
   io::network::SocketEventDispatcher<SessionSocketListener> dispatcher_;
   std::vector<std::unique_ptr<SessionSocketListener>> session_listeners_;
 };
-}
+}  // namespace communication

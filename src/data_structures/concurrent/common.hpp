@@ -51,7 +51,7 @@ class AccessorBase {
   typedef typename SkipList<T>::ConstIterator list_it_con;
 
  protected:
-  AccessorBase(list *skiplist) : accessor(skiplist->access()) {}
+  explicit AccessorBase(list *skiplist) : accessor(skiplist->access()) {}
 
  public:
   AccessorBase(const AccessorBase &) = delete;

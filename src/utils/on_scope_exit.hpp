@@ -25,10 +25,11 @@ namespace utils {
  */
 class OnScopeExit {
  public:
-  OnScopeExit(const std::function<void()> function) : function_(function) {}
+  explicit OnScopeExit(const std::function<void()> &function)
+      : function_(function) {}
   ~OnScopeExit() { function_(); }
 
  private:
   std::function<void()> function_;
 };
-}
+}  // namespace utils

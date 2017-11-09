@@ -19,7 +19,26 @@ else
     files=src/
     flags="-j$THREADS -Isrc"
 fi
-cppcheck --enable=all --force --suppress=missingInclude --suppress=unusedFunction --suppress=unusedStructMember $flags $files 2>"$tmpfile"
+
+cat > .cppcheck_suppressions <<EOF 
+// supress all explicit constructor warnings since we use the implicit conversion all over the codebase
+noExplicitConstructor:src/storage/property_value.hpp
+noExplicitConstructor:src/query/typed_value.hpp
+noExplicitConstructor:src/communication/bolt/v1/decoder/decoded_value.hpp
+
+// suppress antrl warnings
+variableScope:src/query/frontend/opencypher/generated/CypherParser.h
+variableScope:src/query/frontend/opencypher/generated/CypherLexer.h
+variableScope:src/query/frontend/opencypher/generated/CypherParser.cpp
+
+// supress all warnings of this type in the codebase
+missingInclude
+unusedFunction
+unusedStructMember
+EOF
+
+cppcheck --enable=all --inline-suppr --force --suppressions-list=.cppcheck_suppressions $flags $files 2>"$tmpfile"
+rm .cppcheck_suppressions
 
 cat "$tmpfile" | grep -v "(information) Unmatched suppression" > "$errfile"
 rm $tmpfile

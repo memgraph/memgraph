@@ -110,10 +110,10 @@ class HierarchicalLogicalOperatorVisitor
     : public LogicalOperatorCompositeVisitor,
       public LogicalOperatorLeafVisitor {
  public:
-  using LogicalOperatorCompositeVisitor::PreVisit;
   using LogicalOperatorCompositeVisitor::PostVisit;
-  using typename LogicalOperatorLeafVisitor::ReturnType;
+  using LogicalOperatorCompositeVisitor::PreVisit;
   using LogicalOperatorLeafVisitor::Visit;
+  using typename LogicalOperatorLeafVisitor::ReturnType;
 };
 
 /** @brief Base class for logical operators.
@@ -160,6 +160,7 @@ class Once : public LogicalOperator {
  private:
   class OnceCursor : public Cursor {
    public:
+    OnceCursor() {}
     bool Pull(Frame &, Context &) override;
     void Reset() override;
 
@@ -727,7 +728,7 @@ class Filter : public LogicalOperator {
 class Produce : public LogicalOperator {
  public:
   Produce(const std::shared_ptr<LogicalOperator> &input,
-          const std::vector<NamedExpression *> named_expressions);
+          const std::vector<NamedExpression *> &named_expressions);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -1312,7 +1313,7 @@ class OrderBy : public LogicalOperator {
   class TypedValueVectorCompare {
    public:
     TypedValueVectorCompare() {}
-    TypedValueVectorCompare(const std::vector<Ordering> &ordering)
+    explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering)
         : ordering_(ordering) {}
     bool operator()(const std::vector<TypedValue> &c1,
                     const std::vector<TypedValue> &c2) const;
@@ -1370,9 +1371,9 @@ class OrderBy : public LogicalOperator {
  */
 class Merge : public LogicalOperator {
  public:
-  Merge(const std::shared_ptr<LogicalOperator> input,
-        const std::shared_ptr<LogicalOperator> merge_match,
-        const std::shared_ptr<LogicalOperator> merge_create);
+  Merge(const std::shared_ptr<LogicalOperator> &input,
+        const std::shared_ptr<LogicalOperator> &merge_match,
+        const std::shared_ptr<LogicalOperator> &merge_create);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) const override;
 

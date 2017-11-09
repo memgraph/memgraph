@@ -16,7 +16,7 @@ namespace communication::bolt {
 template <typename Buffer>
 class BaseEncoder : public PrimitiveEncoder<Buffer> {
  public:
-  BaseEncoder(Buffer &buffer) : PrimitiveEncoder<Buffer>(buffer) {}
+  explicit BaseEncoder(Buffer &buffer) : PrimitiveEncoder<Buffer>(buffer) {}
 
   void WriteList(const std::vector<query::TypedValue> &value) {
     this->WriteTypeSize(value.size(), MarkerList);
@@ -60,7 +60,7 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
   void WriteEdge(const EdgeAccessor &edge, bool unbound = false) {
     this->WriteRAW(underlying_cast(Marker::TinyStruct) + (unbound ? 3 : 5));
     this->WriteRAW(underlying_cast(unbound ? Signature::UnboundRelationship
-                                     : Signature::Relationship));
+                                           : Signature::Relationship));
 
     WriteUInt(edge.temporary_id());
     if (!unbound) {
@@ -163,4 +163,4 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
     this->WriteInt(*reinterpret_cast<const int64_t *>(&value));
   }
 };
-}
+}  // namespace communication::bolt

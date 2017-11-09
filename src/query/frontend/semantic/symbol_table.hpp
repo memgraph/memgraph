@@ -50,6 +50,7 @@ class Symbol {
 
 class SymbolTable {
  public:
+  SymbolTable() {}
   Symbol CreateSymbol(const std::string &name, bool user_declared,
                       Symbol::Type type = Symbol::Type::Any,
                       int token_position = -1) {

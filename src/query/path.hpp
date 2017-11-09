@@ -18,7 +18,7 @@ namespace query {
 class Path {
  public:
   /** Creates the path starting with the given vertex. */
-  Path(const VertexAccessor &vertex) { Expand(vertex); }
+  explicit Path(const VertexAccessor &vertex) { Expand(vertex); }
 
   /** Creates the path starting with the given vertex and containing all other
    * elements. */

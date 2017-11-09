@@ -146,7 +146,7 @@ class DecodedValue {
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
-  bool Is##type() const { return type_ == Type::type ; }
+  bool Is##type() const { return type_ == Type::type; }
 
   TYPE_CHECKER(Bool)
   TYPE_CHECKER(Int)
@@ -160,7 +160,6 @@ class DecodedValue {
   TYPE_CHECKER(Path)
 
 #undef TYPE_CHECKER
-
 
   // conversion function to TypedValue
   operator query::TypedValue() const;
@@ -204,4 +203,4 @@ std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge);
 std::ostream &operator<<(std::ostream &os, const DecodedPath &path);
 std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
 std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type);
-}
+}  // namespace communication::bolt

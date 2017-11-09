@@ -7,7 +7,7 @@ namespace io::network {
  * see: man 3 getaddrinfo
  */
 class AddrInfo {
-  AddrInfo(struct addrinfo *info);
+  explicit AddrInfo(struct addrinfo *info);
 
  public:
   ~AddrInfo();
@@ -19,4 +19,4 @@ class AddrInfo {
  private:
   struct addrinfo *info;
 };
-}
+}  // namespace io::network

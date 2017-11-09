@@ -15,7 +15,7 @@ namespace io::network {
 template <class Listener>
 class SocketEventDispatcher {
  public:
-  SocketEventDispatcher(uint32_t flags = 0) : epoll_(flags) {}
+  explicit SocketEventDispatcher(uint32_t flags = 0) : epoll_(flags) {}
 
   void AddListener(int fd, Listener &listener, uint32_t events) {
     // Add the listener associated to fd file descriptor to epoll.
@@ -78,7 +78,7 @@ class SocketEventDispatcher {
  */
 class BaseListener {
  public:
-  BaseListener(Socket &socket) : socket_(socket) {}
+  explicit BaseListener(Socket &socket) : socket_(socket) {}
 
   void OnClose() { socket_.Close(); }
 

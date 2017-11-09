@@ -21,7 +21,7 @@ namespace communication::bolt {
 template <typename Buffer>
 class Decoder {
  public:
-  Decoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit Decoder(Buffer &buffer) : buffer_(buffer) {}
 
   /**
    * Reads a DecodedValue from the available data in the buffer.
@@ -189,7 +189,6 @@ class Decoder {
 
   bool ReadInt(const Marker &marker, DecodedValue *data) {
     uint8_t value = underlying_cast(marker);
-    bool success = true;
     int64_t ret;
     VLOG(1) << "[ReadInt] Start";
     if (value >= 240 || value <= 127) {
@@ -232,11 +231,9 @@ class Decoder {
                     << underlying_cast(marker);
       return false;
     }
-    if (success) {
-      *data = DecodedValue(ret);
-      VLOG(1) << "[ReadInt] Success";
-    }
-    return success;
+    *data = DecodedValue(ret);
+    VLOG(1) << "[ReadInt] Success";
+    return true;
   }
 
   bool ReadDouble(const Marker marker, DecodedValue *data) {
@@ -249,6 +246,7 @@ class Decoder {
       return false;
     }
     value = bswap(value);
+    // cppcheck-suppress invalidPointerCast
     ret = *reinterpret_cast<double *>(&value);
     *data = DecodedValue(ret);
     VLOG(1) << "[ReadDouble] Success";

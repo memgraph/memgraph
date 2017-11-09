@@ -50,7 +50,7 @@ class Network {
 
     NetworkMessage(const std::string &address, uint16_t port,
                    const std::string &reactor, const std::string &channel,
-                   std::unique_ptr<Message> message)
+                   std::unique_ptr<Message> &&message)
         : address(address),
           port(port),
           reactor(reactor),
@@ -129,8 +129,9 @@ class Network {
 
   class RemoteChannelWriter : public ChannelWriter {
    public:
-    RemoteChannelWriter(Network *network, std::string address, uint16_t port,
-                        std::string reactor, std::string channel)
+    RemoteChannelWriter(Network *network, const std::string &address,
+                        uint16_t port, const std::string &reactor,
+                        const std::string &channel)
         : network_(network),
           address_(address),
           port_(port),
@@ -271,4 +272,4 @@ class DistributedSystem : public ChannelFinder {
   DistributedSystem &operator=(const DistributedSystem &) = delete;
   DistributedSystem &operator=(DistributedSystem &&) = delete;
 };
-}
+}  // namespace communication::reactor

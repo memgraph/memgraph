@@ -168,7 +168,6 @@ std::experimental::optional<Socket> Socket::Accept() {
   char addr_decoded[INET6_ADDRSTRLEN];
   void *addr_src;
   unsigned short port;
-  unsigned char family;
 
   int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
   if (UNLIKELY(sfd == -1)) return std::experimental::nullopt;
@@ -176,11 +175,9 @@ std::experimental::optional<Socket> Socket::Accept() {
   if (addr.ss_family == AF_INET) {
     addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);
     port = ntohs(((sockaddr_in *)&addr)->sin_port);
-    family = 4;
   } else {
     addr_src = (void *)&(((sockaddr_in6 *)&addr)->sin6_addr);
     port = ntohs(((sockaddr_in6 *)&addr)->sin6_port);
-    family = 6;
   }
 
   inet_ntop(addr.ss_family, addr_src, addr_decoded, INET6_ADDRSTRLEN);
@@ -229,4 +226,4 @@ bool Socket::Write(const std::string &s,
 int Socket::Read(void *buffer, size_t len) {
   return read(socket_, buffer, len);
 }
-}
+}  // namespace io::network

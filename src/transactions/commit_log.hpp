@@ -38,7 +38,8 @@ class CommitLog {
       COMMITTED = 1,  // 01
       ABORTED = 2,    // 10
     };
-    Info(uint8_t flags) : flags_(flags) {}
+
+    explicit Info(uint8_t flags) : flags_(flags) {}
 
     bool is_active() const { return flags_ == ACTIVE; }
 
@@ -57,4 +58,4 @@ class CommitLog {
  private:
   DynamicBitset<uint8_t, 32768> log;
 };
-}
+}  // namespace tx

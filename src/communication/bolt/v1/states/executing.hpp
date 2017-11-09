@@ -148,7 +148,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
     }
 
     auto code_message = [&e]() -> std::pair<std::string, std::string> {
-      if (const auto *p = dynamic_cast<const query::QueryException *>(&e)) {
+      if (dynamic_cast<const query::QueryException *>(&e)) {
         // Clients expect 4 strings separated by dots. First being database name
         // (for example: Neo, Memgraph...), second being either ClientError,
         // TransientError or DatabaseError (or ClientNotification for warnings).
@@ -170,7 +170,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
         // discourage retry of this query.
         return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
       }
-      if (const auto *p = dynamic_cast<const utils::BasicException *>(&e)) {
+      if (dynamic_cast<const utils::BasicException *>(&e)) {
         // Exception not derived from QueryException was thrown which means that
         // database probably aborted transaction because of some timeout,
         // deadlock, serialization error or something similar. We return
@@ -178,7 +178,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
         return {"Memgraph.TransientError.MemgraphError.MemgraphError",
                 e.what()};
       }
-      if (const auto *p = dynamic_cast<const std::bad_alloc *>(&e)) {
+      if (dynamic_cast<const std::bad_alloc *>(&e)) {
         // std::bad_alloc was thrown, God knows in which state is database ->
         // terminate.
         LOG(FATAL) << "Memgraph is out of memory";

@@ -29,7 +29,7 @@ class ConcurrentPushQueue {
     // refs to an element, or arguments for emplace creation of
     // an element
     template <typename... TArgs>
-    Node(TArgs &&... args) : element_(std::forward<TArgs>(args)...) {}
+    explicit Node(TArgs &&... args) : element_(std::forward<TArgs>(args)...) {}
 
     // element itself and pointer to next Node
     TElement element_;

@@ -17,7 +17,7 @@ class HashedFileWriter {
   }
 
   /** Constructor which also takes a file path and opens it immediately. */
-  HashedFileWriter(const std::string &path) : HashedFileWriter() {
+  explicit HashedFileWriter(const std::string &path) : HashedFileWriter() {
     output_stream_.open(path, std::ios::out | std::ios::binary);
   }
 

@@ -11,6 +11,7 @@ class Stacktrace {
  public:
   class Line {
    public:
+    // cppcheck-suppress noExplicitConstructor
     Line(const std::string &original) : original(original) {}
 
     Line(const std::string &original, const std::string &function,

@@ -23,7 +23,7 @@ class SkipListSuffix {
  public:
   class Iterator {
    public:
-    Iterator(TIterator current) : current_(current) {}
+    explicit Iterator(TIterator current) : current_(current) {}
 
     TValue &operator*() { return *current_; }
 
@@ -40,7 +40,7 @@ class SkipListSuffix {
     TIterator current_;
   };
 
-  SkipListSuffix(
+  explicit SkipListSuffix(
       const TIterator begin,
       typename SkipList<TValue>::template Accessor<TAccessor> &&accessor)
       : begin_(begin), accessor_(std::move(accessor)) {}
@@ -79,9 +79,9 @@ static auto GetVlists(
     typename SkipList<TIndexEntry>::template Accessor<TAccessor>
         &&skiplist_accessor,
     TIterator begin,
-    const std::function<bool(const TIndexEntry &entry)> predicate,
+    const std::function<bool(const TIndexEntry &entry)> &predicate,
     const tx::Transaction &t,
-    const std::function<bool(const TIndexEntry &, const TRecord *)> exists,
+    const std::function<bool(const TIndexEntry &, const TRecord *)> &exists,
     bool current_state = false) {
   TIndexEntry *prev = nullptr;
   auto range = iter::takewhile(
@@ -141,7 +141,7 @@ template <class TKey, class TIndexEntry, class TRecord>
 static void Refresh(
     ConcurrentMap<TKey, SkipList<TIndexEntry> *> &indices,
     const tx::Snapshot &snapshot, tx::Engine &engine,
-    const std::function<bool(const TKey &, const TIndexEntry &)> exists) {
+    const std::function<bool(const TKey &, const TIndexEntry &)> &exists) {
   // iterate over all the indices
   for (auto &key_indices_pair : indices.access()) {
     // iterate over index entries

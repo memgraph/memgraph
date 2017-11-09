@@ -21,7 +21,7 @@ __attribute__((unused)) uint64_t fnv(const std::string &s) {
 
 using HashType = uint64_t;
 
-#elif
+#else
 
 __attribute__((unused)) uint32_t fnv(const std::string &s) {
   return fnv1a32(s);

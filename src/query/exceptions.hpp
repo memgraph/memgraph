@@ -45,13 +45,13 @@ class SemanticException : public QueryException {
 
 class UnboundVariableError : public SemanticException {
  public:
-  UnboundVariableError(const std::string &name)
+  explicit UnboundVariableError(const std::string &name)
       : SemanticException("Unbound variable: " + name) {}
 };
 
 class RedeclareVariableError : public SemanticException {
  public:
-  RedeclareVariableError(const std::string &name)
+  explicit RedeclareVariableError(const std::string &name)
       : SemanticException("Redeclaring variable: " + name) {}
 };
 

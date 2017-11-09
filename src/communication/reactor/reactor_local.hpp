@@ -194,7 +194,7 @@ class EventStream {
    */
   class OnEventOnceChainer {
    public:
-    OnEventOnceChainer(EventStream &event_stream)
+    explicit OnEventOnceChainer(EventStream &event_stream)
         : event_stream_(event_stream) {}
     ~OnEventOnceChainer() { InstallCallbacks(); }
 
@@ -272,7 +272,7 @@ class Channel {
   friend class Reactor;  // to create a Params initialization object
   friend class EventStream::Subscription;
 
-  Channel(Params params)
+  explicit Channel(const Params &params)
       : channel_name_(params.channel_name),
         reactor_name_(params.reactor_name),
         mutex_(params.mutex),
@@ -294,8 +294,9 @@ class Channel {
    public:
     friend class Channel;
 
-    LocalChannelWriter(std::string reactor_name, std::string channel_name,
-                       std::weak_ptr<Channel> queue)
+    LocalChannelWriter(const std::string &reactor_name,
+                       const std::string &channel_name,
+                       const std::weak_ptr<Channel> &queue)
         : reactor_name_(reactor_name),
           channel_name_(channel_name),
           queue_(queue) {}
@@ -330,7 +331,7 @@ class Channel {
    public:
     friend class Channel;
 
-    LocalEventStream(std::shared_ptr<std::mutex> mutex, Channel *queue)
+    LocalEventStream(const std::shared_ptr<std::mutex> &mutex, Channel *queue)
         : mutex_(mutex), queue_(queue) {}
 
     void OnEventHelper(std::type_index type_index, Callback callback) {
@@ -443,8 +444,8 @@ class Channel {
 class Reactor {
   friend class System;
 
-  Reactor(ChannelFinder &system, std::string name,
-          std::function<void(Reactor &)> setup)
+  Reactor(ChannelFinder &system, const std::string &name,
+          const std::function<void(Reactor &)> &setup)
       : system_(system), name_(name), setup_(setup), main_(Open("main")) {}
 
  public:
@@ -580,4 +581,4 @@ class System : public ChannelFinder {
 };
 
 using Subscription = Channel::LocalEventStream::Subscription;
-}
+}  // namespace communication::reactor

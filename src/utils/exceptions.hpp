@@ -41,8 +41,8 @@ class BasicException : public std::exception {
    *
    * @param message The error message.
    */
-  explicit BasicException(const std::string &message) noexcept : msg_(message) {
-  }
+  explicit BasicException(const std::string &message) noexcept
+      : msg_(message) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -64,8 +64,8 @@ class BasicException : public std::exception {
    */
   template <class... Args>
   explicit BasicException(const char *format, Args &&... args) noexcept
-      : BasicException(fmt::format(std::string(format),
-                                   std::forward<Args>(args)...)) {}
+      : BasicException(
+            fmt::format(std::string(format), std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.
@@ -111,10 +111,7 @@ class StacktraceException : public std::exception {
    *                with the caller.
    */
   explicit StacktraceException(const char *message) noexcept
-      : message_(message) {
-    Stacktrace stacktrace;
-    stacktrace_ = stacktrace.dump();
-  }
+      : message_(message), stacktrace_(Stacktrace().dump()) {}
 
   /**
    * @brief Constructor (C++ STL strings).
@@ -122,10 +119,7 @@ class StacktraceException : public std::exception {
    * @param message The error message.
    */
   explicit StacktraceException(const std::string &message) noexcept
-      : message_(message) {
-    Stacktrace stacktrace;
-    stacktrace_ = stacktrace.dump();
-  }
+      : message_(message), stacktrace_(Stacktrace().dump()) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -148,8 +142,8 @@ class StacktraceException : public std::exception {
    */
   template <class... Args>
   explicit StacktraceException(const char *format, Args &&... args) noexcept
-      : StacktraceException(fmt::format(std::string(format),
-                                        std::forward<Args>(args)...)) {}
+      : StacktraceException(
+            fmt::format(std::string(format), std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.

@@ -18,12 +18,13 @@ namespace query {
 /// variable types.
 class SymbolGenerator : public HierarchicalTreeVisitor {
  public:
-  SymbolGenerator(SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit SymbolGenerator(SymbolTable &symbol_table)
+      : symbol_table_(symbol_table) {}
 
-  using HierarchicalTreeVisitor::PreVisit;
-  using typename HierarchicalTreeVisitor::ReturnType;
-  using HierarchicalTreeVisitor::Visit;
   using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+  using typename HierarchicalTreeVisitor::ReturnType;
 
   // Clauses
   bool PreVisit(Create &) override;

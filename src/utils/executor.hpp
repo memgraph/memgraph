@@ -13,7 +13,7 @@
 class Executor {
  public:
   template <typename TRep, typename TPeriod>
-  Executor(const std::chrono::duration<TRep, TPeriod> pause) {
+  explicit Executor(const std::chrono::duration<TRep, TPeriod> pause) {
     if (pause != pause.zero())
       scheduler_.Run(pause, std::bind(&Executor::Execute, this));
   }

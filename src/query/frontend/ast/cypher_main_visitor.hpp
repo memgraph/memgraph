@@ -21,7 +21,7 @@ using query::Context;
 
 class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
  public:
-  CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
+  explicit CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1,

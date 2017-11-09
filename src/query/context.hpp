@@ -16,7 +16,7 @@ class Context {
   Context(Context &&) = default;
   Context &operator=(Context &&) = default;
 
-  Context(GraphDbAccessor &db_accessor) : db_accessor_(db_accessor) {}
+  explicit Context(GraphDbAccessor &db_accessor) : db_accessor_(db_accessor) {}
   GraphDbAccessor &db_accessor_;
   SymbolTable symbol_table_;
   Parameters parameters_;

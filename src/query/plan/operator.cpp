@@ -206,8 +206,9 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  ScanAllCursor(Symbol output_symbol, std::unique_ptr<Cursor> input_cursor,
-                TVerticesFun get_vertices, GraphDbAccessor &db)
+  explicit ScanAllCursor(Symbol output_symbol,
+                         std::unique_ptr<Cursor> &&input_cursor,
+                         TVerticesFun &&get_vertices, GraphDbAccessor &db)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         get_vertices_(std::move(get_vertices)),
@@ -1132,7 +1133,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input,
-                 const std::vector<NamedExpression *> named_expressions)
+                 const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()),
       named_expressions_(named_expressions) {}
 
@@ -2160,9 +2161,9 @@ bool OrderBy::TypedValueVectorCompare::operator()(
   return (c1_it == c1.end()) && (c2_it != c2.end());
 }
 
-Merge::Merge(const std::shared_ptr<LogicalOperator> input,
-             const std::shared_ptr<LogicalOperator> merge_match,
-             const std::shared_ptr<LogicalOperator> merge_create)
+Merge::Merge(const std::shared_ptr<LogicalOperator> &input,
+             const std::shared_ptr<LogicalOperator> &merge_match,
+             const std::shared_ptr<LogicalOperator> &merge_create)
     : input_(input ? input : std::make_shared<Once>()),
       merge_match_(merge_match),
       merge_create_(merge_create) {}

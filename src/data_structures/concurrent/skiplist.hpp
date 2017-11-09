@@ -193,7 +193,7 @@ class SkipList : private Lockable<lock_t> {
     void forward(size_t level, Node *next) { tower[level].store(next); }
 
    private:
-    Node(uint8_t height) : height(height) {
+    explicit Node(uint8_t height) : height(height) {
       // here we assume, that the memory for N towers (N = height) has
       // been allocated right after the Node structure so we need to
       // initialize that memory
@@ -247,7 +247,7 @@ class SkipList : private Lockable<lock_t> {
   template <class It>
   class IteratorBase : public Crtp<It> {
    protected:
-    IteratorBase(Node *node) : node(node) {}
+    explicit IteratorBase(Node *node) : node(node) {}
 
     Node *node{nullptr};
 
@@ -302,7 +302,7 @@ class SkipList : private Lockable<lock_t> {
 
   class ConstIterator : public IteratorBase<ConstIterator> {
     friend class SkipList;
-    ConstIterator(Node *node) : IteratorBase<ConstIterator>(node) {}
+    explicit ConstIterator(Node *node) : IteratorBase<ConstIterator>(node) {}
 
    public:
     ConstIterator() = default;
@@ -321,7 +321,7 @@ class SkipList : private Lockable<lock_t> {
 
   class Iterator : public IteratorBase<Iterator> {
     friend class SkipList;
-    Iterator(Node *node) : IteratorBase<Iterator>(node) {}
+    explicit Iterator(Node *node) : IteratorBase<Iterator>(node) {}
 
    public:
     Iterator() = default;
@@ -347,7 +347,7 @@ class SkipList : private Lockable<lock_t> {
   class ReverseIterator : public Crtp<ReverseIterator> {
     friend class SkipList;
 
-    ReverseIterator(Node *node) : node_(node) {}
+    explicit ReverseIterator(Node *node) : node_(node) {}
 
    public:
     ReverseIterator(SkipList *skiplist, Node *node, Node *preds[])
@@ -456,7 +456,7 @@ class SkipList : private Lockable<lock_t> {
   class Accessor {
     friend class SkipList;
 
-    Accessor(TSkipList *skiplist)
+    explicit Accessor(TSkipList *skiplist)
         : skiplist(skiplist), status_(skiplist->gc.CreateNewAccessor()) {
       DCHECK(skiplist != nullptr) << "Skiplist is nullptr.";
     }
@@ -464,6 +464,7 @@ class SkipList : private Lockable<lock_t> {
    public:
     Accessor(const Accessor &) = delete;
 
+    // cppcheck-suppress uninitMemberVar
     Accessor(Accessor &&other)
         : skiplist(other.skiplist), status_(other.status_) {
       other.skiplist = nullptr;
@@ -863,11 +864,11 @@ class SkipList : private Lockable<lock_t> {
   template <bool ADDING>
   static bool lock_nodes(uint8_t height, guard_t guards[], Node *preds[],
                          Node *succs[]) {
-    Node *prepred = nullptr, *pred = nullptr, *succ = nullptr;
+    Node *prepred = nullptr;
     bool valid = true;
 
     for (int level = 0; valid && level < height; ++level) {
-      pred = preds[level], succ = succs[level];
+      Node *pred = preds[level], *succ = succs[level];
 
       if (pred != prepred)
         guards[level] = pred->acquire_unique(), prepred = pred;

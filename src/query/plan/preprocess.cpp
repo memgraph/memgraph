@@ -406,7 +406,7 @@ FilterInfo Filters::AnalyzeFilter(Expression *expr,
   if (auto *labels_test = dynamic_cast<LabelsTest *>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
-    if (auto *ident = dynamic_cast<Identifier *>(labels_test->expression_)) {
+    if (dynamic_cast<Identifier *>(labels_test->expression_)) {
       filter.type = FilterInfo::Type::Label;
       filter.labels = labels_test->labels_;
     }
