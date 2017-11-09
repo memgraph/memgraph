@@ -376,8 +376,14 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       VisitWithIdentifiers(*edge_atom.filter_expression_,
                            {edge_atom.inner_edge_, edge_atom.inner_node_});
     } else {
-      for (auto i : {edge_atom.inner_edge_, edge_atom.inner_node_})
-        symbol_table_[*i] = CreateSymbol(i->name_, true);
+      // Create inner symbols, but don't bind them in scope, since they are to
+      // be used in the missing filter expression.
+      symbol_table_[*edge_atom.inner_edge_] = symbol_table_.CreateSymbol(
+          edge_atom.inner_edge_->name_, edge_atom.inner_edge_->user_declared_,
+          Symbol::Type::Edge);
+      symbol_table_[*edge_atom.inner_node_] = symbol_table_.CreateSymbol(
+          edge_atom.inner_node_->name_, edge_atom.inner_node_->user_declared_,
+          Symbol::Type::Vertex);
     }
     scope_.in_pattern = true;
   }
@@ -404,7 +410,8 @@ void SymbolGenerator::VisitWithIdentifiers(
     if (prev_symbol_it != scope_.symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
-    symbol_table_[*identifier] = CreateSymbol(identifier->name_, true);
+    symbol_table_[*identifier] =
+        CreateSymbol(identifier->name_, identifier->user_declared_);
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
   // Visit the tree with the new symbols bound.

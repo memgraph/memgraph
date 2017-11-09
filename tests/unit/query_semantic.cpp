@@ -1020,10 +1020,12 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
   EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*bfs->inner_edge_));
+  EXPECT_TRUE(symbol_table.at(*bfs->inner_edge_).user_declared());
   EXPECT_EQ(symbol_table.at(*bfs->inner_edge_),
             symbol_table.at(*r_prop->expression_));
   EXPECT_NE(symbol_table.at(*node_n->identifier_),
             symbol_table.at(*bfs->inner_node_));
+  EXPECT_TRUE(symbol_table.at(*bfs->inner_node_).user_declared());
   EXPECT_EQ(symbol_table.at(*node_n->identifier_),
             symbol_table.at(*n_prop->expression_));
 }
@@ -1074,6 +1076,37 @@ TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
+}
+
+TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
+  // MATCH ()-[*]-() RETURN 42 AS res
+  AstTreeStorage storage;
+  auto ident_n = storage.Create<Identifier>("anon_n", false);
+  auto node = storage.Create<NodeAtom>(ident_n);
+  auto edge = storage.Create<EdgeAtom>(
+      storage.Create<Identifier>("anon_r", false), EdgeAtom::Type::DEPTH_FIRST,
+      EdgeAtom::Direction::BOTH);
+  edge->inner_edge_ = storage.Create<Identifier>("anon_inner_e", false);
+  edge->inner_node_ = storage.Create<Identifier>("anon_inner_n", false);
+  auto end_node =
+      storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
+  auto query = QUERY(MATCH(PATTERN(node, edge, end_node)),
+                     RETURN(LITERAL(42), AS("res")));
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+  // Symbols for `anon_n`, `anon_r`, `anon_inner_e`, `anon_inner_n`, `anon_end`
+  // `AS res` and the auto-generated path name symbol.
+  EXPECT_EQ(symbol_table.max_position(), 7);
+  // All symbols except `AS res` are anonymously generated.
+  for (const auto &id_and_symbol : symbol_table.table()) {
+    const auto &symbol = id_and_symbol.second;
+    if (symbol.name() == "res") {
+      EXPECT_TRUE(symbol.user_declared());
+    } else {
+      EXPECT_FALSE(id_and_symbol.second.user_declared());
+    }
+  }
 }
 
 }  // namespace

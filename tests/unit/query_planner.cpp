@@ -1427,4 +1427,32 @@ TEST(TestLogicalPlanner, MatchWhereAndSplit) {
             ExpectFilter(), ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, ReturnAsteriskOmitsLambdaSymbols) {
+  // Test MATCH (n) -[r* (ie, in | true)]- (m) RETURN *
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  AstTreeStorage storage;
+  auto edge = EDGE_VARIABLE("r", Direction::BOTH);
+  edge->inner_edge_ = IDENT("ie");
+  edge->inner_node_ = IDENT("in");
+  edge->filter_expression_ = LITERAL(true);
+  auto ret = storage.Create<query::Return>();
+  ret->body_.all_identifiers = true;
+  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret);
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto planning_context = MakePlanningContext(storage, symbol_table, dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto *produce = dynamic_cast<Produce *>(plan.get());
+  ASSERT_TRUE(produce);
+  std::vector<std::string> outputs;
+  for (const auto &output_symbol : produce->OutputSymbols(symbol_table)) {
+    outputs.emplace_back(output_symbol.name());
+  }
+  // We expect `*` expanded to `n`, `r` and `m`.
+  EXPECT_EQ(outputs.size(), 3);
+  for (const auto &name : {"n", "r", "m"}) {
+    EXPECT_TRUE(utils::Contains(outputs, name));
+  }
+}
+
 }  // namespace

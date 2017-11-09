@@ -1395,9 +1395,27 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
                            ast_generator.db_accessor_.EdgeType("type2")));
   EXPECT_EQ(bfs->identifier_->name_, "r");
   EXPECT_EQ(bfs->inner_edge_->name_, "e");
+  EXPECT_TRUE(bfs->inner_edge_->user_declared_);
   EXPECT_EQ(bfs->inner_node_->name_, "n");
+  EXPECT_TRUE(bfs->inner_node_->user_declared_);
   CheckLiteral(ast_generator.context_, bfs->upper_bound_, 10);
   auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
   ASSERT_TRUE(eq);
 }
+
+TYPED_TEST(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
+  TypeParam ast_generator("MATCH () -[*]- () RETURN *");
+  auto *query = ast_generator.query_;
+  ASSERT_EQ(query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *var_expand = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(var_expand);
+  ASSERT_TRUE(var_expand->IsVariable());
+  EXPECT_FALSE(var_expand->inner_edge_->user_declared_);
+  EXPECT_FALSE(var_expand->inner_node_->user_declared_);
+}
+
 }  // namespace

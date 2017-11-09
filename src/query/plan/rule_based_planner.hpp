@@ -376,6 +376,9 @@ class RuleBasedPlanner {
                                       utils::Contains(fi.used_symbols, n);
                              }),
               filters.end());
+          // Unbind the temporarily bound inner symbols for filtering.
+          bound_symbols.erase(inner_edge_symbol);
+          bound_symbols.erase(inner_node_symbol);
 
           last_op = new ExpandVariable(
               node_symbol, edge_symbol, edge->type_, expansion.direction,
