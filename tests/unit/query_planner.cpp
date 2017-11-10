@@ -2,6 +2,7 @@
 #include <tuple>
 #include <unordered_set>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "query/frontend/ast/ast.hpp"
@@ -219,12 +220,21 @@ class ExpectOptional : public OpChecker<Optional> {
   ExpectOptional(const std::list<BaseOpChecker *> &optional)
       : optional_(optional) {}
 
+  ExpectOptional(const std::vector<Symbol> &optional_symbols,
+                 const std::list<BaseOpChecker *> &optional)
+      : optional_symbols_(optional_symbols), optional_(optional) {}
+
   void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
+    if (!optional_symbols_.empty()) {
+      EXPECT_THAT(optional.optional_symbols(),
+                  testing::UnorderedElementsAreArray(optional_symbols_));
+    }
     PlanChecker check_optional(optional_, symbol_table);
     optional.optional()->Accept(check_optional);
   }
 
  private:
+  std::vector<Symbol> optional_symbols_;
   const std::list<BaseOpChecker *> &optional_;
 };
 
@@ -451,6 +461,31 @@ TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
 }
+
+TEST(TestLogicalPlanner, OptionalMatchNamedPatternReturn) {
+  // Test OPTIONAL MATCH p = (n) -[r]- (m) RETURN p
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  AstTreeStorage storage;
+  auto node_n = NODE("n");
+  auto edge = EDGE("r");
+  auto node_m = NODE("m");
+  auto pattern = NAMED_PATTERN("p", node_n, edge, node_m);
+  QUERY(OPTIONAL_MATCH(pattern), RETURN("p"));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto planning_context = MakePlanningContext(storage, symbol_table, dba);
+  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
+                                      new ExpectConstructNamedPath()};
+  auto get_symbol = [&symbol_table](const auto *ast_node) {
+    return symbol_table.at(*ast_node->identifier_);
+  };
+  std::vector<Symbol> optional_symbols{get_symbol(pattern), get_symbol(node_n),
+                                       get_symbol(edge), get_symbol(node_m)};
+  CheckPlan(*plan, symbol_table, ExpectOptional(optional_symbols, optional),
+            ExpectProduce());
+}
+
 
 TEST(TestLogicalPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n

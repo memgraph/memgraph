@@ -441,6 +441,13 @@ class RuleBasedPlanner {
         last_op = impl::GenFilters(last_op, bound_symbols, filters, storage);
       }
     }
+    DCHECK(named_paths.empty()) << "Expected to generate all named paths";
+    // We bound all named path symbols, so just add them to new_symbols.
+    for (const auto &named_path : matching.named_paths) {
+      DCHECK(utils::Contains(bound_symbols, named_path.first))
+          << "Expected generated named path to have bound symbol";
+      match_context.new_symbols.emplace_back(named_path.first);
+    }
     DCHECK(filters.empty()) << "Expected to generate all filters";
     return last_op;
   }
