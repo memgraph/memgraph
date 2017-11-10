@@ -466,8 +466,6 @@ class LabelPropertyIndex {
             return lexicographical_compare(ma.begin(), ma.end(), mb.begin(),
                                            mb.end(), cmp);
           }
-          default:
-            LOG(FATAL) << "Unimplemented type operator.";
         }
       }
 
