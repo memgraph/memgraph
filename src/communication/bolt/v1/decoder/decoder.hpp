@@ -6,7 +6,6 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "utils/bswap.hpp"
 #include "utils/underlying_cast.hpp"
 

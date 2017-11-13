@@ -34,6 +34,9 @@ class Engine : Lockable<SpinLock> {
       std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
 
  public:
+
+  Engine() = default;
+
   /** Begins a transaction and returns a pointer to
    * it's object.
    *
@@ -42,7 +45,7 @@ class Engine : Lockable<SpinLock> {
    * committted or aborted.
    */
   Transaction *Begin() {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
 
     transaction_id_t id{++counter_};
     auto t = new Transaction(id, active_, *this);
@@ -61,7 +64,7 @@ class Engine : Lockable<SpinLock> {
    * @return Pointer to the transaction object for id.
    */
   Transaction &Advance(transaction_id_t id) {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
 
     auto *t = store_.get(id);
     DCHECK(t != nullptr) << "Transaction::advance on non-existing transaction";
@@ -88,7 +91,7 @@ class Engine : Lockable<SpinLock> {
    * documentation).
    */
   Snapshot GcSnapshot() {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
 
     // No active transactions.
     if (active_.size() == 0) {
@@ -106,18 +109,16 @@ class Engine : Lockable<SpinLock> {
   /** Comits the given transaction. Deletes the transaction object, it's not
    * valid after this function executes. */
   void Commit(const Transaction &t) {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
     clog_.set_committed(t.id_);
-
     Finalize(t);
   }
 
   /** Aborts the given transaction. Deletes the transaction object, it's not
    * valid after this function executes. */
   void Abort(const Transaction &t) {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
     clog_.set_aborted(t.id_);
-
     Finalize(t);
   }
 
@@ -128,20 +129,20 @@ class Engine : Lockable<SpinLock> {
 
   /** The total number of transactions that have executed since the creation of
    * this engine */
-  auto Count() const {
-    auto guard = this->acquire_unique();
-    return counter_.load();
+  tx::transaction_id_t Count() const {
+    auto guard = acquire_unique();
+    return counter_;
   }
 
   /** The count of currently active transactions */
   int64_t ActiveCount() const {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
     return active_.size();
   }
 
   /** Calls function f on each active transaction. */
   void ForEachActiveTransaction(std::function<void(Transaction &)> f) {
-    auto guard = this->acquire_unique();
+    auto guard = acquire_unique();
     for (auto transaction : active_) {
       f(*store_.get(transaction));
     }

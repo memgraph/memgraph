@@ -267,9 +267,9 @@ class ExpandFixture : public testing::Test {
   EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
 
   void SetUp() override {
-    v1.add_label((GraphDbTypes::Label)1);
-    v2.add_label((GraphDbTypes::Label)2);
-    v3.add_label((GraphDbTypes::Label)3);
+    v1.add_label(dba_.Label("l1"));
+    v2.add_label(dba_.Label("l2"));
+    v3.add_label(dba_.Label("l3"));
     dba_.AdvanceCommand();
   }
 };

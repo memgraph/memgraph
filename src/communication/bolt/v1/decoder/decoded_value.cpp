@@ -192,6 +192,40 @@ DecodedValue::operator query::TypedValue() const {
   }
 }
 
+DecodedValue::operator PropertyValue() const {
+  switch (type_) {
+    case Type::Null:
+      return PropertyValue::Null;
+    case Type::Bool:
+      return PropertyValue(bool_v);
+    case Type::Int:
+      return PropertyValue(int_v);
+    case Type::Double:
+      return PropertyValue(double_v);
+    case Type::String:
+      return PropertyValue(string_v);
+    case Type::List: {
+      std::vector<PropertyValue> vec;
+      vec.reserve(list_v.size());
+      for (const auto &value : list_v)
+        vec.emplace_back(static_cast<PropertyValue>(value));
+      return PropertyValue(std::move(vec));
+    }
+    case Type::Map: {
+      std::map<std::string, PropertyValue> map;
+      for (const auto &kv : map_v)
+        map.emplace(kv.first, static_cast<PropertyValue>(kv.second));
+      return PropertyValue(std::move(map));
+    }
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::UnboundedEdge:
+    case Type::Path:
+      throw DecodedValueException(
+          "Unsupported conversion from DecodedValue to PropertyValue");
+  }
+}
+
 std::ostream &operator<<(std::ostream &os, const DecodedVertex &vertex) {
   os << "V(";
   utils::PrintIterable(os, vertex.labels, ":",

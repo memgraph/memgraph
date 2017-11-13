@@ -18,14 +18,60 @@ const PropertyValue &RecordAccessor<TRecord>::PropsAt(
   return current().properties_.at(key);
 }
 
-template <typename TRecord>
-size_t RecordAccessor<TRecord>::PropsErase(GraphDbTypes::Property key) {
+template <>
+void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
+                                      PropertyValue value) {
+  Vertex &vertex = update();
+  vertex.properties_.set(key, value);
+  auto &dba = db_accessor();
+  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+                           dba.PropertyName(key), value);
+  db_accessor().UpdatePropertyIndex(key, *this, &vertex);
+}
+
+template <>
+void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
+                                    PropertyValue value) {
+  update().properties_.set(key, value);
+  auto &dba = db_accessor();
+  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+                         dba.PropertyName(key), value);
+}
+
+template <>
+size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
+  auto &dba = db_accessor();
+  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+                           dba.PropertyName(key), PropertyValue::Null);
   return update().properties_.erase(key);
 }
 
-template <typename TRecord>
-void RecordAccessor<TRecord>::PropsClear() {
-  update().properties_.clear();
+template <>
+size_t RecordAccessor<Edge>::PropsErase(GraphDbTypes::Property key) {
+  auto &dba = db_accessor();
+  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+                         dba.PropertyName(key), PropertyValue::Null);
+  return update().properties_.erase(key);
+}
+
+template <>
+void RecordAccessor<Vertex>::PropsClear() {
+  auto &updated = update();
+  auto &dba = db_accessor();
+  for (const auto &kv : updated.properties_)
+    dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+                             dba.PropertyName(kv.first), PropertyValue::Null);
+  updated.properties_.clear();
+}
+
+template <>
+void RecordAccessor<Edge>::PropsClear() {
+  auto &updated = update();
+  auto &dba = db_accessor();
+  for (const auto &kv : updated.properties_)
+    dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+                           dba.PropertyName(kv.first), PropertyValue::Null);
+  updated.properties_.clear();
 }
 
 template <typename TRecord>
@@ -37,11 +83,6 @@ const PropertyValueStore<GraphDbTypes::Property>
 template <typename TRecord>
 GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
   return *db_accessor_;
-}
-
-template <typename TRecord>
-uint64_t RecordAccessor<TRecord>::temporary_id() const {
-  return (uint64_t)vlist_;
 }
 
 template <typename TRecord>
@@ -81,19 +122,6 @@ template <typename TRecord>
 const TRecord &RecordAccessor<TRecord>::current() const {
   DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
   return *current_;
-}
-
-template <>
-void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
-                                      PropertyValue value) {
-  Vertex &vertex = update();
-  vertex.properties_.set(key, value);
-  this->db_accessor().UpdatePropertyIndex(key, *this, &vertex);
-}
-template <>
-void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
-                                    PropertyValue value) {
-  update().properties_.set(key, value);
 }
 
 template class RecordAccessor<Vertex>;

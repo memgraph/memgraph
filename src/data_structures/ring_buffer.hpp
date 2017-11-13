@@ -13,7 +13,8 @@
 
 /**
  * A thread-safe ring buffer. Multi-producer, multi-consumer. Producers get
- * blocked if the buffer is full. Consumers get returnd a nullopt.
+ * blocked if the buffer is full. Consumers get returnd a nullopt. First in
+ * first out.
  *
  * @tparam TElement - type of element the buffer tracks.
  */
@@ -33,6 +34,11 @@ class RingBuffer {
     delete[] buffer_;
   }
 
+  /**
+   * Emplaces a new element into the buffer. This call blocks until space in the
+   * buffer is available. If multiple threads are waiting for space to become
+   * available, there are no order-of-entrace guarantees.
+   */
   template <typename... TArgs>
   void emplace(TArgs &&... args) {
     while (true) {
@@ -53,6 +59,10 @@ class RingBuffer {
     }
   }
 
+  /**
+   * Removes and returns the oldest element from the buffer. If the buffer is
+   * empty, nullopt is returned.
+   */
   std::experimental::optional<TElement> pop() {
     std::lock_guard<SpinLock> guard(lock_);
     if (size_ == 0) return std::experimental::nullopt;
@@ -61,6 +71,14 @@ class RingBuffer {
         std::move(buffer_[read_pos_++]));
     read_pos_ %= capacity_;
     return result;
+  }
+
+  /** Removes all elements from the buffer. */
+  void clear() {
+    std::lock_guard<SpinLock> guard(lock_);
+    read_pos_ = 0;
+    write_pos_ = 0;
+    size_ = 0;
   }
 
  private:

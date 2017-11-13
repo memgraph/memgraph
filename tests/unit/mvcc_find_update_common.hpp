@@ -60,7 +60,7 @@ class Mvcc : public ::testing::Test {
   int version_list_size = 0;
   tx::Engine engine;
   tx::Transaction *t1 = engine.Begin();
-  mvcc::VersionList<TestClass> version_list{*t1, version_list_size};
+  mvcc::VersionList<TestClass> version_list{*t1, 0, version_list_size};
   TestClass *v1 = nullptr;
   tx::Transaction *t2 = nullptr;
   tx::transaction_id_t id0, id1, id2;

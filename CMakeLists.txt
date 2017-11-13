@@ -194,6 +194,7 @@ set(memgraph_src_files
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/durability/recovery.cpp
     ${src_dir}/durability/snapshooter.cpp
+    ${src_dir}/durability/wal.cpp
     ${src_dir}/io/network/addrinfo.cpp
     ${src_dir}/io/network/network_endpoint.cpp
     ${src_dir}/io/network/socket.cpp

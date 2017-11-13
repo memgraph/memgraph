@@ -31,12 +31,10 @@ class IndexBuildInProgressException : public utils::BasicException {
 };
 
 /**
- * An accessor for the database object: exposes functions
- * for operating on the database. All the functions in
- * this class should be self-sufficient: for example the
- * function for creating
- * a new Vertex should take care of all the book-keeping around
- * the creation.
+ * An accessor for the database object: exposes functions for operating on the
+ * database. All the functions in this class should be self-sufficient: for
+ * example the function for creating a new Vertex should take care of all the
+ * book-keeping around the creation.
  */
 
 class GraphDbAccessor {
@@ -56,26 +54,33 @@ class GraphDbAccessor {
   explicit GraphDbAccessor(GraphDb &db);
   ~GraphDbAccessor();
 
-  // the GraphDbAccessor can NOT be copied nor moved because
-  // 1. it ensures transaction cleanup once it's destructed
-  // 2. it will contain index and side-effect bookkeeping data
-  //    which is unique to the transaction (shared_ptr works but slower)
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
   GraphDbAccessor(GraphDbAccessor &&other) = delete;
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
   GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
 
   /**
-   * Creates a new Vertex and returns an accessor to it.
+   * Creates a new Vertex and returns an accessor to it. If the ID is
+   * provided, the created Vertex will have that ID, and the ID counter will be
+   * increased to it so collisions are avoided. This should only be used by
+   * durability recovery, normal vertex creation should not provide the ID.
    *
+   * You should NOT make interleaved recovery and normal DB op calls to this
+   * function. Doing so will likely mess up the ID generation and crash MG.
+   * Always perform recovery only once, immediately when the database is
+   * created, before any transactional ops start.
+   *
+   * @param opt_id The desired ID. Should only be provided when recovering from
+   * durability.
    * @return See above.
    */
-  VertexAccessor InsertVertex();
+  VertexAccessor InsertVertex(
+      std::experimental::optional<int64_t> opt_id = std::experimental::nullopt);
 
   /**
-   * Removes the vertex of the given accessor. If the vertex has any outgoing
-   * or incoming edges, it is not deleted. See `DetachRemoveVertex` if you
-   * want to remove a vertex regardless of connectivity.
+   * Removes the vertex of the given accessor. If the vertex has any outgoing or
+   * incoming edges, it is not deleted. See `DetachRemoveVertex` if you want to
+   * remove a vertex regardless of connectivity.
    *
    * If the vertex has already been deleted by the current transaction+command,
    * this function will not do anything and will return true.
@@ -94,6 +99,20 @@ class GraphDbAccessor {
   void DetachRemoveVertex(VertexAccessor &vertex_accessor);
 
   /**
+   * Obtains the vertex for the given ID. If there is no vertex for the given
+   * ID, or it's not visible to this accessor's transaction, nullopt is
+   * returned.
+   *
+   * @param id - The ID of the sought vertex.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   */
+  std::experimental::optional<VertexAccessor> FindVertex(int64_t id,
+                                                         bool current_state);
+
+  /**
    * Returns iterable over accessors to all the vertices in the graph
    * visible to the current transaction.
    *
@@ -105,18 +124,16 @@ class GraphDbAccessor {
   auto Vertices(bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     // wrap version lists into accessors, which will look for visible versions
-    auto accessors =
-        iter::imap([this](auto vlist) { return VertexAccessor(*vlist, *this); },
-                   db_.vertices_.access());
+    auto accessors = iter::imap(
+        [this](auto id_vlist) {
+          return VertexAccessor(*id_vlist.second, *this);
+        },
+        db_.vertices_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
         [this, current_state](const VertexAccessor &accessor) {
-          return (accessor.old_ &&
-                  !(current_state &&
-                    accessor.old_->is_expired_by(*transaction_))) ||
-                 (current_state && accessor.new_ &&
-                  !accessor.new_->is_expired_by(*transaction_));
+          return Visible(accessor, current_state);
         },
         std::move(accessors));
   }
@@ -141,6 +158,7 @@ class GraphDbAccessor {
   /**
    * Return VertexAccessors which contain the current label and property for the
    * given transaction visibility.
+   *
    * @param label - label for which to return VertexAccessors
    * @param property - property for which to return VertexAccessors
    * @param current_state If true then the graph state for the
@@ -235,15 +253,26 @@ class GraphDbAccessor {
   }
 
   /**
-   * Creates a new Edge and returns an accessor to it.
+   * Creates a new Edge and returns an accessor to it. If the ID is
+   * provided, the created Edge will have that ID, and the ID counter will be
+   * increased to it so collisions are avoided. This should only be used by
+   * durability recovery, normal edge creation should not provide the ID.
+   *
+   * You should NOT make interleaved recovery and normal DB op calls to this
+   * function. Doing so will likely mess up the ID generation and crash MG.
+   * Always perform recovery only once, immediately when the database is
+   * created, before any transactional ops start.
    *
    * @param from The 'from' vertex.
    * @param to The 'to' vertex'
    * @param type Edge type.
+   * @param opt_id The desired ID. Should only be provided when recovering from
+   * durability.
    * @return  An accessor to the edge.
    */
-  EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
-                          GraphDbTypes::EdgeType type);
+  EdgeAccessor InsertEdge(
+      VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType type,
+      std::experimental::optional<int64_t> opt_id = std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -261,6 +290,19 @@ class GraphDbAccessor {
                   bool remove_to = true);
 
   /**
+   * Obtains the edge for the given ID. If there is no edge for the given
+   * ID, or it's not visible to this accessor's transaction, nullopt is
+   * returned.
+   *
+   * @param id - The ID of the sought edge.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   */
+  std::experimental::optional<EdgeAccessor> FindEdge(int64_t id,
+                                                     bool current_state);
+  /**
    * Returns iterable over accessors to all the edges in the graph
    * visible to the current transaction.
    *
@@ -273,18 +315,14 @@ class GraphDbAccessor {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
     // wrap version lists into accessors, which will look for visible versions
-    auto accessors =
-        iter::imap([this](auto vlist) { return EdgeAccessor(*vlist, *this); },
-                   db_.edges_.access());
+    auto accessors = iter::imap(
+        [this](auto id_vlist) { return EdgeAccessor(*id_vlist.second, *this); },
+        db_.edges_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
         [this, current_state](const EdgeAccessor &accessor) {
-          return (accessor.old_ &&
-                  !(current_state &&
-                    accessor.old_->is_expired_by(*transaction_))) ||
-                 (current_state && accessor.new_ &&
-                  !accessor.new_->is_expired_by(*transaction_));
+          return Visible(accessor, current_state);
         },
         std::move(accessors));
   }
@@ -301,8 +339,8 @@ class GraphDbAccessor {
    * `accessor`. It has default post-construction `current_` set (`old` if
    * available, otherwise `new`).
    *
-   * @param accessor The [Vertex/Edge]Accessor whose underlying graph
-   *  element we want in this GraphDbAccessor.
+   * @param accessor The [Vertex/Edge]Accessor whose underlying graph element we
+   * want in this GraphDbAccessor.
    * @return See above.
    * @tparam TAccessor Either VertexAccessor or EdgeAccessor
    */
@@ -323,8 +361,8 @@ class GraphDbAccessor {
    * existing vertices that belong to it.
    *
    * You should never call BuildIndex on a GraphDbAccessor (transaction) on
-   * which new vertices have been inserted or existing ones updated. Do it in a
-   * new accessor instead.
+   * which new vertices have been inserted or existing ones updated. Do it
+   * in a new accessor instead.
    *
    * Build index throws if an index for the given (label, property) already
    * exists (even if it's being built by a concurrent transaction and is not yet
@@ -355,7 +393,7 @@ class GraphDbAccessor {
    */
   std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    return db_.label_property_index_.GetIndicesKeys();
+    return db_.label_property_index_.Keys();
   }
 
   /**
@@ -373,6 +411,7 @@ class GraphDbAccessor {
   /**
    * Return approximate number of vertices under indexes with the given label.
    * Note that this is always an over-estimate and never an under-estimate.
+   *
    * @param label - label to check for
    * @return number of vertices with the given label
    */
@@ -380,8 +419,9 @@ class GraphDbAccessor {
 
   /**
    * Return approximate number of vertices under indexes with the given label
-   * and property.
-   * Note that this is always an over-estimate and never an under-estimate.
+   * and property.  Note that this is always an over-estimate and never an
+   * under-estimate.
+   *
    * @param label - label to check for
    * @param property - property to check for
    * @return number of vertices with the given label, fails if no such
@@ -457,6 +497,9 @@ class GraphDbAccessor {
    */
   const std::string &PropertyName(const GraphDbTypes::Property property) const;
 
+  /** Returns the id of this accessor's transaction */
+  tx::transaction_id_t transaction_id() const;
+
   /**
    * Advances transaction's command id by 1.
    */
@@ -479,6 +522,9 @@ class GraphDbAccessor {
 
   /** Returns the transaction of this accessor */
   const tx::Transaction &transaction() const { return *transaction_; }
+
+  /** Return's the database's write-ahead log */
+  durability::WriteAheadLog &wal();
 
   /**
    * Initializes the record pointers in the given accessor.
@@ -539,8 +585,8 @@ class GraphDbAccessor {
 
   /**
    * Sets the counter with the given name to the given value. Returns nothing.
-   * If the counter with the given name does not exist, a new counter is
-   * created and set to the given value.
+   * If the counter with the given name does not exist, a new counter is created
+   * and set to the given value.
    */
   void CounterSet(const std::string &name, int64_t value);
 
@@ -553,6 +599,7 @@ class GraphDbAccessor {
   /**
    * Insert this vertex into corresponding label and label+property (if it
    * exists) index.
+   *
    * @param label - label with which to insert vertex label record
    * @param vertex_accessor - vertex_accessor to insert
    * @param vertex - vertex record to insert
@@ -571,6 +618,17 @@ class GraphDbAccessor {
   void UpdatePropertyIndex(const GraphDbTypes::Property &property,
                            const RecordAccessor<Vertex> &record_accessor,
                            const Vertex *const vertex);
+
+  /** Returns true if the given accessor (made with this GraphDbAccessor) is
+   * visible given the `current_state` flag. */
+  template <typename TRecord>
+  bool Visible(const RecordAccessor<TRecord> &accessor,
+               bool current_state) const {
+    return (accessor.old_ &&
+            !(current_state && accessor.old_->is_expired_by(*transaction_))) ||
+           (current_state && accessor.new_ &&
+            !accessor.new_->is_expired_by(*transaction_));
+  }
 
   GraphDb &db_;
 

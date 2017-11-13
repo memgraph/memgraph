@@ -8,12 +8,18 @@
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(db.tx_engine_.Begin()) {}
+    : db_(db), transaction_(db.tx_engine_.Begin()) {
+  db_.wal_.TxBegin(transaction_->id_);
+}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
     this->Abort();
   }
+}
+
+tx::transaction_id_t GraphDbAccessor::transaction_id() const {
+  return transaction_->id_;
 }
 
 void GraphDbAccessor::AdvanceCommand() {
@@ -23,13 +29,17 @@ void GraphDbAccessor::AdvanceCommand() {
 
 void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
+  auto tid = transaction_->id_;
   transaction_->Commit();
+  db_.wal_.TxCommit(tid);
   commited_ = true;
 }
 
 void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
+  auto tid = transaction_->id_;
   transaction_->Abort();
+  db_.wal_.TxAbort(tid);
   aborted_ = true;
 }
 
@@ -38,15 +48,49 @@ bool GraphDbAccessor::should_abort() const {
   return transaction_->should_abort();
 }
 
-VertexAccessor GraphDbAccessor::InsertVertex() {
+durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal_; }
+
+VertexAccessor GraphDbAccessor::InsertVertex(
+    std::experimental::optional<int64_t> opt_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  // create a vertex
-  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_);
+  auto id = opt_id ? *opt_id : db_.next_vertex_id_++;
+  if (opt_id) {
+    while (true) {
+      auto next_id = db_.next_vertex_id_.load();
+      if (next_id > id) break;
+      if (db_.next_vertex_id_.compare_exchange_strong(next_id, id + 1)) break;
+    }
+  }
 
-  bool success = db_.vertices_.access().insert(vertex_vlist).second;
-  CHECK(success) << "It is impossible for new version list to already exist";
+  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, id);
+
+  bool success = db_.vertices_.access().insert(id, vertex_vlist).second;
+  CHECK(success) << "Attempting to insert a vertex with an existing ID: " << id;
+  db_.wal_.CreateVertex(transaction_->id_, vertex_vlist->id_);
   return VertexAccessor(*vertex_vlist, *this);
+}
+
+std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
+    int64_t id, bool current_state) {
+  auto collection_accessor = db_.vertices_.access();
+  auto found = collection_accessor.find(id);
+  if (found == collection_accessor.end()) return std::experimental::nullopt;
+  VertexAccessor record_accessor(*found->second, *this);
+  if (!Visible(record_accessor, current_state))
+    return std::experimental::nullopt;
+  return record_accessor;
+}
+
+std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
+    int64_t id, bool current_state) {
+  auto collection_accessor = db_.edges_.access();
+  auto found = collection_accessor.find(id);
+  if (found == collection_accessor.end()) return std::experimental::nullopt;
+  EdgeAccessor record_accessor(*found->second, *this);
+  if (!Visible(record_accessor, current_state))
+    return std::experimental::nullopt;
+  return record_accessor;
 }
 
 void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
@@ -87,6 +131,10 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
         // TODO reconsider this constant, currently rule-of-thumb chosen
         std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
+    // We must notify the WAL about this transaction manually since it's not
+    // handled by a GraphDbAccessor.
+    db_.wal_.TxBegin(wait_transaction->id_);
+    db_.wal_.TxCommit(wait_transaction->id_);
     wait_transaction->Commit();
   }
 
@@ -98,8 +146,12 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
                                                     vertex.current_);
   }
   // Commit transaction as we finished applying method on newest visible
-  // records.
+  // records. Write that transaction's ID to the WAL as the index has been built
+  // at this point even if this DBA's transaction aborts for some reason.
+  auto wal_build_index_tx_id = dba.transaction_id();
   dba.Commit();
+  db_.wal_.BuildIndex(wal_build_index_tx_id, LabelName(label),
+                      PropertyName(property));
 
   // After these two operations we are certain that everything is contained in
   // the index under the assumption that this transaction contained no
@@ -202,6 +254,8 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
+  db_.wal_.RemoveVertex(transaction_->id_, vertex_accessor.vlist_->id_);
+
   vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
   return true;
 }
@@ -223,18 +277,26 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
     vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
 }
 
-EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
-                                         VertexAccessor &to,
-                                         GraphDbTypes::EdgeType edge_type) {
+EdgeAccessor GraphDbAccessor::InsertEdge(
+    VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType edge_type,
+    std::experimental::optional<int64_t> opt_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  // create an edge
-  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, *from.vlist_,
+  auto id = opt_id ? *opt_id : db_.next_edge_id++;
+  if (opt_id) {
+    while (true) {
+      auto next_id = db_.next_edge_id.load();
+      if (next_id > id) break;
+      if (db_.next_edge_id.compare_exchange_strong(next_id, id + 1)) break;
+    }
+  }
+
+  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, *from.vlist_,
                                                 *to.vlist_, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
-  bool success = db_.edges_.access().insert(edge_vlist).second;
-  CHECK(success) << "It is impossible for new version list to already exist";
+  bool success = db_.edges_.access().insert(id, edge_vlist).second;
+  CHECK(success) << "Attempting to insert an edge with an existing ID: " << id;
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
@@ -245,10 +307,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(VertexAccessor &from,
   to.SwitchNew();
   to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
-  // This has to be here because there is no additional method for setting edge
-  // type.
-  const auto edge_accessor = EdgeAccessor(*edge_vlist, *this);
-  return edge_accessor;
+  db_.wal_.CreateEdge(transaction_->id_, edge_vlist->id_, from.vlist_->id_,
+                      to.vlist_->id_, EdgeTypeName(edge_type));
+  return EdgeAccessor(*edge_vlist, *this);
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {
@@ -269,6 +330,8 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
   if (remove_from_to)
     edge_accessor.to().update().in_.RemoveEdge(edge_accessor.vlist_);
   edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
+
+  db_.wal_.RemoveEdge(transaction_->id_, edge_accessor.id());
 }
 
 GraphDbTypes::Label GraphDbAccessor::Label(const std::string &label_name) {

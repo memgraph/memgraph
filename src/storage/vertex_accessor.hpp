@@ -6,11 +6,9 @@
 
 #include "cppitertools/chain.hpp"
 
-#include "database/graph_db.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/util.hpp"
 #include "storage/vertex.hpp"
-
 #include "storage/edge_accessor.hpp"
 
 /**
@@ -142,6 +140,6 @@ std::ostream &operator<<(std::ostream &, const VertexAccessor &);
 namespace std {
 template <>
 struct hash<VertexAccessor> {
-  size_t operator()(const VertexAccessor &v) const { return v.temporary_id(); };
+  size_t operator()(const VertexAccessor &v) const { return v.id(); };
 };
 }

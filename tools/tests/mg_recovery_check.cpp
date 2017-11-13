@@ -3,6 +3,7 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
+#include "database/graph_db_accessor.hpp"
 #include "database/graph_db.hpp"
 #include "durability/recovery.hpp"
 #include "query/typed_value.hpp"
@@ -18,10 +19,8 @@ DEFINE_string(snapshot_dir, "", "Path to where the snapshot is stored");
 class RecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    Recovery recovery;
-    std::string snapshot(FLAGS_snapshot_dir + "/snapshot");
-    GraphDbAccessor dba(db_);
-    recovery.Recover(snapshot, dba);
+    std::string snapshot(FLAGS_snapshot_dir);
+    durability::Recover(snapshot, db_);
   }
 
   GraphDb db_;

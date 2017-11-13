@@ -16,7 +16,7 @@ TEST(LabelsIndex, UniqueInsert) {
   GraphDbAccessor dba(db);
   tx::Engine engine;
   auto t1 = engine.Begin();
-  mvcc::VersionList<Vertex> vlist(*t1);
+  mvcc::VersionList<Vertex> vlist(*t1, 0);
   t1->Commit();
   auto t2 = engine.Begin();
 
@@ -45,8 +45,8 @@ TEST(LabelsIndex, UniqueFilter) {
   tx::Engine engine;
 
   auto t1 = engine.Begin();
-  mvcc::VersionList<Vertex> vlist1(*t1);
-  mvcc::VersionList<Vertex> vlist2(*t1);
+  mvcc::VersionList<Vertex> vlist1(*t1, 0);
+  mvcc::VersionList<Vertex> vlist2(*t1, 1);
   engine.Advance(t1->id_);
   auto r1v1 = vlist1.find(*t1);
   auto r1v2 = vlist2.find(*t1);
@@ -86,8 +86,8 @@ TEST(LabelsIndex, Refresh) {
 
   // add two vertices to  database
   auto t1 = engine.Begin();
-  mvcc::VersionList<Vertex> vlist1(*t1);
-  mvcc::VersionList<Vertex> vlist2(*t1);
+  mvcc::VersionList<Vertex> vlist1(*t1, 0);
+  mvcc::VersionList<Vertex> vlist2(*t1, 1);
   engine.Advance(t1->id_);
 
   auto v1r1 = vlist1.find(*t1);

@@ -19,17 +19,16 @@ class SerializationError : public utils::BasicException {
 template <class T>
 class VersionList {
  public:
-  using uptr = std::unique_ptr<VersionList<T>>;
-  using item_t = T;
-
   /**
    * @brief Constructor that is used to insert one item into VersionList.
    * @param t - transaction
+   * @param id - Version list identifier. Uniqueness guaranteed by the code
+   * creating this version list.
    * @param args - args forwarded to constructor of item T (for
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(const tx::Transaction &t, Args &&... args) {
+  VersionList(tx::Transaction &t, int64_t id, Args &&... args) : id_(id) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
     v1->mark_created(t);
@@ -215,6 +214,8 @@ class VersionList {
     record->mark_expired(t);
   }
 
+  const int64_t id_;
+
  private:
   void lock_and_validate(T *record, tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on lock and validation.";
@@ -256,3 +257,4 @@ class VersionList {
   RecordLock lock_;
 };
 }  // namespace mvcc
+

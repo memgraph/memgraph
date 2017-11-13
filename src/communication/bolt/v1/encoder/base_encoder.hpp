@@ -40,7 +40,7 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
   void WriteVertex(const VertexAccessor &vertex) {
     this->WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
     this->WriteRAW(underlying_cast(Signature::Node));
-    WriteUInt(vertex.temporary_id());
+    WriteUInt(vertex.id());
 
     // write labels
     const auto &labels = vertex.labels();
@@ -62,10 +62,10 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
     this->WriteRAW(underlying_cast(unbound ? Signature::UnboundRelationship
                                            : Signature::Relationship));
 
-    WriteUInt(edge.temporary_id());
+    WriteUInt(edge.id());
     if (!unbound) {
-      WriteUInt(edge.from().temporary_id());
-      WriteUInt(edge.to().temporary_id());
+      WriteUInt(edge.from().id());
+      WriteUInt(edge.to().id());
     }
 
     // write type

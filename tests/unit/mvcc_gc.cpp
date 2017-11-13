@@ -7,7 +7,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "data_structures/concurrent/skiplist.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/garbage_collector.hpp"
@@ -25,7 +25,8 @@ class MvccGcTest : public ::testing::Test {
 
  protected:
   std::atomic<int> record_destruction_count{0};
-  mvcc::VersionList<DestrCountRec> version_list{*t0, record_destruction_count};
+  mvcc::VersionList<DestrCountRec> version_list{*t0, 0,
+                                                record_destruction_count};
   std::vector<tx::Transaction *> transactions{t0};
 
   void SetUp() override { t0->Commit(); }
@@ -115,18 +116,20 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
  * empty (not visible from any future transaction) from the skiplist.
  */
 TEST(GarbageCollector, GcClean) {
-  SkipList<mvcc::VersionList<DestrCountRec> *> skiplist;
+  ConcurrentMap<int64_t, mvcc::VersionList<DestrCountRec> *> collection;
   tx::Engine engine;
   DeferredDeleter<DestrCountRec> deleter;
   DeferredDeleter<mvcc::VersionList<DestrCountRec>> vlist_deleter;
-  GarbageCollector<DestrCountRec> gc(skiplist, deleter, vlist_deleter);
+  GarbageCollector<decltype(collection), DestrCountRec> gc(collection, deleter,
+                                                           vlist_deleter);
 
   // create a version list in transaction t1
   auto t1 = engine.Begin();
   std::atomic<int> record_destruction_count{0};
-  auto vl = new mvcc::VersionList<DestrCountRec>(*t1, record_destruction_count);
-  auto access = skiplist.access();
-  access.insert(vl);
+  auto vl =
+      new mvcc::VersionList<DestrCountRec>(*t1, 0, record_destruction_count);
+  auto access = collection.access();
+  access.insert(0, vl);
   t1->Commit();
 
   // run garbage collection that has nothing co collect

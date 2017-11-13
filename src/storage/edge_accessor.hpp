@@ -1,6 +1,5 @@
 #pragma once
 
-#include "database/graph_db.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 
@@ -55,6 +54,6 @@ std::ostream &operator<<(std::ostream &, const EdgeAccessor &);
 namespace std {
 template <>
 struct hash<EdgeAccessor> {
-  size_t operator()(const EdgeAccessor &e) const { return e.temporary_id(); };
+  size_t operator()(const EdgeAccessor &e) const { return e.id(); };
 };
 }  // namespace std

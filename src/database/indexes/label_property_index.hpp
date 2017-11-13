@@ -377,17 +377,6 @@ class LabelPropertyIndex {
   }
 
   /**
-   * @brief - Returns vector of keys of label-property indice.
-   */
-  std::vector<Key> GetIndicesKeys() {
-    std::vector<Key> indices;
-    for (auto index : indices_.access()) {
-      indices.push_back(index.first);
-    }
-    return indices;
-  }
-
-  /**
    * Returns a vector of keys present in this index.
    */
   std::vector<Key> Keys() {

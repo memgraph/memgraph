@@ -8,6 +8,8 @@
 /**
  * Buffer that writes data to file and calculates hash of written data.
  * Implements template param Buffer interface from BaseEncoder class.
+ *
+ * All of the methods on a HashedFileWriter can throw an exception.
  */
 class HashedFileWriter {
  public:
@@ -21,7 +23,13 @@ class HashedFileWriter {
     output_stream_.open(path, std::ios::out | std::ios::binary);
   }
 
-  /** Closes ofstream. */
+  /** Opens the writer */
+  void Open(const std::string &path) {
+    output_stream_.open(path, std::ios::out | std::ios::binary);
+    hasher_ = Hasher();
+  }
+
+  /** Closes the writer. */
   void Close() { output_stream_.close(); }
 
   /**

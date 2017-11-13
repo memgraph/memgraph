@@ -161,8 +161,9 @@ class DecodedValue {
 
 #undef TYPE_CHECKER
 
-  // conversion function to TypedValue
   operator query::TypedValue() const;
+  // PropertyValue operator must be explicit to prevent ambiguity.
+  explicit operator PropertyValue() const;
 
   friend std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
 

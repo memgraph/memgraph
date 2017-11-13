@@ -7,6 +7,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
+#include "durability/snapshooter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 #include "utils/timer.hpp"
@@ -47,9 +48,9 @@ GraphDb::GraphDb()
                       [this]() { CollectGarbage(); });
   }
 
-  if (FLAGS_snapshot_recover_on_startup) {
-    RecoverDatabase(FLAGS_snapshot_directory);
-  }
+  if (FLAGS_snapshot_recover_on_startup)
+    durability::Recover(FLAGS_snapshot_directory, *this);
+  wal_.Enable();
   StartSnapshooting();
 
   if (FLAGS_query_execution_time_sec != -1) {
@@ -77,36 +78,14 @@ void GraphDb::StartSnapshooting() {
   if (FLAGS_snapshot_cycle_sec != -1) {
     auto create_snapshot = [this]() -> void {
       GraphDbAccessor db_accessor(*this);
-      snapshooter_.MakeSnapshot(db_accessor, fs::path(FLAGS_snapshot_directory),
-                                FLAGS_snapshot_max_retained);
+      if (!durability::MakeSnapshot(db_accessor, fs::path(FLAGS_snapshot_directory),
+                               FLAGS_snapshot_max_retained)) {
+        LOG(WARNING) << "Durability: snapshot creation failed";
+      }
+      db_accessor.Commit();
     };
     snapshot_creator_.Run(std::chrono::seconds(FLAGS_snapshot_cycle_sec),
                           create_snapshot);
-  }
-}
-
-void GraphDb::RecoverDatabase(const fs::path &snapshot_db_dir) {
-  if (snapshot_db_dir.empty()) return;
-  std::vector<fs::path> snapshots;
-  for (auto &snapshot_file : fs::directory_iterator(snapshot_db_dir)) {
-    if (fs::is_regular_file(snapshot_file)) {
-      snapshots.push_back(snapshot_file);
-    }
-  }
-
-  std::sort(snapshots.rbegin(), snapshots.rend());
-  Recovery recovery;
-  for (auto &snapshot_file : snapshots) {
-    GraphDbAccessor db_accessor(*this);
-    std::cout << "Starting database recovery from snapshot " << snapshot_file
-              << std::endl;
-    if (recovery.Recover(snapshot_file.string(), db_accessor)) {
-      std::cout << "Recovery successful." << std::endl;
-      return;
-    } else {
-      LOG(ERROR) << "Recovery unsuccessful, trying older snapshot..."
-                 << std::endl;
-    }
   }
 }
 
@@ -176,7 +155,7 @@ GraphDb::~GraphDb() {
   if (FLAGS_snapshot_on_exit == true) {
     GraphDbAccessor db_accessor(*this);
     LOG(INFO) << "Creating snapshot on shutdown..." << std::endl;
-    const bool status = snapshooter_.MakeSnapshot(
+    const bool status = durability::MakeSnapshot(
         db_accessor, fs::path(FLAGS_snapshot_directory),
         FLAGS_snapshot_max_retained);
     if (status) {
@@ -188,8 +167,8 @@ GraphDb::~GraphDb() {
 
   // Delete vertices and edges which weren't collected before, also deletes
   // records inside version list
-  for (auto &vertex : vertices_.access()) delete vertex;
-  for (auto &edge : edges_.access()) delete edge;
+  for (auto &id_vlist : vertices_.access()) delete id_vlist.second;
+  for (auto &id_vlist : edges_.access()) delete id_vlist.second;
 
   // Free expired records with the maximal possible id from all the deleters.
   edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());

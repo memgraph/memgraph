@@ -10,25 +10,10 @@
 #include "durability/version.hpp"
 #include "utils/datetime/timestamp.hpp"
 
-bool Snapshooter::MakeSnapshot(GraphDbAccessor &db_accessor_,
-                               const fs::path &snapshot_folder,
-                               const int snapshot_max_retained) {
-  if (!fs::exists(snapshot_folder) &&
-      !fs::create_directories(snapshot_folder)) {
-    LOG(ERROR) << "Error while creating directory " << snapshot_folder;
-    return false;
-  }
-  const auto snapshot_file = GetSnapshotFileName(snapshot_folder);
-  if (fs::exists(snapshot_file)) return false;
-  if (Encode(snapshot_file, db_accessor_)) {
-    MaintainMaxRetainedFiles(snapshot_folder, snapshot_max_retained);
-    return true;
-  }
-  return false;
-}
+namespace durability {
 
-bool Snapshooter::Encode(const fs::path &snapshot_file,
-                         GraphDbAccessor &db_accessor_) {
+namespace {
+bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
   try {
     HashedFileWriter buffer(snapshot_file);
     communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
@@ -37,6 +22,9 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
     encoder.WriteInt(durability::kVersion);
+
+    // Write the ID of the transaction doing the snapshot.
+    encoder.WriteInt(db_accessor_.transaction_id());
 
     // Write the transaction snapshot into the snapshot. It's used when
     // recovering from the combination of snapshot and write-ahead-log.
@@ -79,31 +67,46 @@ bool Snapshooter::Encode(const fs::path &snapshot_file,
   return true;
 }
 
-fs::path GetSnapshotFileName(const fs::path &snapshot_folder) {
+void MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
+                              int snapshot_max_retained) {
+  if (snapshot_max_retained == -1) return;
+  std::vector<fs::path> files;
+  for (auto &file : fs::directory_iterator(snapshot_folder))
+    files.push_back(file.path());
+  if (static_cast<int>(files.size()) <= snapshot_max_retained) return;
+  sort(files.begin(), files.end());
+  for (size_t i = 0U; i < files.size() - snapshot_max_retained; ++i) {
+    if (!fs::remove(files[i])) {
+      LOG(ERROR) << "Error while removing file: " << files[i];
+    }
+  }
+}
+}  // annonnymous namespace
+
+fs::path MakeSnapshotPath(const fs::path &snapshot_folder) {
   std::string date_str =
       Timestamp(Timestamp::now())
           .to_string("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
   return snapshot_folder / date_str;
 }
 
-std::vector<fs::path> Snapshooter::GetSnapshotFiles(
-    const fs::path &snapshot_folder) {
-  std::vector<fs::path> files;
-  for (auto &file : fs::directory_iterator(snapshot_folder))
-    files.push_back(file.path());
-  return files;
-}
-
-void Snapshooter::MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
-                                           int snapshot_max_retained) {
-  if (snapshot_max_retained == -1) return;
-  std::vector<fs::path> files = GetSnapshotFiles(snapshot_folder);
-  if (static_cast<int>(files.size()) <= snapshot_max_retained) return;
-  sort(files.begin(), files.end());
-  for (int i = 0; i < static_cast<int>(files.size()) - snapshot_max_retained;
-       ++i) {
-    if (!fs::remove(files[i])) {
-      LOG(ERROR) << "Error while removing file: " << files[i];
-    }
+bool MakeSnapshot(GraphDbAccessor &db_accessor_,
+                  const fs::path &snapshot_folder,
+                  const int snapshot_max_retained) {
+  if (!fs::exists(snapshot_folder) &&
+      !fs::create_directories(snapshot_folder)) {
+    LOG(ERROR) << "Error while creating directory " << snapshot_folder;
+    return false;
+  }
+  const auto snapshot_file = MakeSnapshotPath(snapshot_folder);
+  if (fs::exists(snapshot_file)) return false;
+  if (Encode(snapshot_file, db_accessor_)) {
+    MaintainMaxRetainedFiles(snapshot_folder, snapshot_max_retained);
+    return true;
+  } else {
+    std::error_code error_code;  // Just for exception suppression.
+    fs::remove(snapshot_file, error_code);
+    return false;
   }
 }
+}  // namespace durability

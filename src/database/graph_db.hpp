@@ -11,7 +11,7 @@
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "durability/snapshooter.hpp"
+#include "durability/wal.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
@@ -74,22 +74,21 @@ class GraphDb {
 
   void StartSnapshooting();
 
-  /**
-   * Recovers database from a snapshot file and starts snapshooting.
-   * @param snapshot_db path to snapshot folder
-   */
-  void RecoverDatabase(const fs::path &snapshot_db_path);
-
   /** transaction engine related to this database */
   tx::Engine tx_engine_;
 
+  std::atomic<int64_t> next_vertex_id_{0};
+  std::atomic<int64_t> next_edge_id{0};
+
   // main storage for the graph
-  SkipList<mvcc::VersionList<Vertex> *> vertices_;
-  SkipList<mvcc::VersionList<Edge> *> edges_;
+  ConcurrentMap<int64_t, mvcc::VersionList<Vertex> *> vertices_;
+  ConcurrentMap<int64_t, mvcc::VersionList<Edge> *> edges_;
 
   // Garbage collectors
-  GarbageCollector<Vertex> gc_vertices_;
-  GarbageCollector<Edge> gc_edges_;
+  GarbageCollector<ConcurrentMap<int64_t, mvcc::VersionList<Vertex> *>, Vertex>
+      gc_vertices_;
+  GarbageCollector<ConcurrentMap<int64_t, mvcc::VersionList<Edge> *>, Edge>
+      gc_edges_;
 
   // Deleters for not relevant records
   DeferredDeleter<Vertex> vertex_record_deleter_;
@@ -117,8 +116,7 @@ class GraphDb {
    */
   std::atomic<bool> index_build_in_progress_{false};
 
-  // snapshooter
-  Snapshooter snapshooter_;
+  durability::WriteAheadLog wal_;
 
   // Schedulers
   Scheduler gc_scheduler_;

@@ -8,6 +8,7 @@ add_executable(mg_recovery_check
   ${memgraph_src_dir}/database/graph_db_accessor.cpp
   ${memgraph_src_dir}/durability/recovery.cpp
   ${memgraph_src_dir}/durability/snapshooter.cpp
+  ${memgraph_src_dir}/durability/wal.cpp
   ${memgraph_src_dir}/query/typed_value.cpp
   ${memgraph_src_dir}/storage/edge_accessor.cpp
   ${memgraph_src_dir}/storage/locking/record_lock.cpp

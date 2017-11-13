@@ -331,16 +331,18 @@ void Convert(const std::vector<std::string> &nodes,
     int64_t relationship_count = 0;
     MemgraphNodeIdMap node_id_map;
     // Snapshot file has the following contents in order:
-    //   1) magic number
-    //   2) transactional snapshot of the snapshoter. When the snapshot is
+    //   1) Magic number.
+    //   2) Transaction ID of the snapshooter. When generated set to 0.
+    //   3) Transactional snapshot of the snapshoter. When the snapshot is
     //   generated it's an empty list.
-    //   3) list of label+property index
-    //   4) all nodes, sequentially, but not encoded as a list
-    //   5) all relationships, sequentially, but not encoded as a list
-    //   5) summary with node count, relationship count and hash digest
+    //   4) List of label+property index.
+    //   5) All nodes, sequentially, but not encoded as a list.
+    //   6) All relationships, sequentially, but not encoded as a list.
+    //   7) Summary with node count, relationship count and hash digest.
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
     encoder.WriteTypedValue(durability::kVersion);
+    encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
     for (const auto &nodes_file : nodes) {
@@ -389,7 +391,7 @@ std::string GetOutputPath() {
   } catch (const std::experimental::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
-  return std::string(GetSnapshotFileName(snapshot_dir));
+  return std::string(durability::MakeSnapshotPath(snapshot_dir));
 }
 
 int main(int argc, char *argv[]) {

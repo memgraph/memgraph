@@ -1,6 +1,6 @@
 #pragma once
 
-#include "database/graph_db.hpp"
+#include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
 #include "utils/total_ordering.hpp"
@@ -114,21 +114,11 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   GraphDbAccessor &db_accessor() const;
 
-  /**
-   * Returns a temporary ID of the record stored in this accessor.
-   *
-   * This function returns a number that represents the current memory
-   * location where the record is stored. That number is used only as an
-   * identification for the database snapshotter. The snapshotter needs an
-   * ID so that when the database is saved to disk that it can be successfully
-   * reconstructed.
-   * IMPORTANT: The ID is valid for identifying graph elements observed in
-   * the same transaction. It is not valid for comparing graph elements
-   * observed in different transactions.
-   *
-   * @return See above.
+  /** Returns a database-unique index of this vertex or edge. Note that vertices
+   * and edges have separate ID domains, there can be a vertex with ID X and an
+   * edge with the same id.
    */
-  uint64_t temporary_id() const;
+  int64_t id() const { return vlist_->id_; }
 
   /*
    * Switches this record accessor to use the latest

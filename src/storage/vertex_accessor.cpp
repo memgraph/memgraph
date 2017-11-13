@@ -18,7 +18,9 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
   // not a duplicate label, add it
   Vertex &vertex = update();
   vertex.labels_.emplace_back(label);
-  this->db_accessor().UpdateLabelIndices(label, *this, &vertex);
+  auto &dba = db_accessor();
+  dba.UpdateLabelIndices(label, *this, &vertex);
+  dba.wal().AddLabel(dba.transaction_id(), id(), dba.LabelName(label));
   return true;
 }
 
@@ -29,6 +31,8 @@ size_t VertexAccessor::remove_label(GraphDbTypes::Label label) {
 
   std::swap(*found, labels.back());
   labels.pop_back();
+  auto &dba = db_accessor();
+  dba.wal().RemoveLabel(dba.transaction_id(), id(), dba.LabelName(label));
   return 1;
 }
 

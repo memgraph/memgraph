@@ -75,6 +75,8 @@ class Writer {
                       durability::kMagicNumber.size());
     encoder_.WriteTypedValue(durability::kVersion);
 
+    // Transactional ID of the snapshooter.
+    encoder_.WriteInt(0);
     // Transactional Snapshot is an empty list of transaction IDs.
     encoder_.WriteList(std::vector<query::TypedValue>{});
   }

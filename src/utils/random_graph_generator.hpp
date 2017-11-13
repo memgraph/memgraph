@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "data_structures/concurrent/skiplist.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"

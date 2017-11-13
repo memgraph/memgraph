@@ -5,6 +5,7 @@ add_executable(mg_import_csv
   ${memgraph_src_dir}/data_structures/concurrent/skiplist_gc.cpp
   ${memgraph_src_dir}/database/graph_db_accessor.cpp
   ${memgraph_src_dir}/durability/snapshooter.cpp
+  ${memgraph_src_dir}/durability/wal.cpp
   ${memgraph_src_dir}/query/typed_value.cpp
   ${memgraph_src_dir}/storage/edge_accessor.cpp
   ${memgraph_src_dir}/storage/locking/record_lock.cpp

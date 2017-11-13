@@ -13,7 +13,7 @@ class Timer {
   }
 
  private:
-  const std::chrono::time_point<std::chrono::steady_clock> start_time_ =
+  std::chrono::time_point<std::chrono::steady_clock> start_time_ =
       std::chrono::steady_clock::now();
 };
 };

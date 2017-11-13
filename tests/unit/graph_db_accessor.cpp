@@ -18,17 +18,34 @@ TEST(GraphDbAccessorTest, InsertVertex) {
 
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
 
-  accessor.InsertVertex();
+  EXPECT_EQ(accessor.InsertVertex().id(), 0);
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
   EXPECT_EQ(Count(accessor.Vertices(true)), 1);
   accessor.AdvanceCommand();
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
 
-  accessor.InsertVertex();
+  EXPECT_EQ(accessor.InsertVertex().id(), 1);
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
   EXPECT_EQ(Count(accessor.Vertices(true)), 2);
   accessor.AdvanceCommand();
   EXPECT_EQ(Count(accessor.Vertices(false)), 2);
+}
+
+TEST(GraphDbAccessorTest, UniqueVertexId) {
+  GraphDb db;
+  SkipList<int64_t> ids;
+
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 50; i++) {
+    threads.emplace_back([&db, &ids]() {
+        GraphDbAccessor dba(db);
+      auto access = ids.access();
+      for (int i = 0; i < 200; i++) access.insert(dba.InsertVertex().id());
+    });
+  }
+
+  for (auto &thread : threads) thread.join();
+  EXPECT_EQ(ids.access().size(), 50 * 200);
 }
 
 TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
@@ -114,6 +131,27 @@ TEST(GraphDbAccessorTest, InsertEdge) {
   EXPECT_EQ(va2.out_degree(), 0);
   EXPECT_EQ(va3.in_degree(), 0);
   EXPECT_EQ(va3.out_degree(), 1);
+}
+
+TEST(GraphDbAccessorTest, UniqueEdgeId) {
+  GraphDb db;
+  SkipList<int64_t> ids;
+
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 50; i++) {
+    threads.emplace_back([&db, &ids]() {
+      GraphDbAccessor dba(db);
+      auto v1 = dba.InsertVertex();
+      auto v2 = dba.InsertVertex();
+      auto edge_type = dba.EdgeType("edge_type");
+      auto access = ids.access();
+      for (int i = 0; i < 200; i++)
+        access.insert(dba.InsertEdge(v1, v2, edge_type).id());
+    });
+  }
+
+  for (auto &thread : threads) thread.join();
+  EXPECT_EQ(ids.access().size(), 50 * 200);
 }
 
 TEST(GraphDbAccessorTest, RemoveEdge) {
