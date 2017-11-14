@@ -157,9 +157,14 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
                                   _list.type());
     }
     auto list = _list.Value<std::vector<TypedValue>>();
-    if (literal.IsNull()) {
-      return TypedValue::Null;
-    }
+
+    // If literal is NULL there is no need to try to compare it with every
+    // element in the list since result of every comparison will be NULL. There
+    // is one special case that we must test explicitly: if list is empty then
+    // result is false since no comparison will be performed.
+    if (list.size() == 0U) return false;
+    if (literal.IsNull()) return TypedValue::Null;
+
     auto has_null = false;
     for (const auto &element : list) {
       auto result = literal == element;

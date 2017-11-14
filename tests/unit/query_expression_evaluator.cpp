@@ -344,6 +344,21 @@ TEST(ExpressionEvaluator, InListOperator) {
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
+  {
+    // Null literal.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null), list_literal);
+    auto value = op->Accept(eval.eval);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Null literal, empty list.
+    auto *op = storage.Create<InListOperator>(
+        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<ListLiteral>(std::vector<Expression *>()));
+    auto value = op->Accept(eval.eval);
+    EXPECT_FALSE(value.ValueBool());
+  }
 }
 
 TEST(ExpressionEvaluator, ListMapIndexingOperator) {
