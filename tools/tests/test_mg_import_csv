@@ -23,11 +23,13 @@ def main():
     args = parse_args()
     comment_nodes = os.path.join(_SCRIPT_DIR, 'csv', 'comment_nodes.csv')
     forum_nodes = os.path.join(_SCRIPT_DIR, 'csv', 'forum_nodes.csv')
-    relationships = os.path.join(_SCRIPT_DIR, 'csv', 'relationships.csv')
+    relationships_0 = os.path.join(_SCRIPT_DIR, 'csv', 'relationships_0.csv')
+    relationships_1 = os.path.join(_SCRIPT_DIR, 'csv', 'relationships_1.csv')
     with tempfile.TemporaryDirectory(suffix='-snapshots', dir=_SCRIPT_DIR) as snapshot_dir:
         out_snapshot = os.path.join(snapshot_dir, 'snapshot')
         mg_import_csv = [args.mg_import_csv, '--nodes', comment_nodes,
-                         '--nodes', forum_nodes, '--relationships', relationships,
+                         '--nodes', forum_nodes, '--relationships', relationships_0,
+                         '--relationships', relationships_1,
                          '--out', out_snapshot, '--csv-delimiter=|', '--array-delimiter=;']
         subprocess.check_call(mg_import_csv)
         mg_recovery_check = [args.mg_recovery_check, '--snapshot-dir', snapshot_dir]

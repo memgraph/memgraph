@@ -25,7 +25,8 @@ target_link_libraries(mg_recovery_check gtest gtest_main)
 # Copy CSV data to CMake build dir
 configure_file(csv/comment_nodes.csv csv/comment_nodes.csv COPYONLY)
 configure_file(csv/forum_nodes.csv csv/forum_nodes.csv COPYONLY)
-configure_file(csv/relationships.csv csv/relationships.csv COPYONLY)
+configure_file(csv/relationships_0.csv csv/relationships_0.csv COPYONLY)
+configure_file(csv/relationships_1.csv csv/relationships_1.csv COPYONLY)
 # Copy the actual runner to CMake build dir
 configure_file(test_mg_import_csv test_mg_import_csv COPYONLY)
 
