@@ -290,8 +290,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     }
   }
 
-  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, *from.vlist_,
-                                                *to.vlist_, edge_type);
+  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, from.vlist_,
+                                                to.vlist_, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.

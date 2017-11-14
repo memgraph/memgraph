@@ -1,12 +1,12 @@
 #pragma once
 
+#include "glog/logging.h"
+
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
-#include "utils/total_ordering.hpp"
-
-#include "glog/logging.h"
 #include "storage/property_value_store.hpp"
+#include "utils/total_ordering.hpp"
 
 class GraphDbAccessor;
 

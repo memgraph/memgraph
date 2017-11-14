@@ -2,6 +2,8 @@
 
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/record.hpp"
+#include "mvcc/version_list.hpp"
+#include "storage/address.hpp"
 #include "storage/edges.hpp"
 #include "storage/property_value_store.hpp"
 

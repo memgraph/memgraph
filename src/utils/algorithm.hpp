@@ -103,4 +103,23 @@ template <typename TIterable, typename TElement>
 inline bool Contains(const TIterable &iterable, const TElement &element) {
   return std::find(iterable.begin(), iterable.end(), element) != iterable.end();
 }
+
+/**
+ * Converts a (beginning, end) pair of iterators into an iterable that can be
+ * passed on to itertools.
+ */
+template <typename TIterator>
+class Iterable {
+ public:
+  Iterable(TIterator &&begin, TIterator &&end)
+      : begin_(std::forward<TIterator>(begin)),
+        end_(std::forward<TIterator>(end)) {}
+
+  auto begin() { return begin_; };
+  auto end() { return end_; };
+
+ private:
+  TIterator begin_;
+  TIterator end_;
+};
 }  // namespace utils

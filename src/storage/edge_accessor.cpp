@@ -9,24 +9,22 @@ GraphDbTypes::EdgeType EdgeAccessor::EdgeType() const {
 }
 
 VertexAccessor EdgeAccessor::from() const {
-  return VertexAccessor(current().from_, db_accessor());
+  return VertexAccessor(*current().from_.local(), db_accessor());
 }
 
 bool EdgeAccessor::from_is(const VertexAccessor &v) const {
-  return v.operator==(&current().from_);
+  return v == current().from_.local();
 }
 
 VertexAccessor EdgeAccessor::to() const {
-  return VertexAccessor(current().to_, db_accessor());
+  return VertexAccessor(*current().to_.local(), db_accessor());
 }
 
 bool EdgeAccessor::to_is(const VertexAccessor &v) const {
-  return v.operator==(&current().to_);
+  return v == current().to_.local();
 }
 
-bool EdgeAccessor::is_cycle() const {
-  return &current().to_ == &current().from_;
-}
+bool EdgeAccessor::is_cycle() const { return current().to_ == current().from_; }
 
 std::ostream &operator<<(std::ostream &os, const EdgeAccessor &ea) {
   os << "E[" << ea.db_accessor().EdgeTypeName(ea.EdgeType());

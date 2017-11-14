@@ -3,7 +3,6 @@
 #include <algorithm>
 
 #include "database/graph_db_accessor.hpp"
-#include "storage/util.hpp"
 #include "utils/algorithm.hpp"
 
 size_t VertexAccessor::out_degree() const { return current().out_.size(); }
