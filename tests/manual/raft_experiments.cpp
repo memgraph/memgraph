@@ -51,8 +51,6 @@ milliseconds InitialElection(const RaftConfig &config) {
     end = std::chrono::system_clock::now();
   }
 
-  sys.AwaitShutdown();
-
   return std::chrono::duration_cast<milliseconds>(end - start);
 }
 
@@ -104,8 +102,6 @@ milliseconds Reelection(const RaftConfig &config) {
     end = std::chrono::system_clock::now();
   }
 
-  sys.AwaitShutdown();
-
   return std::chrono::duration_cast<milliseconds>(end - start);
 }
 
@@ -125,7 +121,7 @@ std::vector<milliseconds> RunTest(const std::string &name,
   return results;
 }
 
-int main(int argc, char *argv[]) {
+int main(int, char *argv[]) {
   google::InitGoogleLogging(argv[0]);
 
   RaftConfig config{{"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms};

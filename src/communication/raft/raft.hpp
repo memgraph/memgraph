@@ -49,6 +49,8 @@ class RaftMember {
   Watchdog leader_watchdog_;
   Watchdog heartbeat_watchdog_;
 
+  std::unique_ptr<reactor::Reactor> reactor_;
+
   void RunElection();
   void TransitionToFollower();
   void TransitionToCandidate();

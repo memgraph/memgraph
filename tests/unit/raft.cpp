@@ -27,8 +27,8 @@ TEST(Raft, InitialElection) {
   {
     std::vector<std::unique_ptr<RaftMemberTest>> members;
     for (const auto &member_id : test_config.members) {
-      members.push_back(
-          std::make_unique<RaftMemberTest>(sys, member_id, test_config, network));
+      members.push_back(std::make_unique<RaftMemberTest>(sys, member_id,
+                                                         test_config, network));
       network.Connect(member_id);
     }
 
@@ -39,7 +39,6 @@ TEST(Raft, InitialElection) {
       EXPECT_EQ(member->Leader(), leader);
     }
   }
-  sys.AwaitShutdown();
 }
 
 TEST(Raft, Reelection) {
@@ -49,8 +48,8 @@ TEST(Raft, Reelection) {
   {
     std::vector<std::unique_ptr<RaftMemberTest>> members;
     for (const auto &member_id : test_config.members) {
-      members.push_back(
-          std::make_unique<RaftMemberTest>(sys, member_id, test_config, network));
+      members.push_back(std::make_unique<RaftMemberTest>(sys, member_id,
+                                                         test_config, network));
       network.Connect(member_id);
     }
 
@@ -76,6 +75,4 @@ TEST(Raft, Reelection) {
       EXPECT_EQ(member->Leader(), second_leader);
     }
   }
-
-  sys.AwaitShutdown();
 }

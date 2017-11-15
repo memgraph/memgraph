@@ -15,6 +15,7 @@
 #include <gflags/gflags.h>
 
 #include "communication/reactor/reactor_local.hpp"
+#include "data_structures/queue.hpp"
 #include "protocol.hpp"
 
 #include "cereal/archives/binary.hpp"
@@ -70,46 +71,21 @@ class Network {
  public:
   Network() = default;
 
-  // client functions
-
-  std::shared_ptr<ChannelWriter> Resolve(std::string address, uint16_t port,
-                                         std::string reactor_name,
-                                         std::string channel_name) {
-    if (SendMessage(address, port, reactor_name, channel_name, nullptr)) {
-      return std::make_shared<RemoteChannelWriter>(this, address, port,
-                                                   reactor_name, channel_name);
-    }
-    LOG(WARNING) << "Could not resolve " << address << ":" << port << " "
-                 << reactor_name << "/" << channel_name;
-    return nullptr;
-  }
-
   /** Start a threadpool that dispatches the messages from the (outgoing) queue
    * to the sockets */
   void StartClient(int worker_count) {
     LOG(INFO) << "Starting " << worker_count << " client workers";
-    client_run_ = true;
 
+    // condition variables here...
     for (int i = 0; i < worker_count; ++i) {
       pool_.push_back(std::thread([this]() {
-        while (this->client_run_) {
-          this->mutex_.lock();
-          if (!this->queue_.empty()) {
-            NetworkMessage nm(std::move(this->queue_.front()));
-            this->queue_.pop();
-            this->mutex_.unlock();
-            // TODO: store success
-            bool success = SendMessage(nm.address, nm.port, nm.reactor,
-                                       nm.channel, std::move(nm.message));
-            DLOG(INFO) << "Network client message send status: " << success
-                       << std::endl;
-          } else {
-            this->mutex_.unlock();
-          }
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        while (true) {
+          auto message = queue_.AwaitPop();
+          if (message == std::experimental::nullopt) break;
+          SendMessage(message->address, message->port, message->reactor,
+                      message->channel, std::move(message->message));
         }
       }));
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
   }
 
@@ -120,7 +96,7 @@ class Network {
         break;
       }
     }
-    client_run_ = false;
+    queue_.Signal();
     for (size_t i = 0; i < pool_.size(); ++i) {
       pool_[i].join();
     }
@@ -148,8 +124,8 @@ class Network {
 
     void Send(std::unique_ptr<Message> message) override {
       std::lock_guard<SpinLock> lock(network_->mutex_);
-      network_->queue_.push(NetworkMessage(address_, port_, reactor_, channel_,
-                                           std::move(message)));
+      network_->queue_.Emplace(address_, port_, reactor_, channel_,
+                               std::move(message));
     }
 
    private:
@@ -200,8 +176,7 @@ class Network {
   // client variables
   SpinLock mutex_;
   std::vector<std::thread> pool_;
-  std::queue<NetworkMessage> queue_;
-  std::atomic<bool> client_run_;
+  Queue<NetworkMessage> queue_;
 
   // server variables
   std::thread thread_;
@@ -221,15 +196,15 @@ class DistributedSystem : public ChannelFinder {
   }
 
   // Thread safe.
-  void Spawn(const std::string &name, std::function<void(Reactor &)> setup) {
-    system_.Spawn(name, setup, this);
+  std::unique_ptr<Reactor> Spawn(const std::string &name,
+                                 std::function<void(Reactor &)> setup) {
+    return system_.Spawn(name, setup, this);
   }
 
   // Non-thread safe.
-  // TODO: figure out what should be intereaction of this function and
+  // TODO: figure out what should be interection of this function and
   // destructor.
   void StopServices() {
-    system_.AwaitShutdown();
     network_.StopClient();
     network_.StopServer();
   }
@@ -250,14 +225,8 @@ class DistributedSystem : public ChannelFinder {
       const std::string &address, uint16_t port,
       const std::string &reactor_name,
       const std::string &channel_name) override {
-    // Yeah... Unneeded shared ptr... once again. We love that.
-    std::shared_ptr<ChannelWriter> channel_writer = nullptr;
-    // TODO: Check if this is actually local channel.
-    while (!(channel_writer =
-                 network_.Resolve(address, port, reactor_name, channel_name))) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    }
-    return channel_writer;
+    return std::make_shared<Network::RemoteChannelWriter>(
+        &network_, address, port, reactor_name, channel_name);
   }
 
   Network &network() { return network_; }

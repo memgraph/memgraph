@@ -11,47 +11,26 @@
 #include "gtest/gtest.h"
 #include "utils/exceptions.hpp"
 
+using namespace std::literals::chrono_literals;
 using namespace communication::reactor;
 using Subscription = EventStream::Subscription;
 
 TEST(SystemTest, ReturnWithoutThrowing) {
   System system;
-  ASSERT_NO_THROW(
-      system.Spawn("master", [](Reactor &r) { r.CloseChannel("main"); }));
-  ASSERT_NO_THROW(system.AwaitShutdown());
+  auto master =
+      system.Spawn("master", [](Reactor &r) { r.CloseChannel("main"); });
+  std::this_thread::sleep_for(100ms);
 }
 
 TEST(ChannelCreationTest, ThrowOnReusingChannelName) {
   System system;
-  system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [](Reactor &r) {
     r.Open("channel");
     ASSERT_THROW(r.Open("channel"), utils::BasicException);
     r.CloseChannel("main");
     r.CloseChannel("channel");
   });
-  system.AwaitShutdown();
-}
-
-TEST(ChannelSetUpTest, CheckMainChannelIsSet) {
-  System system;
-
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    r.CloseChannel("main");
-  });
-
-  system.Spawn("worker", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("master", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    r.CloseChannel("main");
-  });
-
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(100ms);
 }
 
 TEST(SimpleSendTest, OneCallback) {
@@ -61,15 +40,14 @@ TEST(SimpleSendTest, OneCallback) {
   };
 
   System system;
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    auto channel_writer = r.system_.FindChannel("worker", "main");
     channel_writer->Send<MessageInt>(888);
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     EventStream *stream = r.main_.first;
 
     stream->OnEvent<MessageInt>(
@@ -78,8 +56,7 @@ TEST(SimpleSendTest, OneCallback) {
           r.CloseChannel("main");
         });
   });
-
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(200ms);
 }
 
 TEST(SimpleSendTest, IgnoreAfterClose) {
@@ -90,10 +67,10 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
 
   System system;
 
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
     channel_writer->Send<MessageInt>(101);
     channel_writer->Send<MessageInt>(102);  // should be ignored
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -103,7 +80,7 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     EventStream *stream = r.main_.first;
     stream->OnEvent<MessageInt>(
         [&r](const MessageInt &msg, const Subscription &) {
@@ -112,7 +89,53 @@ TEST(SimpleSendTest, IgnoreAfterClose) {
         });
   });
 
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+}
+
+TEST(SimpleSendTest, RecreateChannelAfterClosing) {
+  struct MessageInt : public Message {
+    MessageInt(int xx) : x(xx) {}
+    int x;
+  };
+
+  System system;
+
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    auto channel_writer = r.system_.FindChannel("worker", "main");
+    // Original "worker" reactor will die after it process this message.
+    channel_writer->Send<MessageInt>(101);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // This message will be dropped since there is no reactor with name
+    // "worker".
+    channel_writer->Send<MessageInt>(102);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // This message should recieved by new "worker" reactor.
+    channel_writer->Send<MessageInt>(103);
+    r.CloseChannel("main");
+  });
+
+  auto worker = system.Spawn("worker", [](Reactor &r) {
+    EventStream *stream = r.main_.first;
+    stream->OnEvent<MessageInt>(
+        [&r](const MessageInt &msg, const Subscription &) {
+          r.CloseChannel("main");
+          ASSERT_EQ(msg.x, 101);
+        });
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  auto worker2 = system.Spawn("worker", [](Reactor &r) {
+    EventStream *stream = r.main_.first;
+    stream->OnEvent<MessageInt>(
+        [&r](const MessageInt &msg, const Subscription &) {
+          r.CloseChannel("main");
+          ASSERT_EQ(msg.x, 103);
+        });
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
 }
 
 TEST(SimpleSendTest, DuringFirstEvent) {
@@ -125,7 +148,7 @@ TEST(SimpleSendTest, DuringFirstEvent) {
 
   std::promise<int> p;
   auto f = p.get_future();
-  system.Spawn("master", [&p](Reactor &r) mutable {
+  auto master = system.Spawn("master", [&p](Reactor &r) mutable {
     EventStream *stream = r.main_.first;
 
     stream->OnEvent<MessageInt>(
@@ -145,7 +168,6 @@ TEST(SimpleSendTest, DuringFirstEvent) {
 
   f.wait();
   ASSERT_EQ(f.get(), 777);
-  system.AwaitShutdown();
 }
 
 TEST(MultipleSendTest, UnsubscribeService) {
@@ -160,10 +182,10 @@ TEST(MultipleSendTest, UnsubscribeService) {
 
   System system;
 
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
     channel_writer->Send<MessageInt>(55);
     channel_writer->Send<MessageInt>(66);
     channel_writer->Send<MessageInt>(77);
@@ -176,30 +198,31 @@ TEST(MultipleSendTest, UnsubscribeService) {
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [num_received_messages = 0](Reactor & r) mutable {
-    EventStream *stream = r.main_.first;
+  auto worker =
+      system.Spawn("worker", [num_received_messages = 0](Reactor & r) mutable {
+        EventStream *stream = r.main_.first;
 
-    stream->OnEvent<MessageInt>(
-        [&](const MessageInt &msgint, const Subscription &subscription) {
-          ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
-          ++num_received_messages;
-          if (msgint.x == 66) {
-            subscription.Unsubscribe();  // receive only two of them
-          }
-        });
-    stream->OnEvent<MessageChar>(
-        [&](const MessageChar &msgchar, const Subscription &subscription) {
-          char c = msgchar.x;
-          ++num_received_messages;
-          ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
-          if (num_received_messages == 5) {
-            subscription.Unsubscribe();
-            r.CloseChannel("main");
-          }
-        });
-  });
+        stream->OnEvent<MessageInt>(
+            [&](const MessageInt &msgint, const Subscription &subscription) {
+              ASSERT_TRUE(msgint.x == 55 || msgint.x == 66);
+              ++num_received_messages;
+              if (msgint.x == 66) {
+                subscription.Unsubscribe();  // receive only two of them
+              }
+            });
+        stream->OnEvent<MessageChar>(
+            [&](const MessageChar &msgchar, const Subscription &subscription) {
+              char c = msgchar.x;
+              ++num_received_messages;
+              ASSERT_TRUE(c == 'a' || c == 'b' || c == 'c');
+              if (num_received_messages == 5) {
+                subscription.Unsubscribe();
+                r.CloseChannel("main");
+              }
+            });
+      });
 
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
 TEST(MultipleSendTest, OnEvent) {
@@ -213,10 +236,10 @@ TEST(MultipleSendTest, OnEvent) {
   };
 
   System system;
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
 
     channel_writer->Send<MessageInt>(101);
     channel_writer->Send<MessageChar>('a');
@@ -225,7 +248,7 @@ TEST(MultipleSendTest, OnEvent) {
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [correct_vals = 0](Reactor & r) mutable {
+  auto worker = system.Spawn("worker", [correct_vals = 0](Reactor & r) mutable {
     struct EndMessage : Message {};
     EventStream *stream = r.main_.first;
 
@@ -251,7 +274,7 @@ TEST(MultipleSendTest, OnEvent) {
     });
   });
 
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
 }
 
 TEST(MultipleSendTest, Chaining) {
@@ -262,17 +285,17 @@ TEST(MultipleSendTest, Chaining) {
 
   System system;
 
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
     channel_writer->Send<MessageInt>(55);
     channel_writer->Send<MessageInt>(66);
     channel_writer->Send<MessageInt>(77);
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     EventStream *stream = r.main_.first;
 
     stream->OnEventOnce()
@@ -288,8 +311,7 @@ TEST(MultipleSendTest, Chaining) {
               r.CloseChannel("main");
             });
   });
-
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
 }
 
 TEST(MultipleSendTest, ChainingInRightOrder) {
@@ -305,10 +327,10 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
 
   System system;
 
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
     channel_writer->Send<MessageChar>('a');
     channel_writer->Send<MessageInt>(55);
     channel_writer->Send<MessageChar>('b');
@@ -316,7 +338,8 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
     EventStream *stream = r.main_.first;
     stream->OnEventOnce()
         .ChainOnce<MessageInt>([](const MessageInt &msg, const Subscription &) {
@@ -333,7 +356,7 @@ TEST(MultipleSendTest, ChainingInRightOrder) {
             });
   });
 
-  system.AwaitShutdown();
+  std::this_thread::sleep_for(300ms);
 }
 
 TEST(MultipleSendTest, ProcessManyMessages) {
@@ -346,12 +369,11 @@ TEST(MultipleSendTest, ProcessManyMessages) {
 
   System system;
 
-  system.Spawn("master", [](Reactor &r) {
-    std::shared_ptr<ChannelWriter> channel_writer;
-    while (!(channel_writer = r.system_.FindChannel("worker", "main")))
-      std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
+    std::shared_ptr<ChannelWriter> channel_writer =
+        r.system_.FindChannel("worker", "main");
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
     for (int i = 0; i < kNumTests; ++i) {
       channel_writer->Send<MessageInt>(rand());
       std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 5));
@@ -359,7 +381,7 @@ TEST(MultipleSendTest, ProcessManyMessages) {
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [vals = 0](Reactor & r) mutable {
+  auto worker = system.Spawn("worker", [vals = 0](Reactor & r) mutable {
     struct EndMessage : Message {};
     EventStream *stream = r.main_.first;
     vals = 0;
@@ -376,7 +398,8 @@ TEST(MultipleSendTest, ProcessManyMessages) {
       }
     });
   });
-  system.AwaitShutdown();
+
+  std::this_thread::sleep_for(1000ms);
 }
 
 int main(int argc, char **argv) {

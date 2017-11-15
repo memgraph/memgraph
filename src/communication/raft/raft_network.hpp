@@ -7,7 +7,6 @@
 namespace communication::raft {
 
 struct MLeaderTimeout : public communication::reactor::Message {};
-struct MShutdown : public communication::reactor::Message {};
 
 struct RaftMessage : public communication::reactor::Message {
   RaftMessage(int term, const std::string &sender_id)
@@ -98,7 +97,8 @@ class LocalReactorNetworkInterface : public RaftNetworkInterface {
 
 class FakeNetworkInterface : public RaftNetworkInterface {
  public:
-  explicit FakeNetworkInterface(communication::reactor::System &system) : system_(system) {}
+  explicit FakeNetworkInterface(communication::reactor::System &system)
+      : system_(system) {}
 
   bool RequestVote(const std::string &recipient,
                    const MRequestVote &msg) override {

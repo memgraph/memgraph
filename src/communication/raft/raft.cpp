@@ -39,45 +39,33 @@ RaftMember::RaftMember(System &system, const std::string &id,
               }
             }
           },
-          true) {
-  system.Spawn(id, [this](Reactor &r) {
-    EventStream *stream = r.main_.first;
+          true),
+      reactor_(system.Spawn(id, [this](Reactor &r) {
+        EventStream *stream = r.main_.first;
 
-    stream->OnEvent<MLeaderTimeout>([this](
-        const MLeaderTimeout &, const Subscription &) { RunElection(); });
+        stream->OnEvent<MLeaderTimeout>([this](
+            const MLeaderTimeout &, const Subscription &) { RunElection(); });
 
-    stream->OnEvent<MRequestVote>(
-        [this](const MRequestVote &req, const Subscription &) {
-          network_.RequestVoteReply(req.sender_id, OnRequestVote(req));
-        });
-    stream->OnEvent<MRequestVoteReply>(
-        [this](const MRequestVoteReply &req, const Subscription &) {
-          OnRequestVoteReply(req);
-        });
+        stream->OnEvent<MRequestVote>(
+            [this](const MRequestVote &req, const Subscription &) {
+              network_.RequestVoteReply(req.sender_id, OnRequestVote(req));
+            });
+        stream->OnEvent<MRequestVoteReply>(
+            [this](const MRequestVoteReply &req, const Subscription &) {
+              OnRequestVoteReply(req);
+            });
 
-    stream->OnEvent<MAppendEntries>(
-        [this](const MAppendEntries &req, const Subscription &) {
-          network_.AppendEntriesReply(req.sender_id, OnAppendEntries(req));
-        });
-    stream->OnEvent<MAppendEntriesReply>(
-        [this](const MAppendEntriesReply &rep, const Subscription &) {
-          OnAppendEntriesReply(rep);
-        });
+        stream->OnEvent<MAppendEntries>(
+            [this](const MAppendEntries &req, const Subscription &) {
+              network_.AppendEntriesReply(req.sender_id, OnAppendEntries(req));
+            });
+        stream->OnEvent<MAppendEntriesReply>(
+            [this](const MAppendEntriesReply &rep, const Subscription &) {
+              OnAppendEntriesReply(rep);
+            });
+      })) {}
 
-    stream->OnEvent<MShutdown>([&r](const MShutdown &, const Subscription &) {
-      r.CloseChannel("main");
-    });
-  });
-}
-
-RaftMember::~RaftMember() {
-  LogInfo("Shutting down...");
-
-  auto channel = system_.FindChannel(id_, "main");
-  if (channel) {
-    channel->Send<MShutdown>();
-  }
-}
+RaftMember::~RaftMember() { LogInfo("Shutting down..."); }
 
 template <class... Args>
 void RaftMember::LogInfo(const std::string &format, Args &&... args) {

@@ -18,6 +18,7 @@
 #include "gtest/gtest.h"
 
 using namespace communication::reactor;
+using namespace std::literals::chrono_literals;
 
 struct MessageInt : public Message {
   MessageInt() {}  // cereal needs this
@@ -52,7 +53,7 @@ CEREAL_REGISTER_TYPE(RequestMessage);
 TEST(SimpleTests, StartAndStopServices) {
   DistributedSystem system;
   // do nothing
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  std::this_thread::sleep_for(500ms);
   system.StopServices();
 }
 
@@ -65,13 +66,14 @@ TEST(SimpleTests, StartAndStopServices) {
 TEST(SimpleTests, SendEmptyMessage) {
   DistributedSystem system;
 
-  system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
     auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
     writer->Send<Message>();
     r.CloseChannel("main");
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     r.main_.first->OnEventOnce().ChainOnce<Message>(
         [&](const Message &, const Subscription &subscription) {
           // if this message isn't delivered, the main channel will never be
@@ -80,6 +82,7 @@ TEST(SimpleTests, SendEmptyMessage) {
         });
   });
 
+  std::this_thread::sleep_for(400ms);
   system.StopServices();
 }
 
@@ -93,7 +96,8 @@ TEST(SimpleTests, SendEmptyMessage) {
 TEST(SimpleTests, SendReturnAddressMessage) {
   DistributedSystem system;
 
-  system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
     auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
     writer->Send<ReturnAddressMessage>(r.name(), "main");
     r.main_.first->OnEvent<MessageInt>(
@@ -102,7 +106,7 @@ TEST(SimpleTests, SendReturnAddressMessage) {
           r.CloseChannel("main");
         });
   });
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     r.main_.first->OnEvent<ReturnAddressMessage>(
         [&](const ReturnAddressMessage &message, const Subscription &) {
           message.FindChannel(r.system_)->Send<MessageInt>(5);
@@ -110,6 +114,7 @@ TEST(SimpleTests, SendReturnAddressMessage) {
         });
   });
 
+  std::this_thread::sleep_for(400ms);
   system.StopServices();
 }
 
@@ -123,7 +128,8 @@ TEST(SimpleTests, SendReturnAddressMessage) {
 TEST(SimpleTests, SendSerializableMessage) {
   DistributedSystem system;
 
-  system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [](Reactor &r) {
+    std::this_thread::sleep_for(100ms);
     auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
     writer->Send<RequestMessage>(r.name(), "main", 123);
     r.main_.first->OnEvent<MessageInt>(
@@ -133,7 +139,7 @@ TEST(SimpleTests, SendSerializableMessage) {
         });
   });
 
-  system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [](Reactor &r) {
     r.main_.first->OnEvent<RequestMessage>(
         [&](const RequestMessage &message, const Subscription &) {
           ASSERT_EQ(message.x, 123);
@@ -142,6 +148,7 @@ TEST(SimpleTests, SendSerializableMessage) {
         });
   });
 
+  std::this_thread::sleep_for(400ms);
   system.StopServices();
 }
 

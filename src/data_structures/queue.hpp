@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <experimental/optional>
@@ -16,6 +17,8 @@ class Queue {
   Queue &operator=(const Queue &) = delete;
   Queue(Queue &&) = delete;
   Queue &operator=(Queue &&) = delete;
+
+  ~Queue() { Signal(); }
 
   void Push(T x) {
     std::unique_lock<std::mutex> guard(mutex_);
@@ -42,23 +45,35 @@ class Queue {
     return queue_.empty();
   }
 
-  T AwaitPop() {
+  // Block until there is an element in the queue and then pop it from the queue
+  // and return it. Function can return nullopt only if Queue is signaled via
+  // Signal function.
+  std::experimental::optional<T> AwaitPop() {
     std::unique_lock<std::mutex> guard(mutex_);
-    cvar_.wait(guard, [this]() { return !queue_.empty(); });
-    auto x = std::move(queue_.front());
+    cvar_.wait(guard, [this] { return !queue_.empty() || signaled_; });
+    if (queue_.empty()) return std::experimental::nullopt;
+    std::experimental::optional<T> x(std::move(queue_.front()));
     queue_.pop();
     return x;
   }
 
+  // Nonblocking version of above function.
   std::experimental::optional<T> MaybePop() {
     std::unique_lock<std::mutex> guard(mutex_);
     if (queue_.empty()) return std::experimental::nullopt;
-    auto x = std::move(queue_.front());
+    std::experimental::optional<T> x(std::move(queue_.front()));
     queue_.pop();
     return x;
   }
 
+  // Notify all threads waiting on conditional variable to stop waiting.
+  void Signal() {
+    signaled_ = true;
+    cvar_.notify_all();
+  }
+
  private:
+  std::atomic<bool> signaled_{false};
   std::queue<T> queue_;
   std::condition_variable cvar_;
   mutable std::mutex mutex_;

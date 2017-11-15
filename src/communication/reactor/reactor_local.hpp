@@ -289,6 +289,8 @@ class Channel {
    * Messages sent to a closed channel are ignored.
    * There can be multiple LocalChannelWriters refering to the same stream if
    * needed.
+   *
+   * It must outlive System.
    */
   class LocalChannelWriter : public ChannelWriter {
    public:
@@ -296,22 +298,14 @@ class Channel {
 
     LocalChannelWriter(const std::string &reactor_name,
                        const std::string &channel_name,
-                       const std::weak_ptr<Channel> &queue)
+                       const std::weak_ptr<Channel> &queue,
+                       ChannelFinder &system)
         : reactor_name_(reactor_name),
           channel_name_(channel_name),
-          queue_(queue) {}
+          queue_(queue),
+          system_(system) {}
 
-    void Send(std::unique_ptr<Message> m) override {
-      // Atomic, per the standard.  We guarantee here that if channel exists it
-      // will not be destroyed by the end of this function.
-      std::shared_ptr<Channel> queue = queue_.lock();
-      if (queue) {
-        queue->Push(std::move(m));
-      }
-      // TODO: what should we do here? Channel doesn't exist so message will be
-      // lost.
-    }
-
+    void Send(std::unique_ptr<Message> m) override;
     std::string ReactorName() const override;
     std::string Name() const override;
 
@@ -319,6 +313,7 @@ class Channel {
     std::string reactor_name_;
     std::string channel_name_;
     std::weak_ptr<Channel> queue_;
+    ChannelFinder &system_;
   };
 
   /**
@@ -381,16 +376,7 @@ class Channel {
     cvar_->notify_one();
   }
 
-  std::shared_ptr<LocalChannelWriter> LockedOpenChannel() {
-    // TODO(zuza): fix this CHECK using this answer
-    // https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
-    // TODO: figure out zuza's TODO. Does that mean this CHECK is kind of flaky
-    // or that it doesn't fail sometimes, when it should.
-    CHECK(!self_ptr_.expired());
-    return std::make_shared<LocalChannelWriter>(reactor_name_, channel_name_,
-                                                self_ptr_);
-  }
-
+  std::shared_ptr<LocalChannelWriter> LockedOpenChannel();
   std::unique_ptr<Message> LockedPop() { return LockedRawPop(); }
 
   void LockedOnEventHelper(std::type_index type_index,
@@ -444,12 +430,10 @@ class Channel {
 class Reactor {
   friend class System;
 
-  Reactor(ChannelFinder &system, const std::string &name,
-          const std::function<void(Reactor &)> &setup)
-      : system_(system), name_(name), setup_(setup), main_(Open("main")) {}
-
  public:
-  ~Reactor() {}
+  Reactor(ChannelFinder &system, const std::string &name,
+          const std::function<void(Reactor &)> &setup, System &system2);
+  ~Reactor();
 
   std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Open(
       const std::string &s);
@@ -474,6 +458,7 @@ class Reactor {
   Reactor &operator=(Reactor &&other) = default;
 
   ChannelFinder &system_;
+  System &system2_;
   std::string name_;
   std::function<void(Reactor &)> setup_;
 
@@ -502,6 +487,8 @@ class Reactor {
         callbacks;
   };
 
+  std::thread thread_;
+
   /**
    * Dispatches all waiting messages to callbacks. Shuts down when there are no
    * callbacks left.
@@ -520,21 +507,18 @@ class System : public ChannelFinder {
   friend class Reactor;
   System() = default;
 
-  void Spawn(const std::string &name, std::function<void(Reactor &)> setup,
-             ChannelFinder *finder = nullptr) {
+  std::unique_ptr<Reactor> Spawn(const std::string &name,
+                                 std::function<void(Reactor &)> setup,
+                                 ChannelFinder *finder = nullptr) {
     if (!finder) {
       finder = this;
     }
     std::unique_lock<std::mutex> lock(mutex_);
     CHECK(reactors_.find(name) == reactors_.end())
         << "Reactor with name: '" << name << "' already exists.";
-    std::unique_ptr<Reactor> reactor(new Reactor(*finder, name, setup));
-    std::thread reactor_thread([reactor = reactor.get()] {
-      reactor->setup_(*reactor);
-      reactor->RunEventLoop();
-    });
-    reactors_.emplace(name, std::pair<decltype(reactor), std::thread>{
-                                std::move(reactor), std::move(reactor_thread)});
+    auto reactor = std::make_unique<Reactor>(*finder, name, setup, *this);
+    reactors_.emplace(name, reactor.get());
+    return reactor;
   }
 
   std::shared_ptr<ChannelWriter> FindChannel(
@@ -542,8 +526,10 @@ class System : public ChannelFinder {
       const std::string &channel_name) override {
     std::unique_lock<std::mutex> lock(mutex_);
     auto it_reactor = reactors_.find(reactor_name);
-    if (it_reactor == reactors_.end()) return nullptr;
-    return it_reactor->second.first->FindChannel(channel_name);
+    if (it_reactor == reactors_.end())
+      return std::shared_ptr<ChannelWriter>(new Channel::LocalChannelWriter(
+          reactor_name, channel_name, {}, *this));
+    return it_reactor->second->FindChannel(channel_name);
   }
 
   std::shared_ptr<ChannelWriter> FindChannel(const std::string &, uint16_t,
@@ -556,16 +542,11 @@ class System : public ChannelFinder {
     LOG(FATAL) << "Tried to resolve remote channel in local System";
   }
 
-  // TODO: Think about interaction with destructor. Should we call this in
-  // destructor, complain in destructor if there are alive threads or stop
-  // them
-  // in some way.
-  void AwaitShutdown() {
-    for (auto &key_value : reactors_) {
-      auto &thread = key_value.second.second;
-      thread.join();
-    }
-    reactors_.clear();
+  void RemoveReactor(const std::string &name_) {
+    std::unique_lock<std::mutex> guard(mutex_);
+    auto it = reactors_.find(name_);
+    CHECK(it != reactors_.end()) << "Trying to delete notexisting reactor";
+    reactors_.erase(it);
   }
 
  private:
@@ -575,9 +556,7 @@ class System : public ChannelFinder {
   System &operator=(System &&) = delete;
 
   std::mutex mutex_;
-  std::unordered_map<std::string,
-                     std::pair<std::unique_ptr<Reactor>, std::thread>>
-      reactors_;
+  std::unordered_map<std::string, Reactor *> reactors_;
 };
 
 using Subscription = Channel::LocalEventStream::Subscription;

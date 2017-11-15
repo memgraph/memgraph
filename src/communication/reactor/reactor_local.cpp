@@ -1,8 +1,12 @@
 #include "communication/reactor/reactor_local.hpp"
 
+#include <chrono>
+
 #include "utils/exceptions.hpp"
 
 namespace communication::reactor {
+
+using namespace std::literals::chrono_literals;
 
 void EventStream::Subscription::Unsubscribe() const {
   event_queue_.RemoveCallback(*this);
@@ -18,13 +22,59 @@ std::string Channel::LocalChannelWriter::ReactorName() const {
   return reactor_name_;
 }
 
+void Channel::LocalChannelWriter::Send(std::unique_ptr<Message> m) {
+  // Atomic, per the standard.  We guarantee here that if channel exists it
+  // will not be destroyed by the end of this function.
+  for (int i = 0; i < 2; ++i) {
+    std::shared_ptr<Channel> queue = queue_.lock();
+    // Check if cached queue exists and send message.
+    if (queue) {
+      queue->Push(std::move(m));
+      break;
+    }
+    // If it doesn't exist. Check if there is a new channel with same name.
+    auto new_channel = system_.FindChannel(reactor_name_, channel_name_);
+    auto t =
+        std::dynamic_pointer_cast<Channel::LocalChannelWriter>(new_channel);
+    CHECK(t) << "t is of unexpected type";
+    queue_ = t->queue_;
+  }
+}
+
 std::string Channel::LocalChannelWriter::Name() const { return channel_name_; }
 
-void Channel::Close() {
-  // TODO(zuza): there will be major problems if a reactor tries to close a
-  // stream that isn't theirs luckily this should never happen if the framework
-  // is used as expected.
-  reactor_.CloseChannel(channel_name_);
+std::shared_ptr<Channel::LocalChannelWriter> Channel::LockedOpenChannel() {
+  // TODO(zuza): fix this CHECK using this answer
+  // https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
+  // TODO: figure out zuza's TODO. Does that mean this CHECK is kind of flaky
+  // or that it doesn't fail sometimes, when it should.
+  CHECK(!self_ptr_.expired());
+  return std::make_shared<LocalChannelWriter>(reactor_name_, channel_name_,
+                                              self_ptr_, reactor_.system_);
+}
+
+void Channel::Close() { reactor_.CloseChannel(channel_name_); }
+
+Reactor::Reactor(ChannelFinder &system, const std::string &name,
+                 const std::function<void(Reactor &)> &setup, System &system2)
+    : system_(system),
+      system2_(system2),
+      name_(name),
+      setup_(setup),
+      main_(Open("main")),
+      thread_([this] {
+        setup_(*this);
+        RunEventLoop();
+        system2_.RemoveReactor(name_);
+      }) {}
+
+Reactor::~Reactor() {
+  {
+    std::unique_lock<std::mutex> guard(*mutex_);
+    channels_.clear();
+  }
+  cvar_->notify_all();
+  thread_.join();
 }
 
 std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Reactor::Open(
@@ -77,29 +127,18 @@ void Reactor::CloseChannel(const std::string &s) {
 }
 
 void Reactor::RunEventLoop() {
-  bool exit_event_loop = false;
-
   while (true) {
     // Find (or wait) for the next Message.
     PendingMessageInfo info;
     {
       std::unique_lock<std::mutex> guard(*mutex_);
-
-      while (true) {
-        // Not fair because was taken earlier, talk to lion.
+      // Exit the loop if there are no more Channels.
+      cvar_->wait_for(guard, 200ms, [&] {
+        if (channels_.empty()) return true;
         info = GetPendingMessages();
-        if (info.message != nullptr) break;
-
-        // Exit the loop if there are no more Channels.
-        if (channels_.empty()) {
-          exit_event_loop = true;
-          break;
-        }
-
-        cvar_->wait(guard);
-      }
-
-      if (exit_event_loop) break;
+        return static_cast<bool>(info.message);
+      });
+      if (channels_.empty()) break;
     }
 
     for (auto &callback_info : info.callbacks) {

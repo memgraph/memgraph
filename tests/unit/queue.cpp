@@ -78,11 +78,18 @@ TEST(Queue, AwaitPop) {
     q.Push(4);
   });
 
-  EXPECT_EQ(q.AwaitPop(), 1);
-  EXPECT_EQ(q.AwaitPop(), 2);
-  EXPECT_EQ(q.AwaitPop(), 3);
-  EXPECT_EQ(q.AwaitPop(), 4);
+  EXPECT_EQ(*q.AwaitPop(), 1);
+  EXPECT_EQ(*q.AwaitPop(), 2);
+  EXPECT_EQ(*q.AwaitPop(), 3);
+  EXPECT_EQ(*q.AwaitPop(), 4);
   t.join();
+
+  std::thread t2([&] {
+    std::this_thread::sleep_for(100ms);
+    q.Signal();
+  });
+  EXPECT_EQ(q.AwaitPop(), std::experimental::nullopt);
+  t2.join();
 }
 
 TEST(Queue, Concurrent) {
@@ -112,7 +119,7 @@ TEST(Queue, Concurrent) {
           while (true) {
             int count = num_retrieved++;
             if (count >= kNumProducers * kNumElementsPerProducer) break;
-            retrieved[thread_id].push_back(q.AwaitPop());
+            retrieved[thread_id].push_back(*q.AwaitPop());
           }
         },
         i);
