@@ -2,6 +2,7 @@ add_executable(mg_import_csv
   mg_import_csv/main.cpp
   # This is just friggin terrible. mg_import_csv needs to depend almost on
   # the whole memgraph, just to use TypedValue and BaseEncoder.
+  ${memgraph_src_dir}/communication/bolt/v1/decoder/decoded_value.cpp
   ${memgraph_src_dir}/data_structures/concurrent/skiplist_gc.cpp
   ${memgraph_src_dir}/database/graph_db_accessor.cpp
   ${memgraph_src_dir}/durability/snapshooter.cpp
