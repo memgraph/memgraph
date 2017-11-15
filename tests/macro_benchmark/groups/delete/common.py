@@ -1,9 +1,10 @@
 """ This file does nothing, it's just utilities for other setups """
 
-from random import randint
+from random import randint, seed
 
 
 BATCH_SIZE = 100
+seed(0)
 
 
 def create_vertices(vertex_count):

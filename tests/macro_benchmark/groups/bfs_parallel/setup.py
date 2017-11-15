@@ -1,6 +1,8 @@
 import random
 import common
 
+random.seed(0)
+
 for i in range(common.VERTEX_COUNT):
     print("CREATE (n: Node {id: %d});" % i)
 
