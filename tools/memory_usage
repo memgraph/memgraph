@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
 import time
 import sys  
 import os
 
 # hackish way to resuse existing start code
-sys.path.append("../tests/macro_benchmark/")
+sys.path.append(os.path.dirname(os.path.realpath(__file__)) + 
+        "/../tests/macro_benchmark/")
 from databases import *
 from clients import *
 from common import get_absolute_path

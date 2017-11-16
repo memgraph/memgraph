@@ -33,7 +33,7 @@
 
     cd memgraph/tests/public_benchmark/ldbc
     source ve3/bin/activate
-    ./index_creation.py ldbc-snb-impls/snb-interactive-neo4j/scripts/indexCreation.neo4j
+    ./index_creation ldbc-snb-impls/snb-interactive-neo4j/scripts/indexCreation.neo4j
 
 ## Where is and how to use LDBC plotting?
 

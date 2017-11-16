@@ -136,7 +136,7 @@ class Master : public Reactor {
           if (workers_seen == static_cast<int64_t>(worker_mnids_.size())) {
             subscription.Unsubscribe();
             // Sleep for a while so we can read output in the terminal.
-            // (start_distributed.py runs each process in a new tab which is
+            // (start_distributed runs each process in a new tab which is
             //  closed immediately after process has finished)
             std::this_thread::sleep_for(std::chrono::seconds(4));
             CloseChannel("main");
@@ -146,12 +146,13 @@ class Master : public Reactor {
     // send a TextMessage to each worker
     for (auto wmnid : worker_mnids_) {
       auto stream = memgraph.FindChannel(wmnid, "worker", "main");
-      stream->OnEventOnce().ChainOnce<ChannelResolvedMessage>([this, stream](
-          const ChannelResolvedMessage &msg, const Subscription &) {
-        msg.channelWriter()->Send<TextMessage>("master", "main",
-                                               "hi from master");
-        stream->Close();
-      });
+      stream->OnEventOnce().ChainOnce<ChannelResolvedMessage>(
+          [this, stream](const ChannelResolvedMessage &msg,
+                         const Subscription &) {
+            msg.channelWriter()->Send<TextMessage>("master", "main",
+                                                   "hi from master");
+            stream->Close();
+          });
     }
   }
 

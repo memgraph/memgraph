@@ -11,8 +11,8 @@ import sys
 import time
 
 # dataset calibrated for running on Apollo (total 4min)
-# bipartite runs for approx. 30s
-# create_match runs for approx. 30s
+# bipartite.py runs for approx. 30s
+# create_match.py runs for approx. 30s
 # long_running runs for 1min
 # long_running runs for 2min
 SMALL_DATASET = [
@@ -39,7 +39,7 @@ SMALL_DATASET = [
 ]
 
 # dataset calibrated for running on daily stress instance (total 9h)
-# bipartite and create_match run for approx. 15min
+# bipartite.py and create_match.py run for approx. 15min
 # long_running runs for 5min x 6 times = 30min
 # long_running runs for 8h
 LARGE_DATASET = [

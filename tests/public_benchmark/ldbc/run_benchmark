@@ -156,7 +156,7 @@ LDBC_DEFAULT_PROPERTIES = \
 def create_index(port, database):
     index_file = os.path.join(SCRIPT_DIR, 'ldbc-snb-impls',
                               'snb-interactive-neo4j', 'scripts', 'indexCreation.neo4j')
-    subprocess.check_call(('ve3/bin/python3', 'index_creation.py', '--port',
+    subprocess.check_call(('ve3/bin/python3', 'index_creation', '--port',
                            port, '--database', database, index_file),
                           cwd=SCRIPT_DIR)
     time.sleep(1.0)

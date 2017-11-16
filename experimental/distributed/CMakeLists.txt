@@ -27,8 +27,8 @@ enable_testing()
 add_subdirectory(tests)
 
 # copy test scripts into the build/ directory (for distributed tests)
-configure_file(${PROJECT_SOURCE_DIR}/tests/start_distributed.py
-  ${PROJECT_BINARY_DIR}/tests/start_distributed.py COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/tests/start_distributed
+  ${PROJECT_BINARY_DIR}/tests/start_distributed COPYONLY)
 
 configure_file(${PROJECT_SOURCE_DIR}/tests/config
   ${PROJECT_BINARY_DIR}/tests/config COPYONLY)

@@ -211,7 +211,7 @@ postgresql_lib_dir = os.path.join(LIBS_DIR, "postgresql", "lib")
 infile = create_archive("macro_benchmark", [binary_release_path,
         binary_release_link_path, macro_bench_path, config_path,
         harness_client_binaries, postgresql_lib_dir], cwd = WORKSPACE_DIR)
-supervisor = "./memgraph/tests/macro_benchmark/harness.py"
+supervisor = "./memgraph/tests/macro_benchmark/harness"
 outfile_paths = "\./memgraph/tests/macro_benchmark/\.harness_summary"
 RUNS.append(generate_run("macro_benchmark__query_suite",
         supervisor = supervisor,
@@ -242,7 +242,7 @@ if mode == "diff":
             binary_parent_link_path, parent_macro_bench_path, parent_config_path,
             parent_harness_client_binaries, parent_postgresql_lib_dir],
             cwd = WORKSPACE_DIR)
-    supervisor = "./parent/tests/macro_benchmark/harness.py"
+    supervisor = "./parent/tests/macro_benchmark/harness"
     args = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path
     outfile_paths = "\./parent/tests/macro_benchmark/\.harness_summary"
     RUNS.append(generate_run("macro_benchmark_parent__query_suite",
