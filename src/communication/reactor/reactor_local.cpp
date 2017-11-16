@@ -25,47 +25,39 @@ std::string Channel::LocalChannelWriter::ReactorName() const {
 void Channel::LocalChannelWriter::Send(std::unique_ptr<Message> m) {
   // Atomic, per the standard.  We guarantee here that if channel exists it
   // will not be destroyed by the end of this function.
-  for (int i = 0; i < 2; ++i) {
-    std::shared_ptr<Channel> queue = queue_.lock();
-    // Check if cached queue exists and send message.
-    if (queue) {
-      queue->Push(std::move(m));
-      break;
-    }
-    // If it doesn't exist. Check if there is a new channel with same name.
-    auto new_channel = system_.FindChannel(reactor_name_, channel_name_);
-    auto t =
-        std::dynamic_pointer_cast<Channel::LocalChannelWriter>(new_channel);
-    CHECK(t) << "t is of unexpected type";
-    queue_ = t->queue_;
+  std::shared_ptr<Channel> queue = queue_.lock();
+  // Check if cached queue exists and send message.
+  if (queue) {
+    queue->Push(std::move(m));
+    return;
+  }
+  // If it doesn't exist. Check if there is a new channel with same name.
+  auto channel = system_.Resolve(reactor_name_, channel_name_);
+  if (channel) {
+    channel->Push(std::move(m));
+    queue_ = channel;
   }
 }
 
 std::string Channel::LocalChannelWriter::Name() const { return channel_name_; }
 
 std::shared_ptr<Channel::LocalChannelWriter> Channel::LockedOpenChannel() {
-  // TODO(zuza): fix this CHECK using this answer
-  // https://stackoverflow.com/questions/45507041/how-to-check-if-weak-ptr-is-empty-non-assigned
-  // TODO: figure out zuza's TODO. Does that mean this CHECK is kind of flaky
-  // or that it doesn't fail sometimes, when it should.
-  CHECK(!self_ptr_.expired());
   return std::make_shared<LocalChannelWriter>(reactor_name_, channel_name_,
-                                              self_ptr_, reactor_.system_);
+                                              reactor_.system_);
 }
 
 void Channel::Close() { reactor_.CloseChannel(channel_name_); }
 
-Reactor::Reactor(ChannelFinder &system, const std::string &name,
-                 const std::function<void(Reactor &)> &setup, System &system2)
+Reactor::Reactor(System &system, const std::string &name,
+                 const std::function<void(Reactor &)> &setup)
     : system_(system),
-      system2_(system2),
       name_(name),
       setup_(setup),
       main_(Open("main")),
       thread_([this] {
         setup_(*this);
         RunEventLoop();
-        system2_.RemoveReactor(name_);
+        system_.RemoveReactor(name_);
       }) {}
 
 Reactor::~Reactor() {
@@ -110,12 +102,11 @@ std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Reactor::Open() {
   } while (true);
 }
 
-std::shared_ptr<ChannelWriter> Reactor::FindChannel(
-    const std::string &channel_name) {
+std::shared_ptr<Channel> Reactor::FindChannel(const std::string &channel_name) {
   std::unique_lock<std::mutex> lock(*mutex_);
   auto it_channel = channels_.find(channel_name);
   if (it_channel == channels_.end()) return nullptr;
-  return it_channel->second->LockedOpenChannel();
+  return it_channel->second;
 }
 
 void Reactor::CloseChannel(const std::string &s) {

@@ -105,22 +105,24 @@ class Network {
 
   class RemoteChannelWriter : public ChannelWriter {
    public:
-    RemoteChannelWriter(Network *network, const std::string &address,
-                        uint16_t port, const std::string &reactor,
-                        const std::string &channel)
-        : network_(network),
-          address_(address),
-          port_(port),
-          reactor_(reactor),
-          channel_(channel) {}
+    RemoteChannelWriter(const std::string &address, uint16_t port,
+                        const std::string &reactor, const std::string &channel,
+                        DistributedSystem &system);
 
+    // TODO: This is wrong. We should probbly have base class Address that would
+    // contain everything needed to reference a channel. (address, port,
+    // reactor_name, channel_name) in remote reactors and (reactor_name,
+    // channel_name) in local reactors.
     virtual std::string Address() { return address_; }
-
     virtual uint16_t Port() { return port_; }
-
     std::string ReactorName() const override { return reactor_; }
-
     std::string Name() const override { return channel_; }
+
+    template <typename TMessage, typename... Args>
+    void Send(Args &&... args) {
+      Send(std::unique_ptr<Message>(
+          std::make_unique<TMessage>(std::forward<Args>(args)...)));
+    }
 
     void Send(std::unique_ptr<Message> message) override {
       std::lock_guard<SpinLock> lock(network_->mutex_);
@@ -184,11 +186,13 @@ class Network {
   std::unique_ptr<ServerT> server_{nullptr};
 };
 
+using RemoteChannelWriter = Network::RemoteChannelWriter;
+
 /**
  * Placeholder for all functionality related to non-local communication.
  * E.g. resolve remote channels by memgraph node id, etc.
  */
-class DistributedSystem : public ChannelFinder {
+class DistributedSystem {
  public:
   DistributedSystem() {
     network_.StartClient(4);
@@ -198,7 +202,7 @@ class DistributedSystem : public ChannelFinder {
   // Thread safe.
   std::unique_ptr<Reactor> Spawn(const std::string &name,
                                  std::function<void(Reactor &)> setup) {
-    return system_.Spawn(name, setup, this);
+    return system_.Spawn(name, setup);
   }
 
   // Non-thread safe.
@@ -209,31 +213,13 @@ class DistributedSystem : public ChannelFinder {
     network_.StopServer();
   }
 
-  std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &reactor_name,
-      const std::string &channel_name) override {
-    return system_.FindChannel(reactor_name, channel_name);
-  }
-
-  /**
-   * Resolves remote channel synchronously.
-   *
-   * @return EventStream on which message will arrive once channel is resolved.
-   * @warning It can only be called from local Reactor.
-   */
-  std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &address, uint16_t port,
-      const std::string &reactor_name,
-      const std::string &channel_name) override {
-    return std::make_shared<Network::RemoteChannelWriter>(
-        &network_, address, port, reactor_name, channel_name);
-  }
-
   Network &network() { return network_; }
   const Network &network() const { return network_; }
 
- private:
+  // Should be private
   Network network_;
+
+ private:
   System &system_ = network_.protocol_data_.system;
 
   DistributedSystem(const DistributedSystem &) = delete;

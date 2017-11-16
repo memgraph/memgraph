@@ -38,10 +38,6 @@ class ReturnAddressMessage : public Message {
        channel_);
   }
 
-  auto FindChannel(ChannelFinder &finder) const {
-    return finder.FindChannel(address_, port_, reactor_, channel_);
-  }
-
  protected:
   friend class cereal::access;
   ReturnAddressMessage() {}  // Cereal needs access to a default constructor.

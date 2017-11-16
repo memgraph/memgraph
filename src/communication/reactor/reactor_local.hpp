@@ -63,20 +63,6 @@ class ChannelWriter {
   virtual std::string Name() const = 0;
 };
 
-class ChannelFinder {
- public:
-  virtual ~ChannelFinder() {}
-
-  // Find local channel.
-  virtual std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &reactor_name, const std::string &channel_name) = 0;
-
-  // Find remote channel.
-  virtual std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &address, uint16_t port,
-      const std::string &reactor_name, const std::string &channel_name) = 0;
-};
-
 /**
  * Read-end of a Channel (between two reactors).
  */
@@ -272,14 +258,6 @@ class Channel {
   friend class Reactor;  // to create a Params initialization object
   friend class EventStream::Subscription;
 
-  explicit Channel(const Params &params)
-      : channel_name_(params.channel_name),
-        reactor_name_(params.reactor_name),
-        mutex_(params.mutex),
-        cvar_(params.cvar),
-        stream_(mutex_, this),
-        reactor_(params.reactor) {}
-
   /**
    * LocalChannelWriter represents the channels to reactors living in the same
    * reactor system (write-end of the channels).
@@ -290,20 +268,23 @@ class Channel {
    * There can be multiple LocalChannelWriters refering to the same stream if
    * needed.
    *
-   * It must outlive System.
+   * It must be outlived by System.
    */
   class LocalChannelWriter : public ChannelWriter {
    public:
     friend class Channel;
 
     LocalChannelWriter(const std::string &reactor_name,
-                       const std::string &channel_name,
-                       const std::weak_ptr<Channel> &queue,
-                       ChannelFinder &system)
+                       const std::string &channel_name, System &system)
         : reactor_name_(reactor_name),
           channel_name_(channel_name),
-          queue_(queue),
           system_(system) {}
+
+    template <typename TMessage, typename... Args>
+    void Send(Args &&... args) {
+      Send(std::unique_ptr<Message>(
+          std::make_unique<TMessage>(std::forward<Args>(args)...)));
+    }
 
     void Send(std::unique_ptr<Message> m) override;
     std::string ReactorName() const override;
@@ -312,9 +293,18 @@ class Channel {
    private:
     std::string reactor_name_;
     std::string channel_name_;
+    // TODO: we shouldn't do this kind of caching inside of LocalChannelWriter.
     std::weak_ptr<Channel> queue_;
-    ChannelFinder &system_;
+    System &system_;
   };
+
+  explicit Channel(const Params &params)
+      : channel_name_(params.channel_name),
+        reactor_name_(params.reactor_name),
+        mutex_(params.mutex),
+        cvar_(params.cvar),
+        stream_(mutex_, this),
+        reactor_(params.reactor) {}
 
   /**
    * Implementation of the event stream.
@@ -431,14 +421,14 @@ class Reactor {
   friend class System;
 
  public:
-  Reactor(ChannelFinder &system, const std::string &name,
-          const std::function<void(Reactor &)> &setup, System &system2);
+  Reactor(System &system, const std::string &name,
+          const std::function<void(Reactor &)> &setup);
   ~Reactor();
 
   std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Open(
       const std::string &s);
   std::pair<EventStream *, std::shared_ptr<ChannelWriter>> Open();
-  std::shared_ptr<ChannelWriter> FindChannel(const std::string &channel_name);
+  std::shared_ptr<Channel> FindChannel(const std::string &channel_name);
 
   /**
    * Close a channel by name.
@@ -457,8 +447,7 @@ class Reactor {
   Reactor &operator=(const Reactor &other) = delete;
   Reactor &operator=(Reactor &&other) = default;
 
-  ChannelFinder &system_;
-  System &system2_;
+  System &system_;
   std::string name_;
   std::function<void(Reactor &)> setup_;
 
@@ -498,48 +487,34 @@ class Reactor {
   PendingMessageInfo GetPendingMessages();
 };
 
+using LocalChannelWriter = Channel::LocalChannelWriter;
+
 /**
  * Placeholder for all reactors.
  * Make sure object of this class outlives all Reactors created by it.
  */
-class System : public ChannelFinder {
+class System {
  public:
   friend class Reactor;
   System() = default;
 
   std::unique_ptr<Reactor> Spawn(const std::string &name,
-                                 std::function<void(Reactor &)> setup,
-                                 ChannelFinder *finder = nullptr) {
-    if (!finder) {
-      finder = this;
-    }
+                                 std::function<void(Reactor &)> setup) {
     std::unique_lock<std::mutex> lock(mutex_);
     CHECK(reactors_.find(name) == reactors_.end())
         << "Reactor with name: '" << name << "' already exists.";
-    auto reactor = std::make_unique<Reactor>(*finder, name, setup, *this);
+    auto reactor = std::make_unique<Reactor>(*this, name, setup);
     reactors_.emplace(name, reactor.get());
     return reactor;
   }
 
-  std::shared_ptr<ChannelWriter> FindChannel(
-      const std::string &reactor_name,
-      const std::string &channel_name) override {
+  // Next two functions shouldn't be exposed.
+  std::shared_ptr<Channel> Resolve(const std::string &reactor_name,
+                                   const std::string &channel_name) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto it_reactor = reactors_.find(reactor_name);
-    if (it_reactor == reactors_.end())
-      return std::shared_ptr<ChannelWriter>(new Channel::LocalChannelWriter(
-          reactor_name, channel_name, {}, *this));
+    if (it_reactor == reactors_.end()) return nullptr;
     return it_reactor->second->FindChannel(channel_name);
-  }
-
-  std::shared_ptr<ChannelWriter> FindChannel(const std::string &, uint16_t,
-                                             const std::string &,
-                                             const std::string &) override {
-    // TODO: This is awful design, but at this point I just want to make
-    // reactors work. We should templatize Reactor by system instead of dealing
-    // with interfaces then System would spawn Reactor<System> and
-    // DistributedSystem would spawn Reactor<DistributedSystem>.
-    LOG(FATAL) << "Tried to resolve remote channel in local System";
   }
 
   void RemoveReactor(const std::string &name_) {

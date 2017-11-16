@@ -25,10 +25,8 @@ RaftMember::RaftMember(System &system, const std::string &id,
       mode_(Mode::FOLLOWER),
       leader_watchdog_(config_.leader_timeout_min, config_.leader_timeout_max,
                        [this]() {
-                         auto channel = system_.FindChannel(id_, "main");
-                         if (channel) {
-                           channel->Send<MLeaderTimeout>();
-                         }
+                         LocalChannelWriter channel(id_, "main", system_);
+                         channel.Send<MLeaderTimeout>();
                        }),
       heartbeat_watchdog_(
           config_.heartbeat_interval, config_.heartbeat_interval,

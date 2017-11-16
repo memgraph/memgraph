@@ -1,5 +1,6 @@
 #pragma once
 
+#include <experimental/optional>
 #include <mutex>
 
 #include "communication/reactor/reactor_local.hpp"
@@ -84,11 +85,11 @@ class LocalReactorNetworkInterface : public RaftNetworkInterface {
  private:
   template <class TMessage>
   bool SendMessage(const std::string &recipient, const TMessage &msg) {
-    auto channel = system_.FindChannel(recipient, "main");
-    if (!channel) {
-      return false;
-    }
-    channel->Send<TMessage>(msg);
+    reactor::LocalChannelWriter channel(recipient, "main", system_);
+    channel.Send<TMessage>(msg);
+    // TODO: We always return true here even though we do not know if message
+    // was delievered or not. Maybe return value of functions in
+    // RaftNetworkInterface should be changed to be void, not bool.
     return true;
   }
 
@@ -141,12 +142,8 @@ class FakeNetworkInterface : public RaftNetworkInterface {
     }
 
     if (ok) {
-      auto channel = system_.FindChannel(recipient, "main");
-      if (!channel) {
-        ok = false;
-      } else {
-        channel->Send<TMessage>(msg);
-      }
+      reactor::LocalChannelWriter channel(recipient, "main", system_);
+      channel.Send<TMessage>(msg);
     }
 
     return ok;

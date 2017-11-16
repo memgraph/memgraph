@@ -66,10 +66,10 @@ TEST(SimpleTests, StartAndStopServices) {
 TEST(SimpleTests, SendEmptyMessage) {
   DistributedSystem system;
 
-  auto master = system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [&](Reactor &r) {
     std::this_thread::sleep_for(100ms);
-    auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
-    writer->Send<Message>();
+    RemoteChannelWriter writer("127.0.0.1", 10000, "worker", "main", system);
+    writer.Send<Message>();
     r.CloseChannel("main");
   });
 
@@ -96,20 +96,23 @@ TEST(SimpleTests, SendEmptyMessage) {
 TEST(SimpleTests, SendReturnAddressMessage) {
   DistributedSystem system;
 
-  auto master = system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [&](Reactor &r) {
     std::this_thread::sleep_for(100ms);
-    auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
-    writer->Send<ReturnAddressMessage>(r.name(), "main");
+    RemoteChannelWriter writer("127.0.0.1", 10000, "worker", "main", system);
+    writer.Send<ReturnAddressMessage>(r.name(), "main");
     r.main_.first->OnEvent<MessageInt>(
         [&](const MessageInt &message, const Subscription &) {
           EXPECT_EQ(message.x, 5);
           r.CloseChannel("main");
         });
   });
-  auto worker = system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [&](Reactor &r) {
     r.main_.first->OnEvent<ReturnAddressMessage>(
         [&](const ReturnAddressMessage &message, const Subscription &) {
-          message.FindChannel(r.system_)->Send<MessageInt>(5);
+          RemoteChannelWriter writer(message.address(), message.port(),
+                                     message.reactor_name(),
+                                     message.channel_name(), system);
+          writer.Send<MessageInt>(5);
           r.CloseChannel("main");
         });
   });
@@ -128,10 +131,10 @@ TEST(SimpleTests, SendReturnAddressMessage) {
 TEST(SimpleTests, SendSerializableMessage) {
   DistributedSystem system;
 
-  auto master = system.Spawn("master", [](Reactor &r) {
+  auto master = system.Spawn("master", [&](Reactor &r) {
     std::this_thread::sleep_for(100ms);
-    auto writer = r.system_.FindChannel("127.0.0.1", 10000, "worker", "main");
-    writer->Send<RequestMessage>(r.name(), "main", 123);
+    RemoteChannelWriter writer("127.0.0.1", 10000, "worker", "main", system);
+    writer.Send<RequestMessage>(r.name(), "main", 123);
     r.main_.first->OnEvent<MessageInt>(
         [&](const MessageInt &message, const Subscription &) {
           ASSERT_EQ(message.x, 779);
@@ -139,11 +142,14 @@ TEST(SimpleTests, SendSerializableMessage) {
         });
   });
 
-  auto worker = system.Spawn("worker", [](Reactor &r) {
+  auto worker = system.Spawn("worker", [&](Reactor &r) {
     r.main_.first->OnEvent<RequestMessage>(
         [&](const RequestMessage &message, const Subscription &) {
           ASSERT_EQ(message.x, 123);
-          message.FindChannel(r.system_)->Send<MessageInt>(779);
+          RemoteChannelWriter writer(message.address(), message.port(),
+                                     message.reactor_name(),
+                                     message.channel_name(), system);
+          writer.Send<MessageInt>(779);
           r.CloseChannel("main");
         });
   });

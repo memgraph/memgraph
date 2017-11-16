@@ -25,21 +25,16 @@
  * Client sends:
  *    len_reactor_name(SizeT) len_channel_name(SizeT) reactor_name channel_name
  * Server responds:
- *    0x40 if the reactor/channel combo doesn't exist
- *    0x80 if the reactor/channel combo exists
+ *    0x80
  *
  * MESSAGES
  *
  * Client sends:
  *    len_message(SizeT) cereal_encoded_binary_message
- * Server responds:
- *    0x40 if the reactor/channel combo doesn't exist or the message wasn't
- *         successfully decoded and delivered
- *    0x80 if the reactor/channel combo exist and the message was successfully
- *         decoded and delivered
  *
  * Currently the server is implemented to handle more than one message after
  * the initial handshake, but the client can only send one message.
+ * TODO: no reason to do any sort of handshake at all.
  */
 namespace communication::reactor {
 
@@ -55,8 +50,6 @@ using SizeT = uint16_t;
 
 /**
  * Distributed Protocol Data
- *
- * This typically holds living data shared by all sessions. Currently empty.
  */
 struct SessionData {
   System system;
@@ -120,6 +113,7 @@ class Session {
  private:
   SizeT GetLength(int offset = 0);
   std::string GetStringAndShift(SizeT len);
+  // Should be renamed to SendHandshake.
   bool SendSuccess(bool success);
 
   bool alive_{true};
@@ -138,6 +132,6 @@ class Session {
  * If message is a nullptr then it only checks whether the remote reactor
  * and channel exist, else it returns the complete message send success.
  */
-bool SendMessage(std::string address, uint16_t port, std::string reactor,
+void SendMessage(std::string address, uint16_t port, std::string reactor,
                  std::string channel, std::unique_ptr<Message> message);
 }

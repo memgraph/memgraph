@@ -2,6 +2,7 @@
 
 #include "communication/reactor/protocol.hpp"
 #include "communication/reactor/reactor_distributed.hpp"
+#include "communication/reactor/reactor_local.hpp"
 
 #include "glog/logging.h"
 
@@ -44,8 +45,8 @@ void Session::Execute() {
     DLOG(INFO) << "Reactor: " << reactor_ << "; Channel: " << channel_
                << std::endl;
 
-    auto channel = system_.FindChannel(reactor_, channel_);
-    SendSuccess(channel != nullptr);
+    LocalChannelWriter channel(reactor_, channel_, system_);
+    SendSuccess(true);
 
     handshake_done_ = true;
   }
@@ -65,14 +66,8 @@ void Session::Execute() {
   iarchive(message);
   buffer_.Shift(len_data);
 
-  auto channel = system_.FindChannel(reactor_, channel_);
-  if (channel == nullptr) {
-    SendSuccess(false);
-    return;
-  }
-
-  channel->Send(std::move(message));
-  SendSuccess(true);
+  LocalChannelWriter channel(reactor_, channel_, system_);
+  channel.Send(std::move(message));
 }
 
 StreamBuffer Session::Allocate() { return buffer_.Allocate(); }
@@ -100,15 +95,7 @@ bool SendLength(Socket &socket, SizeT length) {
   return socket.Write(reinterpret_cast<uint8_t *>(&length), sizeof(SizeT));
 }
 
-bool GetSuccess(Socket &socket) {
-  uint8_t val;
-  if (socket.Read(&val, 1) != 1) {
-    return false;
-  }
-  return val == 0x80;
-}
-
-bool SendMessage(std::string address, uint16_t port, std::string reactor,
+void SendMessage(std::string address, uint16_t port, std::string reactor,
                  std::string channel, std::unique_ptr<Message> message) {
   // Initialize endpoint.
   Endpoint endpoint;
@@ -116,7 +103,7 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
     endpoint = Endpoint(address.c_str(), port);
   } catch (io::network::NetworkEndpointException &e) {
     LOG(INFO) << "Address is invalid!";
-    return false;
+    return;
   }
 
   // Initialize socket.
@@ -124,31 +111,28 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
   if (!socket.Connect(endpoint)) {
     LOG(INFO) << "Couldn't connect to remote address: " << address << ":"
               << port;
-    return false;
+    return;
   }
 
   // Send data
   if (!SendLength(socket, reactor.size())) {
     LOG(INFO) << "Couldn't send reactor size!";
-    return false;
+    return;
   }
   if (!SendLength(socket, channel.size())) {
     LOG(INFO) << "Couldn't send channel size!";
-    return false;
+    return;
   }
   if (!socket.Write(reactor)) {
     LOG(INFO) << "Couldn't send reactor data!";
-    return false;
+    return;
   }
   if (!socket.Write(channel)) {
     LOG(INFO) << "Couldn't send channel data!";
-    return false;
+    return;
   }
 
-  bool success = GetSuccess(socket);
-  if (message == nullptr || !success) {
-    return success;
-  }
+  if (message == nullptr) return;
 
   // Serialize and send message
   std::ostringstream stream;
@@ -158,14 +142,11 @@ bool SendMessage(std::string address, uint16_t port, std::string reactor,
   const std::string &buffer = stream.str();
   if (!SendLength(socket, buffer.size())) {
     LOG(INFO) << "Couldn't send message size!";
-    return false;
+    return;
   }
   if (!socket.Write(buffer)) {
     LOG(INFO) << "Couldn't send message data!";
-    return false;
+    return;
   }
-
-  // TODO: send message is blocking because of this. This is potential problem.
-  return GetSuccess(socket);
 }
 }
