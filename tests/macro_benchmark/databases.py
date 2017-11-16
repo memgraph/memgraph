@@ -32,6 +32,9 @@ class Memgraph:
                           default=get_absolute_path("memgraph", "build"))
         argp.add_argument("--port", default="7687",
                           help="Database and client port")
+        argp.add_argument("--snapshot-directory", default=None)
+        argp.add_argument("--snapshot-on-exit", action="store_true")
+        argp.add_argument("--snapshot-recover-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.config = config
@@ -45,6 +48,13 @@ class Memgraph:
         database_args = ["--port", self.args.port]
         if self.num_workers:
             database_args += ["--num_workers", str(self.num_workers)]
+        if self.args.snapshot_directory:
+            database_args += ["--snapshot-directory",
+                    self.args.snapshot_directory]
+        if self.args.snapshot_recover_on_startup:
+            database_args += ["--snapshot-recover-on-startup"]
+        if self.args.snapshot_on_exit:
+            database_args += ["--snapshot-on-exit"]
 
         # find executable path
         runner_bin = self.args.runner_bin
