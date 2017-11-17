@@ -100,26 +100,27 @@ State HandleRun(TSession &session, State state, Marker marker) {
     return State::Result;
   }
 
-  if (in_explicit_transaction) {
-    if (query.ValueString() == "COMMIT") {
-      session.Commit();
-      // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess(kEmptyFields);
-      // One for PULL_ALL should be chunked.
-      session.encoder_.MessageSuccess({}, false);
-      return State::Result;
-    } else if (query.ValueString() == "ROLLBACK") {
-      session.Abort();
-      // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess(kEmptyFields);
-      // One for PULL_ALL should be chunked.
-      session.encoder_.MessageSuccess({}, false);
-      return State::Result;
-    }
-    session.db_accessor_->AdvanceCommand();
-  }
-
   try {
+    // This check is within try block because AdvanceCommand can throw.
+    if (in_explicit_transaction) {
+      if (query.ValueString() == "COMMIT") {
+        session.Commit();
+        // One MessageSuccess for RUN command should be flushed.
+        session.encoder_.MessageSuccess(kEmptyFields);
+        // One for PULL_ALL should be chunked.
+        session.encoder_.MessageSuccess({}, false);
+        return State::Result;
+      } else if (query.ValueString() == "ROLLBACK") {
+        session.Abort();
+        // One MessageSuccess for RUN command should be flushed.
+        session.encoder_.MessageSuccess(kEmptyFields);
+        // One for PULL_ALL should be chunked.
+        session.encoder_.MessageSuccess({}, false);
+        return State::Result;
+      }
+      session.db_accessor_->AdvanceCommand();
+    }
+
     auto &params_map = params.ValueMap();
     std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
                                                        params_map.end());

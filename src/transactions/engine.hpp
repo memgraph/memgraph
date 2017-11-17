@@ -27,9 +27,8 @@ class TransactionError : public utils::BasicException {
  * such as transaction snapshots and the commit log.
  */
 class Engine : Lockable<SpinLock> {
-  // limit for the command id, used for checking if we're about
-  // to overflow. slightly unneccessary since command id should
-  // be a 64-bit int
+  // Limit for the command id, used for checking if we're about
+  // to overflow.
   static constexpr auto kMaxCommandId =
       std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
 
