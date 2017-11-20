@@ -17,7 +17,7 @@ int64_t ParseIntegerLiteral(const std::string &s) {
     // Not really correct since long long can have a bigger range than int64_t.
     return static_cast<int64_t>(std::stoll(s, 0, 0));
   } catch (const std::out_of_range &) {
-    throw SemanticException();
+    throw SemanticException("Integer literal exceeds 64 bits");
   }
 }
 
