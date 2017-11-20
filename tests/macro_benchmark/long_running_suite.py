@@ -6,7 +6,7 @@ import json
 from argparse import ArgumentParser
 from collections import defaultdict
 from statistics import median
-from common import get_absolute_path
+from common import get_absolute_path, APOLLO
 from databases import Memgraph, Neo
 from clients import QueryClient, LongRunningClient
 
@@ -18,7 +18,6 @@ class LongRunningSuite:
 
     def __init__(self, args):
         argp = ArgumentParser("LongRunningSuiteArgumentParser")
-        argp.add_argument("--num-client-workers", default=4)
         argp.add_argument("--duration", type=int)
         self.args, _ = argp.parse_known_args(args)
         pass
@@ -27,16 +26,15 @@ class LongRunningSuite:
         runner.start()
 
         log.info("Executing setup")
-        runner.setup(scenario.get("setup")(), self.args.num_client_workers)
+        runner.setup(scenario.get("setup")())
 
         config = next(scenario.get("config")())
         duration = config["duration"]
         if self.args.duration:
             duration = self.args.duration
-        log.info("Executing run for {} seconds with {} client workers".format(
-            duration, self.args.num_client_workers))
-        results = runner.run(next(scenario.get("run")()), duration,
-                self.args.num_client_workers)
+        log.info("Executing run for {} seconds".format(
+                duration))
+        results = runner.run(next(scenario.get("run")()), duration)
 
         runner.stop()
 
@@ -64,19 +62,19 @@ class LongRunningSuite:
 
 
 class _LongRunningRunner:
-    def __init__(self, args, database):
+    def __init__(self, args, database, num_client_workers):
         self.log = logging.getLogger("_LongRunningRunner")
         self.database = database
-        self.query_client = QueryClient(args)
-        self.long_running_client = LongRunningClient(args)
+        self.query_client = QueryClient(args, num_client_workers)
+        self.long_running_client = LongRunningClient(args, num_client_workers)
 
     def start(self):
         self.database.start()
 
-    def setup(self, queries, num_client_workers):
+    def setup(self, queries, num_client_workers=None):
         return self.query_client(queries, self.database, num_client_workers)
 
-    def run(self, config, duration, num_client_workers):
+    def run(self, config, duration, num_client_workers=None):
         return self.long_running_client(
             config, self.database, duration, num_client_workers)
 
@@ -85,21 +83,30 @@ class _LongRunningRunner:
         self.database.stop()
 
 
+# TODO: This is mostly copy pasted from MemgraphParallelRunner from
+# query_suite.py. Think of the way to remove duplication.
 class MemgraphRunner(_LongRunningRunner):
     """
-    Configures memgraph database for QuerySuite execution.
+    Configures memgraph database for LongRunningSuite execution.
     """
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        # TODO: change default config
         argp.add_argument("--runner-config", default=get_absolute_path(
-                "benchmarking_throughput.conf", "config"),
+                "benchmarking.conf", "config"),
                 help="Path to memgraph config")
-        argp.add_argument("--num-workers", help="Number of workers")
+        argp.add_argument("--num-database-workers", type=int, default=8,
+                          help="Number of workers")
+        argp.add_argument("--num-client-workers", type=int, default=24,
+                          help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
+        assert not APOLLO or self.args.num_database_workers, \
+                "--num-database-workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, \
+                "--num-client-workers is obligatory flag on apollo"
         database = Memgraph(remaining_args, self.args.runner_config,
-                            self.args.num_workers)
-        super(MemgraphRunner, self).__init__(remaining_args, database)
+                            self.args.num_database_workers)
+        super(MemgraphRunner, self).__init__(
+                remaining_args, database, self.args.num_client_workers)
 
 
 class NeoRunner(_LongRunningRunner):
@@ -109,9 +116,13 @@ class NeoRunner(_LongRunningRunner):
     def __init__(self, args):
         argp = ArgumentParser("NeoRunnerArgumentParser")
         argp.add_argument("--runner-config",
-                          default=get_absolute_path(
-                              "config/neo4j_long_running.conf"),
+                          default=get_absolute_path("config/neo4j.conf"),
                           help="Path to neo config file")
+        argp.add_argument("--num-client-workers", type=int, default=24,
+                          help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
-        database = Neo(remaining_args, self.args.runner_config, [1])
-        super(NeoRunner, self).__init__(remaining_args, database)
+        assert not APOLLO or self.args.num_client_workers, \
+                "--client-num-clients is obligatory flag on apollo"
+        database = Neo(remaining_args, self.args.runner_config)
+        super(NeoRunner, self).__init__(
+                remaining_args, database, self.args.num_client_workers)

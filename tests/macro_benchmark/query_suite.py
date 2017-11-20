@@ -269,7 +269,7 @@ class MemgraphParallelRunner(_QueryRunner):
                           help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
         assert not APOLLO or self.args.num_database_workers, \
-                "--num-database--workers is obligatory flag on apollo"
+                "--num-database-workers is obligatory flag on apollo"
         assert not APOLLO or self.args.num_client_workers, \
                 "--num-client-workers is obligatory flag on apollo"
         database = Memgraph(remaining_args, self.args.runner_config,

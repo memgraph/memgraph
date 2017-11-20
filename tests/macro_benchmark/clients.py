@@ -78,14 +78,16 @@ class QueryClient:
 
 
 class LongRunningClient:
-    def __init__(self, args):
+    def __init__(self, args, default_num_workers):
         self.log = logging.getLogger("LongRunningClient")
         self.client = jail.get_process()
         set_cpus("client-cpu-ids", self.client, args)
+        self.default_num_workers = default_num_workers
 
     # TODO: This is quite similar to __call__ method of QueryClient. Remove
     # duplication.
-    def __call__(self, config, database, duration, num_client_workers):
+    def __call__(self, config, database, duration, num_workers=None):
+        if num_workers is None: num_workers = self.default_num_workers
         self.log.debug("execute('%s')", config)
 
         client_path = "tests/macro_benchmark/long_running_client"
@@ -110,7 +112,7 @@ class LongRunningClient:
         os.close(output_fd)
 
         client_args = ["--port", database.args.port,
-                       "--num-workers", str(num_client_workers),
+                       "--num-workers", str(num_workers),
                        "--output", output,
                        "--duration", str(duration)]
 
