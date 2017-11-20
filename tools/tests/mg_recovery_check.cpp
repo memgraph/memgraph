@@ -3,24 +3,24 @@
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
-#include "database/graph_db_accessor.hpp"
 #include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "durability/recovery.hpp"
 #include "query/typed_value.hpp"
 
 static const char *usage =
-    "--snapshot-dir SNAPSHOT_DIR\n"
-    "Check that Memgraph can recover that snapshot. This tool should be "
+    "--durability-dir DURABILITY_DIR\n"
+    "Check that Memgraph can recover the snapshot. This tool should be "
     "invoked through 'test_mg_import' wrapper, so as to check that 'mg_import' "
     "tools work correctly.\n";
 
-DEFINE_string(snapshot_dir, "", "Path to where the snapshot is stored");
+DEFINE_string(durability_dir, "", "Path to where the durability directory");
 
 class RecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    std::string snapshot(FLAGS_snapshot_dir);
-    durability::Recover(snapshot, db_);
+    std::string durability_dir(FLAGS_durability_dir);
+    durability::Recover(durability_dir, db_);
   }
 
   GraphDb db_;

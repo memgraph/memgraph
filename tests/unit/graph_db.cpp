@@ -7,11 +7,10 @@
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/label_property_index.hpp"
 
-DECLARE_int32(gc_cycle_sec);
-
 TEST(GraphDbTest, GarbageCollectIndices) {
-  FLAGS_gc_cycle_sec = -1;
-  GraphDb graph_db;
+  GraphDb::Config config;
+  config.gc_cycle_sec = -1;
+  GraphDb graph_db{config};
   std::unique_ptr<GraphDbAccessor> dba =
       std::make_unique<GraphDbAccessor>(graph_db);
 

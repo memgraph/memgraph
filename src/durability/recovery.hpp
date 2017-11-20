@@ -17,14 +17,14 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
                          int64_t &edge_count, uint64_t &hash);
 
 /**
- * Recovers database from snapshot_file. If recovering fails, false is returned
+ * Recovers database from durability. If recovering fails, false is returned
  * and db_accessor aborts transaction, else true is returned and transaction is
  * commited.
  *
- * @param snapshot_dir - Path to snapshot directory.
+ * @param durability_dir - Path to durability directory.
  * @param db - The database to recover into.
  * @return - If recovery was succesful.
  */
-bool Recover(const std::experimental::filesystem::path &snapshot_dir,
+bool Recover(const std::experimental::filesystem::path &durability_dir,
              GraphDb &db);
 }

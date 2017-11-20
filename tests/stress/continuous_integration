@@ -118,7 +118,7 @@ parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
 parser.add_argument("--config", default = os.path.join(CONFIG_DIR,
         "stress.conf"))
 parser.add_argument("--log-file", default = "")
-parser.add_argument("--snapshot-directory", default = "")
+parser.add_argument("--durability-directory", default = "")
 parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
         "ve3", "bin", "python3"), type = str)
 parser.add_argument("--large-dataset", action = "store_const",
@@ -138,8 +138,8 @@ if not args.verbose:
     cmd += ["--min-log-level", "1"]
 if args.log_file:
     cmd += ["--log-file", args.log_file]
-if args.snapshot_directory:
-    cmd += ["--snapshot-directory", args.snapshot_directory]
+if args.durability_directory:
+    cmd += ["--durability-directory", args.durability_directory]
 proc_mg = subprocess.Popen(cmd, cwd = cwd,
         env = {"MEMGRAPH_CONFIG": args.config})
 time.sleep(1.0)

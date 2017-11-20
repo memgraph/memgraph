@@ -1,22 +1,22 @@
 #include "wal.hpp"
 
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "durability/paths.hpp"
 #include "utils/datetime/timestamp.hpp"
 #include "utils/flag_validation.hpp"
 
-DEFINE_int32(wal_flush_interval_millis, -1,
-             "Interval between two write-ahead log flushes, in milliseconds. "
-             "Set to -1 to disable the WAL.");
+DEFINE_HIDDEN_int32(
+    wal_flush_interval_millis, 2,
+    "Interval between two write-ahead log flushes, in milliseconds.");
 
-DEFINE_string(wal_directory, "wal",
-              "Directory in which the write-ahead log files are stored.");
+DEFINE_HIDDEN_int32(
+    wal_rotate_ops_count, 10000,
+    "How many write-ahead ops should be stored in a single WAL file "
+    "before rotating it.");
 
-DEFINE_int32(wal_rotate_ops_count, 10000,
-             "How many write-ahead ops should be stored in a single WAL file "
-             "before rotating it.");
-
-DEFINE_VALIDATED_int32(wal_buffer_size, 4096, "Write-ahead log buffer size.",
-                       FLAG_IN_RANGE(1, 1 << 30));
+DEFINE_VALIDATED_HIDDEN_int32(wal_buffer_size, 4096,
+                              "Write-ahead log buffer size.",
+                              FLAG_IN_RANGE(1, 1 << 30));
 
 namespace durability {
 
@@ -146,8 +146,12 @@ std::experimental::optional<WriteAheadLog::Op> WriteAheadLog::Op::Decode(
 
 #undef DECODE_MEMBER
 
-WriteAheadLog::WriteAheadLog() {
-  if (FLAGS_wal_flush_interval_millis >= 0) {
+WriteAheadLog::WriteAheadLog(
+    const std::experimental::filesystem::path &durability_dir,
+    bool durability_enabled)
+    : ops_{FLAGS_wal_buffer_size}, wal_file_{durability_dir} {
+  if (durability_enabled) {
+    CheckDurabilityDir(durability_dir);
     wal_file_.Init();
     scheduler_.Run(std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
                    [this]() { wal_file_.Flush(ops_); });
@@ -155,10 +159,9 @@ WriteAheadLog::WriteAheadLog() {
 }
 
 WriteAheadLog::~WriteAheadLog() {
-  if (FLAGS_wal_flush_interval_millis >= 0) {
-    scheduler_.Stop();
-    wal_file_.Flush(ops_);
-  }
+  // TODO review : scheduler.Stop() legal if it wasn't started?
+  scheduler_.Stop();
+  if (enabled_) wal_file_.Flush(ops_);
 }
 
 void WriteAheadLog::TxBegin(tx::transaction_id_t tx_id) {
@@ -250,24 +253,28 @@ void WriteAheadLog::BuildIndex(tx::transaction_id_t tx_id,
   Emplace(std::move(op));
 }
 
+WriteAheadLog::WalFile::WalFile(
+    const std::experimental::filesystem::path &durability_dir)
+    : wal_dir_{durability_dir / kWalDir} {}
+
 WriteAheadLog::WalFile::~WalFile() {
   if (!current_wal_file_.empty()) writer_.Close();
 }
 
 namespace {
-auto MakeFilePath(const std::string &suffix) {
-  return std::experimental::filesystem::path(FLAGS_wal_directory) /
-         (Timestamp::now().to_iso8601() + suffix);
+auto MakeFilePath(const std::experimental::filesystem::path &wal_dir,
+                  const std::string &suffix) {
+  return wal_dir / (Timestamp::now().to_iso8601() + suffix);
 }
 }
 
 void WriteAheadLog::WalFile::Init() {
-  if (!std::experimental::filesystem::exists(FLAGS_wal_directory) &&
-      !std::experimental::filesystem::create_directories(FLAGS_wal_directory)) {
-    LOG(ERROR) << "Can't write to WAL directory: " << FLAGS_wal_directory;
+  if (!std::experimental::filesystem::exists(wal_dir_) &&
+      !std::experimental::filesystem::create_directories(wal_dir_)) {
+    LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {
-    current_wal_file_ = MakeFilePath("__current");
+    current_wal_file_ = MakeFilePath(wal_dir_, "__current");
     try {
       writer_.Open(current_wal_file_);
     } catch (std::ios_base::failure &) {
@@ -311,7 +318,8 @@ void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
       current_wal_file_,
-      MakeFilePath("__max_transaction_" + std::to_string(latest_tx_)));
+      MakeFilePath(wal_dir_,
+                   "__max_transaction_" + std::to_string(latest_tx_)));
   Init();
 }
 

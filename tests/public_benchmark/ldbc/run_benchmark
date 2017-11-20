@@ -12,7 +12,6 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 
@@ -42,9 +41,9 @@ class Memgraph:
 
         # database args
         database_args = [binary, "--num-workers", self.num_workers,
-                         "--snapshot-directory", os.path.join(self.dataset,
+                         "--durability-directory", os.path.join(self.dataset,
                                                               "memgraph"),
-                         "--snapshot-recover-on-startup", "true",
+                         "--db-recover-on-startup", "true",
                          "--port", self.port]
 
         # database env

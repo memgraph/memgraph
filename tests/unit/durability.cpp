@@ -14,15 +14,12 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
+#include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
 
-DECLARE_string(snapshot_directory);
-DECLARE_bool(snapshot_on_exit);
-DECLARE_int32(snapshot_cycle_sec);
-DECLARE_bool(snapshot_recover_on_startup);
 DECLARE_int32(wal_flush_interval_millis);
 DECLARE_int32(wal_rotate_ops_count);
 
@@ -214,27 +211,36 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
   }
 }
 
-const fs::path kSnapshotDir =
-    fs::temp_directory_path() / "MG_test_unit_durability" / "snapshot";
-const fs::path kWalDir =
-    fs::temp_directory_path() / "MG_test_unit_durability" / "wal";
+const fs::path kDurabilityDir =
+    fs::temp_directory_path() / "MG_test_unit_durability";
+const fs::path kSnapshotDir = kDurabilityDir / durability::kSnapshotDir;
+const fs::path kWalDir = kDurabilityDir / durability::kWalDir;
 
 void CleanDurability() {
-  if (fs::exists(kSnapshotDir))
-    for (auto file : fs::directory_iterator(kSnapshotDir)) fs::remove(file);
-  if (fs::exists(kWalDir))
-    for (auto file : fs::directory_iterator(kWalDir)) fs::remove(file);
+  if (fs::exists(kDurabilityDir)) fs::remove_all(kDurabilityDir);
 }
 
 std::vector<fs::path> DirFiles(fs::path dir) {
   std::vector<fs::path> files;
-  for (auto &file : fs::directory_iterator(dir)) files.push_back(file.path());
+  if (fs::exists(dir))
+    for (auto &file : fs::directory_iterator(dir)) files.push_back(file.path());
   return files;
+}
+
+auto DbConfig() {
+  GraphDb::Config config;
+  config.durability_enabled = false;
+  config.durability_directory = kDurabilityDir;
+  config.snapshot_on_exit = false;
+  config.db_recover_on_startup = false;
+
+  return config;
 }
 
 void MakeSnapshot(GraphDb &db, int snapshot_max_retained = -1) {
   GraphDbAccessor dba(db);
-  durability::MakeSnapshot(dba, kSnapshotDir, snapshot_max_retained);
+  ASSERT_TRUE(
+      durability::MakeSnapshot(dba, kDurabilityDir, snapshot_max_retained));
   dba.Commit();
 }
 
@@ -278,23 +284,18 @@ void MakeDb(GraphDb &db, int scale, std::vector<int> indices = {}) {
 class Durability : public ::testing::Test {
  protected:
   void SetUp() override {
+    FLAGS_wal_rotate_ops_count = 1000;
     CleanDurability();
-    FLAGS_snapshot_cycle_sec = -1;
-    FLAGS_snapshot_directory = kSnapshotDir;
-    FLAGS_snapshot_on_exit = false;
-    FLAGS_wal_flush_interval_millis = -1;
-    FLAGS_wal_directory = kWalDir;
-    FLAGS_snapshot_recover_on_startup = false;
   }
 
   void TearDown() override { CleanDurability(); }
 };
 
 TEST_F(Durability, WalEncoding) {
-  FLAGS_wal_flush_interval_millis = 1;
-  FLAGS_wal_rotate_ops_count = 5000;
   {
-    GraphDb db;
+    auto config = DbConfig();
+    config.durability_enabled = true;
+    GraphDb db{config};
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.id(), 0);
@@ -371,7 +372,7 @@ TEST_F(Durability, WalEncoding) {
 
 TEST_F(Durability, SnapshotEncoding) {
   {
-    GraphDb db;
+    GraphDb db{DbConfig()};
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex();
     ASSERT_EQ(v0.id(), 0);
@@ -473,22 +474,23 @@ TEST_F(Durability, SnapshotEncoding) {
 }
 
 TEST_F(Durability, SnapshotRecovery) {
-  GraphDb db;
+  GraphDb db{DbConfig()};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
   MakeSnapshot(db);
   {
-    FLAGS_snapshot_recover_on_startup = true;
-    GraphDb recovered;
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
   }
 }
 
 TEST_F(Durability, WalRecovery) {
-  FLAGS_wal_flush_interval_millis = 2;
-  FLAGS_wal_rotate_ops_count = 5000;
-  GraphDb db;
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
@@ -499,16 +501,17 @@ TEST_F(Durability, WalRecovery) {
   EXPECT_GT(DirFiles(kWalDir).size(), 1);
 
   {
-    FLAGS_snapshot_recover_on_startup = true;
-    GraphDb recovered;
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
   }
 }
 
 TEST_F(Durability, SnapshotAndWalRecovery) {
-  FLAGS_wal_flush_interval_millis = 2;
-  FLAGS_wal_rotate_ops_count = 1000;
-  GraphDb db;
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeSnapshot(db);
@@ -522,16 +525,17 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
   EXPECT_GT(DirFiles(kWalDir).size(), 1);
 
   {
-    FLAGS_snapshot_recover_on_startup = true;
-    GraphDb recovered;
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
   }
 }
 
 TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
-  FLAGS_wal_flush_interval_millis = 2;
-  FLAGS_wal_rotate_ops_count = 1000;
-  GraphDb db;
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
 
   // The first transaction modifies and commits.
   GraphDbAccessor dba_1{db};
@@ -571,17 +575,18 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   ASSERT_EQ(DirFiles(kSnapshotDir).size(), 1);
   EXPECT_GT(DirFiles(kWalDir).size(), 1);
   {
-    FLAGS_snapshot_recover_on_startup = true;
-    GraphDb recovered;
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
     ASSERT_EQ(VisibleVertexCount(recovered), 400);
     CompareDbs(db, recovered);
   }
 }
 
 TEST_F(Durability, NoWalDuringRecovery) {
-  FLAGS_wal_flush_interval_millis = 2;
-  FLAGS_wal_rotate_ops_count = 1000;
-  GraphDb db;
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
   MakeDb(db, 300, {0, 1, 2});
 
   // Sleep to ensure the WAL gets flushed.
@@ -590,17 +595,17 @@ TEST_F(Durability, NoWalDuringRecovery) {
   auto wal_files_before = DirFiles(kWalDir);
   ASSERT_GT(wal_files_before.size(), 3);
   {
-    FLAGS_snapshot_recover_on_startup = true;
-    GraphDb recovered;
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
     auto wal_files_after = DirFiles(kWalDir);
-    // We get an extra file for the "current" wal of the recovered db.
-    EXPECT_EQ(wal_files_after.size(), wal_files_before.size() + 1);
+    EXPECT_EQ(wal_files_after.size(), wal_files_before.size());
   }
 }
 
 TEST_F(Durability, SnapshotRetention) {
-  GraphDb db;
+  GraphDb db{DbConfig()};
   for (auto &pair : {std::pair<int, int>{5, 10}, {5, 3}, {7, -1}}) {
     CleanDurability();
     int count, retain;
@@ -609,8 +614,7 @@ TEST_F(Durability, SnapshotRetention) {
     // Track the added snapshots to ensure the correct ones are pruned.
     std::unordered_set<std::string> snapshots;
     for (int i = 0; i < count; ++i) {
-      GraphDbAccessor dba(db);
-      durability::MakeSnapshot(dba, kSnapshotDir, retain);
+      MakeSnapshot(db, retain);
       auto latest = GetLastFile(kSnapshotDir);
       snapshots.emplace(GetLastFile(kSnapshotDir));
       // Ensures that the latest snapshot was not in the snapshots collection
@@ -624,8 +628,10 @@ TEST_F(Durability, SnapshotRetention) {
 }
 
 TEST_F(Durability, SnapshotOnExit) {
-  FLAGS_snapshot_directory = kSnapshotDir;
-  FLAGS_snapshot_on_exit = true;
-  { GraphDb graph_db; }
+  {
+    auto config = DbConfig();
+    config.snapshot_on_exit = true;
+    GraphDb graph_db{config};
+  }
   EXPECT_EQ(DirFiles(kSnapshotDir).size(), 1);
 }

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <thread>
-
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
@@ -20,8 +18,6 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
-
-namespace fs = std::experimental::filesystem;
 
 /**
  * Main class which represents Database concept in code.
@@ -51,7 +47,23 @@ namespace fs = std::experimental::filesystem;
  */
 class GraphDb {
  public:
-  GraphDb();
+  /// GraphDb configuration. Initialized from flags, but modifiable.
+  struct Config {
+    Config();
+    // Durability flags.
+    bool durability_enabled;
+    std::string durability_directory;
+    bool db_recover_on_startup;
+    int snapshot_cycle_sec;
+    int snapshot_max_retained;
+    int snapshot_on_exit;
+
+    // Misc flags.
+    int gc_cycle_sec;
+    int query_execution_time_sec;
+  };
+
+  explicit GraphDb(Config config = Config{});
   /** Delete all vertices and edges and free all deferred deleters. */
   ~GraphDb();
 
@@ -73,6 +85,8 @@ class GraphDb {
   friend class GraphDbAccessor;
 
   void StartSnapshooting();
+
+  Config config_;
 
   /** transaction engine related to this database */
   tx::Engine tx_engine_;

@@ -110,11 +110,12 @@ parameters:
  --query-execution-time-sec | integer | 30 | Maximum allowed query execution time, in seconds. <br/>Queries exceeding this limit will be aborted. Value of -1 means no limit.
  --query-plan-cache | bool | true | Cache generated query plans.
  --query-plan-cache-ttl | int | 60 | Time to live for cached query plans, in seconds.
- --snapshot-cycle-sec | integer | 300 | Interval (seconds) between database snapshots.<br/>Value of -1 turns taking snapshots off.
- --snapshot-on-exit | bool | true | Make a snapshot when closing Memgraph.
- --snapshot-directory | string | "/var/lib/memgraph/snapshots" | Path to the directory where snapshots will be stored.
+ --durability-enabled | bool | true | If database state persistence is enabled (snapshot and write-ahead log).
+ --durability-directory | string | "/var/lib/memgraph/durability" | Path to the directory where durability files will be stored.
+ --db-recover-on-startup | bool | true | Recover the database on startup (from snapshots and write-ahead logs).
+ --snapshot-cycle-sec | integer | 300 | Interval  between database snapshots, in seconds.
  --snapshot-max-retained | integer | 3 | Number of retained snapshots.<br/>Value -1 means without limit.
- --snapshot-recover-on-startup | bool | true | Recover the database on startup using the last<br/>stored snapshot.
+ --snapshot-on-exit | bool | true | Make a snapshot when closing Memgraph.
  --log-file | string | "/var/log/memgraph/memgraph.log" | Path to where the log should be stored.
  --also-log-to-stderr | bool | false | If `true`, log messages will go to stderr in addition to logfiles.
  --flag-file | string | "" | Path to a file containing additional configuration settings.

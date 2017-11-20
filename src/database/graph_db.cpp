@@ -1,66 +1,49 @@
+#include <experimental/filesystem>
 #include <functional>
 
-#include <gflags/gflags.h>
 #include <glog/logging.h>
 
 #include "database/creation_exception.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
 #include "utils/timer.hpp"
 
-bool ValidateSnapshotDirectory(const char *flagname, const std::string &value) {
-  if (fs::exists(value) && !fs::is_directory(value)) {
-    std::cout << "The snapshot directory path '" << value
-              << "' is not a directory!" << std::endl;
-    return false;
-  }
-  return true;
-}
+namespace fs = std::experimental::filesystem;
 
-DEFINE_int32(gc_cycle_sec, 30,
-             "Amount of time between starts of two cleaning cycles in seconds. "
-             "-1 to turn off.");
-DEFINE_int32(snapshot_max_retained, -1,
-             "Number of retained snapshots, -1 means without limit.");
-DEFINE_int32(snapshot_cycle_sec, -1,
-             "Amount of time between starts of two snapshooters in seconds. -1 "
-             "to turn off.");
-DEFINE_int32(query_execution_time_sec, 180,
-             "Maximum allowed query execution time. Queries exceeding this "
-             "limit will be aborted. Value of -1 means no limit.");
-DEFINE_bool(snapshot_on_exit, false, "Snapshot on exiting the database.");
-DEFINE_string(snapshot_directory, "snapshots",
-              "Path to directory in which to save snapshots.");
-DEFINE_validator(snapshot_directory, &ValidateSnapshotDirectory);
-DEFINE_bool(snapshot_recover_on_startup, false, "Recover database on startup.");
-
-GraphDb::GraphDb()
-    : gc_vertices_(vertices_, vertex_record_deleter_,
+GraphDb::GraphDb(GraphDb::Config config)
+    : config_(config),
+      gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
-      gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_) {
+      gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_),
+      wal_{config.durability_directory, config.durability_enabled} {
   // Pause of -1 means we shouldn't run the GC.
-  if (FLAGS_gc_cycle_sec != -1) {
-    gc_scheduler_.Run(std::chrono::seconds(FLAGS_gc_cycle_sec),
+  if (config.gc_cycle_sec != -1) {
+    gc_scheduler_.Run(std::chrono::seconds(config.gc_cycle_sec),
                       [this]() { CollectGarbage(); });
   }
 
-  if (FLAGS_snapshot_recover_on_startup)
-    durability::Recover(FLAGS_snapshot_directory, *this);
-  wal_.Enable();
+  // If snapshots are enabled we need the durability dir.
+  if (config.durability_enabled)
+    durability::CheckDurabilityDir(config.durability_directory);
+
+  if (config.db_recover_on_startup)
+    durability::Recover(config.durability_directory, *this);
+  if (config.durability_enabled) wal_.Enable();
   StartSnapshooting();
 
-  if (FLAGS_query_execution_time_sec != -1) {
+  if (config.query_execution_time_sec != -1) {
     transaction_killer_.Run(
         std::chrono::seconds(
-            std::max(1, std::min(5, FLAGS_query_execution_time_sec / 4))),
+            std::max(1, std::min(5, config.query_execution_time_sec / 4))),
         [this]() {
-          tx_engine_.ForEachActiveTransaction([](tx::Transaction &t) {
+          tx_engine_.ForEachActiveTransaction([this](tx::Transaction &t) {
             if (t.creation_time() +
-                    std::chrono::seconds(FLAGS_query_execution_time_sec) <
+                    std::chrono::seconds(config_.query_execution_time_sec) <
                 std::chrono::steady_clock::now()) {
               t.set_should_abort();
             };
@@ -75,16 +58,17 @@ void GraphDb::Shutdown() {
 }
 
 void GraphDb::StartSnapshooting() {
-  if (FLAGS_snapshot_cycle_sec != -1) {
+  if (config_.durability_enabled) {
     auto create_snapshot = [this]() -> void {
       GraphDbAccessor db_accessor(*this);
-      if (!durability::MakeSnapshot(db_accessor, fs::path(FLAGS_snapshot_directory),
-                               FLAGS_snapshot_max_retained)) {
+      if (!durability::MakeSnapshot(db_accessor,
+                                    fs::path(config_.durability_directory),
+                                    config_.snapshot_max_retained)) {
         LOG(WARNING) << "Durability: snapshot creation failed";
       }
       db_accessor.Commit();
     };
-    snapshot_creator_.Run(std::chrono::seconds(FLAGS_snapshot_cycle_sec),
+    snapshot_creator_.Run(std::chrono::seconds(config_.snapshot_cycle_sec),
                           create_snapshot);
   }
 }
@@ -152,12 +136,12 @@ GraphDb::~GraphDb() {
   transaction_killer_.Stop();
 
   // Create last database snapshot
-  if (FLAGS_snapshot_on_exit == true) {
+  if (config_.snapshot_on_exit == true) {
     GraphDbAccessor db_accessor(*this);
     LOG(INFO) << "Creating snapshot on shutdown..." << std::endl;
     const bool status = durability::MakeSnapshot(
-        db_accessor, fs::path(FLAGS_snapshot_directory),
-        FLAGS_snapshot_max_retained);
+        db_accessor, fs::path(config_.durability_directory),
+        config_.snapshot_max_retained);
     if (status) {
       std::cout << "Snapshot created successfully." << std::endl;
     } else {

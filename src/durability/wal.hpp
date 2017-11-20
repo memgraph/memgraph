@@ -18,19 +18,6 @@
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
 
-// The amount of time between two flushes of the write-ahead log,
-// in milliseconds.
-DECLARE_int32(wal_flush_interval_millis);
-
-// Directory in which the WAL is dumped.
-DECLARE_string(wal_directory);
-
-// How many Ops are stored in a single WAL file.
-DECLARE_int32(wal_rotate_ops_count);
-
-// The WAL buffer size (number of ops in a buffer).
-DECLARE_int32(wal_buffer_size);
-
 namespace durability {
 
 /** A database operation log for durability. Buffers and periodically serializes
@@ -99,7 +86,8 @@ class WriteAheadLog {
         communication::bolt::Decoder<HashedFileReader> &decoder);
   };
 
-  WriteAheadLog();
+  WriteAheadLog(const std::experimental::filesystem::path &durability_dir,
+                bool durability_enabled);
   ~WriteAheadLog();
 
   /** Enables the WAL. Called at the end of GraphDb construction, after
@@ -130,6 +118,7 @@ class WriteAheadLog {
   /** Groups the logic of WAL file handling (flushing, naming, rotating) */
   class WalFile {
    public:
+    WalFile(const std::experimental::filesystem::path &wal__dir);
     ~WalFile();
 
     /** Initializes the WAL file. Must be called before first flush. Can be
@@ -141,6 +130,7 @@ class WriteAheadLog {
     void Flush(RingBuffer<Op> &buffer);
 
    private:
+    const std::experimental::filesystem::path wal_dir_;
     HashedFileWriter writer_;
     communication::bolt::PrimitiveEncoder<HashedFileWriter> encoder_{writer_};
 
@@ -159,7 +149,7 @@ class WriteAheadLog {
     void RotateFile();
   };
 
-  RingBuffer<Op> ops_{FLAGS_wal_buffer_size};
+  RingBuffer<Op> ops_;
   Scheduler scheduler_;
   WalFile wal_file_;
   // Used for disabling the WAL during DB recovery.

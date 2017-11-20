@@ -6,6 +6,7 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
+#include "durability/paths.hpp"
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
 #include "query/typed_value.hpp"
@@ -222,11 +223,12 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
 }
 
 // TODO - finer-grained recovery feedback could be useful here.
-bool RecoverWal(GraphDbAccessor &db_accessor, RecoveryData &recovery_data) {
+bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
+                RecoveryData &recovery_data) {
   // Get paths to all the WAL files and sort them (on date).
   std::vector<fs::path> wal_files;
-  if (!fs::exists(FLAGS_wal_directory)) return true;
-  for (auto &wal_file : fs::directory_iterator(FLAGS_wal_directory))
+  if (!fs::exists(wal_dir)) return true;
+  for (auto &wal_file : fs::directory_iterator(wal_dir))
     wal_files.emplace_back(wal_file);
   std::sort(wal_files.begin(), wal_files.end());
 
@@ -335,11 +337,12 @@ bool RecoverWal(GraphDbAccessor &db_accessor, RecoveryData &recovery_data) {
 }
 }  // anonymous namespace
 
-bool Recover(const fs::path &snapshot_dir, GraphDb &db) {
+bool Recover(const fs::path &durability_dir, GraphDb &db) {
   RecoveryData recovery_data;
 
   // Attempt to recover from snapshot files in reverse order (from newest
   // backwards).
+  const auto snapshot_dir = durability_dir / kSnapshotDir;
   std::vector<fs::path> snapshot_files;
   if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir))
     for (auto &file : fs::directory_iterator(snapshot_dir))
@@ -365,7 +368,7 @@ bool Recover(const fs::path &snapshot_dir, GraphDb &db) {
   // WAL recovery does not have to be complete for the recovery to be
   // considered successful. For the time being ignore the return value,
   // consider a better system.
-  RecoverWal(db_accessor, recovery_data);
+  RecoverWal(durability_dir / kWalDir, db_accessor, recovery_data);
   db_accessor.Commit();
 
   // Index recovery.

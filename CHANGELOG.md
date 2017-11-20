@@ -5,9 +5,11 @@
 ### Breaking Changes
 
 * Snapshot format changed (not backward compatible).
+* Snapshot configuration flags changed, general durability flags added.
 
 ### Major Features and Improvements
 
+* Write-ahead log added.
 * `nodes` and `relationships` functions added.
 
 ### Bug Fixes and Other Changes

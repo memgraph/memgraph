@@ -7,8 +7,11 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
+#include "durability/paths.hpp"
 #include "durability/version.hpp"
 #include "utils/datetime/timestamp.hpp"
+
+namespace fs = std::experimental::filesystem;
 
 namespace durability {
 
@@ -67,11 +70,11 @@ bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
   return true;
 }
 
-void MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
+void MaintainMaxRetainedFiles(const fs::path &snapshot_dir,
                               int snapshot_max_retained) {
   if (snapshot_max_retained == -1) return;
   std::vector<fs::path> files;
-  for (auto &file : fs::directory_iterator(snapshot_folder))
+  for (auto &file : fs::directory_iterator(snapshot_dir))
     files.push_back(file.path());
   if (static_cast<int>(files.size()) <= snapshot_max_retained) return;
   sort(files.begin(), files.end());
@@ -83,25 +86,29 @@ void MaintainMaxRetainedFiles(const fs::path &snapshot_folder,
 }
 }  // annonnymous namespace
 
-fs::path MakeSnapshotPath(const fs::path &snapshot_folder) {
+fs::path MakeSnapshotPath(const fs::path &durability_dir) {
   std::string date_str =
       Timestamp(Timestamp::now())
           .to_string("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
-  return snapshot_folder / date_str;
+  return durability_dir / kSnapshotDir / date_str;
 }
 
-bool MakeSnapshot(GraphDbAccessor &db_accessor_,
-                  const fs::path &snapshot_folder,
+bool MakeSnapshot(GraphDbAccessor &db_accessor_, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
-  if (!fs::exists(snapshot_folder) &&
-      !fs::create_directories(snapshot_folder)) {
-    LOG(ERROR) << "Error while creating directory " << snapshot_folder;
-    return false;
-  }
-  const auto snapshot_file = MakeSnapshotPath(snapshot_folder);
+  auto ensure_dir = [](const auto &dir) {
+    if (!fs::exists(dir) && !fs::create_directories(dir)) {
+      LOG(ERROR) << "Error while creating directory " << dir;
+      return false;
+    }
+    return true;
+  };
+  if (!ensure_dir(durability_dir)) return false;
+  if (!ensure_dir(durability_dir / kSnapshotDir)) return false;
+  const auto snapshot_file = MakeSnapshotPath(durability_dir);
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db_accessor_)) {
-    MaintainMaxRetainedFiles(snapshot_folder, snapshot_max_retained);
+    MaintainMaxRetainedFiles(durability_dir / kSnapshotDir,
+                             snapshot_max_retained);
     return true;
   } else {
     std::error_code error_code;  // Just for exception suppression.

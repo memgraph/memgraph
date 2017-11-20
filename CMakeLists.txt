@@ -192,6 +192,7 @@ set(memgraph_src_files
     ${src_dir}/communication/reactor/reactor_distributed.cpp
     ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
     ${src_dir}/database/graph_db.cpp
+    ${src_dir}/database/graph_db_config.cpp
     ${src_dir}/database/graph_db_accessor.cpp
     ${src_dir}/durability/recovery.cpp
     ${src_dir}/durability/snapshooter.cpp
