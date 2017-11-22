@@ -127,7 +127,7 @@ echo "Converting CSV dataset to '${neo4j_database_dir}/graph.db'"
 ${neo4j_dir}/bin/neo4j-import --into graph.db ${csv_dataset} --delimiter "|" --array-delimiter ";"
 
 # Convert to memgraph internal format.
-memgraph_snapshot_dir=${dataset_dir}/memgraph
+memgraph_snapshot_dir=${dataset_dir}/memgraph/snapshots
 mkdir -p ${memgraph_snapshot_dir}
 cd ${memgraph_snapshot_dir}
 echo "Converting CSV dataset to '${memgraph_snapshot_dir}/snapshot'"
