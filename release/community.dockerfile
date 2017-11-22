@@ -1,17 +1,11 @@
 FROM debian:stretch
-# FROM debian:stretch     # 104MB
-# FROM ubuntu 16.04       # 130MB
-# FROM phusion/baseimage  # 220MB
 
-ARG build_name
+ARG deb_release
 
-COPY ${build_name} /
+COPY ${deb_release} /
 
-# Setup memgraph user and group
-RUN groupadd -r memgraph
-RUN useradd -lrm -g memgraph memgraph
-RUN chown -R memgraph:memgraph /var/log/memgraph
-RUN chown -R memgraph:memgraph /var/lib/memgraph
+# Install memgraph package
+RUN dpkg -i ${deb_release}
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687

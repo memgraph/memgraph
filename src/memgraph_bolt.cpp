@@ -34,8 +34,9 @@ DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
-DEFINE_string(log_link_basename, "",
-              "Basename used for symlink creation to the last log file.");
+DEFINE_HIDDEN_string(
+    log_link_basename, "",
+    "Basename used for symlink creation to the last log file.");
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning treshold, in MB. If Memgraph detects there is "
               "less available RAM available it will log a warning. Set to 0 to "
@@ -103,6 +104,12 @@ int main(int argc, char **argv) {
   CHECK(SignalHandler::RegisterHandler(Signal::Interupt, shutdown,
                                        block_shutdown_signals))
       << "Unable to register SIGINT handler!";
+
+  // Setup SIGUSR1 to be used for reopening log files, when e.g. logrotate
+  // rotates our logs.
+  CHECK(SignalHandler::RegisterHandler(Signal::User1, []() {
+    google::CloseLogDestination(google::INFO);
+  })) << "Unable to register SIGUSR1 handler!";
 
   // Start memory warning logger.
   Scheduler mem_log_scheduler;

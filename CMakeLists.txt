@@ -286,12 +286,21 @@ endif()
 # we cannot use the recommended `install(TARGETS ...)`.
 install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
         DESTINATION bin RENAME memgraph)
-# Install the config file.
+# Install the config file (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
-# Create empty directories for default location of snapshots and logs.
+# Install logrotate configuration (must use absolute path).
+install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
+        DESTINATION /etc/logrotate.d RENAME memgraph)
+# Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
-                   \$ENV{DESTDIR}/var/lib/memgraph/snapshots)")
+                   \$ENV{DESTDIR}/var/lib/memgraph)")
+# Install the license file.
+install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE.md
+        DESTINATION share/doc/memgraph RENAME copyright)
+# Install systemd service (must use absolute path).
+install(FILES ${CMAKE_SOURCE_DIR}/release/memgraph.service
+        DESTINATION /lib/systemd/system)
 
 # ---- Setup CPack --------
 # General setup
@@ -304,14 +313,23 @@ set(CPACK_PACKAGE_VERSION_MINOR ${memgraph_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${memgraph_VERSION_PATCH})
 set(CPACK_PACKAGE_VERSION_TWEAK ${memgraph_VERSION_TWEAK})
 set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${memgraph_VERSION}-${COMMIT_HASH}${CPACK_SYSTEM_NAME})
-# TODO: Longer description, readme and license files.
 # DEB specific
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Memgraph Ltd.")
-set(CPACK_DEBIAN_PACKAGE_SECTION database)
+# Instead of using "name <email>" format, we use "email (name)" to prevent
+# errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
+set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
-# We may need conffiles, postinst, postrm or prerm scripts.
-# set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA ...)
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/conffiles;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/copyright;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postrm;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postinst;")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# Description formatting is important, summary must be followed with a newline and 1 space.
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
+ Contains Memgraph, the graph database. It aims to deliver developers the
+ speed, simplicity and scale required to build the next generation of
+ applications driver by real-time connected data.")
 # All variables must be set before including.
 include(CPack)
 # ---- End Setup CPack ----

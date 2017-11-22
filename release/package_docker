@@ -3,7 +3,7 @@
 # Build and Package (docker image) Memgraph
 
 function print_help () {
-    echo "Usage: $0 [--latest] BINARY_PACKAGE.tar.gz"
+    echo "Usage: $0 [--latest] MEMGPRAH_PACKAGE.deb"
     echo "Optional arguments:"
     echo -e "  -h|--help           Print help."
     echo -e "  --latest            Tag image as latest version."
@@ -28,20 +28,17 @@ if [[ ! -f "$1" ]]; then
   exit 1
 fi
 
-tar_release=`realpath "$1"`
-package_name=`echo $(basename $1) | sed 's/.tar.gz//'`
+# Copy the .deb to working directory.
+cp "$1" "${working_dir}/"
 
 cd ${working_dir}
-
-# Unpack the release package.
-echo "Unpacking '$1' to '${working_dir}/${package_name}'"
-tar xf ${tar_release}
-version=`echo ${package_name} | sed 's/.*-\(.*\)-.*/\1/'`
+# Extract version from deb name
+deb_name=`echo $(basename $1) | sed 's/.deb//'`
+version=`echo ${deb_name} | sed 's/.*[-_]\(.*\)-.*/\1/'`
 image_name="memgraph:${version}"
+package_name="memgraph-${version}-docker.tar.gz"
 # Build docker image.
-docker build -t ${image_name} ${tag_latest} -f ${working_dir}/community.dockerfile --build-arg build_name=${package_name} .
-docker save ${image_name} ${latest_image} > ${package_name}-docker.tar.gz
-# Remove unpacked package.
-echo "Removing '${working_dir}/${package_name}'"
-rm -rf ${package_name}
-echo "Built Docker imate at '${working_dir}/${package_name}-docker.tar.gz'"
+docker build -t ${image_name} ${tag_latest} -f ${working_dir}/community.dockerfile --build-arg deb_release=${deb_name}.deb .
+docker save ${image_name} ${latest_image} > ${package_name}
+rm -rf "${deb_name}.deb"
+echo "Built Docker image at '${working_dir}/${package_name}"

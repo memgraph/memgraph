@@ -1,0 +1,12 @@
+[Unit]
+Description=Memgraph: High performance, in-memory, transactional graph database
+
+[Service]
+User=memgraph
+Group=memgraph
+ExecStart=/usr/bin/memgraph
+# Uncomment this if Memgraph needs more time to write the snapshot on exit.
+#TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target

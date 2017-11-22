@@ -17,6 +17,7 @@ enum class Signal : int {
   Quit = SIGQUIT,
   Abort = SIGABRT,
   BusError = SIGBUS,
+  User1 = SIGUSR1,
 };
 
 class SignalHandler {

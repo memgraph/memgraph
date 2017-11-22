@@ -156,7 +156,8 @@ import_external_library(glog STATIC
   CMAKE_ARGS -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags
              -DGLOG_NO_FILENAMES=${GLOG_DISABLE_OPTIONS}
              -DGLOG_NO_STACKTRACE=${GLOG_DISABLE_OPTIONS}
-             -DGLOG_NO_BUFFER_SETTINGS=${GLOG_DISABLE_OPTIONS})
+             -DGLOG_NO_BUFFER_SETTINGS=${GLOG_DISABLE_OPTIONS}
+             -DGLOG_NO_TIME_PID_FILENAME=${GLOG_DISABLE_OPTIONS})
 
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})

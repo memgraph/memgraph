@@ -68,7 +68,7 @@ cd ..
 # google logging
 # git clone https://github.com/memgraph/glog.git
 git clone git://deps.memgraph.io/glog.git
-glog_tag="ae0ac046e8320245dc42af6671274a7e35ab09e0" # custom version (v0.3.5+)
+glog_tag="042a21657e79784226babab8b942f7bd0949635f" # custom version (v0.3.5+)
 cd glog
 git checkout ${glog_tag}
 cd ..

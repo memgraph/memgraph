@@ -89,14 +89,18 @@ if mode == "release":
     build_output_dir = os.path.join(BUILD_DIR, "output")
     deb_name = run_cmd(["find", ".", "-maxdepth", "1", "-type", "f",
             "-name", "memgraph*.deb"], build_output_dir).split("\n")[0][2:]
+    arch = run_cmd(["dpkg", "--print-architecture"], build_output_dir).split("\n")[0]
+    version = binary_name.split("-")[1]
+    # Generate Debian package file name as expected by Debian Policy.
+    standard_deb_name = "memgraph_{}-1_{}.deb".format(version, arch)
     tarball_name = run_cmd(["find", ".", "-maxdepth", "1", "-type", "f",
             "-name", "memgraph*.tar.gz"], build_output_dir).split("\n")[0][2:]
     shutil.copyfile(os.path.join(build_output_dir, deb_name),
-            os.path.join(OUTPUT_DIR, "release.deb"))
+            os.path.join(OUTPUT_DIR, standard_deb_name))
     shutil.copyfile(os.path.join(build_output_dir, tarball_name),
-            os.path.join(OUTPUT_DIR, "release.tar.gz"))
-    ARCHIVES.append(generate_archive("Release (deb package)", "release_deb", "release.deb"))
-    ARCHIVES.append(generate_archive("Release (tarball)", "release_tar", "release.tar.gz"))
+            os.path.join(OUTPUT_DIR, tarball_name))
+    ARCHIVES.append(generate_archive("Release (deb package)", standard_deb_name, standard_deb_name))
+    ARCHIVES.append(generate_archive("Release (tarball)", tarball_name, tarball_name))
 
 # store user documentation to archive
 if mode == "release":
