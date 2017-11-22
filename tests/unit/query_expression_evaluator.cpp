@@ -886,13 +886,15 @@ TEST(ExpressionEvaluator, FunctionToBoolean) {
   ASSERT_THROW(EvaluateFunction("TOBOOLEAN", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
+  ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {123}).ValueBool(), true);
+  ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {-213}).ValueBool(), true);
+  ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {0}).ValueBool(), false);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {" trUE \n\t"}).Value<bool>(), true);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {"\n\tFalsE "}).Value<bool>(), false);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {"\n\tFALSEA "}).type(),
             TypedValue::Type::Null);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {true}).Value<bool>(), true);
   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", {false}).Value<bool>(), false);
-  ASSERT_THROW(EvaluateFunction("TOBOOLEAN", {2}), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionToFloat) {
@@ -912,13 +914,14 @@ TEST(ExpressionEvaluator, FunctionToInteger) {
   ASSERT_THROW(EvaluateFunction("TOINTEGER", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
+  ASSERT_EQ(EvaluateFunction("TOINTEGER", {false}).Value<int64_t>(), 0);
+  ASSERT_EQ(EvaluateFunction("TOINTEGER", {true}).Value<int64_t>(), 1);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {"\n\t3"}).Value<int64_t>(), 3);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {" -3.5 \n\t"}).Value<int64_t>(), -3);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {"\n\t3X "}).type(),
             TypedValue::Type::Null);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {-3.5}).Value<int64_t>(), -3);
   ASSERT_EQ(EvaluateFunction("TOINTEGER", {3.5}).Value<int64_t>(), 3);
-  ASSERT_THROW(EvaluateFunction("TOINTEGER", {true}), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionType) {

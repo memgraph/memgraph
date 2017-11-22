@@ -180,6 +180,8 @@ TypedValue ToBoolean(const std::vector<TypedValue> &args, GraphDbAccessor &) {
       return TypedValue::Null;
     case TypedValue::Type::Bool:
       return args[0].Value<bool>();
+    case TypedValue::Type::Int:
+      return args[0].ValueInt() != 0L;
     case TypedValue::Type::String: {
       auto s = utils::ToUpperCase(utils::Trim(args[0].Value<std::string>()));
       if (s == "TRUE") return true;
@@ -222,6 +224,8 @@ TypedValue ToInteger(const std::vector<TypedValue> &args, GraphDbAccessor &) {
   switch (args[0].type()) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
+    case TypedValue::Type::Bool:
+      return args[0].ValueBool() ? 1L : 0L;
     case TypedValue::Type::Int:
       return args[0];
     case TypedValue::Type::Double:
