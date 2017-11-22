@@ -135,7 +135,10 @@ option(POC "Build proof of concept binaries" ON)
 message(STATUS "POC binaries: ${POC}")
 # experimental
 option(EXPERIMENTAL "Build experimental binaries" OFF)
-message(STATUS "POC binaries: ${POC}")
+message(STATUS "Experimental binaries: ${EXPERIMENTAL}")
+# customers
+option(CUSTOMERS "Customer binaries" ON)
+message(STATUS "Customers binaries: ${CUSTOMERS}")
 # tests
 option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
 message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
@@ -248,10 +251,17 @@ add_dependencies(memgraph_lib generate_opencypher_parser)
 if (POC)
     add_subdirectory(poc)
 endif()
+# -----------------------------------------------------------------------------
 
 # experimental
 if (EXPERIMENTAL)
     add_subdirectory(experimental)
+endif()
+# -----------------------------------------------------------------------------
+
+# customers
+if (CUSTOMERS)
+    add_subdirectory(customers)
 endif()
 # -----------------------------------------------------------------------------
 
