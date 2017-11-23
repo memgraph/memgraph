@@ -5,9 +5,6 @@
 
 #pragma once
 
-#include <list>
-
-#include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
 
 namespace query {

@@ -10,6 +10,7 @@
 #include <sstream>
 #include <vector>
 
+#include "communication/result_stream_faker.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
@@ -51,78 +52,6 @@ std::string ReadLine(const char *prompt) {
 
 #endif  // HAS_READLINE
 
-/**
- * Converts the given TypedValue into a string (single line).
- */
-std::string TypedValueToString(const query::TypedValue &value) {
-  std::stringstream ss;
-  ss << value;
-  return ss.str();
-}
-
-/**
- * Prints out all the given results to standard out.
- */
-void PrintResults(const ResultStreamFaker &results) {
-  const std::vector<std::string> &header = results.GetHeader();
-  std::vector<int> column_widths(header.size());
-  std::transform(header.begin(), header.end(), column_widths.begin(),
-                 [](const auto &s) { return s.size(); });
-
-  // convert all the results into strings, and track max column width
-  auto &results_data = results.GetResults();
-  std::vector<std::vector<std::string>> result_strings(
-      results_data.size(), std::vector<std::string>(column_widths.size()));
-  for (int row_ind = 0; row_ind < static_cast<int>(results_data.size());
-       ++row_ind) {
-    for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
-         ++col_ind) {
-      std::string string_val =
-          TypedValueToString(results_data[row_ind][col_ind]);
-      column_widths[col_ind] =
-          std::max(column_widths[col_ind], (int)string_val.size());
-      result_strings[row_ind][col_ind] = string_val;
-    }
-  }
-
-  // output a results table
-  // first define some helper functions
-  auto emit_horizontal_line = [&]() {
-    std::cout << "+";
-    for (auto col_width : column_widths)
-      std::cout << std::string((unsigned long)col_width + 2, '-') << "+";
-    std::cout << std::endl;
-  };
-
-  auto emit_result_vec = [&](const std::vector<std::string> result_vec) {
-    std::cout << "| ";
-    for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
-         ++col_ind) {
-      const std::string &res = result_vec[col_ind];
-      std::cout << res << std::string(column_widths[col_ind] - res.size(), ' ');
-      std::cout << " | ";
-    }
-    std::cout << std::endl;
-  };
-
-  // final output of results
-  emit_horizontal_line();
-  emit_result_vec(results.GetHeader());
-  emit_horizontal_line();
-  for (const auto &result_vec : result_strings) emit_result_vec(result_vec);
-  emit_horizontal_line();
-  std::cout << "Found " << results_data.size() << " matching results"
-            << std::endl;
-
-  // output the summary
-  std::cout << "Query summary: {";
-  utils::PrintIterable(std::cout, results.GetSummary(), ", ",
-                       [&](auto &stream, const auto &kv) {
-                         stream << kv.first << ": " << kv.second;
-                       });
-  std::cout << "}" << std::endl;
-}
-
 void query::Repl(GraphDb &db) {
   std::cout
       << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"
@@ -141,7 +70,7 @@ void query::Repl(GraphDb &db) {
       GraphDbAccessor dba(db);
       ResultStreamFaker results;
       interpeter.Interpret(command, dba, results, {}, false);
-      PrintResults(results);
+      std::cout << results;
       dba.Commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
