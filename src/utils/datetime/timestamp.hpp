@@ -14,8 +14,7 @@ class Timestamp : public TotalOrdering<Timestamp> {
  public:
   Timestamp() : Timestamp(0, 0) {}
 
-  Timestamp(std::time_t time, long nsec = 0)
-      : unix_time(time), nsec(nsec) {
+  Timestamp(std::time_t time, long nsec = 0) : unix_time(time), nsec(nsec) {
     auto result = gmtime_r(&time, &this->time);
 
     if (result == nullptr)
@@ -51,9 +50,9 @@ class Timestamp : public TotalOrdering<Timestamp> {
                        subsec());
   }
 
-  const std::string to_string(const std::string &format = fiso8601) const {
+  const std::string to_string(const std::string& format = fiso8601) const {
     return fmt::format(format, year(), month(), day(), hour(), min(), sec(),
-                       subsec()); 
+                       subsec());
   }
 
   friend std::ostream& operator<<(std::ostream& stream, const Timestamp& ts) {

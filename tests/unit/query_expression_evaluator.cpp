@@ -801,13 +801,14 @@ TEST(ExpressionEvaluator, FunctionProperties) {
     }
     return properties;
   };
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {v1})),
+
+  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {v1}, db)),
               UnorderedElementsAre(testing::Pair("height", 5),
                                    testing::Pair("age", 10)));
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {e})),
+  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {e}, db)),
               UnorderedElementsAre(testing::Pair("height", 3),
                                    testing::Pair("age", 15)));
-  ASSERT_THROW(EvaluateFunction("PROPERTIES", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("PROPERTIES", {2}, db), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionLast) {
@@ -935,8 +936,8 @@ TEST(ExpressionEvaluator, FunctionType) {
   auto v2 = dba.InsertVertex();
   v2.add_label(dba.Label("label2"));
   auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
-  ASSERT_EQ(EvaluateFunction("TYPE", {e}).Value<std::string>(), "type1");
-  ASSERT_THROW(EvaluateFunction("TYPE", {2}), QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("TYPE", {e}, db).Value<std::string>(), "type1");
+  ASSERT_THROW(EvaluateFunction("TYPE", {2}, db), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionLabels) {
@@ -950,12 +951,12 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
   auto _labels =
-      EvaluateFunction("LABELS", {v}).Value<std::vector<TypedValue>>();
+      EvaluateFunction("LABELS", {v}, db).Value<std::vector<TypedValue>>();
   for (auto label : _labels) {
     labels.push_back(label.Value<std::string>());
   }
   ASSERT_THAT(labels, UnorderedElementsAre("label1", "label2"));
-  ASSERT_THROW(EvaluateFunction("LABELS", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("LABELS", {2}, db), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionNodesRelationships) {
@@ -1040,11 +1041,11 @@ TEST(ExpressionEvaluator, FunctionKeys) {
     }
     return keys;
   };
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {v1})),
+  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {v1}, db)),
               UnorderedElementsAre("height", "age"));
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {e})),
+  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {e}, db)),
               UnorderedElementsAre("width", "age"));
-  ASSERT_THROW(EvaluateFunction("KEYS", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("KEYS", {2}, db), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionTail) {

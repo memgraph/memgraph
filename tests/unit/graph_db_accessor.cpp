@@ -38,7 +38,7 @@ TEST(GraphDbAccessorTest, UniqueVertexId) {
   std::vector<std::thread> threads;
   for (int i = 0; i < 50; i++) {
     threads.emplace_back([&db, &ids]() {
-        GraphDbAccessor dba(db);
+      GraphDbAccessor dba(db);
       auto access = ids.access();
       for (int i = 0; i < 200; i++) access.insert(dba.InsertVertex().id());
     });
@@ -350,7 +350,7 @@ TEST(GraphDbAccessorTest, Properties) {
   GraphDb db;
   GraphDbAccessor dba(db);
 
-  GraphDbTypes::EdgeType prop = dba.Property("name");
+  GraphDbTypes::Property prop = dba.Property("name");
   EXPECT_EQ(prop, dba.Property("name"));
   EXPECT_NE(prop, dba.Property("surname"));
   EXPECT_EQ(dba.PropertyName(prop), "name");

@@ -168,21 +168,24 @@ TEST(BoltEncoder, VertexAndEdge) {
   GraphDbAccessor db_accessor(db);
   auto va1 = db_accessor.InsertVertex();
   auto va2 = db_accessor.InsertVertex();
-  std::string l1("label1"), l2("label2");
-  va1.add_label(&l1);
-  va1.add_label(&l2);
-  std::string p1("prop1"), p2("prop2");
+  auto l1 = db_accessor.Label("label1");
+  auto l2 = db_accessor.Label("label2");
+  va1.add_label(l1);
+  va1.add_label(l2);
+  auto p1 = db_accessor.Property("prop1");
+  auto p2 = db_accessor.Property("prop2");
   PropertyValue pv1(12), pv2(200);
-  va1.PropsSet(&p1, pv1);
-  va1.PropsSet(&p2, pv2);
+  va1.PropsSet(p1, pv1);
+  va1.PropsSet(p2, pv2);
 
   // create edge
-  std::string et("edgetype");
-  auto ea = db_accessor.InsertEdge(va1, va2, &et);
-  std::string p3("prop3"), p4("prop4");
+  auto et = db_accessor.EdgeType("edgetype");
+  auto ea = db_accessor.InsertEdge(va1, va2, et);
+  auto p3 = db_accessor.Property("prop3");
+  auto p4 = db_accessor.Property("prop4");
   PropertyValue pv3(42), pv4(1234);
-  ea.PropsSet(&p3, pv3);
-  ea.PropsSet(&p4, pv4);
+  ea.PropsSet(p3, pv3);
+  ea.PropsSet(p4, pv4);
 
   // check everything
   std::vector<TypedValue> vals;

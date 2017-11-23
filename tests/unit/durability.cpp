@@ -164,15 +164,25 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
         << utils::Join(index_b, ", ");
   }
 
-  auto is_permutation_props = [&dba_a, &dba_b](const auto &p1, const auto p2) {
+  auto is_permutation_props = [&dba_a, &dba_b](const auto &p1_id,
+                                               const auto &p2_id) {
+
+    std::vector<std::pair<std::string, query::TypedValue>> p1;
+    std::vector<std::pair<std::string, query::TypedValue>> p2;
+
+    for (auto x : p1_id) p1.push_back({dba_a.PropertyName(x.first), x.second});
+    for (auto x : p2_id) p2.push_back({dba_b.PropertyName(x.first), x.second});
+
+    // Don't use a binary predicate which depends on different value getters
+    // semantics for two containers because is_permutation might call the
+    // predicate with both arguments on the same container
     return p1.size() == p2.size() &&
-           std::is_permutation(
-               p1.begin(), p1.end(), p2.begin(),
-               [&dba_a, &dba_b](const auto &p1, const auto &p2) {
-                 return dba_a.PropertyName(p1.first) ==
-                            dba_b.PropertyName(p2.first) &&
-                        query::TypedValue::BoolEqual{}(p1.second, p2.second);
-               });
+           std::is_permutation(p1.begin(), p1.end(), p2.begin(),
+                               [](const auto &p1, const auto &p2) {
+                                 return p1.first == p2.first &&
+                                        query::TypedValue::BoolEqual{}(
+                                            p1.second, p2.second);
+                               });
   };
 
   {
@@ -182,11 +192,12 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
       auto v_b = dba_b.FindVertex(v_a.id(), false);
       ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.id();
       ASSERT_EQ(v_a.labels().size(), v_b->labels().size());
-      EXPECT_TRUE(std::is_permutation(
-          v_a.labels().begin(), v_a.labels().end(), v_b->labels().begin(),
-          [&dba_a, &dba_b](const auto &la, const auto &lb) {
-            return dba_a.LabelName(la) == dba_b.LabelName(lb);
-          }));
+      std::vector<std::string> v_a_labels;
+      std::vector<std::string> v_b_labels;
+      for (auto x : v_a.labels()) v_a_labels.push_back(dba_a.LabelName(x));
+      for (auto x : v_b->labels()) v_b_labels.push_back(dba_b.LabelName(x));
+      EXPECT_TRUE(std::is_permutation(v_a_labels.begin(), v_a_labels.end(),
+                                      v_b_labels.begin()));
       EXPECT_TRUE(is_permutation_props(v_a.Properties(), v_b->Properties()));
     }
     auto vertices_b = dba_b.Vertices(false);

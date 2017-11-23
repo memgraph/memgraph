@@ -125,10 +125,10 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuildTwice) {
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
   dba->BuildIndex(label, property);
   EXPECT_EQ(dba->VerticesCount(label, property), 0);
-  EXPECT_EQ(Count(dba->Vertices(label, property)), 0);
+  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 0);
   for (int i = 0; i < 14; ++i) AddVertex(0);
   EXPECT_EQ(dba->VerticesCount(label, property), 14);
-  EXPECT_EQ(Count(dba->Vertices(label, property)), 14);
+  EXPECT_EQ(Count(dba->Vertices(label, property, true)), 14);
 }
 
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
@@ -147,7 +147,8 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
         dba.Abort();
         success = 0;
       }
-    }).detach();
+    })
+        .detach();
   };
 
   int build_1_success = -1;

@@ -11,6 +11,7 @@
 #include "database/indexes/label_property_index.hpp"
 #include "durability/wal.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/concurrent_id_mapper.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
@@ -114,9 +115,15 @@ class GraphDb {
 
   // unique object stores
   // TODO this should be also garbage collected
-  ConcurrentSet<std::string> labels_;
-  ConcurrentSet<std::string> edge_types_;
-  ConcurrentSet<std::string> properties_;
+  ConcurrentIdMapper<GraphDbTypes::Label, GraphDbTypes::Label::StorageT,
+                     std::string>
+      labels_;
+  ConcurrentIdMapper<GraphDbTypes::EdgeType, GraphDbTypes::EdgeType::StorageT,
+                     std::string>
+      edge_types_;
+  ConcurrentIdMapper<GraphDbTypes::Property, GraphDbTypes::Property::StorageT,
+                     std::string>
+      properties_;
 
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;

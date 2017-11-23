@@ -1,6 +1,11 @@
 /// @file
 #pragma once
 
+#include <experimental/optional>
+
+#include "database/graph_db_datatypes.hpp"
+#include "storage/property_value.hpp"
+#include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 
 namespace query::plan {
@@ -129,4 +134,4 @@ auto MakeVertexCountCache(const TDbAccessor &db) {
   return VertexCountCache<TDbAccessor>(db);
 }
 
-}  // namespace plan::query
+}  // namespace query::plan

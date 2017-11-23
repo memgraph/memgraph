@@ -132,33 +132,39 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(int64_t vertices_count, Timer &timer)
-      : vertices_count_(vertices_count), timer_(timer) {}
+  InteractiveDbAccessor(GraphDbAccessor &dba, int64_t vertices_count,
+                        Timer &timer)
+      : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   int64_t VerticesCount() const { return vertices_count_; }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label) const {
-    if (label_vertex_count_.find(*label) == label_vertex_count_.end()) {
-      label_vertex_count_[*label] = ReadVertexCount("label '" + *label + "'");
+  int64_t VerticesCount(const GraphDbTypes::Label &label_id) const {
+    auto label = dba_.LabelName(label_id);
+    if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
+      label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
     }
-    return label_vertex_count_.at(*label);
+    return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label,
-                        const GraphDbTypes::Property &property) const {
-    auto key = std::make_pair(*label, *property);
+  int64_t VerticesCount(const GraphDbTypes::Label &label_id,
+                        const GraphDbTypes::Property &property_id) const {
+    auto label = dba_.LabelName(label_id);
+    auto property = dba_.PropertyName(property_id);
+    auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end()) {
       label_property_vertex_count_[key] = ReadVertexCount(
-          "label '" + *label + "' and property '" + *property + "'");
+          "label '" + label + "' and property '" + property + "'");
     }
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label,
-                        const GraphDbTypes::Property &property,
+  int64_t VerticesCount(const GraphDbTypes::Label &label_id,
+                        const GraphDbTypes::Property &property_id,
                         const PropertyValue &value) const {
-    auto label_prop = std::make_pair(*label, *property);
+    auto label = dba_.LabelName(label_id);
+    auto property = dba_.PropertyName(property_id);
+    auto label_prop = std::make_pair(label, property);
     if (label_property_index_.find(label_prop) == label_property_index_.end()) {
       return 0;
     }
@@ -166,18 +172,21 @@ class InteractiveDbAccessor {
     if (value_vertex_count.find(value) == value_vertex_count.end()) {
       std::stringstream ss;
       ss << value;
-      int64_t count = ReadVertexCount("label '" + *label + "' and property '" +
-                                      *property + "' value '" + ss.str() + "'");
+      int64_t count = ReadVertexCount("label '" + label + "' and property '" +
+                                      property + "' value '" + ss.str() + "'");
       value_vertex_count[value] = count;
     }
     return value_vertex_count.at(value);
   }
 
   int64_t VerticesCount(
-      const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+      const GraphDbTypes::Label &label_id,
+      const GraphDbTypes::Property &property_id,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const {
+    auto label = dba_.LabelName(label_id);
+    auto property = dba_.PropertyName(property_id);
     std::stringstream range_string;
     if (lower) {
       range_string << (lower->IsInclusive() ? "[" : "(") << lower->value()
@@ -188,17 +197,19 @@ class InteractiveDbAccessor {
     if (upper) {
       range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
     }
-    return ReadVertexCount("label '" + *label + "' and property '" + *property +
+    return ReadVertexCount("label '" + label + "' and property '" + property +
                            "' in range " + range_string.str());
   }
 
-  bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
-                                const GraphDbTypes::Property &property) const {
-    auto key = std::make_pair(*label, *property);
+  bool LabelPropertyIndexExists(
+      const GraphDbTypes::Label &label_id,
+      const GraphDbTypes::Property &property_id) const {
+    auto label = dba_.LabelName(label_id);
+    auto property = dba_.PropertyName(property_id);
+    auto key = std::make_pair(label, property);
     if (label_property_index_.find(key) == label_property_index_.end()) {
       bool resp = timer_.WithPause([&label, &property]() {
-        return AskYesNo("Index for ':" + *label + "(" + *property +
-                        ")' exists:");
+        return AskYesNo("Index for ':" + label + "(" + property + ")' exists:");
       });
       label_property_index_[key] = resp;
     }
@@ -307,6 +318,7 @@ class InteractiveDbAccessor {
  private:
   typedef std::pair<std::string, std::string> LabelPropertyKey;
 
+  GraphDbAccessor &dba_;
   int64_t vertices_count_;
   Timer &timer_;
   mutable std::map<std::string, int64_t> label_vertex_count_;
@@ -352,9 +364,11 @@ class InteractiveDbAccessor {
 
 class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
  public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
+
+  explicit PlanPrinter(GraphDbAccessor &dba) : dba_(dba) {}
 
 #define PRE_VISIT(TOp)                                   \
   bool PreVisit(query::plan::TOp &) override {           \
@@ -377,7 +391,8 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   bool PreVisit(query::plan::ScanAllByLabel &op) override {
     WithPrintLn([&](auto &out) {
       out << "* ScanAllByLabel"
-          << " (" << op.output_symbol().name() << " :" << *op.label() << ")";
+          << " (" << op.output_symbol().name() << " :"
+          << dba_.LabelName(op.label()) << ")";
     });
     return true;
   }
@@ -385,8 +400,9 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   bool PreVisit(query::plan::ScanAllByLabelPropertyValue &op) override {
     WithPrintLn([&](auto &out) {
       out << "* ScanAllByLabelPropertyValue"
-          << " (" << op.output_symbol().name() << " :" << *op.label() << " {"
-          << *op.property() << "})";
+          << " (" << op.output_symbol().name() << " :"
+          << dba_.LabelName(op.label()) << " {"
+          << dba_.PropertyName(op.property()) << "})";
     });
     return true;
   }
@@ -394,8 +410,9 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   bool PreVisit(query::plan::ScanAllByLabelPropertyRange &op) override {
     WithPrintLn([&](auto &out) {
       out << "* ScanAllByLabelPropertyRange"
-          << " (" << op.output_symbol().name() << " :" << *op.label() << " {"
-          << *op.property() << "})";
+          << " (" << op.output_symbol().name() << " :"
+          << dba_.LabelName(op.label()) << " {"
+          << dba_.PropertyName(op.property()) << "})";
     });
     return true;
   }
@@ -500,6 +517,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   }
 
   int depth_ = 0;
+  GraphDbAccessor &dba_;
 };
 
 // Shorthand for a vector of pairs (logical_plan, cost).
@@ -511,22 +529,24 @@ typedef std::vector<
 struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
-  std::function<void(PlansWithCost &, const Args &)> function;
+  std::function<void(GraphDbAccessor &, PlansWithCost &, const Args &)>
+      function;
   // Number of arguments the function works with.
   int arg_count;
   // Explanation of the command.
   std::string documentation;
 };
 
-#define DEFCOMMAND(Name) \
-  void Name##Command(PlansWithCost &plans, const Command::Args &args)
+#define DEFCOMMAND(Name)                                         \
+  void Name##Command(GraphDbAccessor &dba, PlansWithCost &plans, \
+                     const Command::Args &args)
 
 DEFCOMMAND(Top) {
   int64_t n_plans = 0;
   std::stringstream ss(args[0]);
   ss >> n_plans;
   if (ss.fail() || !ss.eof()) return;
-  PlanPrinter printer;
+  PlanPrinter printer(dba);
   n_plans = std::min(static_cast<int64_t>(plans.size()), n_plans);
   for (int64_t i = 0; i < n_plans; ++i) {
     auto &plan_pair = plans[i];
@@ -545,7 +565,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].first;
   auto cost = plans[plan_ix].second;
   std::cout << "Plan cost: " << cost << std::endl;
-  PlanPrinter printer;
+  PlanPrinter printer(dba);
   plan->Accept(printer);
 }
 
@@ -571,6 +591,7 @@ DEFCOMMAND(Help) {
 #undef DEFCOMMAND
 
 void ExaminePlans(
+    GraphDbAccessor &dba,
     std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>,
                           double>> &plans) {
   while (true) {
@@ -592,7 +613,7 @@ void ExaminePlans(
                 << " arguments" << std::endl;
       continue;
     }
-    command.function(plans, args);
+    command.function(dba, plans, args);
   }
 }
 
@@ -646,9 +667,11 @@ int main(int argc, char *argv[]) {
     std::exit(EXIT_FAILURE);
   }
   GraphDb db;
+  GraphDbAccessor dba(db);
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(
-      in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0, planning_timer);
+      dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
+      planning_timer);
   if (!in_db_filename.empty()) {
     std::ifstream db_file(in_db_filename);
     interactive_db.Load(db_file);
@@ -658,7 +681,6 @@ int main(int argc, char *argv[]) {
     if (!line || *line == "quit") break;
     if (line->empty()) continue;
     try {
-      GraphDbAccessor dba(db);
       auto ast = MakeAst(*line, dba);
       auto symbol_table = MakeSymbolTable(ast);
       planning_timer.Start();
@@ -669,7 +691,7 @@ int main(int argc, char *argv[]) {
           << std::chrono::duration<double, std::milli>(planning_time).count()
           << "ms" << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
-      ExaminePlans(plans);
+      ExaminePlans(dba, plans);
     } catch (const utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }

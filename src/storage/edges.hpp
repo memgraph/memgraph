@@ -90,9 +90,10 @@ class Edges {
      * present in this iterator. */
     void update_position() {
       if (vertex_.local()) {
-        position_ = std::find_if(
-            position_, end_,
-            [v = this->vertex_](const Element &e) { return e.vertex == v; });
+        position_ = std::find_if(position_,
+                                 end_, [v = this->vertex_](const Element &e) {
+                                   return e.vertex == v;
+                                 });
       }
       if (edge_types_) {
         position_ = std::find_if(position_, end_, [this](const Element &e) {

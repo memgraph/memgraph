@@ -103,7 +103,7 @@ TEST(QueryPlan, CreateExpand) {
   GraphDbTypes::Label label_node_1 = dba.Label("Node1");
   GraphDbTypes::Label label_node_2 = dba.Label("Node2");
   auto property = PROPERTY_PAIR("property");
-  GraphDbTypes::EdgeType edge_type = dba.Label("edge_type");
+  GraphDbTypes::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -210,7 +210,7 @@ TEST(QueryPlan, MatchCreateExpand) {
   //  GraphDbTypes::Label label_node_1 = dba.Label("Node1");
   //  GraphDbTypes::Label label_node_2 = dba.Label("Node2");
   //  GraphDbTypes::Property property = dba.Label("prop");
-  GraphDbTypes::EdgeType edge_type = dba.Label("edge_type");
+  GraphDbTypes::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;

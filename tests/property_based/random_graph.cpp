@@ -54,12 +54,12 @@ RC_GTEST_PROP(RandomGraph, RandomGraph,
   for (const auto &vertex : dba.Vertices(false)) {
     auto label = vertex_label_map.at(vertex);
     RC_ASSERT(vertex.labels().size() == 1);
-    RC_ASSERT(*vertex.labels()[0] == label);
+    RC_ASSERT(dba.LabelName(vertex.labels()[0]) == label);
     vertices_num_check++;
   }
   for (const auto &edge : dba.Edges(false)) {
     auto type = edge_type_map.at(edge);
-    RC_ASSERT(*edge.EdgeType() == type);
+    RC_ASSERT(dba.EdgeTypeName(edge.EdgeType()) == type);
     edges_num_check++;
   }
   RC_ASSERT(vertices_num_check == vertices_num);

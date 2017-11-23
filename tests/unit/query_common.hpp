@@ -180,9 +180,10 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
 /// Name is used to create the Identifier which is assigned to the node.
 ///
 auto GetNode(AstTreeStorage &storage, const std::string &name,
-             GraphDbTypes::Label label = nullptr) {
+             std::experimental::optional<GraphDbTypes::Label> label =
+                 std::experimental::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
-  if (label) node->labels_.emplace_back(label);
+  if (label) node->labels_.emplace_back(*label);
   return node;
 }
 
