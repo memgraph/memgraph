@@ -144,32 +144,47 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+ private:
+  template <typename TLiteral, typename TIteratorToExpression>
+  void PostVisitCollectionLiteral(
+      TLiteral &literal, TIteratorToExpression iterator_to_expression) {
+    // If there is an aggregation in the list, and there are group-bys, then we
+    // need to add the group-bys manually. If there are no aggregations, the
+    // whole list will be added as a group-by.
+    std::vector<Expression *> literal_group_by;
+    bool has_aggr = false;
+    auto it = has_aggregation_.end();
+    auto elements_it = literal.elements_.begin();
+    std::advance(it, -literal.elements_.size());
+    while (it != has_aggregation_.end()) {
+      if (*it) {
+        has_aggr = true;
+      } else {
+        literal_group_by.emplace_back(iterator_to_expression(elements_it));
+      }
+      elements_it++;
+      it = has_aggregation_.erase(it);
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    if (has_aggr) {
+      for (auto expression_ptr : literal_group_by)
+        group_by_.emplace_back(expression_ptr);
+    }
+  }
+
+ public:
   bool PostVisit(ListLiteral &list_literal) override {
     DCHECK(list_literal.elements_.size() <= has_aggregation_.size())
         << "Expected has_aggregation_ flags as much as there are list "
            "elements.";
-    bool has_aggr = false;
-    auto it = has_aggregation_.end();
-    std::advance(it, -list_literal.elements_.size());
-    while (it != has_aggregation_.end()) {
-      has_aggr = has_aggr || *it;
-      it = has_aggregation_.erase(it);
-    }
-    has_aggregation_.emplace_back(has_aggr);
+    PostVisitCollectionLiteral(list_literal, [](auto it) { return *it; });
     return true;
   }
 
   bool PostVisit(MapLiteral &map_literal) override {
     DCHECK(map_literal.elements_.size() <= has_aggregation_.size())
         << "Expected has_aggregation_ flags as much as there are map elements.";
-    bool has_aggr = false;
-    auto it = has_aggregation_.end();
-    std::advance(it, -map_literal.elements_.size());
-    while (it != has_aggregation_.end()) {
-      has_aggr = has_aggr || *it;
-      it = has_aggregation_.erase(it);
-    }
-    has_aggregation_.emplace_back(has_aggr);
+    PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
     return true;
   }
 

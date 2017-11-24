@@ -486,7 +486,6 @@ TEST(TestLogicalPlanner, OptionalMatchNamedPatternReturn) {
             ExpectProduce());
 }
 
-
 TEST(TestLogicalPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n
   AstTreeStorage storage;
@@ -1084,6 +1083,40 @@ TEST(TestLogicalPlanner, ListSliceAggregationReturn) {
   CheckPlan(storage, aggr, ExpectProduce());
 }
 
+TEST(TestLogicalPlanner, ListWithAggregationAndGroupBy) {
+  // Test RETURN [sum(2), 42]
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(LIST(sum, group_by_literal), AS("result")));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, AggregatonWithListWithAggregationAndGroupBy) {
+  // Test RETURN sum(2), [sum(3), 42]
+  AstTreeStorage storage;
+  auto sum2 = SUM(LITERAL(2));
+  auto sum3 = SUM(LITERAL(3));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list")));
+  auto aggr = ExpectAggregate({sum2, sum3}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
+TEST(TestLogicalPlanner, MapWithAggregationAndGroupBy) {
+  // Test RETURN {lit: 42, sum: sum(2)}
+  GraphDb db;
+  AstTreeStorage storage;
+  auto sum = SUM(LITERAL(2));
+  auto group_by_literal = LITERAL(42);
+  QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum},
+                   {PROPERTY_PAIR("lit"), group_by_literal}),
+               AS("result")));
+  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  CheckPlan(storage, aggr, ExpectProduce());
+}
+
 TEST(TestLogicalPlanner, CreateIndex) {
   // Test CREATE INDEX ON :Label(property)
   GraphDb db;
@@ -1248,9 +1281,8 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
   AstTreeStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr,
-                                                       auto lower_bound,
-                                                       auto upper_bound) {
+  auto check_planned_range = [&label, &property, &dba](
+      const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstTreeStorage storage;
     QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr), RETURN("n"));
