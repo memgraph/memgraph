@@ -200,28 +200,6 @@ void ApplyOp(const WriteAheadLog::Op &op, GraphDbAccessor &dba) {
   }
 }
 
-// Returns the transaction id contained in the file name. If the filename is not
-// a parseable WAL file name, nullopt is returned. If the filename represents
-// the "current" WAL file, then the maximum possible transaction ID is returned.
-std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
-    const std::string &name) {
-  // Get the max_transaction_id from the file name that has format
-  // "XXXXX__max_transaction_<MAX_TRANS_ID>"
-  auto file_name_split = utils::RSplit(name, "__", 1);
-  if (file_name_split.size() != 2) {
-    LOG(WARNING) << "Unable to parse WAL file name: " << name;
-    return std::experimental::nullopt;
-  }
-  if (file_name_split[1] == "current")
-    return std::numeric_limits<tx::transaction_id_t>::max();
-  file_name_split = utils::RSplit(file_name_split[1], "_", 1);
-  if (file_name_split.size() != 2) {
-    LOG(WARNING) << "Unable to parse WAL file name: " << name;
-    return std::experimental::nullopt;
-  }
-  return std::stoi(file_name_split[1]);
-}
-
 // TODO - finer-grained recovery feedback could be useful here.
 bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
                 RecoveryData &recovery_data) {

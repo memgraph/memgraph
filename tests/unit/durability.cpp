@@ -636,6 +636,24 @@ TEST_F(Durability, SnapshotRetention) {
   };
 }
 
+TEST_F(Durability, WalRetention) {
+  FLAGS_wal_rotate_ops_count = 100;
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
+  MakeDb(db, 100);
+  MakeSnapshot(db);
+  MakeDb(db, 100);
+  EXPECT_EQ(DirFiles(kSnapshotDir).size(), 1);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  // 1 current WAL file, plus retained ones
+  EXPECT_GT(DirFiles(kWalDir).size(), 1);
+  MakeSnapshot(db);
+  // only 1 current WAL file
+  EXPECT_EQ(DirFiles(kSnapshotDir).size(), 2);
+  EXPECT_EQ(DirFiles(kWalDir).size(), 1);
+}
+
 TEST_F(Durability, SnapshotOnExit) {
   {
     auto config = DbConfig();

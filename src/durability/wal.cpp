@@ -2,7 +2,6 @@
 
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "durability/paths.hpp"
-#include "utils/datetime/timestamp.hpp"
 #include "utils/flag_validation.hpp"
 
 DEFINE_HIDDEN_int32(
@@ -261,20 +260,13 @@ WriteAheadLog::WalFile::~WalFile() {
   if (!current_wal_file_.empty()) writer_.Close();
 }
 
-namespace {
-auto MakeFilePath(const std::experimental::filesystem::path &wal_dir,
-                  const std::string &suffix) {
-  return wal_dir / (Timestamp::now().to_iso8601() + suffix);
-}
-}
-
 void WriteAheadLog::WalFile::Init() {
   if (!std::experimental::filesystem::exists(wal_dir_) &&
       !std::experimental::filesystem::create_directories(wal_dir_)) {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {
-    current_wal_file_ = MakeFilePath(wal_dir_, "__current");
+    current_wal_file_ = WalFilenameForTransactionId(wal_dir_);
     try {
       writer_.Open(current_wal_file_);
     } catch (std::ios_base::failure &) {
@@ -317,9 +309,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<Op> &buffer) {
 void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
-      current_wal_file_,
-      MakeFilePath(wal_dir_,
-                   "__max_transaction_" + std::to_string(latest_tx_)));
+      current_wal_file_, WalFilenameForTransactionId(wal_dir_, latest_tx_));
   Init();
 }
 

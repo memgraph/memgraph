@@ -70,18 +70,35 @@ bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
   return true;
 }
 
-void MaintainMaxRetainedFiles(const fs::path &snapshot_dir,
-                              int snapshot_max_retained) {
-  if (snapshot_max_retained == -1) return;
+// Removes snaposhot files so that only `max_retained` latest ones are kept. If
+// `max_retained == -1`, all the snapshots are retained.
+void RemoveOldSnapshots(const fs::path &snapshot_dir, int max_retained) {
+  if (max_retained == -1) return;
   std::vector<fs::path> files;
   for (auto &file : fs::directory_iterator(snapshot_dir))
     files.push_back(file.path());
-  if (static_cast<int>(files.size()) <= snapshot_max_retained) return;
+  if (static_cast<int>(files.size()) <= max_retained) return;
   sort(files.begin(), files.end());
-  for (size_t i = 0U; i < files.size() - snapshot_max_retained; ++i) {
+  for (int i = 0; i < static_cast<int>(files.size()) - max_retained; ++i) {
     if (!fs::remove(files[i])) {
       LOG(ERROR) << "Error while removing file: " << files[i];
     }
+  }
+}
+
+// Removes write-ahead log files that are no longer necessary (they don't get
+// used when recovering from the latest snapshot.
+void RemoveOldWals(const fs::path &wal_dir,
+                   const tx::Transaction &snapshot_transaction) {
+  if (!fs::exists(wal_dir)) return;
+  // We can remove all the WAL files that will not be used when restoring from
+  // the snapshot created in the given transaction.
+  auto min_trans_id = snapshot_transaction.snapshot().empty()
+                          ? snapshot_transaction.id_
+                          : snapshot_transaction.snapshot().front();
+  for (auto &wal_file : fs::directory_iterator(wal_dir)) {
+    auto tx_id = TransactionIdFromWalFilename(wal_file.path().filename());
+    if (tx_id && tx_id.value() < min_trans_id) fs::remove(wal_file);
   }
 }
 }  // annonnymous namespace
@@ -107,8 +124,8 @@ bool MakeSnapshot(GraphDbAccessor &db_accessor_, const fs::path &durability_dir,
   const auto snapshot_file = MakeSnapshotPath(durability_dir);
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db_accessor_)) {
-    MaintainMaxRetainedFiles(durability_dir / kSnapshotDir,
-                             snapshot_max_retained);
+    RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
+    RemoveOldWals(durability_dir / kWalDir, db_accessor_.transaction());
     return true;
   } else {
     std::error_code error_code;  // Just for exception suppression.
