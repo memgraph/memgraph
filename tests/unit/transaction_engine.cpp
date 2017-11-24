@@ -5,24 +5,6 @@
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
 
-TEST(Engine, CountEmpty) {
-  tx::Engine engine;
-  EXPECT_EQ(engine.Count(), 0);
-}
-
-TEST(Engine, Count) {
-  tx::Engine engine;
-  EXPECT_EQ(engine.Count(), (uint64_t)0);
-  std::vector<tx::Transaction *> transactions;
-  for (int i = 0; i < 5; ++i) {
-    transactions.push_back(engine.Begin());
-    EXPECT_EQ(engine.Count(), (uint64_t)(i + 1));
-  }
-  EXPECT_EQ(engine.ActiveCount(), (uint64_t)5);
-  for (int i = 0; i < 5; ++i) transactions[i]->Commit();
-  EXPECT_EQ(engine.Count(), (uint64_t)5);
-}
-
 TEST(Engine, GcSnapshot) {
   tx::Engine engine;
   ASSERT_EQ(engine.GcSnapshot(), tx::Snapshot({1}));
@@ -49,20 +31,6 @@ TEST(Engine, GcSnapshot) {
   transactions[3]->Commit();
   transactions[4]->Commit();
   EXPECT_EQ(engine.GcSnapshot(), tx::Snapshot({6}));
-}
-
-TEST(Engine, ActiveCount) {
-  tx::Engine engine;
-  std::vector<tx::Transaction *> transactions;
-  for (int i = 0; i < 5; ++i) {
-    transactions.push_back(engine.Begin());
-    EXPECT_EQ(engine.ActiveCount(), (size_t)i + 1);
-  }
-
-  for (int i = 0; i < 5; ++i) {
-    transactions[i]->Commit();
-    EXPECT_EQ(engine.ActiveCount(), 4 - i);
-  }
 }
 
 TEST(Engine, Advance) {

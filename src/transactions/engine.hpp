@@ -2,14 +2,15 @@
 
 #include <atomic>
 #include <limits>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "glog/logging.h"
-#include "threading/sync/lockable.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
-#include "transactions/transaction_store.hpp"
 #include "utils/exceptions.hpp"
 
 namespace tx {
@@ -26,14 +27,8 @@ class TransactionError : public utils::BasicException {
  * Used for managing transactions and the related information
  * such as transaction snapshots and the commit log.
  */
-class Engine : Lockable<SpinLock> {
-  // Limit for the command id, used for checking if we're about
-  // to overflow.
-  static constexpr auto kMaxCommandId =
-      std::numeric_limits<decltype(std::declval<Transaction>().cid())>::max();
-
+class Engine {
  public:
-
   Engine() = default;
 
   /** Begins a transaction and returns a pointer to
@@ -44,13 +39,13 @@ class Engine : Lockable<SpinLock> {
    * committted or aborted.
    */
   Transaction *Begin() {
-    auto guard = acquire_unique();
+    std::lock_guard<SpinLock> guard(lock_);
 
     transaction_id_t id{++counter_};
     auto t = new Transaction(id, active_, *this);
 
     active_.insert(id);
-    store_.put(id, t);
+    store_.emplace(id, t);
 
     return t;
   }
@@ -60,21 +55,21 @@ class Engine : Lockable<SpinLock> {
    *
    * @param id - Transation id. That transaction must
    * be currently active.
-   * @return Pointer to the transaction object for id.
    */
-  Transaction &Advance(transaction_id_t id) {
-    auto guard = acquire_unique();
+  void Advance(transaction_id_t id) {
+    std::lock_guard<SpinLock> guard(lock_);
 
-    auto *t = store_.get(id);
-    DCHECK(t != nullptr) << "Transaction::advance on non-existing transaction";
+    auto it = store_.find(id);
+    DCHECK(it != store_.end())
+        << "Transaction::advance on non-existing transaction";
 
-    if (t->cid_ == kMaxCommandId)
+    Transaction *t = it->second.get();
+    if (t->cid_ == std::numeric_limits<command_id_t>::max())
       throw TransactionError(
           "Reached maximum number of commands in this "
           "transaction.");
 
     t->cid_++;
-    return *t;
   }
 
   /** Returns the snapshot relevant to garbage collection of database records.
@@ -90,7 +85,7 @@ class Engine : Lockable<SpinLock> {
    * documentation).
    */
   Snapshot GcSnapshot() {
-    auto guard = acquire_unique();
+    std::lock_guard<SpinLock> guard(lock_);
 
     // No active transactions.
     if (active_.size() == 0) {
@@ -100,7 +95,7 @@ class Engine : Lockable<SpinLock> {
     }
 
     // There are active transactions.
-    auto snapshot_copy = store_.get(active_.front())->snapshot();
+    auto snapshot_copy = store_.find(active_.front())->second->snapshot();
     snapshot_copy.insert(active_.front());
     return snapshot_copy;
   }
@@ -108,17 +103,19 @@ class Engine : Lockable<SpinLock> {
   /** Comits the given transaction. Deletes the transaction object, it's not
    * valid after this function executes. */
   void Commit(const Transaction &t) {
-    auto guard = acquire_unique();
+    std::lock_guard<SpinLock> guard(lock_);
     clog_.set_committed(t.id_);
-    Finalize(t);
+    active_.remove(t.id_);
+    store_.erase(store_.find(t.id_));
   }
 
   /** Aborts the given transaction. Deletes the transaction object, it's not
    * valid after this function executes. */
   void Abort(const Transaction &t) {
-    auto guard = acquire_unique();
+    std::lock_guard<SpinLock> guard(lock_);
     clog_.set_aborted(t.id_);
-    Finalize(t);
+    active_.remove(t.id_);
+    store_.erase(store_.find(t.id_));
   }
 
   /** Returns transaction id of last transaction without taking a lock. New
@@ -126,48 +123,29 @@ class Engine : Lockable<SpinLock> {
    */
   auto LockFreeCount() const { return counter_.load(); }
 
-  /** The total number of transactions that have executed since the creation of
-   * this engine */
-  tx::transaction_id_t Count() const {
-    auto guard = acquire_unique();
-    return counter_;
-  }
-
-  /** The count of currently active transactions */
-  int64_t ActiveCount() const {
-    auto guard = acquire_unique();
-    return active_.size();
-  }
+  /** Returns true if the transaction with the given ID is currently active. */
+  bool IsActive(transaction_id_t tx) const { return clog_.is_active(tx); }
 
   /** Calls function f on each active transaction. */
   void ForEachActiveTransaction(std::function<void(Transaction &)> f) {
-    auto guard = acquire_unique();
+    std::lock_guard<SpinLock> guard(lock_);
     for (auto transaction : active_) {
-      f(*store_.get(transaction));
+      f(*store_.find(transaction)->second);
     }
   }
 
-  const auto &clog() const { return clog_; }
+  /** Returns the commit log Info about the given transaction. */
+  auto FetchInfo(transaction_id_t tx) const { return clog_.fetch_info(tx); }
 
   auto &lock_graph() { return lock_graph_; }
   const auto &lock_graph() const { return lock_graph_; }
 
  private:
-  // Commit log of this engine.
+  std::atomic<transaction_id_t> counter_{0};
   CommitLog clog_;
-
-  // Performs cleanup common to ending the transaction with either commit or
-  // abort.
-  void Finalize(const Transaction &t) {
-    active_.remove(t.id_);
-    store_.del(t.id_);
-  }
-
-  // A snapshot of currently active transactions.
+  std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
-
-  // Storage for the transactions.
-  TransactionStore<transaction_id_t> store_;
+  SpinLock lock_;
 
   // For each active transaction we store a transaction that holds a lock that
   // mentioned transaction is also trying to acquire. We can think of this
@@ -176,6 +154,5 @@ class Engine : Lockable<SpinLock> {
   // garbage collected and we are sure that we will not be having problems with
   // lifetimes of each object.
   ConcurrentMap<transaction_id_t, transaction_id_t> lock_graph_;
-  std::atomic<transaction_id_t> counter_{0};
 };
 }  // namespace tx

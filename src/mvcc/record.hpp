@@ -251,7 +251,7 @@ class Record : public Version<T> {
     if (hints_.Get(mask)) return hints_.Get(Hints::kCmt & mask);
 
     // If hints are not set consult the commit log.
-    auto info = engine.clog().fetch_info(id);
+    auto info = engine.FetchInfo(id);
     if (info.is_committed()) {
       hints_.Set(Hints::kCmt & mask);
       return true;
@@ -284,7 +284,7 @@ class Record : public Version<T> {
     if (hints_.Get(Hints::kCre)) return hints_.Get(Hints::kAbt & Hints::kCre);
 
     // If hints are not set consult the commit log.
-    auto info = engine.clog().fetch_info(tx_.cre);
+    auto info = engine.FetchInfo(tx_.cre);
     if (info.is_aborted()) {
       hints_.Set(Hints::kAbt & Hints::kCre);
       return true;

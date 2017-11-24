@@ -49,7 +49,7 @@ class Mvcc : public ::testing::Test {
  protected:
   virtual void SetUp() {
     id0 = 0;
-    t1 = &engine.Advance(t1->id_);
+    engine.Advance(t1->id_);
     id1 = t1->id_;
     v1 = version_list.find(*t1);
     t1->Commit();

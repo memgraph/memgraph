@@ -34,8 +34,6 @@ auto GcSnapshot(tx::Engine &engine, tx::Transaction *t) {
     gc_snap.insert(t->id_);
     return gc_snap;
   } else {
-    tx::Snapshot gc_snap;
-    gc_snap.insert(engine.Count() + 1);
-    return gc_snap;
+    return engine.GcSnapshot();
   }
 }

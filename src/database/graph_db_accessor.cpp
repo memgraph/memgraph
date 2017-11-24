@@ -127,9 +127,10 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
     auto wait_transaction = db_.tx_engine_.Begin();
     for (auto id : wait_transaction->snapshot()) {
       if (id == transaction_->id_) continue;
-      while (wait_transaction->engine_.clog().is_active(id))
+      while (wait_transaction->engine_.IsActive(id)) {
         // TODO reconsider this constant, currently rule-of-thumb chosen
         std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
     }
     // We must notify the WAL about this transaction manually since it's not
     // handled by a GraphDbAccessor.

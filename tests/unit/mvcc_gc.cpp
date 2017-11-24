@@ -112,8 +112,7 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
 
 /**
  * Test integration of garbage collector with MVCC GC. Delete version lists
- * which are
- * empty (not visible from any future transaction) from the skiplist.
+ * which are empty (not visible from any future transaction) from the skiplist.
  */
 TEST(GarbageCollector, GcClean) {
   ConcurrentMap<int64_t, mvcc::VersionList<DestrCountRec> *> collection;
@@ -146,13 +145,13 @@ TEST(GarbageCollector, GcClean) {
 
   // check that we destroyed the record
   EXPECT_EQ(deleter.Count(), 1);
-  deleter.FreeExpiredObjects(engine.Count() + 1);
+  deleter.FreeExpiredObjects(3);
   EXPECT_EQ(deleter.Count(), 0);
   EXPECT_EQ(record_destruction_count, 1);
 
   // check that we destroyed the version list
   EXPECT_EQ(vlist_deleter.Count(), 1);
-  vlist_deleter.FreeExpiredObjects(engine.Count() + 1);
+  vlist_deleter.FreeExpiredObjects(3);
   EXPECT_EQ(vlist_deleter.Count(), 0);
 
   EXPECT_EQ(access.size(), 0U);
