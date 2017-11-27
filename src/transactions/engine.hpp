@@ -100,6 +100,15 @@ class Engine {
     return snapshot_copy;
   }
 
+  /**
+   * Returns active transactions.
+   */
+  Snapshot ActiveTransactions() {
+    std::lock_guard<SpinLock> guard(lock_);
+    Snapshot active_transactions = active_;
+    return active_transactions;
+  }
+
   /** Comits the given transaction. Deletes the transaction object, it's not
    * valid after this function executes. */
   void Commit(const Transaction &t) {

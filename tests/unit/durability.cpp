@@ -338,7 +338,7 @@ TEST_F(Durability, WalEncoding) {
     }
   }
   reader.Close();
-  ASSERT_EQ(ops.size(), 13);
+  ASSERT_EQ(ops.size(), 11);
 
   using Type = durability::WriteAheadLog::Op::Type;
   EXPECT_EQ(ops[0].type_, Type::TRANSACTION_BEGIN);
@@ -369,16 +369,14 @@ TEST_F(Durability, WalEncoding) {
   EXPECT_EQ(ops[6].edge_id_, 0);
   EXPECT_EQ(ops[6].property_, "p0");
   EXPECT_EQ(ops[6].value_.type(), PropertyValue::Type::List);
-  // The next four ops are the BuildIndex internal transactions.
+  // The next two ops are the BuildIndex internal transactions.
   EXPECT_EQ(ops[7].type_, Type::TRANSACTION_BEGIN);
   EXPECT_EQ(ops[8].type_, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(ops[9].type_, Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(ops[9].type_, Type::BUILD_INDEX);
+  EXPECT_EQ(ops[9].label_, "l1");
+  EXPECT_EQ(ops[9].property_, "p1");
   EXPECT_EQ(ops[10].type_, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(ops[11].type_, Type::BUILD_INDEX);
-  EXPECT_EQ(ops[11].label_, "l1");
-  EXPECT_EQ(ops[11].property_, "p1");
-  EXPECT_EQ(ops[12].type_, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(ops[12].transaction_id_, 1);
+  EXPECT_EQ(ops[10].transaction_id_, 1);
 }
 
 TEST_F(Durability, SnapshotEncoding) {

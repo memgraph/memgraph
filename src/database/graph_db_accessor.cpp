@@ -124,19 +124,14 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // happened earlier. We have to first wait for every transaction that
   // happend before, or a bit later than CreateIndex to end.
   {
-    auto wait_transaction = db_.tx_engine_.Begin();
-    for (auto id : wait_transaction->snapshot()) {
+    auto wait_transactions = db_.tx_engine_.ActiveTransactions();
+    for (auto id : wait_transactions) {
       if (id == transaction_->id_) continue;
-      while (wait_transaction->engine_.IsActive(id)) {
+      while (db_.tx_engine_.IsActive(id)) {
         // TODO reconsider this constant, currently rule-of-thumb chosen
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
-    // We must notify the WAL about this transaction manually since it's not
-    // handled by a GraphDbAccessor.
-    db_.wal_.TxBegin(wait_transaction->id_);
-    db_.wal_.TxCommit(wait_transaction->id_);
-    wait_transaction->Commit();
   }
 
   // This accessor's transaction surely sees everything that happened before
