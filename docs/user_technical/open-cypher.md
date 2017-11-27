@@ -399,6 +399,39 @@ index `label` and `property`. Do not create indices concurrently.
 
 The following sections describe some of the other supported features.
 
+#### Filtering Variable Length Paths
+
+OpenCypher supports only simple filtering when matching variable length paths.
+For example:
+
+    MATCH (n)-[r:Type * {x: 42}]-(m)
+
+This will produce only those paths whose edges have the required `Type` and `x`
+property value.
+
+Memgraph extends openCypher with a syntax for arbitrary filter expressions
+during path matching. The next example filters edges which have property `x`
+between `0` and `10`.
+
+    MATCH (n)-[r * (edge, node | 0 < edge.x < 10)]-(m)
+
+Here we introduce a lambda function with parentheses, where the first two
+arguments, `edge` and `node`, correspond to each edge and node during path
+matching. `node` is the destination node we are moving to across the current
+`edge`. The last `node` value will be the same value as `m`. Following the
+pipe (`|`) character is an arbitrary expression which must produce a boolean
+value.  If `True`, matching continues, otherwise the path is discarded.
+
+The previous example can be written using the `all` function:
+
+    MATCH (n)-[r *]-(m) WHERE all(edge IN r WHERE 0 < edge.x < 10)
+
+However, filtering using a lambda function is more efficient because paths
+may be discarded earlier in the traversal. Furthermore, it provides more
+flexibility for deciding what kind of paths are matched due to more expressive
+filtering capabilities. Therefore, filtering through lambda functions should
+be preferred whenever possible.
+
 #### Breadth First Search
 
 A typical graph use-case is searching for the shortest path between nodes.
@@ -497,7 +530,7 @@ functions.
  `startsWith`    | Check if the first argument starts with the second.
  `endsWith`      | Check if the first argument ends with the second.
  `contains`      | Check if the first argument has an element which is equal to the second argument.
- `all`           | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.
+ `all`           | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.<br/> NOTE: Whenever possible, use Memgraph's lambda functions when [matching](#filtering-variable-length-paths) instead.
  `assert`        | Raises an exception reported to the client if the given argument is not `true`.
  `counter`       | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet`    | Sets the counter with the given name to the given value.
@@ -638,7 +671,6 @@ String functions:
 * `reverse()`
 
 List functions:
-* `all()`
 * `any()`
 * `none()`
 * `single()`
