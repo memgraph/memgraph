@@ -2399,12 +2399,6 @@ class CreateIndexCursor : public Cursor {
       db_.BuildIndex(self_.label(), self_.property());
     } catch (const IndexExistsException &) {
       // Ignore creating an existing index.
-    } catch (const IndexBuildInProgressException &) {
-      // Report to the end user.
-      did_create_ = false;
-      throw QueryRuntimeException(
-          "Index building already in progress on this database. Memgraph "
-          "does not support concurrent index building.");
     }
     ctx.is_index_created_ = did_create_ = true;
     return true;

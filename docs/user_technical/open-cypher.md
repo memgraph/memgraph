@@ -390,11 +390,6 @@ Currently, once an index is created it cannot be deleted. This feature will be
 implemented very soon. The expected syntax for removing an index will be `DROP
 INDEX ON :Label(property)`.
 
-Note that Memgraph does not support concurrent index building. Attempting to
-build an index from two concurrent transactions is likely to result in an
-error (reported to the client) for one of those transactions, regardless of
-index `label` and `property`. Do not create indices concurrently.
-
 ### Other Features
 
 The following sections describe some of the other supported features.

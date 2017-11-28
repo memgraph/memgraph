@@ -132,41 +132,22 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
 }
 
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
-
-  // We need to build indices in other threads.
-  auto build_index_async = [&db](int &success, int index) {
-    std::thread([&db, &success, index]() {
-      GraphDbAccessor dba(db);
-      try {
+  const int ITER_COUNT = 10;
+  for (int iter = 0; iter < ITER_COUNT; ++iter) {
+    GraphDb db;
+    const int THREAD_COUNT = 10;
+    std::vector<std::thread> threads;
+    for (int index = 0; index < THREAD_COUNT; ++index) {
+      threads.emplace_back([&db, index]() {
+        GraphDbAccessor dba(db);
         dba.BuildIndex(dba.Label("l" + std::to_string(index)),
                        dba.Property("p" + std::to_string(index)));
-        success = 1;
-      } catch (IndexBuildInProgressException &) {
-        dba.Abort();
-        success = 0;
-      }
-    })
-        .detach();
-  };
 
-  int build_1_success = -1;
-  build_index_async(build_1_success, 1);
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  // First index build should now be inside the BuildIndex function waiting for
-  // dba to commit. A second built attempt should fail.
-  int build_2_success = -1;
-  build_index_async(build_2_success, 2);
-  std::this_thread::sleep_for(std::chrono::milliseconds(30));
-  EXPECT_EQ(build_1_success, -1);
-  EXPECT_EQ(build_2_success, 0);
-
-  // End dba and expect that first build index finished successfully.
-  dba.Commit();
-  std::this_thread::sleep_for(std::chrono::milliseconds(30));
-  EXPECT_EQ(build_1_success, 1);
+      });
+    }
+    // All threads should end and there shouldn't be any deadlock
+    for (auto &thread : threads) thread.join();
+  }
 }
 
 #define EXPECT_WITH_MARGIN(x, center) \

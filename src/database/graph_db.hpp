@@ -130,12 +130,9 @@ class GraphDb {
   LabelPropertyIndex label_property_index_;
 
   /**
-   * Flag indicating if index building is in progress. Memgraph does not support
-   * concurrent index builds on the same database (transaction engine), so we
-   * reject index builds if there is one in progress. See
-   * GraphDbAccessor::BuildIndex.
+   * Set of transactions ids which are building indexes currently
    */
-  std::atomic<bool> index_build_in_progress_{false};
+  ConcurrentSet<tx::transaction_id_t> index_build_tx_in_progress_;
 
   durability::WriteAheadLog wal_;
 

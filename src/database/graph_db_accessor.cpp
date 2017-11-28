@@ -97,19 +97,13 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
                                  const GraphDbTypes::Property &property) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  {
-    // switch the build_in_progress to true
-    bool expected = false;
-    if (!db_.index_build_in_progress_.compare_exchange_strong(expected, true))
-      throw IndexBuildInProgressException();
-  }
+  db_.index_build_tx_in_progress_.access().insert(transaction_->id_);
 
   // on function exit switch the build_in_progress to false
   utils::OnScopeExit on_exit([this] {
-    bool expected = true;
-    [[gnu::unused]] bool success =
-        db_.index_build_in_progress_.compare_exchange_strong(expected, false);
-    DCHECK(success) << "BuildIndexInProgress flag was not set during build";
+    auto removed =
+        db_.index_build_tx_in_progress_.access().remove(transaction_->id_);
+    DCHECK(removed) << "Index creation transaction should be inside set";
   });
 
   const LabelPropertyIndex::Key key(label, property);
@@ -125,9 +119,15 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // happend before, or a bit later than CreateIndex to end.
   {
     auto wait_transactions = db_.tx_engine_.ActiveTransactions();
+    auto active_index_creation_transactions =
+        db_.index_build_tx_in_progress_.access();
     for (auto id : wait_transactions) {
-      if (id == transaction_->id_) continue;
+      if (active_index_creation_transactions.contains(id)) continue;
       while (db_.tx_engine_.IsActive(id)) {
+        // Active index creation set could only now start containing that id,
+        // since that thread could have not written to the set set and to avoid
+        // dead-lock we need to make sure we keep track of that
+        if (active_index_creation_transactions.contains(id)) continue;
         // TODO reconsider this constant, currently rule-of-thumb chosen
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
@@ -142,8 +142,9 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
                                                     vertex.current_);
   }
   // Commit transaction as we finished applying method on newest visible
-  // records. Write that transaction's ID to the WAL as the index has been built
-  // at this point even if this DBA's transaction aborts for some reason.
+  // records. Write that transaction's ID to the WAL as the index has been
+  // built at this point even if this DBA's transaction aborts for some
+  // reason.
   auto wal_build_index_tx_id = dba.transaction_id();
   dba.Commit();
   db_.wal_.BuildIndex(wal_build_index_tx_id, LabelName(label),

@@ -23,13 +23,6 @@ class IndexExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-/** Thrown when attempting to build indexes concurrently */
-class IndexBuildInProgressException : public utils::BasicException {
- public:
-  IndexBuildInProgressException()
-      : utils::BasicException("Concurrent index build on the same database") {}
-};
-
 /**
  * An accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for
