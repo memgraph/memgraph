@@ -78,13 +78,17 @@ class RandomGraphGenerator {
           NotifyProgressListeners();
         },
         count, thread_count, batch_size);
+    NotifyProgressListeners();
   }
 
   /**
    * Returns the number of vertices created by this generator,
    * regardless of their labels.
    */
-  int64_t VertexCount() const { return GraphDbAccessor(db_).VerticesCount(); }
+  int64_t VertexCount() const {
+    GraphDbAccessor accessor(db_);
+    return CountIterable(accessor.Vertices(true));
+  }
 
   /**
    * Adds the given number of edges to the graph.
@@ -125,13 +129,17 @@ class RandomGraphGenerator {
           NotifyProgressListeners();
         },
         count, thread_count, batch_size);
+    NotifyProgressListeners();
   }
 
   /**
    * Returns the number of edges created by this generator,
    * regardless of their types and origin/destination labels.
    */
-  int64_t EdgeCount() const { return GraphDbAccessor(db_).EdgesCount(); }
+  int64_t EdgeCount() const {
+    GraphDbAccessor accessor(db_);
+    return CountIterable(accessor.Edges(true));
+  }
 
   /**
    * Sets a generated property on a random vertex.
@@ -205,27 +213,29 @@ class RandomGraphGenerator {
     for (int thread_ind = 0; thread_ind < thread_count; thread_ind++) {
       if (thread_ind == thread_count - 1) count_per_thread += count_remainder;
       threads.emplace_back([count_per_thread, &f, this, elements_per_commit]() {
-        std::experimental::optional<GraphDbAccessor> dba(db_);
-        for (int i = 0; i < count_per_thread; i++) {
-          try {
-            f(*dba);
-          } catch (LockTimeoutException &e) {
-            i--;
-            continue;
-          } catch (mvcc::SerializationError &e) {
-            i--;
-            continue;
-          }
-          if (i == (count_per_thread - 1) ||
-              (i >= 0 && i % elements_per_commit == 0)) {
-            dba->Commit();
-            dba = std::experimental::nullopt;
-            dba.emplace(db_);
+        for (int i = 0; i < count_per_thread; i += elements_per_commit) {
+          while (true) {
+            GraphDbAccessor dba(db_);
+            try {
+              int apply_count =
+                  std::min(elements_per_commit, count_per_thread - i);
+              while (apply_count--) {
+                f(dba);
+              }
+              dba.Commit();
+              break;
+            } catch (...) {
+            }
           }
         }
       });
     }
     for (auto &thread : threads) thread.join();
+  }
+
+  template <typename TIterable>
+  size_t CountIterable(TIterable iterable) const {
+    return std::distance(iterable.begin(), iterable.end());
   }
 };
 }  // namespace utils
