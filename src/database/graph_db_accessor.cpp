@@ -306,7 +306,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 
   db_.wal_.CreateEdge(transaction_->id_, edge_vlist->id_, from.vlist_->id_,
                       to.vlist_->id_, EdgeTypeName(edge_type));
-  return EdgeAccessor(*edge_vlist, *this);
+  return EdgeAccessor(*edge_vlist, *this, from.vlist_, to.vlist_, edge_type);
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {
@@ -321,7 +321,7 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
   edge_accessor.SwitchNew();
-  if (edge_accessor.current_->is_expired_by(*transaction_)) return;
+  if (edge_accessor.current().is_expired_by(*transaction_)) return;
   if (remove_from_from)
     edge_accessor.from().update().out_.RemoveEdge(edge_accessor.vlist_);
   if (remove_from_to)

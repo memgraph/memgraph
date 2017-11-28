@@ -134,7 +134,7 @@ class Record : public Version<T> {
    * True if this record is expired in the current command
    * of the given transaction.
    */
-  bool is_expired_by(const tx::Transaction &t) {
+  bool is_expired_by(const tx::Transaction &t) const {
     return tx_.exp == t.id_ && cmd_.exp == t.cid();
   }
 

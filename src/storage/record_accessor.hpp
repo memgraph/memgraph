@@ -145,7 +145,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    @return True if this accessor is valid after reconstruction.  This means that
    at least one record pointer was found (either new_ or old_), possibly both.
    */
-  bool Reconstruct();
+  bool Reconstruct() const;
 
  protected:
   /**
@@ -156,7 +156,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * It is not legal to call this function on a Vertex/Edge that has been
    * deleted in the current transaction+command.
    */
-  TRecord &update();
+  TRecord &update() const;
 
   /**
    * Returns the current version (either new_ or old_)
@@ -165,6 +165,16 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * @return See above.
    */
   const TRecord &current() const;
+
+  /**
+   * Pointer to the version (either old_ or new_) that READ operations
+   * in the accessor should take data from. Note that WRITE operations
+   * should always use new_.
+   *
+   * This pointer can be null if created by an accessor which lazily reads from
+   * mvcc.
+   */
+  mutable TRecord *current_{nullptr};
 
   // The record (edge or vertex) this accessor provides access to.
   // Immutable, set in the constructor and never changed.
@@ -183,7 +193,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * Can be null only when the record itself (the version-list) has
    * been created by the current transaction+command.
    */
-  TRecord *old_{nullptr};
+  mutable TRecord *old_{nullptr};
 
   /**
    * Version that has been modified (created or updated) by the current
@@ -196,14 +206,5 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * is null, and if it is it must check with the vlist_ if there is
    * an update.
    */
-  TRecord *new_{nullptr};
-
-  /**
-   * Pointer to the version (either old_ or new_) that READ operations
-   * in the accessor should take data from. Note that WRITE operations
-   * should always use new_.
-   *
-   * This pointer can never ever be null.
-   */
-  TRecord *current_{nullptr};
+  mutable TRecord *new_{nullptr};
 };

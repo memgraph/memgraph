@@ -81,4 +81,4 @@ class Address {
  private:
   uintptr_t storage_{0};
 };
-}
+}  // namespace storage

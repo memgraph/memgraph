@@ -20,21 +20,42 @@
  * takes care of MVCC versioning.
  */
 class VertexAccessor : public RecordAccessor<Vertex> {
+  using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
   // Helper function for creating an iterator over edges.
+  // @param begin - begin iterator
+  // @param end - end iterator
+  // @param from - if true specifies that the vertex represents `from` part of
+  // the edge, otherwise it specifies `to` part of the edge
+  // @param vertex - one endpoint of every edge
+  // @param db_accessor - database accessor
+  // @return - Iterator over EdgeAccessors
   template <typename TIterator>
   static inline auto MakeAccessorIterator(TIterator &&begin, TIterator &&end,
+                                          bool from, VertexAddress vertex,
                                           GraphDbAccessor &db_accessor) {
     return iter::imap(
-        [&db_accessor](auto &edges_element) {
+        [from, vertex, &db_accessor](auto &edges_element) {
           // Currently only local storage is supported.
-          return EdgeAccessor(*edges_element.edge.local(), db_accessor);
+          if (from) {
+            return EdgeAccessor(*edges_element.edge.local(), db_accessor,
+                                vertex, edges_element.vertex,
+                                edges_element.edge_type);
+          } else {
+            return EdgeAccessor(*edges_element.edge.local(), db_accessor,
+                                edges_element.vertex, vertex,
+                                edges_element.edge_type);
+          }
         },
         utils::Iterable<TIterator>(std::forward<TIterator>(begin),
                                    std::forward<TIterator>(end)));
   }
 
  public:
-  using RecordAccessor::RecordAccessor;
+  VertexAccessor(mvcc::VersionList<Vertex> &vertex,
+                 GraphDbAccessor &db_accessor)
+      : RecordAccessor(vertex, db_accessor) {
+    RecordAccessor::Reconstruct();
+  }
 
   /**
    * Returns the number of outgoing edges.
@@ -81,7 +102,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto in() const {
     return MakeAccessorIterator(current().in_.begin(), current().in_.end(),
-                                db_accessor());
+                                false, vlist_, db_accessor());
   }
 
   /**
@@ -95,7 +116,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
       const VertexAccessor &dest,
       const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(current().in_.begin(dest.vlist_, edge_types),
-                                current().in_.end(), db_accessor());
+                                current().in_.end(), false, vlist_,
+                                db_accessor());
   }
 
   /**
@@ -106,7 +128,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto in(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
-                                current().in_.end(), db_accessor());
+                                current().in_.end(), false, vlist_,
+                                db_accessor());
   }
 
   /**
@@ -114,7 +137,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto out() const {
     return MakeAccessorIterator(current().out_.begin(), current().out_.end(),
-                                db_accessor());
+                                true, vlist_, db_accessor());
   }
 
   /**
@@ -129,7 +152,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
       const VertexAccessor &dest,
       const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(current().out_.begin(dest.vlist_, edge_types),
-                                current().out_.end(), db_accessor());
+                                current().out_.end(), true, vlist_,
+                                db_accessor());
   }
 
   /**
@@ -140,7 +164,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto out(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
-                                current().out_.end(), db_accessor());
+                                current().out_.end(), true, vlist_,
+                                db_accessor());
   }
 };
 
@@ -152,4 +177,4 @@ template <>
 struct hash<VertexAccessor> {
   size_t operator()(const VertexAccessor &v) const { return v.id(); };
 };
-}
+}  // namespace std

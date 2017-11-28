@@ -8,9 +8,7 @@
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
                                         GraphDbAccessor &db_accessor)
-    : vlist_(&vlist), db_accessor_(&db_accessor) {
-  Reconstruct();
-}
+    : vlist_(&vlist), db_accessor_(&db_accessor) {}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
@@ -107,7 +105,7 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 }
 
 template <typename TRecord>
-bool RecordAccessor<TRecord>::Reconstruct() {
+bool RecordAccessor<TRecord>::Reconstruct() const {
   vlist_->find_set_old_new(db_accessor_->transaction(), old_, new_);
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
@@ -117,7 +115,13 @@ bool RecordAccessor<TRecord>::Reconstruct() {
 }
 
 template <typename TRecord>
-TRecord &RecordAccessor<TRecord>::update() {
+TRecord &RecordAccessor<TRecord>::update() const {
+  // If the current is not set we probably created the accessor with a lazy
+  // constructor which didn't call Reconstruct on creation
+  if (!current_) {
+    bool reconstructed = Reconstruct();
+    DCHECK(reconstructed) << "Unable to initialize record";
+  }
   auto &t = db_accessor_->transaction();
   // can't update a deleted record if:
   // - we only have old_ and it hasn't been deleted

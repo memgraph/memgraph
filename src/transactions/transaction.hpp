@@ -92,4 +92,4 @@ class Transaction {
   const std::chrono::time_point<std::chrono::steady_clock> creation_time_{
       std::chrono::steady_clock::now()};
 };
-}
+}  // namespace tx

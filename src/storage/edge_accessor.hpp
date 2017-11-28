@@ -15,8 +15,35 @@ class VertexAccessor;
  * takes care of MVCC versioning.
  */
 class EdgeAccessor : public RecordAccessor<Edge> {
+  using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
+
  public:
-  using RecordAccessor::RecordAccessor;
+  /**
+   * Create a new EdgeAccessor and reads data from edge mvcc
+   */
+  EdgeAccessor(mvcc::VersionList<Edge> &edge, GraphDbAccessor &db_accessor)
+      : RecordAccessor(edge, db_accessor),
+        from_(nullptr),
+        to_(nullptr),
+        edge_type_() {
+    RecordAccessor::Reconstruct();
+    if (current_ != nullptr) {
+      from_ = current_->from_;
+      to_ = current_->to_;
+      edge_type_ = current_->edge_type_;
+    }
+  }
+
+  /**
+   * Create a new EdgeAccessor without invoking mvcc methods
+   */
+  EdgeAccessor(mvcc::VersionList<Edge> &edge, GraphDbAccessor &db_accessor,
+               VertexAddress from, VertexAddress to,
+               GraphDbTypes::EdgeType edge_type)
+      : RecordAccessor(edge, db_accessor),
+        from_(from),
+        to_(to),
+        edge_type_(edge_type) {}
 
   /**
    * Returns the edge type.
@@ -46,6 +73,24 @@ class EdgeAccessor : public RecordAccessor<Edge> {
   /** Returns true if this edge is a cycle (start and end node are
    * the same. */
   bool is_cycle() const;
+
+  /** Returns current edge
+   */
+  const Edge &current();
+
+  /** Returns edge properties
+   */
+  const PropertyValueStore<GraphDbTypes::Property> &Properties() const;
+
+  /* Returns property at key.
+   * @param key - Property key
+   */
+  const PropertyValue &PropsAt(GraphDbTypes::Property key) const;
+
+ private:
+  VertexAddress from_;
+  VertexAddress to_;
+  GraphDbTypes::EdgeType edge_type_;
 };
 
 std::ostream &operator<<(std::ostream &, const EdgeAccessor &);

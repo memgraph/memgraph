@@ -101,7 +101,7 @@ void RemoveOldWals(const fs::path &wal_dir,
     if (tx_id && tx_id.value() < min_trans_id) fs::remove(wal_file);
   }
 }
-}  // annonnymous namespace
+}  // namespace
 
 fs::path MakeSnapshotPath(const fs::path &durability_dir) {
   std::string date_str =
