@@ -41,7 +41,7 @@ class Transaction {
  public:
   /** Acquires the lock over the given RecordLock, preventing other transactions
    * from doing the same */
-  void TakeLock(RecordLock &lock);
+  void TakeLock(RecordLock &lock) const;
 
   /** Commits this transaction. After this call this transaction object is no
    * longer valid for use (it gets deleted by the engine that owns it). */
@@ -82,7 +82,7 @@ class Transaction {
   const Snapshot snapshot_;
 
   // Record locks held by this transaction.
-  LockStore locks_;
+  mutable LockStore locks_;
 
   // True if transaction should abort. Used to signal query executor that it
   // should stop execution, it is only a hint, transaction can disobey.

@@ -108,12 +108,29 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() {
-  return db_accessor().Reconstruct(*this);
+  vlist_->find_set_old_new(db_accessor_->transaction(), old_, new_);
+  current_ = old_ ? old_ : new_;
+  return old_ != nullptr || new_ != nullptr;
+  // We should never use a record accessor that does not have either old_ or
+  // new_ (both are null), but we can't assert that here because we construct
+  // such an accessor and filter it out in GraphDbAccessor::[Vertices|Edges].
 }
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() {
-  db_accessor().Update(*this);
+  auto &t = db_accessor_->transaction();
+  // can't update a deleted record if:
+  // - we only have old_ and it hasn't been deleted
+  // - we have new_ and it hasn't been deleted
+  if (!new_) {
+    DCHECK(!old_->is_expired_by(t))
+        << "Can't update a record deleted in the current transaction+commad";
+  } else {
+    DCHECK(!new_->is_expired_by(t))
+        << "Can't update a record deleted in the current transaction+command";
+  }
+
+  if (!new_) new_ = vlist_->update(t);
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }

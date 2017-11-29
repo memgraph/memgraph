@@ -8,7 +8,7 @@ Transaction::Transaction(transaction_id_t id, const Snapshot &snapshot,
                          Engine &engine)
     : id_(id), engine_(engine), snapshot_(snapshot) {}
 
-void Transaction::TakeLock(RecordLock &lock) {
+void Transaction::TakeLock(RecordLock &lock) const {
   locks_.Take(&lock, *this, engine_);
 }
 

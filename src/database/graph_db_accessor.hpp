@@ -520,56 +520,6 @@ class GraphDbAccessor {
   durability::WriteAheadLog &wal();
 
   /**
-   * Initializes the record pointers in the given accessor.
-   * The old_ and new_ pointers need to be initialized
-   * with appropriate values, and current_ set to old_
-   * if it exists and to new_ otherwise.
-   *
-   * @return True if accessor is valid after reconstruction.
-   * This means that at least one record pointer was found
-   * (either new_ or old_), possibly both.
-   */
-  template <typename TRecord>
-  bool Reconstruct(RecordAccessor<TRecord> &accessor) {
-    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    accessor.vlist_->find_set_old_new(*transaction_, accessor.old_,
-                                      accessor.new_);
-    accessor.current_ = accessor.old_ ? accessor.old_ : accessor.new_;
-    return accessor.old_ != nullptr || accessor.new_ != nullptr;
-    // TODO review: we should never use a record accessor that
-    // does not have either old_ or new_ (both are null), but
-    // we can't assert that here because we construct such an accessor
-    // and filter it out in GraphDbAccessor::[Vertices|Edges]
-    // any ideas?
-  }
-
-  /**
-   * Update accessor record with vlist.
-   *
-   * It is not legal
-   * to call this function on a Vertex/Edge that has
-   * been deleted in the current transaction+command.
-   *
-   * @args accessor whose record to update if possible.
-   */
-  template <typename TRecord>
-  void Update(RecordAccessor<TRecord> &accessor) {
-    DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    // can't update a deleted record if:
-    // - we only have old_ and it hasn't been deleted
-    // - we have new_ and it hasn't been deleted
-    if (!accessor.new_) {
-      DCHECK(!accessor.old_->is_expired_by(*transaction_))
-          << "Can't update a record deleted in the current transaction+commad";
-    } else {
-      DCHECK(!accessor.new_->is_expired_by(*transaction_))
-          << "Can't update a record deleted in the current transaction+command";
-    }
-
-    if (!accessor.new_) accessor.new_ = accessor.vlist_->update(*transaction_);
-  }
-
-  /**
    * Returns the current value of the counter with the given name, and
    * increments that counter. If the counter with the given name does not exist,
    * a new counter is created and this function returns 0.

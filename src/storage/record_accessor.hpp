@@ -130,34 +130,31 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor<TRecord> &SwitchNew();
 
   /**
-   * Attempts to switch this accessor to use the
-   * latest version not updated by the current transaction+command.
-   * If that is not possible (vertex/edge was created
-   * by the current transaction/command), it does nothing
-   * (current remains pointing to the new version).
-   *
+   * Attempts to switch this accessor to use the latest version not updated by
+   * the current transaction+command.  If that is not possible (vertex/edge was
+   * created by the current transaction/command), it does nothing (current
+   * remains pointing to the new version).
    * @return A reference to this.
    */
   RecordAccessor<TRecord> &SwitchOld();
 
   /**
-   * Reconstructs the internal state of the record
-   * accessor so it uses the versions appropriate
-   * to this transaction+command.
+   Reconstructs the internal state of the record accessor so it uses the
+   versions appropriate to this transaction+command.
    *
-   * @return True if this accessor is valid after reconstruction.
-   * This means that at least one record pointer was found
-   * (either new_ or old_), possibly both.
+   @return True if this accessor is valid after reconstruction.  This means that
+   at least one record pointer was found (either new_ or old_), possibly both.
    */
   bool Reconstruct();
 
  protected:
   /**
-   * Ensures there is an updateable version of the record
-   * in the version_list, and that the `new_` pointer
-   * points to it. Returns a reference to that version.
+   * Ensures there is an updateable version of the record in the version_list,
+   * and that the `new_` pointer points to it. Returns a reference to that
+   * version.
    *
-   * @return See above.
+   * It is not legal to call this function on a Vertex/Edge that has been
+   * deleted in the current transaction+command.
    */
   TRecord &update();
 

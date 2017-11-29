@@ -28,7 +28,7 @@ class VersionList {
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(tx::Transaction &t, int64_t id, Args &&... args) : id_(id) {
+  VersionList(const tx::Transaction &t, int64_t id, Args &&... args) : id_(id) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
     v1->mark_created(t);
@@ -191,7 +191,7 @@ class VersionList {
    *
    * @param t The transaction
    */
-  T *update(tx::Transaction &t) {
+  T *update(const tx::Transaction &t) {
     DCHECK(head_ != nullptr) << "Head is nullptr on update.";
     T *old_record = nullptr;
     T *new_record = nullptr;
@@ -208,7 +208,7 @@ class VersionList {
   }
 
   /** Makes the given record as being expired by the given transaction. */
-  void remove(T *record, tx::Transaction &t) {
+  void remove(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on removal.";
     lock_and_validate(record, t);
     record->mark_expired(t);
@@ -217,7 +217,7 @@ class VersionList {
   const int64_t id_;
 
  private:
-  void lock_and_validate(T *record, tx::Transaction &t) {
+  void lock_and_validate(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on lock and validation.";
 
     // take a lock on this node
@@ -231,7 +231,7 @@ class VersionList {
     throw SerializationError();
   }
 
-  T *update(T *record, tx::Transaction &t) {
+  T *update(T *record, const tx::Transaction &t) {
     DCHECK(record != nullptr) << "Record is nullptr on update.";
     lock_and_validate(record, t);
 
@@ -257,4 +257,3 @@ class VersionList {
   RecordLock lock_;
 };
 }  // namespace mvcc
-
