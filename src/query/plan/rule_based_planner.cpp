@@ -641,6 +641,15 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
   return last_op;
 }
 
+LogicalOperator *GenUnion(CypherUnion &cypher_union,
+                          std::shared_ptr<LogicalOperator> left_op,
+                          std::shared_ptr<LogicalOperator> right_op,
+                          SymbolTable &symbol_table) {
+  return new Union(left_op, right_op, cypher_union.union_symbols_,
+                   left_op->OutputSymbols(symbol_table),
+                   right_op->OutputSymbols(symbol_table));
+}
+
 }  // namespace impl
 
 }  // namespace query::plan

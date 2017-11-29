@@ -65,9 +65,8 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // A helper function that stores literal and its token position in a
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
-  auto replace_stripped = [this, &token_strings](int position,
-                                                 const TypedValue &value,
-                                                 const std::string &new_value) {
+  auto replace_stripped = [this, &token_strings](
+      int position, const TypedValue &value, const std::string &new_value) {
     literals_.Add(position, value);
     token_strings.push_back(new_value);
   };
@@ -137,83 +136,85 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   query_ = utils::Join(token_strings, " ");
   hash_ = fnv(query_);
 
-  // Store nonaliased named expressions in returns in named_exprs_.
-  auto it = std::find_if(tokens.begin(), tokens.end(),
-                         [](const std::pair<Token, std::string> &a) {
-                           return a.second == "return";
-                         });
-  // There is no RETURN so there is nothing to do here.
-  if (it == tokens.end()) return;
-  // Skip RETURN;
-  ++it;
-
-  // Now we need to parse cypherReturn production from opencypher grammar.
-  // Skip leading whitespaces and DISTINCT statemant if there is one.
-  while (it != tokens.end() && it->first == Token::SPACE) {
+  auto it = tokens.begin();
+  while (it != tokens.end()) {
+    // Store nonaliased named expressions in returns in named_exprs_.
+    it = std::find_if(it, tokens.end(),
+                      [](const std::pair<Token, std::string> &a) {
+                        return a.second == "return";
+                      });
+    // There is no RETURN so there is nothing to do here.
+    if (it == tokens.end()) return;
+    // Skip RETURN;
     ++it;
-  }
-  if (it != tokens.end() && it->second == "distinct") {
-    ++it;
-  }
 
-  // We assume there is only one return statement and that return statement is
-  // the last one. Otherwise, query is invalid and either antlr parser or
-  // cypher_main_visitor will report an error.
-  // TODO: we shouldn't rely on the fact that those checks will be done
-  // after this step. We should do them here.
-  while (it < tokens.end()) {
-    // Disregard leading whitespace
+    // Now we need to parse cypherReturn production from opencypher grammar.
+    // Skip leading whitespaces and DISTINCT statemant if there is one.
     while (it != tokens.end() && it->first == Token::SPACE) {
       ++it;
     }
-    // There is only whitespace, nothing to do...
-    if (it == tokens.end()) break;
-    bool has_as = false;
-    auto last_non_space = it;
-    auto jt = it;
-    // We should track number of opened braces and parantheses so that we can
-    // recognize if comma is a named expression separator or part of the
-    // list literal / function call.
-    int num_open_braces = 0;
-    int num_open_parantheses = 0;
-    for (;
-         jt != tokens.end() &&
-         (jt->second != "," || num_open_braces || num_open_parantheses) &&
-         jt->second != "order" && jt->second != "skip" && jt->second != "limit";
-         ++jt) {
-      if (jt->second == "(") {
-        ++num_open_parantheses;
-      } else if (jt->second == ")") {
-        --num_open_parantheses;
-      } else if (jt->second == "[") {
-        ++num_open_braces;
-      } else if (jt->second == "]") {
-        --num_open_braces;
-      }
-      has_as |= jt->second == "as";
-      if (jt->first != Token::SPACE) {
-        last_non_space = jt;
-      }
+    if (it != tokens.end() && it->second == "distinct") {
+      ++it;
     }
-    if (!has_as) {
-      // Named expression is not aliased. Save string disregarding leading and
-      // trailing whitespaces. Use original_tokens in which case of the keywords
-      // is not lowercased.
-      std::string s;
-      auto begin_token = it - tokens.begin() + original_tokens.begin();
-      auto end_token =
-          last_non_space - tokens.begin() + original_tokens.begin() + 1;
-      for (auto kt = begin_token; kt != end_token; ++kt) {
-        s += kt->second;
+
+    // If the query is invalid, either antlr parser or cypher_main_visitor will
+    // report an error.
+    // TODO: we shouldn't rely on the fact that those checks will be done
+    // after this step. We should do them here.
+    while (it < tokens.end()) {
+      // Disregard leading whitespace
+      while (it != tokens.end() && it->first == Token::SPACE) {
+        ++it;
       }
-      named_exprs_[position_mapping[it - tokens.begin()]] = s;
-    }
-    if (jt != tokens.end() && jt->second == ",") {
-      // There are more named expressions.
-      it = jt + 1;
-    } else {
-      // We hit ORDER, SKIP or LIMIT -> we are done.
-      break;
+      // There is only whitespace, nothing to do...
+      if (it == tokens.end()) break;
+      bool has_as = false;
+      auto last_non_space = it;
+      auto jt = it;
+      // We should track number of opened braces and parantheses so that we can
+      // recognize if comma is a named expression separator or part of the
+      // list literal / function call.
+      int num_open_braces = 0;
+      int num_open_parantheses = 0;
+      for (; jt != tokens.end() &&
+             (jt->second != "," || num_open_braces || num_open_parantheses) &&
+             jt->second != "order" && jt->second != "skip" &&
+             jt->second != "limit" && jt->second != "union";
+           ++jt) {
+        if (jt->second == "(") {
+          ++num_open_parantheses;
+        } else if (jt->second == ")") {
+          --num_open_parantheses;
+        } else if (jt->second == "[") {
+          ++num_open_braces;
+        } else if (jt->second == "]") {
+          --num_open_braces;
+        }
+        has_as |= jt->second == "as";
+        if (jt->first != Token::SPACE) {
+          last_non_space = jt;
+        }
+      }
+      if (!has_as) {
+        // Named expression is not aliased. Save string disregarding leading and
+        // trailing whitespaces. Use original_tokens in which case of the
+        // keywords is not lowercased.
+        std::string s;
+        auto begin_token = it - tokens.begin() + original_tokens.begin();
+        auto end_token =
+            last_non_space - tokens.begin() + original_tokens.begin() + 1;
+        for (auto kt = begin_token; kt != end_token; ++kt) {
+          s += kt->second;
+        }
+        named_exprs_[position_mapping[it - tokens.begin()]] = s;
+      }
+      if (jt != tokens.end() && jt->second == ",") {
+        // There are more named expressions.
+        it = jt + 1;
+      } else {
+        // We're done with this return statement
+        break;
+      }
     }
   }
 }

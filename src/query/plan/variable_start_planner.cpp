@@ -216,7 +216,7 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
   return MakeCartesianProduct(std::move(variants));
 }
 
-VaryQueryPartMatching::VaryQueryPartMatching(QueryPart query_part,
+VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part,
                                              const SymbolTable &symbol_table)
     : query_part_(std::move(query_part)),
       matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
@@ -226,7 +226,8 @@ VaryQueryPartMatching::VaryQueryPartMatching(QueryPart query_part,
           VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)) {}
 
 VaryQueryPartMatching::iterator::iterator(
-    const QueryPart &query_part, VaryMatchingStart::iterator matchings_begin,
+    const SingleQueryPart &query_part,
+    VaryMatchingStart::iterator matchings_begin,
     VaryMatchingStart::iterator matchings_end,
     CartesianProduct<VaryMatchingStart>::iterator optional_begin,
     CartesianProduct<VaryMatchingStart>::iterator optional_end,

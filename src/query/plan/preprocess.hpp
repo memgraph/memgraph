@@ -190,14 +190,14 @@ struct Matching {
 ///  * any of the write clauses.
 ///
 /// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
-/// generated QueryPart will have `matching` generated for the `MATCH`.
+/// generated SingleQueryPart will have `matching` generated for the `MATCH`.
 /// `remaining_clauses` will contain `Merge`, `SetProperty` and `Merge` clauses
 /// in that exact order. The pattern inside the first `MERGE` will be used to
 /// generate the first `merge_matching` element, and the second `MERGE` pattern
 /// will produce the second `merge_matching` element. This way, if someone
 /// traverses `remaining_clauses`, the order of appearance of `Merge` clauses is
 /// in the same order as their respective `merge_matching` elements.
-struct QueryPart {
+struct SingleQueryPart {
   /// @brief All `MATCH` clauses merged into one @c Matching.
   Matching matching;
   /// @brief Each `OPTIONAL MATCH` converted to @c Matching.
@@ -216,12 +216,28 @@ struct QueryPart {
   std::vector<Clause *> remaining_clauses{};
 };
 
+/// Holds query parts of a single query together with the optional information
+/// about the combinator used between this single query and the previous one.
+struct QueryPart {
+  std::vector<SingleQueryPart> single_query_parts = {};
+  /// Optional AST query combinator node
+  Tree *query_combinator = nullptr;
+};
+
+/// Holds query parts of all single queries together with the information
+/// whether or not the resulting set should contain distinct elements.
+struct QueryParts {
+  std::vector<QueryPart> query_parts = {};
+  /// Distinct flag, determined by the query combinator
+  bool distinct = false;
+};
+
 /// @brief Convert the AST to multiple @c QueryParts.
 ///
 /// This function will normalize patterns inside @c Match and @c Merge clauses
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstTreeStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-std::vector<QueryPart> CollectQueryParts(SymbolTable &, AstTreeStorage &);
+QueryParts CollectQueryParts(SymbolTable &, AstTreeStorage &);
 
 }  // namespace query::plan

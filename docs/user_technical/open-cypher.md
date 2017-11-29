@@ -23,6 +23,7 @@ database. For that purpose, the following clauses are offered:
   * `WHERE`, for filtering the matched data and
   * `RETURN`, for defining what will be presented to the user in the result
     set.
+  * `UNION` and `UNION ALL` for combining results from multiple queries.
 
 #### MATCH
 
@@ -215,6 +216,29 @@ Collecting items into a map:
 Click
 [here](https://neo4j.com/docs/developer-manual/current/cypher/functions/aggregating/)
 for additional details on how aggregations work.
+
+#### UNION and UNION ALL
+
+openCypher supports combining results from multiple queries into a single result
+set. That result will contain rows that belong to queries in the union
+respecting the union type.
+
+Using `UNION` will contain only distinct rows while `UNION ALL` will keep all
+rows from all given queries.
+
+Restrictions when using `UNION` or `UNION ALL`:
+  * The number and the names of columns returned by queries must be the same
+    for all of them.
+  * There can be only one union type between single queries, ie. a query can't
+    contain both `UNION` and `UNION ALL`.
+
+Example, get distinct names that are shared between persons and movies:
+
+    MATCH(n: Person) RETURN n.name as name UNION MATCH(n: Movie) RETURN n.name as name
+
+Example, get all names that are shared between persons and movies (including duplicates):
+
+    MATCH(n: Person) RETURN n.name as name UNION ALL MATCH(n: Movie) RETURN n.name as name
 
 ### Writing New Data
 
@@ -621,7 +645,6 @@ here (especially subtle semantic ones).
 #### Unsupported Constructs
 
 * Data importing. Memgraph doesn't support Cypher's CSV importing capabilities.
-* The `UNION` keyword for merging query results.
 * The `FOREACH` language construct for performing an operation on every list element.
 * The `CALL` construct for a standalone function call. This can be expressed using
   `RETURN functioncall()`. For example, with Memgraph you can get information about

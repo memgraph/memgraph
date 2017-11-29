@@ -11,6 +11,7 @@
 
 * Write-ahead log added.
 * `nodes` and `relationships` functions added.
+* `UNION` and `UNION ALL` is implemented
 
 ### Bug Fixes and Other Changes
 

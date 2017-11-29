@@ -90,6 +90,7 @@ class Optional;
 class Unwind;
 class Distinct;
 class CreateIndex;
+class Union;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -98,7 +99,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
-    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct>;
+    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -1547,6 +1548,40 @@ class CreateIndex : public LogicalOperator {
  private:
   GraphDbTypes::Label label_;
   GraphDbTypes::Property property_;
+};
+
+/**
+ * A logical operator that applies UNION operator on inputs and places the
+ * result on the frame.
+ *
+ * This operator takes two inputs, a vector of symbols for the result, and
+ * vectors of symbols used  by each of the inputs.
+ */
+class Union : public LogicalOperator {
+ public:
+  Union(const std::shared_ptr<LogicalOperator> &left_op,
+        const std::shared_ptr<LogicalOperator> &right_op,
+        const std::vector<Symbol> &union_symbols,
+        const std::vector<Symbol> &left_symbols,
+        const std::vector<Symbol> &right_symbols);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(GraphDbAccessor &db) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+
+ private:
+  const std::shared_ptr<LogicalOperator> left_op_, right_op_;
+  const std::vector<Symbol> union_symbols_, left_symbols_, right_symbols_;
+
+  class UnionCursor : public Cursor {
+   public:
+    UnionCursor(const Union &self, GraphDbAccessor &db);
+    bool Pull(Frame &, Context &) override;
+    void Reset() override;
+
+   private:
+    const Union &self_;
+    const std::unique_ptr<Cursor> left_cursor_, right_cursor_;
+  };
 };
 
 }  // namespace plan

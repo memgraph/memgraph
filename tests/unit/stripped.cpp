@@ -3,10 +3,10 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include "query/frontend/stripped.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"
-#include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 using namespace query;
@@ -16,11 +16,11 @@ namespace {
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
-void EXPECT_PROP_TRUE(const TypedValue& a) {
+void EXPECT_PROP_TRUE(const TypedValue &a) {
   EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.Value<bool>());
 }
 
-void EXPECT_PROP_EQ(const TypedValue& a, const TypedValue& b) {
+void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) {
   EXPECT_PROP_TRUE(a == b);
 }
 
@@ -322,5 +322,22 @@ TEST(QueryStripper, KeywordInNamedExpression) {
   EXPECT_EQ(stripped.query(), "return count ( n )");
   EXPECT_THAT(stripped.named_expressions(),
               UnorderedElementsAre(Pair(2, "CoUnT(n)")));
+}
+
+TEST(QueryStripper, UnionMultipleReturnStatementsAliasedExpression) {
+  StrippedQuery stripped("RETURN 1 AS X UNION RETURN 2 AS X");
+  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre());
+}
+
+TEST(QueryStripper, UnionMultipleReturnStatementsNamedExpressions) {
+  StrippedQuery stripped("RETURN x UNION RETURN x");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "x"), Pair(8, "x")));
+}
+
+TEST(QueryStripper, UnionAllMultipleReturnStatementsNamedExpressions) {
+  StrippedQuery stripped("RETURN x UNION ALL RETURN x");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "x"), Pair(10, "x")));
 }
 }

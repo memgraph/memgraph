@@ -16,13 +16,13 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // MATCH (node_atom_1) RETURN node_atom_1
-  auto query_ast =
-      QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1"));
+  auto query_ast = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   // symbols for pattern, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto match = dynamic_cast<Match *>(query_ast->clauses_[0]);
+  auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
   auto pattern_sym = symbol_table[*pattern->identifier_];
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
@@ -31,7 +31,7 @@ TEST(TestSymbolGenerator, MatchNodeReturn) {
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name(), "node_atom_1");
   EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
-  auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
+  auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
   EXPECT_EQ(node_sym.name(), column_sym.name());
@@ -44,13 +44,13 @@ TEST(TestSymbolGenerator, MatchNamedPattern) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // MATCH p = (node_atom_1) RETURN node_atom_1
-  auto query_ast =
-      QUERY(MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))), RETURN("p"));
+  auto query_ast = QUERY(SINGLE_QUERY(
+      MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))), RETURN("p")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   // symbols for p, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto match = dynamic_cast<Match *>(query_ast->clauses_[0]);
+  auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
   auto pattern_sym = symbol_table[*pattern->identifier_];
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
@@ -64,8 +64,8 @@ TEST(TestSymbolGenerator, MatchUnboundMultiReturn) {
   // AST using variable in return bound by naming the previous return
   // expression. This is treated as an unbound variable.
   // MATCH (node_atom_1) RETURN node_atom_1 AS n, n
-  auto query_ast = QUERY(MATCH(PATTERN(NODE("node_atom_1"))),
-                         RETURN("node_atom_1", AS("n"), "n"));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))),
+                                      RETURN("node_atom_1", AS("n"), "n")));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
 }
@@ -74,7 +74,7 @@ TEST(TestSymbolGenerator, MatchNodeUnboundReturn) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // AST with unbound variable in return: MATCH (n) RETURN x
-  auto query_ast = QUERY(MATCH(PATTERN(NODE("n"))), RETURN("x"));
+  auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("x")));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
 }
@@ -87,7 +87,7 @@ TEST(TestSymbolGenerator, CreatePropertyUnbound) {
   GraphDb db;
   GraphDbAccessor dba(db);
   node->properties_[PROPERTY_PAIR("prop")] = IDENT("x");
-  auto query_ast = QUERY(CREATE(PATTERN(node)));
+  auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(node))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), UnboundVariableError);
 }
@@ -96,18 +96,18 @@ TEST(TestSymbolGenerator, CreateNodeReturn) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // Simple AST returning a created node: CREATE (n) RETURN n
-  auto query_ast = QUERY(CREATE(PATTERN(NODE("n"))), RETURN("n"));
+  auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN("n")));
   SymbolGenerator symbol_generator(symbol_table);
   query_ast->Accept(symbol_generator);
   // symbols for pattern, `n` and named_expr
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto create = dynamic_cast<Create *>(query_ast->clauses_[0]);
+  auto create = dynamic_cast<Create *>(query_ast->single_query_->clauses_[0]);
   auto pattern = create->patterns_[0];
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name(), "n");
   EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
-  auto ret = dynamic_cast<Return *>(query_ast->clauses_[1]);
+  auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
   EXPECT_EQ(node_sym.name(), column_sym.name());
@@ -120,7 +120,8 @@ TEST(TestSymbolGenerator, CreateRedeclareNode) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // AST with redeclaring a variable when creating nodes: CREATE (n), (n)
-  auto query_ast = QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("n"))));
+  auto query_ast =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("n")))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), RedeclareVariableError);
 }
@@ -130,8 +131,8 @@ TEST(TestSymbolGenerator, MultiCreateRedeclareNode) {
   AstTreeStorage storage;
   // AST with redeclaring a variable when creating nodes with multiple creates:
   // CREATE (n) CREATE (n)
-  auto query_ast =
-      QUERY(CREATE(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n"))));
+  auto query_ast = QUERY(
+      SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), RedeclareVariableError);
 }
@@ -140,7 +141,8 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareNode) {
   SymbolTable symbol_table;
   AstTreeStorage storage;
   // AST with redeclaring a match node variable in create: MATCH (n) CREATE (n)
-  auto query_ast = QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n"))));
+  auto query_ast = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query_ast->Accept(symbol_generator), RedeclareVariableError);
 }
@@ -153,11 +155,11 @@ TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-            CREATE(PATTERN(NODE("n"),
-                           EDGE("r", EdgeAtom::Direction::OUT, {relationship}),
-                           NODE("l"))));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+      CREATE(PATTERN(NODE("n"),
+                     EDGE("r", EdgeAtom::Direction::OUT, {relationship}),
+                     NODE("l")))));
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
 }
@@ -166,7 +168,8 @@ TEST(TestSymbolGenerator, MatchTypeMismatch) {
   AstTreeStorage storage;
   // Using an edge variable as a node causes a type mismatch.
   // MATCH (n) -[r]-> (r)
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("r"))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("r")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), TypeMismatchError);
@@ -176,10 +179,10 @@ TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
   AstTreeStorage storage;
   // Using an edge variable as a node causes a type mismatch.
   // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]-> (n2)
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
-            CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT),
-                           NODE("n2"))));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
+      CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT),
+                     NODE("n2")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), TypeMismatchError);
@@ -195,7 +198,7 @@ TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   auto rel2 = dba.EdgeType("rel2");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
   edge->edge_types_.emplace_back(rel2);
-  auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -208,8 +211,8 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto rel1 = dba.EdgeType("rel1");
-  auto query = QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -218,8 +221,9 @@ TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
 TEST(TestSymbolGenerator, MatchWhereUnbound) {
   // Test MATCH (n) WHERE missing < 42 RETURN n
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
-                     WHERE(LESS(IDENT("missing"), LITERAL(42))), RETURN("n"));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  WHERE(LESS(IDENT("missing"), LITERAL(42))),
+                                  RETURN("n")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -230,7 +234,7 @@ TEST(TestSymbolGenerator, CreateDelete) {
   AstTreeStorage storage;
   auto node = NODE("n");
   auto ident = IDENT("n");
-  auto query = QUERY(CREATE(PATTERN(node)), DELETE(ident));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node)), DELETE(ident)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -245,7 +249,8 @@ TEST(TestSymbolGenerator, CreateDelete) {
 TEST(TestSymbolGenerator, CreateDeleteUnbound) {
   // Test CREATE (n) DELETE missing
   AstTreeStorage storage;
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing")));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -259,8 +264,9 @@ TEST(TestSymbolGenerator, MatchWithReturn) {
   auto with_as_n = AS("n");
   auto n_ident = IDENT("n");
   auto ret_as_n = AS("n");
-  auto query = QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
-                     RETURN(n_ident, ret_as_n));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
+                         RETURN(n_ident, ret_as_n)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -280,8 +286,8 @@ TEST(TestSymbolGenerator, MatchWithReturn) {
 TEST(TestSymbolGenerator, MatchWithReturnUnbound) {
   // Test MATCH (old) WITH old AS n RETURN old
   AstTreeStorage storage;
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("n")), RETURN("old"));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                                  WITH("old", AS("n")), RETURN("old")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -297,8 +303,9 @@ TEST(TestSymbolGenerator, MatchWithWhere) {
   auto old_ident = IDENT("old");
   auto with_as_n = AS("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
-  auto query = QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
-                     WHERE(LESS(n_prop, LITERAL(42))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n),
+                         WHERE(LESS(n_prop, LITERAL(42)))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -319,9 +326,9 @@ TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
-            WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42))));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
+      WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -340,8 +347,8 @@ TEST(TestSymbolGenerator, CreateMultiExpand) {
   auto node_n2 = NODE("n");
   auto edge_p = EDGE("p", EdgeAtom::Direction::OUT, {p_type});
   auto node_l = NODE("l");
-  auto query = QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
-                            PATTERN(node_n2, edge_p, node_l)));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n1, edge_r, node_m),
+                                         PATTERN(node_n2, edge_p, node_l))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -372,10 +379,10 @@ TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   auto r_type = dba.EdgeType("r");
   auto label = dba.Label("label");
   AstTreeStorage storage;
-  auto query = QUERY(
+  auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
-                     NODE("n", label))));
+                     NODE("n", label)))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -389,8 +396,8 @@ TEST(TestSymbolGenerator, CreateExpandProperty) {
   AstTreeStorage storage;
   auto n_prop = NODE("n");
   n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
-  auto query = QUERY(CREATE(PATTERN(
-      NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop)));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -405,8 +412,8 @@ TEST(TestSymbolGenerator, MatchReturnSum) {
   auto node = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto as_result = AS("result");
-  auto query =
-      QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
+                                  RETURN(ADD(sum, LITERAL(42)), as_result)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -426,9 +433,9 @@ TEST(TestSymbolGenerator, NestedAggregation) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  auto query = QUERY(
+  auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
-      RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s")));
+      RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -440,9 +447,9 @@ TEST(TestSymbolGenerator, WrongAggregationContext) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))),
-                     WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
-                     WHERE(LESS(SUM(IDENT("prop")), LITERAL(42))));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
+      WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -458,7 +465,8 @@ TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[prop] = n_prop;
-  auto query = QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m)));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -480,7 +488,8 @@ TEST(TestSymbolGenerator, CreateNodeEdge) {
   auto node_2 = NODE("n");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("n");
-  auto query = QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3)));
+  auto query = QUERY(
+      SINGLE_QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -502,8 +511,8 @@ TEST(TestSymbolGenerator, MatchWithCreate) {
   auto node_2 = NODE("m");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("m");
-  auto query = QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")),
-                     CREATE(PATTERN(node_2, edge, node_3)));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")),
+                                  CREATE(PATTERN(node_2, edge, node_3))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -522,8 +531,8 @@ TEST(TestSymbolGenerator, SameResults) {
   // Test MATCH (n) WITH n AS m, n AS m
   {
     AstTreeStorage storage;
-    auto query =
-        QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("m"), "n", AS("m")));
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WITH("n", AS("m"), "n", AS("m"))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -531,7 +540,8 @@ TEST(TestSymbolGenerator, SameResults) {
   // Test MATCH (n) RETURN n, n
   {
     AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", "n"));
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", "n")));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -542,8 +552,9 @@ TEST(TestSymbolGenerator, SkipUsingIdentifier) {
   // Test MATCH (old) WITH old AS new SKIP old
   {
     AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("old"))),
-                       WITH("old", AS("new"), SKIP(IDENT("old"))));
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                           WITH("old", AS("new"), SKIP(IDENT("old")))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -551,8 +562,9 @@ TEST(TestSymbolGenerator, SkipUsingIdentifier) {
   // Test MATCH (old) WITH old AS new SKIP new
   {
     AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("old"))),
-                       WITH("old", AS("new"), SKIP(IDENT("new"))));
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                           WITH("old", AS("new"), SKIP(IDENT("new")))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -562,7 +574,8 @@ TEST(TestSymbolGenerator, SkipUsingIdentifier) {
 TEST(TestSymbolGenerator, LimitUsingIdentifier) {
   // Test MATCH (n) RETURN n AS n LIMIT n
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(IDENT("n"))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(IDENT("n")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -571,8 +584,9 @@ TEST(TestSymbolGenerator, LimitUsingIdentifier) {
 TEST(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
   AstTreeStorage storage;
-  auto query = QUERY(MATCH(PATTERN(NODE("old"))),
-                     RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1)))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                   RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -581,9 +595,9 @@ TEST(TestSymbolGenerator, OrderByAggregation) {
 TEST(TestSymbolGenerator, OrderByUnboundVariable) {
   // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
   AstTreeStorage storage;
-  auto query =
-      QUERY(MATCH(PATTERN(NODE("old"))),
-            RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old"))));
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("old"))),
+      RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -596,8 +610,9 @@ TEST(TestSymbolGenerator, AggregationOrderBy) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto ident_new = IDENT("new");
-  auto query = QUERY(MATCH(PATTERN(node)),
-                     RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new)));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new,
+                                                      ORDER_BY(ident_new))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -617,8 +632,8 @@ TEST(TestSymbolGenerator, OrderByOldVariable) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto by_old = IDENT("old");
-  auto query =
-      QUERY(MATCH(PATTERN(node)), RETURN(ident_old, as_new, ORDER_BY(by_old)));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
+                                  RETURN(ident_old, as_new, ORDER_BY(by_old))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -635,7 +650,8 @@ TEST(TestSymbolGenerator, MergeVariableError) {
   // Test MATCH (n) MERGE (n)
   {
     AstTreeStorage storage;
-    auto query = QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n"))));
+    auto query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n")))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -646,10 +662,10 @@ TEST(TestSymbolGenerator, MergeVariableError) {
     GraphDbAccessor dba(db);
     auto rel = dba.EdgeType("rel");
     AstTreeStorage storage;
-    auto query = QUERY(
+    auto query = QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
         MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}),
-                      NODE("b"))));
+                      NODE("b")))));
     SymbolTable symbol_table;
     SymbolGenerator symbol_generator(symbol_table);
     EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -659,7 +675,8 @@ TEST(TestSymbolGenerator, MergeVariableError) {
 TEST(TestSymbolGenerator, MergeEdgeWithoutType) {
   // Test MERGE (a) -[r]- (b)
   AstTreeStorage storage;
-  auto query = QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b"))));
+  auto query =
+      QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   // Edge must have a type, since it doesn't we raise.
@@ -682,11 +699,11 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   auto m_prop = PROPERTY_LOOKUP("m", prop);
   auto ident_r = IDENT("r");
   auto as_r = AS("r");
-  auto query =
-      QUERY(MATCH(PATTERN(match_n)), MERGE(PATTERN(merge_n, edge_r, node_m),
-                                           ON_MATCH(SET(n_prop, LITERAL(42))),
-                                           ON_CREATE(SET(m_prop, LITERAL(42)))),
-            RETURN(ident_r, as_r));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(match_n)),
+                                  MERGE(PATTERN(merge_n, edge_r, node_m),
+                                        ON_MATCH(SET(n_prop, LITERAL(42))),
+                                        ON_CREATE(SET(m_prop, LITERAL(42)))),
+                                  RETURN(ident_r, as_r)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -709,8 +726,9 @@ TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
 TEST(TestSymbolGenerator, WithUnwindRedeclareReturn) {
   // Test WITH [1, 2] AS list UNWIND list AS list RETURN list
   AstTreeStorage storage;
-  auto query = QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")),
-                     UNWIND(IDENT("list"), AS("list")), RETURN("list"));
+  auto query =
+      QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")),
+                         UNWIND(IDENT("list"), AS("list")), RETURN("list")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -725,8 +743,9 @@ TEST(TestSymbolGenerator, WithUnwindReturn) {
   auto ret_as_list = AS("list");
   auto ret_elem = IDENT("elem");
   auto ret_as_elem = AS("elem");
-  auto query = QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
-                     RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem));
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
+                   RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -756,8 +775,8 @@ TEST(TestSymbolGenerator, MatchCrossReferenceVariable) {
   node_m->properties_[prop] = n_prop;
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
-  auto query =
-      QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(ident_n, as_n));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)),
+                                  RETURN(ident_n, as_n)));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -787,7 +806,8 @@ TEST(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   auto node_m = NODE("m");
   auto with = storage.Create<With>();
   with->body_.all_identifiers = true;
-  auto query = QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret);
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -802,7 +822,7 @@ TEST(TestSymbolGenerator, MatchReturnAsteriskSameResult) {
   AstTreeStorage storage;
   auto ret = RETURN("n");
   ret->body_.all_identifiers = true;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -815,7 +835,7 @@ TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   ret->body_.all_identifiers = true;
   auto ident_n = storage.Create<Identifier>("anon", false);
   auto node = storage.Create<NodeAtom>(ident_n);
-  auto query = QUERY(MATCH(PATTERN(node)), ret);
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), ret));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -828,10 +848,10 @@ TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   auto r_type = dba.EdgeType("r");
   auto label = dba.Label("label");
   AstTreeStorage storage;
-  auto query = QUERY(
+  auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
-                    NODE("n", label))));
+                    NODE("n", label)))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -847,7 +867,8 @@ TEST(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   edge->properties_[prop] = n_prop;
   auto node_n = NODE("n");
-  auto query = QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -868,7 +889,8 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
   auto query = QUERY(
-      MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)), RETURN("r"));
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)),
+                   RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -891,8 +913,8 @@ TEST(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   auto l_prop = PROPERTY_LOOKUP("l", prop);
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))),
-                     MATCH(PATTERN(node_l)), RETURN("r"));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))),
+                                  MATCH(PATTERN(node_l)), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -903,7 +925,7 @@ TEST(TestSymbolGenerator, CreateVariablePath) {
   // paths cannot be created.
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
-  auto query = QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m"))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -914,7 +936,7 @@ TEST(TestSymbolGenerator, MergeVariablePath) {
   // paths cannot be created.
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
-  auto query = QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m"))));
+  auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m")))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
@@ -927,7 +949,8 @@ TEST(TestSymbolGenerator, RedeclareVariablePath) {
   // should be changed to check for type errors.
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("n", EdgeAtom::Direction::OUT);
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n"));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -943,7 +966,8 @@ TEST(TestSymbolGenerator, VariablePathSameIdentifier) {
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -960,7 +984,7 @@ TEST(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto node_n = NODE("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_n->properties_[prop] = n_prop;
-  auto query = QUERY(MATCH(PATTERN(node_n)), RETURN("n"));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -977,8 +1001,8 @@ TEST(TestSymbolGenerator, WithReturnAll) {
   auto *all = ALL("x", LIST(list_x), WHERE(EQ(where_x, LITERAL(2))));
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
-  auto query = QUERY(WITH(LITERAL(42), with_as_x),
-                     RETURN(all, ret_as_x, ret_x, AS("y")));
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
+                                  RETURN(all, ret_as_x, ret_x, AS("y"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -1011,8 +1035,8 @@ TEST(TestSymbolGenerator, MatchBfsReturn) {
   bfs->filter_expression_ = r_prop;
   bfs->upper_bound_ = n_prop;
   auto *ret_r = IDENT("r");
-  auto *query =
-      QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))), RETURN(ret_r, AS("r")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))),
+                                   RETURN(ret_r, AS("r"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -1039,7 +1063,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("r");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -1055,7 +1080,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("a");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query = QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r"));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -1072,7 +1098,8 @@ TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("m");
   bfs->upper_bound_ = LITERAL(10);
-  auto *query = QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   EXPECT_THROW(query->Accept(symbol_generator), UnboundVariableError);
@@ -1090,8 +1117,8 @@ TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   edge->inner_node_ = storage.Create<Identifier>("anon_inner_n", false);
   auto end_node =
       storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
-  auto query = QUERY(MATCH(PATTERN(node, edge, end_node)),
-                     RETURN(LITERAL(42), AS("res")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node, edge, end_node)),
+                                  RETURN(LITERAL(42), AS("res"))));
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
   query->Accept(symbol_generator);
@@ -1107,6 +1134,137 @@ TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
       EXPECT_FALSE(id_and_symbol.second.user_declared());
     }
   }
+}
+
+TEST(TestSymbolGenerator, MatchUnionSymbols) {
+  // RETURN 5 as X UNION RETURN 6 AS x
+  AstTreeStorage storage;
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))),
+                     UNION(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 3);
+}
+
+TEST(TestSymbolGenerator, MatchUnionMultipleSymbols) {
+  // RETURN 5 as X, 6 AS Y UNION RETURN 5 AS Y, 6 AS x
+  AstTreeStorage storage;
+  auto query = QUERY(
+      SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
+      UNION(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 6);
+}
+
+TEST(TestSymbolGenerator, MatchUnionAllSymbols) {
+  // RETURN 5 as X UNION ALL RETURN 6 AS x
+  AstTreeStorage storage;
+  auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))),
+                     UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 3);
+}
+
+TEST(TestSymbolGenerator, MatchUnionAllMultipleSymbols) {
+  // RETURN 5 as X, 6 AS Y UNION ALL RETURN 5 AS Y, 6 AS x
+  AstTreeStorage storage;
+  auto query = QUERY(
+      SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
+      UNION_ALL(
+          SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 6);
+}
+
+TEST(TestSymbolGenerator, MatchUnionReturnAllSymbols) {
+  // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS X, 4 AS Y
+  AstTreeStorage storage;
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 6);
+}
+
+TEST(TestSymbolGenerator, MatchUnionReturnSymbols) {
+  // WITH 1 as X, 2 AS Y RETURN Y, X UNION RETURN 3 AS X, 4 AS Y
+  AstTreeStorage storage;
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")),
+                   RETURN("Y", "X")),
+      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 8);
+}
+
+TEST(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
+  // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 3 AS Z, 4 AS Y
+  AstTreeStorage storage;
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto query = QUERY(
+      SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("Z"), LITERAL(4), AS("Y")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
+  // WITH 1 as X, 2 AS Y RETURN * UNION RETURN 4 AS Y
+  AstTreeStorage storage;
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto query =
+      QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
+            UNION(SINGLE_QUERY(RETURN(LITERAL(4), AS("Y")))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
+}
+
+TEST(TestSymbolGenerator, MatchUnion) {
+  // WITH 5 AS X, 3 AS Y RETURN * UNION WITH 9 AS Y, 4 AS X RETURN Y, X
+  AstTreeStorage storage;
+  auto ret = storage.Create<Return>();
+  ret->body_.all_identifiers = true;
+  auto query =
+      QUERY(SINGLE_QUERY(WITH(LITERAL(5), AS("X"), LITERAL(3), AS("Y")), ret),
+            UNION(SINGLE_QUERY(WITH(LITERAL(9), AS("Y"), LITERAL(4), AS("X")),
+                               RETURN("Y", "X"))));
+
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->Accept(symbol_generator);
+
+  EXPECT_EQ(symbol_table.max_position(), 8);
 }
 
 }  // namespace

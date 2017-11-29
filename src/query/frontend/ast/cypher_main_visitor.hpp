@@ -133,13 +133,20 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
     return expression;
   }
 
-  antlrcpp::Any visitCypherUnion(
-      CypherParser::CypherUnionContext *ctx) override {
-    throw utils::NotYetImplemented("UNION");
-  }
-
   /**
    * @return Query*
+   */
+  antlrcpp::Any visitRegularQuery(
+      CypherParser::RegularQueryContext *ctx) override;
+
+  /**
+   * @return CypherUnion*
+   */
+  antlrcpp::Any visitCypherUnion(
+      CypherParser::CypherUnionContext *ctx) override;
+
+  /**
+   * @return SingleQuery*
    */
   antlrcpp::Any visitSingleQuery(
       CypherParser::SingleQueryContext *ctx) override;

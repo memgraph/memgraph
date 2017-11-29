@@ -24,17 +24,51 @@ namespace query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
+antlrcpp::Any CypherMainVisitor::visitRegularQuery(
+    CypherParser::RegularQueryContext *ctx) {
+  query_ = storage_.query();
+  DCHECK(ctx->singleQuery()) << "Expected single query.";
+  query_->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
+
+  // Check that union and union all dont mix
+  bool has_union = false;
+  bool has_union_all = false;
+  for (auto *child : ctx->cypherUnion()) {
+    if (child->ALL()) {
+      has_union_all = true;
+    } else {
+      has_union = true;
+    }
+    if (has_union && has_union_all) {
+      throw SemanticException("Invalid combination of UNION and UNION ALL.");
+    }
+    query_->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+  }
+
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCypherUnion(
+    CypherParser::CypherUnionContext *ctx) {
+  bool distinct = !ctx->ALL();
+  auto *cypher_union = storage_.Create<CypherUnion>(distinct);
+  DCHECK(ctx->singleQuery()) << "Expected single query.";
+  cypher_union->single_query_ =
+      ctx->singleQuery()->accept(this).as<SingleQuery *>();
+  return cypher_union;
+}
+
 antlrcpp::Any CypherMainVisitor::visitSingleQuery(
     CypherParser::SingleQueryContext *ctx) {
-  query_ = storage_.query();
+  auto *single_query = storage_.Create<SingleQuery>();
   for (auto *child : ctx->clause()) {
     antlrcpp::Any got = child->accept(this);
     if (got.is<Clause *>()) {
-      query_->clauses_.push_back(got.as<Clause *>());
+      single_query->clauses_.push_back(got.as<Clause *>());
     } else {
       auto child_clauses = got.as<std::vector<Clause *>>();
-      query_->clauses_.insert(query_->clauses_.end(), child_clauses.begin(),
-                              child_clauses.end());
+      single_query->clauses_.insert(single_query->clauses_.end(),
+                                    child_clauses.begin(), child_clauses.end());
     }
   }
 
@@ -47,7 +81,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_return = false;
   bool has_optional_match = false;
   bool has_create_index = false;
-  for (Clause *clause : query_->clauses_) {
+  for (Clause *clause : single_query->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
         throw SemanticException(
@@ -86,7 +120,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       has_update = has_return = has_optional_match = false;
     } else if (dynamic_cast<CreateIndex *>(clause)) {
       // If there is CreateIndex clause then there shouldn't be anything else.
-      if (query_->clauses_.size() != 1U) {
+      if (single_query->clauses_.size() != 1U) {
         throw SemanticException(
             "CreateIndex must be only clause in the query.");
       }
@@ -112,7 +146,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       }
     }
   }
-  return query_;
+  return single_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {

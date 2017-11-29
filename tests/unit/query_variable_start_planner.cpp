@@ -67,7 +67,11 @@ void CheckPlansProduce(
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plans = MakeLogicalPlan<VariableStartPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  EXPECT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(
+      single_query_parts, planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());
@@ -87,8 +91,9 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+      RETURN("n")));
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
   CheckPlansProduce(2, storage, dba, [&](const auto &results) {
     // We expect to produce only a single (v1) node.
@@ -109,9 +114,10 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
     AstTreeStorage storage;
-    QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"),
-                        EDGE("e", Direction::OUT), NODE("l"))),
-          RETURN("n"));
+    QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"),
+                      EDGE("e", Direction::OUT), NODE("l"))),
+        RETURN("n")));
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
     CheckPlansProduce(3, storage, dba, [&](const auto &results) {
       // We expect to produce only a single (v1) node.
@@ -121,9 +127,10 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   {
     // Equivalent to `MATCH (n) -[r]-> (m), (m) -[e]-> (l) RETURN n`.
     AstTreeStorage storage;
-    QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
-                PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
-          RETURN("n"));
+    QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
+              PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
+        RETURN("n")));
     CheckPlansProduce(3, storage, dba, [&](const auto &results) {
       AssertRows(results, {{v1}});
     });
@@ -142,10 +149,10 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
   AstTreeStorage storage;
-  QUERY(
+  QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
-      RETURN("n", "l"));
+      RETURN("n", "l")));
   // We have 2 nodes `n` and `m` from which we could start the MATCH, and 2
   // nodes for OPTIONAL MATCH. This should produce 2 * 2 plans.
   CheckPlansProduce(4, storage, dba, [&](const auto &results) {
@@ -168,11 +175,11 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
   AstTreeStorage storage;
-  QUERY(
+  QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
       MERGE(PATTERN(NODE("u"), EDGE("q", Direction::OUT, {r_type}), NODE("v"))),
-      RETURN("n", "m", "l", "u", "v"));
+      RETURN("n", "m", "l", "u", "v")));
   // Since MATCH, OPTIONAL MATCH and MERGE each have 2 nodes from which we can
   // start, we generate 2 * 2 * 2 plans.
   CheckPlansProduce(8, storage, dba, [&](const auto &results) {
@@ -191,10 +198,11 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
-        WITH("n"),
-        MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))),
-        RETURN("n", "m", "l"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+      WITH("n"),
+      MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))),
+      RETURN("n", "m", "l")));
   // We can start from 2 nodes in each match. Since WITH separates query parts,
   // we expect to get 2 plans for each, which totals 2 * 2.
   CheckPlansProduce(4, storage, dba, [&](const auto &results) {
@@ -216,7 +224,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   // Test MATCH (n) -[r*]-> (m) RETURN r
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
   TypedValue r2_list(std::vector<TypedValue>{r2});         // [r2]
@@ -244,7 +252,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->upper_bound_ = PROPERTY_LOOKUP("n", id);
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1] (v1 -[*..1]-> v2)
   TypedValue r2_list(std::vector<TypedValue>{r2});  // [r2] (v2 -[*..2]-> v3)
@@ -270,7 +278,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto edge = EDGE_VARIABLE("r", Direction::BOTH);
   auto node_n = NODE("n");
   node_n->properties_[std::make_pair("id", id)] = LITERAL(1);
-  QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});         // [r1]
   TypedValue r1_r2_list(std::vector<TypedValue>{r1, r2});  // [r1, r2]
@@ -302,7 +310,7 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));
   bfs->upper_bound_ = LITERAL(10);
-  QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{r1});  // [r1]
   CheckPlansProduce(2, storage, dba, [&](const auto &results) {

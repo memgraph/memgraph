@@ -237,17 +237,17 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(
 // graph matching is done.
 class VaryQueryPartMatching {
  public:
-  VaryQueryPartMatching(QueryPart, const SymbolTable &);
+  VaryQueryPartMatching(SingleQueryPart, const SymbolTable &);
 
   class iterator {
    public:
     typedef std::input_iterator_tag iterator_category;
-    typedef QueryPart value_type;
+    typedef SingleQueryPart value_type;
     typedef long difference_type;
-    typedef const QueryPart &reference;
-    typedef const QueryPart *pointer;
+    typedef const SingleQueryPart &reference;
+    typedef const SingleQueryPart *pointer;
 
-    iterator(const QueryPart &, VaryMatchingStart::iterator,
+    iterator(const SingleQueryPart &, VaryMatchingStart::iterator,
              VaryMatchingStart::iterator,
              CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator,
@@ -263,7 +263,7 @@ class VaryQueryPartMatching {
    private:
     void SetCurrentQueryPart();
 
-    QueryPart current_query_part_;
+    SingleQueryPart current_query_part_;
     VaryMatchingStart::iterator matchings_it_;
     VaryMatchingStart::iterator matchings_end_;
     CartesianProduct<VaryMatchingStart>::iterator optional_it_;
@@ -286,7 +286,7 @@ class VaryQueryPartMatching {
   }
 
  private:
-  QueryPart query_part_;
+  SingleQueryPart query_part_;
   // Multiple regular matchings, each starting from different node.
   VaryMatchingStart matchings_;
   // Multiple optional matchings, where each combination has different starting
@@ -312,7 +312,7 @@ class VariableStartPlanner {
 
   // Generates different, equivalent query parts by taking different graph
   // matching routes for each query part.
-  auto VaryQueryMatching(const std::vector<QueryPart> &query_parts,
+  auto VaryQueryMatching(const std::vector<SingleQueryPart> &query_parts,
                          const SymbolTable &symbol_table) {
     std::vector<impl::VaryQueryPartMatching> alternative_query_parts;
     alternative_query_parts.reserve(query_parts.size());
@@ -329,7 +329,7 @@ class VariableStartPlanner {
       : context_(context) {}
 
   /// @brief Generate multiple plans by varying the order of graph traversal.
-  auto Plan(const std::vector<QueryPart> &query_parts) {
+  auto Plan(const std::vector<SingleQueryPart> &query_parts) {
     return iter::imap(
         [context = &context_](const auto &alternative_query_parts) {
           RuleBasedPlanner<TPlanningContext> rule_planner(*context);
@@ -343,7 +343,8 @@ class VariableStartPlanner {
   /// generated operator trees.
   using PlanResult = typename std::result_of<decltype (
       &VariableStartPlanner<TPlanningContext>::Plan)(
-      VariableStartPlanner<TPlanningContext>, std::vector<QueryPart> &)>::type;
+      VariableStartPlanner<TPlanningContext>,
+      std::vector<SingleQueryPart> &)>::type;
 };
 
 }  // namespace query::plan

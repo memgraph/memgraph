@@ -217,38 +217,63 @@ auto GetWithPatterns(TWithPatterns *with_patterns,
 ///
 /// Create a query with given clauses.
 ///
-auto GetQuery(AstTreeStorage &storage, Clause *clause) {
-  storage.query()->clauses_.emplace_back(clause);
-  return storage.query();
+
+auto GetSingleQuery(SingleQuery *single_query, Clause *clause) {
+  single_query->clauses_.emplace_back(clause);
+  return single_query;
 }
-auto GetQuery(AstTreeStorage &storage, Match *match, Where *where) {
+auto GetSingleQuery(SingleQuery *single_query, Match *match, Where *where) {
   match->where_ = where;
-  storage.query()->clauses_.emplace_back(match);
-  return storage.query();
+  single_query->clauses_.emplace_back(match);
+  return single_query;
 }
-auto GetQuery(AstTreeStorage &storage, With *with, Where *where) {
+auto GetSingleQuery(SingleQuery *single_query, With *with, Where *where) {
   with->where_ = where;
-  storage.query()->clauses_.emplace_back(with);
-  return storage.query();
+  single_query->clauses_.emplace_back(with);
+  return single_query;
 }
 template <class... T>
-auto GetQuery(AstTreeStorage &storage, Match *match, Where *where,
-              T *... clauses) {
+auto GetSingleQuery(SingleQuery *single_query, Match *match, Where *where,
+                    T *... clauses) {
   match->where_ = where;
-  storage.query()->clauses_.emplace_back(match);
-  return GetQuery(storage, clauses...);
+  single_query->clauses_.emplace_back(match);
+  return GetSingleQuery(single_query, clauses...);
 }
 template <class... T>
-auto GetQuery(AstTreeStorage &storage, With *with, Where *where,
-              T *... clauses) {
+auto GetSingleQuery(SingleQuery *single_query, With *with, Where *where,
+                    T *... clauses) {
   with->where_ = where;
-  storage.query()->clauses_.emplace_back(with);
-  return GetQuery(storage, clauses...);
+  single_query->clauses_.emplace_back(with);
+  return GetSingleQuery(single_query, clauses...);
 }
+
 template <class... T>
-auto GetQuery(AstTreeStorage &storage, Clause *clause, T *... clauses) {
-  storage.query()->clauses_.emplace_back(clause);
-  return GetQuery(storage, clauses...);
+auto GetSingleQuery(SingleQuery *single_query, Clause *clause, T *... clauses) {
+  single_query->clauses_.emplace_back(clause);
+  return GetSingleQuery(single_query, clauses...);
+}
+
+auto GetCypherUnion(CypherUnion *cypher_union, SingleQuery *single_query) {
+  cypher_union->single_query_ = single_query;
+  return cypher_union;
+}
+
+auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query) {
+  storage.query()->single_query_ = single_query;
+  return storage.query();
+}
+
+auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query,
+              CypherUnion *cypher_union) {
+  storage.query()->cypher_unions_.emplace_back(cypher_union);
+  return GetQuery(storage, single_query);
+}
+
+template <class... T>
+auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query,
+              CypherUnion *cypher_union, T *... cypher_unions) {
+  storage.query()->cypher_unions_.emplace_back(cypher_union);
+  return GetQuery(storage, single_query, cypher_unions...);
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
@@ -524,6 +549,14 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define CREATE_INDEX_ON(label, property) \
   storage.Create<query::CreateIndex>((label), (property))
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
+#define SINGLE_QUERY(...) \
+  query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
+#define UNION(...)                                                      \
+  query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), \
+                                     __VA_ARGS__)
+#define UNION_ALL(...)                                                   \
+  query::test_common::GetCypherUnion(storage.Create<CypherUnion>(false), \
+                                     __VA_ARGS__)
 // Various operators
 #define ADD(expr1, expr2) \
   storage.Create<query::AdditionOperator>((expr1), (expr2))

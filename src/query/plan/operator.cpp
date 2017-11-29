@@ -305,10 +305,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -2414,6 +2414,67 @@ class CreateIndexCursor : public Cursor {
 
 std::unique_ptr<Cursor> CreateIndex::MakeCursor(GraphDbAccessor &db) const {
   return std::make_unique<CreateIndexCursor>(*this, db);
+}
+
+Union::Union(const std::shared_ptr<LogicalOperator> &left_op,
+             const std::shared_ptr<LogicalOperator> &right_op,
+             const std::vector<Symbol> &union_symbols,
+             const std::vector<Symbol> &left_symbols,
+             const std::vector<Symbol> &right_symbols)
+    : left_op_(left_op),
+      right_op_(right_op),
+      union_symbols_(union_symbols),
+      left_symbols_(left_symbols),
+      right_symbols_(right_symbols) {}
+
+std::unique_ptr<Cursor> Union::MakeCursor(GraphDbAccessor &db) const {
+  return std::make_unique<Union::UnionCursor>(*this, db);
+}
+
+bool Union::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (left_op_->Accept(visitor)) {
+      right_op_->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
+
+std::vector<Symbol> Union::OutputSymbols(const SymbolTable &) const {
+  return union_symbols_;
+}
+
+Union::UnionCursor::UnionCursor(const Union &self, GraphDbAccessor &db)
+    : self_(self),
+      left_cursor_(self.left_op_->MakeCursor(db)),
+      right_cursor_(self.right_op_->MakeCursor(db)) {}
+
+bool Union::UnionCursor::Pull(Frame &frame, Context &context) {
+  std::unordered_map<std::string, TypedValue> results;
+  if (left_cursor_->Pull(frame, context)) {
+    // collect values from the left child
+    for (const auto &output_symbol : self_.left_symbols_) {
+      results[output_symbol.name()] = frame[output_symbol];
+    }
+  } else if (right_cursor_->Pull(frame, context)) {
+    // collect values from the right child
+    for (const auto &output_symbol : self_.right_symbols_) {
+      results[output_symbol.name()] = frame[output_symbol];
+    }
+  } else {
+    return false;
+  }
+
+  // put collected values on frame under union symbols
+  for (const auto &symbol : self_.union_symbols_) {
+    frame[symbol] = results[symbol.name()];
+  }
+  return true;
+}
+
+void Union::UnionCursor::Reset() {
+  left_cursor_->Reset();
+  right_cursor_->Reset();
 }
 
 }  // namespace query::plan

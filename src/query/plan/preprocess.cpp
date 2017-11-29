@@ -463,12 +463,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
-std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
-                                         AstTreeStorage &storage) {
-  auto query = storage.query();
-  std::vector<QueryPart> query_parts(1);
+std::vector<SingleQueryPart> CollectSingleQueryParts(
+    SymbolTable &symbol_table, AstTreeStorage &storage,
+    SingleQuery *single_query) {
+  std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
-  for (auto &clause : query->clauses_) {
+  for (auto &clause : single_query->clauses_) {
     if (auto *match = dynamic_cast<Match *>(clause)) {
       if (match->optional_) {
         query_part->optional_matching.emplace_back(Matching{});
@@ -488,15 +488,39 @@ std::vector<QueryPart> CollectQueryParts(SymbolTable &symbol_table,
       } else if (dynamic_cast<With *>(clause) ||
                  dynamic_cast<query::Unwind *>(clause)) {
         // This query part is done, continue with a new one.
-        query_parts.emplace_back(QueryPart{});
+        query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (dynamic_cast<Return *>(clause)) {
-        // TODO: Support RETURN UNION ...
         return query_parts;
       }
     }
   }
   return query_parts;
 }
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table,
+                             AstTreeStorage &storage) {
+  auto query = storage.query();
+  std::vector<QueryPart> query_parts;
+  bool distinct = false;
+
+  if (auto *single_query = query->single_query_) {
+    query_parts.push_back(QueryPart{
+        CollectSingleQueryParts(symbol_table, storage, single_query)});
+  }
+
+  for (auto *cypher_union : query->cypher_unions_) {
+    if (cypher_union->distinct_) {
+      distinct = true;
+    }
+
+    if (auto *single_query = cypher_union->single_query_) {
+      query_parts.push_back(QueryPart{
+          CollectSingleQueryParts(symbol_table, storage, single_query),
+          cypher_union});
+    }
+  }
+  return QueryParts{query_parts, distinct};
+};
 
 }  // namespace query::plan

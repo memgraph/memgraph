@@ -26,10 +26,18 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
   using typename HierarchicalTreeVisitor::ReturnType;
 
+  // Query
+  bool PreVisit(SingleQuery &) override;
+
+  // Union
+  bool PreVisit(CypherUnion &) override;
+  bool PostVisit(CypherUnion &) override;
+
   // Clauses
   bool PreVisit(Create &) override;
   bool PostVisit(Create &) override;
   bool PreVisit(Return &) override;
+  bool PostVisit(Return &) override;
   bool PreVisit(With &) override;
   bool PreVisit(Where &) override;
   bool PostVisit(Where &) override;
@@ -119,6 +127,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   SymbolTable &symbol_table_;
   Scope scope_;
+  std::unordered_set<std::string> prev_return_names_;
+  std::unordered_set<std::string> curr_return_names_;
 };
 
 }  // namespace query

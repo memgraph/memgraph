@@ -10,6 +10,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 
@@ -32,14 +33,14 @@ namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -1097,7 +1098,7 @@ class Pattern : public Tree {
   explicit Pattern(int uid) : Tree(uid) {}
 };
 
-// Clauses
+// Clause
 
 class Clause : public Tree {
   friend class AstTreeStorage;
@@ -1108,7 +1109,9 @@ class Clause : public Tree {
   Clause *Clone(AstTreeStorage &storage) const override = 0;
 };
 
-class Query : public Tree {
+// SingleQuery
+
+class SingleQuery : public Tree {
   friend class AstTreeStorage;
 
  public:
@@ -1122,20 +1125,91 @@ class Query : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  // Creates deep copy of whole ast.
-  Query *Clone(AstTreeStorage &storage) const override {
-    auto *query = storage.query();
+  SingleQuery *Clone(AstTreeStorage &storage) const override {
+    auto *single_query = storage.Create<SingleQuery>();
     for (auto *clause : clauses_) {
-      query->clauses_.push_back(clause->Clone(storage));
+      single_query->clauses_.push_back(clause->Clone(storage));
     }
-    return query;
+    return single_query;
   }
 
   std::vector<Clause *> clauses_;
 
  protected:
+  explicit SingleQuery(int uid) : Tree(uid) {}
+};
+
+// CypherUnion
+
+class CypherUnion : public Tree {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      single_query_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  CypherUnion *Clone(AstTreeStorage &storage) const override {
+    auto cypher_union = storage.Create<CypherUnion>(distinct_);
+    cypher_union->single_query_ = single_query_->Clone(storage);
+    cypher_union->union_symbols_ = union_symbols_;
+    return cypher_union;
+  }
+
+  SingleQuery *single_query_ = nullptr;
+  bool distinct_ = false;
+  /**
+   * @brief Holds symbols that are created during symbol generation phase.
+   * These symbols are used when UNION/UNION ALL combines single query results.
+   */
+  std::vector<Symbol> union_symbols_;
+
+ protected:
+  explicit CypherUnion(int uid) : Tree(uid) {}
+  CypherUnion(int uid, bool distinct) : Tree(uid), distinct_(distinct) {}
+};
+
+// Queries
+
+class Query : public Tree {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      bool should_continue = single_query_->Accept(visitor);
+      for (auto *cypher_union : cypher_unions_) {
+        if (should_continue) {
+          should_continue = cypher_union->Accept(visitor);
+        }
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  // Creates deep copy of whole ast.
+  Query *Clone(AstTreeStorage &storage) const override {
+    auto *query = storage.query();
+    query->single_query_ = single_query_->Clone(storage);
+    for (auto *cypher_union : cypher_unions_) {
+      query->cypher_unions_.push_back(cypher_union->Clone(storage));
+    }
+    return query;
+  }
+
+  SingleQuery *single_query_ = nullptr;
+  std::vector<CypherUnion *> cypher_unions_;
+
+ protected:
   explicit Query(int uid) : Tree(uid) {}
 };
+
+// Clauses
 
 class Create : public Clause {
   friend class AstTreeStorage;

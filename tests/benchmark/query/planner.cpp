@@ -12,6 +12,7 @@ static void AddChainedMatches(int num_matches, query::AstTreeStorage &storage) {
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();
+    auto *single_query = storage.Create<query::SingleQuery>();
     pattern->identifier_ = storage.Create<query::Identifier>("path");
     match->patterns_.emplace_back(pattern);
     std::string node1_name = "node" + std::to_string(i - 1);
@@ -22,7 +23,8 @@ static void AddChainedMatches(int num_matches, query::AstTreeStorage &storage) {
         query::EdgeAtom::Type::SINGLE, query::EdgeAtom::Direction::BOTH));
     pattern->atoms_.emplace_back(storage.Create<query::NodeAtom>(
         storage.Create<query::Identifier>("node" + std::to_string(i))));
-    storage.query()->clauses_.emplace_back(match);
+    single_query->clauses_.emplace_back(match);
+    storage.query()->single_query_ = single_query;
   }
 }
 
@@ -39,12 +41,16 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     storage.query()->Accept(symbol_generator);
     auto ctx = query::plan::MakePlanningContext(storage, symbol_table, dba);
     state.ResumeTiming();
-    query::plan::LogicalOperator *current_plan;
-    auto plans =
-        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage);
+    if (query_parts.query_parts.size() == 0) {
+      std::exit(EXIT_FAILURE);
+    }
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
+        query::plan::VariableStartPlanner>(single_query_parts, ctx);
     for (const auto &plan : plans) {
       // Exhaust through all generated plans, since they are lazily generated.
-      benchmark::DoNotOptimize(current_plan = plan.get());
+      benchmark::DoNotOptimize(plan.get());
     }
   }
 }
@@ -61,6 +67,7 @@ static void AddIndexedMatches(
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();
+    auto *single_query = storage.Create<query::SingleQuery>();
     pattern->identifier_ = storage.Create<query::Identifier>("path");
     match->patterns_.emplace_back(pattern);
     std::string node1_name = "node" + std::to_string(i - 1);
@@ -69,7 +76,8 @@ static void AddIndexedMatches(
     node->labels_.emplace_back(label);
     node->properties_[property] = storage.Create<query::PrimitiveLiteral>(i);
     pattern->atoms_.emplace_back(node);
-    storage.query()->clauses_.emplace_back(match);
+    single_query->clauses_.emplace_back(match);
+    storage.query()->single_query_ = single_query;
   }
 }
 
@@ -109,8 +117,13 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     storage.query()->Accept(symbol_generator);
     state.ResumeTiming();
     auto ctx = query::plan::MakePlanningContext(storage, symbol_table, dba);
-    auto plans =
-        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage);
+    if (query_parts.query_parts.size() == 0) {
+      std::exit(EXIT_FAILURE);
+    }
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
+        query::plan::VariableStartPlanner>(single_query_parts, ctx);
     for (auto plan : plans) {
       query::plan::EstimatePlanCost(dba, parameters, *plan);
     }
@@ -139,8 +152,13 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     state.ResumeTiming();
     auto ctx =
         query::plan::MakePlanningContext(storage, symbol_table, vertex_counts);
-    auto plans =
-        query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+    auto query_parts = query::plan::CollectQueryParts(symbol_table, storage);
+    if (query_parts.query_parts.size() == 0) {
+      std::exit(EXIT_FAILURE);
+    }
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plans = query::plan::MakeLogicalPlanForSingleQuery<
+        query::plan::VariableStartPlanner>(single_query_parts, ctx);
     for (auto plan : plans) {
       query::plan::EstimatePlanCost(vertex_counts, parameters, *plan);
     }

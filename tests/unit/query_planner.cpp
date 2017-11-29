@@ -15,6 +15,7 @@
 
 using namespace query::plan;
 using query::AstTreeStorage;
+using query::SingleQuery;
 using query::Symbol;
 using query::SymbolGenerator;
 using query::SymbolTable;
@@ -157,7 +158,7 @@ class ExpectExpandBreadthFirst : public OpChecker<ExpandVariable> {
 
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
-  ExpectAccumulate(const std::unordered_set<Symbol> &symbols)
+  explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols)
       : symbols_(symbols) {}
 
   void ExpectOp(Accumulate &op, const SymbolTable &) override {
@@ -217,7 +218,7 @@ class ExpectMerge : public OpChecker<Merge> {
 
 class ExpectOptional : public OpChecker<Optional> {
  public:
-  ExpectOptional(const std::list<BaseOpChecker *> &optional)
+  explicit ExpectOptional(const std::list<BaseOpChecker *> &optional)
       : optional_(optional) {}
 
   ExpectOptional(const std::vector<Symbol> &optional_symbols,
@@ -332,14 +333,18 @@ auto CheckPlan(AstTreeStorage &storage, TChecker... checker) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, checker...);
 }
 
 TEST(TestLogicalPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce());
 }
 
@@ -347,13 +352,18 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n")));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   GraphDb db;
   GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, ExpectProduce());
 }
 
@@ -363,15 +373,15 @@ TEST(TestLogicalPlanner, CreateExpand) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
-                       NODE("m"))));
+  QUERY(SINGLE_QUERY(CREATE(PATTERN(
+      NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand());
 }
 
 TEST(TestLogicalPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
   AstTreeStorage storage;
-  QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m"))));
+  QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateNode());
 }
 
@@ -381,9 +391,9 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
-  QUERY(CREATE(
+  QUERY(SINGLE_QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")),
-      PATTERN(NODE("l"))));
+      PATTERN(NODE("l")))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateNode());
 }
@@ -394,8 +404,8 @@ TEST(TestLogicalPlanner, CreateNamedPattern) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
-  QUERY(CREATE(NAMED_PATTERN(
-      "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m"))));
+  QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN(
+      "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectConstructNamedPath());
 }
@@ -406,9 +416,10 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
-                       NODE("m"))));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
+                     NODE("m")))));
   CheckPlan(storage, ExpectScanAll(), ExpectCreateExpand());
 }
 
@@ -418,7 +429,7 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto label = dba.Label("label");
-  QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n")));
   CheckPlan(storage, ExpectScanAllByLabel(), ExpectProduce());
 }
 
@@ -428,9 +439,10 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
-                      NODE("m"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
+                    NODE("m"))),
+      RETURN("n")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
@@ -440,10 +452,11 @@ TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  QUERY(MATCH(NAMED_PATTERN("p", NODE("n"),
-                            EDGE("r", Direction::BOTH, {relationship}),
-                            NODE("m"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(NAMED_PATTERN("p", NODE("n"),
+                          EDGE("r", Direction::BOTH, {relationship}),
+                          NODE("m"))),
+      RETURN("n")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectProduce());
 }
@@ -454,10 +467,11 @@ TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
-  QUERY(MATCH(NAMED_PATTERN("p", NODE("n"),
-                            EDGE("r", Direction::BOTH, {relationship}),
-                            NODE("m"))),
-        WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(NAMED_PATTERN("p", NODE("n"),
+                          EDGE("r", Direction::BOTH, {relationship}),
+                          NODE("m"))),
+      WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN("n")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
 }
@@ -471,10 +485,15 @@ TEST(TestLogicalPlanner, OptionalMatchNamedPatternReturn) {
   auto edge = EDGE("r");
   auto node_m = NODE("m");
   auto pattern = NAMED_PATTERN("p", node_n, edge, node_m);
-  QUERY(OPTIONAL_MATCH(pattern), RETURN("p"));
+  QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p")));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
+
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
                                       new ExpectConstructNamedPath()};
   auto get_symbol = [&symbol_table](const auto *ast_node) {
@@ -492,15 +511,16 @@ TEST(TestLogicalPlanner, MatchWhereReturn) {
   GraphDb db;
   GraphDbAccessor dba(db);
   auto property = dba.Property("property");
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))),
+                     RETURN("n")));
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, MatchDelete) {
   // Test MATCH (n) DELETE n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n")));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   CheckPlan(storage, ExpectScanAll(), ExpectDelete());
 }
 
@@ -511,8 +531,9 @@ TEST(TestLogicalPlanner, MatchNodeSet) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto label = dba.Label("label");
-  QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
-        SET("n", IDENT("n")), SET("n", {label}));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
+                     SET("n", IDENT("n")), SET("n", {label})));
   CheckPlan(storage, ExpectScanAll(), ExpectSetProperty(),
             ExpectSetProperties(), ExpectSetLabels());
 }
@@ -524,8 +545,8 @@ TEST(TestLogicalPlanner, MatchRemove) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto label = dba.Label("label");
-  QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP("n", prop)),
-        REMOVE("n", {label}));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label})));
   CheckPlan(storage, ExpectScanAll(), ExpectRemoveProperty(),
             ExpectRemoveLabels());
 }
@@ -533,9 +554,9 @@ TEST(TestLogicalPlanner, MatchRemove) {
 TEST(TestLogicalPlanner, MatchMultiPattern) {
   // Test MATCH (n) -[r]- (m), (j) -[e]- (i) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
-              PATTERN(NODE("j"), EDGE("e"), NODE("i"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
+                           PATTERN(NODE("j"), EDGE("e"), NODE("i"))),
+                     RETURN("n")));
   // We expect the expansions after the first to have a uniqueness filter in a
   // single MATCH clause.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
@@ -546,8 +567,9 @@ TEST(TestLogicalPlanner, MatchMultiPattern) {
 TEST(TestLogicalPlanner, MatchMultiPatternSameStart) {
   // Test MATCH (n), (n) -[e]- (m) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
+      RETURN("n")));
   // We expect the second pattern to generate only an Expand, since another
   // ScanAll would be redundant.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
@@ -556,9 +578,9 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameStart) {
 TEST(TestLogicalPlanner, MatchMultiPatternSameExpandStart) {
   // Test MATCH (n) -[r]- (m), (m) -[e]- (l) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
-              PATTERN(NODE("m"), EDGE("e"), NODE("l"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
+                           PATTERN(NODE("m"), EDGE("e"), NODE("l"))),
+                     RETURN("n")));
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
   // expansion. Additionally, a uniqueness filter is expected.
@@ -569,9 +591,10 @@ TEST(TestLogicalPlanner, MatchMultiPatternSameExpandStart) {
 TEST(TestLogicalPlanner, MultiMatch) {
   // Test MATCH (n) -[r]- (m) MATCH (j) -[e]- (i) -[f]- (h) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        MATCH(PATTERN(NODE("j"), EDGE("e"), NODE("i"), EDGE("f"), NODE("h"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+      MATCH(PATTERN(NODE("j"), EDGE("e"), NODE("i"), EDGE("f"), NODE("h"))),
+      RETURN("n")));
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(),
@@ -582,8 +605,9 @@ TEST(TestLogicalPlanner, MultiMatch) {
 TEST(TestLogicalPlanner, MultiMatchSameStart) {
   // Test MATCH (n) MATCH (n) -[r]- (m) RETURN n
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     RETURN("n")));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
   CheckPlan(storage, ExpectScanAll(), ExpectExpand(), ExpectProduce());
@@ -592,7 +616,8 @@ TEST(TestLogicalPlanner, MultiMatchSameStart) {
 TEST(TestLogicalPlanner, MatchWithReturn) {
   // Test MATCH (old) WITH old AS new RETURN new
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")), RETURN("new"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
+                     RETURN("new")));
   // No accumulation since we only do reads.
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectProduce());
 }
@@ -603,8 +628,9 @@ TEST(TestLogicalPlanner, MatchWithWhereReturn) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
-        WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN("new"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
+                     WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))),
+                     RETURN("new")));
   // No accumulation since we only do reads.
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectFilter(),
             ExpectProduce());
@@ -617,8 +643,9 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
   auto r = dba.EdgeType("r");
   auto p = dba.EdgeType("p");
   AstTreeStorage storage;
-  QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
-               PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l"))));
+  QUERY(SINGLE_QUERY(
+      CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
+             PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
   CheckPlan(storage, ExpectCreateNode(), ExpectCreateExpand(),
             ExpectCreateExpand());
 }
@@ -632,8 +659,9 @@ TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto literal = LITERAL(42);
-  QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
-        WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result")));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
+      WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
   auto aggr = ExpectAggregate({sum}, {literal});
   CheckPlan(storage, ExpectScanAll(), aggr, ExpectProduce(), ExpectFilter(),
             ExpectProduce());
@@ -648,8 +676,8 @@ TEST(TestLogicalPlanner, MatchReturnSum) {
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
   auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        RETURN(sum, AS("sum"), n_prop2, AS("group")));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
   CheckPlan(storage, ExpectScanAll(), aggr, ExpectProduce());
 }
@@ -662,12 +690,17 @@ TEST(TestLogicalPlanner, CreateWithSum) {
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum")));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr,
@@ -680,17 +713,18 @@ TEST(TestLogicalPlanner, MatchWithCreate) {
   GraphDbAccessor dba(db);
   auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
-        CREATE(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}),
-                       NODE("b"))));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
+      CREATE(
+          PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}), NODE("b")))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
 }
 
 TEST(TestLogicalPlanner, MatchReturnSkipLimit) {
   // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        RETURN("n", SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     RETURN("n", SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectSkip(),
             ExpectLimit());
 }
@@ -699,15 +733,19 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
   // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))),
-                     WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
-                     RETURN("m", LIMIT(LITERAL(1))));
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
+                                  WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
+                                  RETURN("m", LIMIT(LITERAL(1)))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   GraphDb db;
   GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   // Since we have a write query, we need to have Accumulate. This is a bit
   // different than Neo4j 3.0, which optimizes WITH followed by RETURN as a
   // single RETURN clause and then moves Skip and Limit before Accumulate. This
@@ -725,13 +763,18 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
-  auto query = QUERY(CREATE(PATTERN(NODE("n"))),
-                     RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1))));
+  auto query = QUERY(
+      SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
+                   RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
             ExpectSkip(), ExpectLimit());
 }
@@ -743,7 +786,7 @@ TEST(TestLogicalPlanner, MatchReturnOrderBy) {
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP("n", prop)));
-  QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   CheckPlan(storage, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
 }
 
@@ -759,11 +802,11 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   auto new_prop = PROPERTY_LOOKUP("new", prop);
   auto r_prop = PROPERTY_LOOKUP("r", prop);
   auto m_prop = PROPERTY_LOOKUP("m", prop);
-  auto query =
-      QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}),
-                           NODE("m"))),
-            WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
-            WHERE(LESS(m_prop, LITERAL(42))));
+  auto query = QUERY(SINGLE_QUERY(
+      CREATE(
+          PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
+      WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
+      WHERE(LESS(m_prop, LITERAL(42)))));
   auto symbol_table = MakeSymbolTable(*query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
@@ -772,7 +815,11 @@ TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
       symbol_table.at(*m_prop->expression_),  // `m` in WHERE
   });
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc,
             ExpectProduce(), ExpectOrderBy(), ExpectFilter());
 }
@@ -782,7 +829,8 @@ TEST(TestLogicalPlanner, ReturnAddSumCountOrderBy) {
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(1));
   auto count = COUNT(LITERAL(2));
-  QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result"))));
+  QUERY(SINGLE_QUERY(
+      RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan(storage, aggr, ExpectProduce(), ExpectOrderBy());
 }
@@ -797,12 +845,12 @@ TEST(TestLogicalPlanner, MatchMerge) {
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto ident_n = IDENT("n");
-  auto query = QUERY(
+  auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
             ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
             ON_CREATE(SET("m", IDENT("n")))),
-      RETURN(ident_n, AS("n")));
+      RETURN(ident_n, AS("n"))));
   std::list<BaseOpChecker *> on_match{new ExpectExpand(),
                                       new ExpectSetProperty()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(),
@@ -811,7 +859,11 @@ TEST(TestLogicalPlanner, MatchMerge) {
   // We expect Accumulate after Merge, because it is considered as a write.
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectScanAll(),
             ExpectMerge(on_match, on_create), acc, ExpectProduce());
   for (auto &op : on_match) delete op;
@@ -826,9 +878,10 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))),
+                     RETURN("r")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
                                       new ExpectFilter()};
   CheckPlan(storage, ExpectScanAll(), ExpectOptional(optional),
@@ -838,17 +891,17 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
 TEST(TestLogicalPlanner, MatchUnwindReturn) {
   // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n, x
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"))),
-        UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
-        RETURN("n", "x"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                     UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+                     RETURN("n", "x")));
   CheckPlan(storage, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
 }
 
 TEST(TestLogicalPlanner, ReturnDistinctOrderBySkipLimit) {
   // Test RETURN DISTINCT 1 ORDER BY 1 SKIP 1 LIMIT 1
   AstTreeStorage storage;
-  QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)),
-                        SKIP(LITERAL(1)), LIMIT(LITERAL(1))));
+  QUERY(SINGLE_QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)),
+                                     SKIP(LITERAL(1)), LIMIT(LITERAL(1)))));
   CheckPlan(storage, ExpectProduce(), ExpectDistinct(), ExpectOrderBy(),
             ExpectSkip(), ExpectLimit());
 }
@@ -861,13 +914,18 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   AstTreeStorage storage;
   auto node_n = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
-  auto query = QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
-                     WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s"));
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
+                         WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s")));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(),
             ExpectDistinct(), ExpectFilter(), ExpectProduce());
 }
@@ -884,7 +942,7 @@ TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   node_m->properties_[prop] = n_prop;
-  QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
   CheckPlan(storage, ExpectScanAll(), ExpectScanAll(), ExpectFilter(),
@@ -897,8 +955,9 @@ TEST(TestLogicalPlanner, MatchWhereBeforeExpand) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
+                     RETURN("n")));
   // We expect Fitler to come immediately after ScanAll, since it only uses `n`.
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
             ExpectProduce());
@@ -910,9 +969,10 @@ TEST(TestLogicalPlanner, MultiMatchWhere) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        MATCH(PATTERN(NODE("l"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     MATCH(PATTERN(NODE("l"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
+                     RETURN("n")));
   // Even though WHERE is in the second MATCH clause, we expect Filter to come
   // before second ScanAll, since it only uses the value from first ScanAll.
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
@@ -925,9 +985,10 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
   GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        OPTIONAL_MATCH(PATTERN(NODE("l"))),
-        WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                     OPTIONAL_MATCH(PATTERN(NODE("l"))),
+                     WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
+                     RETURN("n")));
   // Even though WHERE is in the second MATCH clause, and it uses the value from
   // first ScanAll, it must remain part of the Optional. It should come before
   // optional ScanAll.
@@ -944,10 +1005,15 @@ TEST(TestLogicalPlanner, MatchReturnAsterisk) {
   AstTreeStorage storage;
   auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
   ret->body_.all_identifiers = true;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret);
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret));
   auto symbol_table = MakeSymbolTable(*query);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
   std::vector<std::string> output_names;
@@ -967,10 +1033,14 @@ TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto ret = RETURN(sum, AS("s"));
   ret->body_.all_identifiers = true;
-  auto query = QUERY(MATCH(PATTERN(NODE("n"))), ret);
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   auto symbol_table = MakeSymbolTable(*query);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   auto *produce = dynamic_cast<Produce *>(plan.get());
   ASSERT_TRUE(produce);
   const auto &named_expressions = produce->named_expressions();
@@ -995,7 +1065,8 @@ TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
   AstTreeStorage storage;
   auto node_n = NODE("n");
   node_n->properties_[PROPERTY_PAIR("prop")] = IDENT("i");
-  QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n)));
+  QUERY(
+      SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   CheckPlan(storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
@@ -1006,8 +1077,8 @@ TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
 TEST(TestLogicalPlanner, MultipleOptionalMatchReturn) {
   // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
   AstTreeStorage storage;
-  QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("m"))),
-        RETURN("n"));
+  QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))),
+                     OPTIONAL_MATCH(PATTERN(NODE("m"))), RETURN("n")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll()};
   CheckPlan(storage, ExpectOptional(optional), ExpectOptional(optional),
             ExpectProduce());
@@ -1018,8 +1089,8 @@ TEST(TestLogicalPlanner, FunctionAggregationReturn) {
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(
-      RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by")));
+  QUERY(SINGLE_QUERY(
+      RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1027,7 +1098,7 @@ TEST(TestLogicalPlanner, FunctionAggregationReturn) {
 TEST(TestLogicalPlanner, FunctionWithoutArguments) {
   // Test RETURN pi() AS pi
   AstTreeStorage storage;
-  QUERY(RETURN(FN("pi"), AS("pi")));
+  QUERY(SINGLE_QUERY(RETURN(FN("pi"), AS("pi"))));
   CheckPlan(storage, ExpectProduce());
 }
 
@@ -1036,7 +1107,8 @@ TEST(TestLogicalPlanner, ListLiteralAggregationReturn) {
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by")));
+  QUERY(SINGLE_QUERY(
+      RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1048,8 +1120,8 @@ TEST(TestLogicalPlanner, MapLiteralAggregationReturn) {
   GraphDbAccessor dba(db);
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum}), AS("result"), group_by_literal,
-               AS("group_by")));
+  QUERY(SINGLE_QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum}), AS("result"),
+                            group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1060,8 +1132,9 @@ TEST(TestLogicalPlanner, EmptyListIndexAggregation) {
   auto sum = SUM(LITERAL(2));
   auto empty_list = LIST();
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(storage.Create<query::ListMapIndexingOperator>(empty_list, sum),
-               AS("result"), group_by_literal, AS("group_by")));
+  QUERY(SINGLE_QUERY(
+      RETURN(storage.Create<query::ListMapIndexingOperator>(empty_list, sum),
+             AS("result"), group_by_literal, AS("group_by"))));
   // We expect to group by '42' and the empty list, because it is a
   // sub-expression of a binary operator which contains an aggregation. This is
   // similar to grouping by '1' in `RETURN 1 + SUM(2)`.
@@ -1075,8 +1148,8 @@ TEST(TestLogicalPlanner, ListSliceAggregationReturn) {
   auto sum = SUM(LITERAL(2));
   auto list = LIST(LITERAL(1), LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by_literal,
-               AS("group_by")));
+  QUERY(SINGLE_QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"),
+                            group_by_literal, AS("group_by"))));
   // Similarly to EmptyListIndexAggregation test, we expect grouping by list and
   // '42', because slicing is an operator.
   auto aggr = ExpectAggregate({sum}, {list, group_by_literal});
@@ -1088,7 +1161,7 @@ TEST(TestLogicalPlanner, ListWithAggregationAndGroupBy) {
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(LIST(sum, group_by_literal), AS("result")));
+  QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1099,7 +1172,8 @@ TEST(TestLogicalPlanner, AggregatonWithListWithAggregationAndGroupBy) {
   auto sum2 = SUM(LITERAL(2));
   auto sum3 = SUM(LITERAL(3));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list")));
+  QUERY(SINGLE_QUERY(
+      RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list"))));
   auto aggr = ExpectAggregate({sum2, sum3}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1110,9 +1184,9 @@ TEST(TestLogicalPlanner, MapWithAggregationAndGroupBy) {
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
-  QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum},
-                   {PROPERTY_PAIR("lit"), group_by_literal}),
-               AS("result")));
+  QUERY(SINGLE_QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum},
+                                {PROPERTY_PAIR("lit"), group_by_literal}),
+                            AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1124,7 +1198,7 @@ TEST(TestLogicalPlanner, CreateIndex) {
   auto label = dba.Label("label");
   auto property = dba.Property("property");
   AstTreeStorage storage;
-  QUERY(CREATE_INDEX_ON(label, property));
+  QUERY(SINGLE_QUERY(CREATE_INDEX_ON(label, property)));
   CheckPlan(storage, ExpectCreateIndex(label, property));
 }
 
@@ -1147,10 +1221,15 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
     auto lit_42 = LITERAL(42);
     node->properties_[property] = lit_42;
     node->properties_[not_indexed] = LITERAL(0);
-    QUERY(MATCH(PATTERN(node)), RETURN("n"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
+
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyValue(label, property, lit_42),
               ExpectFilter(), ExpectProduce());
@@ -1171,14 +1250,20 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
     auto node = NODE("n");
     auto lit_42 = LITERAL(42);
     node->properties_[property] = lit_42;
-    QUERY(MATCH(PATTERN(node)),
-          WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
-                    storage.Create<query::LabelsTest>(
-                        IDENT("n"), std::vector<GraphDbTypes::Label>{label}))),
-          RETURN("n"));
+    QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(node)),
+        WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
+                  storage.Create<query::LabelsTest>(
+                      IDENT("n"), std::vector<GraphDbTypes::Label>{label}))),
+        RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
+
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyValue(label, property, lit_42),
               ExpectFilter(), ExpectProduce());
@@ -1196,11 +1281,16 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   {
     GraphDbAccessor dba(db);
     auto lit_42 = LITERAL(42);
-    QUERY(MATCH(PATTERN(NODE("n", label))),
-          WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
+                       WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)),
+                       RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyValue(label, property, lit_42),
               ExpectProduce());
@@ -1230,13 +1320,17 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
     GraphDbAccessor dba(db);
     ASSERT_EQ(dba.VerticesCount(label, better.second), 0);
     auto lit_42 = LITERAL(42);
-    QUERY(MATCH(PATTERN(NODE("n", label))),
-          WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
-                    EQ(PROPERTY_LOOKUP("n", better), lit_42))),
-          RETURN("n"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
+                       WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)),
+                                 EQ(PROPERTY_LOOKUP("n", better), lit_42))),
+                       RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyValue(label, better, lit_42),
               ExpectFilter(), ExpectProduce());
@@ -1257,13 +1351,18 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
   AstTreeStorage storage;
   auto lit_1 = LITERAL(1);
   auto lit_2 = LITERAL(2);
-  QUERY(MATCH(PATTERN(NODE("n", label1)), PATTERN(NODE("m", label2))),
-        WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1),
-                  EQ(PROPERTY_LOOKUP("m", prop2), lit_2))),
-        RETURN("n", "m"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label1)), PATTERN(NODE("m", label2))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1),
+                EQ(PROPERTY_LOOKUP("m", prop2), lit_2))),
+      RETURN("n", "m")));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   CheckPlan(*plan, symbol_table,
             ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
             ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2),
@@ -1285,10 +1384,15 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
       const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstTreeStorage storage;
-    QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr), RETURN("n"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr),
+                       RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     CheckPlan(*plan, symbol_table,
               ExpectScanAllByLabelPropertyRange(label, property, lower_bound,
                                                 upper_bound),
@@ -1330,13 +1434,17 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
   {
     GraphDbAccessor dba(db);
     AstTreeStorage storage;
-    QUERY(MATCH(PATTERN(NODE("n", label))),
-          WHERE(EQ(PROPERTY_LOOKUP("n", property),
-                   PROPERTY_LOOKUP("n", property))),
-          RETURN("n"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
+                       WHERE(EQ(PROPERTY_LOOKUP("n", property),
+                                PROPERTY_LOOKUP("n", property))),
+                       RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     // We can only get ScanAllByLabelIndex, because we are comparing properties
     // with those on the same node.
     CheckPlan(*plan, symbol_table, ExpectScanAllByLabel(), ExpectFilter(),
@@ -1356,11 +1464,16 @@ TEST(TestLogicalPlanner, SecondPropertyIndex) {
     AstTreeStorage storage;
     auto n_prop = PROPERTY_LOOKUP("n", property);
     auto m_prop = PROPERTY_LOOKUP("m", property);
-    QUERY(MATCH(PATTERN(NODE("n", label)), PATTERN(NODE("m", label))),
-          WHERE(EQ(m_prop, n_prop)), RETURN("n"));
+    QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n", label)), PATTERN(NODE("m", label))),
+        WHERE(EQ(m_prop, n_prop)), RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     CheckPlan(
         *plan, symbol_table, ExpectScanAllByLabel(),
         // Note: We are scanning for m, therefore property should equal n_prop.
@@ -1374,7 +1487,7 @@ TEST(TestLogicalPlanner, ReturnSumGroupByAll) {
   AstTreeStorage storage;
   auto sum = SUM(LIST(LITERAL(1), LITERAL(2), LITERAL(3)));
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(EQ(IDENT("x"), LITERAL(1))));
-  QUERY(RETURN(sum, AS("sum"), all, AS("all")));
+  QUERY(SINGLE_QUERY(RETURN(sum, AS("sum"), all, AS("all"))));
   auto aggr = ExpectAggregate({sum}, {all});
   CheckPlan(storage, aggr, ExpectProduce());
 }
@@ -1384,7 +1497,7 @@ TEST(TestLogicalPlanner, MatchExpandVariable) {
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r");
   edge->upper_bound_ = LITERAL(3);
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
@@ -1392,7 +1505,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
   // Test MATCH (n) -[r *]-> (m) RETURN r
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r");
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectProduce());
 }
 
@@ -1405,7 +1518,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableInlinedFilter) {
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = LITERAL(42);
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectScanAll(),
             ExpectExpandVariable(),  // Filter is both inlined and post-expand
             ExpectFilter(), ExpectProduce());
@@ -1420,7 +1533,7 @@ TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(),
             ExpectProduce());
 }
@@ -1431,8 +1544,8 @@ TEST(TestLogicalPlanner, UnwindMatchVariable) {
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->lower_bound_ = IDENT("d");
   edge->upper_bound_ = IDENT("d");
-  QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
-        MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("d")),
+                     MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectUnwind(), ExpectScanAll(), ExpectExpandVariable(),
             ExpectProduce());
 }
@@ -1450,7 +1563,7 @@ TEST(TestLogicalPlanner, MatchBreadthFirst) {
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
-  QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   CheckPlan(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
             ExpectProduce());
 }
@@ -1461,10 +1574,15 @@ TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
   GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))),
+                     RETURN("r")));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   // We expect 2x ScanAll and then Expand, since we are guessing that is
   // faster (due to low label index vertex count).
   CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectScanAllByLabel(),
@@ -1494,10 +1612,15 @@ TEST(TestLogicalPlanner, MatchScanToExpand) {
     AstTreeStorage storage;
     auto node_m = NODE("m", label);
     node_m->properties_[std::make_pair("property", property)] = LITERAL(1);
-    QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r"));
+    QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)),
+                       RETURN("r")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    auto query_parts = CollectQueryParts(symbol_table, storage);
+    ASSERT_TRUE(query_parts.query_parts.size() > 0);
+    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+        single_query_parts, planning_context);
     // We expect 1x ScanAllByLabel and then Expand, since we are guessing that
     // is faster (due to high label index vertex count).
     CheckPlan(*plan, symbol_table, ExpectScanAll(), ExpectExpand(),
@@ -1511,9 +1634,10 @@ TEST(TestLogicalPlanner, MatchWhereAndSplit) {
   GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
-  QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-        WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))),
-        RETURN("m"));
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+      WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))),
+      RETURN("m")));
   // We expect `n.prop` filter right after scanning `n`.
   CheckPlan(storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(),
             ExpectFilter(), ExpectProduce());
@@ -1530,10 +1654,14 @@ TEST(TestLogicalPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   edge->filter_expression_ = LITERAL(true);
   auto ret = storage.Create<query::Return>();
   ret->body_.all_identifiers = true;
-  QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret);
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage);
+  ASSERT_TRUE(query_parts.query_parts.size() > 0);
+  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
+  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+      single_query_parts, planning_context);
   auto *produce = dynamic_cast<Produce *>(plan.get());
   ASSERT_TRUE(produce);
   std::vector<std::string> outputs;

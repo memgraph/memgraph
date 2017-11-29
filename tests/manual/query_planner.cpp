@@ -639,11 +639,17 @@ query::SymbolTable MakeSymbolTable(const query::AstTreeStorage &ast) {
 auto MakeLogicalPlans(query::AstTreeStorage &ast,
                       query::SymbolTable &symbol_table,
                       InteractiveDbAccessor &dba) {
+  auto query_parts = query::plan::CollectQueryParts(symbol_table, ast);
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
       plans_with_cost;
   auto ctx = query::plan::MakePlanningContext(ast, symbol_table, dba);
-  auto plans =
-      query::plan::MakeLogicalPlan<query::plan::VariableStartPlanner>(ctx);
+  if (query_parts.query_parts.size() <= 0) {
+    std::cerr << "Failed to extract query parts" << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
+  auto plans = query::plan::MakeLogicalPlanForSingleQuery<
+      query::plan::VariableStartPlanner>(
+      query_parts.query_parts.at(0).single_query_parts, ctx);
   Parameters parameters;
   for (auto plan : plans) {
     query::plan::CostEstimator<InteractiveDbAccessor> estimator(dba,

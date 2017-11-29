@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 
 #include "query/exceptions.hpp"
-#include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
@@ -72,29 +71,11 @@ Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage,
                              const GraphDbAccessor &db_accessor,
                              Context &context) {
   std::unique_ptr<plan::LogicalOperator> logical_plan;
-  double min_cost = std::numeric_limits<double>::max();
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
   auto planning_context = plan::MakePlanningContext(
       ast_storage, context.symbol_table_, vertex_counts);
-  if (FLAGS_query_cost_planner) {
-    auto plans =
-        plan::MakeLogicalPlan<plan::VariableStartPlanner>(planning_context);
-    for (auto plan : plans) {
-      auto cost = EstimatePlanCost(vertex_counts, context.parameters_, *plan);
-      if (!logical_plan || cost < min_cost) {
-        // Plans are generated lazily and the current plan will disappear, so
-        // it's ok to move it.
-        logical_plan = std::move(plan);
-        min_cost = cost;
-      }
-    }
-  } else {
-    logical_plan =
-        plan::MakeLogicalPlan<plan::RuleBasedPlanner>(planning_context);
-    min_cost =
-        EstimatePlanCost(vertex_counts, context.parameters_, *logical_plan);
-  }
-  return {std::move(logical_plan), min_cost};
+  return plan::MakeLogicalPlan(planning_context, context.parameters_,
+                               FLAGS_query_cost_planner);
 };
 
 }  // namespace query

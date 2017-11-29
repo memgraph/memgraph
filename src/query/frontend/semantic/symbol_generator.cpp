@@ -114,6 +114,36 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   scope_.has_aggregation = false;
 }
 
+// Query
+
+bool SymbolGenerator::PreVisit(SingleQuery &) {
+  prev_return_names_ = curr_return_names_;
+  curr_return_names_.clear();
+  return true;
+}
+
+// Union
+
+bool SymbolGenerator::PreVisit(CypherUnion &) {
+  scope_ = Scope();
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
+  if (prev_return_names_ != curr_return_names_) {
+    throw SemanticException(
+        "All sub queries in an UNION must have the same column names");
+  }
+
+  // create new symbols for the result of the union
+  for (const auto &name : curr_return_names_) {
+    auto symbol = CreateSymbol(name, false);
+    cypher_union.union_symbols_.push_back(symbol);
+  }
+
+  return true;
+}
+
 // Clauses
 
 bool SymbolGenerator::PreVisit(Create &) {
@@ -130,6 +160,12 @@ bool SymbolGenerator::PreVisit(Return &ret) {
   VisitReturnBody(ret.body_);
   scope_.in_return = false;
   return false;  // We handled the traversal ourselves.
+}
+
+bool SymbolGenerator::PostVisit(Return &) {
+  for (const auto &name_symbol : scope_.symbols)
+    curr_return_names_.insert(name_symbol.first);
+  return true;
 }
 
 bool SymbolGenerator::PreVisit(With &with) {

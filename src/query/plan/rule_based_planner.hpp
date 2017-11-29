@@ -29,7 +29,6 @@ struct PlanningContext {
   /// long enough for the plan generation to finish.
   const TDbAccessor &db;
   /// @brief Symbol set is used to differentiate cycles in pattern matching.
-  ///
   /// During planning, symbols will be added as each operator produces values
   /// for them. This way, the operator can be correctly initialized whether to
   /// read a symbol or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and
@@ -101,6 +100,11 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
                          std::unordered_set<Symbol> &bound_symbols,
                          AstTreeStorage &storage);
 
+LogicalOperator *GenUnion(CypherUnion &cypher_union,
+                          std::shared_ptr<LogicalOperator> left_op,
+                          std::shared_ptr<LogicalOperator> right_op,
+                          SymbolTable &symbol_table);
+
 template <class TBoolOperator>
 Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
                      Expression *expr2) {
@@ -124,7 +128,7 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(const std::vector<QueryPart> &query_parts) {
+  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts) {
     auto &context = context_;
     LogicalOperator *input_op = nullptr;
     // Set to true if a query command writes to the database.

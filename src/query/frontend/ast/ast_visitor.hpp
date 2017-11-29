@@ -6,6 +6,8 @@ namespace query {
 
 // Forward declares for Tree visitors.
 class Query;
+class SingleQuery;
+class CypherUnion;
 class NamedExpression;
 class Identifier;
 class PropertyLookup;
@@ -58,16 +60,16 @@ class Unwind;
 class CreateIndex;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    Query, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
-    AdditionOperator, SubtractionOperator, MultiplicationOperator,
-    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
-    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, All, Create,
-    Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind>;
+    Query, SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
+    AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
+    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
+    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
+    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
+    Aggregation, Function, All, Create, Match, Return, With, Pattern, NodeAtom,
+    EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
                                              ParameterLookup, CreateIndex>;
@@ -83,15 +85,16 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor,
 
 template <typename TResult>
 using TreeVisitor = ::utils::Visitor<
-    TResult, Query, NamedExpression, OrOperator, XorOperator, AndOperator,
-    NotOperator, AdditionOperator, SubtractionOperator, MultiplicationOperator,
-    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    InListOperator, ListMapIndexingOperator, ListSlicingOperator, IfOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
-    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, All,
-    ParameterLookup, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
+    TResult, Query, SingleQuery, CypherUnion, NamedExpression, OrOperator,
+    XorOperator, AndOperator, NotOperator, AdditionOperator,
+    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator,
+    NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
+    LessEqualOperator, GreaterEqualOperator, InListOperator,
+    ListMapIndexingOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
+    UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, PropertyLookup,
+    LabelsTest, Aggregation, Function, All, ParameterLookup, Create, Match,
+    Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind,
+    Identifier, PrimitiveLiteral, CreateIndex>;
 
 }  // namespace query

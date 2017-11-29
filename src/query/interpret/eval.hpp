@@ -36,6 +36,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   BLOCK_VISIT(Query);
+  BLOCK_VISIT(CypherUnion);
+  BLOCK_VISIT(SingleQuery);
   BLOCK_VISIT(Create);
   BLOCK_VISIT(Match);
   BLOCK_VISIT(Return);
