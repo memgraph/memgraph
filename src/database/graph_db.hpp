@@ -15,7 +15,6 @@
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
-#include "storage/unique_object_store.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
