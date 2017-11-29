@@ -222,7 +222,8 @@ set(memgraph_src_files
     ${src_dir}/storage/record_accessor.cpp
     ${src_dir}/storage/vertex_accessor.cpp
     ${src_dir}/threading/thread.cpp
-    ${src_dir}/transactions/transaction.cpp
+    ${src_dir}/transactions/engine_master.cpp
+    ${src_dir}/transactions/engine_worker.cpp
     ${src_dir}/utils/watchdog.cpp
 )
 # -----------------------------------------------------------------------------

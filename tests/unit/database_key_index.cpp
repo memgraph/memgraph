@@ -4,6 +4,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "storage/vertex.hpp"
+#include "transactions/engine_master.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -14,10 +15,10 @@ TEST(LabelsIndex, UniqueInsert) {
   KeyIndex<GraphDbTypes::Label, Vertex> index;
   GraphDb db;
   GraphDbAccessor dba(db);
-  tx::Engine engine;
+  tx::MasterEngine engine;
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist(*t1, 0);
-  t1->Commit();
+  engine.Commit(*t1);
   auto t2 = engine.Begin();
 
   vlist.find(*t2)->labels_.push_back(dba.Label("1"));
@@ -30,7 +31,7 @@ TEST(LabelsIndex, UniqueInsert) {
 
   vlist.find(*t2)->labels_.push_back(dba.Label("3"));
   index.Update(dba.Label("3"), &vlist, vlist.find(*t2));
-  t2->Commit();
+  engine.Commit(*t2);
 
   EXPECT_EQ(index.Count(dba.Label("1")), 1);
   EXPECT_EQ(index.Count(dba.Label("2")), 1);
@@ -42,7 +43,7 @@ TEST(LabelsIndex, UniqueFilter) {
   GraphDb db;
   KeyIndex<GraphDbTypes::Label, Vertex> index;
   GraphDbAccessor dba(db);
-  tx::Engine engine;
+  tx::MasterEngine engine;
 
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist1(*t1, 0);
@@ -57,14 +58,14 @@ TEST(LabelsIndex, UniqueFilter) {
   vlist2.find(*t1)->labels_.push_back(label1);
   index.Update(label1, &vlist1, r1v1);
   index.Update(label1, &vlist2, r1v2);
-  t1->Commit();
+  engine.Commit(*t1);
 
   auto t2 = engine.Begin();
   auto r2v1 = vlist1.update(*t2);
   auto r2v2 = vlist2.update(*t2);
   index.Update(label1, &vlist1, r2v1);
   index.Update(label1, &vlist2, r2v2);
-  t2->Commit();
+  engine.Commit(*t2);
 
   auto t3 = engine.Begin();
   std::vector<mvcc::VersionList<Vertex> *> expected = {&vlist1, &vlist2};
@@ -82,7 +83,7 @@ TEST(LabelsIndex, Refresh) {
   KeyIndex<GraphDbTypes::Label, Vertex> index;
   GraphDb db;
   GraphDbAccessor access(db);
-  tx::Engine engine;
+  tx::MasterEngine engine;
 
   // add two vertices to  database
   auto t1 = engine.Begin();
@@ -100,7 +101,7 @@ TEST(LabelsIndex, Refresh) {
   v2r1->labels_.push_back(label);
   index.Update(label, &vlist1, v1r1);
   index.Update(label, &vlist2, v2r1);
-  t1->Commit();
+  engine.Commit(*t1);
 
   auto t2 = engine.Begin();
   auto v1r2 = vlist1.update(*t2);
@@ -111,7 +112,7 @@ TEST(LabelsIndex, Refresh) {
   index.Refresh(GcSnapshot(engine, t2), engine);
   EXPECT_EQ(index.Count(label), 4);
 
-  t2->Commit();
+  engine.Commit(*t2);
   EXPECT_EQ(index.Count(label), 4);
   index.Refresh(GcSnapshot(engine, nullptr), engine);
   EXPECT_EQ(index.Count(label), 2);

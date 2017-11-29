@@ -5,18 +5,18 @@
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
-#include "transactions/engine.hpp"
-#include "transactions/transaction.cpp"
+#include "transactions/engine_master.hpp"
+#include "transactions/transaction.hpp"
 
 #include "mvcc_gc_common.hpp"
 
 TEST(MVCC, Deadlock) {
-  tx::Engine engine;
+  tx::MasterEngine engine;
 
   auto t0 = engine.Begin();
   mvcc::VersionList<Prop> version_list1(*t0, 0);
   mvcc::VersionList<Prop> version_list2(*t0, 1);
-  t0->Commit();
+  engine.Commit(*t0);
 
   auto t1 = engine.Begin();
   auto t2 = engine.Begin();
@@ -31,14 +31,14 @@ TEST(MVCC, Deadlock) {
 TEST(MVCC, UpdateDontDelete) {
   std::atomic<int> count{0};
   {
-    tx::Engine engine;
+    tx::MasterEngine engine;
     auto t1 = engine.Begin();
     mvcc::VersionList<DestrCountRec> version_list(*t1, 0, count);
-    t1->Commit();
+    engine.Commit(*t1);
 
     auto t2 = engine.Begin();
     version_list.update(*t2);
-    t2->Abort();
+    engine.Abort(*t2);
     EXPECT_EQ(count, 0);
 
     auto t3 = engine.Begin();
@@ -48,14 +48,14 @@ TEST(MVCC, UpdateDontDelete) {
     EXPECT_EQ(count, 0);
 
     // TODO Gleich: why don't we also test that remove doesn't delete?
-    t3->Commit();
+    engine.Commit(*t3);
   }
   EXPECT_EQ(count, 3);
 }
 
 // Check that we get the oldest record.
 TEST(MVCC, Oldest) {
-  tx::Engine engine;
+  tx::MasterEngine engine;
   auto t1 = engine.Begin();
   mvcc::VersionList<Prop> version_list(*t1, 0);
   auto first = version_list.Oldest();

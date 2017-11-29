@@ -5,8 +5,8 @@
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
-#include "transactions/engine.hpp"
-#include "transactions/transaction.cpp"
+#include "transactions/engine_master.hpp"
+#include "transactions/transaction.hpp"
 
 class TestClass : public mvcc::Record<TestClass> {
  public:
@@ -52,13 +52,13 @@ class Mvcc : public ::testing::Test {
     engine.Advance(t1->id_);
     id1 = t1->id_;
     v1 = version_list.find(*t1);
-    t1->Commit();
+    engine.Commit(*t1);
     t2 = engine.Begin();
     id2 = t2->id_;
   }
   // variable where number of versions is stored
   int version_list_size = 0;
-  tx::Engine engine;
+  tx::MasterEngine engine;
   tx::Transaction *t1 = engine.Begin();
   mvcc::VersionList<TestClass> version_list{*t1, 0, version_list_size};
   TestClass *v1 = nullptr;
@@ -74,10 +74,10 @@ class Mvcc : public ::testing::Test {
 #define T4_FIND __attribute__((unused)) auto v4 = version_list.find(*t4)
 #define T2_UPDATE __attribute__((unused)) auto v2 = version_list.update(*t2)
 #define T3_UPDATE __attribute__((unused)) auto v3 = version_list.update(*t3)
-#define T2_COMMIT t2->Commit();
-#define T3_COMMIT t3->Commit();
-#define T2_ABORT t2->Abort();
-#define T3_ABORT t3->Abort();
+#define T2_COMMIT engine.Commit(*t2);
+#define T3_COMMIT engine.Commit(*t3);
+#define T2_ABORT engine.Abort(*t2);
+#define T3_ABORT engine.Abort(*t3);
 #define T3_BEGIN            \
   auto t3 = engine.Begin(); \
   __attribute__((unused)) int id3 = t3->id_

@@ -4,6 +4,7 @@
 
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
+#include "transactions/engine_master.hpp"
 
 class Prop : public mvcc::Record<Prop> {
  public:
@@ -18,11 +19,11 @@ class Prop : public mvcc::Record<Prop> {
 void MvccMix(benchmark::State &state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
-    tx::Engine engine;
+    tx::MasterEngine engine;
     auto t1 = engine.Begin();
     mvcc::VersionList<Prop> version_list(*t1, 0);
 
-    t1->Commit();
+    engine.Commit(*t1);
     auto t2 = engine.Begin();
 
     state.ResumeTiming();
@@ -33,7 +34,7 @@ void MvccMix(benchmark::State &state) {
     version_list.find(*t2);
     state.PauseTiming();
 
-    t2->Abort();
+    engine.Abort(*t2);
 
     auto t3 = engine.Begin();
     state.ResumeTiming();
@@ -48,8 +49,8 @@ void MvccMix(benchmark::State &state) {
     }
     state.PauseTiming();
 
-    t3->Commit();
-    t4->Commit();
+    engine.Commit(*t3);
+    engine.Commit(*t4);
     state.ResumeTiming();
   }
 }

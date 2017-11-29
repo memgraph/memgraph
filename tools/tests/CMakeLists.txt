@@ -16,7 +16,8 @@ add_executable(mg_recovery_check
   ${memgraph_src_dir}/storage/property_value.cpp
   ${memgraph_src_dir}/storage/record_accessor.cpp
   ${memgraph_src_dir}/storage/vertex_accessor.cpp
-  ${memgraph_src_dir}/transactions/transaction.cpp
+  ${memgraph_src_dir}/transactions/engine_master.cpp
+  ${memgraph_src_dir}/transactions/engine_worker.cpp
   )
 
 target_link_libraries(mg_recovery_check stdc++fs Threads::Threads fmt glog

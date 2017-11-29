@@ -11,12 +11,14 @@
 #include "durability/snapshooter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
+#include "transactions/engine_master.hpp"
 #include "utils/timer.hpp"
 
 namespace fs = std::experimental::filesystem;
 
 GraphDb::GraphDb(GraphDb::Config config)
     : config_(config),
+      tx_engine_(new tx::MasterEngine()),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_),
@@ -41,7 +43,7 @@ GraphDb::GraphDb(GraphDb::Config config)
         std::chrono::seconds(
             std::max(1, std::min(5, config.query_execution_time_sec / 4))),
         [this]() {
-          tx_engine_.ForEachActiveTransaction([this](tx::Transaction &t) {
+          tx_engine_->LocalForEachActiveTransaction([this](tx::Transaction &t) {
             if (t.creation_time() +
                     std::chrono::seconds(config_.query_execution_time_sec) <
                 std::chrono::steady_clock::now()) {
@@ -54,7 +56,8 @@ GraphDb::GraphDb(GraphDb::Config config)
 
 void GraphDb::Shutdown() {
   is_accepting_transactions_ = false;
-  tx_engine_.ForEachActiveTransaction([](auto &t) { t.set_should_abort(); });
+  tx_engine_->LocalForEachActiveTransaction(
+      [](auto &t) { t.set_should_abort(); });
 }
 
 void GraphDb::StartSnapshooting() {
@@ -77,12 +80,12 @@ void GraphDb::CollectGarbage() {
   // main garbage collection logic
   // see wiki documentation for logic explanation
   LOG(INFO) << "Garbage collector started";
-  const auto snapshot = tx_engine_.GcSnapshot();
+  const auto snapshot = tx_engine_->GlobalGcSnapshot();
   {
     // This can be run concurrently
     utils::Timer x;
-    gc_vertices_.Run(snapshot, tx_engine_);
-    gc_edges_.Run(snapshot, tx_engine_);
+    gc_vertices_.Run(snapshot, *tx_engine_);
+    gc_edges_.Run(snapshot, *tx_engine_);
     VLOG(1) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
   }
   // This has to be run sequentially after gc because gc modifies
@@ -91,8 +94,8 @@ void GraphDb::CollectGarbage() {
   {
     // This can be run concurrently
     utils::Timer x;
-    labels_index_.Refresh(snapshot, tx_engine_);
-    label_property_index_.Refresh(snapshot, tx_engine_);
+    labels_index_.Refresh(snapshot, *tx_engine_);
+    label_property_index_.Refresh(snapshot, *tx_engine_);
     VLOG(1) << "Garbage collector index phase time: " << x.Elapsed().count();
   }
   {
@@ -103,7 +106,7 @@ void GraphDb::CollectGarbage() {
     // to those records. New snapshot can be used, different than one used for
     // first two phases of gc.
     utils::Timer x;
-    const auto snapshot = tx_engine_.GcSnapshot();
+    const auto snapshot = tx_engine_->GlobalGcSnapshot();
     edge_record_deleter_.FreeExpiredObjects(snapshot.back());
     vertex_record_deleter_.FreeExpiredObjects(snapshot.back());
     edge_version_list_deleter_.FreeExpiredObjects(snapshot.back());

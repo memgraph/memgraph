@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mvcc/record.hpp"
+#include "transactions/engine_master.hpp"
 
 /**
  * @brief - Empty class which inherits from mvcc:Record.
@@ -28,12 +29,12 @@ class DestrCountRec : public mvcc::Record<DestrCountRec> {
 // helper function for creating a GC snapshot
 // if given a nullptr it makes a GC snapshot like there
 // are no active transactions
-auto GcSnapshot(tx::Engine &engine, tx::Transaction *t) {
+auto GcSnapshot(tx::MasterEngine &engine, tx::Transaction *t) {
   if (t != nullptr) {
     tx::Snapshot gc_snap = t->snapshot();
     gc_snap.insert(t->id_);
     return gc_snap;
   } else {
-    return engine.GcSnapshot();
+    return engine.GlobalGcSnapshot();
   }
 }

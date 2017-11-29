@@ -12,13 +12,13 @@
 #include "mvcc/version_list.hpp"
 #include "storage/garbage_collector.hpp"
 #include "storage/vertex.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/engine_master.hpp"
 
 #include "mvcc_gc_common.hpp"
 
 class MvccGcTest : public ::testing::Test {
  protected:
-  tx::Engine engine;
+  tx::MasterEngine engine;
 
  private:
   tx::Transaction *t0 = engine.Begin();
@@ -29,16 +29,16 @@ class MvccGcTest : public ::testing::Test {
                                                 record_destruction_count};
   std::vector<tx::Transaction *> transactions{t0};
 
-  void SetUp() override { t0->Commit(); }
+  void SetUp() override { engine.Commit(*t0); }
 
   void MakeUpdates(int update_count, bool commit) {
     for (int i = 0; i < update_count; i++) {
       auto t = engine.Begin();
       version_list.update(*t);
       if (commit)
-        t->Commit();
+        engine.Commit(*t);
       else
-        t->Abort();
+        engine.Abort(*t);
     }
   }
 
@@ -50,7 +50,7 @@ class MvccGcTest : public ::testing::Test {
 TEST_F(MvccGcTest, RemoveAndAbort) {
   auto t = engine.Begin();
   version_list.remove(version_list.find(*t), *t);
-  t->Abort();
+  engine.Abort(*t);
   auto ret = GcDeleted();
   EXPECT_EQ(ret.first, false);
   EXPECT_EQ(ret.second, nullptr);
@@ -74,7 +74,7 @@ TEST_F(MvccGcTest, UpdateAndAbort) {
 TEST_F(MvccGcTest, RemoveAndCommit) {
   auto t = engine.Begin();
   version_list.remove(version_list.find(*t), *t);
-  t->Commit();
+  engine.Commit(*t);
   auto ret = GcDeleted();
   EXPECT_EQ(ret.first, true);
   EXPECT_NE(ret.second, nullptr);
@@ -102,7 +102,7 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
   auto t1 = engine.Begin();
   auto t2 = engine.Begin();
   version_list.remove(version_list.find(*t1), *t1);
-  t1->Commit();
+  engine.Commit(*t1);
 
   auto ret = GcDeleted(t2);
   EXPECT_EQ(ret.first, false);
@@ -116,7 +116,7 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
  */
 TEST(GarbageCollector, GcClean) {
   ConcurrentMap<int64_t, mvcc::VersionList<DestrCountRec> *> collection;
-  tx::Engine engine;
+  tx::MasterEngine engine;
   DeferredDeleter<DestrCountRec> deleter;
   DeferredDeleter<mvcc::VersionList<DestrCountRec>> vlist_deleter;
   GarbageCollector<decltype(collection), DestrCountRec> gc(collection, deleter,
@@ -129,7 +129,7 @@ TEST(GarbageCollector, GcClean) {
       new mvcc::VersionList<DestrCountRec>(*t1, 0, record_destruction_count);
   auto access = collection.access();
   access.insert(0, vl);
-  t1->Commit();
+  engine.Commit(*t1);
 
   // run garbage collection that has nothing co collect
   gc.Run(GcSnapshot(engine, nullptr), engine);
@@ -140,7 +140,7 @@ TEST(GarbageCollector, GcClean) {
   // delete the only record in the version-list in transaction t2
   auto t2 = engine.Begin();
   vl->remove(vl->find(*t2), *t2);
-  t2->Commit();
+  engine.Commit(*t2);
   gc.Run(GcSnapshot(engine, nullptr), engine);
 
   // check that we destroyed the record

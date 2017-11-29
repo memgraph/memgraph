@@ -26,10 +26,12 @@ class Transaction {
   }
 
  private:
-  friend class Engine;
+  friend class MasterEngine;
+  friend class WorkerEngine;
 
   // The constructor is private, only the Engine ever uses it.
-  Transaction(transaction_id_t id, const Snapshot &snapshot, Engine &engine);
+  Transaction(transaction_id_t id, const Snapshot &snapshot, Engine &engine)
+      : id_(id), engine_(engine), snapshot_(snapshot) {}
 
   // A transaction can't be moved nor copied. it's owned by the transaction
   // engine, and it's lifetime is managed by it.
@@ -39,10 +41,6 @@ class Transaction {
   Transaction &operator=(Transaction &&) = delete;
 
  public:
-  /** Acquires the lock over the given RecordLock, preventing other transactions
-   * from doing the same */
-  void TakeLock(RecordLock &lock) const;
-
   /** Commits this transaction. After this call this transaction object is no
    * longer valid for use (it gets deleted by the engine that owns it). */
   void Commit();
@@ -50,6 +48,10 @@ class Transaction {
   /** Aborts this transaction. After this call this transaction object is no
    * longer valid for use (it gets deleted by the engine that owns it). */
   void Abort();
+
+  /** Acquires the lock over the given RecordLock, preventing other transactions
+   * from doing the same */
+  void TakeLock(RecordLock &lock) const { locks_.Take(&lock, *this, engine_); }
 
   /** Transaction's id. Unique in the engine that owns it */
   const transaction_id_t id_;

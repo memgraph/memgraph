@@ -46,11 +46,11 @@ class GarbageCollector {
       // from it we can delete it.
       auto ret = vlist->GcDeleted(snapshot, engine);
       if (ret.first) {
-        deleted_version_lists.emplace_back(vlist, engine.LockFreeCount());
+        deleted_version_lists.emplace_back(vlist, engine.LocalLast());
         count += collection_accessor.remove(id_vlist.first);
       }
       if (ret.second != nullptr)
-        deleted_records.emplace_back(ret.second, engine.LockFreeCount());
+        deleted_records.emplace_back(ret.second, engine.LocalLast());
     }
     DLOG_IF(INFO, count > 0) << "GC started cleaning with snapshot: "
                              << snapshot;

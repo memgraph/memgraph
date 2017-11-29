@@ -1,14 +1,16 @@
+#include "glog/logging.h"
+
 #include "database/creation_exception.hpp"
 #include "database/graph_db_accessor.hpp"
-
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "utils/atomic.hpp"
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(db.tx_engine_.Begin()) {
+    : db_(db), transaction_(MasterEngine().Begin()) {
   db_.wal_.TxBegin(transaction_->id_);
 }
 
@@ -24,13 +26,13 @@ tx::transaction_id_t GraphDbAccessor::transaction_id() const {
 
 void GraphDbAccessor::AdvanceCommand() {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  transaction_->engine_.Advance(transaction_->id_);
+  MasterEngine().Advance(transaction_->id_);
 }
 
 void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
   auto tid = transaction_->id_;
-  transaction_->Commit();
+  MasterEngine().Commit(*transaction_);
   db_.wal_.TxCommit(tid);
   commited_ = true;
 }
@@ -38,7 +40,7 @@ void GraphDbAccessor::Commit() {
 void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
   auto tid = transaction_->id_;
-  transaction_->Abort();
+  MasterEngine().Abort(*transaction_);
   db_.wal_.TxAbort(tid);
   aborted_ = true;
 }
@@ -56,11 +58,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 
   auto id = opt_id ? *opt_id : db_.next_vertex_id_++;
   if (opt_id) {
-    while (true) {
-      auto next_id = db_.next_vertex_id_.load();
-      if (next_id > id) break;
-      if (db_.next_vertex_id_.compare_exchange_strong(next_id, id + 1)) break;
-    }
+    utils::EnsureAtomicGe(db_.next_vertex_id_, id + 1);
   }
 
   auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, id);
@@ -118,12 +116,12 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // happened earlier. We have to first wait for every transaction that
   // happend before, or a bit later than CreateIndex to end.
   {
-    auto wait_transactions = db_.tx_engine_.ActiveTransactions();
+    auto wait_transactions = db_.tx_engine_->GlobalActiveTransactions();
     auto active_index_creation_transactions =
         db_.index_build_tx_in_progress_.access();
     for (auto id : wait_transactions) {
       if (active_index_creation_transactions.contains(id)) continue;
-      while (db_.tx_engine_.IsActive(id)) {
+      while (db_.tx_engine_->GlobalIsActive(id)) {
         // Active index creation set could only now start containing that id,
         // since that thread could have not written to the set set and to avoid
         // dead-lock we need to make sure we keep track of that
@@ -278,13 +276,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType edge_type,
     std::experimental::optional<int64_t> opt_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  auto id = opt_id ? *opt_id : db_.next_edge_id++;
+  auto id = opt_id ? *opt_id : db_.next_edge_id_++;
   if (opt_id) {
-    while (true) {
-      auto next_id = db_.next_edge_id.load();
-      if (next_id > id) break;
-      if (db_.next_edge_id.compare_exchange_strong(next_id, id + 1)) break;
-    }
+    utils::EnsureAtomicGe(db_.next_edge_id_, id + 1);
   }
 
   auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, from.vlist_,

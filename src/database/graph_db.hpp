@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
@@ -88,11 +90,13 @@ class GraphDb {
 
   Config config_;
 
-  /** transaction engine related to this database */
-  tx::Engine tx_engine_;
+  /** Transaction engine related to this database. Master instance if this
+   * GraphDb is a single-node deployment, or the master in a distributed system.
+   * Otherwise a WorkerEngine instance. */
+  std::unique_ptr<tx::Engine> tx_engine_;
 
   std::atomic<int64_t> next_vertex_id_{0};
-  std::atomic<int64_t> next_edge_id{0};
+  std::atomic<int64_t> next_edge_id_{0};
 
   // main storage for the graph
   ConcurrentMap<int64_t, mvcc::VersionList<Vertex> *> vertices_;

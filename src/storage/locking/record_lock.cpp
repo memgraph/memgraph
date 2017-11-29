@@ -55,8 +55,8 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
   tx::transaction_id_t owner = owner_;
   if (owner_ == tx.id_) return LockStatus::AlreadyHeld;
 
-  // Insert edge into lock_graph.
-  auto accessor = engine.lock_graph().access();
+  // Insert edge into local lock_graph.
+  auto accessor = engine.local_lock_graph().access();
   auto it = accessor.insert(tx.id_, owner).first;
 
   auto abort_oldest_tx_in_lock_cycle = [&tx, &accessor, &engine]() {
@@ -67,7 +67,7 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
     // oldest one.
     auto oldest = FindOldestTxInLockCycle(tx.id_, accessor);
     if (oldest) {
-      engine.ForEachActiveTransaction([&](tx::Transaction &t) {
+      engine.LocalForEachActiveTransaction([&](tx::Transaction &t) {
         if (t.id_ == oldest) {
           t.set_should_abort();
         }

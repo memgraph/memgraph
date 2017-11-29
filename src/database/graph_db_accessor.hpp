@@ -15,6 +15,7 @@
 #include "graph_db.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
+#include "transactions/engine_master.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
 
@@ -493,24 +494,16 @@ class GraphDbAccessor {
   /** Returns the id of this accessor's transaction */
   tx::transaction_id_t transaction_id() const;
 
-  /**
-   * Advances transaction's command id by 1.
-   */
+  /** Advances transaction's command id by 1. */
   void AdvanceCommand();
 
-  /**
-   * Commit transaction.
-   */
+  /** Commit transaction. */
   void Commit();
 
-  /**
-   * Abort transaction.
-   */
+  /** Abort transaction. */
   void Abort();
 
-  /**
-   * Return true if transaction is hinted to abort.
-   */
+  /** Return true if transaction is hinted to abort. */
   bool should_abort() const;
 
   /** Returns the transaction of this accessor */
@@ -571,6 +564,15 @@ class GraphDbAccessor {
             !(current_state && accessor.old_->is_expired_by(*transaction_))) ||
            (current_state && accessor.new_ &&
             !accessor.new_->is_expired_by(*transaction_));
+  }
+
+  /** Casts the DB's engine to MasterEngine and returns it. If the DB's engine
+   * is
+   * RemoteEngine, this function will crash MG. */
+  tx::MasterEngine &MasterEngine() {
+    auto *local_engine = dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
+    DCHECK(local_engine) << "Asked for MasterEngine on distributed worker";
+    return *local_engine;
   }
 
   GraphDb &db_;
