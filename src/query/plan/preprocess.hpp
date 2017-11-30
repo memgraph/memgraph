@@ -56,11 +56,6 @@ class PropertyFilter {
   std::experimental::optional<Bound> upper_bound_{};
 };
 
-bool operator==(const PropertyFilter &, const PropertyFilter &);
-inline bool operator!=(const PropertyFilter &a, const PropertyFilter &b) {
-  return !(a == b);
-}
-
 /// Stores additional information for a filter expression.
 struct FilterInfo {
   /// A FilterInfo can be a generic filter expression or a specific filtering
@@ -79,11 +74,6 @@ struct FilterInfo {
   /// Property information for Type::Property filtering.
   std::experimental::optional<PropertyFilter> property_filter;
 };
-
-bool operator==(const FilterInfo &, const FilterInfo &);
-inline bool operator!=(const FilterInfo &a, const FilterInfo &b) {
-  return !(a == b);
-}
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
 ///
@@ -124,6 +114,8 @@ class Filters {
   }
 
   // Remove a filter; may invalidate iterators.
+  // Removal is done by comparing only the expression, so that multiple
+  // FilterInfo objects using the same original expression are removed.
   void EraseFilter(const FilterInfo &);
 
   // Remove a label filter for symbol; may invalidate iterators.
@@ -133,7 +125,8 @@ class Filters {
   auto PropertyFilters(const Symbol &symbol) const {
     std::vector<FilterInfo> filters;
     for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Property) {
+      if (filter.type == FilterInfo::Type::Property &&
+          filter.property_filter->symbol_ == symbol) {
         filters.push_back(filter);
       }
     }
@@ -154,7 +147,7 @@ class Filters {
   void CollectWhereFilter(Where &, const SymbolTable &);
 
  private:
-  FilterInfo AnalyzeFilter(Expression *, const SymbolTable &);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 
   std::vector<FilterInfo> all_filters_;
 };

@@ -152,6 +152,8 @@ void AddMatching(const Match &match, SymbolTable &symbol_table,
 }
 
 auto SplitExpressionOnAnd(Expression *expression) {
+  // TODO: Think about converting all filtering expression into CNF to improve
+  // the granularity of filters which can be stand alone.
   std::vector<Expression *> expressions;
   std::stack<Expression *> pending_expressions;
   pending_expressions.push(expression);
@@ -199,30 +201,14 @@ PropertyFilter::PropertyFilter(
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-bool operator==(const PropertyFilter &a, const PropertyFilter &b) {
-  auto bound_eq = [](const auto &a_bound, const auto &b_bound) {
-    if (!a_bound && !b_bound) return true;
-    if (a_bound && b_bound)
-      return a_bound->value() == b_bound->value() &&
-             a_bound->type() == b_bound->type();
-    return false;
-  };
-  return a.symbol_ == b.symbol_ && a.property_ == b.property_ &&
-         a.is_symbol_in_value_ == b.is_symbol_in_value_ &&
-         a.value_ == b.value_ && bound_eq(a.lower_bound_, b.lower_bound_) &&
-         bound_eq(a.upper_bound_, b.upper_bound_);
-}
-
-bool operator==(const FilterInfo &a, const FilterInfo &b) {
-  return a.type == b.type && a.expression == b.expression &&
-         a.used_symbols == b.used_symbols && a.labels == b.labels &&
-         a.property_filter == b.property_filter;
-}
-
 void Filters::EraseFilter(const FilterInfo &filter) {
-  auto filter_it = std::find(all_filters_.begin(), all_filters_.end(), filter);
-  if (filter_it == all_filters_.end()) return;
-  all_filters_.erase(filter_it);
+  // TODO: Ideally, we want to determine the equality of both expression trees,
+  // instead of a simple pointer compare.
+  all_filters_.erase(std::remove_if(all_filters_.begin(), all_filters_.end(),
+                                    [&filter](const auto &f) {
+                                      return f.expression == filter.expression;
+                                    }),
+                     all_filters_.end());
 }
 
 void Filters::EraseLabelFilter(const Symbol &symbol,
@@ -350,54 +336,66 @@ void Filters::CollectWhereFilter(Where &where,
                                  const SymbolTable &symbol_table) {
   auto where_filters = SplitExpressionOnAnd(where.expression_);
   for (const auto &filter : where_filters) {
-    all_filters_.emplace_back(AnalyzeFilter(filter, symbol_table));
+    AnalyzeAndStoreFilter(filter, symbol_table);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-FilterInfo Filters::AnalyzeFilter(Expression *expr,
-                                  const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr,
+                                    const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
-  // Create the base filter info.
-  FilterInfo filter{FilterInfo::Type::Generic, expr};
-  {
-    UsedSymbolsCollector collector(symbol_table);
-    expr->Accept(collector);
-    filter.used_symbols = collector.symbols_;
-  }
+  UsedSymbolsCollector collector(symbol_table);
+  expr->Accept(collector);
+  auto make_filter = [&collector, &expr](FilterInfo::Type type) {
+    return FilterInfo{type, expr, collector.symbols_};
+  };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
-                                auto *&ident) {
+                                auto *&ident) -> bool {
     return (prop_lookup = dynamic_cast<PropertyLookup *>(maybe_lookup)) &&
            (ident = dynamic_cast<Identifier *>(prop_lookup->expression_));
   };
-  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) {
+  // Checks if maybe_lookup is a property lookup, stores it as a
+  // PropertyFilter and returns true. If it isn't, returns false.
+  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
-      filter.type = FilterInfo::Type::Property;
+      auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter =
           PropertyFilter(symbol_table, symbol_table.at(*ident),
                          prop_lookup->property_, val_expr);
+      all_filters_.emplace_back(filter);
+      return true;
     }
+    return false;
   };
-  auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) {
+  // Checks if either the expr1 and expr2 are property lookups, adds them as
+  // PropertyFilter and returns true. Otherwise, returns false.
+  auto add_prop_greater = [&](auto *expr1, auto *expr2,
+                              auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    bool is_prop_filter = false;
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
-      filter.type = FilterInfo::Type::Property;
+      auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(
           symbol_table, symbol_table.at(*ident), prop_lookup->property_,
           Bound(expr2, bound_type), std::experimental::nullopt);
+      all_filters_.emplace_back(filter);
+      is_prop_filter = true;
     }
     if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
-      filter.type = FilterInfo::Type::Property;
+      auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(
           symbol_table, symbol_table.at(*ident), prop_lookup->property_,
           std::experimental::nullopt, Bound(expr1, bound_type));
+      all_filters_.emplace_back(filter);
+      is_prop_filter = true;
     }
+    return is_prop_filter;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
@@ -407,8 +405,11 @@ FilterInfo Filters::AnalyzeFilter(Expression *expr,
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (dynamic_cast<Identifier *>(labels_test->expression_)) {
-      filter.type = FilterInfo::Type::Label;
+      auto filter = make_filter(FilterInfo::Type::Label);
       filter.labels = labels_test->labels_;
+      all_filters_.emplace_back(filter);
+    } else {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *eq = dynamic_cast<EqualOperator *>(expr)) {
     // Try to get property equality test from the top expressions.
@@ -422,30 +423,42 @@ FilterInfo Filters::AnalyzeFilter(Expression *expr,
     // Here the `prop` may be different than `value` resulting in `false`. This
     // would compare with the top level `false`, producing `true`. Therefore, it
     // is incorrect to pick up `n.prop = value` for scanning by property index.
-    add_prop_equal(eq->expression1_, eq->expression2_);
+    bool is_prop_filter = add_prop_equal(eq->expression1_, eq->expression2_);
     // And reversed.
-    add_prop_equal(eq->expression2_, eq->expression1_);
-    // TODO: What about n.prop = m.prop case? Do we generate 2 PropertyFilters?
+    is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
+    if (!is_prop_filter) {
+      // No PropertyFilter was added, so just store a generic filter.
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *gt = dynamic_cast<GreaterOperator *>(expr)) {
-    add_prop_greater(gt->expression1_, gt->expression2_,
-                     Bound::Type::EXCLUSIVE);
+    if (!add_prop_greater(gt->expression1_, gt->expression2_,
+                          Bound::Type::EXCLUSIVE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *ge = dynamic_cast<GreaterEqualOperator *>(expr)) {
-    add_prop_greater(ge->expression1_, ge->expression2_,
-                     Bound::Type::INCLUSIVE);
+    if (!add_prop_greater(ge->expression1_, ge->expression2_,
+                          Bound::Type::INCLUSIVE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *lt = dynamic_cast<LessOperator *>(expr)) {
     // Like greater, but in reverse.
-    add_prop_greater(lt->expression2_, lt->expression1_,
-                     Bound::Type::EXCLUSIVE);
+    if (!add_prop_greater(lt->expression2_, lt->expression1_,
+                          Bound::Type::EXCLUSIVE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *le = dynamic_cast<LessEqualOperator *>(expr)) {
     // Like greater equal, but in reverse.
-    add_prop_greater(le->expression2_, le->expression1_,
-                     Bound::Type::INCLUSIVE);
+    if (!add_prop_greater(le->expression2_, le->expression1_,
+                          Bound::Type::INCLUSIVE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else {
+    all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }
   // TODO: Collect comparisons like `expr1 < n.prop < expr2` for potential
   // indexing by range. Note, that the generated Ast uses AND for chained
   // relation operators. Therefore, `expr1 < n.prop < expr2` will be represented
   // as `expr1 < n.prop AND n.prop < expr2`.
-  return filter;
 }
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be

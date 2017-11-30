@@ -1344,6 +1344,31 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
   }
 }
 
+TEST(TestLogicalPlanner, SecondPropertyIndex) {
+  // Test MATCH (n :label), (m :label) WHERE m.property = n.property RETURN n
+  GraphDb db;
+  GraphDbAccessor dba(db);
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR("property");
+  dba.BuildIndex(label, dba.Property("property"));
+  {
+    GraphDbAccessor dba(db);
+    AstTreeStorage storage;
+    auto n_prop = PROPERTY_LOOKUP("n", property);
+    auto m_prop = PROPERTY_LOOKUP("m", property);
+    QUERY(MATCH(PATTERN(NODE("n", label)), PATTERN(NODE("m", label))),
+          WHERE(EQ(m_prop, n_prop)), RETURN("n"));
+    auto symbol_table = MakeSymbolTable(*storage.query());
+    auto planning_context = MakePlanningContext(storage, symbol_table, dba);
+    auto plan = MakeLogicalPlan<RuleBasedPlanner>(planning_context);
+    CheckPlan(
+        *plan, symbol_table, ExpectScanAllByLabel(),
+        // Note: We are scanning for m, therefore property should equal n_prop.
+        ExpectScanAllByLabelPropertyValue(label, property, n_prop),
+        ExpectProduce());
+  }
+}
+
 TEST(TestLogicalPlanner, ReturnSumGroupByAll) {
   // Test RETURN sum([1,2,3]), all(x in [1] where x = 1)
   AstTreeStorage storage;

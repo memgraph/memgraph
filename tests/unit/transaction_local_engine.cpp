@@ -53,13 +53,12 @@ TEST(Engine, ConcurrentBegin) {
   std::vector<std::thread> threads;
   ConcurrentSet<tx::transaction_id_t> tx_ids;
   for (int i = 0; i < 10; ++i) {
-    threads.emplace_back(
-        [&tx_ids, &engine, accessor = tx_ids.access() ]() mutable {
-          for (int j = 0; j < 100; ++j) {
-            auto t = engine.Begin();
-            accessor.insert(t->id_);
-          }
-        });
+    threads.emplace_back([&engine, accessor = tx_ids.access() ]() mutable {
+      for (int j = 0; j < 100; ++j) {
+        auto t = engine.Begin();
+        accessor.insert(t->id_);
+      }
+    });
   }
   for (auto &t : threads) t.join();
   EXPECT_EQ(tx_ids.access().size(), 1000);
