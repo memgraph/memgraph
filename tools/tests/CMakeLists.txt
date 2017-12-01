@@ -7,6 +7,7 @@ add_executable(mg_recovery_check
   ${memgraph_src_dir}/database/graph_db.cpp
   ${memgraph_src_dir}/database/graph_db_config.cpp
   ${memgraph_src_dir}/database/graph_db_accessor.cpp
+  ${memgraph_src_dir}/durability/paths.cpp
   ${memgraph_src_dir}/durability/recovery.cpp
   ${memgraph_src_dir}/durability/snapshooter.cpp
   ${memgraph_src_dir}/durability/wal.cpp

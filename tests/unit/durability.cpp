@@ -1,3 +1,4 @@
+#include <time.h>
 #include <cstdio>
 #include <experimental/filesystem>
 #include <experimental/optional>
@@ -222,37 +223,11 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
   }
 }
 
-const fs::path kDurabilityDir =
-    fs::temp_directory_path() / "MG_test_unit_durability";
-const fs::path kSnapshotDir = kDurabilityDir / durability::kSnapshotDir;
-const fs::path kWalDir = kDurabilityDir / durability::kWalDir;
-
-void CleanDurability() {
-  if (fs::exists(kDurabilityDir)) fs::remove_all(kDurabilityDir);
-}
-
 std::vector<fs::path> DirFiles(fs::path dir) {
   std::vector<fs::path> files;
   if (fs::exists(dir))
     for (auto &file : fs::directory_iterator(dir)) files.push_back(file.path());
   return files;
-}
-
-auto DbConfig() {
-  GraphDb::Config config;
-  config.durability_enabled = false;
-  config.durability_directory = kDurabilityDir;
-  config.snapshot_on_exit = false;
-  config.db_recover_on_startup = false;
-
-  return config;
-}
-
-void MakeSnapshot(GraphDb &db, int snapshot_max_retained = -1) {
-  GraphDbAccessor dba(db);
-  ASSERT_TRUE(
-      durability::MakeSnapshot(dba, kDurabilityDir, snapshot_max_retained));
-  dba.Commit();
 }
 
 fs::path GetLastFile(fs::path dir) {
@@ -294,7 +269,37 @@ void MakeDb(GraphDb &db, int scale, std::vector<int> indices = {}) {
 
 class Durability : public ::testing::Test {
  protected:
+  fs::path tmp_dir_ = fs::temp_directory_path() / "MG_test_unit_durability";
+  fs::path durability_dir_;
+  fs::path snapshot_dir_;
+  fs::path wal_dir_;
+
+  void CleanDurability() {
+    if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
+  }
+
+  auto DbConfig() {
+    GraphDb::Config config;
+    config.durability_enabled = false;
+    config.durability_directory = durability_dir_;
+    config.snapshot_on_exit = false;
+    config.db_recover_on_startup = false;
+
+    return config;
+  }
+
+  void MakeSnapshot(GraphDb &db, int snapshot_max_retained = -1) {
+    GraphDbAccessor dba(db);
+    ASSERT_TRUE(
+        durability::MakeSnapshot(dba, durability_dir_, snapshot_max_retained));
+    dba.Commit();
+  }
+
   void SetUp() override {
+    durability_dir_ = tmp_dir_ / utils::RandomString(24);
+    snapshot_dir_ = durability_dir_ / durability::kSnapshotDir;
+    wal_dir_ = durability_dir_ / durability::kWalDir;
+    srand(time(NULL));
     FLAGS_wal_rotate_ops_count = 1000;
     CleanDurability();
   }
@@ -325,8 +330,8 @@ TEST_F(Durability, WalEncoding) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   HashedFileReader reader;
-  ASSERT_EQ(DirFiles(kWalDir).size(), 1);
-  ASSERT_TRUE(reader.Open(GetLastFile(kWalDir)));
+  ASSERT_EQ(DirFiles(wal_dir_).size(), 1);
+  ASSERT_TRUE(reader.Open(GetLastFile(wal_dir_)));
   communication::bolt::Decoder<HashedFileReader> decoder{reader};
   std::vector<durability::WriteAheadLog::Op> ops;
   while (true) {
@@ -405,7 +410,7 @@ TEST_F(Durability, SnapshotEncoding) {
     MakeSnapshot(db);
   }
 
-  auto snapshot = GetLastFile(kSnapshotDir);
+  auto snapshot = GetLastFile(snapshot_dir_);
   HashedFileReader buffer;
   communication::bolt::Decoder<HashedFileReader> decoder(buffer);
 
@@ -506,8 +511,8 @@ TEST_F(Durability, WalRecovery) {
 
   // Sleep to ensure the WAL gets flushed.
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  ASSERT_EQ(DirFiles(kSnapshotDir).size(), 0);
-  EXPECT_GT(DirFiles(kWalDir).size(), 1);
+  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
 
   {
     auto recovered_config = DbConfig();
@@ -530,8 +535,8 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
 
   // Sleep to ensure the WAL gets flushed.
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  ASSERT_EQ(DirFiles(kSnapshotDir).size(), 1);
-  EXPECT_GT(DirFiles(kWalDir).size(), 1);
+  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
 
   {
     auto recovered_config = DbConfig();
@@ -581,8 +586,8 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // Sleep to ensure the WAL gets flushed.
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  ASSERT_EQ(DirFiles(kSnapshotDir).size(), 1);
-  EXPECT_GT(DirFiles(kWalDir).size(), 1);
+  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
@@ -601,14 +606,14 @@ TEST_F(Durability, NoWalDuringRecovery) {
   // Sleep to ensure the WAL gets flushed.
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-  auto wal_files_before = DirFiles(kWalDir);
+  auto wal_files_before = DirFiles(wal_dir_);
   ASSERT_GT(wal_files_before.size(), 3);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
     GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
-    auto wal_files_after = DirFiles(kWalDir);
+    auto wal_files_after = DirFiles(wal_dir_);
     EXPECT_EQ(wal_files_after.size(), wal_files_before.size());
   }
 }
@@ -624,14 +629,14 @@ TEST_F(Durability, SnapshotRetention) {
     std::unordered_set<std::string> snapshots;
     for (int i = 0; i < count; ++i) {
       MakeSnapshot(db, retain);
-      auto latest = GetLastFile(kSnapshotDir);
-      snapshots.emplace(GetLastFile(kSnapshotDir));
+      auto latest = GetLastFile(snapshot_dir_);
+      snapshots.emplace(GetLastFile(snapshot_dir_));
       // Ensures that the latest snapshot was not in the snapshots collection
       // before. Thus ensures that it wasn't pruned.
       EXPECT_EQ(snapshots.size(), i + 1);
     }
 
-    EXPECT_EQ(DirFiles(kSnapshotDir).size(),
+    EXPECT_EQ(DirFiles(snapshot_dir_).size(),
               std::min(count, retain < 0 ? count : retain));
   };
 }
@@ -644,14 +649,14 @@ TEST_F(Durability, WalRetention) {
   MakeDb(db, 100);
   MakeSnapshot(db);
   MakeDb(db, 100);
-  EXPECT_EQ(DirFiles(kSnapshotDir).size(), 1);
+  EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
   // 1 current WAL file, plus retained ones
-  EXPECT_GT(DirFiles(kWalDir).size(), 1);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
   MakeSnapshot(db);
   // only 1 current WAL file
-  EXPECT_EQ(DirFiles(kSnapshotDir).size(), 2);
-  EXPECT_EQ(DirFiles(kWalDir).size(), 1);
+  EXPECT_EQ(DirFiles(snapshot_dir_).size(), 2);
+  EXPECT_EQ(DirFiles(wal_dir_).size(), 1);
 }
 
 TEST_F(Durability, SnapshotOnExit) {
@@ -660,5 +665,5 @@ TEST_F(Durability, SnapshotOnExit) {
     config.snapshot_on_exit = true;
     GraphDb graph_db{config};
   }
-  EXPECT_EQ(DirFiles(kSnapshotDir).size(), 1);
+  EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
 }

@@ -112,15 +112,7 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir) {
 
 bool MakeSnapshot(GraphDbAccessor &db_accessor_, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
-  auto ensure_dir = [](const auto &dir) {
-    if (!fs::exists(dir) && !fs::create_directories(dir)) {
-      LOG(ERROR) << "Error while creating directory " << dir;
-      return false;
-    }
-    return true;
-  };
-  if (!ensure_dir(durability_dir)) return false;
-  if (!ensure_dir(durability_dir / kSnapshotDir)) return false;
+  if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file = MakeSnapshotPath(durability_dir);
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db_accessor_)) {

@@ -261,8 +261,7 @@ WriteAheadLog::WalFile::~WalFile() {
 }
 
 void WriteAheadLog::WalFile::Init() {
-  if (!std::experimental::filesystem::exists(wal_dir_) &&
-      !std::experimental::filesystem::create_directories(wal_dir_)) {
+  if (!EnsureDir(wal_dir_)) {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {

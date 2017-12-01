@@ -111,3 +111,15 @@ TEST(String, EndsWith) {
   EXPECT_FALSE(EndsWith("memgraph", "GRAPH"));
   EXPECT_FALSE(EndsWith("memgraph", "the memgraph"));
 }
+
+TEST(String, RandomString) {
+  EXPECT_EQ(RandomString(0).size(), 0);
+  EXPECT_EQ(RandomString(1).size(), 1);
+  EXPECT_EQ(RandomString(42).size(), 42);
+
+  std::set<std::string> string_set;
+  for (int i = 0 ; i < 20 ; ++i)
+    string_set.emplace(RandomString(256));
+
+  EXPECT_EQ(string_set.size(), 20);
+}

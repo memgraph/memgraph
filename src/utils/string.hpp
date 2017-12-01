@@ -1,7 +1,9 @@
 #pragma once
 
+#include <stdlib.h>
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <regex>
@@ -201,4 +203,16 @@ inline bool EndsWith(const std::string &s, const std::string &suffix) {
 inline bool StartsWith(const std::string &s, const std::string &prefix) {
   return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
 }
+
+/** Creates a random alphanumeric string of the given length. */
+inline std::string RandomString(size_t length) {
+  static const char charset[] =
+      "0123456789"
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      "abcdefghijklmnopqrstuvwxyz";
+  std::string str(length, 0);
+  for (size_t i = 0; i < length; ++i)
+    str[i] = charset[rand() % strlen(charset)];
+  return str;
 }
+}  // namespace utils

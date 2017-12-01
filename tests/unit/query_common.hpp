@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <cstdlib>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -146,13 +145,6 @@ auto GetEdge(AstTreeStorage &storage, const std::string &name,
                                   EdgeAtom::Type::SINGLE, dir, edge_types);
 }
 
-/// Generates a randomly chosen (uniformly) string from a population of 10 ** 20
-std::string random_string() {
-  std::string str = "rand_str_";
-  for (int i = 0; i < 20; i++) str += std::to_string(rand() % 10);
-  return str;
-}
-
 ///
 /// Create a variable length expansion EdgeAtom with given name, direction and
 /// edge_type.
@@ -167,10 +159,10 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
   auto r_val =
       storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
                                EdgeAtom::Type::DEPTH_FIRST, dir, edge_types);
-  r_val->inner_edge_ =
-      inner_edge ? inner_edge : storage.Create<Identifier>(random_string());
-  r_val->inner_node_ =
-      inner_node ? inner_node : storage.Create<Identifier>(random_string());
+  r_val->inner_edge_ = inner_edge ? inner_edge : storage.Create<Identifier>(
+                                                     utils::RandomString(20));
+  r_val->inner_node_ = inner_node ? inner_node : storage.Create<Identifier>(
+                                                     utils::RandomString(20));
   return r_val;
 }
 
@@ -192,7 +184,8 @@ auto GetNode(AstTreeStorage &storage, const std::string &name,
 ///
 auto GetPattern(AstTreeStorage &storage, std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
-  pattern->identifier_ = storage.Create<Identifier>(random_string(), false);
+  pattern->identifier_ =
+      storage.Create<Identifier>(utils::RandomString(20), false);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
 }
