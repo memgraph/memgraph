@@ -1,5 +1,3 @@
-#include <time.h>
-#include <cstdio>
 #include <experimental/filesystem>
 #include <experimental/optional>
 #include <functional>
@@ -299,7 +297,6 @@ class Durability : public ::testing::Test {
     durability_dir_ = tmp_dir_ / utils::RandomString(24);
     snapshot_dir_ = durability_dir_ / durability::kSnapshotDir;
     wal_dir_ = durability_dir_ / durability::kWalDir;
-    srand(time(NULL));
     FLAGS_wal_rotate_ops_count = 1000;
     CleanDurability();
   }

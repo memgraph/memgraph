@@ -1,11 +1,11 @@
 #pragma once
 
-#include <stdlib.h>
 #include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <iostream>
 #include <iterator>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -210,9 +210,12 @@ inline std::string RandomString(size_t length) {
       "0123456789"
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
       "abcdefghijklmnopqrstuvwxyz";
+  static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
+  static thread_local std::uniform_int_distribution<size_t> rand_dist{
+      0, strlen(charset) - 1};
   std::string str(length, 0);
   for (size_t i = 0; i < length; ++i)
-    str[i] = charset[rand() % strlen(charset)];
+    str[i] = charset[rand_dist(pseudo_rand_gen)];
   return str;
 }
 }  // namespace utils
