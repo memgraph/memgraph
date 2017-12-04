@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,8 +14,7 @@ BASE_DIR_NAME = os.path.basename(BASE_DIR)
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 LIBS_DIR = os.path.join(BASE_DIR, "libs")
 TESTS_DIR = os.path.join(BUILD_DIR, "tests")
-TOOLS_DIR = os.path.join(BASE_DIR, "tools")
-TOOLS_BUILD_DIR = os.path.join(TOOLS_DIR, "build")
+TOOLS_BUILD_DIR = os.path.join(BUILD_DIR, "tools")
 OUTPUT_DIR = os.path.join(BUILD_DIR, "apollo")
 
 # output lists
@@ -120,6 +120,9 @@ outfile_paths = "\./" + cmd.replace("cppcheck", ".cppcheck_errors").replace(".",
 RUNS.append(generate_run("cppcheck", commands = 'TIMEOUT=1000 ./{} {}'.format(cmd, mode),
         infile = archive, outfile_paths = outfile_paths))
 
+# TODO: Refactor apollo/generate to be a config file which specifies how
+# each test is run and which files it depends on.
+
 # ctest tests
 ctest_output = run_cmd(["ctest", "-N"], TESTS_DIR)
 tests = []
@@ -128,9 +131,11 @@ tests = []
 CTEST_ORDER = {"unit": 0, "concurrent": 1}
 CTEST_DELIMITER = "__"
 for row in ctest_output.split("\n"):
-    # filter rows to find tests, ctest prefixes all test names with BASE_DIR_NAME
-    if row.count(BASE_DIR_NAME + CTEST_DELIMITER) == 0: continue
-    name = row.split(":")[1].strip().replace(BASE_DIR_NAME + CTEST_DELIMITER, "")
+    # Filter rows only containing tests.
+    if not re.match("^\s*Test\s+#", row): continue
+    test_name = row.split(":")[1].strip()
+    # We prefix all test names with BASE_DIR_NAME
+    name = test_name.replace(BASE_DIR_NAME + CTEST_DELIMITER, "")
     path = os.path.join(TESTS_DIR, name.replace(CTEST_DELIMITER, "/", 1))
     order = CTEST_ORDER.get(name.split(CTEST_DELIMITER)[0], len(CTEST_ORDER))
     tests.append((order, name, path))
@@ -312,7 +317,7 @@ ctest_output = run_cmd(["ctest", "-N"], TOOLS_BUILD_DIR)
 tools_infile = create_archive("tools_test", [TOOLS_BUILD_DIR], cwd = WORKSPACE_DIR)
 for row in ctest_output.split("\n"):
     # Filter rows only containing tests.
-    if "Test #" not in row: continue
+    if not re.match("^\s*Test\s+#", row): continue
     test_name = row.split(":")[1].strip()
     test_dir = os.path.relpath(TOOLS_BUILD_DIR, WORKSPACE_DIR)
     commands = "cd {}\nctest --output-on-failure -R \"^{}$\"".format(test_dir, test_name)

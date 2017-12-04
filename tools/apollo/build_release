@@ -9,7 +9,7 @@ TIMEOUT=600 ./init
 bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
 
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
+cmake -DTOOLS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
 TIMEOUT=1000 make -j$THREADS
 
 # Create a binary package (which can then be used for Docker image).
@@ -22,6 +22,7 @@ cpack -G DEB --config ../CPackConfig.cmake
 cd ../../docs/user_technical
 ./bundle_community
 
+# Install tools, because they may be needed to run some benchmarks and tests.
 cd ../../tools
 ./setup
 

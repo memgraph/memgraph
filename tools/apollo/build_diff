@@ -13,7 +13,7 @@ TIMEOUT=600 ./init
 bash -c "doxygen Doxyfile >/dev/null 2>/dev/null"
 
 cd build
-cmake -DTEST_COVERAGE=ON ..
+cmake -DTOOLS=ON -DTEST_COVERAGE=ON ..
 TIMEOUT=1000 make -j$THREADS
 
 cd ..
@@ -32,6 +32,7 @@ cd build
 cmake -DCMAKE_BUILD_TYPE=release ..
 TIMEOUT=1000 make -j$THREADS memgraph_link_target memgraph__macro_benchmark
 
+# Install tools, because they may be needed to run some benchmarks and tests.
 cd ../../memgraph/tools
 ./setup
 

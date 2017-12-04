@@ -25,9 +25,21 @@ if(CCACHE_FOUND AND USE_CCACHE)
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
-# NOTE: must be choosen before use of project() or enable_language() ----------
-set(CMAKE_C_COMPILER "clang")
-set(CMAKE_CXX_COMPILER "clang++")
+# NOTE: must be choosen before use of project() or enable_language()
+find_program(CLANG_FOUND clang)
+find_program(CLANGXX_FOUND clang++)
+if (CLANG_FOUND AND CLANGXX_FOUND)
+  set(CMAKE_C_COMPILER ${CLANG_FOUND})
+  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
+endif()
+
+# Get current commit hash.
+execute_process(
+    OUTPUT_VARIABLE COMMIT_HASH
+    COMMAND git rev-parse --short HEAD
+)
+string(STRIP ${COMMIT_HASH} COMMIT_HASH)
+
 # -----------------------------------------------------------------------------
 
 project(memgraph VERSION 0.8.0)
@@ -36,8 +48,6 @@ project(memgraph VERSION 0.8.0)
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
-# -----------------------------------------------------------------------------
-
 # custom function definitions
 include(functions)
 # -----------------------------------------------------------------------------
@@ -48,6 +58,58 @@ disallow_in_source_build()
 add_custom_target(clean_all
                   COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/cmake/clean_all.cmake
                   COMMENT "Removing all files in ${CMAKE_BINARY_DIR}")
+# -----------------------------------------------------------------------------
+
+# build flags -----------------------------------------------------------------
+
+# TODO: set here 17 once it will be available in the cmake version (3.8)
+# set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# For now, explicitly set -std= flag for C++17.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Werror=switch -Werror=switch-bool")
+
+# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
+    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
+
+# Use gold linker to speedup build
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
+
+# release flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+
+#debug flags
+set(PREFERRED_DEBUGGER "gdb" CACHE STRING
+    "Tunes the debug output for your preferred debugger (gdb or lldb).")
+if ("${PREFERRED_DEBUGGER}" STREQUAL "gdb" AND
+    "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang|GNU")
+    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
+elseif ("${PREFERRED_DEBUGGER}" STREQUAL "lldb" AND
+        "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    set(CMAKE_CXX_FLAGS_DEBUG "-glldb")
+else()
+    message(WARNING "Unable to tune for PREFERRED_DEBUGGER: "
+            "'${PREFERRED_DEBUGGER}' with compiler: '${CMAKE_CXX_COMPILER_ID}'")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+endif()
+
+# ndebug
+option(NDEBUG "No debug" OFF)
+message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \
+append this flag)")
+if(NDEBUG)
+    add_definitions( -DNDEBUG )
+endif()
+# -----------------------------------------------------------------------------
+
+# default build type is debug
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Debug")
+endif()
+message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
+# -----------------------------------------------------------------------------
+
+# setup external dependencies -------------------------------------------------
 
 # threading
 find_package(Threads REQUIRED)
@@ -66,89 +128,13 @@ if (USE_READLINE)
   endif()
 endif()
 
-# -----------------------------------------------------------------------------
-
-# TODO: set here 17 once it will be available in the cmake version (3.8)
-# set(CMAKE_CXX_STANDARD 17)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# For now, explicitly set -std= flag for C++17.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Werror=switch -Werror=switch-bool")
-
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
-
-# Use gold linker to speedup build
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
-# -----------------------------------------------------------------------------
-
-# dir variables
-set(src_dir ${CMAKE_SOURCE_DIR}/src)
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-set(tests_dir ${CMAKE_SOURCE_DIR}/tests)
-# -----------------------------------------------------------------------------
+add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-# Generate a version.hpp file
-set(VERSION_STRING ${memgraph_VERSION})
-configure_file(${src_dir}/version.hpp.in include/version.hpp @ONLY)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
-
-# build flags -----------------------------------------------------------------
-# release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-#debug flags
-set(PREFERRED_DEBUGGER "gdb" CACHE STRING
-    "Tunes the debug output for your preferred debugger (gdb or lldb).")
-if ("${PREFERRED_DEBUGGER}" STREQUAL "gdb" AND
-    "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang|GNU")
-    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
-elseif ("${PREFERRED_DEBUGGER}" STREQUAL "lldb" AND
-        "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS_DEBUG "-glldb")
-else()
-    message(WARNING "Unable to tune for PREFERRED_DEBUGGER: "
-            "'${PREFERRED_DEBUGGER}' with compiler: '${CMAKE_CXX_COMPILER_ID}'")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g")
-endif()
-
-# default build type is debug
-if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Debug")
-endif()
-message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
-# -----------------------------------------------------------------------------
-
-# setup external dependencies -------------------------------------------------
-add_subdirectory(libs)
-
-# ndebug
-option(NDEBUG "No debug" OFF)
-message(STATUS "NDEBUG: ${NDEBUG} (be careful CMAKE_BUILD_TYPE can also \
-append this flag)")
-if(NDEBUG)
-    add_definitions( -DNDEBUG )
-endif()
-# -----------------------------------------------------------------------------
-
-# proof of concept
-option(POC "Build proof of concept binaries" ON)
-message(STATUS "POC binaries: ${POC}")
-# experimental
-option(EXPERIMENTAL "Build experimental binaries" OFF)
-message(STATUS "Experimental binaries: ${EXPERIMENTAL}")
-# customers
-option(CUSTOMERS "Customer binaries" ON)
-message(STATUS "Customers binaries: ${CUSTOMERS}")
-# tests
-option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
-message(STATUS "Generate coverage from unit tests: ${TEST_COVERAGE}")
-# -----------------------------------------------------------------------------
-
-# includes
-include_directories(${src_dir})
 include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 include_directories(SYSTEM ${FMT_INCLUDE_DIR})
+include_directories(SYSTEM ${ANTLR4_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------
@@ -178,141 +164,42 @@ add_custom_command(OUTPUT ${antlr_opencypher_generated_src}
 add_custom_target(generate_opencypher_parser
   DEPENDS ${antlr_opencypher_generated_src})
 
-# include antlr header files
-include_directories(${ANTLR4_INCLUDE_DIR})
-
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
 target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # -----------------------------------------------------------------------------
 
-# all memgraph src files
-set(memgraph_src_files
-    ${src_dir}/communication/bolt/v1/decoder/decoded_value.cpp
-    ${src_dir}/communication/bolt/v1/session.cpp
-    ${src_dir}/communication/reactor/protocol.cpp
-    ${src_dir}/communication/raft/raft.cpp
-    ${src_dir}/communication/reactor/reactor_local.cpp
-    ${src_dir}/communication/reactor/reactor_distributed.cpp
-    ${src_dir}/data_structures/concurrent/skiplist_gc.cpp
-    ${src_dir}/database/graph_db.cpp
-    ${src_dir}/database/graph_db_config.cpp
-    ${src_dir}/database/graph_db_accessor.cpp
-    ${src_dir}/durability/paths.cpp
-    ${src_dir}/durability/recovery.cpp
-    ${src_dir}/durability/snapshooter.cpp
-    ${src_dir}/durability/wal.cpp
-    ${src_dir}/io/network/addrinfo.cpp
-    ${src_dir}/io/network/network_endpoint.cpp
-    ${src_dir}/io/network/socket.cpp
-    ${src_dir}/query/common.cpp
-    ${src_dir}/query/console.cpp
-    ${src_dir}/query/frontend/ast/ast.cpp
-    ${src_dir}/query/frontend/ast/cypher_main_visitor.cpp
-    ${src_dir}/query/frontend/semantic/symbol_generator.cpp
-    ${src_dir}/query/frontend/stripped.cpp
-    ${src_dir}/query/interpret/awesome_memgraph_functions.cpp
-    ${src_dir}/query/interpreter.cpp
-    ${src_dir}/query/plan/operator.cpp
-    ${src_dir}/query/plan/preprocess.cpp
-    ${src_dir}/query/plan/rule_based_planner.cpp
-    ${src_dir}/query/plan/variable_start_planner.cpp
-    ${src_dir}/query/typed_value.cpp
-    ${src_dir}/storage/edge_accessor.cpp
-    ${src_dir}/storage/locking/record_lock.cpp
-    ${src_dir}/storage/property_value.cpp
-    ${src_dir}/storage/record_accessor.cpp
-    ${src_dir}/storage/vertex_accessor.cpp
-    ${src_dir}/threading/thread.cpp
-    ${src_dir}/transactions/engine_master.cpp
-    ${src_dir}/transactions/engine_worker.cpp
-    ${src_dir}/utils/watchdog.cpp
-)
+include_directories(src)
+add_subdirectory(src)
+
 # -----------------------------------------------------------------------------
 
-# memgraph_lib depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools cereal
-    antlr_opencypher_parser_lib dl glog gflags)
+# Optional subproject configuration -------------------------------------------
+option(POC "Build proof of concept binaries" ON)
+option(EXPERIMENTAL "Build experimental binaries" OFF)
+option(CUSTOMERS "Build customer binaries" ON)
+option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
+option(TOOLS "Build tools binaries" OFF)
 
-if (USE_LTALLOC)
-    list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
-# TODO(mferencevic): Enable this when clang is updated on apollo.
-#    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+if(POC)
+  add_subdirectory(poc)
 endif()
 
-if (READLINE_FOUND)
-    list(APPEND MEMGRAPH_ALL_LIBS readline)
+if(EXPERIMENTAL)
+  add_subdirectory(experimental)
 endif()
 
-# STATIC library used by memgraph executables
-add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser)
-# -----------------------------------------------------------------------------
-
-# proof of concepts
-if (POC)
-    add_subdirectory(poc)
+if(CUSTOMERS)
+  add_subdirectory(customers)
 endif()
-# -----------------------------------------------------------------------------
 
-# experimental
-if (EXPERIMENTAL)
-    add_subdirectory(experimental)
-endif()
-# -----------------------------------------------------------------------------
-
-# customers
-if (CUSTOMERS)
-    add_subdirectory(customers)
-endif()
-# -----------------------------------------------------------------------------
-
-# tests
 enable_testing()
 add_subdirectory(tests)
-# -----------------------------------------------------------------------------
 
-# memgraph build name
-execute_process(
-    OUTPUT_VARIABLE COMMIT_HASH
-    COMMAND git rev-parse --short HEAD
-)
-string(STRIP ${COMMIT_HASH} COMMIT_HASH)
-set(MEMGRAPH_BUILD_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}")
-add_custom_target(memgraph_link_target ALL
-  COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME} ${CMAKE_BINARY_DIR}/memgraph DEPENDS ${MEMGRAPH_BUILD_NAME})
-# -----------------------------------------------------------------------------
-
-# memgraph main executable
-add_executable(${MEMGRAPH_BUILD_NAME} ${src_dir}/memgraph_bolt.cpp)
-target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
-# Strip the executable in release build.
-string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
-                     COMMAND strip -s ${MEMGRAPH_BUILD_NAME}
-                     COMMENT Stripping symbols and sections from
-                             ${MEMGRAPH_BUILD_NAME})
+if(TOOLS)
+  add_subdirectory(tools)
 endif()
-# Install and rename executable to just 'memgraph' Since we have to rename,
-# we cannot use the recommended `install(TARGETS ...)`.
-install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
-        DESTINATION bin RENAME memgraph)
-# Install the config file (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
-        DESTINATION /etc/memgraph RENAME memgraph.conf)
-# Install logrotate configuration (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
-        DESTINATION /etc/logrotate.d RENAME memgraph)
-# Create empty directories for default location of lib and log.
-install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
-                   \$ENV{DESTDIR}/var/lib/memgraph)")
-# Install the license file.
-install(FILES ${CMAKE_SOURCE_DIR}/release/LICENSE.md
-        DESTINATION share/doc/memgraph RENAME copyright)
-# Install systemd service (must use absolute path).
-install(FILES ${CMAKE_SOURCE_DIR}/release/memgraph.service
-        DESTINATION /lib/systemd/system)
+
+# -----------------------------------------------------------------------------
 
 # ---- Setup CPack --------
 # General setup

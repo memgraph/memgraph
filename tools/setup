@@ -9,8 +9,13 @@ cd ${script_dir}/build
 
 # Setup cmake
 cmake -DCMAKE_BUILD_TYPE=Release \
+      -DTOOLS=ON \
       -DCMAKE_INSTALL_PREFIX=${script_dir} \
-      ${script_dir}
+      ${script_dir}/..
 
 # Install the tools
-make -j$(nproc) install
+make -j$(nproc) tools
+cmake  -DCOMPONENT=tools -P cmake_install.cmake
+cd ${script_dir}
+mv bin/* ./
+rm -rf bin build
