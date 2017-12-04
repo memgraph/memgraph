@@ -39,12 +39,14 @@ def find_memgraph_binary(loc):
 
 def generate_run(name, typ = "run", supervisor = "", commands = "",
         arguments = "", enable_network = False,
-        outfile_paths = "", infile = "", slave_group = "local"):
+        outfile_paths = "", infile = "", slave_group = "local",
+        link_to_run = ""):
     if not commands.endswith("\n"): commands += "\n"
     return dict(name = name, type = typ, supervisor = supervisor,
             commands = commands, arguments = arguments,
             enable_network = enable_network, outfile_paths = outfile_paths,
-            infile = infile, slave_group = slave_group)
+            infile = infile, slave_group = slave_group,
+            link_to_run = link_to_run)
 
 def generate_archive(name, short_name, archive):
     return dict(name = name, short_name = short_name, archive = archive)
@@ -254,13 +256,15 @@ if mode == "diff":
             supervisor = supervisor,
             arguments = MACRO_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path,
             infile = infile,
-            outfile_paths = outfile_paths))
+            outfile_paths = outfile_paths,
+            link_to_run = "macro_benchmark__query_suite"))
     RUNS.append(generate_run("macro_benchmark_parent__query_parallel_suite",
             supervisor = supervisor,
             arguments = MACRO_PARALLEL_BENCHMARK_ARGS + " --RunnerBin " + binary_parent_path,
             infile = infile,
             outfile_paths = outfile_paths,
-            slave_group = "remote_20c140g"))
+            slave_group = "remote_20c140g",
+            link_to_run = "macro_benchmark__query_parallel_suite"))
 
     # macro benchmark comparison data process
     script_path = os.path.join(BASE_DIR, "tools", "apollo",
