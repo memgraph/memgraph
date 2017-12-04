@@ -143,7 +143,10 @@ std::vector<Field> ReadHeader(std::istream &stream) {
   for (const auto &value : row) {
     auto name_and_type = utils::Split(value, ":");
     CHECK(name_and_type.size() == 1U || name_and_type.size() == 2U)
-        << "Expected a name and optionally a type";
+        << fmt::format(
+               "\nExpected a name and optionally a type, got '{}'.\nDid you "
+               "specify a correct CSV delimiter?",
+               value);
     auto name = name_and_type[0];
     // When type is missing, default is string.
     std::string type("string");
@@ -364,21 +367,20 @@ static const char *usage =
     "Create a Memgraph recovery snapshot file from CSV.\n";
 
 // Used only to get the value from memgraph's configuration files.
-DEFINE_HIDDEN_string(snapshot_directory, "", "Snapshot directory");
+DEFINE_HIDDEN_string(durability_directory, "", "Durability directory");
 
 std::string GetOutputPath() {
   // If we have the 'out' flag, use that.
   if (!utils::Trim(FLAGS_out).empty()) return FLAGS_out;
   // Without the 'out', fall back to reading the memgraph configuration for
-  // snapshot_directory. Hopefully, memgraph configuration doesn't contain other
+  // durability_directory. Hopefully, memgraph configuration doesn't contain other
   // flags which are defined in this file.
   LoadConfig();
-  // Without snapshot_directory, we have to require 'out' flag.
-  if (utils::Trim(FLAGS_snapshot_directory).empty())
+  // Without durability_directory, we have to require 'out' flag.
+  if (utils::Trim(FLAGS_durability_directory).empty())
     LOG(FATAL) << "Unable to determine snapshot output location. Please, "
                   "provide the 'out' flag";
-  // TODO: Remove 'default' when Dbms is purged.
-  std::string snapshot_dir = FLAGS_snapshot_directory + "/default";
+  std::string snapshot_dir = FLAGS_durability_directory + "/snapshots";
   try {
     if (!std::experimental::filesystem::exists(snapshot_dir) &&
         !std::experimental::filesystem::create_directories(snapshot_dir)) {
