@@ -17,6 +17,7 @@
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
+#include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
@@ -116,17 +117,16 @@ class GraphDb {
   DeferredDeleter<mvcc::VersionList<Vertex>> vertex_version_list_deleter_;
   DeferredDeleter<mvcc::VersionList<Edge>> edge_version_list_deleter_;
 
-  // unique object stores
+  // Id to value mappers.
   // TODO this should be also garbage collected
-  ConcurrentIdMapper<GraphDbTypes::Label, GraphDbTypes::Label::StorageT,
-                     std::string>
-      labels_;
-  ConcurrentIdMapper<GraphDbTypes::EdgeType, GraphDbTypes::EdgeType::StorageT,
-                     std::string>
-      edge_types_;
-  ConcurrentIdMapper<GraphDbTypes::Property, GraphDbTypes::Property::StorageT,
-                     std::string>
-      properties_;
+  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::Label, std::string>> labels_{
+      new MasterConcurrentIdMapper<GraphDbTypes::Label, std::string>};
+  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>>
+      edge_types_{
+          new MasterConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>};
+  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::Property, std::string>>
+      properties_{
+          new MasterConcurrentIdMapper<GraphDbTypes::Property, std::string>};
 
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;

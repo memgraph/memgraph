@@ -4,32 +4,36 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "storage/concurrent_id_mapper.hpp"
+#include "database/graph_db_datatypes.hpp"
+#include "storage/concurrent_id_mapper_master.hpp"
 
 const int THREAD_NUM = 20;
 const int VALUE_MAX = 50;
 
+using Id = GraphDbTypes::Label;
+using Mapper = MasterConcurrentIdMapper<Id, int>;
+
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {
-  ConcurrentIdMapper<int, int, int> mapper;
-  EXPECT_EQ(mapper.insert_value(1), mapper.insert_value(1));
+  Mapper mapper;
+  EXPECT_EQ(mapper.value_to_id(1), mapper.value_to_id(1));
 }
 
 TEST(ConcurrentIdMapper, IdToValue) {
-  ConcurrentIdMapper<int, int, int> mapper;
+  Mapper mapper;
   auto value = 1;
-  auto id = mapper.insert_value(value);
-  EXPECT_EQ(value, mapper.value_by_id(id));
+  auto id = mapper.value_to_id(value);
+  EXPECT_EQ(value, mapper.id_to_value(id));
 }
 
 TEST(ConcurrentIdMapper, TwoValuesTwoIds) {
-  ConcurrentIdMapper<int, int, int> mapper;
-  EXPECT_NE(mapper.insert_value(1), mapper.insert_value(2));
+  Mapper mapper;
+  EXPECT_NE(mapper.value_to_id(1), mapper.value_to_id(2));
 }
 
 TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
   std::vector<std::thread> threads;
-  ConcurrentIdMapper<int, int, int> mapper;
-  std::vector<std::vector<int>> thread_value_ids(THREAD_NUM);
+  Mapper mapper;
+  std::vector<std::vector<Id>> thread_value_ids(THREAD_NUM);
 
   std::atomic<int> current_value{0};
   std::atomic<int> current_value_insertion_count{0};
@@ -42,10 +46,10 @@ TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
       int last = -1;
       while (current_value <= VALUE_MAX) {
         while (last == current_value) continue;
-        auto id = mapper.insert_value(current_value.load());
+        auto id = mapper.value_to_id(current_value.load());
         thread_value_ids[i].push_back(id);
         // Also check that reverse mapping exists after method exits
-        EXPECT_EQ(mapper.value_by_id(id), current_value.load());
+        EXPECT_EQ(mapper.id_to_value(id), current_value.load());
         last = current_value;
         current_value_insertion_count.fetch_add(1);
       }
@@ -69,6 +73,6 @@ TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
       EXPECT_EQ(thread_value_ids[i], thread_value_ids[j]);
 
   // Each value should have a unique id
-  std::set<int> ids(thread_value_ids[0].begin(), thread_value_ids[0].end());
+  std::set<Id> ids(thread_value_ids[0].begin(), thread_value_ids[0].end());
   EXPECT_EQ(ids.size(), thread_value_ids[0].size());
 }

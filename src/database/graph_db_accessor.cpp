@@ -327,37 +327,37 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
 
 GraphDbTypes::Label GraphDbAccessor::Label(const std::string &label_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.labels_.insert_value(label_name);
+  return db_.labels_->value_to_id(label_name);
 }
 
 const std::string &GraphDbAccessor::LabelName(
     const GraphDbTypes::Label label) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.labels_.value_by_id(label);
+  return db_.labels_->id_to_value(label);
 }
 
 GraphDbTypes::EdgeType GraphDbAccessor::EdgeType(
     const std::string &edge_type_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.edge_types_.insert_value(edge_type_name);
+  return db_.edge_types_->value_to_id(edge_type_name);
 }
 
 const std::string &GraphDbAccessor::EdgeTypeName(
     const GraphDbTypes::EdgeType edge_type) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.edge_types_.value_by_id(edge_type);
+  return db_.edge_types_->id_to_value(edge_type);
 }
 
 GraphDbTypes::Property GraphDbAccessor::Property(
     const std::string &property_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.properties_.insert_value(property_name);
+  return db_.properties_->value_to_id(property_name);
 }
 
 const std::string &GraphDbAccessor::PropertyName(
     const GraphDbTypes::Property property) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  return db_.properties_.value_by_id(property);
+  return db_.properties_->id_to_value(property);
 }
 
 int64_t GraphDbAccessor::Counter(const std::string &name) {
