@@ -97,7 +97,7 @@ class MemgraphNodeIdMap {
   }
 
   int64_t Insert(const NodeId &node_id) {
-    int64_t id = mg_id_++;
+    gid::Gid id = gid::Create(0, mg_id_++);
     node_id_to_mg_[node_id] = id;
     return id;
   }
@@ -197,7 +197,7 @@ void WriteNodeRow(const std::vector<Field> &fields,
                   const std::vector<std::string> &row,
                   MemgraphNodeIdMap &node_id_map,
                   communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
-  std::experimental::optional<int64_t> id;
+  std::experimental::optional<gid::Gid> id;
   std::vector<query::TypedValue> labels;
   std::map<std::string, query::TypedValue> properties;
   for (int i = 0; i < row.size(); ++i) {
@@ -256,7 +256,7 @@ auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
 
 void WriteRelationshipsRow(
     const std::vector<Field> &fields, const std::vector<std::string> &row,
-    const MemgraphNodeIdMap &node_id_map, int64_t relationship_id,
+    const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id,
     communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
   std::experimental::optional<int64_t> start_id;
   std::experimental::optional<int64_t> end_id;
@@ -312,8 +312,8 @@ void ConvertRelationships(
   while (!row.empty()) {
     CHECK_EQ(row.size(), fields.size())
         << "Expected as many values as there are header fields";
-    WriteRelationshipsRow(fields, row, node_id_map, next_relationship_id++,
-                          encoder);
+    WriteRelationshipsRow(fields, row, node_id_map,
+                          gid::Create(0, next_relationship_id++), encoder);
     row = ReadRow(relationships_file);
   }
 }

@@ -679,9 +679,9 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return hash;
     }
     case TypedValue::Type::Vertex:
-      return value.Value<VertexAccessor>().id();
+      return value.Value<VertexAccessor>().gid();
     case TypedValue::Type::Edge:
-      return value.Value<EdgeAccessor>().id();
+      return value.Value<EdgeAccessor>().gid();
     case TypedValue::Type::Path:
       return FnvCollection<std::vector<VertexAccessor>, VertexAccessor>{}(
                  value.ValuePath().vertices()) ^

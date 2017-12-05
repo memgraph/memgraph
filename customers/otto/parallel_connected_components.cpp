@@ -35,8 +35,10 @@ void GenerateGraph(GraphDb &db) {
   // Randomize the sequence of IDs of created vertices and edges to simulate
   // real-world lack of locality.
   auto make_id_vector = [](size_t size) {
-    std::vector<int64_t> ids(size);
-    for (size_t i = 0; i < size; ++i) ids[i] = i;
+    gid::GidGenerator generator{0};
+    std::vector<gid::Gid> ids(size);
+    for (size_t i = 0; i < size; ++i)
+      ids[i] = generator.Next(std::experimental::nullopt);
     std::random_shuffle(ids.begin(), ids.end());
     return ids;
   };
@@ -61,7 +63,7 @@ void GenerateGraph(GraphDb &db) {
         for (int j = i * batch_size; j < (i + 1) * batch_size; ++j) {
           auto vertex = dba.InsertVertex(vertex_ids[j]);
           vertex.add_label(label);
-          vertex.PropsSet(property, vertex_ids[j]);
+          vertex.PropsSet(property, static_cast<int64_t>(vertex_ids[j]));
           vertices_lock.lock();
           vertices.emplace_back(vertex);
           vertices_lock.unlock();
@@ -97,7 +99,7 @@ void GenerateGraph(GraphDb &db) {
 auto EdgeIteration(GraphDb &db) {
   GraphDbAccessor dba{db};
   int64_t sum{0};
-  for (auto edge : dba.Edges(false)) sum += edge.from().id() + edge.to().id();
+  for (auto edge : dba.Edges(false)) sum += edge.from().gid() + edge.to().gid();
   return sum;
 }
 
@@ -105,7 +107,7 @@ auto VertexIteration(GraphDb &db) {
   GraphDbAccessor dba{db};
   int64_t sum{0};
   for (auto v : dba.Vertices(false))
-    for (auto e : v.out()) sum += e.id() + e.to().id();
+    for (auto e : v.out()) sum += e.gid() + e.to().gid();
   return sum;
 }
 
@@ -113,7 +115,7 @@ auto ConnectedComponentsEdges(GraphDb &db) {
   UnionFind<int64_t> connectivity{FLAGS_vertex_count};
   GraphDbAccessor dba{db};
   for (auto edge : dba.Edges(false))
-    connectivity.Connect(edge.from().id(), edge.to().id());
+    connectivity.Connect(edge.from().gid(), edge.to().gid());
   return connectivity.Size();
 }
 
@@ -122,7 +124,7 @@ auto ConnectedComponentsVertices(GraphDb &db) {
   GraphDbAccessor dba{db};
   for (auto from : dba.Vertices(false)) {
     for (auto out_edge : from.out())
-      connectivity.Connect(from.id(), out_edge.to().id());
+      connectivity.Connect(from.gid(), out_edge.to().gid());
   }
   return connectivity.Size();
 }
@@ -148,7 +150,7 @@ auto ConnectedComponentsVerticesParallel(GraphDb &db) {
                             utils::MakeBoundExclusive(bounds[i + 1]), false)) {
             for (auto out_edge : from.out()) {
               std::lock_guard<SpinLock> lock{connectivity_lock};
-              connectivity.Connect(from.id(), out_edge.to().id());
+              connectivity.Connect(from.gid(), out_edge.to().gid());
             }
           }
         });
@@ -163,20 +165,16 @@ auto Expansion(GraphDb &db) {
   std::stack<VertexAccessor> expansion_stack;
   GraphDbAccessor dba{db};
   for (auto v : dba.Vertices(false)) {
-    if (component_ids[v.id()] != -1)
-      continue;
+    if (component_ids[v.gid()] != -1) continue;
     auto component_id = next_component_id++;
     expansion_stack.push(v);
     while (!expansion_stack.empty()) {
       auto next_v = expansion_stack.top();
       expansion_stack.pop();
-      if (component_ids[next_v.id()] != -1)
-        continue;
-      component_ids[next_v.id()] = component_id;
-      for (auto e : next_v.out())
-        expansion_stack.push(e.to());
-      for (auto e : next_v.in())
-        expansion_stack.push(e.from());
+      if (component_ids[next_v.gid()] != -1) continue;
+      component_ids[next_v.gid()] = component_id;
+      for (auto e : next_v.out()) expansion_stack.push(e.to());
+      for (auto e : next_v.in()) expansion_stack.push(e.from());
     }
   }
 

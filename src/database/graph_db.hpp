@@ -1,7 +1,5 @@
 #pragma once
 
-#include <memory>
-
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
@@ -14,10 +12,10 @@
 #include "durability/wal.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/concurrent_id_mapper.hpp"
+#include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
-#include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
@@ -96,17 +94,19 @@ class GraphDb {
    * Otherwise a WorkerEngine instance. */
   std::unique_ptr<tx::Engine> tx_engine_;
 
-  std::atomic<int64_t> next_vertex_id_{0};
-  std::atomic<int64_t> next_edge_id_{0};
+  int worker_id_{0};
+
+  gid::GidGenerator vertex_generator_{worker_id_};
+  gid::GidGenerator edge_generator_{worker_id_};
 
   // main storage for the graph
-  ConcurrentMap<int64_t, mvcc::VersionList<Vertex> *> vertices_;
-  ConcurrentMap<int64_t, mvcc::VersionList<Edge> *> edges_;
+  ConcurrentMap<gid::Gid, mvcc::VersionList<Vertex> *> vertices_;
+  ConcurrentMap<gid::Gid, mvcc::VersionList<Edge> *> edges_;
 
   // Garbage collectors
-  GarbageCollector<ConcurrentMap<int64_t, mvcc::VersionList<Vertex> *>, Vertex>
+  GarbageCollector<ConcurrentMap<gid::Gid, mvcc::VersionList<Vertex> *>, Vertex>
       gc_vertices_;
-  GarbageCollector<ConcurrentMap<int64_t, mvcc::VersionList<Edge> *>, Edge>
+  GarbageCollector<ConcurrentMap<gid::Gid, mvcc::VersionList<Edge> *>, Edge>
       gc_edges_;
 
   // Deleters for not relevant records
@@ -132,9 +132,7 @@ class GraphDb {
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
 
-  /**
-   * Set of transactions ids which are building indexes currently
-   */
+  // Set of transactions ids which are building indexes currently
   ConcurrentSet<tx::transaction_id_t> index_build_tx_in_progress_;
 
   durability::WriteAheadLog wal_;
@@ -146,6 +144,6 @@ class GraphDb {
   // time to stop their execution.
   Scheduler transaction_killer_;
 
-  /** DB level global counters, used in the "counter" function. */
+  // DB level global counters, used in the "counter" function.
   ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
 };

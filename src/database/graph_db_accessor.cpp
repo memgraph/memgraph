@@ -53,26 +53,29 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal_; }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<int64_t> opt_id) {
+    std::experimental::optional<gid::Gid> gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  auto id = opt_id ? *opt_id : db_.next_vertex_id_++;
-  if (opt_id) {
-    utils::EnsureAtomicGe(db_.next_vertex_id_, id + 1);
+  std::experimental::optional<uint64_t> next_id;
+  if (gid) {
+    CHECK(static_cast<int>(gid::WorkerId(*gid)) == db_.worker_id_)
+        << "Attempting to set incompatible worker id";
+    next_id = gid::LocalId(*gid);
   }
 
+  auto id = db_.vertex_generator_.Next(next_id);
   auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, id);
 
   bool success = db_.vertices_.access().insert(id, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing ID: " << id;
-  db_.wal_.CreateVertex(transaction_->id_, vertex_vlist->id_);
+  db_.wal_.CreateVertex(transaction_->id_, vertex_vlist->gid_);
   return VertexAccessor(*vertex_vlist, *this);
 }
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
-    int64_t id, bool current_state) {
+    gid::Gid gid, bool current_state) {
   auto collection_accessor = db_.vertices_.access();
-  auto found = collection_accessor.find(id);
+  auto found = collection_accessor.find(gid);
   if (found == collection_accessor.end()) return std::experimental::nullopt;
   VertexAccessor record_accessor(*found->second, *this);
   if (!Visible(record_accessor, current_state))
@@ -81,9 +84,9 @@ std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
 }
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
-    int64_t id, bool current_state) {
+    gid::Gid gid, bool current_state) {
   auto collection_accessor = db_.edges_.access();
-  auto found = collection_accessor.find(id);
+  auto found = collection_accessor.find(gid);
   if (found == collection_accessor.end()) return std::experimental::nullopt;
   EdgeAccessor record_accessor(*found->second, *this);
   if (!Visible(record_accessor, current_state))
@@ -249,7 +252,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
-  db_.wal_.RemoveVertex(transaction_->id_, vertex_accessor.vlist_->id_);
+  db_.wal_.RemoveVertex(transaction_->id_, vertex_accessor.vlist_->gid_);
 
   vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
   return true;
@@ -274,13 +277,17 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType edge_type,
-    std::experimental::optional<int64_t> opt_id) {
+    std::experimental::optional<gid::Gid> gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  auto id = opt_id ? *opt_id : db_.next_edge_id_++;
-  if (opt_id) {
-    utils::EnsureAtomicGe(db_.next_edge_id_, id + 1);
+
+  std::experimental::optional<uint64_t> next_id;
+  if (gid) {
+    CHECK(static_cast<int>(gid::WorkerId(*gid)) == db_.worker_id_)
+        << "Attempting to set incompatible worker id";
+    next_id = gid::LocalId(*gid);
   }
 
+  auto id = db_.edge_generator_.Next(next_id);
   auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, from.vlist_,
                                                 to.vlist_, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
@@ -298,8 +305,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   to.SwitchNew();
   to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
-  db_.wal_.CreateEdge(transaction_->id_, edge_vlist->id_, from.vlist_->id_,
-                      to.vlist_->id_, EdgeTypeName(edge_type));
+  db_.wal_.CreateEdge(transaction_->id_, edge_vlist->gid_, from.vlist_->gid_,
+                      to.vlist_->gid_, EdgeTypeName(edge_type));
   return EdgeAccessor(*edge_vlist, *this, from.vlist_, to.vlist_, edge_type);
 }
 
@@ -322,7 +329,7 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
     edge_accessor.to().update().in_.RemoveEdge(edge_accessor.vlist_);
   edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
 
-  db_.wal_.RemoveEdge(transaction_->id_, edge_accessor.id());
+  db_.wal_.RemoveEdge(transaction_->id_, edge_accessor.gid());
 }
 
 GraphDbTypes::Label GraphDbAccessor::Label(const std::string &label_name) {

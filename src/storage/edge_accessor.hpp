@@ -99,6 +99,6 @@ std::ostream &operator<<(std::ostream &, const EdgeAccessor &);
 namespace std {
 template <>
 struct hash<EdgeAccessor> {
-  size_t operator()(const EdgeAccessor &e) const { return e.id(); };
+  size_t operator()(const EdgeAccessor &e) const { return e.gid(); };
 };
 }  // namespace std

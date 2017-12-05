@@ -18,13 +18,13 @@ TEST(GraphDbAccessorTest, InsertVertex) {
 
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
 
-  EXPECT_EQ(accessor.InsertVertex().id(), 0);
+  EXPECT_EQ(accessor.InsertVertex().gid(), 0);
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
   EXPECT_EQ(Count(accessor.Vertices(true)), 1);
   accessor.AdvanceCommand();
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
 
-  EXPECT_EQ(accessor.InsertVertex().id(), 1);
+  EXPECT_EQ(accessor.InsertVertex().gid(), gid::Create(0, 1));
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
   EXPECT_EQ(Count(accessor.Vertices(true)), 2);
   accessor.AdvanceCommand();
@@ -40,7 +40,7 @@ TEST(GraphDbAccessorTest, UniqueVertexId) {
     threads.emplace_back([&db, &ids]() {
       GraphDbAccessor dba(db);
       auto access = ids.access();
-      for (int i = 0; i < 200; i++) access.insert(dba.InsertVertex().id());
+      for (int i = 0; i < 200; i++) access.insert(dba.InsertVertex().gid());
     });
   }
 
@@ -146,7 +146,7 @@ TEST(GraphDbAccessorTest, UniqueEdgeId) {
       auto edge_type = dba.EdgeType("edge_type");
       auto access = ids.access();
       for (int i = 0; i < 200; i++)
-        access.insert(dba.InsertEdge(v1, v2, edge_type).id());
+        access.insert(dba.InsertEdge(v1, v2, edge_type).gid());
     });
   }
 

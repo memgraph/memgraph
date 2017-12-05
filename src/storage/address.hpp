@@ -3,37 +3,32 @@
 #include <cstdint>
 
 #include "glog/logging.h"
+#include "storage/gid.hpp"
 
 namespace storage {
 
 /**
  * A data structure that tracks a Vertex/Edge location (address) that's either
- * local or remote. The remote address consists of a pair (shard_id, global_id),
- * while the local address is simply the memory address in the current local
- * process. Both types of address are stored in the same storage space, so an
- * Address always takes as much memory as a pointer does.
+ * local or remote. The remote address is a global id, while the local address
+ * is simply the memory address in the current local process. Both types of
+ * address are stored in the same storage space, so an Address always takes as
+ * much memory as a pointer does.
  *
  * The memory layout for storage is on x64 architecture is the following:
  *  - the lowest bit stores 0 if address is local and 1 if address is global
  *  - if the address is local all 64 bits store the local memory address
- *  - if the address is global then:
- *    - lower bits in [1, 1 + kShardIdSize] range contain the shard ID
- *    - upper (64 - 1 - kShardIdSize) bits, which is the [2 + kShardIdSize,
- *      63] range contain the globally unique element ID
+ *  - if the address is global then most imporant 63 bits store the global id
  *
  * @tparam TRecord - Type of record this address points to. Either Vertex or
  * Edge.
  */
 template <typename TLocalObj>
 class Address {
-  static constexpr uintptr_t kTypeMask{1};
+  using Storage = uint64_t;
+  static constexpr uintptr_t kTypeMaskSize{1};
+  static constexpr uintptr_t kTypeMask{(1ULL << kTypeMaskSize) - 1};
   static constexpr uintptr_t kLocal{0};
   static constexpr uintptr_t kRemote{1};
-  static constexpr size_t kShardIdPos{1};
-  // To modify memory layout only change kShardIdSize.
-  static constexpr size_t kShardIdSize{10};
-  static constexpr size_t KGlobalIdPos{kShardIdPos + kShardIdSize};
-  static constexpr size_t kGlobalIdSize{64 - 1 - kShardIdSize};
 
  public:
   // Constructor for local Address.
@@ -44,16 +39,12 @@ class Address {
   }
 
   // Constructor for remote Address.
-  Address(uint64_t shard_id, uint64_t global_id) {
-    // TODO make a SSOT about max shard ID. Ensure that a shard with a larger ID
-    // can't be created, and that this ID fits into kShardIdSize bits.
-    CHECK(shard_id < (1ULL << (kShardIdSize - 1))) << "Shard ID too big.";
-    CHECK(global_id < (1ULL << (kGlobalIdSize - 1)))
-        << "Global element ID too big.";
+  Address(gid::Gid global_id) {
+    CHECK(global_id < (1ULL << (sizeof(Storage) * 8 - kTypeMaskSize)))
+        << "Too large global id";
 
     storage_ = kRemote;
-    storage_ |= shard_id << kShardIdPos;
-    storage_ |= global_id << KGlobalIdPos;
+    storage_ |= global_id << kTypeMaskSize;
   }
 
   bool is_local() const { return (storage_ & kTypeMask) == kLocal; }
@@ -64,14 +55,9 @@ class Address {
     return reinterpret_cast<TLocalObj *>(storage_);
   }
 
-  uint64_t shard_id() const {
-    DCHECK(is_remote()) << "Attempting to get shard ID from local address";
-    return (storage_ >> kShardIdPos) & ((1ULL << kShardIdSize) - 1);
-  }
-
-  uint64_t global_id() const {
+  gid::Gid global_id() const {
     DCHECK(is_remote()) << "Attempting to get global ID from local address";
-    return (storage_ >> KGlobalIdPos) & ((1ULL << kGlobalIdSize) - 1);
+    return storage_ >> kTypeMaskSize;
   }
 
   bool operator==(const Address<TLocalObj> &other) const {
@@ -79,6 +65,6 @@ class Address {
   }
 
  private:
-  uintptr_t storage_{0};
+  Storage storage_{0};
 };
 }  // namespace storage

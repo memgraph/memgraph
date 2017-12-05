@@ -19,7 +19,7 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
   vertex.labels_.emplace_back(label);
   auto &dba = db_accessor();
   dba.UpdateLabelIndices(label, *this, &vertex);
-  dba.wal().AddLabel(dba.transaction_id(), id(), dba.LabelName(label));
+  dba.wal().AddLabel(dba.transaction_id(), gid(), dba.LabelName(label));
   return true;
 }
 
@@ -31,7 +31,7 @@ size_t VertexAccessor::remove_label(GraphDbTypes::Label label) {
   std::swap(*found, labels.back());
   labels.pop_back();
   auto &dba = db_accessor();
-  dba.wal().RemoveLabel(dba.transaction_id(), id(), dba.LabelName(label));
+  dba.wal().RemoveLabel(dba.transaction_id(), gid(), dba.LabelName(label));
   return 1;
 }
 
@@ -50,9 +50,10 @@ std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
     stream << va.db_accessor().LabelName(label);
   });
   os << " {";
-  utils::PrintIterable(os, va.Properties(), ", ", [&](auto &stream,
-                                                      const auto &pair) {
-    stream << va.db_accessor().PropertyName(pair.first) << ": " << pair.second;
-  });
+  utils::PrintIterable(os, va.Properties(), ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << va.db_accessor().PropertyName(pair.first)
+                                << ": " << pair.second;
+                       });
   return os << "})";
 }

@@ -176,14 +176,14 @@ void WriteAheadLog::TxAbort(tx::transaction_id_t tx_id) {
 }
 
 void WriteAheadLog::CreateVertex(tx::transaction_id_t tx_id,
-                                 int64_t vertex_id) {
+                                 gid::Gid vertex_id) {
   Op op(Op::Type::CREATE_VERTEX, tx_id);
   op.vertex_id_ = vertex_id;
   Emplace(std::move(op));
 }
 
-void WriteAheadLog::CreateEdge(tx::transaction_id_t tx_id, int64_t edge_id,
-                               int64_t vertex_from_id, int64_t vertex_to_id,
+void WriteAheadLog::CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
+                               gid::Gid vertex_from_id, gid::Gid vertex_to_id,
                                const std::string &edge_type) {
   Op op(Op::Type::CREATE_EDGE, tx_id);
   op.edge_id_ = edge_id;
@@ -194,7 +194,7 @@ void WriteAheadLog::CreateEdge(tx::transaction_id_t tx_id, int64_t edge_id,
 }
 
 void WriteAheadLog::PropsSetVertex(tx::transaction_id_t tx_id,
-                                   int64_t vertex_id,
+                                   gid::Gid vertex_id,
                                    const std::string &property,
                                    const PropertyValue &value) {
   Op op(Op::Type::SET_PROPERTY_VERTEX, tx_id);
@@ -204,7 +204,7 @@ void WriteAheadLog::PropsSetVertex(tx::transaction_id_t tx_id,
   Emplace(std::move(op));
 }
 
-void WriteAheadLog::PropsSetEdge(tx::transaction_id_t tx_id, int64_t edge_id,
+void WriteAheadLog::PropsSetEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
                                  const std::string &property,
                                  const PropertyValue &value) {
   Op op(Op::Type::SET_PROPERTY_EDGE, tx_id);
@@ -214,7 +214,7 @@ void WriteAheadLog::PropsSetEdge(tx::transaction_id_t tx_id, int64_t edge_id,
   Emplace(std::move(op));
 }
 
-void WriteAheadLog::AddLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
+void WriteAheadLog::AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                              const std::string &label) {
   Op op(Op::Type::ADD_LABEL, tx_id);
   op.vertex_id_ = vertex_id;
@@ -222,7 +222,7 @@ void WriteAheadLog::AddLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
   Emplace(std::move(op));
 }
 
-void WriteAheadLog::RemoveLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
+void WriteAheadLog::RemoveLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                                 const std::string &label) {
   Op op(Op::Type::REMOVE_LABEL, tx_id);
   op.vertex_id_ = vertex_id;
@@ -231,13 +231,13 @@ void WriteAheadLog::RemoveLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
 }
 
 void WriteAheadLog::RemoveVertex(tx::transaction_id_t tx_id,
-                                 int64_t vertex_id) {
+                                 gid::Gid vertex_id) {
   Op op(Op::Type::REMOVE_VERTEX, tx_id);
   op.vertex_id_ = vertex_id;
   Emplace(std::move(op));
 }
 
-void WriteAheadLog::RemoveEdge(tx::transaction_id_t tx_id, int64_t edge_id) {
+void WriteAheadLog::RemoveEdge(tx::transaction_id_t tx_id, gid::Gid edge_id) {
   Op op(Op::Type::REMOVE_EDGE, tx_id);
   op.edge_id_ = edge_id;
   Emplace(std::move(op));

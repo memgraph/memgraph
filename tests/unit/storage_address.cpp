@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "storage/address.hpp"
+#include "storage/gid.hpp"
 
 using storage::Address;
 
@@ -22,12 +23,13 @@ TEST(Address, CopyCompare) {
 }
 
 TEST(Address, Global) {
-  uint64_t shard_id{13};
-  uint64_t global_id{31};
-  Address<int> address{shard_id, global_id};
+  uint64_t worker_id{13};
+  uint64_t local_id{31};
+  auto global_id = gid::Create(worker_id, local_id);
+  Address<int> address{global_id};
 
   EXPECT_TRUE(address.is_remote());
   EXPECT_FALSE(address.is_local());
-  EXPECT_EQ(address.shard_id(), shard_id);
+  EXPECT_EQ(gid::WorkerId(address.global_id()), worker_id);
   EXPECT_EQ(address.global_id(), global_id);
 }

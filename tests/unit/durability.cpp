@@ -54,7 +54,7 @@ class DbGenerator {
 
   VertexAccessor InsertVertex() {
     auto vertex = dba_.InsertVertex();
-    vertex_ids_.emplace_back(vertex.id());
+    vertex_ids_.emplace_back(vertex.gid());
     return vertex;
   }
 
@@ -67,7 +67,7 @@ class DbGenerator {
     auto from = RandomVertex();
     auto to = RandomVertex();
     auto edge = dba_.InsertEdge(from, to, EdgeType(RandomInt(kEdgeTypeCount)));
-    edge_ids_.emplace_back(edge.id());
+    edge_ids_.emplace_back(edge.gid());
     return edge;
   }
 
@@ -188,8 +188,8 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
     int vertices_a_count = 0;
     for (auto v_a : dba_a.Vertices(false)) {
       vertices_a_count++;
-      auto v_b = dba_b.FindVertex(v_a.id(), false);
-      ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.id();
+      auto v_b = dba_b.FindVertex(v_a.gid(), false);
+      ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.gid();
       ASSERT_EQ(v_a.labels().size(), v_b->labels().size());
       std::vector<std::string> v_a_labels;
       std::vector<std::string> v_b_labels;
@@ -207,13 +207,13 @@ void CompareDbs(GraphDb &a, GraphDb &b) {
     int edges_a_count = 0;
     for (auto e_a : dba_a.Edges(false)) {
       edges_a_count++;
-      auto e_b = dba_b.FindEdge(e_a.id(), false);
+      auto e_b = dba_b.FindEdge(e_a.gid(), false);
       ASSERT_TRUE(e_b);
-      ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.id();
+      ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.gid();
       EXPECT_EQ(dba_a.EdgeTypeName(e_a.EdgeType()),
                 dba_b.EdgeTypeName(e_b->EdgeType()));
-      EXPECT_EQ(e_a.from().id(), e_b->from().id());
-      EXPECT_EQ(e_a.to().id(), e_b->to().id());
+      EXPECT_EQ(e_a.from().gid(), e_b->from().gid());
+      EXPECT_EQ(e_a.to().gid(), e_b->to().gid());
       EXPECT_TRUE(is_permutation_props(e_a.Properties(), e_b->Properties()));
     }
     auto edges_b = dba_b.Edges(false);
@@ -305,19 +305,21 @@ class Durability : public ::testing::Test {
 };
 
 TEST_F(Durability, WalEncoding) {
+  auto gid0 = gid::Create(0, 0);
+  auto gid1 = gid::Create(0, 1);
   {
     auto config = DbConfig();
     config.durability_enabled = true;
     GraphDb db{config};
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex();
-    ASSERT_EQ(v0.id(), 0);
+    ASSERT_EQ(v0.gid(), gid0);
     v0.add_label(dba.Label("l0"));
     v0.PropsSet(dba.Property("p0"), 42);
     auto v1 = dba.InsertVertex();
-    ASSERT_EQ(v1.id(), 1);
+    ASSERT_EQ(v1.gid(), gid1);
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
-    ASSERT_EQ(e0.id(), 0);
+    ASSERT_EQ(e0.gid(), gid0);
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
@@ -347,28 +349,28 @@ TEST_F(Durability, WalEncoding) {
   EXPECT_EQ(ops[0].transaction_id_, 1);
   EXPECT_EQ(ops[1].type_, Type::CREATE_VERTEX);
   EXPECT_EQ(ops[1].transaction_id_, 1);
-  EXPECT_EQ(ops[1].vertex_id_, 0);
+  EXPECT_EQ(ops[1].vertex_id_, gid0);
   EXPECT_EQ(ops[2].type_, Type::ADD_LABEL);
   EXPECT_EQ(ops[2].transaction_id_, 1);
   EXPECT_EQ(ops[2].label_, "l0");
   EXPECT_EQ(ops[3].type_, Type::SET_PROPERTY_VERTEX);
   EXPECT_EQ(ops[3].transaction_id_, 1);
-  EXPECT_EQ(ops[3].vertex_id_, 0);
+  EXPECT_EQ(ops[3].vertex_id_, gid0);
   EXPECT_EQ(ops[3].property_, "p0");
   EXPECT_EQ(ops[3].value_.type(), PropertyValue::Type::Int);
   EXPECT_EQ(ops[3].value_.Value<int64_t>(), 42);
   EXPECT_EQ(ops[4].type_, Type::CREATE_VERTEX);
   EXPECT_EQ(ops[4].transaction_id_, 1);
-  EXPECT_EQ(ops[4].vertex_id_, 1);
+  EXPECT_EQ(ops[4].vertex_id_, gid1);
   EXPECT_EQ(ops[5].type_, Type::CREATE_EDGE);
   EXPECT_EQ(ops[5].transaction_id_, 1);
-  EXPECT_EQ(ops[5].edge_id_, 0);
-  EXPECT_EQ(ops[5].vertex_from_id_, 0);
-  EXPECT_EQ(ops[5].vertex_to_id_, 1);
+  EXPECT_EQ(ops[5].edge_id_, gid0);
+  EXPECT_EQ(ops[5].vertex_from_id_, gid0);
+  EXPECT_EQ(ops[5].vertex_to_id_, gid1);
   EXPECT_EQ(ops[5].edge_type_, "et0");
   EXPECT_EQ(ops[6].type_, Type::SET_PROPERTY_EDGE);
   EXPECT_EQ(ops[6].transaction_id_, 1);
-  EXPECT_EQ(ops[6].edge_id_, 0);
+  EXPECT_EQ(ops[6].edge_id_, gid0);
   EXPECT_EQ(ops[6].property_, "p0");
   EXPECT_EQ(ops[6].value_.type(), PropertyValue::Type::List);
   // The next two ops are the BuildIndex internal transactions.
@@ -386,22 +388,22 @@ TEST_F(Durability, SnapshotEncoding) {
     GraphDb db{DbConfig()};
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex();
-    ASSERT_EQ(v0.id(), 0);
+    ASSERT_EQ(v0.gid(), gid::Create(0, 0));
     v0.add_label(dba.Label("l0"));
     v0.PropsSet(dba.Property("p0"), 42);
     auto v1 = dba.InsertVertex();
-    ASSERT_EQ(v1.id(), 1);
+    ASSERT_EQ(v1.gid(), gid::Create(0, 1));
     v1.add_label(dba.Label("l0"));
     v1.add_label(dba.Label("l1"));
     auto v2 = dba.InsertVertex();
-    ASSERT_EQ(v2.id(), 2);
+    ASSERT_EQ(v2.gid(), gid::Create(0, 2));
     v2.PropsSet(dba.Property("p0"), true);
     v2.PropsSet(dba.Property("p1"), "Johnny");
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
-    ASSERT_EQ(e0.id(), 0);
+    ASSERT_EQ(e0.gid(), gid::Create(0, 0));
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     auto e1 = dba.InsertEdge(v2, v1, dba.EdgeType("et1"));
-    ASSERT_EQ(e1.id(), 1);
+    ASSERT_EQ(e1.gid(), gid::Create(0, 1));
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
     MakeSnapshot(db);
@@ -438,8 +440,7 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
 
-  std::map<int64_t, communication::bolt::DecodedVertex> decoded_vertices;
-  std::map<int64_t, communication::bolt::DecodedEdge> decoded_edges;
+  std::map<gid::Gid, communication::bolt::DecodedVertex> decoded_vertices;
 
   // Decode vertices.
   for (int i = 0; i < vertex_count; ++i) {
@@ -448,15 +449,20 @@ TEST_F(Durability, SnapshotEncoding) {
     auto &vertex = dv.ValueVertex();
     decoded_vertices.emplace(vertex.id, vertex);
   }
+  auto gid0 = gid::Create(0, 0);
+  auto gid1 = gid::Create(0, 1);
+  auto gid2 = gid::Create(0, 2);
   ASSERT_EQ(decoded_vertices.size(), 3);
-  ASSERT_EQ(decoded_vertices[0].labels.size(), 1);
-  EXPECT_EQ(decoded_vertices[0].labels[0], "l0");
-  ASSERT_EQ(decoded_vertices[0].properties.size(), 1);
-  EXPECT_EQ(decoded_vertices[0].properties["p0"].ValueInt(), 42);
-  EXPECT_EQ(decoded_vertices[1].labels.size(), 2);
-  EXPECT_EQ(decoded_vertices[1].properties.size(), 0);
-  EXPECT_EQ(decoded_vertices[2].labels.size(), 0);
-  EXPECT_EQ(decoded_vertices[2].properties.size(), 2);
+  ASSERT_EQ(decoded_vertices[gid0].labels.size(), 1);
+  EXPECT_EQ(decoded_vertices[gid0].labels[0], "l0");
+  ASSERT_EQ(decoded_vertices[gid0].properties.size(), 1);
+  EXPECT_EQ(decoded_vertices[gid0].properties["p0"].ValueInt(), 42);
+  EXPECT_EQ(decoded_vertices[gid1].labels.size(), 2);
+  EXPECT_EQ(decoded_vertices[gid1].properties.size(), 0);
+  EXPECT_EQ(decoded_vertices[gid2].labels.size(), 0);
+  EXPECT_EQ(decoded_vertices[gid2].properties.size(), 2);
+
+  std::map<gid::Gid, communication::bolt::DecodedEdge> decoded_edges;
 
   // Decode edges.
   for (int i = 0; i < edge_count; ++i) {
@@ -465,15 +471,15 @@ TEST_F(Durability, SnapshotEncoding) {
     auto &edge = dv.ValueEdge();
     decoded_edges.emplace(edge.id, edge);
   }
-  ASSERT_EQ(decoded_edges.size(), 2);
-  ASSERT_EQ(decoded_edges[0].from, 0);
-  ASSERT_EQ(decoded_edges[0].to, 1);
-  ASSERT_EQ(decoded_edges[0].type, "et0");
-  ASSERT_EQ(decoded_edges[0].properties.size(), 1);
-  ASSERT_EQ(decoded_edges[1].from, 2);
-  ASSERT_EQ(decoded_edges[1].to, 1);
-  ASSERT_EQ(decoded_edges[1].type, "et1");
-  ASSERT_EQ(decoded_edges[1].properties.size(), 0);
+  EXPECT_EQ(decoded_edges.size(), 2);
+  EXPECT_EQ(decoded_edges[gid0].from, gid0);
+  EXPECT_EQ(decoded_edges[gid0].to, gid1);
+  EXPECT_EQ(decoded_edges[gid0].type, "et0");
+  EXPECT_EQ(decoded_edges[gid0].properties.size(), 1);
+  EXPECT_EQ(decoded_edges[gid1].from, gid2);
+  EXPECT_EQ(decoded_edges[gid1].to, gid1);
+  EXPECT_EQ(decoded_edges[gid1].type, "et1");
+  EXPECT_EQ(decoded_edges[gid1].properties.size(), 0);
 
   // Vertex and edge counts are included in the hash. Re-read them to update the
   // hash.

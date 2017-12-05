@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage/gid.hpp"
 #include "storage/locking/record_lock.hpp"
 #include "threading/sync/lockable.hpp"
 #include "transactions/transaction.hpp"
@@ -22,13 +23,14 @@ class VersionList {
   /**
    * @brief Constructor that is used to insert one item into VersionList.
    * @param t - transaction
-   * @param id - Version list identifier. Uniqueness guaranteed by the code
+   * @param gid - Version list identifier. Uniqueness guaranteed by the code
    * creating this version list.
    * @param args - args forwarded to constructor of item T (for
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(const tx::Transaction &t, int64_t id, Args &&... args) : id_(id) {
+  VersionList(const tx::Transaction &t, gid::Gid gid, Args &&... args)
+      : gid_(gid) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
     v1->mark_created(t);
@@ -214,7 +216,7 @@ class VersionList {
     record->mark_expired(t);
   }
 
-  const int64_t id_;
+  const gid::Gid gid_;
 
  private:
   void lock_and_validate(T *record, const tx::Transaction &t) {

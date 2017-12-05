@@ -14,6 +14,7 @@
 #include "database/graph_db_datatypes.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
+#include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -65,10 +66,10 @@ class WriteAheadLog {
     uint32_t hash_;
 
     // Members valid only for some ops, see Op::Type comments above.
-    int64_t vertex_id_;
-    int64_t edge_id_;
-    int64_t vertex_from_id_;
-    int64_t vertex_to_id_;
+    gid::Gid vertex_id_;
+    gid::Gid edge_id_;
+    gid::Gid vertex_from_id_;
+    gid::Gid vertex_to_id_;
     std::string edge_type_;
     std::string property_;
     PropertyValue value_ = PropertyValue::Null;
@@ -97,20 +98,20 @@ class WriteAheadLog {
   void TxBegin(tx::transaction_id_t tx_id);
   void TxCommit(tx::transaction_id_t tx_id);
   void TxAbort(tx::transaction_id_t tx_id);
-  void CreateVertex(tx::transaction_id_t tx_id, int64_t vertex_id);
-  void CreateEdge(tx::transaction_id_t tx_id, int64_t edge_id,
-                  int64_t vertex_from_id, int64_t vertex_to_id,
+  void CreateVertex(tx::transaction_id_t tx_id, gid::Gid vertex_id);
+  void CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
+                  gid::Gid vertex_from_id, gid::Gid vertex_to_id,
                   const std::string &edge_type);
-  void PropsSetVertex(tx::transaction_id_t tx_id, int64_t vertex_id,
+  void PropsSetVertex(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                       const std::string &property, const PropertyValue &value);
-  void PropsSetEdge(tx::transaction_id_t tx_id, int64_t edge_id,
+  void PropsSetEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
                     const std::string &property, const PropertyValue &value);
-  void AddLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
+  void AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                 const std::string &label);
-  void RemoveLabel(tx::transaction_id_t tx_id, int64_t vertex_id,
+  void RemoveLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                    const std::string &label);
-  void RemoveVertex(tx::transaction_id_t tx_id, int64_t vertex_id);
-  void RemoveEdge(tx::transaction_id_t tx_id, int64_t edge_id);
+  void RemoveVertex(tx::transaction_id_t tx_id, gid::Gid vertex_id);
+  void RemoveEdge(tx::transaction_id_t tx_id, gid::Gid edge_id);
   void BuildIndex(tx::transaction_id_t tx_id, const std::string &label,
                   const std::string &property);
 

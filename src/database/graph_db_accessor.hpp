@@ -55,21 +55,21 @@ class GraphDbAccessor {
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is
-   * provided, the created Vertex will have that ID, and the ID counter will be
-   * increased to it so collisions are avoided. This should only be used by
-   * durability recovery, normal vertex creation should not provide the ID.
+   * provided, the created Vertex will have that local ID, and the ID counter
+   * will be increased to it so collisions are avoided. This should only be used
+   * by durability recovery, normal vertex creation should not provide the ID.
    *
    * You should NOT make interleaved recovery and normal DB op calls to this
    * function. Doing so will likely mess up the ID generation and crash MG.
    * Always perform recovery only once, immediately when the database is
    * created, before any transactional ops start.
    *
-   * @param opt_id The desired ID. Should only be provided when recovering from
-   * durability.
+   * @param gid The desired GID. Should only be provided
+   * when recovering from durability, and should `belong` to this worker.
    * @return See above.
    */
   VertexAccessor InsertVertex(
-      std::experimental::optional<int64_t> opt_id = std::experimental::nullopt);
+      std::experimental::optional<gid::Gid> gid = std::experimental::nullopt);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -97,13 +97,13 @@ class GraphDbAccessor {
    * ID, or it's not visible to this accessor's transaction, nullopt is
    * returned.
    *
-   * @param id - The ID of the sought vertex.
+   * @param gid - The GID of the sought vertex.
    * @param current_state If true then the graph state for the
    *    current transaction+command is returned (insertions, updates and
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<VertexAccessor> FindVertex(int64_t id,
+  std::experimental::optional<VertexAccessor> FindVertex(gid::Gid gid,
                                                          bool current_state);
 
   /**
@@ -260,13 +260,13 @@ class GraphDbAccessor {
    * @param from The 'from' vertex.
    * @param to The 'to' vertex'
    * @param type Edge type.
-   * @param opt_id The desired ID. Should only be provided when recovering from
-   * durability.
+   * @param gid The desired GID. Should only be provided when
+   * recovering from durability and should `belong` to this worker.
    * @return  An accessor to the edge.
    */
   EdgeAccessor InsertEdge(
       VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType type,
-      std::experimental::optional<int64_t> opt_id = std::experimental::nullopt);
+      std::experimental::optional<gid::Gid> gid = std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -288,13 +288,13 @@ class GraphDbAccessor {
    * ID, or it's not visible to this accessor's transaction, nullopt is
    * returned.
    *
-   * @param id - The ID of the sought edge.
+   * @param gid - The GID of the sought edge.
    * @param current_state If true then the graph state for the
    *    current transaction+command is returned (insertions, updates and
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<EdgeAccessor> FindEdge(int64_t id,
+  std::experimental::optional<EdgeAccessor> FindEdge(gid::Gid gid,
                                                      bool current_state);
   /**
    * Returns iterable over accessors to all the edges in the graph

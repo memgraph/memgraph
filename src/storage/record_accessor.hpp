@@ -4,6 +4,7 @@
 
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "storage/property_value_store.hpp"
 #include "utils/total_ordering.hpp"
@@ -115,10 +116,10 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   GraphDbAccessor &db_accessor() const;
 
   /** Returns a database-unique index of this vertex or edge. Note that vertices
-   * and edges have separate ID domains, there can be a vertex with ID X and an
-   * edge with the same id.
+   * and edges have separate GID domains, there can be a vertex with GID X and
+   * an edge with the same gid.
    */
-  int64_t id() const { return vlist_->id_; }
+  gid::Gid gid() const { return vlist_->gid_; }
 
   /*
    * Switches this record accessor to use the latest

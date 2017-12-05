@@ -22,7 +22,7 @@ void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
   Vertex &vertex = update();
   vertex.properties_.set(key, value);
   auto &dba = db_accessor();
-  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->gid_,
                            dba.PropertyName(key), value);
   db_accessor().UpdatePropertyIndex(key, *this, &vertex);
 }
@@ -32,14 +32,14 @@ void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
                                     PropertyValue value) {
   update().properties_.set(key, value);
   auto &dba = db_accessor();
-  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->gid_,
                          dba.PropertyName(key), value);
 }
 
 template <>
 size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
   auto &dba = db_accessor();
-  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+  dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->gid_,
                            dba.PropertyName(key), PropertyValue::Null);
   return update().properties_.erase(key);
 }
@@ -47,7 +47,7 @@ size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
 template <>
 size_t RecordAccessor<Edge>::PropsErase(GraphDbTypes::Property key) {
   auto &dba = db_accessor();
-  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+  dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->gid_,
                          dba.PropertyName(key), PropertyValue::Null);
   return update().properties_.erase(key);
 }
@@ -57,7 +57,7 @@ void RecordAccessor<Vertex>::PropsClear() {
   auto &updated = update();
   auto &dba = db_accessor();
   for (const auto &kv : updated.properties_)
-    dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->id_,
+    dba.wal().PropsSetVertex(dba.transaction_id(), vlist_->gid_,
                              dba.PropertyName(kv.first), PropertyValue::Null);
   updated.properties_.clear();
 }
@@ -67,7 +67,7 @@ void RecordAccessor<Edge>::PropsClear() {
   auto &updated = update();
   auto &dba = db_accessor();
   for (const auto &kv : updated.properties_)
-    dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->id_,
+    dba.wal().PropsSetEdge(dba.transaction_id(), vlist_->gid_,
                            dba.PropertyName(kv.first), PropertyValue::Null);
   updated.properties_.clear();
 }
