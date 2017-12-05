@@ -41,26 +41,26 @@ def create_graph(name, context):
 
     with open(path, 'r') as f:
         content = f.read().replace('\n', ' ')
-        q = ''
-        in_string = False
+        single_query = ''
+        quote = None
         i = 0
         while i < len(content):
             ch = content[i]
             if ch == '\\' and i != len(content) - 1 and content[i + 1] in q_marks:
-                q += ch + content[i + 1]
+                single_query += ch + content[i + 1]
                 i += 2
             else:
-                q += ch
-                if in_string and ch in q_marks:
-                    in_string = False
-                elif ch in q_marks:
-                    in_string = True
-                if ch == ';' and not in_string:
-                    database.query(q, context)
-                    q = ''
+                single_query += ch
+                if quote == ch:
+                    quote = None
+                elif ch in q_marks and quote is None:
+                    quote = ch
+                if ch == ';' and quote is None:
+                    database.query(single_query, context)
+                    single_query = ''
                 i += 1
-        if q.strip() != '':
-            database.query(q, context)
+        if single_query.strip() != '':
+            database.query(single_query, context)
     context.graph_properties.set_beginning_parameters()
 
 
