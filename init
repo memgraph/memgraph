@@ -104,6 +104,7 @@ mkdir -p ./build
 
 # setup libs (download)
 cd libs
+./cleanup.sh
 ./setup.sh
 cd ..
 
