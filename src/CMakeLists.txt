@@ -4,10 +4,14 @@
 set(memgraph_src_files
     communication/bolt/v1/decoder/decoded_value.cpp
     communication/bolt/v1/session.cpp
-    communication/reactor/protocol.cpp
+    communication/messaging/distributed.cpp
+    communication/messaging/local.cpp
+    communication/messaging/protocol.cpp
     communication/raft/raft.cpp
-    communication/reactor/reactor_local.cpp
+    communication/reactor/protocol.cpp
     communication/reactor/reactor_distributed.cpp
+    communication/reactor/reactor_local.cpp
+    communication/rpc/rpc.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/graph_db.cpp
     database/graph_db_config.cpp
@@ -78,6 +82,7 @@ set_target_properties(${MEMGRAPH_BUILD_NAME} PROPERTIES
                       RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
                      COMMAND strip -s $<TARGET_FILE:${MEMGRAPH_BUILD_NAME}>

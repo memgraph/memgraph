@@ -7,6 +7,11 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
+#include <thread>
+
+#include "glog/logging.h"
+
+using namespace std::literals::chrono_literals;
 
 // Thread safe queue. Probably doesn't perform very well, but it works.
 template <typename T>
@@ -17,8 +22,6 @@ class Queue {
   Queue &operator=(const Queue &) = delete;
   Queue(Queue &&) = delete;
   Queue &operator=(Queue &&) = delete;
-
-  ~Queue() { Signal(); }
 
   void Push(T x) {
     std::unique_lock<std::mutex> guard(mutex_);
@@ -46,12 +49,19 @@ class Queue {
   }
 
   // Block until there is an element in the queue and then pop it from the queue
-  // and return it. Function can return nullopt only if Queue is signaled via
-  // Signal function.
-  std::experimental::optional<T> AwaitPop() {
+  // and return it. Function can return nullopt if Queue is signaled via
+  // Shutdown function or if there is no element to pop after timeout elapses.
+  std::experimental::optional<T> AwaitPop(
+      std::chrono::system_clock::duration timeout =
+          std::chrono::system_clock::duration::max()) {
     std::unique_lock<std::mutex> guard(mutex_);
-    cvar_.wait(guard, [this] { return !queue_.empty() || signaled_; });
-    if (queue_.empty()) return std::experimental::nullopt;
+    auto now = std::chrono::system_clock::now();
+    auto until = std::chrono::system_clock::time_point::max() - timeout > now
+                     ? now + timeout
+                     : std::chrono::system_clock::time_point::max();
+    cvar_.wait_until(guard, until,
+                     [this] { return !queue_.empty() || !alive_; });
+    if (queue_.empty() || !alive_) return std::experimental::nullopt;
     std::experimental::optional<T> x(std::move(queue_.front()));
     queue_.pop();
     return x;
@@ -66,14 +76,17 @@ class Queue {
     return x;
   }
 
-  // Notify all threads waiting on conditional variable to stop waiting.
-  void Signal() {
-    signaled_ = true;
+  // Notify all threads waiting on conditional variable to stop waiting. New
+  // threads that try to Await will not block.
+  void Shutdown() {
+    std::unique_lock<std::mutex> guard(mutex_);
+    alive_ = false;
+    guard.unlock();
     cvar_.notify_all();
   }
 
  private:
-  std::atomic<bool> signaled_{false};
+  bool alive_ = true;
   std::queue<T> queue_;
   std::condition_variable cvar_;
   mutable std::mutex mutex_;

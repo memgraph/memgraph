@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# To run from vim add to your .vimrc something similar to:
+# command -nargs=* Rpcgen :r !/home/mislav/code/memgraph/tools/rpcgen <args>
+
+
+import sys
+
+USAGE = "\n\nUsage:\n" \
+        "./rpcgen request_response_name request_args -- response_args\n" \
+        "Arguments should be seperated with minus sign (-).\n" \
+        "Example: ./rpcgen Sum int x - int y -- int sum\n\n"
+
+assert len(sys.argv) >= 3, "Too few arguments.\n" + USAGE
+
+request_response_name = sys.argv[1]
+args_string = " ".join(sys.argv[2:])
+split = args_string.split("--")
+assert len(split) == 2, "Arguments should contain one -- separator.\n" + USAGE
+request_args, response_args = split
+
+def generate(message_name, args):
+    def process_arg(arg):
+        arg = arg.strip()
+        assert arg, "Each arg should be non empty string.\n" + USAGE
+        for i in range(len(arg) - 1, -1, -1):
+            if not arg[i].isalpha() and arg[i] != "_": break
+        assert i != -1 and i != len(arg), "Each string separated with - " \
+                "should contain type and variable name.\n" + USAGE
+        typ = arg[:i+1].strip()
+        name = arg[i+1:].strip()
+        return typ, name
+    types, names = zip(*map(process_arg, args.split("-")))
+
+    return \
+"""
+struct {message_name} : public Message {{
+  {message_name}() {{}}  // cereal needs this
+  {message_name}({constructor_args}): {init_list} {{}}
+  {members}
+
+  template <class Archive>
+  void serialize(Archive &ar) {{
+    ar(cereal::virtual_base_class<Message>(this), {serialize_args});
+  }}
+}};
+CEREAL_REGISTER_TYPE({message_name});""" \
+    .format(message_name=message_name,
+            constructor_args=",".join(
+                map(lambda x: x[0] + " " + x[1], zip(types, names))),
+            init_list=", ".join(map(lambda x: "{x}({x})".format(x=x), names)),
+            members="\n".join(map(lambda x:
+                "{} {};".format(x[0], x[1]), zip(types, names))),
+            serialize_args=", ".join(names))
+
+request_name = request_response_name + "Req"
+response_name = request_response_name + "Res"
+req_class = generate(request_name, request_args)
+res_class = generate(response_name, response_args)
+print(req_class)
+print(res_class)
+print("using {} = RequestResponse<{}, {}>;".format(
+    request_response_name, request_name, response_name))

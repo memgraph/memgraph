@@ -170,7 +170,6 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4)
 
 include_directories(src)
 add_subdirectory(src)
-
 # -----------------------------------------------------------------------------
 
 # Optional subproject configuration -------------------------------------------

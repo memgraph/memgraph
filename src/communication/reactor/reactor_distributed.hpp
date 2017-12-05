@@ -96,7 +96,7 @@ class Network {
         break;
       }
     }
-    queue_.Signal();
+    queue_.Shutdown();
     for (size_t i = 0; i < pool_.size(); ++i) {
       pool_[i].join();
     }

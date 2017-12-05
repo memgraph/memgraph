@@ -79,6 +79,7 @@ TEST(Queue, AwaitPop) {
   });
 
   EXPECT_EQ(*q.AwaitPop(), 1);
+  std::this_thread::sleep_for(1000ms);
   EXPECT_EQ(*q.AwaitPop(), 2);
   EXPECT_EQ(*q.AwaitPop(), 3);
   EXPECT_EQ(*q.AwaitPop(), 4);
@@ -86,10 +87,17 @@ TEST(Queue, AwaitPop) {
 
   std::thread t2([&] {
     std::this_thread::sleep_for(100ms);
-    q.Signal();
+    q.Shutdown();
   });
+  std::this_thread::sleep_for(200ms);
   EXPECT_EQ(q.AwaitPop(), std::experimental::nullopt);
   t2.join();
+}
+
+TEST(Queue, AwaitPopTimeout) {
+  std::this_thread::sleep_for(1000ms);
+  Queue<int> q;
+  EXPECT_EQ(q.AwaitPop(100ms), std::experimental::nullopt);
 }
 
 TEST(Queue, Concurrent) {
