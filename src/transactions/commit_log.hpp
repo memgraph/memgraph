@@ -39,6 +39,7 @@ class CommitLog {
       ABORTED = 2,    // 10
     };
 
+    Info() = default;  // Required for cereal serialization
     explicit Info(uint8_t flags) : flags_(flags) {}
 
     bool is_active() const { return flags_ == ACTIVE; }
@@ -49,8 +50,14 @@ class CommitLog {
 
     operator uint8_t() const { return flags_; }
 
+    /** Required for cereal serialization. */
+    template <class Archive>
+    void serialize(Archive &archive) {
+      archive(flags_);
+    }
+
    private:
-    uint8_t flags_;
+    uint8_t flags_{0};
   };
 
   Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }

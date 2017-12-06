@@ -45,10 +45,10 @@ void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
 }
 
 void CheckInt(std::vector<uint8_t> &output, int64_t value) {
-  TestSocket socket(20);
-  TestBuffer encoder_buffer(socket);
+  TestSocket test_socket(20);
+  TestBuffer encoder_buffer(test_socket);
   communication::bolt::BaseEncoder<TestBuffer> bolt_encoder(encoder_buffer);
-  std::vector<uint8_t> &encoded = socket.output;
+  std::vector<uint8_t> &encoded = test_socket.output;
   bolt_encoder.WriteInt(value);
   CheckOutput(output, encoded.data(), encoded.size(), false);
 }
@@ -58,10 +58,10 @@ void CheckRecordHeader(std::vector<uint8_t> &v, uint64_t size) {
   CheckTypeSize(v, LIST, size);
 }
 
-TestSocket socket(10);
-TestBuffer encoder_buffer(socket);
+TestSocket test_socket(10);
+TestBuffer encoder_buffer(test_socket);
 communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
-std::vector<uint8_t> &output = socket.output;
+std::vector<uint8_t> &output = test_socket.output;
 
 TEST(BoltEncoder, NullAndBool) {
   output.clear();

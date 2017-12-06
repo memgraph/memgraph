@@ -2,25 +2,11 @@
 #include <random>
 
 #include "communication/rpc/rpc.hpp"
+#include "utils/string.hpp"
 
 namespace communication::rpc {
 
 const char kProtocolStreamPrefix[] = "rpc-";
-
-std::string UniqueId() {
-  static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
-  const char kCharset[] =
-      "0123456789"
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-      "abcdefghijklmnopqrstuvwxyz";
-  const auto kMaxIndex = (sizeof(kCharset) - 1);
-  static thread_local std::uniform_int_distribution<> rand_dist{0, kMaxIndex};
-
-  std::string id;
-  std::generate_n(std::back_inserter(id), 20,
-                  [&] { return kCharset[rand_dist(pseudo_rand_gen)]; });
-  return id;
-}
 
 class Request : public messaging::Message {
  public:
@@ -29,7 +15,7 @@ class Request : public messaging::Message {
       : address_(address),
         port_(port),
         stream_(stream),
-        message_id_(UniqueId()),
+        message_id_(utils::RandomString(20)),
         message_(std::move(message)) {}
 
   const std::string &address() const { return address_; }
@@ -81,7 +67,7 @@ Client::Client(messaging::System &system, const std::string &address,
                uint16_t port, const std::string &name)
     : system_(system),
       writer_(system, address, port, kProtocolStreamPrefix + name),
-      stream_(system.Open(UniqueId())) {}
+      stream_(system.Open(utils::RandomString(20))) {}
 
 // Because of the way Call is implemented it can fail without reporting (it will
 // just block indefinately). This is why you always need to provide reasonable

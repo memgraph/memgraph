@@ -1,8 +1,10 @@
 #pragma once
 
+#include <mutex>
 #include <atomic>
-#include <memory>
 
+#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/rpc.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
@@ -11,23 +13,9 @@
 namespace tx {
 /** A transactional engine for the worker in a distributed system. */
 class WorkerEngine : public Engine {
-  // Mock class for RPC.
-  // TODO Replace with the real thing, once available.
-  class Rpc {
-   public:
-    template <typename TReturn, typename... TArgs>
-    TReturn Call(const std::string &, TArgs &&...) {
-      return TReturn{};
-    }
-
-    template <typename TReturn, typename... TArgs>
-    TReturn Call(const std::string &, TReturn default_return, TArgs &&...) {
-      return default_return;
-    }
-  };
-
  public:
-  WorkerEngine(Rpc &rpc) : rpc_(rpc) {}
+  WorkerEngine(communication::messaging::System &system,
+               const std::string &tx_server_host, uint16_t tx_server_port);
 
   Transaction *LocalBegin(transaction_id_t tx_id);
 
@@ -40,13 +28,14 @@ class WorkerEngine : public Engine {
       std::function<void(Transaction &)> f) override;
 
  private:
-  // Communication with the transactional engine on the master.
-  Rpc &rpc_;
-
   // Local caches.
   ConcurrentMap<transaction_id_t, Transaction *> active_;
-  std::atomic<transaction_id_t> local_last_;
+  std::atomic<transaction_id_t> local_last_{0};
   // Mutable because just getting info can cause a cache fill.
   mutable CommitLog clog_;
+
+  // Communication to the transactional master.
+  mutable communication::rpc::Client rpc_client_;
+  mutable std::mutex rpc_client_lock_;
 };
 }  // namespace tx

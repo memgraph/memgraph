@@ -84,6 +84,12 @@ class Snapshot {
     return stream;
   }
 
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(transaction_ids_);
+  }
+
  private:
   std::vector<transaction_id_t> transaction_ids_;
 };

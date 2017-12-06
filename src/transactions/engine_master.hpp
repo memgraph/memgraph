@@ -1,9 +1,11 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
+#include <experimental/optional>
 #include <unordered_map>
 
+#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/rpc.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
@@ -26,6 +28,9 @@ class TransactionError : public utils::BasicException {
  */
 class MasterEngine : public Engine {
  public:
+  /** Stops the tx server if it's running. */
+  ~MasterEngine();
+
   /**
    * Begins a transaction and returns a pointer to
    * it's object.
@@ -61,11 +66,21 @@ class MasterEngine : public Engine {
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
 
+  /** Starts the RPC server of the master transactional engine. */
+  void StartServer(communication::messaging::System &system);
+
+  /** Stops the RPC server of the master transactional engine. */
+  void StopServer();
+
  private:
   std::atomic<transaction_id_t> counter_{0};
   CommitLog clog_;
   std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
   SpinLock lock_;
+
+  // Optional RPC server, only used in distributed, not in single_node.
+  std::experimental::optional<communication::rpc::Server> rpc_server_;
+  std::thread rpc_server_thread_;
 };
 }  // namespace tx
