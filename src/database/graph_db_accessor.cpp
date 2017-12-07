@@ -11,7 +11,7 @@
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db), transaction_(MasterEngine().Begin()) {
-  db_.wal_.TxBegin(transaction_->id_);
+  db_.wal_.Emplace(database::StateDelta::TxBegin(transaction_->id_));
 }
 
 GraphDbAccessor::~GraphDbAccessor() {
@@ -33,7 +33,7 @@ void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
   auto tid = transaction_->id_;
   MasterEngine().Commit(*transaction_);
-  db_.wal_.TxCommit(tid);
+  db_.wal_.Emplace(database::StateDelta::TxCommit(tid));
   commited_ = true;
 }
 
@@ -41,7 +41,7 @@ void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
   auto tid = transaction_->id_;
   MasterEngine().Abort(*transaction_);
-  db_.wal_.TxAbort(tid);
+  db_.wal_.Emplace(database::StateDelta::TxAbort(tid));
   aborted_ = true;
 }
 
@@ -68,7 +68,8 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 
   bool success = db_.vertices_.access().insert(id, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing ID: " << id;
-  db_.wal_.CreateVertex(transaction_->id_, vertex_vlist->gid_);
+  db_.wal_.Emplace(database::StateDelta::CreateVertex(transaction_->id_,
+                                                      vertex_vlist->gid_));
   return VertexAccessor(*vertex_vlist, *this);
 }
 
@@ -148,8 +149,8 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // reason.
   auto wal_build_index_tx_id = dba.transaction_id();
   dba.Commit();
-  db_.wal_.BuildIndex(wal_build_index_tx_id, LabelName(label),
-                      PropertyName(property));
+  db_.wal_.Emplace(database::StateDelta::BuildIndex(
+      wal_build_index_tx_id, LabelName(label), PropertyName(property)));
 
   // After these two operations we are certain that everything is contained in
   // the index under the assumption that this transaction contained no
@@ -252,7 +253,8 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
-  db_.wal_.RemoveVertex(transaction_->id_, vertex_accessor.vlist_->gid_);
+  db_.wal_.Emplace(database::StateDelta::RemoveVertex(
+      transaction_->id_, vertex_accessor.vlist_->gid_));
 
   vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
   return true;
@@ -305,8 +307,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   to.SwitchNew();
   to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
 
-  db_.wal_.CreateEdge(transaction_->id_, edge_vlist->gid_, from.vlist_->gid_,
-                      to.vlist_->gid_, EdgeTypeName(edge_type));
+  db_.wal_.Emplace(database::StateDelta::CreateEdge(
+      transaction_->id_, edge_vlist->gid_, from.vlist_->gid_, to.vlist_->gid_,
+      EdgeTypeName(edge_type)));
   return EdgeAccessor(*edge_vlist, *this, from.vlist_, to.vlist_, edge_type);
 }
 
@@ -329,7 +332,8 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
     edge_accessor.to().update().in_.RemoveEdge(edge_accessor.vlist_);
   edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
 
-  db_.wal_.RemoveEdge(transaction_->id_, edge_accessor.gid());
+  db_.wal_.Emplace(
+      database::StateDelta::RemoveEdge(transaction_->id_, edge_accessor.gid()));
 }
 
 GraphDbTypes::Label GraphDbAccessor::Label(const std::string &label_name) {

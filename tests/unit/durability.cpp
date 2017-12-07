@@ -12,6 +12,7 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "database/state_delta.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
@@ -20,7 +21,7 @@
 #include "utils/string.hpp"
 
 DECLARE_int32(wal_flush_interval_millis);
-DECLARE_int32(wal_rotate_ops_count);
+DECLARE_int32(wal_rotate_deltas_count);
 
 namespace fs = std::experimental::filesystem;
 
@@ -297,13 +298,15 @@ class Durability : public ::testing::Test {
     durability_dir_ = tmp_dir_ / utils::RandomString(24);
     snapshot_dir_ = durability_dir_ / durability::kSnapshotDir;
     wal_dir_ = durability_dir_ / durability::kWalDir;
-    FLAGS_wal_rotate_ops_count = 1000;
+    FLAGS_wal_rotate_deltas_count = 1000;
     CleanDurability();
   }
 
   void TearDown() override { CleanDurability(); }
 };
 
+// Tests wal encoder to encode correctly non-CRUD deltas, and that all deltas
+// are written in the correct order
 TEST_F(Durability, WalEncoding) {
   auto gid0 = gid::Create(0, 0);
   auto gid1 = gid::Create(0, 1);
@@ -332,55 +335,42 @@ TEST_F(Durability, WalEncoding) {
   ASSERT_EQ(DirFiles(wal_dir_).size(), 1);
   ASSERT_TRUE(reader.Open(GetLastFile(wal_dir_)));
   communication::bolt::Decoder<HashedFileReader> decoder{reader};
-  std::vector<durability::WriteAheadLog::Op> ops;
+  std::vector<database::StateDelta> deltas;
   while (true) {
-    auto op = durability::WriteAheadLog::Op::Decode(reader, decoder);
-    if (op) {
-      ops.emplace_back(*op);
+    auto delta = database::StateDelta::Decode(reader, decoder);
+    if (delta) {
+      deltas.emplace_back(*delta);
     } else {
       break;
     }
   }
   reader.Close();
-  ASSERT_EQ(ops.size(), 11);
+  ASSERT_EQ(deltas.size(), 11);
 
-  using Type = durability::WriteAheadLog::Op::Type;
-  EXPECT_EQ(ops[0].type_, Type::TRANSACTION_BEGIN);
-  EXPECT_EQ(ops[0].transaction_id_, 1);
-  EXPECT_EQ(ops[1].type_, Type::CREATE_VERTEX);
-  EXPECT_EQ(ops[1].transaction_id_, 1);
-  EXPECT_EQ(ops[1].vertex_id_, gid0);
-  EXPECT_EQ(ops[2].type_, Type::ADD_LABEL);
-  EXPECT_EQ(ops[2].transaction_id_, 1);
-  EXPECT_EQ(ops[2].label_, "l0");
-  EXPECT_EQ(ops[3].type_, Type::SET_PROPERTY_VERTEX);
-  EXPECT_EQ(ops[3].transaction_id_, 1);
-  EXPECT_EQ(ops[3].vertex_id_, gid0);
-  EXPECT_EQ(ops[3].property_, "p0");
-  EXPECT_EQ(ops[3].value_.type(), PropertyValue::Type::Int);
-  EXPECT_EQ(ops[3].value_.Value<int64_t>(), 42);
-  EXPECT_EQ(ops[4].type_, Type::CREATE_VERTEX);
-  EXPECT_EQ(ops[4].transaction_id_, 1);
-  EXPECT_EQ(ops[4].vertex_id_, gid1);
-  EXPECT_EQ(ops[5].type_, Type::CREATE_EDGE);
-  EXPECT_EQ(ops[5].transaction_id_, 1);
-  EXPECT_EQ(ops[5].edge_id_, gid0);
-  EXPECT_EQ(ops[5].vertex_from_id_, gid0);
-  EXPECT_EQ(ops[5].vertex_to_id_, gid1);
-  EXPECT_EQ(ops[5].edge_type_, "et0");
-  EXPECT_EQ(ops[6].type_, Type::SET_PROPERTY_EDGE);
-  EXPECT_EQ(ops[6].transaction_id_, 1);
-  EXPECT_EQ(ops[6].edge_id_, gid0);
-  EXPECT_EQ(ops[6].property_, "p0");
-  EXPECT_EQ(ops[6].value_.type(), PropertyValue::Type::List);
-  // The next two ops are the BuildIndex internal transactions.
-  EXPECT_EQ(ops[7].type_, Type::TRANSACTION_BEGIN);
-  EXPECT_EQ(ops[8].type_, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(ops[9].type_, Type::BUILD_INDEX);
-  EXPECT_EQ(ops[9].label_, "l1");
-  EXPECT_EQ(ops[9].property_, "p1");
-  EXPECT_EQ(ops[10].type_, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(ops[10].transaction_id_, 1);
+  using Type = enum database::StateDelta::Type;
+  EXPECT_EQ(deltas[0].type(), Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(deltas[0].transaction_id(), 1);
+  EXPECT_EQ(deltas[1].type(), Type::CREATE_VERTEX);
+  EXPECT_EQ(deltas[1].transaction_id(), 1);
+  EXPECT_EQ(deltas[2].type(), Type::ADD_LABEL);
+  EXPECT_EQ(deltas[2].transaction_id(), 1);
+  EXPECT_EQ(deltas[3].type(), Type::SET_PROPERTY_VERTEX);
+  EXPECT_EQ(deltas[3].transaction_id(), 1);
+  EXPECT_EQ(deltas[4].type(), Type::CREATE_VERTEX);
+  EXPECT_EQ(deltas[4].transaction_id(), 1);
+  EXPECT_EQ(deltas[5].type(), Type::CREATE_EDGE);
+  EXPECT_EQ(deltas[5].transaction_id(), 1);
+  EXPECT_EQ(deltas[6].type(), Type::SET_PROPERTY_EDGE);
+  EXPECT_EQ(deltas[6].transaction_id(), 1);
+  // The next two deltas are the BuildIndex internal transactions.
+  EXPECT_EQ(deltas[7].type(), Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(deltas[8].type(), Type::TRANSACTION_COMMIT);
+  EXPECT_EQ(deltas[9].type(), Type::BUILD_INDEX);
+  auto index_name = deltas[9].IndexName();
+  EXPECT_EQ(index_name.first, "l1");
+  EXPECT_EQ(index_name.second, "p1");
+  EXPECT_EQ(deltas[10].type(), Type::TRANSACTION_COMMIT);
+  EXPECT_EQ(deltas[10].transaction_id(), 1);
 }
 
 TEST_F(Durability, SnapshotEncoding) {
@@ -645,7 +635,7 @@ TEST_F(Durability, SnapshotRetention) {
 }
 
 TEST_F(Durability, WalRetention) {
-  FLAGS_wal_rotate_ops_count = 100;
+  FLAGS_wal_rotate_deltas_count = 100;
   auto config = DbConfig();
   config.durability_enabled = true;
   GraphDb db{config};

@@ -16,6 +16,7 @@ set(memgraph_src_files
     database/graph_db.cpp
     database/graph_db_config.cpp
     database/graph_db_accessor.cpp
+    database/state_delta.cpp
     durability/paths.cpp
     durability/recovery.cpp
     durability/snapshooter.cpp

@@ -138,68 +138,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file,
 
 #undef RETURN_IF_NOT
 
-void ApplyOp(const WriteAheadLog::Op &op, GraphDbAccessor &dba) {
-  switch (op.type_) {
-    // Transactional state is not recovered.
-    case WriteAheadLog::Op::Type::TRANSACTION_BEGIN:
-    case WriteAheadLog::Op::Type::TRANSACTION_COMMIT:
-    case WriteAheadLog::Op::Type::TRANSACTION_ABORT:
-      LOG(FATAL) << "Transaction handling not handled in ApplyOp";
-      break;
-    case WriteAheadLog::Op::Type::CREATE_VERTEX:
-      dba.InsertVertex(op.vertex_id_);
-      break;
-    case WriteAheadLog::Op::Type::CREATE_EDGE: {
-      auto from = dba.FindVertex(op.vertex_from_id_, true);
-      auto to = dba.FindVertex(op.vertex_to_id_, true);
-      DCHECK(from) << "Failed to find vertex.";
-      DCHECK(to) << "Failed to find vertex.";
-      dba.InsertEdge(*from, *to, dba.EdgeType(op.edge_type_), op.edge_id_);
-      break;
-    }
-    case WriteAheadLog::Op::Type::SET_PROPERTY_VERTEX: {
-      auto vertex = dba.FindVertex(op.vertex_id_, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->PropsSet(dba.Property(op.property_), op.value_);
-      break;
-    }
-    case WriteAheadLog::Op::Type::SET_PROPERTY_EDGE: {
-      auto edge = dba.FindEdge(op.edge_id_, true);
-      DCHECK(edge) << "Failed to find edge.";
-      edge->PropsSet(dba.Property(op.property_), op.value_);
-      break;
-    }
-    case WriteAheadLog::Op::Type::ADD_LABEL: {
-      auto vertex = dba.FindVertex(op.vertex_id_, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->add_label(dba.Label(op.label_));
-      break;
-    }
-    case WriteAheadLog::Op::Type::REMOVE_LABEL: {
-      auto vertex = dba.FindVertex(op.vertex_id_, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->remove_label(dba.Label(op.label_));
-      break;
-    }
-    case WriteAheadLog::Op::Type::REMOVE_VERTEX: {
-      auto vertex = dba.FindVertex(op.vertex_id_, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      dba.DetachRemoveVertex(*vertex);
-      break;
-    }
-    case WriteAheadLog::Op::Type::REMOVE_EDGE: {
-      auto edge = dba.FindEdge(op.edge_id_, true);
-      DCHECK(edge) << "Failed to find edge.";
-      dba.RemoveEdge(*edge);
-      break;
-    }
-    case WriteAheadLog::Op::Type::BUILD_INDEX: {
-      LOG(FATAL) << "Index handling not handled in ApplyOp";
-      break;
-    }
-  }
-}
-
 // TODO - finer-grained recovery feedback could be useful here.
 bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
                 RecoveryData &recovery_data) {
@@ -231,19 +169,19 @@ bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
     to_skip.emplace(recovery_data.snapshooter_tx_id);
   }
 
-  // A buffer for the WAL transaction ops. Accumulate and apply them in the
+  // A buffer for the WAL transaction deltas. Accumulate and apply them in the
   // right transactional sequence.
-  std::map<tx::transaction_id_t, std::vector<WriteAheadLog::Op>> ops;
+  std::map<tx::transaction_id_t, std::vector<database::StateDelta>> deltas;
   // Track which transactions were aborted/committed in the WAL.
   std::set<tx::transaction_id_t> aborted;
   std::set<tx::transaction_id_t> committed;
 
   auto apply_all_possible = [&]() {
     while (true) {
-      // Remove old ops from memory.
-      for (auto it = ops.begin(); it != ops.end();) {
+      // Remove old deltas from memory.
+      for (auto it = deltas.begin(); it != deltas.end();) {
         if (it->first < next_to_recover)
-          it = ops.erase(it);
+          it = deltas.erase(it);
         else
           ++it;
       }
@@ -254,9 +192,9 @@ bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
       else if (utils::Contains(aborted, next_to_recover)) {
         next_to_recover++;
       } else if (utils::Contains(committed, next_to_recover)) {
-        auto found = ops.find(next_to_recover);
-        if (found != ops.end())
-          for (const auto &op : found->second) ApplyOp(op, db_accessor);
+        auto found = deltas.find(next_to_recover);
+        if (found != deltas.end())
+          for (const auto &delta : found->second) delta.Apply(db_accessor);
         next_to_recover++;
       } else
         break;
@@ -273,36 +211,37 @@ bool RecoverWal(const fs::path &wal_dir, GraphDbAccessor &db_accessor,
     if (!wal_reader.Open(wal_file)) return false;
     communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
     while (true) {
-      auto op = WriteAheadLog::Op::Decode(wal_reader, decoder);
-      if (!op) break;
-      switch (op->type_) {
-        case WriteAheadLog::Op::Type::TRANSACTION_BEGIN:
-          DCHECK(ops.find(op->transaction_id_) == ops.end())
+      auto delta = database::StateDelta::Decode(wal_reader, decoder);
+      if (!delta) break;
+      switch (delta->type()) {
+        case database::StateDelta::Type::TRANSACTION_BEGIN:
+          DCHECK(deltas.find(delta->transaction_id()) == deltas.end())
               << "Double transaction start";
-          if (to_skip.find(op->transaction_id_) == to_skip.end())
-            ops.emplace(op->transaction_id_, std::vector<WriteAheadLog::Op>{});
+          if (to_skip.find(delta->transaction_id()) == to_skip.end())
+            deltas.emplace(delta->transaction_id(),
+                           std::vector<database::StateDelta>{});
           break;
-        case WriteAheadLog::Op::Type::TRANSACTION_ABORT: {
-          auto it = ops.find(op->transaction_id_);
-          if (it != ops.end()) ops.erase(it);
-          aborted.emplace(op->transaction_id_);
+        case database::StateDelta::Type::TRANSACTION_ABORT: {
+          auto it = deltas.find(delta->transaction_id());
+          if (it != deltas.end()) deltas.erase(it);
+          aborted.emplace(delta->transaction_id());
           apply_all_possible();
           break;
         }
-        case WriteAheadLog::Op::Type::TRANSACTION_COMMIT:
-          committed.emplace(op->transaction_id_);
+        case database::StateDelta::Type::TRANSACTION_COMMIT:
+          committed.emplace(delta->transaction_id());
           apply_all_possible();
           break;
-        case WriteAheadLog::Op::Type::BUILD_INDEX: {
-          recovery_data.indexes.emplace_back(op->label_, op->property_);
+        case database::StateDelta::Type::BUILD_INDEX: {
+          recovery_data.indexes.emplace_back(delta->IndexName());
           break;
         }
         default: {
-          auto it = ops.find(op->transaction_id_);
-          if (it != ops.end()) it->second.emplace_back(*op);
+          auto it = deltas.find(delta->transaction_id());
+          if (it != deltas.end()) it->second.emplace_back(*delta);
         }
       }
-    }  // reading all Ops in a single wal file
+    }  // reading all deltas in a single wal file
   }    // reading all wal files
 
   apply_all_possible();

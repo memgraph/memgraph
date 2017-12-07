@@ -19,7 +19,8 @@ bool VertexAccessor::add_label(GraphDbTypes::Label label) {
   vertex.labels_.emplace_back(label);
   auto &dba = db_accessor();
   dba.UpdateLabelIndices(label, *this, &vertex);
-  dba.wal().AddLabel(dba.transaction_id(), gid(), dba.LabelName(label));
+  dba.wal().Emplace(database::StateDelta::AddLabel(dba.transaction_id(), gid(),
+                                                   dba.LabelName(label)));
   return true;
 }
 
@@ -31,7 +32,8 @@ size_t VertexAccessor::remove_label(GraphDbTypes::Label label) {
   std::swap(*found, labels.back());
   labels.pop_back();
   auto &dba = db_accessor();
-  dba.wal().RemoveLabel(dba.transaction_id(), gid(), dba.LabelName(label));
+  dba.wal().Emplace(database::StateDelta::RemoveLabel(
+      dba.transaction_id(), gid(), dba.LabelName(label)));
   return 1;
 }
 
