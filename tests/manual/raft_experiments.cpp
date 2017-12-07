@@ -3,40 +3,46 @@
 #include "fmt/format.h"
 #include "glog/logging.h"
 
-#include "communication/raft/raft.hpp"
-#include "communication/raft/raft_network.hpp"
+#include "communication/raft/raft_reactor.hpp"
+#include "communication/raft/test_utils.hpp"
 
 using std::chrono::milliseconds;
 using std::experimental::optional;
 using namespace communication::raft;
+using namespace communication::raft::test_utils;
 using namespace communication::reactor;
 using namespace std::chrono_literals;
 
-class RaftMemberTest : RaftMember {
+template <class State>
+class RaftMemberTest : public RaftMemberLocalReactor<State> {
  public:
-  std::string Id() const { return id_; }
-  optional<std::string> Leader() const { return leader_; }
+  MemberId Id() { return member_.Id(); }
+  std::experimental::optional<MemberId> Leader() { return member_.Leader(); }
 
-  using RaftMember::RaftMember;
+ private:
+  using RaftMemberLocalReactor<State>::RaftMemberLocalReactor;
+  using RaftMemberLocalReactor<State>::member_;
 };
+
+using RaftMemberDummy = RaftMemberTest<DummyState>;
 
 milliseconds InitialElection(const RaftConfig &config) {
   System sys;
-  FakeNetworkInterface network(sys);
+  NoOpStorageInterface<DummyState> storage;
 
   std::chrono::system_clock::time_point start, end;
 
   LOG(INFO) << "Starting..." << std::endl;
 
   {
-    std::vector<std::unique_ptr<RaftMemberTest>> members;
+    std::vector<std::unique_ptr<RaftMemberDummy>> members;
 
     start = std::chrono::system_clock::now();
 
     for (const auto &member_id : config.members) {
       members.push_back(
-          std::make_unique<RaftMemberTest>(sys, member_id, config, network));
-      network.Connect(member_id);
+          std::make_unique<RaftMemberDummy>(sys, storage, member_id, config));
+      members.back()->Connect();
     }
 
     bool leader_elected = false;
@@ -56,19 +62,19 @@ milliseconds InitialElection(const RaftConfig &config) {
 
 milliseconds Reelection(const RaftConfig &config) {
   System sys;
-  FakeNetworkInterface network(sys);
+  NoOpStorageInterface<DummyState> storage;
 
   std::chrono::system_clock::time_point start, end;
 
   LOG(INFO) << "Starting..." << std::endl;
 
   {
-    std::vector<std::unique_ptr<RaftMemberTest>> members;
+    std::vector<std::unique_ptr<RaftMemberDummy>> members;
 
     for (const auto &member_id : config.members) {
       members.push_back(
-          std::make_unique<RaftMemberTest>(sys, member_id, config, network));
-      network.Connect(member_id);
+          std::make_unique<RaftMemberDummy>(sys, storage, member_id, config));
+      members.back()->Connect();
     }
 
     bool leader_elected = false;
@@ -87,7 +93,12 @@ milliseconds Reelection(const RaftConfig &config) {
     std::this_thread::sleep_for(config.heartbeat_interval);
 
     start = std::chrono::system_clock::now();
-    network.Disconnect(first_leader);
+    for (const auto &member : members) {
+      if (member->Id() == first_leader) {
+        member->Disconnect();
+        break;
+      }
+    }
 
     leader_elected = false;
     do {
