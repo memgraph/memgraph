@@ -591,23 +591,24 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 }
 
 TEST_F(Durability, NoWalDuringRecovery) {
-  auto config = DbConfig();
-  config.durability_enabled = true;
-  GraphDb db{config};
-  MakeDb(db, 300, {0, 1, 2});
+  size_t wal_files_before;
+  {
+    auto config = DbConfig();
+    config.durability_enabled = true;
+    GraphDb db{config};
+    MakeDb(db, 300, {0, 1, 2});
 
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Sleep to ensure the WAL gets flushed.
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-  auto wal_files_before = DirFiles(wal_dir_);
-  ASSERT_GT(wal_files_before.size(), 3);
+    wal_files_before = DirFiles(wal_dir_).size();
+    ASSERT_GT(wal_files_before, 3);
+  }
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
     GraphDb recovered{recovered_config};
-    CompareDbs(db, recovered);
-    auto wal_files_after = DirFiles(wal_dir_);
-    EXPECT_EQ(wal_files_after.size(), wal_files_before.size());
+    EXPECT_EQ(DirFiles(wal_dir_).size(), wal_files_before);
   }
 }
 
