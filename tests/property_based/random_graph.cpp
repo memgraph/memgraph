@@ -1,4 +1,3 @@
-#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -17,9 +16,8 @@
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph
  */
-RC_GTEST_PROP(RandomGraph, RandomGraph,
-              (std::vector<std::string> vertex_labels,
-               std::vector<std::string> edge_types)) {
+RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
+                                         std::vector<std::string> edge_types)) {
   RC_PRE(!vertex_labels.empty());
   RC_PRE(!edge_types.empty());
 
@@ -28,8 +26,8 @@ RC_GTEST_PROP(RandomGraph, RandomGraph,
 
   GraphDb db;
   std::vector<VertexAccessor> vertices;
-  std::map<VertexAccessor, std::string> vertex_label_map;
-  std::map<EdgeAccessor, std::string> edge_type_map;
+  std::unordered_map<VertexAccessor, std::string> vertex_label_map;
+  std::unordered_map<EdgeAccessor, std::string> edge_type_map;
 
   GraphDbAccessor dba(db);
 

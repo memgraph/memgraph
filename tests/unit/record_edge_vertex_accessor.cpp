@@ -58,24 +58,6 @@ TEST(RecordAccessor, RecordEquality) {
   EXPECT_NE(e1, e2);
 }
 
-TEST(RecordAccessor, RecordLessThan) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
-
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  EXPECT_NE(v1, v2);
-  EXPECT_TRUE(v1 < v2 || v2 < v1);
-  EXPECT_FALSE(v1 < v1);
-  EXPECT_FALSE(v2 < v2);
-  auto e1 = dba.InsertEdge(v1, v2, dba.EdgeType("type"));
-  auto e2 = dba.InsertEdge(v1, v2, dba.EdgeType("type"));
-  EXPECT_NE(e1, e2);
-  EXPECT_TRUE(e1 < e2 || e2 < e1);
-  EXPECT_FALSE(e1 < e1);
-  EXPECT_FALSE(e2 < e2);
-}
-
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
   GraphDb db;
 

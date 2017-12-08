@@ -70,7 +70,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
   CHECK(success) << "Attempting to insert a vertex with an existing ID: " << id;
   db_.wal_.Emplace(database::StateDelta::CreateVertex(transaction_->id_,
                                                       vertex_vlist->gid_));
-  return VertexAccessor(*vertex_vlist, *this);
+  return VertexAccessor(vertex_vlist, *this);
 }
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
@@ -78,8 +78,8 @@ std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
   auto collection_accessor = db_.vertices_.access();
   auto found = collection_accessor.find(gid);
   if (found == collection_accessor.end()) return std::experimental::nullopt;
-  VertexAccessor record_accessor(*found->second, *this);
-  if (!Visible(record_accessor, current_state))
+  VertexAccessor record_accessor(found->second, *this);
+  if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
 }
@@ -89,8 +89,8 @@ std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
   auto collection_accessor = db_.edges_.access();
   auto found = collection_accessor.find(gid);
   if (found == collection_accessor.end()) return std::experimental::nullopt;
-  EdgeAccessor record_accessor(*found->second, *this);
-  if (!Visible(record_accessor, current_state))
+  EdgeAccessor record_accessor(found->second, *this);
+  if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
 }
@@ -140,7 +140,7 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // CreateIndex.
   GraphDbAccessor dba(db_);
   for (auto vertex : dba.Vertices(label, false)) {
-    db_.label_property_index_.UpdateOnLabelProperty(vertex.vlist_,
+    db_.label_property_index_.UpdateOnLabelProperty(vertex.address().local(),
                                                     vertex.current_);
   }
   // Commit transaction as we finished applying method on newest visible
@@ -162,17 +162,19 @@ void GraphDbAccessor::UpdateLabelIndices(const GraphDbTypes::Label &label,
                                          const VertexAccessor &vertex_accessor,
                                          const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  db_.labels_index_.Update(label, vertex_accessor.vlist_, vertex);
-  db_.label_property_index_.UpdateOnLabel(label, vertex_accessor.vlist_,
-                                          vertex);
+  DCHECK(vertex_accessor.is_local()) << "Only local vertices belong in indexes";
+  auto *vlist_ptr = vertex_accessor.address().local();
+  db_.labels_index_.Update(label, vlist_ptr, vertex);
+  db_.label_property_index_.UpdateOnLabel(label, vlist_ptr, vertex);
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
     const GraphDbTypes::Property &property,
-    const RecordAccessor<Vertex> &record_accessor, const Vertex *const vertex) {
+    const RecordAccessor<Vertex> &vertex_accessor, const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  db_.label_property_index_.UpdateOnProperty(property, record_accessor.vlist_,
-                                             vertex);
+  DCHECK(vertex_accessor.is_local()) << "Only local vertices belong in indexes";
+  db_.label_property_index_.UpdateOnProperty(
+      property, vertex_accessor.address().local(), vertex);
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
@@ -245,23 +247,39 @@ int64_t GraphDbAccessor::VerticesCount(
 
 bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  if (!vertex_accessor.is_local()) {
+    LOG(ERROR) << "Remote vertex deletion not implemented";
+    // TODO support distributed
+    // call remote RemoveVertex(gid), return it's result. The result can be
+    // (true, false), or an error can occur (serialization, timeout). In case
+    // of error the remote worker will be asking for a transaction abort,
+    // not sure what to do here.
+    return false;
+  }
   vertex_accessor.SwitchNew();
   // it's possible the vertex was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
-  if (vertex_accessor.current_->is_expired_by(*transaction_)) return true;
+  if (vertex_accessor.current().is_expired_by(*transaction_)) return true;
   if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
     return false;
 
-  db_.wal_.Emplace(database::StateDelta::RemoveVertex(
-      transaction_->id_, vertex_accessor.vlist_->gid_));
-
-  vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
+  auto *vlist_ptr = vertex_accessor.address().local();
+  db_.wal_.Emplace(
+      database::StateDelta::RemoveVertex(transaction_->id_, vlist_ptr->gid_));
+  vlist_ptr->remove(vertex_accessor.current_, *transaction_);
   return true;
 }
 
 void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+  if (!vertex_accessor.is_local()) {
+    LOG(ERROR) << "Remote vertex deletion not implemented";
+    // TODO support distributed
+    // call remote DetachRemoveVertex(gid). It can either succeed or an error
+    // can occur. See discussion in the RemoveVertex method above.
+  }
   vertex_accessor.SwitchNew();
   for (auto edge_accessor : vertex_accessor.in())
     RemoveEdge(edge_accessor, true, false);
@@ -273,15 +291,23 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   // it's possible the vertex was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
-  if (!vertex_accessor.current_->is_expired_by(*transaction_))
-    vertex_accessor.vlist_->remove(vertex_accessor.current_, *transaction_);
+  if (!vertex_accessor.current().is_expired_by(*transaction_))
+    vertex_accessor.address().local()->remove(vertex_accessor.current_,
+                                              *transaction_);
 }
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType edge_type,
     std::experimental::optional<gid::Gid> gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-
+  // An edge is created on the worker of it's "from" vertex.
+  if (!from.is_local()) {
+    LOG(ERROR) << "Remote edge insertion not implemented.";
+    // TODO call remote InsertEdge(...)->gid. Possible outcomes are successful
+    // creation or an error (serialization, timeout). If successful, create an
+    // EdgeAccessor and return it. The remote InsertEdge(...) will be calling
+    // remote Connect(...) if "to" is not local to it.
+  }
   std::experimental::optional<uint64_t> next_id;
   if (gid) {
     CHECK(static_cast<int>(gid::WorkerId(*gid)) == db_.worker_id_)
@@ -290,8 +316,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   }
 
   auto id = db_.edge_generator_.Next(next_id);
-  auto edge_vlist = new mvcc::VersionList<Edge>(*transaction_, id, from.vlist_,
-                                                to.vlist_, edge_type);
+  auto edge_vlist = new mvcc::VersionList<Edge>(
+      *transaction_, id, from.address(), to.address(), edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
@@ -300,17 +326,25 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();
-  from.update().out_.emplace(to.vlist_, edge_vlist, edge_type);
-  // ensure that the "to" accessor has the latest version
-  // WARNING: must do that after the above "from.update()" for cases when
-  // we are creating a cycle and "from" and "to" are the same vlist
-  to.SwitchNew();
-  to.update().in_.emplace(from.vlist_, edge_vlist, edge_type);
+  from.update().out_.emplace(to.address(), edge_vlist, edge_type);
 
+  // It is possible that the "to" accessor is remote.
+  if (to.is_local()) {
+    // ensure that the "to" accessor has the latest version (Switch new)
+    // WARNING: must do that after the above "from.update()" for cases when
+    // we are creating a cycle and "from" and "to" are the same vlist
+    to.SwitchNew();
+    to.update().in_.emplace(from.address(), edge_vlist, edge_type);
+  } else {
+    LOG(ERROR) << "Connecting to a remote vertex not implemented.";
+    // TODO call remote Connect(from_gid, edge_gid, to_gid, edge_type). Possible
+    // outcomes are success or error (serialization, timeout).
+  }
   db_.wal_.Emplace(database::StateDelta::CreateEdge(
-      transaction_->id_, edge_vlist->gid_, from.vlist_->gid_, to.vlist_->gid_,
+      transaction_->id_, edge_vlist->gid_, from.gid(), to.gid(),
       EdgeTypeName(edge_type)));
-  return EdgeAccessor(*edge_vlist, *this, from.vlist_, to.vlist_, edge_type);
+  return EdgeAccessor(edge_vlist, *this, from.address(), to.address(),
+                      edge_type);
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {
@@ -321,17 +355,23 @@ int64_t GraphDbAccessor::EdgesCount() const {
 void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
                                  bool remove_from_from, bool remove_from_to) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+  if (!edge_accessor.is_local()) {
+    LOG(ERROR) << "Remote edge deletion not implemented";
+    // TODO support distributed
+    // call remote RemoveEdge(gid, true, true). It can either succeed or an
+    // error can occur. See discussion in the RemoveVertex method above.
+  }
   // it's possible the edge was removed already in this transaction
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
   edge_accessor.SwitchNew();
   if (edge_accessor.current().is_expired_by(*transaction_)) return;
   if (remove_from_from)
-    edge_accessor.from().update().out_.RemoveEdge(edge_accessor.vlist_);
+    edge_accessor.from().update().out_.RemoveEdge(edge_accessor.address());
   if (remove_from_to)
-    edge_accessor.to().update().in_.RemoveEdge(edge_accessor.vlist_);
-  edge_accessor.vlist_->remove(edge_accessor.current_, *transaction_);
-
+    edge_accessor.to().update().in_.RemoveEdge(edge_accessor.address());
+  edge_accessor.address().local()->remove(edge_accessor.current_,
+                                          *transaction_);
   db_.wal_.Emplace(
       database::StateDelta::RemoveEdge(transaction_->id_, edge_accessor.gid()));
 }
@@ -388,13 +428,21 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   for (GraphDbTypes::Label label : db_.labels_index_.Keys()) {
     info.emplace_back(":" + LabelName(label));
   }
-
-  // Edge indices are not shown because they are never used.
-
   for (LabelPropertyIndex::Key key : db_.label_property_index_.Keys()) {
     info.emplace_back(fmt::format(":{}({})", LabelName(key.label_),
                                   PropertyName(key.property_)));
   }
-
   return info;
+}
+auto &GraphDbAccessor::remote_vertices() { return remote_vertices_; }
+auto &GraphDbAccessor::remote_edges() { return remote_edges_; }
+
+template <>
+GraphDbAccessor::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {
+  return remote_vertices();
+}
+
+template <>
+GraphDbAccessor::RemoteCache<Edge> &GraphDbAccessor::remote_elements() {
+  return remote_edges();
 }

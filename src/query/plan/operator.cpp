@@ -1572,7 +1572,7 @@ void ReconstructTypedValue(TypedValue &value) {
         throw QueryRuntimeException(vertex_error_msg);
       break;
     case TypedValue::Type::Edge:
-      if (!value.Value<VertexAccessor>().Reconstruct())
+      if (!value.Value<EdgeAccessor>().Reconstruct())
         throw QueryRuntimeException(edge_error_msg);
       break;
     case TypedValue::Type::List:

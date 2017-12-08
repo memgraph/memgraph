@@ -5,10 +5,12 @@
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
 
+using database::StateDelta;
+
 template <typename TRecord>
-RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> &vlist,
+RecordAccessor<TRecord>::RecordAccessor(AddressT address,
                                         GraphDbAccessor &db_accessor)
-    : vlist_(&vlist), db_accessor_(&db_accessor) {}
+    : db_accessor_(&db_accessor), address_(address) {}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
@@ -22,9 +24,12 @@ void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
   Vertex &vertex = update();
   vertex.properties_.set(key, value);
   auto &dba = db_accessor();
-  dba.wal().Emplace(database::StateDelta::PropsSetVertex(
-      dba.transaction_id(), vlist_->gid_, dba.PropertyName(key), value));
-  db_accessor().UpdatePropertyIndex(key, *this, &vertex);
+  // TODO use the delta for handling.
+  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(),
+                                               dba.PropertyName(key), value));
+  if (is_local()) {
+    db_accessor().UpdatePropertyIndex(key, *this, &vertex);
+  }
 }
 
 template <>
@@ -32,36 +37,38 @@ void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
                                     PropertyValue value) {
   update().properties_.set(key, value);
   auto &dba = db_accessor();
-  dba.wal().Emplace(database::StateDelta::PropsSetEdge(
-      dba.transaction_id(), vlist_->gid_, dba.PropertyName(key), value));
+  // TODO use the delta for handling.
+  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(),
+                                             dba.PropertyName(key), value));
 }
 
 template <>
 size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
   auto &dba = db_accessor();
-  dba.wal().Emplace(database::StateDelta::PropsSetVertex(
-      dba.transaction_id(), vlist_->gid_, dba.PropertyName(key),
-      PropertyValue::Null));
+  // TODO use the delta for handling.
+  dba.wal().Emplace(StateDelta::PropsSetVertex(
+      dba.transaction_id(), gid(), dba.PropertyName(key), PropertyValue::Null));
   return update().properties_.erase(key);
 }
 
 template <>
 size_t RecordAccessor<Edge>::PropsErase(GraphDbTypes::Property key) {
   auto &dba = db_accessor();
-  dba.wal().Emplace(database::StateDelta::PropsSetEdge(
-      dba.transaction_id(), vlist_->gid_, dba.PropertyName(key),
-      PropertyValue::Null));
+  // TODO use the delta for handling.
+  dba.wal().Emplace(StateDelta::PropsSetEdge(
+      dba.transaction_id(), gid(), dba.PropertyName(key), PropertyValue::Null));
   return update().properties_.erase(key);
 }
 
 template <>
 void RecordAccessor<Vertex>::PropsClear() {
   auto &updated = update();
+  // TODO use the delta for handling.
   auto &dba = db_accessor();
   for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(database::StateDelta::PropsSetVertex(
-        dba.transaction_id(), vlist_->gid_, dba.PropertyName(kv.first),
-        PropertyValue::Null));
+    dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(),
+                                                 dba.PropertyName(kv.first),
+                                                 PropertyValue::Null));
   updated.properties_.clear();
 }
 
@@ -69,10 +76,11 @@ template <>
 void RecordAccessor<Edge>::PropsClear() {
   auto &updated = update();
   auto &dba = db_accessor();
+  // TODO use the delta for handling.
   for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(database::StateDelta::PropsSetEdge(
-        dba.transaction_id(), vlist_->gid_, dba.PropertyName(kv.first),
-        PropertyValue::Null));
+    dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(),
+                                               dba.PropertyName(kv.first),
+                                               PropertyValue::Null));
   updated.properties_.clear();
 }
 
@@ -83,20 +91,47 @@ const PropertyValueStore<GraphDbTypes::Property>
 }
 
 template <typename TRecord>
+bool RecordAccessor<TRecord>::operator==(const RecordAccessor &other) const {
+  DCHECK(db_accessor_ == other.db_accessor_) << "Not in the same transaction.";
+  return address_ == other.address_;
+}
+
+template <typename TRecord>
 GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
   return *db_accessor_;
 }
 
 template <typename TRecord>
+gid::Gid RecordAccessor<TRecord>::gid() const {
+  return is_local() ? address_.local()->gid_ : address_.global_id();
+}
+
+template <typename TRecord>
+storage::Address<mvcc::VersionList<TRecord>> RecordAccessor<TRecord>::address()
+    const {
+  return address_;
+}
+
+template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
-  if (!new_) {
-    // if new_ is not set yet, look for it
-    // we can just Reconstruct the pointers, old_ will get initialized
-    // to the same value as it has now, and the amount of work is the
-    // same as just looking for a new_ record
-    if (!Reconstruct())
-      DLOG(FATAL)
-          << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
+  if (is_local()) {
+    if (!new_) {
+      // if new_ is not set yet, look for it
+      // we can just Reconstruct the pointers, old_ will get initialized
+      // to the same value as it has now, and the amount of work is the
+      // same as just looking for a new_ record
+      if (!Reconstruct())
+        DLOG(FATAL)
+            << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
+    }
+  } else {
+    // TODO If we have distributed execution, here it's necessary to load the
+    // data from the it's home worker. When only storage is distributed, it's
+    // enough just to switch to the new record if we have it.
+    if (!new_) {
+      new_ = db_accessor().template remote_elements<TRecord>().FindNew(
+          address_.global_id(), false);
+    }
   }
   current_ = new_ ? new_ : old_;
   return *this;
@@ -110,26 +145,25 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
-  vlist_->find_set_old_new(db_accessor_->transaction(), old_, new_);
+  if (is_local()) {
+    address_.local()->find_set_old_new(db_accessor_->transaction(), old_, new_);
+  } else {
+    db_accessor().template remote_elements<TRecord>().FindSetOldNew(
+        db_accessor().transaction(), address_.global_id(), old_, new_);
+  }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
-  // We should never use a record accessor that does not have either old_ or
-  // new_ (both are null), but we can't assert that here because we construct
-  // such an accessor and filter it out in GraphDbAccessor::[Vertices|Edges].
 }
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() const {
-  // If the current is not set we probably created the accessor with a lazy
-  // constructor which didn't call Reconstruct on creation
-  if (!current_) {
+  // Edges have lazily initialize mutable, versioned data (properties).
+  if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
     bool reconstructed = Reconstruct();
     DCHECK(reconstructed) << "Unable to initialize record";
   }
+
   auto &t = db_accessor_->transaction();
-  // can't update a deleted record if:
-  // - we only have old_ and it hasn't been deleted
-  // - we have new_ and it hasn't been deleted
   if (!new_) {
     DCHECK(!old_->is_expired_by(t))
         << "Can't update a record deleted in the current transaction+commad";
@@ -138,15 +172,36 @@ TRecord &RecordAccessor<TRecord>::update() const {
         << "Can't update a record deleted in the current transaction+command";
   }
 
-  if (!new_) new_ = vlist_->update(t);
-  DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
+  if (new_) return *new_;
+
+  if (is_local()) {
+    new_ = address_.local()->update(t);
+    DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
+  } else {
+    new_ = db_accessor().template remote_elements<TRecord>().FindNew(
+        address_.global_id(), true);
+  }
   return *new_;
 }
 
 template <typename TRecord>
 const TRecord &RecordAccessor<TRecord>::current() const {
+  // Edges have lazily initialize mutable, versioned data (properties).
+  if (std::is_same<TRecord, Edge>::value && current_ == nullptr)
+    RecordAccessor::Reconstruct();
   DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
   return *current_;
+}
+
+template <typename TRecord>
+void RecordAccessor<TRecord>::ProcessDelta(const GraphStateDelta &) const {
+  LOG(ERROR) << "Delta processing not yet implemented";
+  if (is_local()) {
+    // TODO write delta to WAL
+  } else {
+    // TODO use the delta to perform a remote update.
+    // TODO check for results (success, serialization_error, ...)
+  }
 }
 
 template class RecordAccessor<Vertex>;

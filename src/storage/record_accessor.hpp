@@ -4,12 +4,27 @@
 
 #include "database/graph_db_datatypes.hpp"
 #include "mvcc/version_list.hpp"
+#include "storage/address.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "storage/property_value_store.hpp"
 #include "utils/total_ordering.hpp"
 
 class GraphDbAccessor;
+
+/// Mock class for a DB delta.
+// TODO replace with the real thing.
+class GraphStateDelta {
+ public:
+  /// Indicates what the result of applying the delta to the remote worker
+  /// (owner of the Vertex/Edge the delta affects).
+  enum class RemoteResult {
+    SUCCES,
+    SERIALIZATION_ERROR,
+    LOCK_TIMEOUT_ERROR
+    // TODO: network error?
+  };
+};
 
 /**
  * An accessor to a database record (an Edge or a Vertex).
@@ -22,7 +37,7 @@ class GraphDbAccessor;
  */
 template <typename TRecord>
 class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
- public:
+  using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
   /**
    * The GraphDbAccessor is friend to this accessor so it can
    * operate on it's data (mvcc version-list and the record itself).
@@ -33,12 +48,13 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   friend GraphDbAccessor;
 
+ public:
   /**
-   * @param vlist MVCC record that this accessor wraps.
+   * @param address Address (local or global) of the Vertex/Edge of this
+   * accessor.
    * @param db_accessor The DB accessor that "owns" this record accessor.
    */
-  RecordAccessor(mvcc::VersionList<TRecord> &vlist,
-                 GraphDbAccessor &db_accessor);
+  RecordAccessor(AddressT address, GraphDbAccessor &db_accessor);
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -46,85 +62,39 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(const RecordAccessor &other) = default;
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
-  /**
-   * Gets the property for the given key.
-   * @param key
-   * @return
-   */
+  /** Gets the property for the given key. */
   const PropertyValue &PropsAt(GraphDbTypes::Property key) const;
 
-  /**
-   * Sets a value on the record for the given property, operates on edge.
-   *
-   * @param key Property key.
-   * @param value The value to set.
-   */
+  /** Sets a value on the record for the given property. */
   void PropsSet(GraphDbTypes::Property key, PropertyValue value);
 
-  /**
-   * Erases the property for the given key.
-   *
-   * @param key
-   * @return
-   */
+  /** Erases the property for the given key. */
   size_t PropsErase(GraphDbTypes::Property key);
 
-  /**
-   * Removes all the properties from this record.
-   */
+  /** Removes all the properties from this record. */
   void PropsClear();
 
-  /**
-   * Returns the properties of this record.
-   * @return
-   */
+  /** Returns the properties of this record. */
   const PropertyValueStore<GraphDbTypes::Property> &Properties() const;
 
-  void PropertiesAccept(std::function<void(const GraphDbTypes::Property key,
-                                           const PropertyValue &prop)>
-                            handler,
-                        std::function<void()> finish = {}) const;
+  bool operator==(const RecordAccessor &other) const;
 
-  /**
-   * This should be used with care as it's comparing vlist_ pointer records and
-   * not actual values inside RecordAccessors.
-   */
-  bool operator<(const RecordAccessor &other) const {
-    DCHECK(db_accessor_ == other.db_accessor_)
-        << "Not in the same transaction.";
-    return vlist_ < other.vlist_;
-  }
-
-  bool operator==(const RecordAccessor &other) const {
-    DCHECK(db_accessor_ == other.db_accessor_)
-        << "Not in the same transaction.";
-    return vlist_ == other.vlist_;
-  }
-
-  /** Enables equality check against a version list pointer. This makes it
-   * possible to check if an accessor and a vlist ptr represent the same graph
-   * element without creating an accessor (not very cheap). */
-  bool operator==(const mvcc::VersionList<TRecord> *other_vlist) const {
-    return vlist_ == other_vlist;
-  }
-
-  /**
-   * Returns a GraphDB accessor of this record accessor.
-   *
-   * @return See above.
-   */
+  /** Returns a GraphDB accessor of this record accessor. */
   GraphDbAccessor &db_accessor() const;
 
-  /** Returns a database-unique index of this vertex or edge. Note that vertices
-   * and edges have separate GID domains, there can be a vertex with GID X and
-   * an edge with the same gid.
+  /**
+   * Returns a globally-unique ID of this vertex or edge. Note that vertices
+   * and edges have separate ID domains, there can be a vertex with ID X and an
+   * edge with the same id.
    */
-  gid::Gid gid() const { return vlist_->gid_; }
+  gid::Gid gid() const;
+
+  AddressT address() const;
 
   /*
-   * Switches this record accessor to use the latest
-   * version visible to the current transaction+command.
-   * Possibly the one that was created by this transaction+command.
+   * Switches this record accessor to use the latest version visible to the
+   * current transaction+command.  Possibly the one that was created by this
+   * transaction+command.
    *
    * @return A reference to this.
    */
@@ -135,38 +105,35 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * the current transaction+command.  If that is not possible (vertex/edge was
    * created by the current transaction/command), it does nothing (current
    * remains pointing to the new version).
+   *
    * @return A reference to this.
    */
   RecordAccessor<TRecord> &SwitchOld();
 
   /**
-   Reconstructs the internal state of the record accessor so it uses the
-   versions appropriate to this transaction+command.
+   * Reconstructs the internal state of the record accessor so it uses the
+   * versions appropriate to this transaction+command.
    *
-   @return True if this accessor is valid after reconstruction.  This means that
-   at least one record pointer was found (either new_ or old_), possibly both.
+   * @return True if this accessor is valid after reconstruction.  This means
+   * that at least one record pointer was found (either new_ or old_), possibly
+   * both.
    */
   bool Reconstruct() const;
 
+  /**
+   * Returns true if the given accessor is visible to the given transaction.
+   *
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   */
+  bool Visible(const tx::Transaction &t, bool current_state) const {
+    return (old_ && !(current_state && old_->is_expired_by(t))) ||
+           (current_state && new_ && !new_->is_expired_by(t));
+  }
+
  protected:
-  /**
-   * Ensures there is an updateable version of the record in the version_list,
-   * and that the `new_` pointer points to it. Returns a reference to that
-   * version.
-   *
-   * It is not legal to call this function on a Vertex/Edge that has been
-   * deleted in the current transaction+command.
-   */
-  TRecord &update() const;
-
-  /**
-   * Returns the current version (either new_ or old_)
-   * set on this RecordAccessor.
-   *
-   * @return See above.
-   */
-  const TRecord &current() const;
-
   /**
    * Pointer to the version (either old_ or new_) that READ operations
    * in the accessor should take data from. Note that WRITE operations
@@ -177,15 +144,41 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   mutable TRecord *current_{nullptr};
 
-  // The record (edge or vertex) this accessor provides access to.
-  // Immutable, set in the constructor and never changed.
-  mvcc::VersionList<TRecord> *vlist_;
+  /**
+   * Ensures there is an updateable version of the record in the version_list,
+   * and that the `new_` pointer points to it. Returns a reference to that
+   * version.
+   *
+   * It is not legal to call this function on a Vertex/Edge that has been
+   * deleted in the current transaction+command.
+   */
+  TRecord &update() const;
+
+  /** Returns the current version (either new_ or old_) set on this
+   * RecordAccessor. */
+  const TRecord &current() const;
+
+  /** Indicates if this accessor represents a local Vertex/Edge, or one whose
+   * owner is some other worker in a distributed system. */
+  bool is_local() const { return address_.is_local(); }
+
+  /**
+   * Processes the delta that's a consequence of changes in this accessor. If
+   * the accessor is local that means writing the delta to the write-ahead log.
+   * If it's remote, then the delta needs to be sent to it's owner for
+   * processing.
+   *
+   * @param delta The delta to process.
+   */
+  void ProcessDelta(const GraphStateDelta &delta) const;
 
  private:
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
   GraphDbAccessor *db_accessor_;
+
+  AddressT address_;
 
   /**
    * Latest version which is visible to the current transaction+command

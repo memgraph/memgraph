@@ -35,13 +35,11 @@ class VertexAccessor : public RecordAccessor<Vertex> {
                                           GraphDbAccessor &db_accessor) {
     return iter::imap(
         [from, vertex, &db_accessor](auto &edges_element) {
-          // Currently only local storage is supported.
           if (from) {
-            return EdgeAccessor(*edges_element.edge.local(), db_accessor,
-                                vertex, edges_element.vertex,
-                                edges_element.edge_type);
+            return EdgeAccessor(edges_element.edge.local(), db_accessor, vertex,
+                                edges_element.vertex, edges_element.edge_type);
           } else {
-            return EdgeAccessor(*edges_element.edge.local(), db_accessor,
+            return EdgeAccessor(edges_element.edge.local(), db_accessor,
                                 edges_element.vertex, vertex,
                                 edges_element.edge_type);
           }
@@ -51,58 +49,36 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
  public:
-  VertexAccessor(mvcc::VersionList<Vertex> &vertex,
-                 GraphDbAccessor &db_accessor)
-      : RecordAccessor(vertex, db_accessor) {
+  VertexAccessor(VertexAddress address, GraphDbAccessor &db_accessor)
+      : RecordAccessor(address, db_accessor) {
     RecordAccessor::Reconstruct();
   }
 
-  /**
-   * Returns the number of outgoing edges.
-   * @return
-   */
+  /** Returns the number of outgoing edges. */
   size_t out_degree() const;
 
-  /**
-   * Returns the number of incoming edges.
-   * @return
-   */
+  /** Returns the number of incoming edges. */
   size_t in_degree() const;
 
-  /**
-   * Adds a label to the Vertex. If the Vertex already
-   * has that label the call has no effect.
-   * @param label A label.
-   * @return If or not a new Label was set on this Vertex.
-   */
+  /** Adds a label to the Vertex. If the Vertex already has that label the call
+   * has no effect. */
+  // TODO revise return value, is it necessary?
   bool add_label(GraphDbTypes::Label label);
 
-  /**
-   * Removes a label from the Vertex.
-   * @param label  The label to remove.
-   * @return The number of removed labels (can be 0 or 1).
-   */
+  /** Removes a label from the Vertex. Return number of removed (0, 1). */
+  // TODO reves return value, is it necessary?
   size_t remove_label(GraphDbTypes::Label label);
 
-  /**
-   * Indicates if the Vertex has the given label.
-   * @param label A label.
-   * @return
-   */
+  /** Indicates if the Vertex has the given label. */
   bool has_label(GraphDbTypes::Label label) const;
 
-  /**
-   * Returns all the Labels of the Vertex.
-   * @return
-   */
+  /** Returns all the Labels of the Vertex. */
   const std::vector<GraphDbTypes::Label> &labels() const;
 
-  /**
-   * Returns EdgeAccessors for all incoming edges.
-   */
+  /** Returns EdgeAccessors for all incoming edges. */
   auto in() const {
     return MakeAccessorIterator(current().in_.begin(), current().in_.end(),
-                                false, vlist_, db_accessor());
+                                false, address(), db_accessor());
   }
 
   /**
@@ -115,8 +91,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   auto in(
       const VertexAccessor &dest,
       const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
-    return MakeAccessorIterator(current().in_.begin(dest.vlist_, edge_types),
-                                current().in_.end(), false, vlist_,
+    return MakeAccessorIterator(current().in_.begin(dest.address(), edge_types),
+                                current().in_.end(), false, address(),
                                 db_accessor());
   }
 
@@ -128,16 +104,14 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto in(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
-                                current().in_.end(), false, vlist_,
+                                current().in_.end(), false, address(),
                                 db_accessor());
   }
 
-  /**
-   * Returns EdgeAccessors for all outgoing edges.
-   */
+  /** Returns EdgeAccessors for all outgoing edges. */
   auto out() const {
     return MakeAccessorIterator(current().out_.begin(), current().out_.end(),
-                                true, vlist_, db_accessor());
+                                true, address(), db_accessor());
   }
 
   /**
@@ -151,9 +125,9 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   auto out(
       const VertexAccessor &dest,
       const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
-    return MakeAccessorIterator(current().out_.begin(dest.vlist_, edge_types),
-                                current().out_.end(), true, vlist_,
-                                db_accessor());
+    return MakeAccessorIterator(
+        current().out_.begin(dest.address(), edge_types), current().out_.end(),
+        true, address(), db_accessor());
   }
 
   /**
@@ -164,7 +138,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    */
   auto out(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
-                                current().out_.end(), true, vlist_,
+                                current().out_.end(), true, address(),
                                 db_accessor());
   }
 };

@@ -1,12 +1,7 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 03.02.17.
-//
-
 #pragma once
 
 #include <experimental/optional>
-#include <random>
+#include <unordered_map>
 
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
@@ -38,6 +33,60 @@ class GraphDbAccessor {
   friend class RecordAccessor<Edge>;
   friend class VertexAccessor;
   friend class EdgeAccessor;
+
+  /**
+   * Used for caching Vertices and Edges that are stored on another worker in a
+   * distributed system. Maps global IDs to (old, new) Vertex/Edge pointer
+   * pairs.  It is possible that either "old" or "new" are nullptrs, but at
+   * least one must be not-null. The RemoteCache is the owner of TRecord
+   * objects it points to.
+   *
+   * @tparam TRecord - Edge or Vertex
+   */
+  template <typename TRecord>
+  class RemoteCache {
+   public:
+    ~RemoteCache() {
+      for (const auto &pair : cache_) {
+        delete pair.second.first;
+        delete pair.second.second;
+      }
+    }
+
+    /**
+     * Returns the "new" Vertex/Edge for the given gid.
+     *
+     * @param gid - global ID.
+     * @param init_if_necessary - If "new" is not initialized and this flag is
+     * set, then "new" is initialized with a copy of "old" before returning.
+     */
+    TRecord *FindNew(gid::Gid gid, bool init_if_necessary) {
+      auto found = cache_.find(gid);
+      DCHECK(found != cache_.end()) << "Uninitialized remote Vertex/Edge";
+      auto &pair = found->second;
+      if (!pair.second && init_if_necessary) {
+        pair.second = pair.first->CloneData();
+      }
+      return pair.second;
+    }
+
+    /**
+     * For the Vertex/Edge with the given global ID, looks for the data visible
+     * from the given transaction's ID and command ID, and caches it. Sets the
+     * given pointers to point to the fetched data. Analogue to
+     * mvcc::VersionList::find_set_old_new.
+     */
+    void FindSetOldNew(const tx::Transaction &, gid::Gid, TRecord *&,
+                       TRecord *&) {
+      LOG(ERROR) << "Remote data storage not yet implemented";
+      // TODO fetch data for (gid, t.id_, t.cmd_id()) from remote worker.
+      // Set that data in the cache.
+      // Set the pointers to the new data.
+    }
+
+   private:
+    std::unordered_map<gid::Gid, std::pair<TRecord *, TRecord *>> cache_;
+  };
 
  public:
   /**
@@ -120,14 +169,14 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) {
-          return VertexAccessor(*id_vlist.second, *this);
+          return VertexAccessor(id_vlist.second, *this);
         },
         db_.vertices_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
         [this, current_state](const VertexAccessor &accessor) {
-          return Visible(accessor, current_state);
+          return accessor.Visible(transaction(), current_state);
         },
         std::move(accessors));
   }
@@ -145,7 +194,7 @@ class GraphDbAccessor {
   auto Vertices(const GraphDbTypes::Label &label, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.labels_index_.GetVlists(label, *transaction_, current_state));
   }
 
@@ -168,7 +217,7 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), *transaction_,
             current_state));
@@ -197,7 +246,7 @@ class GraphDbAccessor {
     CHECK(value.type() != PropertyValue::Type::Null)
         << "Can't query index for propery value type null.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), value, *transaction_,
             current_state));
@@ -240,7 +289,7 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(*vlist, *this); },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
             *transaction_, current_state));
@@ -310,13 +359,13 @@ class GraphDbAccessor {
 
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
-        [this](auto id_vlist) { return EdgeAccessor(*id_vlist.second, *this); },
+        [this](auto id_vlist) { return EdgeAccessor(id_vlist.second, *this); },
         db_.edges_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
         [this, current_state](const EdgeAccessor &accessor) {
-          return Visible(accessor, current_state);
+          return accessor.Visible(transaction(), current_state);
         },
         std::move(accessors));
   }
@@ -343,7 +392,7 @@ class GraphDbAccessor {
     if (accessor.db_accessor_ == this)
       return std::experimental::make_optional(accessor);
 
-    TAccessor accessor_in_this(*accessor.vlist_, *this);
+    TAccessor accessor_in_this(accessor.address(), *this);
     if (accessor_in_this.current_)
       return std::experimental::make_optional(std::move(accessor_in_this));
     else
@@ -526,10 +575,15 @@ class GraphDbAccessor {
    */
   void CounterSet(const std::string &name, int64_t value);
 
-  /*
-   * Returns a list of index names present in the database.
-   */
+  /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
+
+  auto &remote_vertices();
+  auto &remote_edges();
+
+  /** Gets remote_vertices or remote_edges, depending on type param. */
+  template <typename TRecord>
+  RemoteCache<TRecord> &remote_elements();
 
  private:
   /**
@@ -548,27 +602,15 @@ class GraphDbAccessor {
    * Insert this vertex into corresponding any label + 'property' index.
    * @param property - vertex will be inserted into indexes which contain this
    * property
-   * @param record_accessor - record_accessor to insert
+   * @param vertex_accessor - vertex accessor to insert
    * @param vertex - vertex to insert
    */
   void UpdatePropertyIndex(const GraphDbTypes::Property &property,
-                           const RecordAccessor<Vertex> &record_accessor,
+                           const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
 
-  /** Returns true if the given accessor (made with this GraphDbAccessor) is
-   * visible given the `current_state` flag. */
-  template <typename TRecord>
-  bool Visible(const RecordAccessor<TRecord> &accessor,
-               bool current_state) const {
-    return (accessor.old_ &&
-            !(current_state && accessor.old_->is_expired_by(*transaction_))) ||
-           (current_state && accessor.new_ &&
-            !accessor.new_->is_expired_by(*transaction_));
-  }
-
   /** Casts the DB's engine to MasterEngine and returns it. If the DB's engine
-   * is
-   * RemoteEngine, this function will crash MG. */
+   * is RemoteEngine, this function will crash MG. */
   tx::MasterEngine &MasterEngine() {
     auto *local_engine = dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
     DCHECK(local_engine) << "Asked for MasterEngine on distributed worker";
@@ -582,4 +624,7 @@ class GraphDbAccessor {
 
   bool commited_{false};
   bool aborted_{false};
+
+  RemoteCache<Vertex> remote_vertices_;
+  RemoteCache<Edge> remote_edges_;
 };
