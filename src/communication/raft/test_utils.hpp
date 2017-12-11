@@ -1,3 +1,5 @@
+#include <functional>
+
 #include "communication/raft/raft.hpp"
 
 namespace communication::raft::test_utils {
@@ -103,4 +105,4 @@ class InMemoryStorageInterface : public RaftStorageInterface<State> {
   std::vector<LogEntry<State>> log_;
 };
 
-}
+}  // namespace communication::raft::test_utils
