@@ -197,6 +197,9 @@ bool RaftMemberImpl<State>::SendRPC(const std::string &recipient,
     return false;
   }
 
+  DCHECK(reply.Term() >= term_)
+      << "Response term should be >= request term";
+
   /* [Raft thesis, Section 3.3]
    * "Current terms are exchanged whenever servers communicate; if one server's
    * current term is smaller than the other's, then it updates its current term
@@ -424,6 +427,18 @@ PeerRPCReply::RequestVote RaftMemberImpl<State>::OnRequestVote(
     return reply;
   }
 
+  /* [Raft thesis, Section 3.3]
+   * "Current terms are exchanged whenever servers communicate; if one server's
+   * current term is smaller than the other's, then it updates its current term
+   * to the larger value. If a candidate or leader discovers that its term is
+   * out of date, it immediately reverts to follower state." */
+  if (request.candidate_term > term_) {
+    if (mode_ != RaftMode::FOLLOWER) {
+      CandidateOrLeaderTransitionToFollower();
+    }
+    UpdateTermAndVotedFor(request.candidate_term, {});
+  }
+
   /* [Raft thesis, Section 3.6.1]
    * "Raft uses the voting process to prevent a candidate from winning an
    * election unless its log contains all committed entries. (...) The
@@ -457,18 +472,7 @@ PeerRPCReply::RequestVote RaftMemberImpl<State>::OnRequestVote(
     return reply;
   }
 
-  /* [Raft thesis, Section 3.3]
-   * "Current terms are exchanged whenever servers communicate; if one server's
-   * current term is smaller than the other's, then it updates its current term
-   * to the larger value. If a candidate or leader discovers that its term is
-   * out of date, it immediately reverts to follower state." */
-  if (request.candidate_term > term_) {
-    if (mode_ != RaftMode::FOLLOWER) {
-      CandidateOrLeaderTransitionToFollower();
-    }
-  }
-
-  /* Now we now we will vote for this candidate, because it's term is at least
+  /* Now we know we will vote for this candidate, because it's term is at least
    * as big as ours and we haven't voted for anyone else. */
   UpdateTermAndVotedFor(request.candidate_term, request.candidate_id);
 

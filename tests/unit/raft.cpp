@@ -344,12 +344,11 @@ TEST_P(OnRequestVoteTest, RequestVoteTest) {
 
   EXPECT_EQ(reply.vote_granted, GetParam().expected_reply);
 
+  /* Our term should always be at least as large as sender's term. */
   /* If we accepted the request, our term should be equal to candidate's term
    * and voted_for should be set. */
-  EXPECT_EQ(reply.term,
-            reply.vote_granted ? GetParam().peer_term : GetParam().term);
-  EXPECT_EQ(storage_.term_,
-            reply.vote_granted ? GetParam().peer_term : GetParam().term);
+  EXPECT_EQ(reply.term, std::max(GetParam().peer_term, GetParam().term));
+  EXPECT_EQ(storage_.term_, std::max(GetParam().peer_term, GetParam().term));
   EXPECT_EQ(storage_.voted_for_,
             reply.vote_granted ? "b" : GetParam().voted_for);
 }
@@ -444,7 +443,6 @@ struct OnAppendEntriesTestParam {
   LogIndex peer_next_index;
 
   bool expected_reply;
-  TermId expected_term;
   std::vector<LogEntry<DummyState>> expected_log;
 };
 
@@ -468,9 +466,10 @@ TEST_P(OnAppendEntriesTest, All) {
       {GetParam().peer_term, "b", last_log_index, last_log_term, entries, 0});
 
   EXPECT_EQ(reply.success, GetParam().expected_reply);
-  EXPECT_EQ(reply.term, GetParam().expected_term);
+  EXPECT_EQ(reply.term, std::max(GetParam().peer_term, GetParam().term));
   EXPECT_EQ(storage_.log_, GetParam().expected_log);
 }
+
 /* Member 'a' recieved AppendEntries RPC from member 'b'. The request will
  * contain no log entries, representing just a heartbeat, as it is not
  * important in these scenarios. */
@@ -484,7 +483,6 @@ INSTANTIATE_TEST_CASE_P(
                                  {{1}, {1}, {2}, {3}, {4}, {5}, {5}, {6}},
                                  7,
                                  false,
-                                 8,
                                  {{1}, {1}, {2}}},
         /* we're missing entries 4, 5 and 6 -> decline, but update term */
         OnAppendEntriesTestParam{4,
@@ -493,7 +491,6 @@ INSTANTIATE_TEST_CASE_P(
                                  {{1}, {1}, {2}, {3}, {4}, {5}, {5}, {6}},
                                  7,
                                  false,
-                                 8,
                                  {{1}, {1}, {2}}},
         /* we're missing entry 4 -> decline, but update term */
         OnAppendEntriesTestParam{5,
@@ -502,7 +499,6 @@ INSTANTIATE_TEST_CASE_P(
                                  {{1}, {1}, {2}, {3}, {4}, {5}, {5}, {6}},
                                  5,
                                  false,
-                                 8,
                                  {{1}, {1}, {2}}},
         /* log terms don't match at entry 4 -> decline, but update term */
         OnAppendEntriesTestParam{5,
@@ -511,7 +507,6 @@ INSTANTIATE_TEST_CASE_P(
                                  {{1}, {1}, {3}, {3}, {4}, {5}, {5}, {6}},
                                  4,
                                  false,
-                                 8,
                                  {{1}, {1}, {2}}},
         /* logs match -> accept and update term */
         OnAppendEntriesTestParam{5,
@@ -520,7 +515,6 @@ INSTANTIATE_TEST_CASE_P(
                                  {{1}, {1}, {2}, {3}, {4}, {5}, {5}, {6}},
                                  4,
                                  true,
-                                 8,
                                  {{1}, {1}, {2}, {3}, {4}, {5}, {5}, {6}}},
         /* now follow some log truncation tests */
         /* no truncation, append a single entry */
@@ -531,7 +525,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             9,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* no truncation, append multiple entries */
         OnAppendEntriesTestParam{
@@ -541,7 +534,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             4,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* no truncation, leader's log is prefix of ours */
         OnAppendEntriesTestParam{
@@ -551,7 +543,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             4,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}, {6}}},
         /* another one, now with entries from newer term */
         OnAppendEntriesTestParam{
@@ -561,7 +552,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             4,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}, {7}, {7}}},
         /* no truncation, partial match between our log and appended entries
            */
@@ -572,7 +562,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             4,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* truncate suffix */
         OnAppendEntriesTestParam{
@@ -582,7 +571,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             5,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* truncate suffix, with partial match between our log and appened
            entries */
@@ -593,7 +581,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             4,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* delete whole log */
         OnAppendEntriesTestParam{
@@ -603,7 +590,6 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             1,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}},
         /* append on empty log */
         OnAppendEntriesTestParam{
@@ -613,5 +599,4 @@ INSTANTIATE_TEST_CASE_P(
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}},
             1,
             true,
-            8,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}}));
