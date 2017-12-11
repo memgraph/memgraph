@@ -72,34 +72,35 @@ set(VERSION_STRING ${memgraph_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-set(MEMGRAPH_BUILD_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}")
-
 # memgraph main executable
-add_executable(${MEMGRAPH_BUILD_NAME} memgraph_bolt.cpp)
-target_link_libraries(${MEMGRAPH_BUILD_NAME} memgraph_lib)
-# Output the executable in main binary dir.
-set_target_properties(${MEMGRAPH_BUILD_NAME} PROPERTIES
+add_executable(memgraph memgraph_bolt.cpp)
+target_link_libraries(memgraph memgraph_lib)
+set_target_properties(memgraph PROPERTIES
+                      # Set the executable output name to include version information.
+                      OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
+                      # Output the executable in main binary dir.
                       RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# Create symlink to the built executable.
+add_custom_command(TARGET memgraph POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph> ${CMAKE_BINARY_DIR}/memgraph
+                   BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph
+                   COMMENT Creating symlink to memgraph executable)
+
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET ${MEMGRAPH_BUILD_NAME} POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:${MEMGRAPH_BUILD_NAME}>
-                     COMMENT Stripping symbols and sections from
-                             ${MEMGRAPH_BUILD_NAME})
+  add_custom_command(TARGET memgraph POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:memgraph>
+                     COMMENT Stripping symbols and sections from memgraph)
 endif()
-
-add_custom_target(memgraph_link_target ALL
-  COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:${MEMGRAPH_BUILD_NAME}> ${CMAKE_BINARY_DIR}/memgraph
-  DEPENDS ${MEMGRAPH_BUILD_NAME})
 
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 
 # Install and rename executable to just 'memgraph' Since we have to rename,
 # we cannot use the recommended `install(TARGETS ...)`.
-install(PROGRAMS ${CMAKE_BINARY_DIR}/${MEMGRAPH_BUILD_NAME}
+install(PROGRAMS $<TARGET_FILE:memgraph>
         DESTINATION bin RENAME memgraph)
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
