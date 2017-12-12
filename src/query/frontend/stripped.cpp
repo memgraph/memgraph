@@ -181,7 +181,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
            jt != tokens.end() && (jt->second != "," || num_open_braces ||
                                   num_open_parantheses || num_open_brackets) &&
            jt->second != "order" && jt->second != "skip" &&
-           jt->second != "limit" && jt->second != "union";
+           jt->second != "limit" && jt->second != "union" && jt->second != ";";
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;

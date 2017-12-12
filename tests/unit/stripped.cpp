@@ -346,4 +346,15 @@ TEST(QueryStripper, QueryReturnMap) {
   EXPECT_THAT(stripped.named_expressions(),
               UnorderedElementsAre(Pair(2, "{a: 1, b: 'foo'}")));
 }
+
+TEST(QueryStripper, QuerySemicolonEndingQuery1) {
+  StrippedQuery stripped("RETURN 1;");
+  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(2, "1")));
+}
+
+TEST(QueryStripper, QuerySemicolonEndingQuery2) {
+  StrippedQuery stripped("RETURN 42   ;");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "42")));
+}
 }
