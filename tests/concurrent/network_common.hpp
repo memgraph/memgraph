@@ -75,7 +75,7 @@ void client_run(int num, const char *interface, const char *port,
   NetworkEndpoint endpoint(interface, port);
   Socket socket;
   ASSERT_TRUE(socket.Connect(endpoint));
-  ASSERT_TRUE(socket.SetTimeout(2, 0));
+  socket.SetTimeout(2, 0);
   DLOG(INFO) << "Socket create: " << socket.fd();
   for (int len = lo; len <= hi; len += 100) {
     have = 0;

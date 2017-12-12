@@ -6,7 +6,6 @@
 #include "io/network/network_error.hpp"
 
 using endpoint_t = io::network::NetworkEndpoint;
-using exception_t = io::network::NetworkEndpointException;
 
 TEST(NetworkEndpoint, IPv4) {
   endpoint_t endpoint;
@@ -34,13 +33,13 @@ TEST(NetworkEndpoint, IPv4) {
   EXPECT_EQ(endpoint.family(), 4);
 
   // test address null
-  EXPECT_THROW(endpoint_t(nullptr, nullptr), exception_t);
+  EXPECT_DEATH(endpoint_t(nullptr, nullptr), "null");
 
   // test address invalid
-  EXPECT_THROW(endpoint_t("invalid", "12345"), exception_t);
+  EXPECT_DEATH(endpoint_t("invalid", "12345"), "addres");
 
   // test port invalid
-  EXPECT_THROW(endpoint_t("127.0.0.1", "invalid"), exception_t);
+  EXPECT_DEATH(endpoint_t("127.0.0.1", "invalid"), "port");
 }
 
 TEST(NetworkEndpoint, IPv6) {
@@ -68,14 +67,11 @@ TEST(NetworkEndpoint, IPv6) {
   EXPECT_EQ(endpoint.port(), 12347);
   EXPECT_EQ(endpoint.family(), 6);
 
-  // test address null
-  EXPECT_THROW(endpoint_t(nullptr, nullptr), exception_t);
-
   // test address invalid
-  EXPECT_THROW(endpoint_t("::g", "12345"), exception_t);
+  EXPECT_DEATH(endpoint_t("::g", "12345"), "address");
 
   // test port invalid
-  EXPECT_THROW(endpoint_t("::1", "invalid"), exception_t);
+  EXPECT_DEATH(endpoint_t("::1", "invalid"), "port");
 }
 
 int main(int argc, char **argv) {

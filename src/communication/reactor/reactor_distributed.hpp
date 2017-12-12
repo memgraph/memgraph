@@ -152,12 +152,7 @@ class Network {
     }
 
     // Initialize endpoint.
-    Endpoint endpoint;
-    try {
-      endpoint = Endpoint(FLAGS_reactor_address.c_str(), FLAGS_reactor_port);
-    } catch (io::network::NetworkEndpointException &e) {
-      LOG(FATAL) << e.what();
-    }
+    Endpoint endpoint(FLAGS_reactor_address.c_str(), FLAGS_reactor_port);
     // Initialize server
     server_ = std::make_unique<ServerT>(endpoint, protocol_data_);
 

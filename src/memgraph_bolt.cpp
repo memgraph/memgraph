@@ -69,13 +69,7 @@ int main(int argc, char **argv) {
   SessionData session_data;
 
   // Initialize endpoint.
-  NetworkEndpoint endpoint = [&] {
-    try {
-      return NetworkEndpoint(FLAGS_interface, FLAGS_port);
-    } catch (io::network::NetworkEndpointException &e) {
-      LOG(FATAL) << e.what();
-    }
-  }();
+  NetworkEndpoint endpoint(FLAGS_interface, FLAGS_port);
 
   // Initialize server.
   ServerT server(endpoint, session_data);

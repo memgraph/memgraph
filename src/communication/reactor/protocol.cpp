@@ -98,13 +98,7 @@ bool SendLength(Socket &socket, SizeT length) {
 void SendMessage(std::string address, uint16_t port, std::string reactor,
                  std::string channel, std::unique_ptr<Message> message) {
   // Initialize endpoint.
-  Endpoint endpoint;
-  try {
-    endpoint = Endpoint(address.c_str(), port);
-  } catch (io::network::NetworkEndpointException &e) {
-    LOG(INFO) << "Address is invalid!";
-    return;
-  }
+  Endpoint endpoint(address.c_str(), port);
 
   // Initialize socket.
   Socket socket;

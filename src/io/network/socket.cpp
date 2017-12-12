@@ -16,6 +16,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "glog/logging.h"
+
 #include "io/network/addrinfo.hpp"
 #include "threading/sync/cpu_relax.hpp"
 #include "utils/likely.hpp"
@@ -102,62 +104,51 @@ bool Socket::Bind(const NetworkEndpoint &endpoint) {
   return true;
 }
 
-bool Socket::SetNonBlocking() {
+void Socket::SetNonBlocking() {
   int flags = fcntl(socket_, F_GETFL, 0);
-
-  if (UNLIKELY(flags == -1)) return false;
-
+  CHECK(flags != -1) << "Can't get socket mode";
   flags |= O_NONBLOCK;
-  int ret = fcntl(socket_, F_SETFL, flags);
-
-  if (UNLIKELY(ret == -1)) return false;
-  return true;
+  CHECK(fcntl(socket_, F_SETFL, flags) != -1) << "Can't set socket nonblocking";
 }
 
-bool Socket::SetKeepAlive() {
+void Socket::SetKeepAlive() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  if (setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0)
-    return false;
+  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen))
+      << "Can't set socket keep alive";
 
   optval = 20;  // wait 120s before seding keep-alive packets
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen) < 0)
-    return false;
+  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen))
+      << "Can't set socket keep alive";
 
   optval = 4;  // 4 keep-alive packets must fail to close
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen) < 0)
-    return false;
+  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen))
+      << "Can't set socket keep alive";
 
   optval = 15;  // send keep-alive packets every 15s
-  if (setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen) < 0)
-    return false;
-
-  return true;
+  CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen))
+      << "Can't set socket keep alive";
 }
 
-bool Socket::SetNoDelay() {
+void Socket::SetNoDelay() {
   int optval = 1;
   socklen_t optlen = sizeof(optval);
 
-  if (setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen) < 0)
-    return false;
-
-  return true;
+  CHECK(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen))
+      << "Can't set socket no delay";
 }
 
-bool Socket::SetTimeout(long sec, long usec) {
+void Socket::SetTimeout(long sec, long usec) {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
 
-  if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
-    return false;
+  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)))
+      << "Can't set socket timeout";
 
-  if (setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
-    return false;
-
-  return true;
+  CHECK(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)))
+      << "Can't set socket timeout";
 }
 
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
@@ -182,12 +173,7 @@ std::experimental::optional<Socket> Socket::Accept() {
 
   inet_ntop(addr.ss_family, addr_src, addr_decoded, INET6_ADDRSTRLEN);
 
-  NetworkEndpoint endpoint;
-  try {
-    endpoint = NetworkEndpoint(addr_decoded, port);
-  } catch (NetworkEndpointException &e) {
-    return std::experimental::nullopt;
-  }
+  NetworkEndpoint endpoint(addr_decoded, port);
 
   return Socket(sfd, endpoint);
 }

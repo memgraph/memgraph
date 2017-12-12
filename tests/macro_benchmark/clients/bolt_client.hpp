@@ -20,13 +20,8 @@ class BoltClient {
              const std::string &username, const std::string &password,
              const std::string & = "") {
     SocketT socket;
-    EndpointT endpoint;
+    EndpointT endpoint(address, port);
 
-    try {
-      endpoint = EndpointT(address, port);
-    } catch (const io::network::NetworkEndpointException &e) {
-      LOG(FATAL) << "Invalid address or port: " << address << ":" << port;
-    }
     if (!socket.Connect(endpoint)) {
       LOG(FATAL) << "Could not connect to: " << address << ":" << port;
     }

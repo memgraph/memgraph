@@ -7,11 +7,6 @@
 
 namespace io::network {
 
-class NetworkEndpointException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-};
-
 /**
  * This class represents a network endpoint that is used in Socket.
  * It is used when connecting to an address and to get the current

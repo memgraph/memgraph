@@ -81,44 +81,28 @@ class Socket {
 
   /**
    * Sets the socket to non-blocking.
-   *
-   * @return set non-blocking success status:
-   *             true if the socket was successfully set to non-blocking
-   *             false if the socket was not set to non-blocking
    */
-  bool SetNonBlocking();
+  void SetNonBlocking();
 
   /**
    * Enables TCP keep-alive on the socket.
-   *
-   * @return enable keep-alive success status:
-   *             true if keep-alive was successfully enabled on the socket
-   *             false if keep-alive was not enabled
    */
-  bool SetKeepAlive();
+  void SetKeepAlive();
 
   /**
    * Enables TCP no_delay on the socket.
    * When enabled, the socket doesn't wait for an ACK of every data packet
    * before sending the next packet.
-   *
-   * @return enable no_delay success status:
-   *             true if no_delay was successfully enabled on the socket
-   *             false if no_delay was not enabled
    */
-  bool SetNoDelay();
+  void SetNoDelay();
 
   /**
    * Sets the socket timeout.
    *
    * @param sec timeout seconds value
    * @param usec timeout microseconds value
-   * @return set socket timeout status:
-   *             true if the timeout was successfully set to
-   *                 sec seconds + usec microseconds
-   *             false if the timeout was not set
    */
-  bool SetTimeout(long sec, long usec);
+  void SetTimeout(long sec, long usec);
 
   /**
    * Returns the socket file descriptor.

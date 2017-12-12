@@ -41,12 +41,7 @@ void System::StartServer(int worker_count) {
   }
 
   // Initialize endpoint.
-  Endpoint endpoint;
-  try {
-    endpoint = Endpoint(address_.c_str(), port_);
-  } catch (io::network::NetworkEndpointException &e) {
-    LOG(FATAL) << e.what();
-  }
+  Endpoint endpoint(address_.c_str(), port_);
   // Initialize server.
   server_ = std::make_unique<ServerT>(endpoint, protocol_data_);
 

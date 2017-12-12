@@ -58,7 +58,7 @@ void client_run(int num, const char *interface, const char *port) {
   Socket socket;
   uint8_t data = 0x00;
   ASSERT_TRUE(socket.Connect(endpoint));
-  ASSERT_TRUE(socket.SetTimeout(1, 0));
+  socket.SetTimeout(1, 0);
   // set socket timeout to 1s
   ASSERT_TRUE(socket.Write((uint8_t *)"\xAA", 1));
   ASSERT_TRUE(socket.Read(&data, 1));

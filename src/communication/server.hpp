@@ -49,9 +49,7 @@ class Server {
       LOG(FATAL) << "Cannot bind to socket on " << endpoint.address() << " at "
                  << endpoint.port();
     }
-    if (!socket_.SetNonBlocking()) {
-      LOG(FATAL) << "Cannot set socket to non blocking!";
-    }
+    socket_.SetNonBlocking();
     if (!socket_.Listen(1024)) {
       LOG(FATAL) << "Cannot listen on socket!";
     }
@@ -126,9 +124,9 @@ class Server {
           s->fd(), s->endpoint().address(), s->endpoint().family(),
           s->endpoint().port());
 
-      if (!s->SetTimeout(1, 0)) return std::experimental::nullopt;
-      if (!s->SetKeepAlive()) return std::experimental::nullopt;
-      if (!s->SetNoDelay()) return std::experimental::nullopt;
+      s->SetTimeout(1, 0);
+      s->SetKeepAlive();
+      s->SetNoDelay();
       return s;
     }
 

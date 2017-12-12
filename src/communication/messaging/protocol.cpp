@@ -67,15 +67,8 @@ void SendMessage(const std::string &address, uint16_t port,
   CHECK(message) << "Trying to send nullptr instead of message";
 
   // Initialize endpoint.
-  Endpoint endpoint;
-  try {
-    endpoint = Endpoint(address.c_str(), port);
-  } catch (io::network::NetworkEndpointException &e) {
-    LOG(ERROR) << "Address {} is invalid!";
-    return;
-  }
+  Endpoint endpoint(address.c_str(), port);
 
-  // Initialize socket.
   Socket socket;
   if (!socket.Connect(endpoint)) {
     LOG(INFO) << "Couldn't connect to remote address: " << address << ":"
