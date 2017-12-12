@@ -340,4 +340,10 @@ TEST(QueryStripper, UnionAllMultipleReturnStatementsNamedExpressions) {
   EXPECT_THAT(stripped.named_expressions(),
               UnorderedElementsAre(Pair(2, "x"), Pair(10, "x")));
 }
+
+TEST(QueryStripper, QueryReturnMap) {
+  StrippedQuery stripped("RETURN {a: 1, b: 'foo'}");
+  EXPECT_THAT(stripped.named_expressions(),
+              UnorderedElementsAre(Pair(2, "{a: 1, b: 'foo'}")));
+}
 }

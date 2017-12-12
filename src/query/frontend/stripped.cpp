@@ -176,10 +176,12 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       // list literal / function call.
       int num_open_braces = 0;
       int num_open_parantheses = 0;
-      for (; jt != tokens.end() &&
-             (jt->second != "," || num_open_braces || num_open_parantheses) &&
-             jt->second != "order" && jt->second != "skip" &&
-             jt->second != "limit" && jt->second != "union";
+      int num_open_brackets = 0;
+      for (;
+           jt != tokens.end() && (jt->second != "," || num_open_braces ||
+                                  num_open_parantheses || num_open_brackets) &&
+           jt->second != "order" && jt->second != "skip" &&
+           jt->second != "limit" && jt->second != "union";
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;
@@ -189,6 +191,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
           ++num_open_braces;
         } else if (jt->second == "]") {
           --num_open_braces;
+        } else if (jt->second == "{") {
+          ++num_open_brackets;
+        } else if (jt->second == "}") {
+          --num_open_brackets;
         }
         has_as |= jt->second == "as";
         if (jt->first != Token::SPACE) {
