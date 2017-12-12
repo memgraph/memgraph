@@ -1074,9 +1074,11 @@ class Pattern : public Tree {
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      identifier_->Accept(visitor);
+      bool cont = identifier_->Accept(visitor);
       for (auto &part : atoms_) {
-        if (!part->Accept(visitor)) break;
+        if (cont) {
+          cont = part->Accept(visitor);
+        }
       }
     }
     return visitor.PostVisit(*this);
