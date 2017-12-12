@@ -18,6 +18,8 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure|failed-upgrade)
+        # Remove optional immutability from examples directory to allow removal
+        chattr -i -R /usr/share/memgraph/examples || true
         if [ -d /run/systemd/system ]; then
             deb-systemd-invoke stop memgraph.service >/dev/null
         fi

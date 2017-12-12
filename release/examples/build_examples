@@ -1,0 +1,44 @@
+#!/bin/bash -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+build_dir="build"
+query="populate.cyp"
+
+cd $script_dir
+
+if [ -d "$build_dir" ]; then
+  rm -rf "$build_dir"
+fi
+
+mkdir "$build_dir"
+
+
+for dir in queries/*/
+do
+  cd $script_dir # position to script execution dir
+
+  dir=${dir%*/}
+  example=${dir#*/}
+
+  # create snapshots directory for each example
+  snapshots_dir="$build_dir/$example"
+  mkdir -p "$snapshots_dir"
+
+  # run memgraph with durability_directory pointing
+  # to examples snapshots_dir
+  cd ../../build/
+  ./memgraph --durability-directory "$script_dir/$snapshots_dir/" \
+             --snapshot-on-exit > /dev/null 2>&1 &
+  memgraph_pid=$!
+  sleep 2 # wait for memgraph to start
+
+  cd tests/manual
+  # create data using bolt-client
+  ./bolt_client < "$script_dir/$dir/$query" > /dev/null 2>&1 || exit 1
+
+  # kill memgraph
+  kill $memgraph_pid
+
+  # wait for memgraph to terminate
+  wait $memgraph_pid
+done

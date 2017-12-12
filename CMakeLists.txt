@@ -220,6 +220,7 @@ set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/copyright;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/prerm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postrm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postinst;")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)

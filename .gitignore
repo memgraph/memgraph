@@ -18,6 +18,7 @@
 Testing/
 build
 build/
+release/examples/build
 cmake-build-*
 cmake/DownloadProject/
 dist/
