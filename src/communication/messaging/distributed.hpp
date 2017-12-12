@@ -72,8 +72,7 @@ class System {
   std::shared_ptr<EventStream> Open(const std::string &name);
   void Shutdown();
 
-  const std::string &address() const { return address_; }
-  uint16_t port() const { return port_; }
+  const io::network::NetworkEndpoint &endpoint() const { return endpoint_; }
 
  private:
   using Endpoint = io::network::NetworkEndpoint;
@@ -116,8 +115,7 @@ class System {
   std::thread thread_;
   SessionData protocol_data_;
   std::unique_ptr<ServerT> server_{nullptr};
-  std::string address_;
-  uint16_t port_;
+  io::network::NetworkEndpoint endpoint_;
 
   LocalSystem &system_ = protocol_data_.system;
 };

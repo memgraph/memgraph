@@ -77,7 +77,8 @@ Client::Client(messaging::System &system, const std::string &address,
 std::unique_ptr<messaging::Message> Client::Call(
     std::chrono::system_clock::duration timeout,
     std::unique_ptr<messaging::Message> message) {
-  auto request = std::make_unique<Request>(system_.address(), system_.port(),
+  auto request = std::make_unique<Request>(system_.endpoint().address(),
+                                           system_.endpoint().port(),
                                            stream_->name(), std::move(message));
   auto message_id = request->message_id();
   writer_.Send(std::move(request));

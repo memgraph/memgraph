@@ -31,17 +31,18 @@ CEREAL_REGISTER_TYPE(MessageInt);
   * Test do the services start up without crashes.
   */
 TEST(SimpleTests, StartAndShutdown) {
-  System system("127.0.0.1", 10000);
+  System system("127.0.0.1", 0);
   // do nothing
   std::this_thread::sleep_for(500ms);
   system.Shutdown();
 }
 
 TEST(Messaging, Pop) {
-  System master_system("127.0.0.1", 10000);
-  System slave_system("127.0.0.1", 10001);
+  System master_system("127.0.0.1", 0);
+  System slave_system("127.0.0.1", 0);
   auto stream = master_system.Open("main");
-  Writer writer(slave_system, "127.0.0.1", 10000, "main");
+  Writer writer(slave_system, "127.0.0.1", master_system.endpoint().port(),
+                "main");
   std::this_thread::sleep_for(100ms);
 
   EXPECT_EQ(stream->Poll(), nullptr);
@@ -52,10 +53,11 @@ TEST(Messaging, Pop) {
 }
 
 TEST(Messaging, Await) {
-  System master_system("127.0.0.1", 10000);
-  System slave_system("127.0.0.1", 10001);
+  System master_system("127.0.0.1", 0);
+  System slave_system("127.0.0.1", 0);
   auto stream = master_system.Open("main");
-  Writer writer(slave_system, "127.0.0.1", 10000, "main");
+  Writer writer(slave_system, "127.0.0.1", master_system.endpoint().port(),
+                "main");
   std::this_thread::sleep_for(100ms);
 
   std::thread t([&] {
@@ -73,10 +75,11 @@ TEST(Messaging, Await) {
 }
 
 TEST(Messaging, RecreateChannelAfterClosing) {
-  System master_system("127.0.0.1", 10000);
-  System slave_system("127.0.0.1", 10001);
+  System master_system("127.0.0.1", 0);
+  System slave_system("127.0.0.1", 0);
   auto stream = master_system.Open("main");
-  Writer writer(slave_system, "127.0.0.1", 10000, "main");
+  Writer writer(slave_system, "127.0.0.1", master_system.endpoint().port(),
+                "main");
   std::this_thread::sleep_for(100ms);
 
   writer.Send<MessageInt>(10);

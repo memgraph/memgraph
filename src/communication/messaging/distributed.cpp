@@ -3,7 +3,7 @@
 namespace communication::messaging {
 
 System::System(const std::string &address, uint16_t port)
-    : address_(address), port_(port) {
+    : endpoint_(address, port) {
   // Numbers of worker are quite arbitrary at the point.
   StartClient(4);
   StartServer(4);
@@ -40,10 +40,9 @@ void System::StartServer(int worker_count) {
     LOG(FATAL) << "Tried to start a running server!";
   }
 
-  // Initialize endpoint.
-  Endpoint endpoint(address_.c_str(), port_);
   // Initialize server.
-  server_ = std::make_unique<ServerT>(endpoint, protocol_data_);
+  server_ = std::make_unique<ServerT>(endpoint_, protocol_data_);
+  endpoint_ = server_->endpoint();
 
   // Start server.
   thread_ = std::thread(

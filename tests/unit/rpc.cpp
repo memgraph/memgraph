@@ -39,7 +39,7 @@ CEREAL_REGISTER_TYPE(SumRes);
 using Sum = RequestResponse<SumReq, SumRes>;
 
 TEST(Rpc, Call) {
-  System server_system("127.0.0.1", 10000);
+  System server_system("127.0.0.1", 0);
   Server server(server_system, "main");
   server.Register<Sum>([](const SumReq &request) {
     return std::make_unique<SumRes>(request.x + request.y);
@@ -47,8 +47,9 @@ TEST(Rpc, Call) {
   std::thread server_thread([&] { server.Start(); });
   std::this_thread::sleep_for(100ms);
 
-  System client_system("127.0.0.1", 10001);
-  Client client(client_system, "127.0.0.1", 10000, "main");
+  System client_system("127.0.0.1", 0);
+  Client client(client_system, "127.0.0.1", server_system.endpoint().port(),
+                "main");
   auto sum = client.Call<Sum>(300ms, 10, 20);
   EXPECT_EQ(sum->sum, 30);
 
@@ -59,7 +60,7 @@ TEST(Rpc, Call) {
 }
 
 TEST(Rpc, Timeout) {
-  System server_system("127.0.0.1", 10000);
+  System server_system("127.0.0.1", 0);
   Server server(server_system, "main");
   server.Register<Sum>([](const SumReq &request) {
     std::this_thread::sleep_for(300ms);
@@ -68,8 +69,9 @@ TEST(Rpc, Timeout) {
   std::thread server_thread([&] { server.Start(); });
   std::this_thread::sleep_for(100ms);
 
-  System client_system("127.0.0.1", 10001);
-  Client client(client_system, "127.0.0.1", 10000, "main");
+  System client_system("127.0.0.1", 0);
+  Client client(client_system, "127.0.0.1", server_system.endpoint().port(),
+                "main");
   auto sum = client.Call<Sum>(100ms, 10, 20);
   EXPECT_FALSE(sum);
 
