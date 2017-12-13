@@ -7,8 +7,8 @@
 #include "communication/rpc/rpc.hpp"
 #include "gtest/gtest.h"
 
-using communication::messaging::System;
 using communication::messaging::Message;
+using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 

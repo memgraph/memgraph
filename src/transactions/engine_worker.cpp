@@ -15,7 +15,6 @@ WorkerEngine::WorkerEngine(communication::messaging::System &system,
     : rpc_client_(system, tx_server_host, tx_server_port, "tx_engine") {}
 
 Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {
-  std::lock_guard<std::mutex> guard(rpc_client_lock_);
   auto accessor = active_.access();
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
@@ -30,7 +29,6 @@ Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {
 }
 
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
-  std::lock_guard<std::mutex> guard(rpc_client_lock_);
   auto info = clog_.fetch_info(tid);
   // If we don't know the transaction to be commited nor aborted, ask the
   // master about it and update the local commit log.
@@ -50,18 +48,15 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
 }
 
 Snapshot WorkerEngine::GlobalGcSnapshot() {
-  std::lock_guard<std::mutex> guard(rpc_client_lock_);
   return std::move(rpc_client_.Call<GcSnapshotRpc>(kRpcTimeout)->member);
 }
 
 Snapshot WorkerEngine::GlobalActiveTransactions() {
-  std::lock_guard<std::mutex> guard(rpc_client_lock_);
   return std::move(
       rpc_client_.Call<ActiveTransactionsRpc>(kRpcTimeout)->member);
 }
 
 bool WorkerEngine::GlobalIsActive(transaction_id_t tid) const {
-  std::lock_guard<std::mutex> guard(rpc_client_lock_);
   return rpc_client_.Call<IsActiveRpc>(kRpcTimeout, tid)->member;
 }
 

@@ -128,6 +128,6 @@ void Server::Shutdown() {
   alive_ = false;
   stream_->Shutdown();
 }
-}
+}  // namespace communication::rpc
 CEREAL_REGISTER_TYPE(communication::rpc::Request);
 CEREAL_REGISTER_TYPE(communication::rpc::Response);

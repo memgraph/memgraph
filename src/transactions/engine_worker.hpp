@@ -1,7 +1,7 @@
 #pragma once
 
-#include <mutex>
 #include <atomic>
+#include <mutex>
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
@@ -36,6 +36,5 @@ class WorkerEngine : public Engine {
 
   // Communication to the transactional master.
   mutable communication::rpc::Client rpc_client_;
-  mutable std::mutex rpc_client_lock_;
 };
 }  // namespace tx

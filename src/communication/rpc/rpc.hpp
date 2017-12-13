@@ -12,7 +12,7 @@ struct RequestResponse {
   using Response = TResponse;
 };
 
-// Client is not thread safe.
+// Client is thread safe.
 class Client {
  public:
   Client(messaging::System &system, const std::string &address, uint16_t port,
@@ -30,6 +30,7 @@ class Client {
                   "TRequestResponse::Request must be derived from Message");
     static_assert(std::is_base_of<messaging::Message, Res>::value,
                   "TRequestResponse::Response must be derived from Message");
+    std::lock_guard<std::mutex> lock(lock_);
     auto response =
         Call(timeout, std::unique_ptr<messaging::Message>(
                           std::make_unique<Req>(std::forward<Args>(args)...)));
@@ -50,6 +51,7 @@ class Client {
   messaging::System &system_;
   messaging::Writer writer_;
   std::shared_ptr<messaging::EventStream> stream_;
+  std::mutex lock_;
 };
 
 class Server {
@@ -68,8 +70,9 @@ class Server {
                                   typename TRequestResponse::Response>::value,
                   "TRequestResponse::Response must be derived from Message");
     auto got = callbacks_.emplace(
-        typeid(typename TRequestResponse::Request),
-        [callback = callback](const messaging::Message &base_message) {
+        typeid(typename TRequestResponse::Request), [callback = callback](
+                                                        const messaging::Message
+                                                            &base_message) {
           const auto &message =
               dynamic_cast<const typename TRequestResponse::Request &>(
                   base_message);
@@ -90,4 +93,4 @@ class Server {
       callbacks_;
   std::atomic<bool> alive_{true};
 };
-}
+}  // namespace communication::rpc
