@@ -8,6 +8,8 @@
 #include "cereal/types/utility.hpp"
 #include "cereal/types/vector.hpp"
 
+#include "communication/messaging/local.hpp"
+
 #define RPC_NO_MEMBER_MESSAGE(name)                    \
   using communication::messaging::Message;             \
   struct name : public Message {                       \
