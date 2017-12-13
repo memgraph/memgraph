@@ -13,6 +13,19 @@ struct DummyState {
   struct Result {};
 };
 
+struct IntState {
+  int x;
+
+  struct Change {
+    enum Type { ADD, SUB, SET };
+    Type t;
+    int d;
+
+    bool operator==(const Change &rhs) { return t == rhs.t && d == rhs.d; }
+    bool operator!=(const Change &rhs) { return !(*this == rhs); };
+  };
+};
+
 template <class State>
 class NoOpNetworkInterface : public RaftNetworkInterface<State> {
  public:

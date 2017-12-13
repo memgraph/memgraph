@@ -197,8 +197,7 @@ bool RaftMemberImpl<State>::SendRPC(const std::string &recipient,
     return false;
   }
 
-  DCHECK(reply.Term() >= term_)
-      << "Response term should be >= request term";
+  DCHECK(reply.Term() >= term_) << "Response term should be >= request term";
 
   /* [Raft thesis, Section 3.3]
    * "Current terms are exchanged whenever servers communicate; if one server's
@@ -259,6 +258,12 @@ void RaftMemberImpl<State>::StartNewElection() {
      */
     peer_state->next_heartbeat_time = TimePoint::min();
   }
+  
+  // We already have the majority if we're in a single node cluster.
+  if (CountVotes()) {
+    LogInfo("Elected as leader.");
+    CandidateTransitionToLeader();
+  }
 
   /* Notify peer threads to start issuing RequestVote RPCs. */
   state_changed_.notify_all();
@@ -285,7 +290,7 @@ void RaftMemberImpl<State>::RequestVote(const std::string &peer_id,
   LogInfo("Requesting vote from {}", peer_id);
 
   PeerRPCRequest<State> request;
-  request.type = PeerRPCRequest<State>::Type::REQUEST_VOTE;
+  request.type = RPCType::REQUEST_VOTE;
   request.request_vote.candidate_term = term_;
   request.request_vote.candidate_id = id_;
 
@@ -358,7 +363,7 @@ void RaftMemberImpl<State>::AppendEntries(const std::string &peer_id,
   LogInfo("Appending entries to {}", peer_id);
 
   PeerRPCRequest<State> request;
-  request.type = PeerRPCRequest<State>::Type::APPEND_ENTRIES;
+  request.type = RPCType::APPEND_ENTRIES;
   request.append_entries.leader_term = term_;
   request.append_entries.leader_id = id_;
 
@@ -603,6 +608,40 @@ PeerRPCReply::AppendEntries RaftMemberImpl<State>::OnAppendEntries(
   return reply;
 }
 
+template <class State>
+ClientResult RaftMemberImpl<State>::AddCommand(
+    const typename State::Change &command, bool blocking) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (mode_ != RaftMode::LEADER) {
+    return ClientResult::NOT_LEADER;
+  }
+
+  LogEntry<State> entry;
+  entry.term = term_;
+  entry.command = command;
+  storage_.AppendLogEntry(entry);
+
+  // Entry is already replicated if this is a single node cluster.
+  AdvanceCommitIndex();
+
+  state_changed_.notify_all();
+
+  if (!blocking) {
+    return ClientResult::OK;
+  }
+
+  LogIndex index = storage_.GetLastLogIndex();
+
+  while (!exiting_ && term_ == entry.term) {
+    if (commit_index_ >= index) {
+      return ClientResult::OK;
+    }
+    state_changed_.wait(lock);
+  }
+
+  return ClientResult::NOT_LEADER;
+}
+
 }  // namespace impl
 
 template <class State>
@@ -641,6 +680,12 @@ template <class State>
 PeerRPCReply::AppendEntries RaftMember<State>::OnAppendEntries(
     const typename PeerRPCRequest<State>::AppendEntries &request) {
   return impl_.OnAppendEntries(request);
+}
+
+template <class State>
+ClientResult RaftMember<State>::AddCommand(
+    const typename State::Change &command, bool blocking) {
+  return impl_.AddCommand(command, blocking);
 }
 
 }  // namespace communication::raft

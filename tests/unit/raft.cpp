@@ -13,6 +13,7 @@ using namespace communication::raft::test_utils;
 
 using testing::Values;
 
+const RaftConfig test_config1{{"a"}, 150ms, 300ms, 70ms};
 const RaftConfig test_config2{{"a", "b"}, 150ms, 300ms, 70ms};
 const RaftConfig test_config3{{"a", "b", "c"}, 150ms, 300ms, 70ms};
 const RaftConfig test_config5{{"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms};
@@ -20,9 +21,9 @@ const RaftConfig test_config5{{"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms};
 using communication::raft::impl::RaftMemberImpl;
 using communication::raft::impl::RaftMode;
 
-class RaftMemberTest : public ::testing::Test {
+class RaftMemberImplTest : public ::testing::Test {
  public:
-  RaftMemberTest()
+  RaftMemberImplTest()
       : storage_(1, "a", {}), member(network_, storage_, "a", test_config5) {}
 
   void SetLog(std::vector<LogEntry<DummyState>> log) {
@@ -34,14 +35,14 @@ class RaftMemberTest : public ::testing::Test {
   RaftMemberImpl<DummyState> member;
 };
 
-TEST_F(RaftMemberTest, Constructor) {
+TEST_F(RaftMemberImplTest, Constructor) {
   EXPECT_EQ(member.mode_, RaftMode::FOLLOWER);
   EXPECT_EQ(member.term_, 1);
   EXPECT_EQ(*member.voted_for_, "a");
   EXPECT_EQ(member.commit_index_, 0);
 }
 
-TEST_F(RaftMemberTest, CandidateOrLeaderTransitionToFollower) {
+TEST_F(RaftMemberImplTest, CandidateOrLeaderTransitionToFollower) {
   member.mode_ = RaftMode::CANDIDATE;
   member.CandidateTransitionToLeader();
 
@@ -51,7 +52,7 @@ TEST_F(RaftMemberTest, CandidateOrLeaderTransitionToFollower) {
   EXPECT_LT(member.next_election_time_, TimePoint::max());
 }
 
-TEST_F(RaftMemberTest, CandidateTransitionToLeader) {
+TEST_F(RaftMemberImplTest, CandidateTransitionToLeader) {
   member.mode_ = RaftMode::CANDIDATE;
   member.CandidateTransitionToLeader();
 
@@ -60,7 +61,7 @@ TEST_F(RaftMemberTest, CandidateTransitionToLeader) {
   EXPECT_EQ(member.next_election_time_, TimePoint::max());
 }
 
-TEST_F(RaftMemberTest, StartNewElection) {
+TEST_F(RaftMemberImplTest, StartNewElection) {
   member.StartNewElection();
 
   EXPECT_EQ(member.mode_, RaftMode::CANDIDATE);
@@ -68,7 +69,7 @@ TEST_F(RaftMemberTest, StartNewElection) {
   EXPECT_EQ(member.voted_for_, member.id_);
 }
 
-TEST_F(RaftMemberTest, CountVotes) {
+TEST_F(RaftMemberImplTest, CountVotes) {
   member.StartNewElection();
   EXPECT_FALSE(member.CountVotes());
 
@@ -79,7 +80,7 @@ TEST_F(RaftMemberTest, CountVotes) {
   EXPECT_TRUE(member.CountVotes());
 }
 
-TEST_F(RaftMemberTest, AdvanceCommitIndex) {
+TEST_F(RaftMemberImplTest, AdvanceCommitIndex) {
   SetLog({{1}, {1}, {1}, {1}, {2}, {2}, {2}, {2}});
 
   member.mode_ = RaftMode::LEADER;
@@ -129,10 +130,10 @@ TEST(RequestVote, SimpleElection) {
   std::unique_lock<std::mutex> lock(member.mutex_);
 
   PeerRPCReply next_reply;
-  next_reply.type = PeerRPCReply::Type::REQUEST_VOTE;
+  next_reply.type = RPCType::REQUEST_VOTE;
 
   network.on_request_ = [](const PeerRPCRequest<DummyState> &request) {
-    ASSERT_EQ(request.type, PeerRPCRequest<DummyState>::Type::REQUEST_VOTE);
+    ASSERT_EQ(request.type, RPCType::REQUEST_VOTE);
     ASSERT_EQ(request.request_vote.candidate_term, 2);
     ASSERT_EQ(request.request_vote.candidate_id, "a");
   };
@@ -177,7 +178,7 @@ TEST(AppendEntries, SimpleLogSync) {
   std::unique_lock<std::mutex> lock(member.mutex_);
 
   PeerRPCReply reply;
-  reply.type = PeerRPCReply::Type::APPEND_ENTRIES;
+  reply.type = RPCType::APPEND_ENTRIES;
 
   reply.append_entries.term = 3;
   reply.append_entries.success = false;
@@ -188,7 +189,7 @@ TEST(AppendEntries, SimpleLogSync) {
   std::vector<LogEntry<DummyState>> expected_entries;
 
   network.on_request_ = [&](const PeerRPCRequest<DummyState> &request) {
-    EXPECT_EQ(request.type, PeerRPCRequest<DummyState>::Type::APPEND_ENTRIES);
+    EXPECT_EQ(request.type, RPCType::APPEND_ENTRIES);
     EXPECT_EQ(request.append_entries.leader_term, 3);
     EXPECT_EQ(request.append_entries.leader_id, "a");
     EXPECT_EQ(request.append_entries.prev_log_index, expected_prev_log_index);
@@ -600,3 +601,43 @@ INSTANTIATE_TEST_CASE_P(
             1,
             true,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}}}));
+
+TEST(RaftMemberTest, AddCommand) {
+  NextReplyNetworkInterface<IntState> network;
+
+  std::vector<IntState::Change> changes = {{IntState::Change::Type::ADD, 5},
+                                           {IntState::Change::Type::ADD, 10}};
+
+  network.on_request_ = [&network, num_calls = 0 ](
+      const PeerRPCRequest<IntState> &request) mutable {
+    ++num_calls;
+    PeerRPCReply reply;
+
+    if (num_calls == 1) {
+      reply.type = RPCType::REQUEST_VOTE;
+      reply.request_vote.term = 1;
+      reply.request_vote.vote_granted = true;
+    } else {
+      reply.type = RPCType::APPEND_ENTRIES;
+      reply.append_entries.term = 1;
+      reply.append_entries.success = true;
+    }
+
+    network.next_reply_ = reply;
+  };
+
+  InMemoryStorageInterface<IntState> storage(0, {}, {});
+  RaftMember<IntState> member(network, storage, "a", test_config2);
+
+  std::this_thread::sleep_for(500ms);
+
+  member.AddCommand(changes[0], false);
+  member.AddCommand(changes[1], true);
+
+  ASSERT_EQ(storage.log_.size(), 3);
+  EXPECT_EQ(storage.log_[0].command, std::experimental::nullopt);
+  EXPECT_TRUE(storage.log_[1].command &&
+              *storage.log_[1].command == changes[0]);
+  EXPECT_TRUE(storage.log_[2].command &&
+              *storage.log_[2].command == changes[1]);
+}

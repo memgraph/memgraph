@@ -117,11 +117,11 @@ class RaftMemberLocalReactor {
 
   PeerRPCReply OnRPC(const PeerRPCRequest<State> &request) {
     PeerRPCReply reply;
-    if (request.type == PeerRPCRequest<State>::Type::REQUEST_VOTE) {
-      reply.type = PeerRPCReply::Type::REQUEST_VOTE;
+    if (request.type == RPCType::REQUEST_VOTE) {
+      reply.type = RPCType::REQUEST_VOTE;
       reply.request_vote = member_.OnRequestVote(request.request_vote);
-    } else if (request.type == PeerRPCRequest<State>::Type::APPEND_ENTRIES) {
-      reply.type = PeerRPCReply::Type::APPEND_ENTRIES;
+    } else if (request.type == RPCType::APPEND_ENTRIES) {
+      reply.type = RPCType::APPEND_ENTRIES;
       reply.append_entries = member_.OnAppendEntries(request.append_entries);
     } else {
       LOG(FATAL) << "Unknown Raft RPC request type";

@@ -12,6 +12,8 @@
 
 namespace communication::raft {
 
+enum class ClientResult { NOT_LEADER, OK };
+
 using Clock = std::chrono::system_clock;
 using TimePoint = std::chrono::system_clock::time_point;
 
@@ -36,11 +38,11 @@ struct LogEntry {
 };
 
 /* Raft RPC requests and replies as described in [Raft thesis, Figure 3.1]. */
+enum class RPCType { REQUEST_VOTE, APPEND_ENTRIES };
+
 template <class State>
 struct PeerRPCRequest {
-  enum class Type { REQUEST_VOTE, APPEND_ENTRIES };
-
-  Type type;
+  RPCType type;
 
   struct RequestVote {
     TermId candidate_term;
@@ -60,18 +62,16 @@ struct PeerRPCRequest {
 
   TermId Term() const {
     switch (type) {
-      case Type::REQUEST_VOTE:
+      case RPCType::REQUEST_VOTE:
         return request_vote.candidate_term;
-      case Type::APPEND_ENTRIES:
+      case RPCType::APPEND_ENTRIES:
         return append_entries.leader_term;
     }
   }
 };
 
 struct PeerRPCReply {
-  enum class Type { REQUEST_VOTE, APPEND_ENTRIES };
-
-  Type type;
+  RPCType type;
 
   struct RequestVote {
     TermId term;
@@ -85,9 +85,9 @@ struct PeerRPCReply {
 
   TermId Term() const {
     switch (type) {
-      case Type::REQUEST_VOTE:
+      case RPCType::REQUEST_VOTE:
         return request_vote.term;
-      case Type::APPEND_ENTRIES:
+      case RPCType::APPEND_ENTRIES:
         return append_entries.term;
     }
   }
@@ -148,8 +148,8 @@ template <class State>
 class RaftMemberImpl {
  public:
   explicit RaftMemberImpl(RaftNetworkInterface<State> &network,
-                              RaftStorageInterface<State> &storage,
-                              const MemberId &id, const RaftConfig &config);
+                          RaftStorageInterface<State> &storage,
+                          const MemberId &id, const RaftConfig &config);
 
   ~RaftMemberImpl();
 
@@ -182,6 +182,8 @@ class RaftMemberImpl {
       const typename PeerRPCRequest<State>::RequestVote &request);
   PeerRPCReply::AppendEntries OnAppendEntries(
       const typename PeerRPCRequest<State>::AppendEntries &request);
+
+  ClientResult AddCommand(const typename State::Change &command, bool blocking);
 
   template <class... Args>
   void LogInfo(const std::string &, Args &&...);
@@ -221,7 +223,7 @@ class RaftMemberImpl {
   std::mt19937_64 rng_ = std::mt19937_64(std::random_device{}());
 };
 
-} // namespace internal
+}  // namespace internal
 
 template <class State>
 class RaftMember final {
@@ -242,6 +244,8 @@ class RaftMember final {
       const typename PeerRPCRequest<State>::RequestVote &request);
   PeerRPCReply::AppendEntries OnAppendEntries(
       const typename PeerRPCRequest<State>::AppendEntries &request);
+
+  ClientResult AddCommand(const typename State::Change &command, bool blocking);
 
  private:
   impl::RaftMemberImpl<State> impl_;
