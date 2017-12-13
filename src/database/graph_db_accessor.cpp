@@ -101,8 +101,9 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
 
   db_.index_build_tx_in_progress_.access().insert(transaction_->id_);
 
-  // on function exit switch the build_in_progress to false
-  utils::OnScopeExit on_exit([this] {
+  // on function exit remove the create index transaction from
+  // build_tx_in_progress
+  utils::OnScopeExit on_exit_1([this] {
     auto removed =
         db_.index_build_tx_in_progress_.access().remove(transaction_->id_);
     DCHECK(removed) << "Index creation transaction should be inside set";
@@ -139,6 +140,18 @@ void GraphDbAccessor::BuildIndex(const GraphDbTypes::Label &label,
   // This accessor's transaction surely sees everything that happened before
   // CreateIndex.
   GraphDbAccessor dba(db_);
+
+  // Add transaction to the build_tx_in_progress as this transaction doesn't
+  // change data and shouldn't block other parallel index creations
+  auto read_transaction_id = dba.transaction().id_;
+  db_.index_build_tx_in_progress_.access().insert(read_transaction_id);
+  // on function exit remove the read transaction from build_tx_in_progress
+  utils::OnScopeExit on_exit_2([read_transaction_id, this] {
+    auto removed =
+        db_.index_build_tx_in_progress_.access().remove(read_transaction_id);
+    DCHECK(removed) << "Index building (read) transaction should be inside set";
+  });
+
   for (auto vertex : dba.Vertices(label, false)) {
     db_.label_property_index_.UpdateOnLabelProperty(vertex.address().local(),
                                                     vertex.current_);
