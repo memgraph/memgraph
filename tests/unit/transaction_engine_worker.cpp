@@ -11,14 +11,13 @@ using namespace communication::messaging;
 
 class WorkerEngineTest : public testing::Test {
  protected:
-  const static uint16_t master_port_{22345};
   const std::string local{"127.0.0.1"};
 
-  System master_system_{local, master_port_};
+  System master_system_{local, 0};
   MasterEngine master_;
 
-  System worker_system_{local, master_port_ + 1};
-  WorkerEngine worker_{worker_system_, local, master_port_};
+  System worker_system_{local, 0};
+  WorkerEngine worker_{worker_system_, local, master_system_.endpoint().port()};
 
   void SetUp() override { master_.StartServer(master_system_); }
   void TearDown() override {

@@ -40,6 +40,6 @@ NetworkEndpoint::NetworkEndpoint(const std::string &addr,
                                  const std::string &port)
     : NetworkEndpoint(addr.c_str(), port.c_str()) {}
 
-NetworkEndpoint::NetworkEndpoint(const std::string &addr, unsigned short port)
+NetworkEndpoint::NetworkEndpoint(const std::string &addr, uint16_t port)
     : NetworkEndpoint(addr.c_str(), std::to_string(port)) {}
 }

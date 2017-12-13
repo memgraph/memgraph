@@ -1,9 +1,10 @@
 #pragma once
 
-#include "utils/exceptions.hpp"
-
 #include <netinet/in.h>
+#include <cstdint>
 #include <string>
+
+#include "utils/exceptions.hpp"
 
 namespace io::network {
 
@@ -17,17 +18,17 @@ class NetworkEndpoint {
   NetworkEndpoint();
   NetworkEndpoint(const std::string &addr, const std::string &port);
   NetworkEndpoint(const char *addr, const char *port);
-  NetworkEndpoint(const std::string &addr, unsigned short port);
+  NetworkEndpoint(const std::string &addr, uint16_t port);
 
   const char *address() const { return address_; }
   const char *port_str() const { return port_str_; }
-  int port() const { return port_; }
+  uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
 
  private:
   char address_[INET6_ADDRSTRLEN];
   char port_str_[6];
-  unsigned short port_;
+  uint16_t port_;
   unsigned char family_;
 };
 }
