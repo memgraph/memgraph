@@ -92,5 +92,8 @@ class Server {
                          const messaging::Message &)>>
       callbacks_;
   std::atomic<bool> alive_{true};
+
+  std::thread running_thread_;
+  bool started_{false};
 };
 }  // namespace communication::rpc

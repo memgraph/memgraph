@@ -109,24 +109,29 @@ Server::Server(messaging::System &system, const std::string &name)
 
 void Server::Start() {
   // TODO: Add logging.
-  while (alive_) {
-    auto message = stream_->Await();
-    if (!message) continue;
-    auto *request = dynamic_cast<Request *>(message.get());
-    if (!request) continue;
-    auto &real_request = request->message();
-    auto it = callbacks_.find(real_request.type_index());
-    if (it == callbacks_.end()) continue;
-    auto response = it->second(real_request);
-    messaging::Writer writer(system_, request->address(), request->port(),
-                             request->stream());
-    writer.Send<Response>(request->message_id(), std::move(response));
-  }
+  CHECK(started_ == false) << "Server can't be started multiple times";
+  started_ = true;
+  running_thread_ = std::thread([this]() {
+    while (alive_) {
+      auto message = stream_->Await();
+      if (!message) continue;
+      auto *request = dynamic_cast<Request *>(message.get());
+      if (!request) continue;
+      auto &real_request = request->message();
+      auto it = callbacks_.find(real_request.type_index());
+      if (it == callbacks_.end()) continue;
+      auto response = it->second(real_request);
+      messaging::Writer writer(system_, request->address(), request->port(),
+                               request->stream());
+      writer.Send<Response>(request->message_id(), std::move(response));
+    }
+  });
 }
 
 void Server::Shutdown() {
   alive_ = false;
   stream_->Shutdown();
+  if (running_thread_.joinable()) running_thread_.join();
 }
 }  // namespace communication::rpc
 CEREAL_REGISTER_TYPE(communication::rpc::Request);

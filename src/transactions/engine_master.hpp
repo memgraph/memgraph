@@ -81,6 +81,5 @@ class MasterEngine : public Engine {
 
   // Optional RPC server, only used in distributed, not in single_node.
   std::experimental::optional<communication::rpc::Server> rpc_server_;
-  std::thread rpc_server_thread_;
 };
 }  // namespace tx

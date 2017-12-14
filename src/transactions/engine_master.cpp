@@ -125,15 +125,12 @@ void MasterEngine::StartServer(communication::messaging::System &system) {
     return std::make_unique<IsActiveRes>(GlobalIsActive(req.member));
   });
 
-  rpc_server_thread_ = std::thread([this] { rpc_server_->Start(); });
+  rpc_server_->Start();
 }
 
 void MasterEngine::StopServer() {
   CHECK(rpc_server_) << "Can't stop a server that's not running";
   rpc_server_->Shutdown();
-  if (rpc_server_thread_.joinable()) {
-    rpc_server_thread_.join();
-  }
   rpc_server_ = std::experimental::nullopt;
 }
 }  // namespace tx
