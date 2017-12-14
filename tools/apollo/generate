@@ -184,12 +184,10 @@ for test in tests:
 qa_path = os.path.join(BASE_DIR, "tests", "qa")
 infile = create_archive("quality_assurance", [qa_path, binary_path,
         binary_link_path, config_path], cwd = WORKSPACE_DIR)
-commands = "cd {}/tests/qa\n./continuous_integration\n".format(
-        BASE_DIR_NAME)
+commands = "cd memgraph/tests/qa\nTIMEOUT=300 ./continuous_integration\n"
 RUNS.append(generate_run("quality_assurance", commands = commands,
-        infile = infile, outfile_paths = "\./{}/tests/qa/"
-        "\.quality_assurance_status".format(
-        BASE_DIR_NAME)))
+        infile = infile, outfile_paths = "\./memgraph/tests/qa/"
+        "\.quality_assurance_status"))
 
 # build release paths
 if mode == "release":

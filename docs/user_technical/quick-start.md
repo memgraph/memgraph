@@ -136,21 +136,11 @@ To find created nodes and relationships, execute the following query:
 MATCH (u:User)-[r]->(x) RETURN u, r, x;
 ```
 
-#### Graph Gists Examples
-
-A nice looking set of small graph examples can be found
-[here](https://neo4j.com/graphgists/).  You can take any use-case and try to
-execute the queries against Memgraph. To clear the database between trying out
-examples, execute the query:
-
-```
-MATCH (n) DETACH DELETE n;
-```
-
 ### Where to Next
 
 To learn more about the openCypher language, visit **openCypher Query
-Language** chapter in this document. If you wish to use a programming language
+Language** chapter in this document. For real-world examples of how to use
+Memgraph visit **Examples** chapter. If you wish to use a programming language
 to execute queries on Memgraph, go to the **Drivers** chapter. Details on what
 can be stored in Memgraph are in **Storable Data Types** chapter.
 

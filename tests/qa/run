@@ -14,10 +14,15 @@ set -e
 
 # read arguments
 unstable=false
+loglevel=2
 while [[ $# -gt 0 ]]; do
     case $1 in
         --unstable)
             unstable=true
+            shift
+            ;;
+        --verbose)
+            loglevel=0
             shift
             ;;
         --test-suite)
@@ -68,7 +73,7 @@ fi
 set +e
 
 # run memgraph
-MEMGRAPH_CONFIG="$config_path" "$memgraph_build_dir/$binary_name" 1>&2 &
+MEMGRAPH_CONFIG="$config_path" "$memgraph_build_dir/$binary_name" --min-log-level=$loglevel 1>&2 &
 background_pid=$!
 
 function cleanup_and_exit {
