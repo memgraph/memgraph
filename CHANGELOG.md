@@ -11,7 +11,8 @@
 
 * Write-ahead log added.
 * `nodes` and `relationships` functions added.
-* `UNION` and `UNION ALL` is implemented
+* `UNION` and `UNION ALL` is implemented.
+* Concurrent index creation is now enabled. 
 
 ### Bug Fixes and Other Changes
 
