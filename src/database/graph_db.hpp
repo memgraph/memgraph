@@ -13,6 +13,7 @@
 #include "mvcc/version_list.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
+#include "storage/concurrent_id_mapper_single_node.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
@@ -119,14 +120,19 @@ class GraphDb {
 
   // Id to value mappers.
   // TODO this should be also garbage collected
-  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::Label, std::string>> labels_{
-      new MasterConcurrentIdMapper<GraphDbTypes::Label, std::string>};
-  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>>
+  std::unique_ptr<storage::ConcurrentIdMapper<GraphDbTypes::Label, std::string>>
+      labels_{new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::Label,
+                                                        std::string>};
+  std::unique_ptr<
+      storage::ConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>>
       edge_types_{
-          new MasterConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>};
-  std::unique_ptr<ConcurrentIdMapper<GraphDbTypes::Property, std::string>>
+          new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::EdgeType,
+                                                    std::string>};
+  std::unique_ptr<
+      storage::ConcurrentIdMapper<GraphDbTypes::Property, std::string>>
       properties_{
-          new MasterConcurrentIdMapper<GraphDbTypes::Property, std::string>};
+          new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::Property,
+                                                    std::string>};
 
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;

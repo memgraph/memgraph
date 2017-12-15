@@ -1,36 +1,36 @@
 #pragma once
 
-#include "glog/logging.h"
-
+#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/rpc.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "io/network/network_endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 
-/** Worker implementation of ConcurrentIdMapper. */
-template <typename TId, typename TValue>
-class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId, TValue> {
- public:
-  TId value_to_id(const TValue &value) override {
-    auto accessor = value_to_id_cache_.accessor();
-    auto found = accessor.find(value);
-    if (found != accessor.end()) return found.second;
-    // TODO make an RPC call to get the ID for value
-    TId id;
-    accessor.insert(value, id);
-    return id;
-  }
+namespace storage {
 
-  const TValue &id_to_value(const TId &id) override {
-    auto accessor = id_to_value_cache_.accessor();
-    auto found = accessor.find(id);
-    if (found != accessor.end()) return found.second;
-    // TODO make an RPC call to get the value for ID
-    TValue value;
-    return accessor.insert(id, value).second.second;
-  }
+/** Worker implementation of ConcurrentIdMapper. */
+template <typename TId>
+class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId, std::string> {
+  // Makes an appropriate RPC call for the current TId type and the given value.
+  TId RpcValueToId(const std::string &value);
+
+  // Makes an appropriate RPC call for the current TId type and the given value.
+  std::string RpcIdToValue(TId id);
+
+ public:
+  WorkerConcurrentIdMapper(communication::messaging::System &system,
+                           const io::network::NetworkEndpoint &master_endpoint);
+
+  TId value_to_id(const std::string &value) override;
+  const std::string &id_to_value(const TId &id) override;
 
  private:
   // Sources of truth for the mappings are on the master, not on this worker. We
   // keep the caches.
-  ConcurrentMap<TValue, TId> value_to_id_cache_;
-  ConcurrentMap<TId, TValue> id_to_value_cache_;
+  ConcurrentMap<std::string, TId> value_to_id_cache_;
+  ConcurrentMap<TId, std::string> id_to_value_cache_;
+
+  // Communication to the concurrent ID master.
+  mutable communication::rpc::Client rpc_client_;
 };
+}  // namespace storage

@@ -5,13 +5,13 @@
 #include "gtest/gtest.h"
 
 #include "database/graph_db_datatypes.hpp"
-#include "storage/concurrent_id_mapper_master.hpp"
+#include "storage/concurrent_id_mapper_single_node.hpp"
 
 const int THREAD_NUM = 20;
 const int VALUE_MAX = 50;
 
 using Id = GraphDbTypes::Label;
-using Mapper = MasterConcurrentIdMapper<Id, int>;
+using Mapper = storage::SingleNodeConcurrentIdMapper<Id, int>;
 
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {
   Mapper mapper;

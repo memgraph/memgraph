@@ -36,6 +36,8 @@ set(memgraph_src_files
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/typed_value.cpp
+    storage/concurrent_id_mapper_master.cpp
+    storage/concurrent_id_mapper_worker.cpp
     storage/edge_accessor.cpp
     storage/locking/record_lock.cpp
     storage/property_value.cpp

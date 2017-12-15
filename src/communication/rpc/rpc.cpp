@@ -69,6 +69,11 @@ Client::Client(messaging::System &system, const std::string &address,
       writer_(system, address, port, kProtocolStreamPrefix + name),
       stream_(system.Open(utils::RandomString(20))) {}
 
+Client::Client(messaging::System &system,
+               const io::network::NetworkEndpoint &endpoint,
+               const std::string &name)
+    : Client(system, endpoint.address(), endpoint.port(), name) {}
+
 // Because of the way Call is implemented it can fail without reporting (it will
 // just block indefinately). This is why you always need to provide reasonable
 // timeout when calling it.

@@ -5,6 +5,7 @@
 #include "utils/total_ordering.hpp"
 
 namespace GraphDbTypes {
+
 template <typename TSpecificType>
 class Common : TotalOrdering<TSpecificType> {
  public:
@@ -23,6 +24,12 @@ class Common : TotalOrdering<TSpecificType> {
     std::hash<StorageT> hash{};
     size_t operator()(const TSpecificType &t) const { return hash(t.storage_); }
   };
+
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(storage_);
+  }
 
  private:
   StorageT storage_{0};
