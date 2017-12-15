@@ -20,7 +20,7 @@ else
     flags="-j$THREADS -Isrc"
 fi
 
-cat > .cppcheck_suppressions <<EOF 
+cat > .cppcheck_suppressions <<EOF
 // supress all explicit constructor warnings since we use the implicit conversion all over the codebase
 noExplicitConstructor:src/storage/property_value.hpp
 noExplicitConstructor:src/query/typed_value.hpp
@@ -48,4 +48,29 @@ cat "$errfile" >&2
 len="$( cat "$errfile" | wc -l )"
 if [ $len -gt 0 ]; then
     echo -e "==== Cppcheck errors: ====\n\n\`\`\`\n$( cat "$errfile" )\n\`\`\`" > "$errfile"
+fi
+
+
+# check for clang-format errors
+
+format_list=""
+format_tmp="$DIR/.clang_format"
+
+for fname in $files; do
+    if [ ! -f "$fname" ]; then continue; fi
+    clang-format "$fname" > "$format_tmp"
+    if ! diff "$fname" "$format_tmp" >/dev/null; then
+        format_list+="\n$fname"
+    fi
+done
+
+if [ -f "$format_tmp" ]; then
+    rm "$format_tmp"
+fi
+
+if [ "$format_list" != "" ]; then
+    if [ "$( cat "$errfile" | wc -l )" -gt 0 ]; then
+        echo "" >> "$errfile"
+    fi
+    echo -e "==== Clang-format should be applied on: ====\n\n\`\`\`$format_list\n\`\`\`" >> "$errfile"
 fi
