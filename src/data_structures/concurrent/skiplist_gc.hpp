@@ -2,6 +2,7 @@
 
 #include <malloc.h>
 
+#include <experimental/optional>
 #include <list>
 #include <mutex>
 #include <utility>
@@ -31,14 +32,16 @@ template <class TNode>
 class SkipListGC {
  public:
   explicit SkipListGC() {
-    executor_job_id_ =
-        GetExecutor().RegisterJob([this]() { GarbageCollect(); });
+    if (GetExecutor()) {
+      executor_job_id_ =
+          GetExecutor()->RegisterJob([this]() { GarbageCollect(); });
+    }
   }
 
   ~SkipListGC() {
     // We have to unregister the job because otherwise Executor might access
     // some member variables of this class after it has been destructed.
-    GetExecutor().UnRegisterJob(executor_job_id_);
+    if (GetExecutor()) GetExecutor()->UnRegisterJob(executor_job_id_);
     for (auto it = deleted_queue_.begin(); it != deleted_queue_.end(); ++it) {
       TNode::destroy(it->second);
     }
@@ -55,8 +58,7 @@ class SkipListGC {
     // because of their order of destruction. For example of one bug take a look
     // at documentation in database/dbms.hpp. Rethink ownership and lifetime of
     // executor.
-    static Executor executor(
-        (std::chrono::seconds(FLAGS_skiplist_gc_interval)));
+    static auto executor = ConstructExecutor();
 
     return executor;
   }
@@ -155,9 +157,19 @@ class SkipListGC {
   }
 
  private:
+  /// Constructs executor depending on flag - has to be done this way because of
+  /// C++14
+  auto ConstructExecutor() {
+    std::unique_ptr<Executor> executor;
+    if (FLAGS_skiplist_gc_interval != -1) {
+      executor = std::make_unique<Executor>(
+          std::chrono::seconds(FLAGS_skiplist_gc_interval));
+    }
+    return executor;
+  }
+
   int64_t executor_job_id_{-1};
   std::mutex mutex_;
-  std::mutex singleton_mutex_;
 
   // List of accesssors from begin to end by an increasing id.
   std::list<AccessorStatus> accessors_;

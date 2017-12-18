@@ -33,7 +33,7 @@ class FakeItem {
 DECLARE_int32(skiplist_gc_interval);
 
 TEST(SkipListGC, CreateNewAccessors) {
-  FLAGS_skiplist_gc_interval = 0;
+  FLAGS_skiplist_gc_interval = -1;
   SkipListGC<FakeItem> gc;
   auto &accessor1 = gc.CreateNewAccessor();
   auto &accessor2 = gc.CreateNewAccessor();
@@ -49,7 +49,7 @@ TEST(SkipListGC, CreateNewAccessors) {
 }
 
 TEST(SkipListGC, DeleteItem) {
-  FLAGS_skiplist_gc_interval = 0;
+  FLAGS_skiplist_gc_interval = -1;
   SkipListGC<FakeItem> gc;
   auto &accessor1 = gc.CreateNewAccessor();
   std::atomic<int> count{0};
@@ -63,7 +63,7 @@ TEST(SkipListGC, DeleteItem) {
 }
 
 TEST(SkipListGC, DontDeleteItem) {
-  FLAGS_skiplist_gc_interval = 0;
+  FLAGS_skiplist_gc_interval = -1;
   SkipListGC<FakeItem> gc;
   auto &accessor1 = gc.CreateNewAccessor();
   auto &accessor2 = gc.CreateNewAccessor();
@@ -85,7 +85,7 @@ TEST(SkipListGC, DontDeleteItem) {
 }
 
 TEST(SkipListGC, Destructor) {
-  FLAGS_skiplist_gc_interval = 0;
+  FLAGS_skiplist_gc_interval = -1;
   std::atomic<int> count{0};
   auto item1 = new FakeItem(count, 1);
   {
@@ -97,7 +97,7 @@ TEST(SkipListGC, Destructor) {
 }
 
 TEST(SkipListGC, MultipleDeletes) {
-  FLAGS_skiplist_gc_interval = 0;
+  FLAGS_skiplist_gc_interval = -1;
   SkipListGC<FakeItem> gc;
   std::atomic<int> count{0};
   auto &accessor1 = gc.CreateNewAccessor();

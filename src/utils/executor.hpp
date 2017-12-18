@@ -14,8 +14,9 @@ class Executor {
  public:
   template <typename TRep, typename TPeriod>
   explicit Executor(const std::chrono::duration<TRep, TPeriod> pause) {
-    if (pause != pause.zero())
-      scheduler_.Run(pause, std::bind(&Executor::Execute, this));
+    DCHECK(pause > std::chrono::seconds(0))
+        << "Duration between executions should be reasonable";
+    scheduler_.Run(pause, std::bind(&Executor::Execute, this));
   }
 
   ~Executor() {
@@ -24,6 +25,11 @@ class Executor {
     // used in Execute method passed to scheduler along with jobs vector.
     scheduler_.Stop();
   }
+
+  Executor(Executor &&e) = default;
+  Executor &operator=(Executor &&) = default;
+  Executor(const Executor &e) = delete;
+  Executor &operator=(const Executor &) = delete;
 
   /**
    * @brief - Add function to job queue.
