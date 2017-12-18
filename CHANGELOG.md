@@ -1,6 +1,9 @@
 # Change Log
 
-## Next release
+## Next Release
+
+
+## v0.9.0
 
 ### Breaking Changes
 
@@ -12,7 +15,7 @@
 * Write-ahead log added.
 * `nodes` and `relationships` functions added.
 * `UNION` and `UNION ALL` is implemented.
-* Concurrent index creation is now enabled. 
+* Concurrent index creation is now enabled.
 
 ### Bug Fixes and Other Changes
 
