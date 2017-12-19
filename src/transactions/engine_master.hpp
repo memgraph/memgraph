@@ -28,6 +28,10 @@ class TransactionError : public utils::BasicException {
  */
 class MasterEngine : public Engine {
  public:
+  MasterEngine() = default;
+  /** Constructs a master engine and calls StartServer() */
+  MasterEngine(communication::messaging::System &system);
+
   /** Stops the tx server if it's running. */
   ~MasterEngine();
 

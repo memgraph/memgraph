@@ -6,12 +6,12 @@
 namespace storage {
 
 /** SingleNode implementation of ConcurrentIdMapper. */
-template <typename TId, typename TValue>
-class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId, TValue> {
+template <typename TId>
+class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   using StorageT = typename TId::StorageT;
 
  public:
-  TId value_to_id(const TValue &value) override {
+  TId value_to_id(const std::string &value) override {
     auto value_to_id_acc = value_to_id_.access();
     auto found = value_to_id_acc.find(value);
     TId inserted_id(0);
@@ -34,7 +34,7 @@ class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId, TValue> {
     return inserted_id;
   }
 
-  const TValue &id_to_value(const TId &id) override {
+  const std::string &id_to_value(const TId &id) override {
     const auto id_to_value_acc = id_to_value_.access();
     auto result = id_to_value_acc.find(id);
     DCHECK(result != id_to_value_acc.end());
@@ -42,8 +42,8 @@ class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId, TValue> {
   }
 
  private:
-  ConcurrentMap<TValue, TId> value_to_id_;
-  ConcurrentMap<TId, TValue> id_to_value_;
+  ConcurrentMap<std::string, TId> value_to_id_;
+  ConcurrentMap<TId, std::string> id_to_value_;
   std::atomic<StorageT> id_{0};
 };
 }  // namespace storage

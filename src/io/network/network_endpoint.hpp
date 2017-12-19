@@ -25,6 +25,14 @@ class NetworkEndpoint {
   uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
 
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(address_, port_str_, port_, family_);
+  }
+
+  bool operator==(const NetworkEndpoint &other) const;
+
  private:
   char address_[INET6_ADDRSTRLEN];
   char port_str_[6];

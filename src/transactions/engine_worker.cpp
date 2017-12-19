@@ -10,9 +10,8 @@ static const auto kRpcTimeout = 100ms;
 }
 
 WorkerEngine::WorkerEngine(communication::messaging::System &system,
-                           const std::string &tx_server_host,
-                           uint16_t tx_server_port)
-    : rpc_client_(system, tx_server_host, tx_server_port, "tx_engine") {}
+                           const io::network::NetworkEndpoint &endpoint)
+    : rpc_client_(system, endpoint, "tx_engine") {}
 
 Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {
   auto accessor = active_.access();
@@ -33,8 +32,8 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
   // If we don't know the transaction to be commited nor aborted, ask the
   // master about it and update the local commit log.
   if (!(info.is_aborted() || info.is_committed())) {
-    // @review: this version of Call is just used because Info has no default
-    // constructor.
+    // @review: this version of Call is just used because Info has no
+    // default constructor.
     info = rpc_client_.Call<ClogInfoRpc>(kRpcTimeout, tid)->member;
     DCHECK(info.is_committed() || info.is_aborted())
         << "It is expected that the transaction is not running anymore. This "

@@ -3,45 +3,83 @@
 
 #include <glog/logging.h>
 
-#include "database/creation_exception.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
-#include "storage/edge.hpp"
-#include "storage/garbage_collector.hpp"
+#include "storage/concurrent_id_mapper_master.hpp"
+#include "storage/concurrent_id_mapper_worker.hpp"
 #include "transactions/engine_master.hpp"
+#include "transactions/engine_worker.hpp"
 #include "utils/timer.hpp"
 
 namespace fs = std::experimental::filesystem;
 
-GraphDb::GraphDb(GraphDb::Config config)
+#define INIT_MAPPERS(type, ...)                                              \
+  labels_ = std::make_unique<type<GraphDbTypes::Label>>(__VA_ARGS__);        \
+  edge_types_ = std::make_unique<type<GraphDbTypes::EdgeType>>(__VA_ARGS__); \
+  properties_ = std::make_unique<type<GraphDbTypes::Property>>(__VA_ARGS__);
+
+GraphDb::GraphDb(Config config) : GraphDb(config, 0) {
+  tx_engine_ = std::make_unique<tx::MasterEngine>();
+  INIT_MAPPERS(storage::SingleNodeConcurrentIdMapper);
+  Start();
+}
+
+GraphDb::GraphDb(communication::messaging::System &system,
+                 distributed::MasterCoordination &master, Config config)
+    : GraphDb(config, 0) {
+  tx_engine_ = std::make_unique<tx::MasterEngine>(system);
+  INIT_MAPPERS(storage::MasterConcurrentIdMapper, system);
+  get_endpoint_ = [&master](int worker_id) {
+    return master.GetEndpoint(worker_id);
+  };
+  Start();
+}
+
+GraphDb::GraphDb(communication::messaging::System &system, int worker_id,
+                 distributed::WorkerCoordination &worker,
+                 Endpoint master_endpoint, Config config)
+    : GraphDb(config, worker_id) {
+  tx_engine_ = std::make_unique<tx::WorkerEngine>(system, master_endpoint);
+  INIT_MAPPERS(storage::WorkerConcurrentIdMapper, system, master_endpoint);
+  get_endpoint_ = [&worker](int worker_id) {
+    return worker.GetEndpoint(worker_id);
+  };
+  Start();
+}
+
+#undef INIT_MAPPERS
+
+GraphDb::GraphDb(Config config, int worker_id)
     : config_(config),
-      tx_engine_(new tx::MasterEngine()),
+      worker_id_(worker_id),
       gc_vertices_(vertices_, vertex_record_deleter_,
                    vertex_version_list_deleter_),
       gc_edges_(edges_, edge_record_deleter_, edge_version_list_deleter_),
-      wal_{config.durability_directory, config.durability_enabled} {
+      wal_{config.durability_directory, config.durability_enabled} {}
+
+void GraphDb::Start() {
   // Pause of -1 means we shouldn't run the GC.
-  if (config.gc_cycle_sec != -1) {
-    gc_scheduler_.Run(std::chrono::seconds(config.gc_cycle_sec),
+  if (config_.gc_cycle_sec != -1) {
+    gc_scheduler_.Run(std::chrono::seconds(config_.gc_cycle_sec),
                       [this]() { CollectGarbage(); });
   }
 
   // If snapshots are enabled we need the durability dir.
-  if (config.durability_enabled)
-    durability::CheckDurabilityDir(config.durability_directory);
+  if (config_.durability_enabled)
+    durability::CheckDurabilityDir(config_.durability_directory);
 
-  if (config.db_recover_on_startup)
-    durability::Recover(config.durability_directory, *this);
-  if (config.durability_enabled) wal_.Enable();
+  if (config_.db_recover_on_startup)
+    durability::Recover(config_.durability_directory, *this);
+  if (config_.durability_enabled) wal_.Enable();
   StartSnapshooting();
 
-  if (config.query_execution_time_sec != -1) {
+  if (config_.query_execution_time_sec != -1) {
     transaction_killer_.Run(
         std::chrono::seconds(
-            std::max(1, std::min(5, config.query_execution_time_sec / 4))),
+            std::max(1, std::min(5, config_.query_execution_time_sec / 4))),
         [this]() {
           tx_engine_->LocalForEachActiveTransaction([this](tx::Transaction &t) {
             if (t.creation_time() +
@@ -103,8 +141,8 @@ void GraphDb::CollectGarbage() {
     // the ID of the oldest active transaction (or next active, if there
     // are no currently active). That's legal because that was the
     // last possible transaction that could have obtained pointers
-    // to those records. New snapshot can be used, different than one used for
-    // first two phases of gc.
+    // to those records. New snapshot can be used, different than one used
+    // for the first two phases of gc.
     utils::Timer x;
     const auto snapshot = tx_engine_->GlobalGcSnapshot();
     edge_record_deleter_.FreeExpiredObjects(snapshot.back());
@@ -131,8 +169,8 @@ GraphDb::~GraphDb() {
   // Stop the gc scheduler to not run into race conditions for deletions.
   gc_scheduler_.Stop();
 
-  // Stop the snapshot creator to avoid snapshooting while database is beeing
-  // deleted.
+  // Stop the snapshot creator to avoid snapshooting while database is
+  // being deleted.
   snapshot_creator_.Stop();
 
   // Stop transaction killer.
@@ -157,7 +195,8 @@ GraphDb::~GraphDb() {
   for (auto &id_vlist : vertices_.access()) delete id_vlist.second;
   for (auto &id_vlist : edges_.access()) delete id_vlist.second;
 
-  // Free expired records with the maximal possible id from all the deleters.
+  // Free expired records with the maximal possible id from all the
+  // deleters.
   edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
   vertex_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
   edge_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());

@@ -8,6 +8,10 @@
 
 namespace tx {
 
+MasterEngine::MasterEngine(communication::messaging::System &system) {
+  StartServer(system);
+}
+
 MasterEngine::~MasterEngine() {
   if (rpc_server_) StopServer();
 }

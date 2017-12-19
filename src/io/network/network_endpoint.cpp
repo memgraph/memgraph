@@ -1,9 +1,10 @@
-#include "io/network/network_endpoint.hpp"
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <algorithm>
 
 #include "glog/logging.h"
 
-#include <arpa/inet.h>
-#include <netdb.h>
+#include "io/network/network_endpoint.hpp"
 
 namespace io::network {
 
@@ -42,4 +43,10 @@ NetworkEndpoint::NetworkEndpoint(const std::string &addr,
 
 NetworkEndpoint::NetworkEndpoint(const std::string &addr, uint16_t port)
     : NetworkEndpoint(addr.c_str(), std::to_string(port)) {}
+
+bool NetworkEndpoint::operator==(const NetworkEndpoint &other) const {
+  return std::equal(std::begin(address_), std::end(address_),
+                    std::begin(other.address_)) &&
+         port_ == other.port_ && family_ == other.family_;
 }
+}  // namespace io::network

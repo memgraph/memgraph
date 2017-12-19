@@ -34,7 +34,7 @@ TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark
 
 # Install tools, because they may be needed to run some benchmarks and tests.
 cd ../../memgraph/tools
-./setup
+TIMEOUT=300 ./setup
 
 cd apollo
-./generate diff
+TIMEOUT=300 ./generate diff

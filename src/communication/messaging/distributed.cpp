@@ -9,6 +9,9 @@ System::System(const std::string &address, uint16_t port)
   StartServer(4);
 }
 
+System::System(const io::network::NetworkEndpoint  &endpoint)
+    : System(endpoint.address(), endpoint.port()) {}
+
 System::~System() {
   for (size_t i = 0; i < pool_.size(); ++i) {
     pool_[i].join();

@@ -24,4 +24,4 @@ cd ../tools
 ./setup
 
 cd apollo
-./generate debug
+TIMEOUT=300 ./generate debug

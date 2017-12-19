@@ -1,19 +1,25 @@
 #pragma once
 
+#include <memory>
+#include <mutex>
+
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
-#include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
+#include "distributed/coordination_master.hpp"
+#include "distributed/coordination_worker.hpp"
 #include "durability/wal.hpp"
+#include "io/network/network_endpoint.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_single_node.hpp"
+#include "storage/concurrent_id_mapper_worker.hpp"
 #include "storage/deferred_deleter.hpp"
 #include "storage/edge.hpp"
 #include "storage/garbage_collector.hpp"
@@ -48,6 +54,8 @@
  * -> CRASH
  */
 class GraphDb {
+  using Endpoint = io::network::NetworkEndpoint;
+
  public:
   /// GraphDb configuration. Initialized from flags, but modifiable.
   struct Config {
@@ -65,15 +73,30 @@ class GraphDb {
     int query_execution_time_sec;
   };
 
-  explicit GraphDb(Config config = Config{});
+  /** Single-node GraphDb ctor. */
+  GraphDb(Config config = Config{});
+
+  /** Distributed master GraphDb ctor. */
+  GraphDb(communication::messaging::System &system,
+          distributed::MasterCoordination &master, Config config = Config());
+
+  /** Distributed worker GraphDb ctor. */
+  GraphDb(communication::messaging::System &system, int worker_id,
+          distributed::WorkerCoordination &worker, Endpoint master_endpoint,
+          Config config = Config());
+
+ private:
+  // Private ctor used by other ctors. */
+  GraphDb(Config config, int worker_id);
+
+ public:
   /** Delete all vertices and edges and free all deferred deleters. */
   ~GraphDb();
 
-  /** Database object can't be copied. */
   GraphDb(const GraphDb &db) = delete;
-  GraphDb(GraphDb &&other) = default;
-  GraphDb &operator=(const GraphDb &other) = default;
-  GraphDb &operator=(GraphDb &&other) = default;
+  GraphDb(GraphDb &&other) = delete;
+  GraphDb &operator=(const GraphDb &other) = delete;
+  GraphDb &operator=(GraphDb &&other) = delete;
 
   /** Stop all transactions and set is_accepting_transactions_ to false. */
   void Shutdown();
@@ -85,8 +108,6 @@ class GraphDb {
 
  private:
   friend class GraphDbAccessor;
-
-  void StartSnapshooting();
 
   Config config_;
 
@@ -120,19 +141,11 @@ class GraphDb {
 
   // Id to value mappers.
   // TODO this should be also garbage collected
-  std::unique_ptr<storage::ConcurrentIdMapper<GraphDbTypes::Label, std::string>>
-      labels_{new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::Label,
-                                                        std::string>};
-  std::unique_ptr<
-      storage::ConcurrentIdMapper<GraphDbTypes::EdgeType, std::string>>
-      edge_types_{
-          new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::EdgeType,
-                                                    std::string>};
-  std::unique_ptr<
-      storage::ConcurrentIdMapper<GraphDbTypes::Property, std::string>>
-      properties_{
-          new storage::SingleNodeConcurrentIdMapper<GraphDbTypes::Property,
-                                                    std::string>};
+  std::unique_ptr<storage::ConcurrentIdMapper<GraphDbTypes::Label>> labels_;
+  std::unique_ptr<storage::ConcurrentIdMapper<GraphDbTypes::EdgeType>>
+      edge_types_;
+  std::unique_ptr<storage::ConcurrentIdMapper<GraphDbTypes::Property>>
+      properties_;
 
   // indexes
   KeyIndex<GraphDbTypes::Label, Vertex> labels_index_;
@@ -152,4 +165,13 @@ class GraphDb {
 
   // DB level global counters, used in the "counter" function.
   ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
+
+  // Returns Endpoint info for worker ID. Different implementation in master vs.
+  // worker. Unused in single-node version.
+  std::function<io::network::NetworkEndpoint(int)> get_endpoint_;
+
+  // Starts DB operations once all members have been constructed.
+  void Start();
+  // Starts periodically generating database snapshots.
+  void StartSnapshooting();
 };

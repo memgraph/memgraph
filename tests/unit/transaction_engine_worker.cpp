@@ -3,6 +3,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/messaging/distributed.hpp"
+#include "io/network/network_endpoint.hpp"
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_worker.hpp"
 
@@ -17,7 +18,7 @@ class WorkerEngineTest : public testing::Test {
   MasterEngine master_;
 
   System worker_system_{local, 0};
-  WorkerEngine worker_{worker_system_, local, master_system_.endpoint().port()};
+  WorkerEngine worker_{worker_system_, master_system_.endpoint()};
 
   void SetUp() override { master_.StartServer(master_system_); }
   void TearDown() override {

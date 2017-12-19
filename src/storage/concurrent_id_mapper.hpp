@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 namespace storage {
 
 /**
@@ -8,13 +10,12 @@ namespace storage {
  * for the master (single source of truth) and worker (must query master).
  * Both implementations must be concurrent.
  *
- * @TParam TId - ID type. Must expose `::TStorage`.
- * @TParam TRecord - Value type.
+ * @TParam TId - One of GraphDb types (Label, EdgeType, Property).
  */
-template <typename TId, typename TValue>
+template <typename TId>
 class ConcurrentIdMapper {
  public:
-  virtual TId value_to_id(const TValue &value) = 0;
-  virtual const TValue &id_to_value(const TId &id) = 0;
+  virtual TId value_to_id(const std::string &value) = 0;
+  virtual const std::string &id_to_value(const TId &id) = 0;
 };
-} // namespace storage
+}  // namespace storage

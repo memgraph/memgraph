@@ -27,4 +27,4 @@ cd ../../tools
 ./setup
 
 cd apollo
-./generate release
+TIMEOUT=300 ./generate release

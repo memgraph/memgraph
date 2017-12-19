@@ -2,13 +2,6 @@
 
 #include "glog/logging.h"
 
-#include "io/network/epoll.hpp"
-#include "io/network/socket.hpp"
-#include "io/network/stream_buffer.hpp"
-
-#include "query/interpreter.hpp"
-#include "transactions/transaction.hpp"
-
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
@@ -19,18 +12,25 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
+#include "database/graph_db.hpp"
+#include "io/network/epoll.hpp"
+#include "io/network/socket.hpp"
+#include "io/network/stream_buffer.hpp"
+#include "query/interpreter.hpp"
+#include "transactions/transaction.hpp"
 
 DECLARE_int32(session_inactivity_timeout);
 
 namespace communication::bolt {
 
-/**
- * Bolt SessionData
- *
- * This class is responsible for holding references to Dbms and Interpreter
- * that are passed through the network server and worker to the session.
- */
+/** Encapsulates Dbms and Interpreter that are passed through the network server
+ * and worker to the session. */
 struct SessionData {
+  /** Constructs a SessionData object.
+   * @param args - Arguments forwarded to the GraphDb constructor. */
+  template <typename... TArgs>
+  SessionData(TArgs &&... args) : db(std::forward<TArgs>(args)...) {}
+
   GraphDb db;
   query::Interpreter interpreter;
 };

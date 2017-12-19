@@ -6,8 +6,6 @@
 #include <utility>
 #include <vector>
 
-using Function = std::function<void()>;
-
 // TODO: align bits so signals can be combined
 //       Signal::Terminate | Signal::Interupt
 enum class Signal : int {
@@ -28,7 +26,7 @@ class SignalHandler {
 
  public:
   /// Install a signal handler.
-  static bool RegisterHandler(Signal signal, Function func) {
+  static bool RegisterHandler(Signal signal, std::function<void()> func) {
     sigset_t signal_mask;
     sigemptyset(&signal_mask);
     return RegisterHandler(signal, func, signal_mask);
@@ -37,7 +35,7 @@ class SignalHandler {
   /// Like RegisterHandler, but takes a `signal_mask` argument for blocking
   /// signals during execution of the handler. `signal_mask` should be created
   /// using `sigemptyset` and `sigaddset` functions from `<signal.h>`.
-  static bool RegisterHandler(Signal signal, Function func,
+  static bool RegisterHandler(Signal signal, std::function<void()> func,
                               sigset_t signal_mask) {
     int signal_number = static_cast<int>(signal);
     handlers_[signal_number] = func;

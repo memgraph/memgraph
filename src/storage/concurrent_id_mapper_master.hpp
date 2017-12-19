@@ -12,7 +12,7 @@ namespace storage {
 /** Master implementation of ConcurrentIdMapper. */
 template <typename TId>
 class MasterConcurrentIdMapper
-    : public SingleNodeConcurrentIdMapper<TId, std::string> {
+    : public SingleNodeConcurrentIdMapper<TId> {
 
  public:
   MasterConcurrentIdMapper(communication::messaging::System &system);

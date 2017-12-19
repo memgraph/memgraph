@@ -10,7 +10,7 @@ namespace storage {
 
 /** Worker implementation of ConcurrentIdMapper. */
 template <typename TId>
-class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId, std::string> {
+class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   // Makes an appropriate RPC call for the current TId type and the given value.
   TId RpcValueToId(const std::string &value);
 

@@ -1,6 +1,5 @@
 #include "glog/logging.h"
 
-#include "database/creation_exception.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"

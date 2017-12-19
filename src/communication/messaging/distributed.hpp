@@ -27,6 +27,7 @@
 #include "cereal/types/vector.hpp"
 
 #include "communication/server.hpp"
+#include "io/network/network_endpoint.hpp"
 #include "threading/sync/spinlock.hpp"
 
 namespace communication::messaging {
@@ -59,10 +60,13 @@ class Writer {
 };
 
 class System {
+  using Endpoint = io::network::NetworkEndpoint;
+
  public:
   friend class Writer;
 
   System(const std::string &address, uint16_t port);
+  System(const Endpoint &endpoint);
   System(const System &) = delete;
   System(System &&) = delete;
   System &operator=(const System &) = delete;
@@ -75,7 +79,6 @@ class System {
   const io::network::NetworkEndpoint &endpoint() const { return endpoint_; }
 
  private:
-  using Endpoint = io::network::NetworkEndpoint;
   using Socket = Socket;
   using ServerT = communication::Server<Session, SessionData>;
 

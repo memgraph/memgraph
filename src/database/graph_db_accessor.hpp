@@ -612,9 +612,9 @@ class GraphDbAccessor {
   /** Casts the DB's engine to MasterEngine and returns it. If the DB's engine
    * is RemoteEngine, this function will crash MG. */
   tx::MasterEngine &MasterEngine() {
-    auto *local_engine = dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
-    DCHECK(local_engine) << "Asked for MasterEngine on distributed worker";
-    return *local_engine;
+    auto *master_engine = dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
+    DCHECK(master_engine) << "Asked for MasterEngine on distributed worker";
+    return *master_engine;
   }
 
   GraphDb &db_;
