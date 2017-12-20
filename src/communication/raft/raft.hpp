@@ -251,13 +251,6 @@ class RaftMember final {
                       const RaftConfig &config);
   ~RaftMember();
 
-  /* Just to make the tests work for now until we clean up the reactor stuff. */
-  std::experimental::optional<MemberId> Leader() {
-    std::lock_guard<std::mutex> lock(impl_.mutex_);
-    return impl_.leader_;
-  }
-  MemberId Id() const { return impl_.id_; }
-
   ClientResult AddCommand(const typename State::Change &command, bool blocking);
 
   RequestVoteReply OnRequestVote(const RequestVoteRequest &request);

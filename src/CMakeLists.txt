@@ -7,9 +7,6 @@ set(memgraph_src_files
     communication/messaging/distributed.cpp
     communication/messaging/local.cpp
     communication/messaging/protocol.cpp
-    communication/reactor/protocol.cpp
-    communication/reactor/reactor_distributed.cpp
-    communication/reactor/reactor_local.cpp
     communication/rpc/rpc.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/graph_db.cpp
