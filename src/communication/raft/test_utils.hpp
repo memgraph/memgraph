@@ -1,5 +1,6 @@
 #include <functional>
 
+#include "communication/raft/network_common.hpp"
 #include "communication/raft/raft.hpp"
 
 namespace communication::raft::test_utils {
@@ -8,9 +9,13 @@ struct DummyState {
   struct Change {
     bool operator==(const Change &) const { return true; }
     bool operator!=(const Change &) const { return false; }
+
+    template <class Archive>
+    void serialize(Archive &ar) {}
   };
-  struct Query {};
-  struct Result {};
+
+  template <class Archive>
+  void serialize(Archive &ar) {}
 };
 
 struct IntState {
@@ -21,39 +26,100 @@ struct IntState {
     Type t;
     int d;
 
-    bool operator==(const Change &rhs) { return t == rhs.t && d == rhs.d; }
-    bool operator!=(const Change &rhs) { return !(*this == rhs); };
+    bool operator==(const Change &rhs) const {
+      return t == rhs.t && d == rhs.d;
+    }
+    bool operator!=(const Change &rhs) const { return !(*this == rhs); };
+
+    template <class Archive>
+    void serialize(Archive &ar) {
+      ar(t, d);
+    }
   };
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(x);
+  }
 };
 
+/* Implementations of `RaftNetworkInterface` for simpler unit testing. */
+
+/* `NoOpNetworkInterface` doesn't do anything -- it's like a server disconnected
+ * from the network. */
 template <class State>
 class NoOpNetworkInterface : public RaftNetworkInterface<State> {
  public:
   ~NoOpNetworkInterface() {}
 
-  bool SendRPC(const MemberId &recipient, const PeerRPCRequest<State> &request,
-               PeerRPCReply &reply) {
+  virtual bool SendRequestVote(const MemberId &recipient,
+                               const RequestVoteRequest &request,
+                               RequestVoteReply &reply,
+                               std::chrono::milliseconds timeout) override {
     return false;
   }
+
+  virtual bool SendAppendEntries(const MemberId &recipient,
+                                 const AppendEntriesRequest<State> &request,
+                                 AppendEntriesReply &reply,
+                                 std::chrono::milliseconds timeout) override {
+    return false;
+  }
+
+  virtual void Start(RaftMember<State> &member) override {}
+
+  virtual void Shutdown() override {}
 };
 
+/* `NextReplyNetworkInterface` has two fields: `on_request_` and `next_reply_`
+ * which is optional. `on_request_` is a callback that will be called before
+ * processing requets. If `next_reply_` is not set, `Send*` functions will
+ * return false, otherwise they return that reply. */
 template <class State>
 class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
  public:
   ~NextReplyNetworkInterface() {}
 
-  bool SendRPC(const MemberId &recipient, const PeerRPCRequest<State> &request,
-               PeerRPCReply &reply) {
-    on_request_(request);
+  virtual bool SendRequestVote(const MemberId &recipient,
+                               const RequestVoteRequest &request,
+                               RequestVoteReply &reply,
+                               std::chrono::milliseconds timeout) override {
+    PeerRpcRequest<State> req;
+    req.type = RpcType::REQUEST_VOTE;
+    req.request_vote = request;
+    on_request_(req);
     if (!next_reply_) {
       return false;
     }
-    reply = *next_reply_;
+    DCHECK(next_reply_->type == RpcType::REQUEST_VOTE)
+        << "`next_reply_` type doesn't match the request type";
+    reply = next_reply_->request_vote;
     return true;
   }
 
-  std::function<void(const PeerRPCRequest<State> &)> on_request_;
-  std::experimental::optional<PeerRPCReply> next_reply_;
+  virtual bool SendAppendEntries(const MemberId &recipient,
+                                 const AppendEntriesRequest<State> &request,
+                                 AppendEntriesReply &reply,
+                                 std::chrono::milliseconds timeout) override {
+    PeerRpcRequest<State> req;
+    req.type = RpcType::APPEND_ENTRIES;
+    req.append_entries = request;
+    on_request_(req);
+    if (!next_reply_) {
+      return false;
+    }
+    DCHECK(next_reply_->type == RpcType::APPEND_ENTRIES)
+        << "`next_reply_` type doesn't match the request type";
+    reply = next_reply_->append_entries;
+    return true;
+  }
+
+  virtual void Start(RaftMember<State> &member) override {}
+
+  virtual void Shutdown() override {}
+
+  std::function<void(const PeerRpcRequest<State> &)> on_request_;
+  std::experimental::optional<PeerRpcReply> next_reply_;
 };
 
 template <class State>

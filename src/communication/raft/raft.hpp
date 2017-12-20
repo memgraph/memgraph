@@ -10,7 +10,14 @@
 #include <thread>
 #include <vector>
 
+#include "glog/logging.h"
+
+#include "utils/cereal_optional.hpp"
+
 namespace communication::raft {
+
+template <class State>
+class RaftMember;
 
 enum class ClientResult { NOT_LEADER, OK };
 
@@ -35,61 +42,59 @@ struct LogEntry {
     return term == rhs.term && command == rhs.command;
   }
   bool operator!=(const LogEntry &rhs) const { return !(*this == rhs); }
-};
 
-/* Raft RPC requests and replies as described in [Raft thesis, Figure 3.1]. */
-enum class RPCType { REQUEST_VOTE, APPEND_ENTRIES };
-
-template <class State>
-struct PeerRPCRequest {
-  RPCType type;
-
-  struct RequestVote {
-    TermId candidate_term;
-    MemberId candidate_id;
-    LogIndex last_log_index;
-    TermId last_log_term;
-  } request_vote;
-
-  struct AppendEntries {
-    TermId leader_term;
-    MemberId leader_id;
-    LogIndex prev_log_index;
-    TermId prev_log_term;
-    std::vector<LogEntry<State>> entries;
-    LogIndex leader_commit;
-  } append_entries;
-
-  TermId Term() const {
-    switch (type) {
-      case RPCType::REQUEST_VOTE:
-        return request_vote.candidate_term;
-      case RPCType::APPEND_ENTRIES:
-        return append_entries.leader_term;
-    }
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(term, command);
   }
 };
 
-struct PeerRPCReply {
-  RPCType type;
+/* Raft RPC requests and replies as described in [Raft thesis, Figure 3.1]. */
+struct RequestVoteRequest {
+  TermId candidate_term;
+  MemberId candidate_id;
+  LogIndex last_log_index;
+  TermId last_log_term;
 
-  struct RequestVote {
-    TermId term;
-    bool vote_granted;
-  } request_vote;
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(candidate_term, candidate_id, last_log_index, last_log_term);
+  }
+};
 
-  struct AppendEntries {
-    TermId term;
-    bool success;
-  } append_entries;
+struct RequestVoteReply {
+  TermId term;
+  bool vote_granted;
 
-  TermId Term() const {
-    switch (type) {
-      case RPCType::REQUEST_VOTE:
-        return request_vote.term;
-      case RPCType::APPEND_ENTRIES:
-        return append_entries.term;
-    }
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(term, vote_granted);
+  }
+};
+
+template <class State>
+struct AppendEntriesRequest {
+  TermId leader_term;
+  MemberId leader_id;
+  LogIndex prev_log_index;
+  TermId prev_log_term;
+  std::vector<LogEntry<State>> entries;
+  LogIndex leader_commit;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(leader_term, leader_id, prev_log_index, prev_log_term, entries,
+       leader_commit);
+  }
+};
+
+struct AppendEntriesReply {
+  TermId term;
+  bool success;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(term, success);
   }
 };
 
@@ -98,12 +103,26 @@ class RaftNetworkInterface {
  public:
   virtual ~RaftNetworkInterface() = default;
 
-  /* Returns false if RPC failed for some reason (e.g. cannot establish
-   * connection, request timeout or request cancelled). Otherwise `reply`
-   * contains response from peer. */
-  virtual bool SendRPC(const MemberId &recipient,
-                       const PeerRPCRequest<State> &request,
-                       PeerRPCReply &reply) = 0;
+  /* These function return false if RPC failed for some reason (e.g. cannot
+   * establish connection, request timeout or request cancelled). Otherwise
+   * `reply` contains response from peer. */
+  virtual bool SendRequestVote(const MemberId &recipient,
+                               const RequestVoteRequest &request,
+                               RequestVoteReply &reply,
+                               std::chrono::milliseconds timeout) = 0;
+
+  virtual bool SendAppendEntries(const MemberId &recipient,
+                                 const AppendEntriesRequest<State> &request,
+                                 AppendEntriesReply &reply,
+                                 std::chrono::milliseconds timeout) = 0;
+
+  /* This will be called once the RaftMember is ready to start receiving RPCs.
+   */
+  virtual void Start(RaftMember<State> &member) = 0;
+
+  /* This will be called when RaftMember is exiting. RPC handlers should not be
+   * called anymore. */
+  virtual void Shutdown() = 0;
 };
 
 template <class State>
@@ -129,6 +148,8 @@ struct RaftConfig {
   std::chrono::milliseconds leader_timeout_min;
   std::chrono::milliseconds leader_timeout_max;
   std::chrono::milliseconds heartbeat_interval;
+  std::chrono::milliseconds rpc_timeout;
+  std::chrono::milliseconds rpc_backoff;
 };
 
 namespace impl {
@@ -142,6 +163,7 @@ struct RaftPeerState {
   LogIndex next_index;
   bool suppress_log_entries;
   Clock::time_point next_heartbeat_time;
+  Clock::time_point backoff_until;
 };
 
 template <class State>
@@ -163,10 +185,7 @@ class RaftMemberImpl {
       const std::experimental::optional<MemberId> &new_voted_for);
   void CandidateOrLeaderTransitionToFollower();
   void CandidateTransitionToLeader();
-
-  bool SendRPC(const std::string &recipient,
-               const PeerRPCRequest<State> &request, PeerRPCReply &reply,
-               std::unique_lock<std::mutex> &lock);
+  bool CandidateOrLeaderNoteTerm(const TermId new_term);
 
   void StartNewElection();
   void SetElectionTimer();
@@ -178,10 +197,9 @@ class RaftMemberImpl {
   void AppendEntries(const MemberId &peer_id, RaftPeerState &peer_state,
                      std::unique_lock<std::mutex> &lock);
 
-  PeerRPCReply::RequestVote OnRequestVote(
-      const typename PeerRPCRequest<State>::RequestVote &request);
-  PeerRPCReply::AppendEntries OnAppendEntries(
-      const typename PeerRPCRequest<State>::AppendEntries &request);
+  RequestVoteReply OnRequestVote(const RequestVoteRequest &request);
+  AppendEntriesReply OnAppendEntries(
+      const AppendEntriesRequest<State> &request);
 
   ClientResult AddCommand(const typename State::Change &command, bool blocking);
 
@@ -240,14 +258,14 @@ class RaftMember final {
   }
   MemberId Id() const { return impl_.id_; }
 
-  PeerRPCReply::RequestVote OnRequestVote(
-      const typename PeerRPCRequest<State>::RequestVote &request);
-  PeerRPCReply::AppendEntries OnAppendEntries(
-      const typename PeerRPCRequest<State>::AppendEntries &request);
-
   ClientResult AddCommand(const typename State::Change &command, bool blocking);
 
+  RequestVoteReply OnRequestVote(const RequestVoteRequest &request);
+  AppendEntriesReply OnAppendEntries(
+      const AppendEntriesRequest<State> &request);
+
  private:
+  RaftNetworkInterface<State> &network_;
   impl::RaftMemberImpl<State> impl_;
 
   /* Timer thread for triggering elections. */

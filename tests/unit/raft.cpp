@@ -8,18 +8,20 @@
 #include "communication/raft/test_utils.hpp"
 
 using namespace std::chrono_literals;
-using namespace communication::raft;
-using namespace communication::raft::test_utils;
 
 using testing::Values;
 
-const RaftConfig test_config1{{"a"}, 150ms, 300ms, 70ms};
-const RaftConfig test_config2{{"a", "b"}, 150ms, 300ms, 70ms};
-const RaftConfig test_config3{{"a", "b", "c"}, 150ms, 300ms, 70ms};
-const RaftConfig test_config5{{"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms};
+using namespace communication::raft;
+using namespace communication::raft::test_utils;
 
 using communication::raft::impl::RaftMemberImpl;
 using communication::raft::impl::RaftMode;
+
+const RaftConfig test_config1{{"a"}, 150ms, 300ms, 70ms, 60ms, 30ms};
+const RaftConfig test_config2{{"a", "b"}, 150ms, 300ms, 70ms, 60ms, 30ms};
+const RaftConfig test_config3{{"a", "b", "c"}, 150ms, 300ms, 70ms, 60ms, 30ms};
+const RaftConfig test_config5{
+    {"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms, 30ms, 30ms};
 
 class RaftMemberImplTest : public ::testing::Test {
  public:
@@ -59,6 +61,19 @@ TEST_F(RaftMemberImplTest, CandidateTransitionToLeader) {
   EXPECT_EQ(member.mode_, RaftMode::LEADER);
   EXPECT_EQ(*member.leader_, "a");
   EXPECT_EQ(member.next_election_time_, TimePoint::max());
+}
+
+TEST_F(RaftMemberImplTest, CandidateOrLeaderNoteTerm) {
+  member.mode_ = RaftMode::LEADER;
+  member.term_ = 5;
+  member.CandidateOrLeaderNoteTerm(5);
+
+  EXPECT_EQ(member.mode_, RaftMode::LEADER);
+  EXPECT_EQ(member.term_, 5);
+
+  member.CandidateOrLeaderNoteTerm(6);
+  EXPECT_EQ(member.mode_, RaftMode::FOLLOWER);
+  EXPECT_EQ(member.term_, 6);
 }
 
 TEST_F(RaftMemberImplTest, StartNewElection) {
@@ -129,13 +144,15 @@ TEST(RequestVote, SimpleElection) {
 
   std::unique_lock<std::mutex> lock(member.mutex_);
 
-  PeerRPCReply next_reply;
-  next_reply.type = RPCType::REQUEST_VOTE;
+  PeerRpcReply next_reply;
+  next_reply.type = RpcType::REQUEST_VOTE;
 
-  network.on_request_ = [](const PeerRPCRequest<DummyState> &request) {
-    ASSERT_EQ(request.type, RPCType::REQUEST_VOTE);
+  network.on_request_ = [](const PeerRpcRequest<DummyState> &request) {
+    ASSERT_EQ(request.type, RpcType::REQUEST_VOTE);
     ASSERT_EQ(request.request_vote.candidate_term, 2);
     ASSERT_EQ(request.request_vote.candidate_id, "a");
+    ASSERT_EQ(request.request_vote.last_log_index, 2);
+    ASSERT_EQ(request.request_vote.last_log_term, 1);
   };
 
   /* member 'b' first voted for us */
@@ -177,8 +194,8 @@ TEST(AppendEntries, SimpleLogSync) {
 
   std::unique_lock<std::mutex> lock(member.mutex_);
 
-  PeerRPCReply reply;
-  reply.type = RPCType::APPEND_ENTRIES;
+  PeerRpcReply reply;
+  reply.type = RpcType::APPEND_ENTRIES;
 
   reply.append_entries.term = 3;
   reply.append_entries.success = false;
@@ -188,8 +205,8 @@ TEST(AppendEntries, SimpleLogSync) {
   TermId expected_prev_log_term;
   std::vector<LogEntry<DummyState>> expected_entries;
 
-  network.on_request_ = [&](const PeerRPCRequest<DummyState> &request) {
-    EXPECT_EQ(request.type, RPCType::APPEND_ENTRIES);
+  network.on_request_ = [&](const PeerRpcRequest<DummyState> &request) {
+    EXPECT_EQ(request.type, RpcType::APPEND_ENTRIES);
     EXPECT_EQ(request.append_entries.leader_term, 3);
     EXPECT_EQ(request.append_entries.leader_id, "a");
     EXPECT_EQ(request.append_entries.prev_log_index, expected_prev_log_index);
@@ -609,16 +626,16 @@ TEST(RaftMemberTest, AddCommand) {
                                            {IntState::Change::Type::ADD, 10}};
 
   network.on_request_ = [&network, num_calls = 0 ](
-      const PeerRPCRequest<IntState> &request) mutable {
+      const PeerRpcRequest<IntState> &request) mutable {
     ++num_calls;
-    PeerRPCReply reply;
+    PeerRpcReply reply;
 
     if (num_calls == 1) {
-      reply.type = RPCType::REQUEST_VOTE;
+      reply.type = RpcType::REQUEST_VOTE;
       reply.request_vote.term = 1;
       reply.request_vote.vote_granted = true;
     } else {
-      reply.type = RPCType::APPEND_ENTRIES;
+      reply.type = RpcType::APPEND_ENTRIES;
       reply.append_entries.term = 1;
       reply.append_entries.success = true;
     }

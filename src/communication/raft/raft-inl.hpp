@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "fmt/format.h"
 #include "glog/logging.h"
 
@@ -76,26 +78,32 @@ void RaftMemberImpl<State>::PeerThreadMain(std::string peer_id) {
    * thing to do is to assume some important part of state was modified while we
    * were waiting for the response and loop around to check. */
   while (!exiting_) {
-    TimePoint wait_until = TimePoint::max();
+    TimePoint now = Clock::now();
+    TimePoint wait_until;
 
-    switch (mode_) {
-      case RaftMode::FOLLOWER:
-        break;
-      case RaftMode::CANDIDATE:
-        if (!peer_state.request_vote_done) {
-          RequestVote(peer_id, peer_state, lock);
-          continue;
-        }
-        break;
-      case RaftMode::LEADER:
-        if (peer_state.next_index <= storage_.GetLastLogIndex() ||
-            Clock::now() >= peer_state.next_heartbeat_time) {
-          AppendEntries(peer_id, peer_state, lock);
-          continue;
-        } else {
-          wait_until = peer_state.next_heartbeat_time;
-        }
-        break;
+    if (mode_ != RaftMode::FOLLOWER && peer_state.backoff_until > now) {
+      wait_until = peer_state.backoff_until;
+    } else {
+      switch (mode_) {
+        case RaftMode::FOLLOWER:
+          wait_until = TimePoint::max();
+          break;
+        case RaftMode::CANDIDATE:
+          if (!peer_state.request_vote_done) {
+            RequestVote(peer_id, peer_state, lock);
+            continue;
+          }
+          break;
+        case RaftMode::LEADER:
+          if (peer_state.next_index <= storage_.GetLastLogIndex() ||
+              now >= peer_state.next_heartbeat_time) {
+            AppendEntries(peer_id, peer_state, lock);
+            continue;
+          } else {
+            wait_until = peer_state.next_heartbeat_time;
+          }
+          break;
+      }
     }
 
     state_changed_.wait_until(lock, wait_until);
@@ -131,11 +139,27 @@ void RaftMemberImpl<State>::CandidateTransitionToLeader() {
    * at the start of its term. As soon as this no-op entry is committed, the
    * leader’s commit index will be at least as large as any other servers’
    * during its term." */
-
   LogEntry<State> entry;
   entry.term = term_;
   entry.command = std::experimental::nullopt;
   storage_.AppendLogEntry(entry);
+}
+
+template <class State>
+bool RaftMemberImpl<State>::CandidateOrLeaderNoteTerm(const TermId new_term) {
+  DCHECK(mode_ != RaftMode::FOLLOWER)
+      << "`CandidateOrLeaderNoteTerm` called from follower mode";
+  /* [Raft thesis, Section 3.3]
+   * "Current terms are exchanged whenever servers communicate; if one server's
+   * current term is smaller than the other's, then it updates its current term
+   * to the larger value. If a candidate or leader discovers that its term is
+   * out of date, it immediately reverts to follower state." */
+  if (term_ < new_term) {
+    UpdateTermAndVotedFor(new_term, {});
+    CandidateOrLeaderTransitionToFollower();
+    return true;
+  }
+  return false;
 }
 
 template <class State>
@@ -155,63 +179,11 @@ void RaftMemberImpl<State>::SetElectionTimer() {
    * "Raft uses randomized election timeouts to ensure that split votes are rare
    * and that they are resolved quickly. To prevent split votes in the first
    * place, election timeouts are chosen randomly from a fixed interval (e.g.,
-   * 150–300 ms)." */
+   * 150-300 ms)." */
   std::uniform_int_distribution<uint64_t> distribution(
       config_.leader_timeout_min.count(), config_.leader_timeout_max.count());
   Clock::duration wait_interval = std::chrono::milliseconds(distribution(rng_));
   next_election_time_ = Clock::now() + wait_interval;
-}
-
-template <class State>
-bool RaftMemberImpl<State>::SendRPC(const std::string &recipient,
-                                    const PeerRPCRequest<State> &request,
-                                    PeerRPCReply &reply,
-                                    std::unique_lock<std::mutex> &lock) {
-  DCHECK(mode_ != RaftMode::FOLLOWER) << "Follower should not send RPCs";
-
-  bool was_candidate = mode_ == RaftMode::CANDIDATE;
-
-  /* Release lock before issuing RPC and waiting for response. */
-  /* TODO(mtomic): Revise how this will work with RPC cancellation. */
-  lock.unlock();
-  bool ok = network_.SendRPC(recipient, request, reply);
-  lock.lock();
-
-  /* TODO(mtomic): RPC retrying */
-  if (!ok) {
-    return false;
-  }
-
-  /* We released the lock while waiting for RPC response. It is possible that
-   * the internal state has changed while we we're waiting and we don't care for
-   * RPC reply anymore for any of these reasons:
-   * (a) we are not the leader anymore
-   * (b) election timeout
-   * (c) we are elected as leader
-   * (d) out election was interrupted by another leader
-   * (e) destructor was called
-   */
-  if (term_ != request.Term() ||
-      (was_candidate && mode_ != RaftMode::CANDIDATE) || exiting_) {
-    LogInfo("Ignoring RPC reply from {}", recipient);
-    return false;
-  }
-
-  DCHECK(reply.Term() >= term_) << "Response term should be >= request term";
-
-  /* [Raft thesis, Section 3.3]
-   * "Current terms are exchanged whenever servers communicate; if one server's
-   * current term is smaller than the other's, then it updates its current term
-   * to the larger value. If a candidate or leader discovers that its term is
-   * out of date, it immediately reverts to follower state." */
-  if (reply.Term() > term_) {
-    UpdateTermAndVotedFor(reply.Term(), {});
-    CandidateOrLeaderTransitionToFollower();
-    state_changed_.notify_all();
-    return false;
-  }
-
-  return true;
 }
 
 template <class State>
@@ -257,8 +229,9 @@ void RaftMemberImpl<State>::StartNewElection() {
      * This will make newly elected leader send heartbeats immediately.
      */
     peer_state->next_heartbeat_time = TimePoint::min();
+    peer_state->backoff_until = TimePoint::min();
   }
-  
+
   // We already have the majority if we're in a single node cluster.
   if (CountVotes()) {
     LogInfo("Elected as leader.");
@@ -289,23 +262,43 @@ void RaftMemberImpl<State>::RequestVote(const std::string &peer_id,
                                         std::unique_lock<std::mutex> &lock) {
   LogInfo("Requesting vote from {}", peer_id);
 
-  PeerRPCRequest<State> request;
-  request.type = RPCType::REQUEST_VOTE;
-  request.request_vote.candidate_term = term_;
-  request.request_vote.candidate_id = id_;
+  RequestVoteRequest request;
+  request.candidate_term = term_;
+  request.candidate_id = id_;
+  request.last_log_index = storage_.GetLastLogIndex();
+  request.last_log_term = storage_.GetLogTerm(request.last_log_index);
 
-  PeerRPCReply reply;
+  RequestVoteReply reply;
 
   /* Release lock before issuing RPC and waiting for response. */
-  if (!SendRPC(peer_id, request, reply, lock)) {
+  /* TODO(mtomic): Revise how this will work with RPC cancellation. */
+  lock.unlock();
+  bool ok =
+      network_.SendRequestVote(peer_id, request, reply, config_.rpc_timeout);
+  lock.lock();
+
+  /* TODO(mtomic): Maybe implement exponential backoff. */
+  if (!ok) {
+    peer_state.backoff_until = Clock::now() + config_.rpc_backoff;
     return;
   }
 
-  DCHECK(reply.request_vote.term >= term_) << "Stale RequestVote RPC reply";
+  if (term_ != request.candidate_term || mode_ != RaftMode::CANDIDATE ||
+      exiting_) {
+    LogInfo("Ignoring RequestVote RPC reply from {}", peer_id);
+    return;
+  }
+
+  if (CandidateOrLeaderNoteTerm(reply.term)) {
+    state_changed_.notify_all();
+    return;
+  }
+
+  DCHECK(reply.term == term_) << "Stale RequestVote RPC reply";
 
   peer_state.request_vote_done = true;
 
-  if (reply.request_vote.vote_granted) {
+  if (reply.vote_granted) {
     peer_state.voted_for_me = true;
     LogInfo("Got vote from {}", peer_id);
 
@@ -330,7 +323,8 @@ void RaftMemberImpl<State>::AdvanceCommitIndex() {
     match_indices.push_back(peer.second->match_index);
   }
   match_indices.push_back(storage_.GetLastLogIndex());
-  sort(match_indices.begin(), match_indices.end(), std::greater<LogIndex>());
+  std::sort(match_indices.begin(), match_indices.end(),
+            std::greater<LogIndex>());
   LogIndex new_commit_index_ = match_indices[(config_.members.size() - 1) / 2];
 
   LogInfo("Trying to advance commit index {} to {}", commit_index_,
@@ -362,44 +356,58 @@ void RaftMemberImpl<State>::AppendEntries(const std::string &peer_id,
                                           std::unique_lock<std::mutex> &lock) {
   LogInfo("Appending entries to {}", peer_id);
 
-  PeerRPCRequest<State> request;
-  request.type = RPCType::APPEND_ENTRIES;
-  request.append_entries.leader_term = term_;
-  request.append_entries.leader_id = id_;
+  AppendEntriesRequest<State> request;
+  request.leader_term = term_;
+  request.leader_id = id_;
 
-  request.append_entries.prev_log_index = peer_state.next_index - 1;
-  request.append_entries.prev_log_term =
-      storage_.GetLogTerm(peer_state.next_index - 1);
+  request.prev_log_index = peer_state.next_index - 1;
+  request.prev_log_term = storage_.GetLogTerm(peer_state.next_index - 1);
 
   if (!peer_state.suppress_log_entries &&
       peer_state.next_index <= storage_.GetLastLogIndex()) {
-    request.append_entries.entries =
-        storage_.GetLogSuffix(peer_state.next_index);
+    request.entries = storage_.GetLogSuffix(peer_state.next_index);
   } else {
-    request.append_entries.entries = {};
+    request.entries = {};
   }
 
-  request.append_entries.leader_commit = commit_index_;
+  request.leader_commit = commit_index_;
 
-  PeerRPCReply reply;
+  AppendEntriesReply reply;
 
-  if (!SendRPC(peer_id, request, reply, lock)) {
+  /* Release lock before issuing RPC and waiting for response. */
+  /* TODO(mtomic): Revise how this will work with RPC cancellation. */
+  lock.unlock();
+  bool ok =
+      network_.SendAppendEntries(peer_id, request, reply, config_.rpc_timeout);
+  lock.lock();
+
+  /* TODO(mtomic): Maybe implement exponential backoff. */
+  if (!ok) {
     /* There is probably something wrong with this peer, let's avoid sending log
      * entries. */
     peer_state.suppress_log_entries = true;
+    peer_state.backoff_until = Clock::now() + config_.rpc_backoff;
+    return;
+  }
+
+  if (term_ != request.leader_term || exiting_) {
+    return;
+  }
+
+  if (CandidateOrLeaderNoteTerm(reply.term)) {
+    state_changed_.notify_all();
     return;
   }
 
   DCHECK(mode_ == RaftMode::LEADER)
       << "Elected leader for term should never change";
-  DCHECK(reply.append_entries.term == term_) << "Got stale AppendEntries reply";
+  DCHECK(reply.term == term_) << "Got stale AppendEntries reply";
 
-  if (reply.append_entries.success) {
+  if (reply.success) {
     /* We've found a match, we can start sending log entries. */
     peer_state.suppress_log_entries = false;
 
-    LogIndex new_match_index = request.append_entries.prev_log_index +
-                               request.append_entries.entries.size();
+    LogIndex new_match_index = request.prev_log_index + request.entries.size();
     DCHECK(peer_state.match_index <= new_match_index)
         << "`match_index` should increase monotonically within a term";
     peer_state.match_index = new_match_index;
@@ -416,12 +424,12 @@ void RaftMemberImpl<State>::AppendEntries(const std::string &peer_id,
 }
 
 template <class State>
-PeerRPCReply::RequestVote RaftMemberImpl<State>::OnRequestVote(
-    const typename PeerRPCRequest<State>::RequestVote &request) {
+RequestVoteReply RaftMemberImpl<State>::OnRequestVote(
+    const RequestVoteRequest &request) {
   std::lock_guard<std::mutex> lock(mutex_);
   LogInfo("RequestVote RPC request from {}", request.candidate_id);
 
-  PeerRPCReply::RequestVote reply;
+  RequestVoteReply reply;
 
   /* [Raft thesis, Section 3.3]
    * "If a server receives a request with a stale term number, it rejects the
@@ -493,12 +501,12 @@ PeerRPCReply::RequestVote RaftMemberImpl<State>::OnRequestVote(
 }
 
 template <class State>
-PeerRPCReply::AppendEntries RaftMemberImpl<State>::OnAppendEntries(
-    const typename PeerRPCRequest<State>::AppendEntries &request) {
+AppendEntriesReply RaftMemberImpl<State>::OnAppendEntries(
+    const AppendEntriesRequest<State> &request) {
   std::lock_guard<std::mutex> lock(mutex_);
   LogInfo("AppendEntries RPC request from {}", request.leader_id);
 
-  PeerRPCReply::AppendEntries reply;
+  AppendEntriesReply reply;
 
   /* [Raft thesis, Section 3.3]
    * "If a server receives a request with a stale term number, it rejects the
@@ -583,7 +591,7 @@ PeerRPCReply::AppendEntries RaftMemberImpl<State>::OnAppendEntries(
     if (storage_.GetLogTerm(index) != it->term) {
       LogInfo("Truncating log suffix from index {}", index);
       DCHECK(commit_index_ < index)
-          << "Committed entries should never be truncated form the log";
+          << "Committed entries should never be truncated from the log";
       storage_.TruncateLogSuffix(index);
       break;
     }
@@ -648,7 +656,7 @@ template <class State>
 RaftMember<State>::RaftMember(RaftNetworkInterface<State> &network,
                               RaftStorageInterface<State> &storage,
                               const MemberId &id, const RaftConfig &config)
-    : impl_(network, storage, id, config) {
+    : network_(network), impl_(network, storage, id, config) {
   timer_thread_ =
       std::thread(&impl::RaftMemberImpl<State>::TimerThreadMain, &impl_);
 
@@ -658,6 +666,8 @@ RaftMember<State>::RaftMember(RaftNetworkInterface<State> &network,
                                  &impl_, peer_id);
     }
   }
+
+  network_.Start(*this);
 }
 
 template <class State>
@@ -668,24 +678,26 @@ RaftMember<State>::~RaftMember() {
   for (auto &peer_thread : peer_threads_) {
     peer_thread.join();
   }
-}
 
-template <class State>
-PeerRPCReply::RequestVote RaftMember<State>::OnRequestVote(
-    const typename PeerRPCRequest<State>::RequestVote &request) {
-  return impl_.OnRequestVote(request);
-}
-
-template <class State>
-PeerRPCReply::AppendEntries RaftMember<State>::OnAppendEntries(
-    const typename PeerRPCRequest<State>::AppendEntries &request) {
-  return impl_.OnAppendEntries(request);
+  network_.Shutdown();
 }
 
 template <class State>
 ClientResult RaftMember<State>::AddCommand(
     const typename State::Change &command, bool blocking) {
   return impl_.AddCommand(command, blocking);
+}
+
+template <class State>
+RequestVoteReply RaftMember<State>::OnRequestVote(
+    const RequestVoteRequest &request) {
+  return impl_.OnRequestVote(request);
+}
+
+template <class State>
+AppendEntriesReply RaftMember<State>::OnAppendEntries(
+    const AppendEntriesRequest<State> &request) {
+  return impl_.OnAppendEntries(request);
 }
 
 }  // namespace communication::raft
