@@ -41,14 +41,6 @@ class Transaction {
   Transaction &operator=(Transaction &&) = delete;
 
  public:
-  /** Commits this transaction. After this call this transaction object is no
-   * longer valid for use (it gets deleted by the engine that owns it). */
-  void Commit();
-
-  /** Aborts this transaction. After this call this transaction object is no
-   * longer valid for use (it gets deleted by the engine that owns it). */
-  void Abort();
-
   /** Acquires the lock over the given RecordLock, preventing other transactions
    * from doing the same */
   void TakeLock(RecordLock &lock) const { locks_.Take(&lock, *this, engine_); }
