@@ -54,7 +54,7 @@ set(memgraph_src_files
 
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools cereal
-    antlr_opencypher_parser_lib dl glog gflags Boost::serialization)
+    antlr_opencypher_parser_lib dl glog gflags ${Boost_SERIALIZATION_LIBRARY_RELEASE})
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
