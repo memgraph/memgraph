@@ -6,7 +6,6 @@
 #include "durability/hashed_file_writer.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
-#include "transactions/transaction.hpp"
 
 namespace database {
 /** Describes single change to the database state. Used for durability (WAL) and

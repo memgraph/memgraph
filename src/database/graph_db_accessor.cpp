@@ -1,6 +1,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "database/state_delta.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
@@ -9,9 +10,7 @@
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(MasterEngine().Begin()) {
-  db_.wal_.Emplace(database::StateDelta::TxBegin(transaction_->id_));
-}
+    : db_(db), transaction_(MasterEngine().Begin()) {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
@@ -30,17 +29,13 @@ void GraphDbAccessor::AdvanceCommand() {
 
 void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  auto tid = transaction_->id_;
   MasterEngine().Commit(*transaction_);
-  db_.wal_.Emplace(database::StateDelta::TxCommit(tid));
   commited_ = true;
 }
 
 void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  auto tid = transaction_->id_;
   MasterEngine().Abort(*transaction_);
-  db_.wal_.Emplace(database::StateDelta::TxAbort(tid));
   aborted_ = true;
 }
 

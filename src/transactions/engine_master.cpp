@@ -3,14 +3,13 @@
 
 #include "glog/logging.h"
 
+#include "database/state_delta.hpp"
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 
 namespace tx {
 
-MasterEngine::MasterEngine(communication::messaging::System &system) {
-  StartServer(system);
-}
+MasterEngine::MasterEngine(durability::WriteAheadLog *wal) : wal_(wal) {}
 
 MasterEngine::~MasterEngine() {
   if (rpc_server_) StopServer();
@@ -21,10 +20,11 @@ Transaction *MasterEngine::Begin() {
 
   transaction_id_t id{++counter_};
   auto t = new Transaction(id, active_, *this);
-
   active_.insert(id);
   store_.emplace(id, t);
-
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxBegin(id));
+  }
   return t;
 }
 
@@ -48,6 +48,9 @@ void MasterEngine::Commit(const Transaction &t) {
   std::lock_guard<SpinLock> guard(lock_);
   clog_.set_committed(t.id_);
   active_.remove(t.id_);
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxCommit(t.id_));
+  }
   store_.erase(store_.find(t.id_));
 }
 
@@ -55,6 +58,9 @@ void MasterEngine::Abort(const Transaction &t) {
   std::lock_guard<SpinLock> guard(lock_);
   clog_.set_aborted(t.id_);
   active_.remove(t.id_);
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxAbort(t.id_));
+  }
   store_.erase(store_.find(t.id_));
 }
 

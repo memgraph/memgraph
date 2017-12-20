@@ -6,6 +6,7 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
+#include "durability/wal.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
@@ -28,9 +29,11 @@ class TransactionError : public utils::BasicException {
  */
 class MasterEngine : public Engine {
  public:
-  MasterEngine() = default;
-  /** Constructs a master engine and calls StartServer() */
-  MasterEngine(communication::messaging::System &system);
+  /**
+   * @param wal - Optional. If present, the Engine will write tx
+   * Begin/Commit/Abort atomically (while under lock).
+   */
+  MasterEngine(durability::WriteAheadLog *wal = nullptr);
 
   /** Stops the tx server if it's running. */
   ~MasterEngine();
@@ -82,6 +85,9 @@ class MasterEngine : public Engine {
   std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
   SpinLock lock_;
+  // Optional. If present, the Engine will write tx Begin/Commit/Abort
+  // atomically (while under lock).
+  durability::WriteAheadLog *wal_{nullptr};
 
   // Optional RPC server, only used in distributed, not in single_node.
   std::experimental::optional<communication::rpc::Server> rpc_server_;
