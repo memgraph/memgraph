@@ -167,3 +167,6 @@ import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Setup cereal
 import_header_library(cereal "${CMAKE_CURRENT_SOURCE_DIR}/cereal/include")
+# Make cereal multithreaded by passing -DCEREAL_THREAD_SAFE=1 (note that -D is omitted below).
+set_property(TARGET cereal PROPERTY
+             INTERFACE_COMPILE_DEFINITIONS CEREAL_THREAD_SAFE=1)

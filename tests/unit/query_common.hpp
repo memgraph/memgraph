@@ -579,9 +579,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define AND(expr1, expr2) storage.Create<query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))
 // Function call
-#define FN(function_name, ...)                                  \
-  storage.Create<query::Function>(                              \
-      query::NameToFunction(utils::ToUpperCase(function_name)), \
+#define FN(function_name, ...)           \
+  storage.Create<query::Function>(       \
+      utils::ToUpperCase(function_name), \
       std::vector<query::Expression *>{__VA_ARGS__})
 // List slicing
 #define SLICE(list, lower_bound, upper_bound) \

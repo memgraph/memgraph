@@ -1,10 +1,14 @@
 #!/bin/bash -e
 
+# TODO: Consider putting boost library in libs/setup.sh, since the license
+# allows source modification and static compilation. Unfortunately, it is quite
+# a pain to set up the boost build process.
 required_pkgs=(git arcanist # source code control
                cmake clang-3.8 llvm-3.8 pkg-config # build system
                curl wget # for downloading libs
                uuid-dev default-jre-headless # required by antlr
                libreadline-dev # for memgraph console
+               libboost-serialization-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
               )
 

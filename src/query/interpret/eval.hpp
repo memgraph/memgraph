@@ -350,7 +350,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     for (const auto &argument : function.arguments_) {
       arguments.emplace_back(argument->Accept(*this));
     }
-    return function.function_(arguments, db_accessor_);
+    return function.function()(arguments, db_accessor_);
   }
 
   TypedValue Visit(All &all) override {

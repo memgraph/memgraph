@@ -49,8 +49,7 @@ TypedValue EvaluateFunction(const std::string &function_name,
   for (const auto &arg : args) {
     expressions.push_back(storage.Create<PrimitiveLiteral>(arg));
   }
-  auto *op =
-      storage.Create<Function>(NameToFunction(function_name), expressions);
+  auto *op = storage.Create<Function>(function_name, expressions);
   return op->Accept(eval);
 }
 

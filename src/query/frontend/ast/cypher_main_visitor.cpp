@@ -755,27 +755,24 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
       expression = static_cast<Expression *>(storage_.Create<InListOperator>(
           expression, op->expression3b()->accept(this)));
     } else {
-      std::function<TypedValue(const std::vector<TypedValue> &,
-                               GraphDbAccessor &)>
-          f;
+      std::string function_name;
       if (op->STARTS() && op->WITH()) {
-        f = NameToFunction(kStartsWith);
+        function_name = kStartsWith;
       } else if (op->ENDS() && op->WITH()) {
-        f = NameToFunction(kEndsWith);
+        function_name = kEndsWith;
       } else if (op->CONTAINS()) {
-        f = NameToFunction(kContains);
+        function_name = kContains;
       } else {
         throw utils::NotYetImplemented("function '{}'", op->getText());
       }
       auto expression2 = op->expression3b()->accept(this);
       std::vector<Expression *> args = {expression, expression2};
-      expression =
-          static_cast<Expression *>(storage_.Create<Function>(f, args));
+      expression = static_cast<Expression *>(
+          storage_.Create<Function>(function_name, args));
     }
   }
   return expression;
 }
-
 antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(
     CypherParser::StringAndNullOperatorsContext *) {
   DLOG(FATAL) << "Should never be called. See documentation in hpp.";
@@ -989,7 +986,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(
   if (!function)
     throw SemanticException("Function '{}' doesn't exist.", function_name);
   return static_cast<Expression *>(
-      storage_.Create<Function>(function, expressions));
+      storage_.Create<Function>(function_name, expressions));
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionName(

@@ -2,6 +2,9 @@
 
 #include <string>
 
+#include "boost/serialization/base_object.hpp"
+#include "cereal/types/base_class.hpp"
+
 #include "utils/total_ordering.hpp"
 
 namespace GraphDbTypes {
@@ -33,18 +36,67 @@ class Common : TotalOrdering<TSpecificType> {
 
  private:
   StorageT storage_{0};
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar & storage_;
+  }
 };
 
 class Label : public Common<Label> {
   using Common::Common;
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar & boost::serialization::base_object<Common<Label>>(*this);
+  }
+
+ public:
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(cereal::base_class<Common<Label>>(this));
+  }
 };
 
 class EdgeType : public Common<EdgeType> {
   using Common::Common;
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar & boost::serialization::base_object<Common<EdgeType>>(*this);
+  }
+
+ public:
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(cereal::base_class<Common<EdgeType>>(this));
+  }
 };
 
 class Property : public Common<Property> {
   using Common::Common;
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar & boost::serialization::base_object<Common<Property>>(*this);
+  }
+
+ public:
+  /** Required for cereal serialization. */
+  template <class Archive>
+  void serialize(Archive &archive) {
+    archive(cereal::base_class<Common<Property>>(this));
+  }
 };
 
 };  // namespace GraphDbTypes

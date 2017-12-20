@@ -6,8 +6,11 @@
 #include <vector>
 
 #include "antlr4-runtime.h"
+#include "boost/archive/text_iarchive.hpp"
+#include "boost/archive/text_oarchive.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -107,11 +110,39 @@ class CachedAstGenerator : public Base {
   Query *query_;
 };
 
+// This generator serializes the parsed ast and uses the deserialized one.
+class SerializedAstGenerator : public Base {
+ public:
+  SerializedAstGenerator(const std::string &query)
+      : Base(query),
+        storage_([&]() {
+          ::frontend::opencypher::Parser parser(query);
+          CypherMainVisitor visitor(context_);
+          visitor.visit(parser.tree());
+          std::stringstream stream;
+          {
+            boost::archive::text_oarchive out_archive(stream);
+            out_archive << *visitor.query();
+          }
+          AstTreeStorage new_ast;
+          {
+            boost::archive::text_iarchive in_archive(stream);
+            new_ast.Load(in_archive);
+          }
+          return new_ast;
+        }()),
+        query_(storage_.query()) {}
+
+  AstTreeStorage storage_;
+  Query *query_;
+};
+
 template <typename T>
 class CypherMainVisitorTest : public ::testing::Test {};
 
 typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
-                         ClonedAstGenerator, CachedAstGenerator>
+                         ClonedAstGenerator, CachedAstGenerator,
+                         SerializedAstGenerator>
     AstGeneratorTypes;
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 
@@ -712,7 +743,7 @@ TYPED_TEST(CypherMainVisitorTest, Function) {
   auto *function = dynamic_cast<Function *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
-  ASSERT_TRUE(function->function_);
+  ASSERT_TRUE(function->function());
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
