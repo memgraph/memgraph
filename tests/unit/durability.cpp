@@ -148,7 +148,7 @@ class DbGenerator {
   }
 };
 
-/** Returns true if the given databases have the same contents (indices,
+/** Checks if the given databases have the same contents (indices,
  * vertices and edges). */
 void CompareDbs(GraphDb &a, GraphDb &b) {
   GraphDbAccessor dba_a(a);
@@ -288,10 +288,8 @@ class Durability : public ::testing::Test {
   }
 
   void MakeSnapshot(GraphDb &db, int snapshot_max_retained = -1) {
-    GraphDbAccessor dba(db);
     ASSERT_TRUE(
-        durability::MakeSnapshot(dba, durability_dir_, snapshot_max_retained));
-    dba.Commit();
+        durability::MakeSnapshot(db, durability_dir_, snapshot_max_retained));
   }
 
   void SetUp() override {
@@ -418,6 +416,12 @@ TEST_F(Durability, SnapshotEncoding) {
   communication::bolt::DecodedValue dv;
   decoder.ReadValue(&dv);
   ASSERT_EQ(dv.ValueInt(), durability::kVersion);
+  // Number of generated vertex ids.
+  decoder.ReadValue(&dv);
+  ASSERT_TRUE(dv.IsInt());
+  // Number of generated edge ids.
+  decoder.ReadValue(&dv);
+  ASSERT_TRUE(dv.IsInt());
   // Transaction ID.
   decoder.ReadValue(&dv);
   ASSERT_TRUE(dv.IsInt());
@@ -491,6 +495,73 @@ TEST_F(Durability, SnapshotRecovery) {
     recovered_config.db_recover_on_startup = true;
     GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
+  }
+}
+
+TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
+  GraphDb db{DbConfig()};
+  MakeDb(db, 10);
+
+  // Erase all vertices, this should cause snapshot to not have any more
+  // vertices which should make it not change any id after snapshot recovery,
+  // but we still have to make sure that the id for generators is recovered
+  {
+    GraphDbAccessor dba(db);
+    for (auto vertex : dba.Vertices(false)) dba.RemoveVertex(vertex);
+    dba.Commit();
+  }
+
+  MakeSnapshot(db);
+  {
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
+    EXPECT_EQ(db.VertexGenerator().LocalCount(),
+              recovered.VertexGenerator().LocalCount());
+    EXPECT_EQ(db.EdgeGenerator().LocalCount(),
+              recovered.EdgeGenerator().LocalCount());
+  }
+}
+
+TEST_F(Durability, SnapshotAndWalIdRecovery) {
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
+  MakeDb(db, 300);
+  MakeSnapshot(db);
+  MakeDb(db, 300);
+  // Sleep to ensure the WAL gets flushed.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
+  {
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
+    EXPECT_EQ(db.VertexGenerator().LocalCount(),
+              recovered.VertexGenerator().LocalCount());
+    EXPECT_EQ(db.EdgeGenerator().LocalCount(),
+              recovered.EdgeGenerator().LocalCount());
+  }
+}
+
+TEST_F(Durability, OnlyWalIdRecovery) {
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  GraphDb db{config};
+  MakeDb(db, 300);
+  // Sleep to ensure the WAL gets flushed.
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
+  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
+  {
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    GraphDb recovered{recovered_config};
+    EXPECT_EQ(db.VertexGenerator().LocalCount(),
+              recovered.VertexGenerator().LocalCount());
+    EXPECT_EQ(db.EdgeGenerator().LocalCount(),
+              recovered.EdgeGenerator().LocalCount());
   }
 }
 

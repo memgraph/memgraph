@@ -342,6 +342,14 @@ void Convert(const std::vector<std::string> &nodes,
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
     encoder.WriteTypedValue(durability::kVersion);
+
+    // The following two entries indicate the starting points for generating new
+    // Vertex/Edge IDs in the DB. They are only important when there are
+    // vertices/edges that were moved to another worker (in distributed
+    // Memgraph), so it's safe to set them to 0 in snapshot generation.
+    encoder.WriteInt(0);  // Internal Id of vertex generator
+    encoder.WriteInt(0);  // Internal Id of edge generator
+
     encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
@@ -373,8 +381,8 @@ std::string GetOutputPath() {
   // If we have the 'out' flag, use that.
   if (!utils::Trim(FLAGS_out).empty()) return FLAGS_out;
   // Without the 'out', fall back to reading the memgraph configuration for
-  // durability_directory. Hopefully, memgraph configuration doesn't contain other
-  // flags which are defined in this file.
+  // durability_directory. Hopefully, memgraph configuration doesn't contain
+  // other flags which are defined in this file.
   LoadConfig();
   // Without durability_directory, we have to require 'out' flag.
   if (utils::Trim(FLAGS_durability_directory).empty())

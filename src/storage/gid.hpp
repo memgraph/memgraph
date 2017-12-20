@@ -34,8 +34,12 @@ static inline Gid Create(uint64_t worker_id, uint64_t local_id) {
 }
 
 /**
- * @brief - Threadsafe generation of new global ids which belong to the
- * worker_id machine
+ * Threadsafe generation of new global ids which belong to the
+ * worker_id machine. Never call SetId after calling Next without an Id you are
+ * sure is going to be used for gid, i.e. SetId should only be called before
+ * first Next call. We want to make sure that every id that we generate is
+ * larger than the id set by SetId, we can ensure that by not allowing calls to
+ * SetId after Next which generated new id (incremented internal id counter).
  */
 class GidGenerator {
  public:
@@ -45,15 +49,29 @@ class GidGenerator {
    * @param local_id - force local id instead of generating a new one
    */
   gid::Gid Next(std::experimental::optional<Gid> local_id) {
-    auto id = local_id ? *local_id : id_++;
+    auto id = local_id ? *local_id : next_local_id_++;
     if (local_id) {
-      utils::EnsureAtomicGe(id_, id + 1);
+      utils::EnsureAtomicGe(next_local_id_, id + 1);
+    } else {
+      generated_id_ = true;
     }
     return gid::Create(worker_id_, id);
   }
 
+  /// Returns number of locally generated ids
+  uint64_t LocalCount() const { return next_local_id_; };
+
+  // Sets a new id from which every new gid will be generated, should only be
+  // set before first Next is called
+  void SetId(uint64_t id) {
+    DCHECK(!generated_id_)
+        << "Id should be set only before first id is generated";
+    next_local_id_ = id;
+  }
+
  private:
+  bool generated_id_{false};
   int worker_id_;
-  std::atomic<Gid> id_{0};
+  std::atomic<uint64_t> next_local_id_{0};
 };
-};  // namespace gid
+}  // namespace gid

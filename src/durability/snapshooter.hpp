@@ -2,7 +2,7 @@
 
 #include <experimental/filesystem>
 
-class GraphDbAccessor;
+#include "database/graph_db.hpp"
 
 namespace durability {
 using path = std::experimental::filesystem::path;
@@ -14,10 +14,10 @@ path MakeSnapshotPath(const path &durability_dir);
 
 /**
  * Make snapshot and save it in snapshots folder. Returns true if successful.
- * @param db_accessor- GraphDbAccessor used to access elements of GraphDb.
+ * @param db - database for which we are creating a snapshot
  * @param durability_dir - directory where durability data is stored.
  * @param snapshot_max_retained - maximum number of snapshots to retain.
  */
-bool MakeSnapshot(GraphDbAccessor &db_accessor, const path &durability_dir,
+bool MakeSnapshot(GraphDb &db, const path &durability_dir,
                   int snapshot_max_retained);
-}
+}  // namespace durability

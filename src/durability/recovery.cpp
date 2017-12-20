@@ -52,8 +52,7 @@ struct RecoveryData {
     return false;                \
   }
 
-bool RecoverSnapshot(const fs::path &snapshot_file,
-                     GraphDbAccessor &db_accessor,
+bool RecoverSnapshot(const fs::path &snapshot_file, GraphDb &db,
                      RecoveryData &recovery_data) {
   HashedFileReader reader;
   communication::bolt::Decoder<HashedFileReader> decoder(reader);
@@ -77,6 +76,16 @@ bool RecoverSnapshot(const fs::path &snapshot_file,
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
+  // Vertex and edge generator ids
+  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
+  uint64_t vertex_generator_cnt = dv.ValueInt();
+  db.VertexGenerator().SetId(
+      std::max(db.VertexGenerator().LocalCount(), vertex_generator_cnt));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
+  uint64_t edge_generator_cnt = dv.ValueInt();
+  db.EdgeGenerator().SetId(
+      std::max(db.EdgeGenerator().LocalCount(), edge_generator_cnt));
+
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   recovery_data.snapshooter_tx_id = dv.ValueInt();
   // Transaction snapshot of the transaction that created the snapshot.
@@ -98,16 +107,17 @@ bool RecoverSnapshot(const fs::path &snapshot_file,
                                        property.ValueString());
   }
 
+  GraphDbAccessor dba(db);
   for (int64_t i = 0; i < vertex_count; ++i) {
     DecodedValue vertex_dv;
     RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, DecodedValue::Type::Vertex));
     auto &vertex = vertex_dv.ValueVertex();
-    auto vertex_accessor = db_accessor.InsertVertex(vertex.id);
+    auto vertex_accessor = dba.InsertVertex(vertex.id);
     for (const auto &label : vertex.labels) {
-      vertex_accessor.add_label(db_accessor.Label(label));
+      vertex_accessor.add_label(dba.Label(label));
     }
     for (const auto &property_pair : vertex.properties) {
-      vertex_accessor.PropsSet(db_accessor.Property(property_pair.first),
+      vertex_accessor.PropsSet(dba.Property(property_pair.first),
                                query::TypedValue(property_pair.second));
     }
     vertices.insert({vertex.id, vertex_accessor});
@@ -119,12 +129,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file,
     auto it_from = vertices.find(edge.from);
     auto it_to = vertices.find(edge.to);
     RETURN_IF_NOT(it_from != vertices.end() && it_to != vertices.end());
-    auto edge_accessor =
-        db_accessor.InsertEdge(it_from->second, it_to->second,
-                               db_accessor.EdgeType(edge.type), edge.id);
+    auto edge_accessor = dba.InsertEdge(it_from->second, it_to->second,
+                                        dba.EdgeType(edge.type), edge.id);
 
     for (const auto &property_pair : edge.properties)
-      edge_accessor.PropsSet(db_accessor.Property(property_pair.first),
+      edge_accessor.PropsSet(dba.Property(property_pair.first),
                              query::TypedValue(property_pair.second));
   }
 
@@ -132,8 +141,12 @@ bool RecoverSnapshot(const fs::path &snapshot_file,
   // hash.
   reader.ReadType(vertex_count);
   reader.ReadType(edge_count);
-  if (!reader.Close()) return false;
-  return reader.hash() == hash;
+  if (!reader.Close() || reader.hash() != hash) {
+    dba.Abort();
+    return false;
+  }
+  dba.Commit();
+  return true;
 }
 
 #undef RETURN_IF_NOT
@@ -266,22 +279,19 @@ bool Recover(const fs::path &durability_dir, GraphDb &db) {
       snapshot_files.emplace_back(file);
   std::sort(snapshot_files.rbegin(), snapshot_files.rend());
   for (auto &snapshot_file : snapshot_files) {
-    GraphDbAccessor db_accessor{db};
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
-    if (!RecoverSnapshot(snapshot_file, db_accessor, recovery_data)) {
-      db_accessor.Abort();
+    if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
       recovery_data.Clear();
       LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
       continue;
     } else {
       LOG(INFO) << "Snapshot recovery successful.";
-      db_accessor.Commit();
       break;
     }
   }
 
   // Write-ahead-log recovery.
-  GraphDbAccessor db_accessor{db};
+  GraphDbAccessor db_accessor(db);
   // WAL recovery does not have to be complete for the recovery to be
   // considered successful. For the time being ignore the return value,
   // consider a better system.

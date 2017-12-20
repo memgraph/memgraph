@@ -16,7 +16,7 @@ namespace fs = std::experimental::filesystem;
 namespace durability {
 
 namespace {
-bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
+bool Encode(const fs::path &snapshot_file, GraphDb &db, GraphDbAccessor &dba) {
   try {
     HashedFileWriter buffer(snapshot_file);
     communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
@@ -26,14 +26,19 @@ bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
                      durability::kMagicNumber.size());
     encoder.WriteInt(durability::kVersion);
 
+    // Write the number of generated vertex and edges, used to recover
+    // generators internal states
+    encoder.WriteInt(db.VertexGenerator().LocalCount());
+    encoder.WriteInt(db.EdgeGenerator().LocalCount());
+
     // Write the ID of the transaction doing the snapshot.
-    encoder.WriteInt(db_accessor_.transaction_id());
+    encoder.WriteInt(dba.transaction_id());
 
     // Write the transaction snapshot into the snapshot. It's used when
     // recovering from the combination of snapshot and write-ahead-log.
     {
       std::vector<query::TypedValue> tx_snapshot;
-      for (int64_t tx : db_accessor_.transaction().snapshot())
+      for (int64_t tx : dba.transaction().snapshot())
         tx_snapshot.emplace_back(tx);
       encoder.WriteList(tx_snapshot);
     }
@@ -41,18 +46,18 @@ bool Encode(const fs::path &snapshot_file, GraphDbAccessor &db_accessor_) {
     // Write label+property indexes as list ["label", "property", ...]
     {
       std::vector<query::TypedValue> index_vec;
-      for (const auto &key : db_accessor_.GetIndicesKeys()) {
-        index_vec.emplace_back(db_accessor_.LabelName(key.label_));
-        index_vec.emplace_back(db_accessor_.PropertyName(key.property_));
+      for (const auto &key : dba.GetIndicesKeys()) {
+        index_vec.emplace_back(dba.LabelName(key.label_));
+        index_vec.emplace_back(dba.PropertyName(key.property_));
       }
       encoder.WriteList(index_vec);
     }
 
-    for (const auto &vertex : db_accessor_.Vertices(false)) {
+    for (const auto &vertex : dba.Vertices(false)) {
       encoder.WriteVertex(vertex);
       vertex_num++;
     }
-    for (const auto &edge : db_accessor_.Edges(false)) {
+    for (const auto &edge : dba.Edges(false)) {
       encoder.WriteEdge(edge);
       edge_num++;
     }
@@ -110,14 +115,16 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir) {
   return durability_dir / kSnapshotDir / date_str;
 }
 
-bool MakeSnapshot(GraphDbAccessor &db_accessor_, const fs::path &durability_dir,
+bool MakeSnapshot(GraphDb &db, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
   if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file = MakeSnapshotPath(durability_dir);
   if (fs::exists(snapshot_file)) return false;
-  if (Encode(snapshot_file, db_accessor_)) {
+  GraphDbAccessor dba(db);
+  if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
-    RemoveOldWals(durability_dir / kWalDir, db_accessor_.transaction());
+    RemoveOldWals(durability_dir / kWalDir, dba.transaction());
+    dba.Commit();
     return true;
   } else {
     std::error_code error_code;  // Just for exception suppression.

@@ -103,6 +103,9 @@ class GraphDb {
 
   void CollectGarbage();
 
+  gid::GidGenerator &VertexGenerator() { return vertex_generator_; }
+  gid::GidGenerator &EdgeGenerator() { return edge_generator_; }
+
   /** When this is false, no new transactions should be created. */
   std::atomic<bool> is_accepting_transactions_{true};
 

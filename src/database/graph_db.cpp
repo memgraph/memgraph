@@ -101,13 +101,11 @@ void GraphDb::Shutdown() {
 void GraphDb::StartSnapshooting() {
   if (config_.durability_enabled) {
     auto create_snapshot = [this]() -> void {
-      GraphDbAccessor db_accessor(*this);
-      if (!durability::MakeSnapshot(db_accessor,
+      if (!durability::MakeSnapshot(*this,
                                     fs::path(config_.durability_directory),
                                     config_.snapshot_max_retained)) {
         LOG(WARNING) << "Durability: snapshot creation failed";
       }
-      db_accessor.Commit();
     };
     snapshot_creator_.Run(std::chrono::seconds(config_.snapshot_cycle_sec),
                           create_snapshot);
@@ -178,11 +176,10 @@ GraphDb::~GraphDb() {
 
   // Create last database snapshot
   if (config_.snapshot_on_exit == true) {
-    GraphDbAccessor db_accessor(*this);
     LOG(INFO) << "Creating snapshot on shutdown..." << std::endl;
-    const bool status = durability::MakeSnapshot(
-        db_accessor, fs::path(config_.durability_directory),
-        config_.snapshot_max_retained);
+    const bool status =
+        durability::MakeSnapshot(*this, fs::path(config_.durability_directory),
+                                 config_.snapshot_max_retained);
     if (status) {
       std::cout << "Snapshot created successfully." << std::endl;
     } else {

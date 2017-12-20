@@ -27,4 +27,4 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
  */
 bool Recover(const std::experimental::filesystem::path &durability_dir,
              GraphDb &db);
-}
+}  // namespace durability
