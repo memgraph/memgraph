@@ -129,7 +129,7 @@ if (USE_READLINE)
 endif()
 
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost REQUIRED COMPONENTS serialization)
+find_package(Boost 1.62 REQUIRED COMPONENTS serialization)
 
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
