@@ -31,7 +31,8 @@ def main():
         os.makedirs(snapshot_dir, exist_ok=True)
         out_snapshot = os.path.join(snapshot_dir, 'snapshot')
         mg_import_csv = [args.mg_import_csv, '--nodes', comment_nodes,
-                         '--nodes', forum_nodes, '--relationships', relationships_0,
+                         '--nodes={}'.format(forum_nodes),
+                         '--relationships={}'.format(relationships_0),
                          '--relationships', relationships_1,
                          '--out', out_snapshot, '--csv-delimiter=|', '--array-delimiter=;']
         subprocess.check_call(mg_import_csv)

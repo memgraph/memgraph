@@ -16,6 +16,7 @@ data structures, multi-version concurrency control and asynchronous IO.
   * [Drivers](drivers.md)
   * [Storable Data Types](data-types.md)
   * [openCypher Query Language](open-cypher.md)
+  * [Import Tools](import-tools.md)
   * [Upcoming Features](upcoming-features.md)
 
 [//]: # (Nothing should go below the contents section)

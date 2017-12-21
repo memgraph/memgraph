@@ -46,8 +46,22 @@ auto ParseRepeatedFlag(const std::string &flagname, int argc, char *argv[]) {
   std::vector<std::string> values;
   for (int i = 1; i < argc; ++i) {
     std::string flag(argv[i]);
-    if ((flag == "--" + flagname || flag == "-" + flagname) && i + 1 < argc)
-      values.push_back(argv[++i]);
+    int matched_flag_dashes = 0;
+    if (utils::StartsWith(flag, "--" + flagname))
+      matched_flag_dashes = 2;
+    else if (utils::StartsWith(flag, "-" + flagname))
+      matched_flag_dashes = 1;
+    // Get the value if we matched the flag.
+    if (matched_flag_dashes != 0) {
+      std::string value;
+      auto maybe_value = flag.substr(flagname.size() + matched_flag_dashes);
+      if (maybe_value.empty() && i + 1 < argc)
+        value = argv[++i];
+      else if (!maybe_value.empty() && maybe_value.front() == '=')
+        value = maybe_value.substr(1);
+      CHECK(!value.empty()) << "The argument '" << flagname << "' is required";
+      values.push_back(value);
+    }
   }
   return values;
 }
@@ -385,11 +399,12 @@ std::string GetOutputPath() {
   // other flags which are defined in this file.
   LoadConfig();
   // Without durability_directory, we have to require 'out' flag.
-  if (utils::Trim(FLAGS_durability_directory).empty())
+  auto durability_dir = utils::Trim(FLAGS_durability_directory);
+  if (durability_dir.empty())
     LOG(FATAL) << "Unable to determine snapshot output location. Please, "
                   "provide the 'out' flag";
-  std::string snapshot_dir = FLAGS_durability_directory + "/snapshots";
   try {
+    auto snapshot_dir = durability_dir + "/snapshots";
     if (!std::experimental::filesystem::exists(snapshot_dir) &&
         !std::experimental::filesystem::create_directories(snapshot_dir)) {
       LOG(FATAL) << fmt::format("Cannot create snapshot directory '{}'",
@@ -398,7 +413,7 @@ std::string GetOutputPath() {
   } catch (const std::experimental::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
-  return std::string(durability::MakeSnapshotPath(snapshot_dir));
+  return std::string(durability::MakeSnapshotPath(durability_dir));
 }
 
 int main(int argc, char *argv[]) {

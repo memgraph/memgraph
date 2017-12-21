@@ -35,7 +35,7 @@ We have prepared a database snapshot for this example, so you can easily import 
 when starting memgraph using `durability-directory` option:
 
 ```
-./memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk --durability-enabled=false
+memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk --durability-enabled=false
 ```
 
 NOTE: If you modify dataset these changes will stay
