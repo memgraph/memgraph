@@ -32,15 +32,34 @@ Therefore we add node `Rating` with these values as property `name` and relation
 #### Example Queries
 
 We have prepared a database snapshot for this example, so you can easily import it
-when starting memgraph using `durability-directory` option:
+when starting Memgraph using the `--durability-directory` option.
 
 ```
-memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk --durability-enabled=false
+/usr/lib/memgraph/memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk \
+  --durability-enabled=false --snapshot-on-exit=false
 ```
 
-NOTE: If you modify dataset these changes will stay
+When using Memgraph installed from DEB package, you may need to stop the
+currently running Memgraph server before you can import the example. Use the
+following command:
+
+```
+systemctl stop memgraph
+```
+
+When using Docker, you can import the example with the following command:
+
+```
+docker run -p 7687:7687 \
+  -v mg_lib:/var/lib/memgraph -v mg_log:/var/log/memgraph -v mg_etc:/etc/memgraph \
+  memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk \
+  --durability-enabled=false --snapshot-on-exit=false
+```
 
 Now you're ready to try out some of the following queries.
+
+NOTE: If you modify the dataset, the changes will stay only during this run of
+Memgraph.
 
 1) Find all talks given by specific speaker:
 ```
@@ -61,7 +80,7 @@ ORDER BY TalksGiven DESC LIMIT 20;
 ```
 MATCH (n:Talk {name: "Michael Green: Why we should build wooden skyscrapers"})-[:HasTag]->(t:Tag)<-[:HasTag]-(m:Talk)
 WITH * ORDER BY m.name
-RETURN t.name, COLLECT(m.name), COUNT(m) AS TalksCount;
+RETURN t.name, COLLECT(m.name), COUNT(m) AS TalksCount
 ORDER BY TalksCount DESC;
 ```
 

@@ -18,5 +18,5 @@ VOLUME /etc/memgraph
 USER memgraph
 WORKDIR /home/memgraph
 
-ENTRYPOINT ["memgraph"]
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
 CMD [""]

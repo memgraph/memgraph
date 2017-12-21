@@ -102,7 +102,7 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # Install and rename executable to just 'memgraph' Since we have to rename,
 # we cannot use the recommended `install(TARGETS ...)`.
 install(PROGRAMS $<TARGET_FILE:memgraph>
-        DESTINATION bin RENAME memgraph)
+        DESTINATION lib/memgraph RENAME memgraph)
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
