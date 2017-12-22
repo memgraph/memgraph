@@ -75,6 +75,10 @@ class Writer {
                       durability::kMagicNumber.size());
     encoder_.WriteTypedValue(durability::kVersion);
 
+    // ID of the vertex generator.
+    encoder_.WriteInt(0);
+    // ID of the edge generator.
+    encoder_.WriteInt(0);
     // Transactional ID of the snapshooter.
     encoder_.WriteInt(0);
     // Transactional Snapshot is an empty list of transaction IDs.
@@ -93,7 +97,7 @@ class Writer {
     encoder_.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
                       3);
     encoder_.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
-    auto id = node_counter_++;
+    auto id = node_generator_.Next(std::experimental::nullopt);
     encoder_.WriteInt(id);
     encoder_.WriteList(
         std::vector<query::TypedValue>{labels.begin(), labels.end()});
@@ -109,7 +113,7 @@ class Writer {
                       5);
     encoder_.WriteRAW(
         underlying_cast(communication::bolt::Signature::Relationship));
-    auto id = edge_counter_++;
+    auto id = edge_generator_.Next(std::experimental::nullopt);
     encoder_.WriteInt(id);
     encoder_.WriteInt(bolt_id_from);
     encoder_.WriteInt(bolt_id_to);
@@ -119,15 +123,15 @@ class Writer {
   }
 
   void Close() {
-    buffer_.WriteValue(node_counter_);
-    buffer_.WriteValue(edge_counter_);
+    buffer_.WriteValue(node_generator_.LocalCount());
+    buffer_.WriteValue(edge_generator_.LocalCount());
     buffer_.WriteValue(buffer_.hash());
     buffer_.Close();
   }
 
  private:
-  int64_t node_counter_{0};
-  int64_t edge_counter_{0};
+  gid::GidGenerator node_generator_{0};
+  gid::GidGenerator edge_generator_{0};
   HashedFileWriter buffer_;
   communication::bolt::BaseEncoder<HashedFileWriter> encoder_{buffer_};
 };
