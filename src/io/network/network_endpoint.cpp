@@ -49,4 +49,5 @@ bool NetworkEndpoint::operator==(const NetworkEndpoint &other) const {
                     std::begin(other.address_)) &&
          port_ == other.port_ && family_ == other.family_;
 }
+
 }  // namespace io::network

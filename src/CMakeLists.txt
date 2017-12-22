@@ -10,8 +10,8 @@ set(memgraph_src_files
     communication/rpc/rpc.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/graph_db.cpp
-    database/graph_db_config.cpp
     database/graph_db_accessor.cpp
+    database/graph_db_config.cpp
     database/state_delta.cpp
     distributed/coordination_master.cpp
     distributed/coordination_worker.cpp
@@ -50,7 +50,7 @@ set(memgraph_src_files
 # -----------------------------------------------------------------------------
 
 # memgraph_lib depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools cereal
+set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags ${Boost_SERIALIZATION_LIBRARY_RELEASE})
 
 if (USE_LTALLOC)
@@ -124,4 +124,3 @@ set(examples ${CMAKE_SOURCE_DIR}/release/examples)
 install(CODE "execute_process(COMMAND ${examples}/build_examples
                               WORKING_DIRECTORY ${examples})")
 install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
-

@@ -19,4 +19,5 @@ class ConcurrentIdMapper {
   virtual const std::string &id_to_value(const TId &id) = 0;
   virtual ~ConcurrentIdMapper() {}
 };
+
 }  // namespace storage

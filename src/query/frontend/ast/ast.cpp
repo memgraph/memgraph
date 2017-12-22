@@ -1,5 +1,10 @@
 #include "query/frontend/ast/ast.hpp"
 
+// Include archives before registering most derived types.
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/export.hpp"
+
 namespace query {
 
 AstTreeStorage::AstTreeStorage() {
@@ -35,62 +40,56 @@ ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body) {
 
 }  // namespace query
 
-// Include archives before registering most derived types.
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/archive/text_iarchive.hpp"
-#include "boost/archive/text_oarchive.hpp"
-
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Query);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::SingleQuery);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::CypherUnion);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::NamedExpression);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::OrOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::XorOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::AndOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::NotOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::AdditionOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::SubtractionOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::MultiplicationOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::DivisionOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ModOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::NotEqualOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::EqualOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::LessOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::GreaterOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::LessEqualOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::GreaterEqualOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::InListOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ListMapIndexingOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ListSlicingOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::IfOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::UnaryPlusOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::UnaryMinusOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::IsNullOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ListLiteral);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::MapLiteral);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::PropertyLookup);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::LabelsTest);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Aggregation);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Function);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::All);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ParameterLookup);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Create);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Match);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Return);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::With);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Pattern);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::NodeAtom);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::EdgeAtom);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Delete);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Where);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::SetProperty);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::SetProperties);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::SetLabels);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::RemoveProperty);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::RemoveLabels);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Merge);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Unwind);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::Identifier);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::PrimitiveLiteral);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::CreateIndex);
+BOOST_CLASS_EXPORT(query::Query);
+BOOST_CLASS_EXPORT(query::SingleQuery);
+BOOST_CLASS_EXPORT(query::CypherUnion);
+BOOST_CLASS_EXPORT(query::NamedExpression);
+BOOST_CLASS_EXPORT(query::OrOperator);
+BOOST_CLASS_EXPORT(query::XorOperator);
+BOOST_CLASS_EXPORT(query::AndOperator);
+BOOST_CLASS_EXPORT(query::NotOperator);
+BOOST_CLASS_EXPORT(query::AdditionOperator);
+BOOST_CLASS_EXPORT(query::SubtractionOperator);
+BOOST_CLASS_EXPORT(query::MultiplicationOperator);
+BOOST_CLASS_EXPORT(query::DivisionOperator);
+BOOST_CLASS_EXPORT(query::ModOperator);
+BOOST_CLASS_EXPORT(query::NotEqualOperator);
+BOOST_CLASS_EXPORT(query::EqualOperator);
+BOOST_CLASS_EXPORT(query::LessOperator);
+BOOST_CLASS_EXPORT(query::GreaterOperator);
+BOOST_CLASS_EXPORT(query::LessEqualOperator);
+BOOST_CLASS_EXPORT(query::GreaterEqualOperator);
+BOOST_CLASS_EXPORT(query::InListOperator);
+BOOST_CLASS_EXPORT(query::ListMapIndexingOperator);
+BOOST_CLASS_EXPORT(query::ListSlicingOperator);
+BOOST_CLASS_EXPORT(query::IfOperator);
+BOOST_CLASS_EXPORT(query::UnaryPlusOperator);
+BOOST_CLASS_EXPORT(query::UnaryMinusOperator);
+BOOST_CLASS_EXPORT(query::IsNullOperator);
+BOOST_CLASS_EXPORT(query::ListLiteral);
+BOOST_CLASS_EXPORT(query::MapLiteral);
+BOOST_CLASS_EXPORT(query::PropertyLookup);
+BOOST_CLASS_EXPORT(query::LabelsTest);
+BOOST_CLASS_EXPORT(query::Aggregation);
+BOOST_CLASS_EXPORT(query::Function);
+BOOST_CLASS_EXPORT(query::All);
+BOOST_CLASS_EXPORT(query::ParameterLookup);
+BOOST_CLASS_EXPORT(query::Create);
+BOOST_CLASS_EXPORT(query::Match);
+BOOST_CLASS_EXPORT(query::Return);
+BOOST_CLASS_EXPORT(query::With);
+BOOST_CLASS_EXPORT(query::Pattern);
+BOOST_CLASS_EXPORT(query::NodeAtom);
+BOOST_CLASS_EXPORT(query::EdgeAtom);
+BOOST_CLASS_EXPORT(query::Delete);
+BOOST_CLASS_EXPORT(query::Where);
+BOOST_CLASS_EXPORT(query::SetProperty);
+BOOST_CLASS_EXPORT(query::SetProperties);
+BOOST_CLASS_EXPORT(query::SetLabels);
+BOOST_CLASS_EXPORT(query::RemoveProperty);
+BOOST_CLASS_EXPORT(query::RemoveLabels);
+BOOST_CLASS_EXPORT(query::Merge);
+BOOST_CLASS_EXPORT(query::Unwind);
+BOOST_CLASS_EXPORT(query::Identifier);
+BOOST_CLASS_EXPORT(query::PrimitiveLiteral);
+BOOST_CLASS_EXPORT(query::CreateIndex);

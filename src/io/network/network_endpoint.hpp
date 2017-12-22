@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "boost/serialization/access.hpp"
+
 #include "utils/exceptions.hpp"
 
 namespace io::network {
@@ -25,18 +27,23 @@ class NetworkEndpoint {
   uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
 
-  /** Required for cereal serialization. */
-  template <class Archive>
-  void serialize(Archive &archive) {
-    archive(address_, port_str_, port_, family_);
-  }
-
   bool operator==(const NetworkEndpoint &other) const;
 
  private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &address_;
+    ar &port_str_;
+    ar &port_;
+    ar &family_;
+  }
+
   char address_[INET6_ADDRSTRLEN];
   char port_str_[6];
   uint16_t port_;
   unsigned char family_;
 };
-}
+
+}  // namespace io::network

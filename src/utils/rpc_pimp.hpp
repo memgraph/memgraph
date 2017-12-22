@@ -1,34 +1,36 @@
 #pragma once
 
-#include "cereal/archives/binary.hpp"
-#include "cereal/types/base_class.hpp"
-#include "cereal/types/memory.hpp"
-#include "cereal/types/polymorphic.hpp"
-#include "cereal/types/string.hpp"
-#include "cereal/types/utility.hpp"
-#include "cereal/types/vector.hpp"
+#include "boost/serialization/base_object.hpp"
 
 #include "communication/messaging/local.hpp"
 
-#define RPC_NO_MEMBER_MESSAGE(name)                    \
-  using communication::messaging::Message;             \
-  struct name : public Message {                       \
-    name() {}                                          \
-    template <class Archive>                           \
-    void serialize(Archive &ar) {                      \
-      ar(::cereal::virtual_base_class<Message>(this)); \
-    }                                                  \
+#define RPC_NO_MEMBER_MESSAGE(name)                        \
+  struct name : public communication::messaging::Message { \
+    name() {}                                              \
+                                                           \
+   private:                                                \
+    friend class boost::serialization::access;             \
+                                                           \
+    template <class TArchive>                              \
+    void serialize(TArchive &ar, unsigned int) {           \
+      ar &boost::serialization::base_object<               \
+          communication::messaging::Message>(*this);       \
+    }                                                      \
   };
 
-#define RPC_SINGLE_MEMBER_MESSAGE(name, type)                  \
-  using communication::messaging::Message;                     \
-  struct name : public Message {                               \
-    name() {}                                                  \
-    name(const type &member) : member(member) {}               \
-    type member;                                               \
-    template <class Archive>                                   \
-    void serialize(Archive &ar) {                              \
-      ar(::cereal::virtual_base_class<Message>(this), member); \
-    }                                                          \
+#define RPC_SINGLE_MEMBER_MESSAGE(name, type)              \
+  struct name : public communication::messaging::Message { \
+    name() {}                                              \
+    name(const type &member) : member(member) {}           \
+    type member;                                           \
+                                                           \
+   private:                                                \
+    friend class boost::serialization::access;             \
+                                                           \
+    template <class TArchive>                              \
+    void serialize(TArchive &ar, unsigned int) {           \
+      ar &boost::serialization::base_object<               \
+          communication::messaging::Message>(*this);       \
+      ar &member;                                          \
+    }                                                      \
   };
-

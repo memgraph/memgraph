@@ -18,14 +18,6 @@
 #include "data_structures/queue.hpp"
 #include "protocol.hpp"
 
-#include "cereal/archives/binary.hpp"
-#include "cereal/types/base_class.hpp"
-#include "cereal/types/memory.hpp"
-#include "cereal/types/polymorphic.hpp"
-#include "cereal/types/string.hpp"
-#include "cereal/types/utility.hpp"
-#include "cereal/types/vector.hpp"
-
 #include "communication/server.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "threading/sync/spinlock.hpp"

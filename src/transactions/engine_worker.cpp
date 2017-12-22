@@ -7,7 +7,7 @@
 namespace tx {
 namespace {
 static const auto kRpcTimeout = 100ms;
-}
+}  // namespace
 
 WorkerEngine::WorkerEngine(communication::messaging::System &system,
                            const io::network::NetworkEndpoint &endpoint)

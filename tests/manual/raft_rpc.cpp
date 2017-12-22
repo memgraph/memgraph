@@ -1,3 +1,11 @@
+#include "boost/serialization/export.hpp"
+
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/archive/text_iarchive.hpp"
+#include "boost/archive/text_oarchive.hpp"
+#include "boost/serialization/export.hpp"
+
 #include "communication/messaging/distributed.hpp"
 #include "communication/raft/rpc.hpp"
 #include "communication/raft/test_utils.hpp"
@@ -12,8 +20,8 @@ using raft::test_utils::InMemoryStorageInterface;
 
 DEFINE_string(member_id, "", "id of RaftMember");
 
-CEREAL_REGISTER_TYPE(raft::PeerRpcReply);
-CEREAL_REGISTER_TYPE(raft::PeerRpcRequest<DummyState>);
+BOOST_CLASS_EXPORT(raft::PeerRpcReply);
+BOOST_CLASS_EXPORT(raft::PeerRpcRequest<DummyState>);
 
 /* Start cluster members with:
  * ./raft_rpc --member-id a
@@ -42,8 +50,9 @@ int main(int argc, char *argv[]) {
   {
     raft::RaftMember<DummyState> raft_member(network, storage, FLAGS_member_id,
                                              config);
-    while (true)
-      ;
+    while (true) {
+      continue;
+    }
   }
 
   my_system.Shutdown();

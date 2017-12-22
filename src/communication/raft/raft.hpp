@@ -10,9 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include "boost/serialization/vector.hpp"
 #include "glog/logging.h"
 
-#include "utils/cereal_optional.hpp"
+#include "utils/serialization_optional.hpp"
 
 namespace communication::raft {
 
@@ -43,9 +44,10 @@ struct LogEntry {
   }
   bool operator!=(const LogEntry &rhs) const { return !(*this == rhs); }
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(term, command);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &term;
+    ar &command;
   }
 };
 
@@ -56,9 +58,12 @@ struct RequestVoteRequest {
   LogIndex last_log_index;
   TermId last_log_term;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(candidate_term, candidate_id, last_log_index, last_log_term);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &candidate_term;
+    ar &candidate_id;
+    ar &last_log_index;
+    ar &last_log_term;
   }
 };
 
@@ -66,9 +71,10 @@ struct RequestVoteReply {
   TermId term;
   bool vote_granted;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(term, vote_granted);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &term;
+    ar &vote_granted;
   }
 };
 
@@ -81,10 +87,14 @@ struct AppendEntriesRequest {
   std::vector<LogEntry<State>> entries;
   LogIndex leader_commit;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(leader_term, leader_id, prev_log_index, prev_log_term, entries,
-       leader_commit);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &leader_term;
+    ar &leader_id;
+    ar &prev_log_index;
+    ar &prev_log_term;
+    ar &entries;
+    ar &leader_commit;
   }
 };
 
@@ -92,9 +102,10 @@ struct AppendEntriesReply {
   TermId term;
   bool success;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(term, success);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &term;
+    ar &success;
   }
 };
 

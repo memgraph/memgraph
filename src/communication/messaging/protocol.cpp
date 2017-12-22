@@ -1,11 +1,15 @@
 #include <sstream>
 
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/unique_ptr.hpp"
+#include "fmt/format.h"
+#include "glog/logging.h"
+
 #include "communication/messaging/distributed.hpp"
 #include "communication/messaging/local.hpp"
 #include "communication/messaging/protocol.hpp"
-
-#include "fmt/format.h"
-#include "glog/logging.h"
+#include "communication/rpc/messages-inl.hpp"
 
 namespace communication::messaging {
 
@@ -33,11 +37,11 @@ void Session::Execute() {
   buffer_.Shift(sizeof(SizeT));
 
   // TODO: check for exceptions
-  std::istringstream stream;
+  std::stringstream stream;
   stream.str(std::string(reinterpret_cast<char *>(buffer_.data()), len_data));
-  ::cereal::BinaryInputArchive iarchive{stream};
+  boost::archive::binary_iarchive archive(stream);
   std::unique_ptr<Message> message{nullptr};
-  iarchive(message);
+  archive >> message;
   buffer_.Shift(len_data);
 
   LocalWriter writer(system_, channel);
@@ -86,9 +90,9 @@ void SendMessage(const std::string &address, uint16_t port,
   }
 
   // Serialize and send message
-  std::ostringstream stream;
-  ::cereal::BinaryOutputArchive oarchive(stream);
-  oarchive(message);
+  std::stringstream stream;
+  boost::archive::binary_oarchive archive(stream);
+  archive << message;
 
   const std::string &buffer = stream.str();
   int64_t message_size = 2 * sizeof(SizeT) + buffer.size() + channel.size();

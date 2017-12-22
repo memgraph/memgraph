@@ -31,15 +31,3 @@ ID_VALUE_RPC(Property)
 #undef ID_VALUE_RPC
 
 }  // namespace storage
-
-#define ID_VALUE_REGISTER_CEREAL_TYPE(type)     \
-  CEREAL_REGISTER_TYPE(storage::type##IdReq);   \
-  CEREAL_REGISTER_TYPE(storage::type##IdRes);   \
-  CEREAL_REGISTER_TYPE(storage::Id##type##Req); \
-  CEREAL_REGISTER_TYPE(storage::Id##type##Res);
-
-ID_VALUE_REGISTER_CEREAL_TYPE(Label)
-ID_VALUE_REGISTER_CEREAL_TYPE(EdgeType)
-ID_VALUE_REGISTER_CEREAL_TYPE(Property)
-
-#undef ID_VALUE_REGISTER_CEREAL_TYPE

@@ -58,4 +58,5 @@ std::unique_ptr<Message> EventStream::Await(
 };
 
 void EventStream::Shutdown() { queue_.Shutdown(); }
-}
+
+}  // namespace communication::messaging

@@ -7,23 +7,35 @@
 #include <thread>
 #include <vector>
 
-#include "communication/messaging/distributed.hpp"
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/archive/text_iarchive.hpp"
+#include "boost/archive/text_oarchive.hpp"
+#include "boost/serialization/access.hpp"
+#include "boost/serialization/base_object.hpp"
+#include "boost/serialization/export.hpp"
 #include "gtest/gtest.h"
+
+#include "communication/messaging/distributed.hpp"
 
 using namespace communication::messaging;
 using namespace std::literals::chrono_literals;
 
 struct MessageInt : public Message {
-  MessageInt() {}  // cereal needs this
   MessageInt(int x) : x(x) {}
   int x;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<Message>(this), x);
+ private:
+  friend class boost::serialization::access;
+  MessageInt() {}  // Needed for serialization
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &x;
   }
 };
-CEREAL_REGISTER_TYPE(MessageInt);
+BOOST_CLASS_EXPORT(MessageInt);
 
 #define GET_X(p) dynamic_cast<MessageInt *>((p).get())->x
 

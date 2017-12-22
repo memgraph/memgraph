@@ -6,8 +6,8 @@
 #include <vector>
 
 #include "antlr4-runtime.h"
-#include "boost/archive/text_iarchive.hpp"
-#include "boost/archive/text_oarchive.hpp"
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -121,12 +121,12 @@ class SerializedAstGenerator : public Base {
           visitor.visit(parser.tree());
           std::stringstream stream;
           {
-            boost::archive::text_oarchive out_archive(stream);
+            boost::archive::binary_oarchive out_archive(stream);
             out_archive << *visitor.query();
           }
           AstTreeStorage new_ast;
           {
-            boost::archive::text_iarchive in_archive(stream);
+            boost::archive::binary_iarchive in_archive(stream);
             new_ast.Load(in_archive);
           }
           return new_ast;

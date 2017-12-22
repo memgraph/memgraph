@@ -4,8 +4,9 @@
 #include <string>
 #include <type_traits>
 #include <typeindex>
+#include <unordered_map>
 
-#include "cereal/types/memory.hpp"
+#include "boost/serialization/access.hpp"
 
 #include "data_structures/queue.hpp"
 
@@ -18,9 +19,6 @@ class Message {
  public:
   virtual ~Message() {}
 
-  template <class Archive>
-  void serialize(Archive &) {}
-
   /**
    * Run-time type identification that is used for callbacks.
    *
@@ -28,6 +26,12 @@ class Message {
    * this class
    */
   std::type_index type_index() const { return typeid(*this); }
+
+ private:
+  friend boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &, unsigned int) {}
 };
 
 class EventStream;
@@ -106,4 +110,5 @@ class EventStream {
   std::string name_;
   Queue<std::unique_ptr<Message>> queue_;
 };
+
 }  // namespace communication::messaging

@@ -1,6 +1,7 @@
 #include <experimental/optional>
 #include <memory>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "gtest/gtest.h"

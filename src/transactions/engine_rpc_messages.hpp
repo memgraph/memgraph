@@ -1,11 +1,10 @@
 #pragma once
 
-#include "utils/rpc_pimp.hpp"
-
 #include "communication/rpc/rpc.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
+#include "utils/rpc_pimp.hpp"
 
 namespace tx {
 
@@ -30,13 +29,5 @@ using ActiveTransactionsRpc =
     communication::rpc::RequestResponse<ActiveTransactionsReq, SnapshotRes>;
 using IsActiveRpc =
     communication::rpc::RequestResponse<IsActiveReq, IsActiveRes>;
-}  // namespace tx
 
-CEREAL_REGISTER_TYPE(tx::SnapshotReq);
-CEREAL_REGISTER_TYPE(tx::SnapshotRes);
-CEREAL_REGISTER_TYPE(tx::GcSnapshotReq);
-CEREAL_REGISTER_TYPE(tx::ClogInfoReq);
-CEREAL_REGISTER_TYPE(tx::ClogInfoRes);
-CEREAL_REGISTER_TYPE(tx::ActiveTransactionsReq);
-CEREAL_REGISTER_TYPE(tx::IsActiveReq);
-CEREAL_REGISTER_TYPE(tx::IsActiveRes);
+}  // namespace tx

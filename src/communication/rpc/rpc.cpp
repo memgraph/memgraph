@@ -1,6 +1,13 @@
 #include <iterator>
 #include <random>
 
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/access.hpp"
+#include "boost/serialization/base_object.hpp"
+#include "boost/serialization/export.hpp"
+#include "boost/serialization/unique_ptr.hpp"
+
 #include "communication/rpc/rpc.hpp"
 #include "utils/string.hpp"
 
@@ -24,15 +31,19 @@ class Request : public messaging::Message {
   const std::string &message_id() const { return message_id_; }
   const messaging::Message &message() const { return *message_; }
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<messaging::Message>(this), address_, port_,
-       stream_, message_id_, message_);
-  }
+ private:
+  friend class boost::serialization::access;
+  Request() {}  // Needed for serialization.
 
- protected:
-  friend class cereal::access;
-  Request() {}  // Cereal needs access to a default constructor.
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<messaging::Message>(*this);
+    ar &address_;
+    ar &port_;
+    ar &stream_;
+    ar &message_id_;
+    ar &message_;
+  }
 
   std::string address_;
   uint16_t port_;
@@ -47,18 +58,20 @@ class Response : public messaging::Message {
                     std::unique_ptr<messaging::Message> message)
       : message_id_(message_id), message_(std::move(message)) {}
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<messaging::Message>(this), message_id_,
-       message_);
-  }
-
   const auto &message_id() const { return message_id_; }
   auto &message() { return message_; }
 
- protected:
-  Response() {}  // Cereal needs access to a default constructor.
-  friend class cereal::access;
+ private:
+  friend class boost::serialization::access;
+  Response() {}  // Needed for serialization.
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &message_id_;
+    ar &message_;
+  }
+
   std::string message_id_;
   std::unique_ptr<messaging::Message> message_;
 };
@@ -138,6 +151,8 @@ void Server::Shutdown() {
   stream_->Shutdown();
   if (running_thread_.joinable()) running_thread_.join();
 }
+
 }  // namespace communication::rpc
-CEREAL_REGISTER_TYPE(communication::rpc::Request);
-CEREAL_REGISTER_TYPE(communication::rpc::Response);
+
+BOOST_CLASS_EXPORT(communication::rpc::Request);
+BOOST_CLASS_EXPORT(communication::rpc::Response);

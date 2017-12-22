@@ -123,7 +123,3 @@ cd ..
 # git clone https://github.com/r-lyeh/ltalloc.git
 ltalloc_tag="43b51c14857111f993f277c46151fdfac91525a2" # Nov 16, 2017
 clone git://deps.memgraph.io/ltalloc.git ltalloc $ltalloc_tag
-
-# cereal
-#git clone https://github.com/USCiLab/cereal.git
-clone git://deps.memgraph.io/cereal.git cereal v1.2.2

@@ -73,9 +73,8 @@ class Server {
                                   typename TRequestResponse::Response>::value,
                   "TRequestResponse::Response must be derived from Message");
     auto got = callbacks_.emplace(
-        typeid(typename TRequestResponse::Request), [callback = callback](
-                                                        const messaging::Message
-                                                            &base_message) {
+        typeid(typename TRequestResponse::Request),
+        [callback = callback](const messaging::Message &base_message) {
           const auto &message =
               dynamic_cast<const typename TRequestResponse::Request &>(
                   base_message);
@@ -99,4 +98,5 @@ class Server {
   std::thread running_thread_;
   bool started_{false};
 };
+
 }  // namespace communication::rpc

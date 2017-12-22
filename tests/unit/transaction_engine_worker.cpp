@@ -5,6 +5,7 @@
 #include "communication/messaging/distributed.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "transactions/engine_master.hpp"
+#include "transactions/engine_rpc_messages.hpp"
 #include "transactions/engine_worker.hpp"
 
 using namespace tx;

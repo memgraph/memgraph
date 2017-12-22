@@ -12,6 +12,7 @@
 #include "transactions/transaction.hpp"
 
 namespace tx {
+
 /** A transactional engine for the worker in a distributed system. */
 class WorkerEngine : public Engine {
  public:
@@ -38,4 +39,5 @@ class WorkerEngine : public Engine {
   // Communication to the transactional master.
   mutable communication::rpc::Client rpc_client_;
 };
+
 }  // namespace tx

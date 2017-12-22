@@ -1,5 +1,8 @@
 #pragma once
 
+#include "boost/serialization/access.hpp"
+#include "boost/serialization/base_object.hpp"
+
 #include "communication/messaging/local.hpp"
 #include "communication/rpc/rpc.hpp"
 #include "io/network/network_endpoint.hpp"
@@ -20,9 +23,14 @@ struct RegisterWorkerReq : public Message {
   int desired_worker_id;
   Endpoint endpoint;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<Message>(this), desired_worker_id, endpoint);
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &desired_worker_id;
+    ar &endpoint;
   }
 };
 
@@ -40,10 +48,3 @@ using StopWorkerRpc =
     communication::rpc::RequestResponse<StopWorkerReq, StopWorkerRes>;
 
 }  // namespace distributed
-
-CEREAL_REGISTER_TYPE(distributed::RegisterWorkerReq);
-CEREAL_REGISTER_TYPE(distributed::RegisterWorkerRes);
-CEREAL_REGISTER_TYPE(distributed::GetEndpointReq);
-CEREAL_REGISTER_TYPE(distributed::GetEndpointRes);
-CEREAL_REGISTER_TYPE(distributed::StopWorkerReq);
-CEREAL_REGISTER_TYPE(distributed::StopWorkerRes);

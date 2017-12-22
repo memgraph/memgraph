@@ -10,12 +10,12 @@ struct DummyState {
     bool operator==(const Change &) const { return true; }
     bool operator!=(const Change &) const { return false; }
 
-    template <class Archive>
-    void serialize(Archive &ar) {}
+    template <class TArchive>
+    void serialize(TArchive &, unsigned int) {}
   };
 
-  template <class Archive>
-  void serialize(Archive &ar) {}
+  template <class TArchive>
+  void serialize(TArchive &, unsigned int) {}
 };
 
 struct IntState {
@@ -31,15 +31,16 @@ struct IntState {
     }
     bool operator!=(const Change &rhs) const { return !(*this == rhs); };
 
-    template <class Archive>
-    void serialize(Archive &ar) {
-      ar(t, d);
+    template <class TArchive>
+    void serialize(TArchive &ar, unsigned int) {
+      ar &t;
+      ar &d;
     }
   };
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(x);
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &x;
   }
 };
 
@@ -52,21 +53,20 @@ class NoOpNetworkInterface : public RaftNetworkInterface<State> {
  public:
   ~NoOpNetworkInterface() {}
 
-  virtual bool SendRequestVote(const MemberId &recipient,
-                               const RequestVoteRequest &request,
-                               RequestVoteReply &reply,
-                               std::chrono::milliseconds timeout) override {
+  virtual bool SendRequestVote(const MemberId &, const RequestVoteRequest &,
+                               RequestVoteReply &,
+                               std::chrono::milliseconds) override {
     return false;
   }
 
-  virtual bool SendAppendEntries(const MemberId &recipient,
-                                 const AppendEntriesRequest<State> &request,
-                                 AppendEntriesReply &reply,
-                                 std::chrono::milliseconds timeout) override {
+  virtual bool SendAppendEntries(const MemberId &,
+                                 const AppendEntriesRequest<State> &,
+                                 AppendEntriesReply &,
+                                 std::chrono::milliseconds) override {
     return false;
   }
 
-  virtual void Start(RaftMember<State> &member) override {}
+  virtual void Start(RaftMember<State> &) override {}
 
   virtual void Shutdown() override {}
 };
@@ -80,10 +80,10 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
  public:
   ~NextReplyNetworkInterface() {}
 
-  virtual bool SendRequestVote(const MemberId &recipient,
+  virtual bool SendRequestVote(const MemberId &,
                                const RequestVoteRequest &request,
                                RequestVoteReply &reply,
-                               std::chrono::milliseconds timeout) override {
+                               std::chrono::milliseconds) override {
     PeerRpcRequest<State> req;
     req.type = RpcType::REQUEST_VOTE;
     req.request_vote = request;
@@ -97,10 +97,10 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
     return true;
   }
 
-  virtual bool SendAppendEntries(const MemberId &recipient,
+  virtual bool SendAppendEntries(const MemberId &,
                                  const AppendEntriesRequest<State> &request,
                                  AppendEntriesReply &reply,
-                                 std::chrono::milliseconds timeout) override {
+                                 std::chrono::milliseconds) override {
     PeerRpcRequest<State> req;
     req.type = RpcType::APPEND_ENTRIES;
     req.append_entries = request;
@@ -114,7 +114,7 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
     return true;
   }
 
-  virtual void Start(RaftMember<State> &member) override {}
+  virtual void Start(RaftMember<State> &) override {}
 
   virtual void Shutdown() override {}
 

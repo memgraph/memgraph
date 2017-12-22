@@ -1,7 +1,14 @@
+#include <thread>
+
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/archive/text_iarchive.hpp"
+#include "boost/archive/text_oarchive.hpp"
+#include "boost/serialization/access.hpp"
+#include "boost/serialization/base_object.hpp"
+#include "boost/serialization/export.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
-#include <thread>
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
@@ -13,29 +20,38 @@ using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
 struct SumReq : public Message {
-  SumReq() {}  // cereal needs this
   SumReq(int x, int y) : x(x), y(y) {}
   int x;
   int y;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<Message>(this), x, y);
+ private:
+  friend class boost::serialization::access;
+  SumReq() {}  // Needed for serialization.
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &x;
+    ar &y;
   }
 };
-CEREAL_REGISTER_TYPE(SumReq);
+BOOST_CLASS_EXPORT(SumReq);
 
 struct SumRes : public Message {
-  SumRes() {}  // cereal needs this
   SumRes(int sum) : sum(sum) {}
   int sum;
 
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::virtual_base_class<Message>(this), sum);
+ private:
+  friend class boost::serialization::access;
+  SumRes() {}  // Needed for serialization.
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &sum;
   }
 };
-CEREAL_REGISTER_TYPE(SumRes);
+BOOST_CLASS_EXPORT(SumRes);
 using Sum = RequestResponse<SumReq, SumRes>;
 
 TEST(Rpc, Call) {

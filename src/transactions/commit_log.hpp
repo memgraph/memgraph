@@ -1,5 +1,7 @@
 #pragma once
 
+#include "boost/serialization/access.hpp"
+
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "type.hpp"
 
@@ -33,13 +35,13 @@ class CommitLog {
 
   class Info {
    public:
+    Info() {}  // Needed for serialization.
     enum Status {
       ACTIVE = 0,     // 00
       COMMITTED = 1,  // 01
       ABORTED = 2,    // 10
     };
 
-    Info() = default;  // Required for cereal serialization
     explicit Info(uint8_t flags) : flags_(flags) {}
 
     bool is_active() const { return flags_ == ACTIVE; }
@@ -50,13 +52,14 @@ class CommitLog {
 
     operator uint8_t() const { return flags_; }
 
-    /** Required for cereal serialization. */
-    template <class Archive>
-    void serialize(Archive &archive) {
-      archive(flags_);
+   private:
+    friend class boost::serialization::access;
+
+    template <class TArchive>
+    void serialize(TArchive &ar, unsigned int) {
+      ar &flags_;
     }
 
-   private:
     uint8_t flags_{0};
   };
 
@@ -65,4 +68,5 @@ class CommitLog {
  private:
   DynamicBitset<uint8_t, 32768> log;
 };
+
 }  // namespace tx
