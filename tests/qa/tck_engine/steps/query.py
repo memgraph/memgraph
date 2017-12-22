@@ -282,7 +282,7 @@ def expected_result_step(context):
 
 def check_exception(context):
     if context.exception is not None:
-        context.log.info("Exception when eqecuting query!")
+        context.log.info("Exception when executing query!")
         assert(False)
 
 

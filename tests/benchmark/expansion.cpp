@@ -42,7 +42,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_.Interpret(query, dba, results, {}, false);
+    interpeter_(query, dba, {}, false).PullAll(results);
   }
 }
 
@@ -56,7 +56,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_.Interpret(query, dba, results, {}, false);
+    interpeter_(query, dba, {}, false).PullAll(results);
   }
 }
 

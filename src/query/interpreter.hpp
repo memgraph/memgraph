@@ -9,18 +9,13 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
 
-DECLARE_bool(query_cost_planner);
-DECLARE_bool(query_plan_cache);
 DECLARE_int32(query_plan_cache_ttl);
 
 namespace query {
@@ -55,112 +50,110 @@ class Interpreter {
   };
 
  public:
+  /**
+   * Encapsulates all what's necessary for the interpretation of a query into a
+   * single object that can be pulled (into the given Stream).
+   */
+  class Results {
+    friend Interpreter;
+    Results(Context ctx, std::unique_ptr<query::plan::Cursor> cursor,
+            std::vector<Symbol> output_symbols, std::vector<std::string> header,
+            std::map<std::string, TypedValue> summary,
+            ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> &plan_cache)
+        : ctx_(std::move(ctx)),
+          cursor_(std::move(cursor)),
+          frame_(ctx_.symbol_table_.max_position()),
+          output_symbols_(output_symbols),
+          header_(header),
+          summary_(summary),
+          plan_cache_(plan_cache) {}
+
+   public:
+    Results(const Results &) = delete;
+    Results(Results &&) = default;
+    Results &operator=(const Results &) = delete;
+    Results &operator=(Results &&) = default;
+
+    /**
+     * Make the interpreter perform a single Pull. Results (if they exists) are
+     * pushed into the given stream. On first Pull the header is written to the
+     * stream, on last the summary.
+     *
+     * @param stream - The stream to push the header, results and summary into.
+     * @return - If this Results is eligible for another Pull. If Pulling
+     * after `false` has been returned, the behavior is undefined.
+     * @tparam TStream - Stream type.
+     */
+    template <typename TStream>
+    bool Pull(TStream &stream) {
+      if (!header_written_) {
+        stream.Header(header_);
+        header_written_ = true;
+      }
+
+      bool return_value = cursor_->Pull(frame_, ctx_);
+
+      if (return_value && !output_symbols_.empty()) {
+        std::vector<TypedValue> values;
+        values.reserve(output_symbols_.size());
+        for (const auto &symbol : output_symbols_) {
+          values.emplace_back(frame_[symbol]);
+        }
+        stream.Result(values);
+      }
+
+      if (!return_value) {
+        auto execution_time = execution_timer_.Elapsed();
+        summary_["plan_execution_time"] = execution_time.count();
+        stream.Summary(summary_);
+
+        if (ctx_.is_index_created_) {
+          // If index is created we invalidate cache so that we can try to
+          // generate better plan with that cache.
+          auto accessor = plan_cache_.access();
+          for (const auto &cached_plan : accessor) {
+            accessor.remove(cached_plan.first);
+          }
+        }
+      }
+
+      return return_value;
+    }
+
+    /** Calls Pull() until exhausted. */
+    template <typename TStream>
+    void PullAll(TStream &stream) {
+      while (Pull(stream)) continue;
+    }
+
+   private:
+    Context ctx_;
+    std::unique_ptr<query::plan::Cursor> cursor_;
+    Frame frame_;
+    std::vector<Symbol> output_symbols_;
+
+    bool header_written_{false};
+    std::vector<std::string> header_;
+    std::map<std::string, TypedValue> summary_;
+
+    utils::Timer execution_timer_;
+    // Gets invalidated after if an index has been built.
+    ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> &plan_cache_;
+  };
+
   Interpreter() = default;
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
 
-  template <typename Stream>
-  void Interpret(const std::string &query, GraphDbAccessor &db_accessor,
-                 Stream &stream,
-                 const std::map<std::string, TypedValue> &params,
-                 bool in_explicit_transaction) {
-    utils::Timer frontend_timer;
-    Context ctx(db_accessor);
-    ctx.in_explicit_transaction_ = in_explicit_transaction;
-    ctx.is_query_cached_ = true;
-    std::map<std::string, TypedValue> summary;
-
-    // query -> stripped query
-    StrippedQuery stripped(query);
-
-    // Update context with provided parameters.
-    ctx.parameters_ = stripped.literals();
-    for (const auto &param_pair : stripped.parameters()) {
-      auto param_it = params.find(param_pair.second);
-      if (param_it == params.end()) {
-        throw query::UnprovidedParameterError(
-            fmt::format("Parameter$ {} not provided", param_pair.second));
-      }
-      ctx.parameters_.Add(param_pair.first, param_it->second);
-    }
-
-    // Check if we have a cached logical plan ready, so that we can skip the
-    // whole query -> AST -> logical_plan process.
-    auto cached_plan = [&]() -> std::shared_ptr<CachedPlan> {
-      auto plan_cache_accessor = plan_cache_.access();
-      auto plan_cache_it = plan_cache_accessor.find(stripped.hash());
-      if (plan_cache_it != plan_cache_accessor.end() &&
-          plan_cache_it->second->IsExpired()) {
-        // Remove the expired plan.
-        plan_cache_accessor.remove(stripped.hash());
-        plan_cache_it = plan_cache_accessor.end();
-      }
-      if (plan_cache_it != plan_cache_accessor.end()) {
-        return plan_cache_it->second;
-      }
-      return nullptr;
-    }();
-
-    auto frontend_time = frontend_timer.Elapsed();
-
-    utils::Timer planning_timer;
-
-    if (!cached_plan) {
-      AstTreeStorage ast_storage = QueryToAst(stripped, ctx);
-      SymbolGenerator symbol_generator(ctx.symbol_table_);
-      ast_storage.query()->Accept(symbol_generator);
-
-      std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
-      double query_plan_cost_estimation = 0.0;
-      std::tie(tmp_logical_plan, query_plan_cost_estimation) =
-          MakeLogicalPlan(ast_storage, db_accessor, ctx);
-
-      cached_plan = std::make_shared<CachedPlan>(
-          std::move(tmp_logical_plan), query_plan_cost_estimation,
-          ctx.symbol_table_, std::move(ast_storage));
-
-      if (FLAGS_query_plan_cache) {
-        // Cache the generated plan.
-        auto plan_cache_accessor = plan_cache_.access();
-        auto plan_cache_it =
-            plan_cache_accessor.insert(stripped.hash(), cached_plan).first;
-        cached_plan = plan_cache_it->second;
-      }
-    }
-    ctx.symbol_table_ = cached_plan->symbol_table();
-
-    auto planning_time = planning_timer.Elapsed();
-
-    utils::Timer execution_timer;
-    ExecutePlan(stream, &cached_plan->plan(), ctx, stripped);
-    auto execution_time = execution_timer.Elapsed();
-
-    if (ctx.is_index_created_) {
-      // If index is created we invalidate cache so that we can try to generate
-      // better plan with that cache.
-      auto accessor = plan_cache_.access();
-      for (const auto &cached_plan : accessor) {
-        accessor.remove(cached_plan.first);
-      }
-    }
-
-    summary["parsing_time"] = frontend_time.count();
-    summary["planning_time"] = planning_time.count();
-    summary["plan_execution_time"] = execution_time.count();
-    summary["cost_estimate"] = cached_plan->cost();
-
-    // TODO: set summary['type'] based on transaction metadata
-    // the type can't be determined based only on top level LogicalOp
-    // (for example MATCH DELETE RETURN will have Produce as it's top)
-    // for now always use "rw" because something must be set, but it doesn't
-    // have to be correct (for Bolt clients)
-    summary["type"] = "rw";
-    stream.Summary(summary);
-    DLOG(INFO) << "Executed '" << query << "', params: " << params
-               << ", summary: " << summary;
-  }
+  /**
+   * Generates an Results object for the parameters. The resulting object
+   * can the be Pulled with it's results written to an arbitrary stream.
+   */
+  Results operator()(const std::string &query, GraphDbAccessor &db_accessor,
+                     const std::map<std::string, TypedValue> &params,
+                     bool in_explicit_transaction);
 
  private:
   // stripped query -> high level tree
@@ -170,59 +163,6 @@ class Interpreter {
   // AstTreeStorage and SymbolTable may be modified during planning.
   std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
       AstTreeStorage &, const GraphDbAccessor &, Context &);
-
-  template <typename Stream>
-  void ExecutePlan(Stream &stream, const plan::LogicalOperator *logical_plan,
-                   Context &ctx, const StrippedQuery &stripped) {
-    // Generate frame based on symbol table max_position.
-    Frame frame(ctx.symbol_table_.max_position());
-    std::vector<std::string> header;
-    std::vector<Symbol> output_symbols(
-        logical_plan->OutputSymbols(ctx.symbol_table_));
-    if (!output_symbols.empty()) {
-      // Since we have output symbols, this means that the query contains RETURN
-      // clause, so stream out the results.
-
-      // Generate header.
-      for (const auto &symbol : output_symbols) {
-        // When the symbol is aliased or expanded from '*' (inside RETURN or
-        // WITH), then there is no token position, so use symbol name.
-        // Otherwise, find the name from stripped query.
-        header.push_back(utils::FindOr(stripped.named_expressions(),
-                                       symbol.token_position(), symbol.name())
-                             .first);
-      }
-      stream.Header(header);
-
-      // Stream out results.
-      auto cursor = logical_plan->MakeCursor(ctx.db_accessor_);
-      while (cursor->Pull(frame, ctx)) {
-        std::vector<TypedValue> values;
-        for (const auto &symbol : output_symbols) {
-          values.emplace_back(frame[symbol]);
-        }
-        stream.Result(values);
-      }
-      return;
-    }
-
-    if (dynamic_cast<const plan::CreateNode *>(logical_plan) ||
-        dynamic_cast<const plan::CreateExpand *>(logical_plan) ||
-        dynamic_cast<const plan::SetProperty *>(logical_plan) ||
-        dynamic_cast<const plan::SetProperties *>(logical_plan) ||
-        dynamic_cast<const plan::SetLabels *>(logical_plan) ||
-        dynamic_cast<const plan::RemoveProperty *>(logical_plan) ||
-        dynamic_cast<const plan::RemoveLabels *>(logical_plan) ||
-        dynamic_cast<const plan::Delete *>(logical_plan) ||
-        dynamic_cast<const plan::Merge *>(logical_plan) ||
-        dynamic_cast<const plan::CreateIndex *>(logical_plan)) {
-      stream.Header(header);
-      auto cursor = logical_plan->MakeCursor(ctx.db_accessor_);
-      while (cursor->Pull(frame, ctx)) continue;
-    } else {
-      throw QueryRuntimeException("Unknown top level LogicalOperator");
-    }
-  }
 
   ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
   ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> plan_cache_;

@@ -1,7 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 23.03.17.
-//
 #include "console.hpp"
 
 #include <algorithm>
@@ -69,7 +65,7 @@ void query::Repl(GraphDb &db) {
     try {
       GraphDbAccessor dba(db);
       ResultStreamFaker results;
-      interpeter.Interpret(command, dba, results, {}, false);
+      interpeter(command, dba, {}, false).PullAll(results);
       std::cout << results;
       dba.Commit();
     } catch (const query::SyntaxException &e) {

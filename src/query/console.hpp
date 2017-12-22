@@ -1,8 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 23.03.17.
-//
-
 #pragma once
 
 #include "database/graph_db.hpp"

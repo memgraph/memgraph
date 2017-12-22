@@ -12,17 +12,26 @@
 // TODO: This is not a unit test, but tests/integration dir is chaotic at the
 // moment. After tests refactoring is done, move/rename this.
 
-namespace {
+class InterpreterTest : public ::testing::Test {
+ protected:
+  query::Interpreter interpreter_;
+  GraphDb db_;
+
+  ResultStreamFaker Interpret(
+      const std::string &query,
+      const std::map<std::string, query::TypedValue> params = {}) {
+    GraphDbAccessor dba(db_);
+    ResultStreamFaker result;
+    interpreter_(query, dba, params, false).PullAll(result);
+    return result;
+  }
+};
 
 // Run query with different ast twice to see if query executes correctly when
 // ast is read from cache.
-TEST(Interpreter, AstCache) {
-  query::Interpreter interpreter;
-  GraphDb db;
+TEST_F(InterpreterTest, AstCache) {
   {
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN 2 + 3", dba, stream, {}, false);
+    auto stream = Interpret("RETURN 2 + 3");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -31,54 +40,42 @@ TEST(Interpreter, AstCache) {
   }
   {
     // Cached ast, different literals.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN 5 + 4", dba, stream, {}, false);
+    auto stream = Interpret("RETURN 5 + 4");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 9);
   }
   {
     // Different ast (because of different types).
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN 5.5 + 4", dba, stream, {}, false);
+    auto stream = Interpret("RETURN 5.5 + 4");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 9.5);
   }
   {
     // Cached ast, same literals.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN 2 + 3", dba, stream, {}, false);
+    auto stream = Interpret("RETURN 2 + 3");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<int64_t>(), 5);
   }
   {
     // Cached ast, different literals.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN 10.5 + 1", dba, stream, {}, false);
+    auto stream = Interpret("RETURN 10.5 + 1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
   }
   {
     // Cached ast, same literals, different whitespaces.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN  10.5 + 1", dba, stream, {}, false);
+    auto stream = Interpret("RETURN  10.5 + 1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<double>(), 11.5);
   }
   {
     // Cached ast, same literals, different named header.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN  10.5+1", dba, stream, {}, false);
+    auto stream = Interpret("RETURN  10.5+1");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "10.5+1");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -88,14 +85,11 @@ TEST(Interpreter, AstCache) {
 }
 
 // Run query with same ast multiple times with different parameters.
-TEST(Interpreter, Parameters) {
+TEST_F(InterpreterTest, Parameters) {
   query::Interpreter interpreter;
   GraphDb db;
   {
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
-                          {{"2", 10}, {"a b", 15}}, false);
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -104,10 +98,8 @@ TEST(Interpreter, Parameters) {
   }
   {
     // Not needed parameter.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
-                          {{"2", 10}, {"a b", 15}, {"c", 10}}, false);
+    auto stream =
+        Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}, {"c", 10}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -116,21 +108,15 @@ TEST(Interpreter, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
-                          {{"2", "da"}, {"a b", "ne"}}, false);
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", "da"}, {"a b", "ne"}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].Value<std::string>(), "dane");
   }
   {
     // Non-primitive literal.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    interpreter.Interpret("RETURN $2", dba, stream,
-                          {{"2", std::vector<query::TypedValue>{5, 2, 3}}},
-                          false);
+    auto stream = Interpret("RETURN $2",
+                            {{"2", std::vector<query::TypedValue>{5, 2, 3}}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToList<int64_t>(
@@ -139,16 +125,13 @@ TEST(Interpreter, Parameters) {
   }
   {
     // Cached ast, unprovided parameter.
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    ASSERT_THROW(interpreter.Interpret("RETURN $2 + $`a b`", dba, stream,
-                                       {{"2", "da"}, {"ab", "ne"}}, false),
+    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", "da"}, {"ab", "ne"}}),
                  query::UnprovidedParameterError);
   }
 }
 
 // Test bfs end to end.
-TEST(Interpreter, Bfs) {
+TEST_F(InterpreterTest, Bfs) {
   srand(0);
   const auto kNumLevels = 10;
   const auto kNumNodesPerLevel = 100;
@@ -158,15 +141,12 @@ TEST(Interpreter, Bfs) {
   const auto kReachable = "reachable";
   const auto kId = "id";
 
-  query::Interpreter interpreter;
-  GraphDb db;
-  ResultStreamFaker stream;
   std::vector<std::vector<VertexAccessor>> levels(kNumLevels);
   int id = 0;
 
   // Set up.
   {
-    GraphDbAccessor dba(db);
+    GraphDbAccessor dba(db_);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
       node.PropsSet(dba.Property(kId), id++);
@@ -219,12 +199,13 @@ TEST(Interpreter, Bfs) {
     dba.Commit();
   }
 
-  GraphDbAccessor dba(db);
-
-  interpreter.Interpret(
-      "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and e.reachable)]->(m) "
-      "RETURN r",
-      dba, stream, {}, false);
+  GraphDbAccessor dba(db_);
+  ResultStreamFaker stream;
+  interpreter_(
+      "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
+      "e.reachable)]->(m) RETURN r",
+      dba, {}, false)
+      .PullAll(stream);
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "r");
@@ -241,7 +222,9 @@ TEST(Interpreter, Bfs) {
     // shorter to longer ones.
     EXPECT_EQ(edges.size(), expected_level);
     // Check that starting node is correct.
-    EXPECT_EQ(edges[0].from().PropsAt(dba.Property(kId)).Value<int64_t>(), 0);
+    EXPECT_EQ(
+        edges[0].from().PropsAt(dba.Property(kId)).template Value<int64_t>(),
+        0);
     for (int i = 1; i < static_cast<int>(edges.size()); ++i) {
       // Check that edges form a connected path.
       EXPECT_EQ(edges[i - 1].to(), edges[i].from());
@@ -260,21 +243,10 @@ TEST(Interpreter, Bfs) {
   }
 }
 
-TEST(Interpreter, CreateIndexInMulticommandTransaction) {
-  query::Interpreter interpreter;
-  GraphDb db;
-  {
-    ResultStreamFaker stream;
-    GraphDbAccessor dba(db);
-    ASSERT_THROW(
-        interpreter.Interpret("CREATE INDEX ON :X(y)", dba, stream, {}, true),
-        query::IndexInMulticommandTxException);
-  }
-}
-}  // namespace
-
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
+  ResultStreamFaker stream;
+  GraphDbAccessor dba(db_);
+  ASSERT_THROW(
+      interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
+      query::IndexInMulticommandTxException);
 }

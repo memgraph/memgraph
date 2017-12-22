@@ -124,9 +124,10 @@ State HandleRun(TSession &session, State state, Marker marker) {
     auto &params_map = params.ValueMap();
     std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
                                                        params_map.end());
-    session.interpreter_.Interpret(query.ValueString(), *session.db_accessor_,
-                                   session.output_stream_, params_tv,
-                                   in_explicit_transaction);
+    session
+        .interpreter_(query.ValueString(), *session.db_accessor_, params_tv,
+                      in_explicit_transaction)
+        .PullAll(session.output_stream_);
 
     if (!in_explicit_transaction) {
       session.Commit();

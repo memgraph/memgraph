@@ -14,8 +14,7 @@ int main(int argc, char *argv[]) {
   GraphDb db;
   GraphDbAccessor dba(db);
   ResultStreamFaker results;
-  query::Interpreter interpeter;
-  interpeter.Interpret(argv[1], dba, results, {}, false);
+  query::Interpreter()(argv[1], dba, {}, false).PullAll(results);
   std::cout << results;
   return 0;
 }

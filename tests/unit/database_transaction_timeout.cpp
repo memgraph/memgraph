@@ -1,9 +1,9 @@
 #include <glog/logging.h>
+#include <gtest/gtest.h>
+
 #include "communication/result_stream_faker.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
-
-#include <gtest/gtest.h>
 
 DECLARE_int32(query_execution_time_sec);
 
@@ -11,28 +11,22 @@ TEST(TransactionTimeout, TransactionTimeout) {
   FLAGS_query_execution_time_sec = 3;
   GraphDb db;
   query::Interpreter interpreter;
-  {
+  auto interpret = [&](auto &dba, const std::string &query) {
     ResultStreamFaker stream;
+    interpreter(query, dba, {}, false).PullAll(stream);
+
+  };
+  {
     GraphDbAccessor dba(db);
-    interpreter.Interpret("MATCH (n) RETURN n", dba, stream, {}, false);
+    interpret(dba, "MATCH (n) RETURN n");
   }
   {
-    ResultStreamFaker stream;
     GraphDbAccessor dba(db);
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    ASSERT_THROW(
-        interpreter.Interpret("MATCH (n) RETURN n", dba, stream, {}, false),
-        query::HintedAbortError);
+    ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"), query::HintedAbortError);
   }
   {
-    ResultStreamFaker stream;
     GraphDbAccessor dba(db);
-    interpreter.Interpret("MATCH (n) RETURN n", dba, stream, {}, false);
+    interpret(dba, "MATCH (n) RETURN n");
   }
-}
-
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }

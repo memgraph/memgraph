@@ -10,6 +10,8 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
 
+DECLARE_bool(query_cost_planner);
+
 class QueryExecution : public testing::Test {
  protected:
   std::experimental::optional<GraphDb> db_;
@@ -36,7 +38,7 @@ class QueryExecution : public testing::Test {
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
     ResultStreamFaker results;
-    query::Interpreter().Interpret(query, *dba_, results, {}, false);
+    query::Interpreter()(query, *dba_, {}, false).PullAll(results);
     return results.GetResults();
   }
 };

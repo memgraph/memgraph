@@ -134,10 +134,11 @@ class LogicalOperator
 
   /** @brief Return @c Symbol vector where the results will be stored.
    *
-   *  Currently, outputs symbols are only generated in @c Produce operator.
-   *  @c Skip, @c Limit and @c OrderBy propagate the symbols from @c Produce (if
-   *  it exists as input operator). In the future, we may want this method to
-   *  return the symbols that will be set in this operator.
+   * Currently, outputs symbols are generated in @c Produce and @c Union
+   * operators. @c Skip, @c Limit, @c OrderBy and @c Distinct propagate the
+   * symbols from @c Produce (if it exists as input operator). In the future, we
+   * may want this method to return the symbols that will be set in this
+   * operator.
    *
    *  @param SymbolTable used to find symbols for expressions.
    *  @return std::vector<Symbol> used for results.
