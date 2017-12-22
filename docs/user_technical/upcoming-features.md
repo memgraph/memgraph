@@ -34,15 +34,6 @@ implemented features like paths, while some may use the features Memgraph
 already supports. Out of the remaining functions, some are more useful than
 others and as such they will be supported sooner.
 
-#### UNION
-
-The `UNION` clause will offer joining the results from multiple queries. For
-example, finding names of `:Person` and `:Car` names.
-
-    MATCH (p :Person) RETURN p.name AS name
-    UNION
-    MATCH (c :Car) RETURN c.name AS name
-
 #### List Comprehensions
 
 List comprehensions are similar to the supported `collect` function, which
