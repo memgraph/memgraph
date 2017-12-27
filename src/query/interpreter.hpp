@@ -56,11 +56,13 @@ class Interpreter {
    */
   class Results {
     friend Interpreter;
-    Results(Context ctx, std::unique_ptr<query::plan::Cursor> cursor,
+    Results(Context ctx, std::shared_ptr<CachedPlan> plan,
+            std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
             ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> &plan_cache)
         : ctx_(std::move(ctx)),
+          plan_(plan),
           cursor_(std::move(cursor)),
           frame_(ctx_.symbol_table_.max_position()),
           output_symbols_(output_symbols),
@@ -128,6 +130,7 @@ class Interpreter {
 
    private:
     Context ctx_;
+    std::shared_ptr<CachedPlan> plan_;
     std::unique_ptr<query::plan::Cursor> cursor_;
     Frame frame_;
     std::vector<Symbol> output_symbols_;

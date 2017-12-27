@@ -44,27 +44,27 @@ Interpreter::Results Interpreter::operator()(
   }
 
   // Check if we have a cached logical plan ready, so that we can skip the
-  // whole query -> AST -> logical_plan process.
-  auto cached_plan = [&]() -> std::shared_ptr<CachedPlan> {
+  // whole query -> AST -> logical_plan process. Note that this local shared_ptr
+  // might be the only owner of the CachedPlan (if caching is turned off).
+  // Ensure it lives during the whole interpretation.
+  std::shared_ptr<CachedPlan> plan(nullptr);
+  {
     auto plan_cache_accessor = plan_cache_.access();
     auto plan_cache_it = plan_cache_accessor.find(stripped.hash());
-    if (plan_cache_it != plan_cache_accessor.end() &&
-        plan_cache_it->second->IsExpired()) {
-      // Remove the expired plan.
-      plan_cache_accessor.remove(stripped.hash());
-      plan_cache_it = plan_cache_accessor.end();
-    }
     if (plan_cache_it != plan_cache_accessor.end()) {
-      return plan_cache_it->second;
+      if (plan_cache_it->second->IsExpired()) {
+        plan_cache_accessor.remove(stripped.hash());
+      } else {
+        plan = plan_cache_it->second;
+      }
     }
-    return nullptr;
-  }();
+  }
 
   auto frontend_time = frontend_timer.Elapsed();
 
   utils::Timer planning_timer;
 
-  if (!cached_plan) {
+  if (!plan) {
     AstTreeStorage ast_storage = QueryToAst(stripped, ctx);
     SymbolGenerator symbol_generator(ctx.symbol_table_);
     ast_storage.query()->Accept(symbol_generator);
@@ -74,19 +74,16 @@ Interpreter::Results Interpreter::operator()(
     std::tie(tmp_logical_plan, query_plan_cost_estimation) =
         MakeLogicalPlan(ast_storage, db_accessor, ctx);
 
-    cached_plan = std::make_shared<CachedPlan>(
+    plan = std::make_shared<CachedPlan>(
         std::move(tmp_logical_plan), query_plan_cost_estimation,
         ctx.symbol_table_, std::move(ast_storage));
 
     if (FLAGS_query_plan_cache) {
-      // Cache the generated plan.
-      auto plan_cache_accessor = plan_cache_.access();
-      auto plan_cache_it =
-          plan_cache_accessor.insert(stripped.hash(), cached_plan).first;
-      cached_plan = plan_cache_it->second;
+      plan_cache_.access().insert(stripped.hash(), plan);
     }
   }
-  auto *logical_plan = &cached_plan->plan();
+
+  auto *logical_plan = &plan->plan();
   // TODO review: is the check below necessary?
   DCHECK(dynamic_cast<const plan::Produce *>(logical_plan) ||
          dynamic_cast<const plan::Skip *>(logical_plan) ||
@@ -106,14 +103,14 @@ Interpreter::Results Interpreter::operator()(
          dynamic_cast<const plan::CreateIndex *>(logical_plan))
       << "Unknown top level LogicalOperator";
 
-  ctx.symbol_table_ = cached_plan->symbol_table();
+  ctx.symbol_table_ = plan->symbol_table();
 
   auto planning_time = planning_timer.Elapsed();
 
   std::map<std::string, TypedValue> summary;
   summary["parsing_time"] = frontend_time.count();
   summary["planning_time"] = planning_time.count();
-  summary["cost_estimate"] = cached_plan->cost();
+  summary["cost_estimate"] = plan->cost();
   // TODO: set summary['type'] based on transaction metadata
   // the type can't be determined based only on top level LogicalOp
   // (for example MATCH DELETE RETURN will have Produce as it's top)
@@ -134,8 +131,8 @@ Interpreter::Results Interpreter::operator()(
                          .first);
   }
 
-  return Results(std::move(ctx), std::move(cursor), output_symbols, header,
-                 summary, plan_cache_);
+  return Results(std::move(ctx), plan, std::move(cursor), output_symbols,
+                 header, summary, plan_cache_);
 }
 
 AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
