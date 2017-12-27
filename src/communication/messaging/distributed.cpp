@@ -9,7 +9,7 @@ System::System(const std::string &address, uint16_t port)
   StartServer(4);
 }
 
-System::System(const io::network::NetworkEndpoint  &endpoint)
+System::System(const io::network::NetworkEndpoint &endpoint)
     : System(endpoint.address(), endpoint.port()) {}
 
 System::~System() {

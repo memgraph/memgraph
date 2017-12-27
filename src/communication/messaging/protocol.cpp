@@ -1,4 +1,5 @@
 #include <sstream>
+#include <unordered_map>
 
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
@@ -66,20 +67,41 @@ bool SendLength(Socket &socket, SizeT length) {
   return socket.Write(reinterpret_cast<uint8_t *>(&length), sizeof(SizeT));
 }
 
+struct PairHash {
+ public:
+  template <typename T, typename U>
+  std::size_t operator()(const std::pair<T, U> &x) const {
+    return std::hash<T>()(x.first) ^ std::hash<U>()(x.second);
+  }
+};
+
 void SendMessage(const std::string &address, uint16_t port,
                  const std::string &channel, std::unique_ptr<Message> message) {
+  static thread_local std::unordered_map<std::pair<std::string, uint16_t>,
+                                         Socket, PairHash>
+      cache;
   CHECK(message) << "Trying to send nullptr instead of message";
 
-  // Initialize endpoint.
-  Endpoint endpoint(address.c_str(), port);
+  auto it = cache.find({address, port});
+  if (it == cache.end()) {
+    // Initialize endpoint.
+    Endpoint endpoint(address.c_str(), port);
 
-  Socket socket;
-  if (!socket.Connect(endpoint)) {
-    LOG(INFO) << "Couldn't connect to remote address: " << address << ":"
-              << port;
-    return;
+    Socket socket;
+    if (!socket.Connect(endpoint)) {
+      LOG(INFO) << "Couldn't connect to remote address: " << address << ":"
+                << port;
+      return;
+    }
+
+    it = cache
+             .emplace(std::piecewise_construct,
+                      std::forward_as_tuple(address, port),
+                      std::forward_as_tuple(std::move(socket)))
+             .first;
   }
 
+  auto &socket = it->second;
   if (!SendLength(socket, channel.size())) {
     LOG(INFO) << "Couldn't send channel size!";
     return;
