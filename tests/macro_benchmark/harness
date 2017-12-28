@@ -242,46 +242,33 @@ def main():
         log.info("No scenarios to execute")
         return
 
+    results = []
+
     # Run scenarios.
     log.info("Executing %d scenarios", len(filtered_scenarios))
-    results = []
     for (group, scenario_name), scenario in sorted(filtered_scenarios.items()):
         log.info("Executing group.scenario '%s.%s' with elements %s",
                  group, scenario_name, list(scenario.keys()))
-        for iter_result in suite.run(scenario, group, scenario_name, runner):
-            iter_result["group"] = group
-            iter_result["scenario"] = scenario_name
-            results.append(iter_result)
-
-    # Save results.
-    run = dict()
-    run["suite"] = args.suite
-    run["runner"] = runner.__class__.__name__
-    run["runner_config"] = vars(runner.args)
-    run.update(args.additional_run_fields)
-
-    # Currently this output is not used anywhere, and has a tendancy to create huge files..
-    # TODO(dgleich): Revise this in the near future.
-    #for result in results:
-    #    jail.store_data(result)
+        results.append(suite.run(scenario, group, scenario_name, runner))
 
     # Print summary.
     print("\n\nMacro benchmark summary:")
     print("{}\n".format(suite.summary))
+
+    # Save data points.
     with open(get_absolute_path(".harness_summary"), "w") as f:
-        print(suite.summary, file=f)
+        json.dump({"results": results, "headers": suite.headers}, f)
 
     # Export data points.
-    with open(get_absolute_path(".apollo_data"), "w") as f:
-        apollo_data = ""
-        data = list(filter(lambda x: x.strip(), suite.summary.split("\n")))
-        headers = data[0].strip().split()
-        for row in data[1:]:
-            row = row.strip().split()
-            group, scenario = row[0:2]
-            for header, value in zip(headers[2:], row[2:]):
-                apollo_data += "{}.{}.{} {}\n".format(group, scenario, header, value)
-        f.write(apollo_data)
+    with open(get_absolute_path(".apollo_measurements"), "w") as f:
+        headers = list(suite.headers)
+        headers.remove("group_name")
+        headers.remove("scenario_name")
+        for row in results:
+            group, scenario = row.pop("group_name"), row.pop("scenario_name")
+            for header in headers:
+                f.write("{}.{}.{} {:.20f}\n".format(group, scenario,
+                        header, row[header]["median"]))
 
 
 if __name__ == "__main__":

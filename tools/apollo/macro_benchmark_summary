@@ -1,59 +1,46 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import argparse
+import json
 import os
 import sys
 
-def convert2float(val):
-    try:
-        return float(val)
-    except:
-        return val
-
-def parse_file(fname):
+def load_file(fname):
     with open(fname) as f:
-        data = f.readlines()
-    ret = []
-    for row in data:
-        row = row.strip()
-        if row == "": continue
-        ret.append(list(map(convert2float, row.split())))
-    return ret
+        data = f.read()
+    try:
+        return json.loads(data)
+    except json.decoder.JSONDecodeError:
+        return {"results": [], "headers": []}
 
 def strip_integers(row):
-    return list(filter(lambda x: type(x) == str, row))
+    return {k: v for k, v in row.items() if type(v) == str}
 
-def find_item(data, header, row):
-    headers = data[0]
-    row = strip_integers(row)
-    pos_x = -1
-    for i in range(len(data)):
-        s = strip_integers(data[i])
-        if s != row: continue
-        pos_x = i
-        break
-    if pos_x == -1: return None
-    pos_y = -1
-    for j in range(len(headers)):
-        if headers[j] != header: continue
-        pos_y = j
-        break
-    if pos_y == -1: return None
-    return data[pos_x][pos_y]
+def find_item(results_prev, header_cur, row_cur):
+    row_cur = strip_integers(row_cur)
+    row_prev = None
+    for result in results_prev:
+        s = strip_integers(result)
+        if s == row_cur:
+            row_prev = result
+            break
+    if row_prev is None: return None
+    if not header_cur in row_prev: return None
+    return row_prev[header_cur]
 
-def compare_values(data_cur, data_prev):
-    ret = []
-    headers = data_cur[0]
-    for i in range(len(data_cur)):
+def compare_values(headers_cur, results_cur, headers_prev, results_prev):
+    ret = [list(map(lambda x: " ".join(x.split("_")).capitalize(),
+            headers_cur))]
+    for row_cur in results_cur:
         ret.append([])
-        row_cur = data_cur[i]
         performance_change = False
-        for j in range(len(row_cur)):
-            item_cur = row_cur[j]
+        for header in headers_cur:
+            item_cur = row_cur[header]
             if type(item_cur) == str:
                 item = " ".join(item_cur.split("_")).capitalize()
             else:
-                item_prev = find_item(data_prev, headers[j], row_cur)
-                if j != len(row_cur) - 1:
+                value_cur = item_cur["median"]
+                item_prev = find_item(results_prev, header, row_cur)
+                if header != "max_memory":
                     fmt = "{:.3f}ms"
                     scale = 1000.0
                     treshold = 0.050
@@ -61,27 +48,29 @@ def compare_values(data_cur, data_prev):
                     fmt = "{:.2f}MiB"
                     scale = 1.0 / 1024.0
                     treshold = 0.025
+                # TODO: add statistics check
                 if item_prev != None:
-                    if item_prev != 0.0:
-                        diff = (item_cur - item_prev) / item_prev
+                    value_prev = item_prev["median"]
+                    if value_prev != 0.0:
+                        diff = (value_cur - value_prev) / value_prev
                     else:
                         diff = 0.0
-                    if diff < -treshold and item_cur > 0.0005:
+                    if diff < -treshold and value_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-down color=green}"
-                    elif diff > treshold and item_cur > 0.0005:
+                    elif diff > treshold and value_cur > 0.0005:
                         performance_change = True
                         sign = " {icon arrow-up color=red}"
                     else:
                         sign = ""
                     fmt += " //({:+.2%})//{}"
-                    item = fmt.format(item_cur * scale, diff, sign)
+                    item = fmt.format(value_cur * scale, diff, sign)
                 else:
                     fmt += " //(new)// {{icon plus color=blue}}"
-                    item = fmt.format(item_cur * scale)
+                    item = fmt.format(value_cur * scale)
                     performance_change = True
             ret[-1].append(item)
-        if performance_change == False and i > 0: ret.pop()
+        if not performance_change: ret.pop()
     return ret
 
 def generate_remarkup(data):
@@ -113,15 +102,21 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    data_cur, data_prev = [], []
-    for i, current in enumerate(args.current):
-        off = 0 if i == 0 else 1
-        data_cur += parse_file(current)[off:]
-    for i, previous in enumerate(args.previous):
-        off = 0 if i == 0 else 1
-        data_prev += parse_file(previous)[off:]
+    headers_cur, headers_prev = None, None
+    results_cur, results_prev = [], []
+    for current in args.current:
+        data = load_file(current)
+        if headers_cur is None:
+            headers_cur = data["headers"]
+        results_cur += data["results"]
+    for previous in args.previous:
+        data = load_file(previous)
+        if headers_prev is None:
+            headers_prev = data["headers"]
+        results_prev += data["results"]
 
-    markup = generate_remarkup(compare_values(data_cur, data_prev))
+    markup = generate_remarkup(compare_values(headers_cur, results_cur,
+            headers_prev, results_prev))
 
     if args.output == "":
         sys.stdout.write(markup)

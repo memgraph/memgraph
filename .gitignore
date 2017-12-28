@@ -28,4 +28,4 @@ ve/
 ve3/
 perf.data*
 TAGS
-*.apollo_data
+*.apollo_measurements

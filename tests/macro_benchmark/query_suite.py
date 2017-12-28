@@ -7,7 +7,7 @@ import json
 from argparse import ArgumentParser
 from collections import defaultdict
 import tempfile
-from statistics import median
+from statistics import median, mean, stdev
 from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY, APOLLO
 from databases import Memgraph, Neo
 from clients import QueryClient
@@ -28,10 +28,10 @@ class _QuerySuite:
     FORMAT = ["{:>24}", "{:>28}", "{:>16}", "{:>18}", "{:>22}",
               "{:>16}", "{:>16}", "{:>16}"]
     FULL_FORMAT = "".join(FORMAT) + "\n"
-    summary = FULL_FORMAT.format(
-                      "group_name", "scenario_name", "parsing_time",
-                      "planning_time", "plan_execution_time",
-                      WALL_TIME, CPU_TIME, MAX_MEMORY)
+    headers = ["group_name", "scenario_name", "parsing_time",
+               "planning_time", "plan_execution_time",
+               WALL_TIME, CPU_TIME, MAX_MEMORY]
+    summary = summary_raw = FULL_FORMAT.format(*headers)
 
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
@@ -55,21 +55,7 @@ class _QuerySuite:
                                                     time.time() - start_time))
             return r_val
 
-        def add_measurement(dictionary, iteration, key):
-            if key in dictionary:
-                measurement = {"target": key,
-                               "value": float(dictionary[key]),
-                               "unit": "s",
-                               "type": "time",
-                               "iteration": iteration}
-                measurements.append(measurement)
-                try:
-                    measurement_lists[key].append(float(dictionary[key]))
-                except:
-                    pass
-
-        measurements = []
-        measurement_lists = defaultdict(list)
+        measurements = defaultdict(list)
 
         # Run the whole test three times because memgraph is sometimes
         # consistently slow and with this hack we get a good median
@@ -107,29 +93,42 @@ class _QuerySuite:
                 run_result = execute("run")
 
                 if self.args.perf:
-                    self.perf_proc.terminate() 
+                    self.perf_proc.terminate()
                     self.perf_proc.wait()
 
-                add_measurement(run_result, iteration, CPU_TIME)
-                add_measurement(run_result, iteration, MAX_MEMORY)
+                measurements["cpu_time"].append(run_result["cpu_time"])
+                measurements["max_memory"].append(run_result["max_memory"])
+
                 assert len(run_result["groups"]) == 1, \
                         "Multiple groups in run step not yet supported"
+
                 group = run_result["groups"][0]
-                add_measurement(group, iteration, WALL_TIME)
-                for measurement in ["parsing_time",
-                                    "plan_execution_time",
-                                    "planning_time"] :
+                measurements["wall_time"].append(group["wall_time"])
+
+                for key in ["parsing_time", "plan_execution_time",
+                            "planning_time"]:
                     for i in range(len(group.get("metadatas", []))):
-                        add_measurement(group["metadatas"][i], iteration,
-                                        measurement)
+                        if not key in group["metadatas"][i]: continue
+                        measurements[key].append(group["metadatas"][i][key])
+
                 execute("iterteardown")
 
-            # TODO value outlier detection and warning across iterations
             execute("teardown")
             runner.stop()
 
         self.append_scenario_summary(group_name, scenario_name,
-                                     measurement_lists, num_iterations)
+                                     measurements, num_iterations)
+
+        # calculate mean, median and stdev of measurements
+        for key in measurements:
+            samples = measurements[key]
+            measurements[key] = {"mean": mean(samples),
+                                 "median": median(samples),
+                                 "stdev": stdev(samples),
+                                 "count": len(samples)}
+        measurements["group_name"] = group_name
+        measurements["scenario_name"] = scenario_name
+
         return measurements
 
     def append_scenario_summary(self, group_name, scenario_name,
