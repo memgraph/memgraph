@@ -72,6 +72,12 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
+MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
+
+# long running stats file
+STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
+SMALL_DATASET[-1]["options"].extend(["--stats-file", STATS_FILE])
+LARGE_DATASET[-1]["options"].extend(["--stats-file", STATS_FILE])
 
 # get number of threads
 if "THREADS" in os.environ:
@@ -109,6 +115,8 @@ def run_test(args, test, options, timeout):
 
     runtime = time.time() - start
     print("    Done after {:.3f} seconds".format(runtime))
+
+    return runtime
 
 
 # parse arguments
@@ -153,14 +161,27 @@ def cleanup():
     proc_mg.wait()
 
 # run tests
+runtimes = {}
 dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
 for test in dataset:
-    run_test(args, **test)
+    runtime = run_test(args, **test)
+    runtimes[os.path.splitext(test["test"])[0]] = runtime
 
 # stop memgraph
 proc_mg.terminate()
 ret_mg = proc_mg.wait()
 if ret_mg != 0:
     raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
+
+# measurements
+measurements = ""
+for key, value in runtimes.items():
+    measurements += "{}.runtime {}\n".format(key, value)
+with open(STATS_FILE) as f:
+    stats = f.read().split("\n")
+measurements += "long_running.queries.executed {}\n".format(stats[0])
+measurements += "long_running.queries.failed {}\n".format(stats[1])
+with open(MEASUREMENTS_FILE, "w") as f:
+    f.write(measurements)
 
 print("Done!")

@@ -33,6 +33,8 @@ DEFINE_int32(worker_count, 1,
 DEFINE_bool(global_queries, true,
             "If queries that modifiy globally should be executed sometimes");
 
+DEFINE_string(stats_file, "", "File into which to write statistics.");
+
 /**
  * Encapsulates a Graph and a Bolt session and provides CRUD op functions.
  * Also defines a run-loop for a generic exectutor, and a graph state
@@ -349,6 +351,16 @@ class GraphSession {
       }
     }
   }
+
+  uint64_t GetExecutedQueries() { return executed_queries_; }
+
+  uint64_t GetFailedQueries() {
+    uint64_t failed = 0;
+    for (const auto &item : query_failures_) {
+      failed += item.second;
+    }
+    return failed;
+  }
 };
 
 int main(int argc, char **argv) {
@@ -379,18 +391,32 @@ int main(int argc, char **argv) {
   // close client
   client.Close();
 
+  // sessions
+  std::vector<GraphSession> sessions;
+  for (int i = 0; i < FLAGS_worker_count; ++i) {
+    sessions.emplace_back(i);
+  }
+
   // workers
   std::vector<std::thread> threads;
-
   for (int i = 0; i < FLAGS_worker_count; ++i) {
-    threads.push_back(std::thread([&, i]() {
-      GraphSession session(i);
-      session.Run();
-    }));
+    threads.push_back(std::thread([&, i]() { sessions[i].Run(); }));
   }
 
   for (int i = 0; i < FLAGS_worker_count; ++i) {
     threads[i].join();
+  }
+
+  if (FLAGS_stats_file != "") {
+    uint64_t executed = 0, failed = 0;
+    for (int i = 0; i < FLAGS_worker_count; ++i) {
+      executed += sessions[i].GetExecutedQueries();
+      failed += sessions[i].GetFailedQueries();
+    }
+    std::ofstream stream(FLAGS_stats_file);
+    stream << executed << std::endl << failed << std::endl;
+    LOG(INFO) << fmt::format("Written statistics to file: {}",
+                             FLAGS_stats_file);
   }
 
   LOG(INFO) << "All query runners done";

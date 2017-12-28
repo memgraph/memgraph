@@ -26,6 +26,7 @@ extra_suites = ["openCypher_M06"]
 results_folder = os.path.join("tck_engine", "results")
 suite_suffix = "memgraph-{}.json"
 qa_status_path = ".quality_assurance_status"
+measurements_path = ".apollo_measurements"
 
 
 def get_newest_path(folder, suffix):
@@ -43,15 +44,31 @@ def get_newest_path(folder, suffix):
     return os.path.join(folder, name_list.pop())
 
 
-def generate_status(suite, f, required = False):
+def generate_measurements(suite, result_path):
     """
     :param suite: Test suite name.
-    :param f: Json file with status report.
+    :param result_path: File path with json status report.
+
+    :return: Measurements string.
+    """
+    with open(result_path) as f:
+        result = json.load(f)
+    ret = ""
+    for i in ["total", "passed"]:
+        ret += "{}.{} {}\n".format(suite, i, result[i])
+    return ret
+
+
+def generate_status(suite, result_path, required = False):
+    """
+    :param suite: Test suite name.
+    :param result_path: File path with json status report.
     :param required: Adds status ticks to the message if required.
 
     :return: Status string.
     """
-    result = json.load(f)
+    with open(result_path) as f:
+        result = json.load(f)
     total = result["total"]
     passed = result["passed"]
     ratio = passed / total
@@ -101,22 +118,25 @@ if __name__ == "__main__":
             suite_suffix.format(memgraph_suite))
     log.info("Memgraph result path is {}".format(memgraph_result_path))
 
+    # measurements
+    measurements = ""
+
     # status table headers
     status_data = [["Suite", "Scenarios"]]
 
     # read internal scenarios
-    with open(memgraph_result_path) as f:
-        memgraph_status, memgraph_passed, memgraph_total \
-            = generate_status(memgraph_suite, f, required = True)
+    memgraph_status, memgraph_passed, memgraph_total = generate_status(
+            memgraph_suite, memgraph_result_path, required = True)
     status_data.append([memgraph_suite, memgraph_status])
+    measurements += generate_measurements(memgraph_suite, memgraph_result_path)
 
     # read extra scenarios
     for suite in extra_suites:
         result_path = get_newest_path(results_folder, suite_suffix.format(suite))
         log.info("Extra suite '{}' result path is {}".format(suite, result_path))
-        with open(result_path) as f:
-            suite_status, _, _ = generate_status(suite, f)
+        suite_status, _, _ = generate_status(suite, result_path)
         status_data.append([suite, suite_status])
+        measurements += generate_measurements(suite, result_path)
 
     # create status message
     qa_status_message = generate_remarkup(status_data)
@@ -125,7 +145,12 @@ if __name__ == "__main__":
     with open(qa_status_path, "w") as f:
         f.write(qa_status_message)
 
+    # create the measurements file
+    with open(measurements_path, "w") as f:
+        f.write(measurements)
+
     log.info("Status is generated in %s" % qa_status_path)
+    log.info("Measurements are generated in %s" % measurements_path)
 
     if memgraph_total != memgraph_passed:
         sys.exit("There is a problem with internal scenarios! %s"
