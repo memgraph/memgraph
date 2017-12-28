@@ -15,16 +15,17 @@ auto Count(TIterable iterable) {
 TEST(GraphDbAccessorTest, InsertVertex) {
   GraphDb db;
   GraphDbAccessor accessor(db);
+  gid::Generator generator(0);
 
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
 
-  EXPECT_EQ(accessor.InsertVertex().gid(), 0);
+  EXPECT_EQ(accessor.InsertVertex().gid(), generator.Next());
   EXPECT_EQ(Count(accessor.Vertices(false)), 0);
   EXPECT_EQ(Count(accessor.Vertices(true)), 1);
   accessor.AdvanceCommand();
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
 
-  EXPECT_EQ(accessor.InsertVertex().gid(), gid::Create(0, 1));
+  EXPECT_EQ(accessor.InsertVertex().gid(), generator.Next());
   EXPECT_EQ(Count(accessor.Vertices(false)), 1);
   EXPECT_EQ(Count(accessor.Vertices(true)), 2);
   accessor.AdvanceCommand();

@@ -306,8 +306,9 @@ class Durability : public ::testing::Test {
 // Tests wal encoder to encode correctly non-CRUD deltas, and that all deltas
 // are written in the correct order
 TEST_F(Durability, WalEncoding) {
-  auto gid0 = gid::Create(0, 0);
-  auto gid1 = gid::Create(0, 1);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
+  auto gid1 = generator.Next();
   {
     auto config = DbConfig();
     config.durability_enabled = true;
@@ -372,26 +373,30 @@ TEST_F(Durability, WalEncoding) {
 }
 
 TEST_F(Durability, SnapshotEncoding) {
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
+  auto gid1 = generator.Next();
+  auto gid2 = generator.Next();
   {
     GraphDb db{DbConfig()};
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex();
-    ASSERT_EQ(v0.gid(), gid::Create(0, 0));
+    ASSERT_EQ(v0.gid(), gid0);
     v0.add_label(dba.Label("l0"));
     v0.PropsSet(dba.Property("p0"), 42);
     auto v1 = dba.InsertVertex();
-    ASSERT_EQ(v1.gid(), gid::Create(0, 1));
+    ASSERT_EQ(v1.gid(), gid1);
     v1.add_label(dba.Label("l0"));
     v1.add_label(dba.Label("l1"));
     auto v2 = dba.InsertVertex();
-    ASSERT_EQ(v2.gid(), gid::Create(0, 2));
+    ASSERT_EQ(v2.gid(), gid2);
     v2.PropsSet(dba.Property("p0"), true);
     v2.PropsSet(dba.Property("p1"), "Johnny");
     auto e0 = dba.InsertEdge(v0, v1, dba.EdgeType("et0"));
-    ASSERT_EQ(e0.gid(), gid::Create(0, 0));
+    ASSERT_EQ(e0.gid(), gid0);
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     auto e1 = dba.InsertEdge(v2, v1, dba.EdgeType("et1"));
-    ASSERT_EQ(e1.gid(), gid::Create(0, 1));
+    ASSERT_EQ(e1.gid(), gid1);
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
     MakeSnapshot(db);
@@ -443,9 +448,6 @@ TEST_F(Durability, SnapshotEncoding) {
     auto &vertex = dv.ValueVertex();
     decoded_vertices.emplace(vertex.id, vertex);
   }
-  auto gid0 = gid::Create(0, 0);
-  auto gid1 = gid::Create(0, 1);
-  auto gid2 = gid::Create(0, 2);
   ASSERT_EQ(decoded_vertices.size(), 3);
   ASSERT_EQ(decoded_vertices[gid0].labels.size(), 1);
   EXPECT_EQ(decoded_vertices[gid0].labels[0], "l0");

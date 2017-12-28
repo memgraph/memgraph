@@ -23,13 +23,14 @@ TEST(Address, CopyCompare) {
 }
 
 TEST(Address, Global) {
-  uint64_t worker_id{13};
+  int worker_id{17};
   uint64_t local_id{31};
-  auto global_id = gid::Create(worker_id, local_id);
-  Address<int> address{global_id};
+  gid::Generator generator(13);
+  auto global_id = generator.Next(local_id);
+  Address<int> address{global_id, worker_id};
 
   EXPECT_TRUE(address.is_remote());
   EXPECT_FALSE(address.is_local());
-  EXPECT_EQ(gid::WorkerId(address.global_id()), worker_id);
   EXPECT_EQ(address.global_id(), global_id);
+  EXPECT_EQ(address.worker_id(), worker_id);
 }

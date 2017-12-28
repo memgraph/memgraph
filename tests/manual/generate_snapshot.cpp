@@ -130,8 +130,8 @@ class Writer {
   }
 
  private:
-  gid::GidGenerator node_generator_{0};
-  gid::GidGenerator edge_generator_{0};
+  gid::Generator node_generator_{0};
+  gid::Generator edge_generator_{0};
   HashedFileWriter buffer_;
   communication::bolt::BaseEncoder<HashedFileWriter> encoder_{buffer_};
 };

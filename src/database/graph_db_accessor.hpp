@@ -113,12 +113,12 @@ class GraphDbAccessor {
    * Always perform recovery only once, immediately when the database is
    * created, before any transactional ops start.
    *
-   * @param gid The desired GID. Should only be provided
-   * when recovering from durability, and should `belong` to this worker.
+   * @param requested_gid The requested GID. Should only be provided when
+   * recovering from durability.
    * @return See above.
    */
-  VertexAccessor InsertVertex(
-      std::experimental::optional<gid::Gid> gid = std::experimental::nullopt);
+  VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
+                                  requested_gid = std::experimental::nullopt);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -309,13 +309,14 @@ class GraphDbAccessor {
    * @param from The 'from' vertex.
    * @param to The 'to' vertex'
    * @param type Edge type.
-   * @param gid The desired GID. Should only be provided when
-   * recovering from durability and should `belong` to this worker.
+   * @param requested_gid The requested GID. Should only be provided when
+   * recovering from durability.
    * @return  An accessor to the edge.
    */
-  EdgeAccessor InsertEdge(
-      VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType type,
-      std::experimental::optional<gid::Gid> gid = std::experimental::nullopt);
+  EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
+                          GraphDbTypes::EdgeType type,
+                          std::experimental::optional<gid::Gid> requested_gid =
+                              std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -612,7 +613,8 @@ class GraphDbAccessor {
   /** Casts the DB's engine to MasterEngine and returns it. If the DB's engine
    * is RemoteEngine, this function will crash MG. */
   tx::MasterEngine &MasterEngine() {
-    auto *master_engine = dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
+    auto *master_engine =
+        dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
     DCHECK(master_engine) << "Asked for MasterEngine on distributed worker";
     return *master_engine;
   }

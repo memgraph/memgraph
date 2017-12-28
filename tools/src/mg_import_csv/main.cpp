@@ -111,13 +111,13 @@ class MemgraphNodeIdMap {
   }
 
   int64_t Insert(const NodeId &node_id) {
-    gid::Gid id = gid::Create(0, mg_id_++);
-    node_id_to_mg_[node_id] = id;
-    return id;
+    auto gid = generator_.Next();
+    node_id_to_mg_[node_id] = gid;
+    return gid;
   }
 
  private:
-  int64_t mg_id_ = 0;
+  gid::Generator generator_{0};
   std::unordered_map<NodeId, int64_t> node_id_to_mg_;
 };
 
@@ -317,22 +317,25 @@ void WriteRelationshipsRow(
   encoder.WriteMap(properties);
 }
 
-void ConvertRelationships(
+int ConvertRelationships(
     const std::string &relationships_path, const MemgraphNodeIdMap &node_id_map,
     communication::bolt::BaseEncoder<HashedFileWriter> &encoder,
-    int64_t &next_relationship_id) {
+    gid::Generator &relationship_id_generator) {
   std::ifstream relationships_file(relationships_path);
   CHECK(relationships_file)
       << fmt::format("Unable to open '{}'", relationships_path);
   auto fields = ReadHeader(relationships_file);
   auto row = ReadRow(relationships_file);
+  int64_t relationships = 0;
   while (!row.empty()) {
     CHECK_EQ(row.size(), fields.size())
         << "Expected as many values as there are header fields";
     WriteRelationshipsRow(fields, row, node_id_map,
-                          gid::Create(0, next_relationship_id++), encoder);
+                          relationship_id_generator.Next(), encoder);
+    ++relationships;
     row = ReadRow(relationships_file);
   }
+  return relationships;
 }
 
 void Convert(const std::vector<std::string> &nodes,
@@ -342,7 +345,8 @@ void Convert(const std::vector<std::string> &nodes,
     HashedFileWriter buffer(output_path);
     communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t node_count = 0;
-    int64_t next_relationship_id = 0;
+    int64_t edge_count = 0;
+    gid::Generator relationship_id_generator(0);
     MemgraphNodeIdMap node_id_map;
     // Snapshot file has the following contents in order:
     //   1) Magic number.
@@ -371,11 +375,11 @@ void Convert(const std::vector<std::string> &nodes,
       node_count += ConvertNodes(nodes_file, node_id_map, encoder);
     }
     for (const auto &relationships_file : relationships) {
-      ConvertRelationships(relationships_file, node_id_map, encoder,
-                           next_relationship_id);
+      edge_count += ConvertRelationships(relationships_file, node_id_map,
+                                         encoder, relationship_id_generator);
     }
     buffer.WriteValue(node_count);
-    buffer.WriteValue(next_relationship_id);
+    buffer.WriteValue(edge_count);
     buffer.WriteValue(buffer.hash());
   } catch (const std::ios_base::failure &) {
     // Only HashedFileWriter sets the underlying fstream to throw.

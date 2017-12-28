@@ -18,19 +18,12 @@ using Gid = uint64_t;
 
 static constexpr std::size_t kWorkerIdSize{10};
 
-/// Returns worker id from global id.
-static inline Gid WorkerId(Gid gid) {
-  return gid & ((1ULL << kWorkerIdSize) - 1);
-}
-
 /// Returns `local` id from global id.
-static inline Gid LocalId(Gid gid) { return gid >> kWorkerIdSize; }
+static inline uint64_t LocalId(Gid gid) { return gid >> kWorkerIdSize; }
 
-/// Returns global id from worker and local ids.
-static inline Gid Create(uint64_t worker_id, uint64_t local_id) {
-  CHECK(worker_id < (1ULL << kWorkerIdSize));
-  CHECK(local_id < (1ULL << (sizeof(Gid) * 8 - kWorkerIdSize)));
-  return worker_id | (local_id << kWorkerIdSize);
+/// Returns id of the worker that created this gid.
+static inline int CreatorWorker(Gid gid) {
+  return gid & ((1ULL << kWorkerIdSize) - 1);
 }
 
 /**
@@ -41,21 +34,26 @@ static inline Gid Create(uint64_t worker_id, uint64_t local_id) {
  * larger than the id set by SetId, we can ensure that by not allowing calls to
  * SetId after Next which generated new id (incremented internal id counter).
  */
-class GidGenerator {
+class Generator {
  public:
-  GidGenerator(int worker_id) : worker_id_(worker_id) {}
+  Generator(int worker_id) : worker_id_(worker_id) {}
+
   /**
-   * Returns a new globally unique identifier.
-   * @param local_id - force local id instead of generating a new one
+   * Returns a globally unique identifier.
+   *
+   * @param requested_gid - The desired gid. If given, it will be returned and
+   * this generator's state updated accordingly.
    */
-  gid::Gid Next(std::experimental::optional<Gid> local_id) {
-    auto id = local_id ? *local_id : next_local_id_++;
-    if (local_id) {
-      utils::EnsureAtomicGe(next_local_id_, id + 1);
+  gid::Gid Next(std::experimental::optional<gid::Gid> requested_gid =
+                    std::experimental::nullopt) {
+    if (requested_gid) {
+      if (gid::CreatorWorker(*requested_gid) == worker_id_)
+        utils::EnsureAtomicGe(next_local_id_, gid::LocalId(*requested_gid) + 1);
+      return *requested_gid;
     } else {
       generated_id_ = true;
+      return worker_id_ | next_local_id_++ << kWorkerIdSize;
     }
-    return gid::Create(worker_id_, id);
   }
 
   /// Returns number of locally generated ids

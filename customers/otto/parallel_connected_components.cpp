@@ -35,7 +35,7 @@ void GenerateGraph(GraphDb &db) {
   // Randomize the sequence of IDs of created vertices and edges to simulate
   // real-world lack of locality.
   auto make_id_vector = [](size_t size) {
-    gid::GidGenerator generator{0};
+    gid::Generator generator{0};
     std::vector<gid::Gid> ids(size);
     for (size_t i = 0; i < size; ++i)
       ids[i] = generator.Next(std::experimental::nullopt);

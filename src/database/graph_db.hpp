@@ -103,8 +103,8 @@ class GraphDb {
 
   void CollectGarbage();
 
-  gid::GidGenerator &VertexGenerator() { return vertex_generator_; }
-  gid::GidGenerator &EdgeGenerator() { return edge_generator_; }
+  gid::Generator &VertexGenerator() { return vertex_generator_; }
+  gid::Generator &EdgeGenerator() { return edge_generator_; }
 
   /** When this is false, no new transactions should be created. */
   std::atomic<bool> is_accepting_transactions_{true};
@@ -121,8 +121,8 @@ class GraphDb {
 
   int worker_id_{0};
 
-  gid::GidGenerator vertex_generator_{worker_id_};
-  gid::GidGenerator edge_generator_{worker_id_};
+  gid::Generator vertex_generator_{worker_id_};
+  gid::Generator edge_generator_{worker_id_};
 
   // main storage for the graph
   ConcurrentMap<gid::Gid, mvcc::VersionList<Vertex> *> vertices_;

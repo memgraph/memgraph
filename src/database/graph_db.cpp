@@ -141,8 +141,8 @@ void GraphDb::CollectGarbage() {
     // the ID of the oldest active transaction (or next active, if there
     // are no currently active). That's legal because that was the
     // last possible transaction that could have obtained pointers
-    // to those records. New snapshot can be used, different than one used
-    // for the first two phases of gc.
+    // to those records. New snapshot can be used, different than one used for
+    // first two phases of gc.
     utils::Timer x;
     const auto snapshot = tx_engine_->GlobalGcSnapshot();
     edge_record_deleter_.FreeExpiredObjects(snapshot.back());
@@ -169,8 +169,8 @@ GraphDb::~GraphDb() {
   // Stop the gc scheduler to not run into race conditions for deletions.
   gc_scheduler_.Stop();
 
-  // Stop the snapshot creator to avoid snapshooting while database is
-  // being deleted.
+  // Stop the snapshot creator to avoid snapshooting while database is being
+  // deleted.
   snapshot_creator_.Stop();
 
   // Stop transaction killer.
@@ -194,8 +194,7 @@ GraphDb::~GraphDb() {
   for (auto &id_vlist : vertices_.access()) delete id_vlist.second;
   for (auto &id_vlist : edges_.access()) delete id_vlist.second;
 
-  // Free expired records with the maximal possible id from all the
-  // deleters.
+  // Free expired records with the maximal possible id from all the deleters.
   edge_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
   vertex_record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
   edge_version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());

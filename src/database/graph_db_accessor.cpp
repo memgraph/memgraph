@@ -47,21 +47,15 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal_; }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<gid::Gid> gid) {
+    std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  std::experimental::optional<uint64_t> next_id;
-  if (gid) {
-    CHECK(static_cast<int>(gid::WorkerId(*gid)) == db_.worker_id_)
-        << "Attempting to set incompatible worker id";
-    next_id = gid::LocalId(*gid);
-  }
+  auto gid = db_.vertex_generator_.Next(requested_gid);
+  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, gid);
 
-  auto id = db_.vertex_generator_.Next(next_id);
-  auto vertex_vlist = new mvcc::VersionList<Vertex>(*transaction_, id);
-
-  bool success = db_.vertices_.access().insert(id, vertex_vlist).second;
-  CHECK(success) << "Attempting to insert a vertex with an existing ID: " << id;
+  bool success = db_.vertices_.access().insert(gid, vertex_vlist).second;
+  CHECK(success) << "Attempting to insert a vertex with an existing GID: "
+                 << gid;
   db_.wal_.Emplace(database::StateDelta::CreateVertex(transaction_->id_,
                                                       vertex_vlist->gid_));
   return VertexAccessor(vertex_vlist, *this);
@@ -305,7 +299,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, GraphDbTypes::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> gid) {
+    std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   // An edge is created on the worker of it's "from" vertex.
   if (!from.is_local()) {
@@ -315,21 +309,15 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     // EdgeAccessor and return it. The remote InsertEdge(...) will be calling
     // remote Connect(...) if "to" is not local to it.
   }
-  std::experimental::optional<uint64_t> next_id;
-  if (gid) {
-    CHECK(static_cast<int>(gid::WorkerId(*gid)) == db_.worker_id_)
-        << "Attempting to set incompatible worker id";
-    next_id = gid::LocalId(*gid);
-  }
-
-  auto id = db_.edge_generator_.Next(next_id);
+  auto gid = db_.edge_generator_.Next(requested_gid);
   auto edge_vlist = new mvcc::VersionList<Edge>(
-      *transaction_, id, from.address(), to.address(), edge_type);
+      *transaction_, gid, from.address(), to.address(), edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
-  bool success = db_.edges_.access().insert(id, edge_vlist).second;
-  CHECK(success) << "Attempting to insert an edge with an existing ID: " << id;
+  bool success = db_.edges_.access().insert(gid, edge_vlist).second;
+  CHECK(success) << "Attempting to insert an edge with an existing GID: "
+                 << gid;
 
   // ensure that the "from" accessor has the latest version
   from.SwitchNew();

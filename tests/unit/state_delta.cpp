@@ -6,7 +6,8 @@
 
 TEST(StateDelta, CreateVertex) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
   {
     GraphDbAccessor dba(db);
     auto delta = database::StateDelta::CreateVertex(dba.transaction_id(), gid0);
@@ -22,7 +23,8 @@ TEST(StateDelta, CreateVertex) {
 
 TEST(StateDelta, RemoveVertex) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
   {
     GraphDbAccessor dba(db);
     dba.InsertVertex(gid0);
@@ -43,9 +45,10 @@ TEST(StateDelta, RemoveVertex) {
 
 TEST(StateDelta, CreateEdge) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
-  auto gid1 = gid::Create(0, 1);
-  auto gid2 = gid::Create(0, 2);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
+  auto gid1 = generator.Next();
+  auto gid2 = generator.Next();
   {
     GraphDbAccessor dba(db);
     dba.InsertVertex(gid0);
@@ -68,9 +71,10 @@ TEST(StateDelta, CreateEdge) {
 
 TEST(StateDelta, RemoveEdge) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
-  auto gid1 = gid::Create(0, 1);
-  auto gid2 = gid::Create(0, 2);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
+  auto gid1 = generator.Next();
+  auto gid2 = generator.Next();
   {
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex(gid0);
@@ -93,7 +97,8 @@ TEST(StateDelta, RemoveEdge) {
 
 TEST(StateDelta, AddLabel) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
   {
     GraphDbAccessor dba(db);
     dba.InsertVertex(gid0);
@@ -118,7 +123,8 @@ TEST(StateDelta, AddLabel) {
 
 TEST(StateDelta, RemoveLabel) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
   {
     GraphDbAccessor dba(db);
     auto vertex = dba.InsertVertex(gid0);
@@ -143,7 +149,8 @@ TEST(StateDelta, RemoveLabel) {
 
 TEST(StateDelta, SetPropertyVertex) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
   {
     GraphDbAccessor dba(db);
     dba.InsertVertex(gid0);
@@ -167,9 +174,10 @@ TEST(StateDelta, SetPropertyVertex) {
 
 TEST(StateDelta, SetPropertyEdge) {
   GraphDb db;
-  auto gid0 = gid::Create(0, 0);
-  auto gid1 = gid::Create(0, 1);
-  auto gid2 = gid::Create(0, 2);
+  gid::Generator generator(0);
+  auto gid0 = generator.Next();
+  auto gid1 = generator.Next();
+  auto gid2 = generator.Next();
   {
     GraphDbAccessor dba(db);
     auto v0 = dba.InsertVertex(gid0);
