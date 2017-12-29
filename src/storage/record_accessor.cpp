@@ -85,8 +85,7 @@ void RecordAccessor<Edge>::PropsClear() {
 }
 
 template <typename TRecord>
-const PropertyValueStore<GraphDbTypes::Property>
-    &RecordAccessor<TRecord>::Properties() const {
+const PropertyValueStore &RecordAccessor<TRecord>::Properties() const {
   return current().properties_;
 }
 

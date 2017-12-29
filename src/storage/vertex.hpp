@@ -17,7 +17,7 @@ class Vertex : public mvcc::Record<Vertex> {
   Edges out_;
   Edges in_;
   std::vector<GraphDbTypes::Label> labels_;
-  PropertyValueStore<GraphDbTypes::Property> properties_;
+  PropertyValueStore properties_;
 
  private:
   Vertex(const Vertex &other)

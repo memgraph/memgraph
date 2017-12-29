@@ -75,7 +75,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   void PropsClear();
 
   /** Returns the properties of this record. */
-  const PropertyValueStore<GraphDbTypes::Property> &Properties() const;
+  const PropertyValueStore &Properties() const;
 
   bool operator==(const RecordAccessor &other) const;
 

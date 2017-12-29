@@ -1,7 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 24.01.17..
-//
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -11,104 +7,109 @@
 
 using std::string;
 
-TEST(PropertyValueStore, At) {
+class PropertyValueStoreTest : public ::testing::Test {
+ protected:
+  PropertyValueStore props_;
+
+  void Set(int key, PropertyValue value) {
+    props_.set(GraphDbTypes::Property(key), value);
+  }
+
+  PropertyValue At(int key) { return props_.at(GraphDbTypes::Property(key)); }
+
+  auto Erase(int key) { return props_.erase(GraphDbTypes::Property(key)); }
+};
+
+TEST_F(PropertyValueStoreTest, At) {
   std::string some_string = "something";
 
-  PropertyValueStore<> props;
-  EXPECT_EQ(PropertyValue(props.at(0)).type(), PropertyValue::Type::Null);
-  props.set(0, some_string);
-  EXPECT_EQ(PropertyValue(props.at(0)).Value<string>(), some_string);
-  props.set(120, 42);
-  EXPECT_EQ(PropertyValue(props.at(120)).Value<int64_t>(), 42);
+  EXPECT_EQ(PropertyValue(At(0)).type(), PropertyValue::Type::Null);
+  Set(0, some_string);
+  EXPECT_EQ(PropertyValue(At(0)).Value<string>(), some_string);
+  Set(120, 42);
+  EXPECT_EQ(PropertyValue(At(120)).Value<int64_t>(), 42);
 }
 
-TEST(PropertyValueStore, AtNull) {
-  PropertyValueStore<> props;
-  EXPECT_EQ(props.at(0).type(), PropertyValue::Type::Null);
-  EXPECT_EQ(props.at(100).type(), PropertyValue::Type::Null);
+TEST_F(PropertyValueStoreTest, AtNull) {
+  EXPECT_EQ(At(0).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(At(100).type(), PropertyValue::Type::Null);
 
   // set one prop and test it's not null
-  props.set(0, true);
-  EXPECT_NE(props.at(0).type(), PropertyValue::Type::Null);
-  EXPECT_EQ(props.at(100).type(), PropertyValue::Type::Null);
+  Set(0, true);
+  EXPECT_NE(At(0).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(At(100).type(), PropertyValue::Type::Null);
 }
 
-TEST(PropertyValueStore, SetNull) {
-  PropertyValueStore<> props;
-  props.set(11, PropertyValue::Null);
-  EXPECT_EQ(0, props.size());
+TEST_F(PropertyValueStoreTest, SetNull) {
+  Set(11, PropertyValue::Null);
+  EXPECT_EQ(0, props_.size());
 }
 
-TEST(PropertyValueStore, Remove) {
+TEST_F(PropertyValueStoreTest, Remove) {
   // set some props
-  PropertyValueStore<> props;
-  props.set(11, "a");
-  props.set(30, "b");
-  EXPECT_NE(props.at(11).type(), PropertyValue::Type::Null);
-  EXPECT_NE(props.at(30).type(), PropertyValue::Type::Null);
-  EXPECT_EQ(props.size(), 2);
+  Set(11, "a");
+  Set(30, "b");
+  EXPECT_NE(At(11).type(), PropertyValue::Type::Null);
+  EXPECT_NE(At(30).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(props_.size(), 2);
 
-  props.erase(11);
-  EXPECT_EQ(props.size(), 1);
-  EXPECT_EQ(props.at(11).type(), PropertyValue::Type::Null);
+  Erase(11);
+  EXPECT_EQ(props_.size(), 1);
+  EXPECT_EQ(At(11).type(), PropertyValue::Type::Null);
 
-  EXPECT_EQ(props.erase(30), 1);
-  EXPECT_EQ(props.size(), 0);
-  EXPECT_EQ(props.at(30).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(Erase(30), 1);
+  EXPECT_EQ(props_.size(), 0);
+  EXPECT_EQ(At(30).type(), PropertyValue::Type::Null);
 
-  EXPECT_EQ(props.erase(1000), 0);
+  EXPECT_EQ(Erase(1000), 0);
 }
 
-TEST(PropertyValueStore, Clear) {
+TEST_F(PropertyValueStoreTest, Clear) {
   // set some props
-  PropertyValueStore<> props;
-  EXPECT_EQ(props.size(), 0);
-  props.clear();
+  EXPECT_EQ(props_.size(), 0);
+  props_.clear();
 
-  EXPECT_EQ(props.size(), 0);
-  props.set(11, "a");
-  props.set(30, "b");
-  EXPECT_EQ(props.size(), 2);
-  props.clear();
-  EXPECT_EQ(props.size(), 0);
+  EXPECT_EQ(props_.size(), 0);
+  Set(11, "a");
+  Set(30, "b");
+  EXPECT_EQ(props_.size(), 2);
+  props_.clear();
+  EXPECT_EQ(props_.size(), 0);
 }
 
-TEST(PropertyValueStore, Replace) {
-  PropertyValueStore<> props;
-  props.set(10, 42);
-  EXPECT_EQ(props.at(10).Value<int64_t>(), 42);
-  props.set(10, 0.25f);
-  EXPECT_EQ(props.at(10).type(), PropertyValue::Type::Double);
-  EXPECT_FLOAT_EQ(props.at(10).Value<double>(), 0.25);
+TEST_F(PropertyValueStoreTest, Replace) {
+  Set(10, 42);
+  EXPECT_EQ(At(10).Value<int64_t>(), 42);
+  Set(10, 0.25f);
+  EXPECT_EQ(At(10).type(), PropertyValue::Type::Double);
+  EXPECT_FLOAT_EQ(At(10).Value<double>(), 0.25);
 }
 
-TEST(PropertyValueStore, Size) {
-  PropertyValueStore<> props;
-  EXPECT_EQ(props.size(), 0);
+TEST_F(PropertyValueStoreTest, Size) {
+  EXPECT_EQ(props_.size(), 0);
 
-  props.set(0, "something");
-  EXPECT_EQ(props.size(), 1);
-  props.set(0, true);
-  EXPECT_EQ(props.size(), 1);
-  props.set(1, true);
-  EXPECT_EQ(props.size(), 2);
+  Set(0, "something");
+  EXPECT_EQ(props_.size(), 1);
+  Set(0, true);
+  EXPECT_EQ(props_.size(), 1);
+  Set(1, true);
+  EXPECT_EQ(props_.size(), 2);
 
-  for (int i = 0; i < 100; ++i) props.set(i + 20, true);
-  EXPECT_EQ(props.size(), 102);
+  for (int i = 0; i < 100; ++i) Set(i + 20, true);
+  EXPECT_EQ(props_.size(), 102);
 
-  props.erase(0);
-  EXPECT_EQ(props.size(), 101);
-  props.erase(0);
-  EXPECT_EQ(props.size(), 101);
-  props.erase(1);
-  EXPECT_EQ(props.size(), 100);
+  Erase(0);
+  EXPECT_EQ(props_.size(), 101);
+  Erase(0);
+  EXPECT_EQ(props_.size(), 101);
+  Erase(1);
+  EXPECT_EQ(props_.size(), 100);
 }
 
-TEST(PropertyValueStore, InsertRetrieveList) {
-  PropertyValueStore<> props;
-  props.set(0, std::vector<PropertyValue>{1, true, 2.5, "something",
-                                          PropertyValue::Null});
-  auto p = props.at(0);
+TEST_F(PropertyValueStoreTest, InsertRetrieveList) {
+  Set(0, std::vector<PropertyValue>{1, true, 2.5, "something",
+                                    PropertyValue::Null});
+  auto p = At(0);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
   auto l = p.Value<std::vector<PropertyValue>>();
@@ -124,12 +125,11 @@ TEST(PropertyValueStore, InsertRetrieveList) {
   EXPECT_EQ(l[4].type(), PropertyValue::Type::Null);
 }
 
-TEST(PropertyValueStore, InsertRetrieveMap) {
-  PropertyValueStore<> props;
-  props.set(0, std::map<std::string, PropertyValue>{
-                   {"a", 1}, {"b", true}, {"c", "something"}});
+TEST_F(PropertyValueStoreTest, InsertRetrieveMap) {
+  Set(0, std::map<std::string, PropertyValue>{
+             {"a", 1}, {"b", true}, {"c", "something"}});
 
-  auto p = props.at(0);
+  auto p = At(0);
   EXPECT_EQ(p.type(), PropertyValue::Type::Map);
   auto m = p.Value<std::map<std::string, PropertyValue>>();
   EXPECT_EQ(m.size(), 3);

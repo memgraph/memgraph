@@ -4,21 +4,19 @@
 #include <map>
 #include <vector>
 
+#include "database/graph_db_datatypes.hpp"
 #include "property_value.hpp"
 
 /**
  * A collection of properties accessed in a map-like way
- * using a key of type Properties::TKey.
+ * using a key of type Properties::Property.
  *
  * The underlying implementation is not necessarily std::map.
- *
-  * @tparam TKey The type of key used in this value store.
  */
-template <typename TKey = uint32_t>
 class PropertyValueStore {
- public:
-  using sptr = std::shared_ptr<PropertyValueStore>;
+  using Property = GraphDbTypes::Property;
 
+ public:
   /**
    * Returns a PropertyValue (by reference) at the given key.
    * If the key does not exist, the Null property is returned.
@@ -29,7 +27,7 @@ class PropertyValueStore {
    * @param key The key for which a PropertyValue is sought.
    * @return  See above.
    */
-  const PropertyValue &at(const TKey &key) const {
+  const PropertyValue &at(const Property &key) const {
     for (const auto &kv : props_)
       if (kv.first == key) return kv.second;
 
@@ -47,7 +45,7 @@ class PropertyValueStore {
    * @param value  The value to set.
    */
   template <typename TValue>
-  void set(const TKey &key, const TValue &value) {
+  void set(const Property &key, const TValue &value) {
     for (auto &kv : props_)
       if (kv.first == key) {
         kv.second = PropertyValue(value);
@@ -64,13 +62,15 @@ class PropertyValueStore {
    * to std::string, otherwise templating might cast the pointer
    * to something else (bool) and mess things up.
    */
-  void set(const TKey &key, const char *value) { set(key, std::string(value)); }
+  void set(const Property &key, const char *value) {
+    set(key, std::string(value));
+  }
 
   /**
    * Set overriding for PropertyValue. When setting a Null value it
    * calls 'erase' instead of inserting the Null into storage.
    */
-  void set(const TKey &key, const PropertyValue &value) {
+  void set(const Property &key, const PropertyValue &value) {
     if (value.type() == PropertyValue::Type::Null) {
       erase(key);
       return;
@@ -91,10 +91,11 @@ class PropertyValueStore {
    * @param key The key for which to remove the property.
    * @return  The number of removed properties (0 or 1).
    */
-  size_t erase(const TKey &key) {
-    auto found = std::find_if(
-        props_.begin(), props_.end(),
-        [&key](std::pair<TKey, PropertyValue> &kv) { return kv.first == key; });
+  size_t erase(const Property &key) {
+    auto found = std::find_if(props_.begin(), props_.end(),
+                              [&key](std::pair<Property, PropertyValue> &kv) {
+                                return kv.first == key;
+                              });
 
     if (found != props_.end()) {
       props_.erase(found);
@@ -103,30 +104,13 @@ class PropertyValueStore {
     return 0;
   }
 
-  /**
-   * Removes all the properties from this store.
-   */
+  /** Removes all the properties from this store. */
   void clear() { props_.clear(); }
 
-  /**
-   * @return The number of Properties in this collection.
-   */
   size_t size() const { return props_.size(); }
-
-  /**
-   * Returns a const iterator over key-value pairs.
-   *
-   * @return See above.
-   */
   auto begin() const { return props_.begin(); }
-
-  /**
-   * Returns an end iterator.
-   *
-   * @return See above.
-   */
   auto end() const { return props_.end(); }
 
  private:
-  std::vector<std::pair<TKey, PropertyValue>> props_;
+  std::vector<std::pair<Property, PropertyValue>> props_;
 };

@@ -22,7 +22,7 @@ class Edge : public mvcc::Record<Edge> {
   VertexAddress from_;
   VertexAddress to_;
   GraphDbTypes::EdgeType edge_type_;
-  PropertyValueStore<GraphDbTypes::Property> properties_;
+  PropertyValueStore properties_;
 
  private:
   Edge(const Edge &other)
