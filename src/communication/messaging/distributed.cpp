@@ -4,7 +4,7 @@ namespace communication::messaging {
 
 System::System(const std::string &address, uint16_t port)
     : endpoint_(address, port) {
-  // Numbers of worker are quite arbitrary at the point.
+  // Numbers of workers is quite arbitrary at this point.
   StartClient(4);
   StartServer(4);
 }
@@ -13,15 +13,10 @@ System::System(const io::network::NetworkEndpoint &endpoint)
     : System(endpoint.address(), endpoint.port()) {}
 
 System::~System() {
+  queue_.Shutdown();
   for (size_t i = 0; i < pool_.size(); ++i) {
     pool_[i].join();
   }
-  thread_.join();
-}
-
-void System::Shutdown() {
-  queue_.Shutdown();
-  server_->Shutdown();
 }
 
 void System::StartClient(int worker_count) {
@@ -44,12 +39,8 @@ void System::StartServer(int worker_count) {
   }
 
   // Initialize server.
-  server_ = std::make_unique<ServerT>(endpoint_, protocol_data_);
+  server_ = std::make_unique<ServerT>(endpoint_, protocol_data_, worker_count);
   endpoint_ = server_->endpoint();
-
-  // Start server.
-  thread_ = std::thread(
-      [worker_count, this]() { this->server_->Start(worker_count); });
 }
 
 std::shared_ptr<EventStream> System::Open(const std::string &name) {
@@ -63,4 +54,4 @@ Writer::Writer(System &system, const std::string &address, uint16_t port,
 void Writer::Send(std::unique_ptr<Message> message) {
   system_.queue_.Emplace(address_, port_, name_, std::move(message));
 }
-}
+}  // namespace communication::messaging

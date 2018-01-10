@@ -678,8 +678,6 @@ RaftMember<State>::~RaftMember() {
   for (auto &peer_thread : peer_threads_) {
     peer_thread.join();
   }
-
-  network_.Shutdown();
 }
 
 template <class State>

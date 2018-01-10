@@ -44,9 +44,6 @@ MasterCounters::MasterCounters(communication::messaging::System &system)
   });
 }
 
-void MasterCounters::Start() { rpc_server_.Start(); }
-void MasterCounters::Shutdown() { rpc_server_.Shutdown(); }
-
 WorkerCounters::WorkerCounters(
     communication::messaging::System &system,
     const io::network::NetworkEndpoint &master_endpoint)

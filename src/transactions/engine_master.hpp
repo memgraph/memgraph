@@ -35,9 +35,6 @@ class MasterEngine : public Engine {
    */
   MasterEngine(durability::WriteAheadLog *wal = nullptr);
 
-  /** Stops the tx server if it's running. */
-  ~MasterEngine();
-
   /**
    * Begins a transaction and returns a pointer to
    * it's object.
@@ -75,9 +72,6 @@ class MasterEngine : public Engine {
 
   /** Starts the RPC server of the master transactional engine. */
   void StartServer(communication::messaging::System &system);
-
-  /** Stops the RPC server of the master transactional engine. */
-  void StopServer();
 
  private:
   std::atomic<transaction_id_t> counter_{0};

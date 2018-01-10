@@ -35,33 +35,25 @@ class RpcNetwork : public RaftNetworkInterface<State> {
         directory_(std::move(directory)),
         server_(system, kRaftChannelName) {}
 
-  ~RpcNetwork() {
-    DCHECK(!is_running_)
-        << "`Shutdown()` should be called before destructing `RpcNetwork`";
-    /* We don't want to call `Shutdown` here, instead we push that
-     * responsibility to caller of `Start`, so `server_` doesn't end up holding
-     * a reference to a destructed `RaftMember`. */
-  }
-
   virtual void Start(RaftMember<State> &member) override {
-    server_.Register<PeerProtocol<State>>([&member](
-        const PeerRpcRequest<State> &request) {
-      auto reply = std::make_unique<PeerRpcReply>();
-      reply->type = request.type;
-      switch (request.type) {
-        case RpcType::REQUEST_VOTE:
-          reply->request_vote = member.OnRequestVote(request.request_vote);
-          break;
-        case RpcType::APPEND_ENTRIES:
-          reply->append_entries =
-              member.OnAppendEntries(request.append_entries);
-          break;
-        default:
-          LOG(ERROR) << "Unknown RPC type: " << static_cast<int>(request.type);
-      }
-      return reply;
-    });
-    server_.Start();
+    server_.Register<PeerProtocol<State>>(
+        [&member](const PeerRpcRequest<State> &request) {
+          auto reply = std::make_unique<PeerRpcReply>();
+          reply->type = request.type;
+          switch (request.type) {
+            case RpcType::REQUEST_VOTE:
+              reply->request_vote = member.OnRequestVote(request.request_vote);
+              break;
+            case RpcType::APPEND_ENTRIES:
+              reply->append_entries =
+                  member.OnAppendEntries(request.append_entries);
+              break;
+            default:
+              LOG(ERROR) << "Unknown RPC type: "
+                         << static_cast<int>(request.type);
+          }
+          return reply;
+        });
   }
 
   virtual bool SendRequestVote(const MemberId &recipient,
@@ -126,19 +118,12 @@ class RpcNetwork : public RaftNetworkInterface<State> {
     return it->second;
   }
 
-  virtual void Shutdown() override {
-    is_running_ = false;
-    server_.Shutdown();
-  }
-
   communication::messaging::System &system_;
   // TODO(mtomic): how to update and distribute this?
   std::unordered_map<MemberId, io::network::NetworkEndpoint> directory_;
   rpc::Server server_;
 
   std::unordered_map<MemberId, communication::rpc::Client> clients_;
-
-  bool is_running_ = true;
 };
 
 }  // namespace communication::raft

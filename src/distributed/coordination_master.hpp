@@ -29,7 +29,7 @@ class MasterCoordination {
   MasterCoordination(communication::messaging::System &system);
 
   /** Shuts down all the workers and this master server. */
-  void Shutdown();
+  ~MasterCoordination();
 
   /** Returns the Endpoint for the given worker_id. */
   Endpoint GetEndpoint(int worker_id) const;

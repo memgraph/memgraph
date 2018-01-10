@@ -35,7 +35,6 @@ GraphDb::GraphDb(communication::messaging::System &system,
   tx_engine->StartServer(system);
   tx_engine_ = std::move(tx_engine);
   auto counters = std::make_unique<database::MasterCounters>(system);
-  counters->Start();
   counters_ = std::move(counters);
   INIT_MAPPERS(storage::MasterConcurrentIdMapper, system);
   get_endpoint_ = [&master](int worker_id) {

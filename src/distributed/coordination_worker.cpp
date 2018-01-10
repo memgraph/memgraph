@@ -40,7 +40,6 @@ void WorkerCoordination::WaitForShutdown() {
     cv.notify_one();
     return std::make_unique<StopWorkerRes>();
   });
-  server_.Start();
 
   std::unique_lock<std::mutex> lk(mutex);
   cv.wait(lk, [&shutdown] { return shutdown; });
@@ -50,6 +49,4 @@ void WorkerCoordination::WaitForShutdown() {
   // convention, but maybe better...
   std::this_thread::sleep_for(100ms);
 };
-
-void WorkerCoordination::Shutdown() { server_.Shutdown(); }
 }  // namespace distributed

@@ -11,8 +11,8 @@
 #include "utils/signals/handler.hpp"
 #include "utils/terminate_handler.hpp"
 
-using communication::messaging::System;
 using communication::messaging::Message;
+using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
@@ -37,12 +37,10 @@ int main(int argc, char **argv) {
   std::ofstream log(FLAGS_log, std::ios_base::app);
 
   // Handler for regular termination signals.
-  auto shutdown = [&server, &server_system, &log]() {
+  auto shutdown = [&log]() {
     if (is_shutting_down) return;
     is_shutting_down = 1;
     log.close();
-    server.Shutdown();
-    server_system.Shutdown();
     exit(0);
   };
 
@@ -70,7 +68,6 @@ int main(int argc, char **argv) {
                                             stol(FLAGS_port));
   });
 
-  server.Start();
   LOG(INFO) << "Raft RPC server started";
   // Sleep until shutdown detected.
   std::this_thread::sleep_until(

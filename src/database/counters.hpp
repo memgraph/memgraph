@@ -46,8 +46,6 @@ class SingleNodeCounters : public Counters {
 class MasterCounters : public SingleNodeCounters {
  public:
   MasterCounters(communication::messaging::System &system);
-  void Start();
-  void Shutdown();
 
  private:
   communication::rpc::Server rpc_server_;

@@ -123,12 +123,8 @@ std::unique_ptr<messaging::Message> Client::Call(
 }
 
 Server::Server(messaging::System &system, const std::string &name)
-    : system_(system), stream_(system.Open(kProtocolStreamPrefix + name)) {}
-
-void Server::Start() {
+    : system_(system), stream_(system.Open(kProtocolStreamPrefix + name)) {
   // TODO: Add logging.
-  CHECK(started_ == false) << "Server can't be started multiple times";
-  started_ = true;
   running_thread_ = std::thread([this]() {
     while (alive_) {
       auto message = stream_->Await();
@@ -136,8 +132,9 @@ void Server::Start() {
       auto *request = dynamic_cast<Request *>(message.get());
       if (!request) continue;
       auto &real_request = request->message();
-      auto it = callbacks_.find(real_request.type_index());
-      if (it == callbacks_.end()) continue;
+      auto callbacks_accessor = callbacks_.access();
+      auto it = callbacks_accessor.find(real_request.type_index());
+      if (it == callbacks_accessor.end()) continue;
       auto response = it->second(real_request);
       messaging::Writer writer(system_, request->address(), request->port(),
                                request->stream());
@@ -146,7 +143,7 @@ void Server::Start() {
   });
 }
 
-void Server::Shutdown() {
+Server::~Server() {
   alive_ = false;
   stream_->Shutdown();
   if (running_thread_.joinable()) running_thread_.join();

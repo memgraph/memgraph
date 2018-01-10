@@ -22,8 +22,9 @@ namespace communication {
 
 /**
  * Communication server.
- * Listens for incomming connections on the server port and assings them in a
- * round-robin manner to it's workers.
+ * Listens for incomming connections on the server port and assigns them in a
+ * round-robin manner to it's workers. Started automatically on constructor, and
+ * stopped at destructor.
  *
  * Current Server achitecture:
  * incomming connection -> server -> worker -> session
@@ -40,8 +41,12 @@ class Server {
   using WorkerT = Worker<TSession, TSessionData>;
   using Socket = io::network::Socket;
 
+  /**
+   * Constructs and binds server to endpoint, operates on session data and
+   * invokes n workers
+   */
   Server(const io::network::NetworkEndpoint &endpoint,
-         TSessionData &session_data)
+         TSessionData &session_data, size_t n)
       : session_data_(session_data) {
     // Without server we can't continue with application so we can just
     // terminate here.
@@ -53,42 +58,52 @@ class Server {
     if (!socket_.Listen(1024)) {
       LOG(FATAL) << "Cannot listen on socket!";
     }
+    working_thread_ = std::thread([this, n]() {
+      std::cout << fmt::format("Starting {} workers", n) << std::endl;
+      workers_.reserve(n);
+      for (size_t i = 0; i < n; ++i) {
+        workers_.push_back(std::make_unique<WorkerT>(session_data_));
+        worker_threads_.emplace_back(
+            [this](WorkerT &worker) -> void { worker.Start(alive_); },
+            std::ref(*workers_.back()));
+      }
+      std::cout << "Server is fully armed and operational" << std::endl;
+      std::cout << fmt::format("Listening on {} at {}",
+                               socket_.endpoint().address(),
+                               socket_.endpoint().port())
+                << std::endl;
+
+      io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher;
+      ConnectionAcceptor acceptor(socket_, *this);
+      dispatcher.AddListener(socket_.fd(), acceptor, EPOLLIN);
+      while (alive_) {
+        dispatcher.WaitAndProcessEvents();
+      }
+
+      std::cout << "Shutting down..." << std::endl;
+      for (auto &worker_thread : worker_threads_) {
+        worker_thread.join();
+      }
+    });
+  }
+
+  ~Server() {
+    Shutdown();
+    AwaitShutdown();
   }
 
   const auto &endpoint() const { return socket_.endpoint(); }
 
-  void Start(size_t n) {
-    std::cout << fmt::format("Starting {} workers", n) << std::endl;
-    workers_.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-      workers_.push_back(std::make_unique<WorkerT>(session_data_));
-      worker_threads_.emplace_back(
-          [this](WorkerT &worker) -> void { worker.Start(alive_); },
-          std::ref(*workers_.back()));
-    }
-    std::cout << "Server is fully armed and operational" << std::endl;
-    std::cout << fmt::format("Listening on {} at {}",
-                             socket_.endpoint().address(),
-                             socket_.endpoint().port())
-              << std::endl;
-
-    io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher;
-    ConnectionAcceptor acceptor(socket_, *this);
-    dispatcher.AddListener(socket_.fd(), acceptor, EPOLLIN);
-    while (alive_) {
-      dispatcher.WaitAndProcessEvents();
-    }
-
-    std::cout << "Shutting down..." << std::endl;
-    for (auto &worker_thread : worker_threads_) {
-      worker_thread.join();
-    }
-  }
-
+  /// Stops server manually
   void Shutdown() {
     // This should be as simple as possible, so that it can be called inside a
     // signal handler.
     alive_.store(false);
+  }
+
+  /// Waits for the server to be signaled to shutdown
+  void AwaitShutdown() {
+    if (working_thread_.joinable()) working_thread_.join();
   }
 
  private:
@@ -135,6 +150,7 @@ class Server {
 
   std::vector<std::unique_ptr<WorkerT>> workers_;
   std::vector<std::thread> worker_threads_;
+  std::thread working_thread_;
   std::atomic<bool> alive_{true};
   int idx_{0};
 

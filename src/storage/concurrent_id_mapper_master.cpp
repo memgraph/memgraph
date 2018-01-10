@@ -27,19 +27,13 @@ ID_VALUE_RPC_CALLS(Label)
 ID_VALUE_RPC_CALLS(EdgeType)
 ID_VALUE_RPC_CALLS(Property)
 #undef ID_VALUE_RPC
-}
+}  // namespace
 
 template <typename TId>
 MasterConcurrentIdMapper<TId>::MasterConcurrentIdMapper(
     communication::messaging::System &system)
     : rpc_server_(system, kConcurrentIdMapperRpc) {
   RegisterRpc(*this, rpc_server_);
-  rpc_server_.Start();
-}
-
-template <typename TId>
-MasterConcurrentIdMapper<TId>::~MasterConcurrentIdMapper() {
-  rpc_server_.Shutdown();
 }
 
 template class MasterConcurrentIdMapper<Label>;

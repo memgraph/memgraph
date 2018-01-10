@@ -3,6 +3,7 @@
 #include <type_traits>
 
 #include "communication/messaging/distributed.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/network_endpoint.hpp"
 
 namespace communication::rpc {
@@ -60,6 +61,7 @@ class Client {
 class Server {
  public:
   Server(messaging::System &system, const std::string &name);
+  ~Server();
 
   template <typename TRequestResponse>
   void Register(
@@ -72,9 +74,11 @@ class Server {
     static_assert(std::is_base_of<messaging::Message,
                                   typename TRequestResponse::Response>::value,
                   "TRequestResponse::Response must be derived from Message");
-    auto got = callbacks_.emplace(
-        typeid(typename TRequestResponse::Request),
-        [callback = callback](const messaging::Message &base_message) {
+    auto callbacks_accessor = callbacks_.access();
+    auto got = callbacks_accessor.insert(
+        typeid(typename TRequestResponse::Request), [callback = callback](
+                                                        const messaging::Message
+                                                            &base_message) {
           const auto &message =
               dynamic_cast<const typename TRequestResponse::Request &>(
                   base_message);
@@ -83,20 +87,16 @@ class Server {
     CHECK(got.second) << "Callback for that message type already registered";
   }
 
-  void Start();
-  void Shutdown();
-
  private:
   messaging::System &system_;
   std::shared_ptr<messaging::EventStream> stream_;
-  std::unordered_map<std::type_index,
-                     std::function<std::unique_ptr<messaging::Message>(
-                         const messaging::Message &)>>
+  ConcurrentMap<std::type_index,
+                std::function<std::unique_ptr<messaging::Message>(
+                    const messaging::Message &)>>
       callbacks_;
   std::atomic<bool> alive_{true};
 
   std::thread running_thread_;
-  bool started_{false};
 };
 
 }  // namespace communication::rpc

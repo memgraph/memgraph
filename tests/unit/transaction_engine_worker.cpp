@@ -22,11 +22,6 @@ class WorkerEngineTest : public testing::Test {
   WorkerEngine worker_{worker_system_, master_system_.endpoint()};
 
   void SetUp() override { master_.StartServer(master_system_); }
-  void TearDown() override {
-    worker_system_.Shutdown();
-    master_.StopServer();
-    master_system_.Shutdown();
-  }
 };
 
 TEST_F(WorkerEngineTest, LocalBegin) {

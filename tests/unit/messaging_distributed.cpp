@@ -40,13 +40,12 @@ BOOST_CLASS_EXPORT(MessageInt);
 #define GET_X(p) dynamic_cast<MessageInt *>((p).get())->x
 
 /**
-  * Test do the services start up without crashes.
-  */
+ * Test do the services start up without crashes.
+ */
 TEST(SimpleTests, StartAndShutdown) {
   System system("127.0.0.1", 0);
   // do nothing
   std::this_thread::sleep_for(500ms);
-  system.Shutdown();
 }
 
 TEST(Messaging, Pop) {
@@ -60,8 +59,6 @@ TEST(Messaging, Pop) {
   EXPECT_EQ(stream->Poll(), nullptr);
   writer.Send<MessageInt>(10);
   EXPECT_EQ(GET_X(stream->Await()), 10);
-  master_system.Shutdown();
-  slave_system.Shutdown();
 }
 
 TEST(Messaging, Await) {
@@ -82,8 +79,6 @@ TEST(Messaging, Await) {
   EXPECT_EQ(stream->Poll(), nullptr);
   EXPECT_EQ(stream->Await(), nullptr);
   t.join();
-  master_system.Shutdown();
-  slave_system.Shutdown();
 }
 
 TEST(Messaging, RecreateChannelAfterClosing) {
@@ -106,7 +101,4 @@ TEST(Messaging, RecreateChannelAfterClosing) {
   EXPECT_EQ(stream->Poll(), nullptr);
   writer.Send<MessageInt>(30);
   EXPECT_EQ(GET_X(stream->Await()), 30);
-
-  master_system.Shutdown();
-  slave_system.Shutdown();
 }

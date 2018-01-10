@@ -66,7 +66,6 @@ class System {
   ~System();
 
   std::shared_ptr<EventStream> Open(const std::string &name);
-  void Shutdown();
 
   const io::network::NetworkEndpoint &endpoint() const { return endpoint_; }
 
@@ -107,7 +106,6 @@ class System {
   Queue<NetworkMessage> queue_;
 
   // Server variables.
-  std::thread thread_;
   SessionData protocol_data_;
   std::unique_ptr<ServerT> server_{nullptr};
   io::network::NetworkEndpoint endpoint_;

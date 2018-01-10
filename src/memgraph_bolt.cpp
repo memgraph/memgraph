@@ -124,25 +124,23 @@ void MasterMain() {
   // Bolt server stuff.
   SessionData session_data{system, master};
   NetworkEndpoint endpoint(FLAGS_interface, FLAGS_port);
-  ServerT server(endpoint, session_data);
+  ServerT server(endpoint, session_data, FLAGS_num_workers);
 
   // Handler for regular termination signals
-  auto shutdown = [&server, &session_data, &master, &system] {
+  auto shutdown = [&server, &session_data] {
     if (is_shutting_down) return;
     is_shutting_down = 1;
     // Server needs to be shutdown first and then the database. This prevents a
     // race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
     session_data.db.Shutdown();
-    master.Shutdown();
-    system.Shutdown();
-
   };
+
   InitSignalHandlers(shutdown);
 
   StartMemWarningLogger();
 
-  server.Start(FLAGS_num_workers);
+  server.AwaitShutdown();
 }
 
 void WorkerMain() {
@@ -162,16 +160,13 @@ void WorkerMain() {
     // Wait for the shutdown command from the master.
     worker.WaitForShutdown();
   }
-
-  worker.Shutdown();
-  system.Shutdown();
 }
 
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
   SessionData session_data;
   NetworkEndpoint endpoint(FLAGS_interface, FLAGS_port);
-  ServerT server(endpoint, session_data);
+  ServerT server(endpoint, session_data, FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server, &session_data] {
@@ -186,7 +181,7 @@ void SingleNodeMain() {
 
   StartMemWarningLogger();
 
-  server.Start(FLAGS_num_workers);
+  server.AwaitShutdown();
 }
 
 int main(int argc, char **argv) {

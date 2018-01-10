@@ -12,7 +12,6 @@ MasterCoordination::MasterCoordination(communication::messaging::System &system)
   server_.Register<GetEndpointRpc>([this](const GetEndpointReq &req) {
     return std::make_unique<GetEndpointRes>(GetEndpoint(req.member));
   });
-  server_.Start();
 }
 
 int MasterCoordination::RegisterWorker(int desired_worker_id,
@@ -33,7 +32,7 @@ int MasterCoordination::RegisterWorker(int desired_worker_id,
   return worker_id;
 }
 
-void MasterCoordination::Shutdown() {
+MasterCoordination::~MasterCoordination() {
   std::lock_guard<std::mutex> guard(lock_);
   for (const auto &kv : workers_) {
     communication::rpc::Client client(system_, kv.second,
@@ -41,14 +40,13 @@ void MasterCoordination::Shutdown() {
     auto result = client.Call<StopWorkerRpc>(100ms);
     CHECK(result) << "Failed to shut down worker: " << kv.first;
   }
-  server_.Shutdown();
 }
 
 Endpoint MasterCoordination::GetEndpoint(int worker_id) const {
   std::lock_guard<std::mutex> guard(lock_);
   auto found = workers_.find(worker_id);
-  CHECK(found != workers_.end()) << "No endpoint registered for worker id: "
-                                 << worker_id;
+  CHECK(found != workers_.end())
+      << "No endpoint registered for worker id: " << worker_id;
   return found->second;
 }
 }  // namespace distributed

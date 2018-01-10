@@ -26,8 +26,6 @@ class WorkerInThread {
       coord_.emplace(*system_, master_endpoint);
       worker_id_ = coord_->RegisterWorker(desired_id);
       coord_->WaitForShutdown();
-      coord_->Shutdown();
-      system_->Shutdown();
     });
   }
 
@@ -45,48 +43,49 @@ class WorkerInThread {
 
 TEST(Distributed, Coordination) {
   System master_system(kLocal, 0);
-  MasterCoordination master_coord(master_system);
-
   std::vector<std::unique_ptr<WorkerInThread>> workers;
-  for (int i = 0; i < kWorkerCount; ++i)
-    workers.emplace_back(
-        std::make_unique<WorkerInThread>(master_system.endpoint()));
+  {
+    MasterCoordination master_coord(master_system);
 
-  // Wait till all the workers are safely initialized.
-  std::this_thread::sleep_for(300ms);
+    for (int i = 0; i < kWorkerCount; ++i)
+      workers.emplace_back(
+          std::make_unique<WorkerInThread>(master_system.endpoint()));
 
-  // Expect that all workers have a different ID.
-  std::unordered_set<int> worker_ids;
-  for (const auto &w : workers) worker_ids.insert(w->worker_id());
-  EXPECT_EQ(worker_ids.size(), kWorkerCount);
+    // Wait till all the workers are safely initialized.
+    std::this_thread::sleep_for(300ms);
 
-  // Check endpoints.
-  for (auto &w1 : workers) {
-    for (auto &w2 : workers) {
-      EXPECT_EQ(w1->worker_endpoint(w2->worker_id()), w2->endpoint());
+    // Expect that all workers have a different ID.
+    std::unordered_set<int> worker_ids;
+    for (const auto &w : workers) worker_ids.insert(w->worker_id());
+    EXPECT_EQ(worker_ids.size(), kWorkerCount);
+
+    // Check endpoints.
+    for (auto &w1 : workers) {
+      for (auto &w2 : workers) {
+        EXPECT_EQ(w1->worker_endpoint(w2->worker_id()), w2->endpoint());
+      }
     }
-  }
+  }  // Coordinated shutdown.
 
-  // Coordinated shutdown.
-  master_coord.Shutdown();
-  master_system.Shutdown();
   for (auto &worker : workers) worker->join();
 }
 
 TEST(Distributed, DesiredAndUniqueId) {
   System master_system(kLocal, 0);
-  MasterCoordination master_coord(master_system);
+  std::vector<std::unique_ptr<WorkerInThread>> workers;
+  {
+    MasterCoordination master_coord(master_system);
 
-  WorkerInThread w1(master_system.endpoint(), 42);
-  std::this_thread::sleep_for(200ms);
-  WorkerInThread w2(master_system.endpoint(), 42);
-  std::this_thread::sleep_for(200ms);
+    workers.emplace_back(
+        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+    std::this_thread::sleep_for(200ms);
+    workers.emplace_back(
+        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+    std::this_thread::sleep_for(200ms);
 
-  EXPECT_EQ(w1.worker_id(), 42);
-  EXPECT_NE(w2.worker_id(), 42);
+    EXPECT_EQ(workers[0]->worker_id(), 42);
+    EXPECT_NE(workers[1]->worker_id(), 42);
+  }
 
-  master_coord.Shutdown();
-  w1.join();
-  w2.join();
-  master_system.Shutdown();
+  for (auto &worker : workers) worker->join();
 }

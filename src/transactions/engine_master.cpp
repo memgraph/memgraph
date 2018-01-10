@@ -11,10 +11,6 @@ namespace tx {
 
 MasterEngine::MasterEngine(durability::WriteAheadLog *wal) : wal_(wal) {}
 
-MasterEngine::~MasterEngine() {
-  if (rpc_server_) StopServer();
-}
-
 Transaction *MasterEngine::Begin() {
   std::lock_guard<SpinLock> guard(lock_);
 
@@ -134,13 +130,6 @@ void MasterEngine::StartServer(communication::messaging::System &system) {
   rpc_server_->Register<IsActiveRpc>([this](const IsActiveReq &req) {
     return std::make_unique<IsActiveRes>(GlobalIsActive(req.member));
   });
-
-  rpc_server_->Start();
 }
 
-void MasterEngine::StopServer() {
-  CHECK(rpc_server_) << "Can't stop a server that's not running";
-  rpc_server_->Shutdown();
-  rpc_server_ = std::experimental::nullopt;
-}
 }  // namespace tx

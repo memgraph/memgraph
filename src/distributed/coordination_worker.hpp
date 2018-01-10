@@ -29,9 +29,6 @@ class WorkerCoordination {
    * Blocks the calling thread until that has finished. */
   void WaitForShutdown();
 
-  /** Shuts the RPC server down. */
-  void Shutdown();
-
  private:
   communication::messaging::System &system_;
   communication::rpc::Client client_;

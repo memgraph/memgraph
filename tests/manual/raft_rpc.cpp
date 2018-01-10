@@ -55,7 +55,5 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  my_system.Shutdown();
-
   return 0;
 }

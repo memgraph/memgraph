@@ -18,11 +18,8 @@ TEST(Network, Server) {
 
   // initialize server
   TestData session_data;
-  ServerT server(endpoint, session_data);
-
-  // start server
   int N = (std::thread::hardware_concurrency() + 1) / 2;
-  std::thread server_thread([&] { server.Start(N); });
+  ServerT server(endpoint, session_data, N);
 
   const auto &ep = server.endpoint();
   // start clients
@@ -33,10 +30,6 @@ TEST(Network, Server) {
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();
-
-  // stop server
-  server.Shutdown();
-  server_thread.join();
 }
 
 int main(int argc, char **argv) {

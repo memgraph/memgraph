@@ -22,10 +22,7 @@ TEST(Network, SessionLeak) {
 
   // initialize server
   TestData session_data;
-  ServerT server(endpoint, session_data);
-
-  // start server
-  std::thread server_thread([&] { server.Start(2); });
+  ServerT server(endpoint, session_data, 2);
 
   // start clients
   int N = 50;
@@ -43,10 +40,6 @@ TEST(Network, SessionLeak) {
   for (int i = 0; i < N; ++i) clients[i].join();
 
   std::this_thread::sleep_for(2s);
-
-  // stop server
-  server.Shutdown();
-  server_thread.join();
 }
 
 // run with "valgrind --leak-check=full ./network_session_leak" to check for

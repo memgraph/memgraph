@@ -60,7 +60,6 @@ TEST(Rpc, Call) {
   server.Register<Sum>([](const SumReq &request) {
     return std::make_unique<SumRes>(request.x + request.y);
   });
-  server.Start();
   std::this_thread::sleep_for(100ms);
 
   System client_system("127.0.0.1", 0);
@@ -68,10 +67,6 @@ TEST(Rpc, Call) {
                 "main");
   auto sum = client.Call<Sum>(300ms, 10, 20);
   EXPECT_EQ(sum->sum, 30);
-
-  server.Shutdown();
-  server_system.Shutdown();
-  client_system.Shutdown();
 }
 
 TEST(Rpc, Timeout) {
@@ -81,7 +76,6 @@ TEST(Rpc, Timeout) {
     std::this_thread::sleep_for(300ms);
     return std::make_unique<SumRes>(request.x + request.y);
   });
-  server.Start();
   std::this_thread::sleep_for(100ms);
 
   System client_system("127.0.0.1", 0);
@@ -89,8 +83,4 @@ TEST(Rpc, Timeout) {
                 "main");
   auto sum = client.Call<Sum>(100ms, 10, 20);
   EXPECT_FALSE(sum);
-
-  server.Shutdown();
-  server_system.Shutdown();
-  client_system.Shutdown();
 }

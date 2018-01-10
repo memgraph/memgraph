@@ -572,7 +572,7 @@ INSTANTIATE_TEST_CASE_P(
             true,
             {{1}, {1}, {1}, {4}, {4}, {5}, {5}, {6}, {6}, {6}, {7}, {7}}},
         /* no truncation, partial match between our log and appended entries
-           */
+         */
         OnAppendEntriesTestParam{
             8,
             {{1}, {1}, {1}, {4}, {4}, {5}},

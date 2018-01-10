@@ -130,10 +130,6 @@ class RaftNetworkInterface {
   /* This will be called once the RaftMember is ready to start receiving RPCs.
    */
   virtual void Start(RaftMember<State> &member) = 0;
-
-  /* This will be called when RaftMember is exiting. RPC handlers should not be
-   * called anymore. */
-  virtual void Shutdown() = 0;
 };
 
 template <class State>
@@ -252,7 +248,7 @@ class RaftMemberImpl {
   std::mt19937_64 rng_ = std::mt19937_64(std::random_device{}());
 };
 
-}  // namespace internal
+}  // namespace impl
 
 template <class State>
 class RaftMember final {

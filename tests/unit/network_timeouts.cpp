@@ -17,10 +17,10 @@ DECLARE_int32(session_inactivity_timeout);
 
 using namespace std::chrono_literals;
 class TestClientSocket;
+using communication::bolt::ClientException;
+using communication::bolt::SessionData;
 using io::network::NetworkEndpoint;
 using io::network::Socket;
-using communication::bolt::SessionData;
-using communication::bolt::ClientException;
 using SessionT = communication::bolt::Session<Socket>;
 using ResultStreamT = SessionT::ResultStreamT;
 using ServerT = communication::Server<SessionT, SessionData>;
@@ -28,15 +28,9 @@ using ClientT = communication::bolt::Client<Socket>;
 
 class RunningServer {
  public:
-  ~RunningServer() {
-    server_.Shutdown();
-    server_thread_.join();
-  }
-
   SessionData session_data_;
   NetworkEndpoint endpoint_{"127.0.0.1", "0"};
-  ServerT server_{endpoint_, session_data_};
-  std::thread server_thread_{[&] { server_.Start(1); }};
+  ServerT server_{endpoint_, session_data_, 1};
 };
 
 class TestClient : public ClientT {

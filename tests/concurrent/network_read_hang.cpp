@@ -76,12 +76,9 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 
   // initialize server
   TestData data;
-  communication::Server<TestSession, TestData> server(endpoint, data);
-
-  // start server
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  std::thread server_thread([&] { server.Start(N); });
+  communication::Server<TestSession, TestData> server(endpoint, data, N);
 
   const auto &ep = server.endpoint();
   // start clients
@@ -95,10 +92,6 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 
   // cleanup clients
   for (int i = 0; i < Nc; ++i) clients[i].join();
-
-  // stop server
-  server.Shutdown();
-  server_thread.join();
 }
 
 int main(int argc, char **argv) {

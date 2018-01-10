@@ -12,8 +12,8 @@
 #include "utils/signals/handler.hpp"
 #include "utils/terminate_handler.hpp"
 
-using communication::messaging::System;
 using communication::messaging::Message;
+using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
@@ -51,8 +51,6 @@ int main(int argc, char **argv) {
       LOG(INFO) << fmt::format("Appended value: {}", i);
     }
   }
-
-  client_system.Shutdown();
 
   return 0;
 }

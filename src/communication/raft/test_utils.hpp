@@ -67,8 +67,6 @@ class NoOpNetworkInterface : public RaftNetworkInterface<State> {
   }
 
   virtual void Start(RaftMember<State> &) override {}
-
-  virtual void Shutdown() override {}
 };
 
 /* `NextReplyNetworkInterface` has two fields: `on_request_` and `next_reply_`
@@ -115,8 +113,6 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
   }
 
   virtual void Start(RaftMember<State> &) override {}
-
-  virtual void Shutdown() override {}
 
   std::function<void(const PeerRpcRequest<State> &)> on_request_;
   std::experimental::optional<PeerRpcReply> next_reply_;

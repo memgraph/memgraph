@@ -27,9 +27,7 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   }
   void TearDown() override {
     worker_mapper_ = std::experimental::nullopt;
-    worker_system_.Shutdown();
     master_mapper_ = std::experimental::nullopt;
-    master_system_.Shutdown();
   }
 };
 
@@ -47,7 +45,7 @@ TYPED_TEST(DistributedConcurrentIdMapperTest, Basic) {
 
   auto id2 = worker.value_to_id("v2");
   EXPECT_EQ(master.id_to_value(id2), "v2");
-  EXPECT_EQ(master.value_to_id("v2"),id2);
+  EXPECT_EQ(master.value_to_id("v2"), id2);
 
   EXPECT_NE(id1, id2);
 }

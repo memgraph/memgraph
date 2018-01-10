@@ -14,7 +14,6 @@ template <typename TId>
 class MasterConcurrentIdMapper : public SingleNodeConcurrentIdMapper<TId> {
  public:
   MasterConcurrentIdMapper(communication::messaging::System &system);
-  ~MasterConcurrentIdMapper();
 
  private:
   communication::rpc::Server rpc_server_;
