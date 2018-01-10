@@ -1,0 +1,15 @@
+- name: public_benchmark__ldbc
+  project: release
+  commands: . continuous_integration
+  infiles:
+    - . # current directory
+    - ../../../build_release/memgraph # memgraph release binary
+    - ../../../config # directory with config files
+    - ../../../libs/neo4j # neo4j directory
+    - ../../../tools/mg_import_csv # memgraph csv import tool
+    - ../../../tools/plot_ldbc_latency # ldbc plot generation tool
+  outfile_paths: # TODO: maybe this should also accept relative paths?
+    - \./memgraph/tests/public_benchmark/ldbc/results/.+
+    - \./memgraph/tests/public_benchmark/ldbc/plots/.+
+  slave_group: remote_20c140g
+  enable_network: true

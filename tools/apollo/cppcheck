@@ -6,10 +6,9 @@ cd "$DIR/../../"
 tmpfile="$DIR/.cppcheck_errors.tmp"
 errfile="$DIR/.cppcheck_errors"
 
-if [ "$1" == "" ]; then
-    mode=diff
-else
-    mode=$1
+mode=diff
+if echo "$PROJECT" | grep "release" >/dev/null 2>/dev/null; then
+    mode=release
 fi
 
 if [ "$mode" == diff ]; then

@@ -1,0 +1,84 @@
+- name: Diff build
+  project: ^mg-master-diff$
+  commands: |
+    cd ..
+    cp -r memgraph parent
+    cd memgraph
+
+    TIMEOUT=600 ./init
+    doxygen Doxyfile
+
+    cd build
+    cmake -DTOOLS=ON -DTEST_COVERAGE=ON ..
+    TIMEOUT=1000 make -j$THREADS
+
+    cd ..
+    mkdir build_release
+
+    cd build_release
+    cmake -DCMAKE_BUILD_TYPE=release ..
+    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark memgraph__stress
+
+    cd ../../parent
+
+    git checkout HEAD~1
+    TIMEOUT=600 ./init
+
+    mkdir build_release
+    cd build_release
+    cmake -DCMAKE_BUILD_TYPE=release ..
+    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark
+
+    # Install tools, because they may be needed to run some benchmarks and tests.
+    cd ../../memgraph/tools
+    TIMEOUT=300 ./setup
+
+
+- name: Debug build
+  project: ^mg-master-debug$
+  commands: |
+    TIMEOUT=600 ./init
+    doxygen Doxyfile
+
+    cd build
+    cmake -DTOOLS=ON ..
+    TIMEOUT=1000 make -j$THREADS
+
+    cd ..
+    mkdir build_release
+    cd build_release
+
+    cmake -DCMAKE_BUILD_TYPE=release ..
+    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark memgraph__stress
+
+    # Install tools, because they may be needed to run some benchmarks and tests.
+    cd ../tools
+    TIMEOUT=300 ./setup
+
+
+# release build is the default one
+- name: Release build
+  commands: |
+    TIMEOUT=600 ./init
+    doxygen Doxyfile
+    cd build
+    cmake -DTOOLS=ON -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
+    TIMEOUT=1000 make -j$THREADS
+
+    # Create a binary package (which can then be used for Docker image).
+    mkdir output
+    cd output
+    cpack -D CPACK_SET_DESTDIR=ON -G TGZ --config ../CPackConfig.cmake
+    cpack -G DEB --config ../CPackConfig.cmake
+
+    # Create user technical documentation for community site
+    cd ../../docs/user_technical
+    #./bundle_community
+
+    # Install tools, because they may be needed to run some benchmarks and tests.
+    cd ../../tools
+    TIMEOUT=300 ./setup
+
+    # Link build to build_release
+    cd ..
+    ln -s build build_release

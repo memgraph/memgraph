@@ -1,0 +1,21 @@
+- name: Binary
+  archive:
+    - build/memgraph
+    - config
+  filename: binary.tar.gz
+
+- name: Doxygen documentation
+  cd: docs/doxygen/html
+  archive:
+    - .
+  filename: documentation.tar.gz
+  host: true
+
+- name: Release (tarball)
+  project: release
+  archive: build/output/memgraph*.tar.gz
+
+# - name: Release (user docs)
+#   project: release
+#   archive: docs/user_technical/docs.tar.gz
+#   filename: release_user_docs.tar.gz

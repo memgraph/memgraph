@@ -1,0 +1,61 @@
+- name: macro_benchmark__query_suite
+  supervisor: ./harness
+  arguments: &QUERY_SUITE_ARGS >
+    QuerySuite MemgraphRunner
+    --groups aggregation 1000_create unwind_create dense_expand match
+    --no-strict --database-cpu-ids 1 --client-cpu-ids 2
+  infiles: &MACRO_BENCHMARK_INFILES
+    - . # current directory
+    - ../../build_release/memgraph # memgraph release binary
+    - ../../config # directory with config files
+    - ../../build_release/tests/macro_benchmark # macro benchmark client binaries
+    - ../../libs/postgresql/lib # postgresql libs dir (for client binaries)
+  outfile_paths: &MACRO_BENCHMARK_OUTFILE_PATHS
+    - \./memgraph/tests/macro_benchmark/\.harness_summary
+
+- name: macro_benchmark__query_parallel_suite
+  supervisor: ./harness
+  arguments: &QUERY_PARALLEL_SUITE_ARGS >
+    QueryParallelSuite MemgraphRunner
+    --groups aggregation_parallel create_parallel bfs_parallel
+    --database-cpu-ids 1 2 3 4 5 6 7 8 9
+    --client-cpu-ids 10 11 12 13 14 15 16 17 18 19
+    --num-database-workers 9 --num-clients-workers 30
+    --no-strict
+  infiles: *MACRO_BENCHMARK_INFILES
+  outfile_paths: *MACRO_BENCHMARK_OUTFILE_PATHS
+  slave_group: &QUERY_PARALLEL_SUITE_SLAVE_GROUP remote_20c140g
+
+- name: macro_benchmark_parent__query_suite
+  project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
+  cd: ../../../parent/tests/macro_benchmark # all files are relative to the parent build
+  supervisor: ./harness
+  arguments: *QUERY_SUITE_ARGS
+  infiles: *MACRO_BENCHMARK_INFILES
+  outfile_paths: &MACRO_BENCHMARK_PARENT_OUTFILE_PATHS
+    - \./parent/tests/macro_benchmark/\.harness_summary
+  link_to_run: macro_benchmark__query_suite
+
+- name: macro_benchmark_parent__query_parallel_suite
+  project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
+  cd: ../../../parent/tests/macro_benchmark # all files are relative to the parent build
+  supervisor: ./harness
+  arguments: *QUERY_PARALLEL_SUITE_ARGS
+  infiles: *MACRO_BENCHMARK_INFILES
+  outfile_paths: *MACRO_BENCHMARK_PARENT_OUTFILE_PATHS
+  link_to_run: macro_benchmark__query_parallel_suite
+  slave_group: *QUERY_PARALLEL_SUITE_SLAVE_GROUP
+
+- name: macro_benchmark_summary
+  project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
+  type: data process
+  cd: ../../..
+  commands: >
+    ./memgraph/tools/apollo/macro_benchmark_summary
+    --current macro_benchmark__query_suite/memgraph/tests/macro_benchmark/.harness_summary macro_benchmark__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary
+    --previous macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary macro_benchmark_parent__query_parallel_suite/parent/tests/macro_benchmark/.harness_summary
+    --output .harness_summary
+  infiles:
+    - memgraph/tools/apollo/macro_benchmark_summary
+  outfile_paths:
+    - \./.harness_summary

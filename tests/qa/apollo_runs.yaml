@@ -1,0 +1,8 @@
+- name: quality_assurance
+  commands: TIMEOUT=300 ./continuous_integration
+  infiles:
+    - . # current directory
+    - ../../build/memgraph # memgraph debug binary
+    - ../../config # directory with config files
+  outfile_paths:
+    - \./memgraph/tests/qa/\.quality_assurance_status
