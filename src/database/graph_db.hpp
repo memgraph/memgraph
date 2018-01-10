@@ -8,6 +8,7 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
+#include "database/counters.hpp"
 #include "database/graph_db_datatypes.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
@@ -167,7 +168,7 @@ class GraphDb {
   Scheduler transaction_killer_;
 
   // DB level global counters, used in the "counter" function.
-  ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
+  std::unique_ptr<database::Counters> counters_;
 
   // Returns Endpoint info for worker ID. Different implementation in master vs.
   // worker. Unused in single-node version.

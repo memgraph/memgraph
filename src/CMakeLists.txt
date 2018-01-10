@@ -9,6 +9,7 @@ set(memgraph_src_files
     communication/messaging/protocol.cpp
     communication/rpc/rpc.cpp
     data_structures/concurrent/skiplist_gc.cpp
+    database/counters.cpp
     database/graph_db.cpp
     database/graph_db_accessor.cpp
     database/graph_db_config.cpp

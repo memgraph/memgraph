@@ -23,6 +23,7 @@ namespace fs = std::experimental::filesystem;
 
 GraphDb::GraphDb(Config config) : GraphDb(config, 0) {
   tx_engine_ = std::make_unique<tx::MasterEngine>(&wal_);
+  counters_ = std::make_unique<database::SingleNodeCounters>();
   INIT_MAPPERS(storage::SingleNodeConcurrentIdMapper);
   Start();
 }
@@ -33,6 +34,9 @@ GraphDb::GraphDb(communication::messaging::System &system,
   auto tx_engine = std::make_unique<tx::MasterEngine>(&wal_);
   tx_engine->StartServer(system);
   tx_engine_ = std::move(tx_engine);
+  auto counters = std::make_unique<database::MasterCounters>(system);
+  counters->Start();
+  counters_ = std::move(counters);
   INIT_MAPPERS(storage::MasterConcurrentIdMapper, system);
   get_endpoint_ = [&master](int worker_id) {
     return master.GetEndpoint(worker_id);
@@ -45,6 +49,8 @@ GraphDb::GraphDb(communication::messaging::System &system, int worker_id,
                  Endpoint master_endpoint, Config config)
     : GraphDb(config, worker_id) {
   tx_engine_ = std::make_unique<tx::WorkerEngine>(system, master_endpoint);
+  counters_ =
+      std::make_unique<database::WorkerCounters>(system, master_endpoint);
   INIT_MAPPERS(storage::WorkerConcurrentIdMapper, system, master_endpoint);
   get_endpoint_ = [&worker](int worker_id) {
     return worker.GetEndpoint(worker_id);
