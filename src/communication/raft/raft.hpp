@@ -13,7 +13,7 @@
 #include "boost/serialization/vector.hpp"
 #include "glog/logging.h"
 
-#include "utils/serialization_optional.hpp"
+#include "utils/serialization.hpp"
 
 namespace communication::raft {
 

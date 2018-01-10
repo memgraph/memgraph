@@ -19,9 +19,11 @@ class Vertex;
  * vertex (and consequently that edge Addresses are unique in it).
  */
 class Edges {
+ public:
   using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
   using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
 
+ private:
   struct Element {
     VertexAddress vertex;
     EdgeAddress edge;
@@ -68,6 +70,7 @@ class Edges {
     }
 
     const Element &operator*() const { return *position_; }
+    const Element *operator->() const { return &(*position_); }
 
     bool operator==(const Iterator &other) const {
       return position_ == other.position_;
@@ -90,10 +93,9 @@ class Edges {
      * present in this iterator. */
     void update_position() {
       if (vertex_.local()) {
-        position_ = std::find_if(position_,
-                                 end_, [v = this->vertex_](const Element &e) {
-                                   return e.vertex == v;
-                                 });
+        position_ = std::find_if(
+            position_, end_,
+            [v = this->vertex_](const Element &e) { return e.vertex == v; });
       }
       if (edge_types_) {
         position_ = std::find_if(position_, end_, [this](const Element &e) {

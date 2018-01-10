@@ -18,6 +18,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
+#include "utils/serialization.hpp"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
@@ -971,123 +972,14 @@ class PrimitiveLiteral : public BaseLiteral {
   void save(TArchive &ar, const unsigned int) const {
     ar << boost::serialization::base_object<BaseLiteral>(*this);
     ar << token_position_;
-    SaveTypedValue(ar, value_);
-  }
-
-  template <class TArchive>
-  static void SaveTypedValue(TArchive &ar, const TypedValue &value) {
-    ar << value.type();
-    switch (value.type()) {
-      case TypedValue::Type::Null:
-        return;
-      case TypedValue::Type::Bool:
-        ar << value.Value<bool>();
-        return;
-      case TypedValue::Type::Int:
-        ar << value.Value<int64_t>();
-        return;
-      case TypedValue::Type::Double:
-        ar << value.Value<double>();
-        return;
-      case TypedValue::Type::String:
-        ar << value.Value<std::string>();
-        return;
-      case TypedValue::Type::List: {
-        const auto &values = value.Value<std::vector<TypedValue>>();
-        ar << values.size();
-        for (const auto &v : values) {
-          SaveTypedValue(ar, v);
-        }
-        return;
-      }
-      case TypedValue::Type::Map: {
-        const auto &map = value.Value<std::map<std::string, TypedValue>>();
-        ar << map.size();
-        for (const auto &key_value : map) {
-          ar << key_value.first;
-          SaveTypedValue(ar, key_value.second);
-        }
-        return;
-      }
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-        throw utils::BasicException("Unexpected value type in literal: '{}'",
-                                    value.type());
-    }
+    utils::SaveTypedValue(ar, value_);
   }
 
   template <class TArchive>
   void load(TArchive &ar, const unsigned int) {
     ar >> boost::serialization::base_object<BaseLiteral>(*this);
     ar >> token_position_;
-    LoadTypedValue(ar, value_);
-  }
-
-  template <class TArchive>
-  static void LoadTypedValue(TArchive &ar, TypedValue &value) {
-    TypedValue::Type type = TypedValue::Type::Null;
-    ar >> type;
-    switch (type) {
-      case TypedValue::Type::Null:
-        return;
-      case TypedValue::Type::Bool: {
-        bool v;
-        ar >> v;
-        value = v;
-        return;
-      }
-      case TypedValue::Type::Int: {
-        int64_t v;
-        ar >> v;
-        value = v;
-        return;
-      }
-      case TypedValue::Type::Double: {
-        double v;
-        ar >> v;
-        value = v;
-        return;
-      }
-      case TypedValue::Type::String: {
-        std::string v;
-        ar >> v;
-        value = v;
-        return;
-      }
-      case TypedValue::Type::List: {
-        std::vector<TypedValue> values;
-        size_t size;
-        ar >> size;
-        values.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-          TypedValue tv;
-          LoadTypedValue(ar, tv);
-          values.emplace_back(tv);
-        }
-        value = values;
-        return;
-      }
-      case TypedValue::Type::Map: {
-        std::map<std::string, TypedValue> map;
-        size_t size;
-        ar >> size;
-        for (size_t i = 0; i < size; ++i) {
-          std::string key;
-          ar >> key;
-          TypedValue v;
-          LoadTypedValue(ar, v);
-          map.emplace(key, v);
-        }
-        value = map;
-        return;
-      }
-      case TypedValue::Type::Vertex:
-      case TypedValue::Type::Edge:
-      case TypedValue::Type::Path:
-        throw utils::BasicException("Unexpected value type in literal: '{}'",
-                                    type);
-    }
+    utils::LoadTypedValue(ar, value_);
   }
 
   template <class TArchive>

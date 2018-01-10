@@ -9,18 +9,21 @@
 namespace GraphDbTypes {
 
 template <typename TSpecificType>
-class Common : TotalOrdering<TSpecificType> {
+class Common : public TotalOrdering<TSpecificType> {
  public:
   using StorageT = uint16_t;
 
   Common() {}
   explicit Common(const StorageT storage) : storage_(storage) {}
+
   friend bool operator==(const TSpecificType &a, const TSpecificType &b) {
     return a.storage_ == b.storage_;
   }
   friend bool operator<(const TSpecificType &a, const TSpecificType &b) {
     return a.storage_ < b.storage_;
   }
+
+  StorageT storage() const { return storage_; }
 
   struct Hash {
     std::hash<StorageT> hash{};

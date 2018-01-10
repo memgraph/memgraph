@@ -5,7 +5,7 @@
 
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
-#include "utils/serialization_optional.hpp"
+#include "utils/serialization.hpp"
 
 using std::experimental::optional;
 
