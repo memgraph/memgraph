@@ -10,7 +10,7 @@
 #include "storage/edge.hpp"
 #include "storage/property_value_store.hpp"
 #include "storage/vertex.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 
 using namespace GraphDbTypes;
 
@@ -118,7 +118,7 @@ TEST(DistributedSerialization, VertexProperties) {
 
 class DistributedSerializationMvcc : public ::testing::Test {
  protected:
-  tx::MasterEngine engine;
+  tx::SingleNodeEngine engine;
   tx::Transaction *tx = engine.Begin();
   mvcc::VersionList<Vertex> v1_vlist{*tx, 0};
   Vertex &v1 = *v1_vlist.Oldest();

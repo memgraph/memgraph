@@ -10,7 +10,7 @@
 #include "utils/on_scope_exit.hpp"
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(MasterEngine().Begin()) {}
+    : db_(db), transaction_(SingleNodeEngine().Begin()) {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
@@ -24,18 +24,18 @@ tx::transaction_id_t GraphDbAccessor::transaction_id() const {
 
 void GraphDbAccessor::AdvanceCommand() {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  MasterEngine().Advance(transaction_->id_);
+  SingleNodeEngine().Advance(transaction_->id_);
 }
 
 void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  MasterEngine().Commit(*transaction_);
+  SingleNodeEngine().Commit(*transaction_);
   commited_ = true;
 }
 
 void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  MasterEngine().Abort(*transaction_);
+  SingleNodeEngine().Abort(*transaction_);
   aborted_ = true;
 }
 

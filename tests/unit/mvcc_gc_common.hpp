@@ -1,7 +1,7 @@
 #pragma once
 
 #include "mvcc/record.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 
 /**
  * @brief - Empty class which inherits from mvcc:Record.
@@ -18,7 +18,7 @@ class Prop : public mvcc::Record<Prop> {
  */
 class DestrCountRec : public mvcc::Record<DestrCountRec> {
  public:
-  DestrCountRec(std::atomic<int> &count) : count_(count) {}
+  explicit DestrCountRec(std::atomic<int> &count) : count_(count) {}
   DestrCountRec *CloneData() { return new DestrCountRec(count_); }
   ~DestrCountRec() { ++count_; }
 
@@ -29,7 +29,7 @@ class DestrCountRec : public mvcc::Record<DestrCountRec> {
 // helper function for creating a GC snapshot
 // if given a nullptr it makes a GC snapshot like there
 // are no active transactions
-auto GcSnapshot(tx::MasterEngine &engine, tx::Transaction *t) {
+auto GcSnapshot(tx::SingleNodeEngine &engine, tx::Transaction *t) {
   if (t != nullptr) {
     tx::Snapshot gc_snap = t->snapshot();
     gc_snap.insert(t->id_);

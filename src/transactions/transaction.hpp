@@ -26,6 +26,7 @@ class Transaction {
   }
 
  private:
+  friend class SingleNodeEngine;
   friend class MasterEngine;
   friend class WorkerEngine;
 

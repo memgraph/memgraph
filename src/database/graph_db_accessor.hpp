@@ -610,13 +610,15 @@ class GraphDbAccessor {
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
 
-  /** Casts the DB's engine to MasterEngine and returns it. If the DB's engine
-   * is RemoteEngine, this function will crash MG. */
-  tx::MasterEngine &MasterEngine() {
-    auto *master_engine =
-        dynamic_cast<tx::MasterEngine *>(db_.tx_engine_.get());
-    DCHECK(master_engine) << "Asked for MasterEngine on distributed worker";
-    return *master_engine;
+  /** Casts the DB's engine to SingleNodeEngine and returns it. If the DB's
+   * engine is RemoteEngine, this function will crash MG. It must be either
+   * SingleNodeEngine, or MasterEngine (which inherits it). */
+  tx::SingleNodeEngine &SingleNodeEngine() {
+    auto *single_node_engine =
+        dynamic_cast<tx::SingleNodeEngine *>(db_.tx_engine_.get());
+    DCHECK(single_node_engine)
+        << "Asked for SingleNodeEngine on distributed worker";
+    return *single_node_engine;
   }
 
   GraphDb &db_;

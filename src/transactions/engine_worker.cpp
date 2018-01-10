@@ -11,7 +11,7 @@ static const auto kRpcTimeout = 100ms;
 
 WorkerEngine::WorkerEngine(communication::messaging::System &system,
                            const io::network::NetworkEndpoint &endpoint)
-    : rpc_client_(system, endpoint, "tx_engine") {}
+    : rpc_client_(system, endpoint, kTransactionEngineRpc) {}
 
 Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {
   auto accessor = active_.access();

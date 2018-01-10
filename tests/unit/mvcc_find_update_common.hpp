@@ -5,13 +5,13 @@
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 
 class TestClass : public mvcc::Record<TestClass> {
  public:
   // constructs first version, size should be 0
-  TestClass(int &version_list_size) : version_list_size_(version_list_size) {
+  explicit TestClass(int &version_list_size) : version_list_size_(version_list_size) {
     ++version_list_size_;
   }
   TestClass *CloneData() { return new TestClass(version_list_size_); }
@@ -58,7 +58,7 @@ class Mvcc : public ::testing::Test {
   }
   // variable where number of versions is stored
   int version_list_size = 0;
-  tx::MasterEngine engine;
+  tx::SingleNodeEngine engine;
   tx::Transaction *t1 = engine.Begin();
   mvcc::VersionList<TestClass> version_list{*t1, 0, version_list_size};
   TestClass *v1 = nullptr;

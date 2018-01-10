@@ -75,7 +75,7 @@ class GraphDb {
   };
 
   /** Single-node GraphDb ctor. */
-  GraphDb(Config config = Config{});
+  explicit GraphDb(Config config = Config{});
 
   /** Distributed master GraphDb ctor. */
   GraphDb(communication::messaging::System &system,

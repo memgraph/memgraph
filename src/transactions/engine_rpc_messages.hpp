@@ -8,6 +8,8 @@
 
 namespace tx {
 
+const std::string kTransactionEngineRpc = "transaction_engine_rpc";
+
 RPC_SINGLE_MEMBER_MESSAGE(SnapshotReq, transaction_id_t)
 RPC_SINGLE_MEMBER_MESSAGE(SnapshotRes, Snapshot)
 RPC_NO_MEMBER_MESSAGE(GcSnapshotReq)

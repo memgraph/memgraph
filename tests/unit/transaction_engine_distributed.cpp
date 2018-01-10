@@ -16,12 +16,10 @@ class WorkerEngineTest : public testing::Test {
   const std::string local{"127.0.0.1"};
 
   System master_system_{local, 0};
-  MasterEngine master_;
+  MasterEngine master_{master_system_};
 
   System worker_system_{local, 0};
   WorkerEngine worker_{worker_system_, master_system_.endpoint()};
-
-  void SetUp() override { master_.StartServer(master_system_); }
 };
 
 TEST_F(WorkerEngineTest, LocalBegin) {

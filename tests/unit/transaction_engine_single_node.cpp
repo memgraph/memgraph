@@ -4,11 +4,11 @@
 #include <vector>
 
 #include "data_structures/concurrent/concurrent_set.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 
 TEST(Engine, GcSnapshot) {
-  tx::MasterEngine engine;
+  tx::SingleNodeEngine engine;
   ASSERT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1}));
 
   std::vector<tx::Transaction *> transactions;
@@ -36,7 +36,7 @@ TEST(Engine, GcSnapshot) {
 }
 
 TEST(Engine, Advance) {
-  tx::MasterEngine engine;
+  tx::SingleNodeEngine engine;
 
   auto t0 = engine.Begin();
   auto t1 = engine.Begin();
@@ -49,7 +49,7 @@ TEST(Engine, Advance) {
 }
 
 TEST(Engine, ConcurrentBegin) {
-  tx::MasterEngine engine;
+  tx::SingleNodeEngine engine;
   std::vector<std::thread> threads;
   ConcurrentSet<tx::transaction_id_t> tx_ids;
   for (int i = 0; i < 10; ++i) {

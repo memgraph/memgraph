@@ -11,6 +11,7 @@
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_worker.hpp"
 #include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 #include "transactions/engine_worker.hpp"
 #include "utils/timer.hpp"
 
@@ -22,7 +23,7 @@ namespace fs = std::experimental::filesystem;
   properties_ = std::make_unique<type<GraphDbTypes::Property>>(__VA_ARGS__);
 
 GraphDb::GraphDb(Config config) : GraphDb(config, 0) {
-  tx_engine_ = std::make_unique<tx::MasterEngine>(&wal_);
+  tx_engine_ = std::make_unique<tx::SingleNodeEngine>(&wal_);
   counters_ = std::make_unique<database::SingleNodeCounters>();
   INIT_MAPPERS(storage::SingleNodeConcurrentIdMapper);
   Start();
@@ -31,9 +32,7 @@ GraphDb::GraphDb(Config config) : GraphDb(config, 0) {
 GraphDb::GraphDb(communication::messaging::System &system,
                  distributed::MasterCoordination &master, Config config)
     : GraphDb(config, 0) {
-  auto tx_engine = std::make_unique<tx::MasterEngine>(&wal_);
-  tx_engine->StartServer(system);
-  tx_engine_ = std::move(tx_engine);
+  tx_engine_ = std::make_unique<tx::MasterEngine>(system, &wal_);
   auto counters = std::make_unique<database::MasterCounters>(system);
   counters_ = std::move(counters);
   INIT_MAPPERS(storage::MasterConcurrentIdMapper, system);

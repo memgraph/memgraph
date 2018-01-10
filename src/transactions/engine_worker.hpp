@@ -13,7 +13,8 @@
 
 namespace tx {
 
-/** A transactional engine for the worker in a distributed system. */
+/** Distributed worker transaction engine. Connects to a MasterEngine (single
+ * source of truth) to obtain transactional info. Caches most info locally. */
 class WorkerEngine : public Engine {
  public:
   WorkerEngine(communication::messaging::System &system,
