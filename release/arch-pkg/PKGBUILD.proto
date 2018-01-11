@@ -1,0 +1,47 @@
+# Maintainer: tech@memgraph.com (Memgraph Ltd.)
+pkgname=memgraph
+pkgrel=1
+epoch=
+# TODO: Maybe take pkgdesc from CMake?
+pkgdesc="High performance, in-memory, transactional graph database"
+# TODO: Autogenerate architecture? Though, we only support x86_64...
+arch=('x86_64')
+url="https://memgraph.com"
+license=('custom')
+groups=()
+depends=('gcc-libs')
+makedepends=()
+checkdepends=()
+optdepends=()
+provides=()
+conflicts=()
+replaces=()
+backup=("etc/memgraph/memgraph.conf" "etc/logrotate.d/memgraph")
+options=()
+install=memgraph.install
+changelog=
+source=("$pkgname-$pkgver.tar.gz")
+noextract=()
+validpgpkeys=()
+
+package() {
+  cd $(find . -maxdepth 1 -type d -name 'memgraph*')
+  # By default, we install the systemd service in /lib (as expected on Debian),
+  # so move anything like that in /usr/lib.
+  if [[ -d "lib" ]]; then
+    mkdir -p usr/lib
+    cp -a lib/* usr/lib
+    rm -rf lib
+  fi
+  # In case the binary package is built with /usr/local prefix instead of /usr.
+  if [[ -d "usr/local" ]]; then
+    mkdir -p usr
+    cp -a usr/local/* usr
+    rm -rf usr/local
+  fi
+  # Move the license to Arch specific location.
+  install -Dm644 usr/share/doc/memgraph/copyright usr/share/licenses/memgraph/LICENSE
+  # We currently don't have anything in usr/share/doc/memgraph
+  rm -rf usr/share/doc/memgraph
+  cp -a . $pkgdir
+}

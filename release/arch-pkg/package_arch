@@ -1,0 +1,47 @@
+#!/bin/bash -e
+
+function print_help () {
+    echo "Usage: $0 MEMGPRAH_PACKAGE.tar.gz"
+    echo "Optional arguments:"
+    echo -e "  -h|--help           Print help."
+}
+
+if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+  print_help
+  exit 1
+fi
+
+if [[ ! -f "$1" ]]; then
+  echo "File '$1' does not exist!"
+  exit 1
+fi
+
+# Extract version from .tar.gz name
+tgz_name=`echo $(basename $1) | sed 's/.tar.gz//'`
+version=`echo ${tgz_name} | sed 's/.*[-_]\(.*\)-.*/\1/'`
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+rm -rf ${script_dir}/_pack
+mkdir -p ${script_dir}/_pack
+# Copy the .tar.gz to packaging directory.
+cp "$1" ${script_dir}/_pack/memgraph-${version}.tar.gz
+
+cd ${script_dir}/_pack
+
+# Setup PKGBUILD.
+echo "pkgver=${version}" > PKGBUILD
+cat ../PKGBUILD.proto >> PKGBUILD
+# Copy the installation script.
+cp ../memgraph.install ./
+
+# Check PKGBUILD validity
+updpkgsums PKGBUILD
+namcap PKGBUILD
+
+makepkg
+# Check the final package archive validity and move it in parent directory.
+pkg_name=memgraph-${version}-1-x86_64.pkg.tar.xz
+namcap --exclude=emptydir $pkg_name
+cp $pkg_name ../
+echo "Built Arch Package at '${script_dir}/${pkg_name}'"
+rm -rf ${script_dir}/_pack
