@@ -674,10 +674,9 @@ TEST_F(Durability, NoWalDuringRecovery) {
 
     // Sleep to ensure the WAL gets flushed.
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    wal_files_before = DirFiles(wal_dir_).size();
-    ASSERT_GT(wal_files_before, 3);
   }
+  wal_files_before = DirFiles(wal_dir_).size();
+  ASSERT_GT(wal_files_before, 3);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
